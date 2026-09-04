@@ -23,6 +23,33 @@ struct GitWorktreesView: View {
         static let quickInfoThreshold: CGFloat = 1_080
     }
 
+    fileprivate enum WorktreeStatusKind: Equatable {
+        case pathMissing
+        case locked
+        case modified
+        case current
+        case available
+
+        var title: LocalizedStringKey {
+            switch self {
+            case .pathMissing: return "Path Missing"
+            case .locked: return "Locked"
+            case .modified: return "Modified"
+            case .current: return "Current"
+            case .available: return "Available"
+            }
+        }
+
+        var color: Color {
+            switch self {
+            case .pathMissing: return LitheTheme.error
+            case .locked: return LitheTheme.warning
+            case .modified: return LitheTheme.warning
+            case .current, .available: return LitheTheme.success
+            }
+        }
+    }
+
     private enum WorktreeConfirmation: Identifiable {
         case removal(GitWorktree, force: Bool)
         case prune
@@ -269,55 +296,26 @@ struct GitWorktreesView: View {
 
     private func worktreeListRow(_ worktree: GitWorktree) -> some View {
         let isSelected = selectedWorktree?.id == worktree.id
-        return Button {
-            selectedWorktreeID = worktree.id
-            activeSection = .overview
-        } label: {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 7) {
-                    Text(worktree.isPrimary ? String(localized: "Main Worktree") : worktree.displayName)
-                        .font(Visual.bodyMedium)
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .lineLimit(1)
-                    if worktree.isPrimary {
-                        Image(systemName: "crown.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(LitheTheme.warning)
-                    }
-                    if worktree.isCurrent {
-                        worktreeBadge("Current", color: LitheTheme.accent)
-                    }
-                    Spacer(minLength: 6)
-                    worktreeStatusLabel(worktree)
-                    Image(systemName: "ellipsis")
-                        .foregroundStyle(LitheTheme.secondaryText)
-                }
-                Text(worktree.path)
-                    .font(Visual.metadata)
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(String(
-                    format: String(localized: "Branch: %@"),
-                    worktree.branchName ?? String(localized: "Detached HEAD")
-                ))
-                    .font(Visual.metadata)
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(1)
+        let status = worktreeStatusKind(worktree)
+        return GitWorktreeListRow(
+            worktree: worktree,
+            isSelected: isSelected,
+            status: status,
+            onSelect: {
+                selectedWorktreeID = worktree.id
+                activeSection = .overview
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .background(isSelected ? LitheTheme.subtleSelection : LitheTheme.raised)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay {
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(isSelected ? LitheTheme.inputFocusBorder : LitheTheme.panelBorder, lineWidth: 1)
-        }
-        .lithePointer()
+        )
+        .equatable()
+    }
+
+    private func worktreeStatusKind(_ worktree: GitWorktree) -> WorktreeStatusKind {
+        if worktree.isPrunable { return .pathMissing }
+        if worktree.isLocked { return .locked }
+        if let inspection = matchingInspection(for: worktree), !inspection.changes.isEmpty { return .modified }
+        if worktree.isCurrent && !model.gitChanges.isEmpty { return .modified }
+        if worktree.isCurrent { return .current }
+        return .available
     }
 
     @ViewBuilder
@@ -519,7 +517,7 @@ struct GitWorktreesView: View {
                 worktreeMessage(icon: "checkmark.circle", title: "No local changes", detail: "This worktree has no uncommitted changes.")
             } else {
                 worktreeCard(title: "Changes") {
-                    VStack(spacing: 0) {
+                    LazyVStack(spacing: 0) {
                         ForEach(inspection.changes) { change in
                             HStack(spacing: 10) {
                                 Text(change.displayStatus)
@@ -571,8 +569,8 @@ struct GitWorktreesView: View {
                                 .foregroundStyle(LitheTheme.secondaryText)
                                 .padding(.vertical, 8)
                         }
-                        VStack(spacing: 0) {
-                        ForEach(commits) { commit in
+                        LazyVStack(spacing: 0) {
+                            ForEach(commits) { commit in
                             HStack(alignment: .firstTextBaseline, spacing: 10) {
                                 Image(systemName: "circle.fill")
                                     .font(.system(size: 7))
@@ -594,7 +592,7 @@ struct GitWorktreesView: View {
                             }
                             .padding(.vertical, 8)
                             if commit.id != commits.last?.id { Divider() }
-                        }
+                            }
                         }
                         if query.isEmpty && inspection.hasMoreCommits {
                             Button {
@@ -1016,6 +1014,72 @@ struct GitWorktreesView: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct GitWorktreeListRow: View, Equatable {
+    let worktree: GitWorktree
+    let isSelected: Bool
+    let status: GitWorktreesView.WorktreeStatusKind
+    let onSelect: () -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.worktree == rhs.worktree
+            && lhs.isSelected == rhs.isSelected
+            && lhs.status == rhs.status
+    }
+
+    var body: some View {
+        Button(action: onSelect) {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 7) {
+                    Text(worktree.isPrimary ? String(localized: "Main Worktree") : worktree.displayName)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(LitheTheme.primaryText)
+                        .lineLimit(1)
+                    if worktree.isPrimary {
+                        Image(systemName: "crown.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(LitheTheme.warning)
+                    }
+                    if worktree.isCurrent {
+                        Text("Current")
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(LitheTheme.accent)
+                    }
+                    Spacer(minLength: 6)
+                    HStack(spacing: 5) {
+                        Circle().fill(status.color).frame(width: 8, height: 8)
+                        Text(status.title)
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(LitheTheme.primaryText)
+                    }
+                    Image(systemName: "ellipsis")
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                Text(worktree.path)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(String(format: String(localized: "Branch: %@"), worktree.branchName ?? String(localized: "Detached HEAD")))
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(isSelected ? LitheTheme.subtleSelection : LitheTheme.raised)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay {
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(isSelected ? LitheTheme.inputFocusBorder : LitheTheme.panelBorder, lineWidth: 1)
+        }
+        .lithePointer()
     }
 }
 
