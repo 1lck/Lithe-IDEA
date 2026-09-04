@@ -4,7 +4,7 @@ import {
   TrashIcon as Trash,
 } from "@/ui/icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { sendDebugAdapterRequest } from "../services/debug-adapter-service";
+import { createDebugOperationId, sendDebugAdapterRequest } from "../services/debug-adapter-service";
 import { useDebuggerStore } from "../stores/debugger.store";
 import type { DebugRequestContext } from "../types/debugger.types";
 import { Button } from "@/ui/button";
@@ -16,7 +16,7 @@ interface DebugWatchPanelProps {
   activeSessionId?: string;
   selectedFrameId: number | null;
   isPaused: boolean;
-  pendingRequests: Record<number, DebugRequestContext>;
+  pendingRequests: Record<string, DebugRequestContext>;
 }
 
 export function DebugWatchPanel({
@@ -46,12 +46,13 @@ export function DebugWatchPanel({
       if (!activeSessionId || !isPaused) return;
 
       try {
-        const seq = await sendDebugAdapterRequest(activeSessionId, "evaluate", {
+        const operationId = createDebugOperationId();
+        debuggerActions.registerAdapterRequest(operationId, { command: "evaluate", expressionId });
+        await sendDebugAdapterRequest(activeSessionId, "evaluate", {
           expression,
           frameId: selectedFrameId ?? undefined,
           context: "watch",
-        });
-        debuggerActions.registerAdapterRequest(seq, { command: "evaluate", expressionId });
+        }, operationId);
       } catch (error) {
         debuggerActions.setWatchResult({
           expressionId,
