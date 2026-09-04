@@ -24,6 +24,9 @@ struct GitGraphView: View {
     private let rowHeight: CGFloat = 30
 
     var body: some View {
+        let routing = GitGraphLayoutService.routingSnapshot(
+            for: GitGraphLayout(rows: visibleRows, laneCount: layout.laneCount, hasMissingParents: layout.hasMissingParents)
+        )
         ZStack(alignment: .topLeading) {
             LazyVStack(spacing: 0) {
                 ForEach(visibleRows) { row in
@@ -53,7 +56,7 @@ struct GitGraphView: View {
             }
 
             GitGraphNSViewRepresentable(
-                rows: visibleRows,
+                snapshot: routing,
                 width: maximumGraphWidth,
                 rowHeight: rowHeight
             )
@@ -216,7 +219,7 @@ private struct GitReferenceTagIcon: View {
 }
 
 private struct GitGraphNSViewRepresentable: NSViewRepresentable {
-    let rows: [GitGraphRow]
+    let snapshot: GitGraphRoutingSnapshot
     let width: CGFloat
     let rowHeight: CGFloat
 
@@ -225,7 +228,7 @@ private struct GitGraphNSViewRepresentable: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: GitGraphNSView, context: Context) {
-        nsView.update(rows: rows, width: width, rowHeight: rowHeight)
+        nsView.update(snapshot: snapshot, width: width, rowHeight: rowHeight)
     }
 }
 
@@ -240,7 +243,7 @@ private final class GitGraphNSView: NSView {
         NSColor(calibratedRed: 0.70, green: 0.63, blue: 0.94, alpha: 1)
     ]
 
-    private var rows: [GitGraphRow] = []
+    private var snapshot = GitGraphRoutingSnapshot(rows: [], laneCount: 0)
     private var graphWidth: CGFloat = 0
     private var rowHeight: CGFloat = 30
     private let laneSpacing: CGFloat = 13
@@ -250,9 +253,9 @@ private final class GitGraphNSView: NSView {
     override var isOpaque: Bool { false }
     override var isFlipped: Bool { true }
 
-    func update(rows: [GitGraphRow], width: CGFloat, rowHeight: CGFloat) {
-        guard self.rows != rows || graphWidth != width || self.rowHeight != rowHeight else { return }
-        self.rows = rows
+    func update(snapshot: GitGraphRoutingSnapshot, width: CGFloat, rowHeight: CGFloat) {
+        guard self.snapshot != snapshot || graphWidth != width || self.rowHeight != rowHeight else { return }
+        self.snapshot = snapshot
         graphWidth = width
         self.rowHeight = rowHeight
         needsDisplay = true
@@ -263,32 +266,31 @@ private final class GitGraphNSView: NSView {
         context.setShouldAntialias(true)
 
         let firstRow = max(0, Int(floor(dirtyRect.minY / rowHeight)))
-        let lastRow = min(rows.count - 1, Int(ceil(dirtyRect.maxY / rowHeight)))
+        let lastRow = min(snapshot.rows.count - 1, Int(ceil(dirtyRect.maxY / rowHeight)))
         guard firstRow <= lastRow else { return }
 
         for index in firstRow...lastRow {
-            let row = rows[index]
+            let row = snapshot.rows[index]
             let top = CGFloat(index) * rowHeight
             let centerY = top + rowHeight / 2
-            let currentX = x(for: row.lane)
+            let currentX = x(for: row.nodeLane)
 
-            for (lane, colorIndex) in row.incomingLaneColors.enumerated() {
-                guard let colorIndex else { continue }
+            for segment in row.incoming {
                 stroke(
-                    line(from: CGPoint(x: x(for: lane), y: top), to: CGPoint(x: x(for: lane), y: lane == row.lane ? centerY : top + rowHeight)),
-                    color: color(for: colorIndex),
+                    line(from: CGPoint(x: x(for: segment.lane), y: top), to: CGPoint(x: x(for: segment.lane), y: segment.lane == row.nodeLane ? centerY : top + rowHeight)),
+                    color: color(for: segment.colorIndex),
                     width: laneLineWidth,
                     context: context
                 )
             }
 
-            for edge in row.parentEdges {
-                let color = color(for: edge.colorIndex)
-                if let targetLane = edge.targetLane {
+            for route in row.routes {
+                let color = color(for: route.colorIndex)
+                if let targetLane = route.targetLane {
                     let target = CGPoint(x: x(for: targetLane), y: top + rowHeight)
                     let start = CGPoint(x: currentX, y: centerY)
                     let path: CGPath
-                    if targetLane == row.lane {
+                    if targetLane == row.nodeLane {
                         path = line(from: start, to: target)
                     } else {
                         let controlY = centerY + (rowHeight - rowHeight / 2) * 0.62
@@ -306,11 +308,11 @@ private final class GitGraphNSView: NSView {
                 }
             }
 
-            let nodeSize: CGFloat = row.isMerge ? 9.5 : 8.5
+            let nodeSize: CGFloat = row.routes.count > 1 ? 9.5 : 8.5
             let nodeRect = CGRect(x: currentX - nodeSize / 2, y: centerY - nodeSize / 2, width: nodeSize, height: nodeSize)
             context.setFillColor(color(for: nodeColorIndex(row)).cgColor)
             context.fillEllipse(in: nodeRect)
-            if row.isMerge {
+            if row.routes.count > 1 {
                 context.setStrokeColor(NSColor.white.withAlphaComponent(0.72).cgColor)
                 context.setLineWidth(1)
                 context.strokeEllipse(in: nodeRect.insetBy(dx: 1, dy: 1))
@@ -318,8 +320,8 @@ private final class GitGraphNSView: NSView {
         }
     }
 
-    private func nodeColorIndex(_ row: GitGraphRow) -> Int {
-        row.incomingLaneColors[safe: row.lane].flatMap { $0 } ?? row.parentEdges.first?.colorIndex ?? 0
+    private func nodeColorIndex(_ row: GitGraphRoutingRow) -> Int {
+        row.incoming.first(where: { $0.lane == row.nodeLane })?.colorIndex ?? row.routes.first?.colorIndex ?? 0
     }
 
     private func x(for lane: Int) -> CGFloat { leftPadding + CGFloat(lane) * laneSpacing }
