@@ -1748,6 +1748,17 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                 }
 
                 if isBottomToolVisible {
+                    Rectangle()
+                        .fill(LitheTheme.titlebar)
+                        .frame(height: WorkbenchWorkspaceMetrics.paneSpacing)
+                        .position(
+                            x: geometry.size.width / 2,
+                            y: resolvedTopPaneHeight
+                                + WorkbenchWorkspaceMetrics.paneSpacing / 2
+                        )
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+
                     topPaneResizeHandle(
                         resolvedTopPaneHeight: resolvedTopPaneHeight,
                         minimumTopPaneHeight: minimumTopPaneHeight,
