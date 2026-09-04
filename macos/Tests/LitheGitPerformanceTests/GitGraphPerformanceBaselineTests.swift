@@ -114,6 +114,29 @@ struct GitGraphPerformanceBaselineTests {
             #expect(snapshotRow.routes.map(\.isMissing) == layoutRow.parentEdges.map(\.isMissing))
         }
     }
+
+    @Test("The routing snapshot keeps terminal routes for truncated history")
+    func routingSnapshotPreservesMissingParent() {
+        let commits = [
+            GitCommit(
+                hash: "HEAD",
+                shortHash: "HEAD",
+                parentHashes: ["OLDER"],
+                authorName: "fixture",
+                authorEmail: "fixture@example.invalid",
+                date: "2026/09/04",
+                subject: "HEAD",
+                decorations: "HEAD -> main"
+            )
+        ]
+        let layout = GitGraphLayoutService.layout(commits: commits)
+        let snapshot = GitGraphLayoutService.routingSnapshot(for: layout)
+
+        #expect(snapshot.rows.count == 1)
+        #expect(snapshot.rows[0].routes.count == 1)
+        #expect(snapshot.rows[0].routes[0].targetLane == nil)
+        #expect(snapshot.rows[0].routes[0].isMissing)
+    }
 }
 
 @MainActor
