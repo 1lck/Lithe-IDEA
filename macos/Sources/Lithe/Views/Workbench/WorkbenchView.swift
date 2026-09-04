@@ -1822,8 +1822,11 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                 actions.onSidebarWidthCommitted(finalWidth)
             }
         )
+        .frame(maxHeight: .infinity)
         .padding(.top, WorkbenchWorkspaceMetrics.paneInset)
         .padding(.bottom, bottomInset)
+        .contentShape(Rectangle())
+        .zIndex(1)
         .offset(
             x: WorkbenchWorkspaceMetrics.paneInset
                 + resolvedSidebarWidth
@@ -1860,7 +1863,10 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                 actions.onTopPaneHeightCommitted(finalHeight)
             }
         )
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
+        .contentShape(Rectangle())
+        .zIndex(1)
         .offset(
             y: resolvedTopPaneHeight
                 + WorkbenchWorkspaceMetrics.paneSpacing / 2
