@@ -56,8 +56,8 @@ describe("diff line syntax token rendering", () => {
     ]);
     const visibleText = html
       .replace(/<[^>]+>/g, "")
-      .replaceAll("&lt;", "<")
-      .replaceAll("&gt;", ">");
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">");
 
     expect(visibleText).not.toContain("groupIdgroupId");
     expect(visibleText).toBe(content);
@@ -73,8 +73,8 @@ describe("diff line syntax token rendering", () => {
     ]);
     const visibleText = html
       .replace(/<[^>]+>/g, "")
-      .replaceAll("&lt;", "<")
-      .replaceAll("&gt;", ">");
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">");
 
     expect(visibleText).toBe(content);
     expect(html).toContain("token-tag");
