@@ -1,8 +1,11 @@
 import {
+  ArrowsInLineVerticalIcon,
   ArrowClockwiseIcon,
   CaretDownIcon,
   CaretRightIcon,
+  ChevronExpandYIcon,
   CheckIcon,
+  DownloadSimpleIcon,
   FolderIcon,
   FolderPlusIcon,
   GitBranchIcon,
@@ -11,14 +14,16 @@ import {
   NetworkIcon,
   PencilIcon,
   PlusIcon,
+  StarIcon,
   TagIcon,
   TrashIcon,
   UploadIcon,
 } from "@/ui/icons";
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { cn } from "@/utils/cn";
 import { useTranslation } from "@/i18n/locale-provider";
 import { bindScrollContainerWheel } from "@/ui/scroll-container-wheel";
+import Tooltip from "@/ui/tooltip";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -33,10 +38,12 @@ import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.stor
 import type { GitReference, GitReferenceKind } from "../../types/git.types";
 import {
   getGitReferenceActions,
+  getGitReferenceToolbarState,
   type GitReferenceAction,
 } from "../../utils/git-reference-actions";
 import {
   buildGitReferenceTree,
+  collectGitReferenceGroupIds,
   countGitReferencesByKind,
   type GitReferenceTreeNode,
 } from "../../utils/git-reference-tree";
@@ -48,7 +55,16 @@ const SECTION_KEYS: Array<{ kind: GitReferenceKind; titleKey: string }> = [
   { kind: "tag", titleKey: "git.log.tags" },
 ];
 
-function ReferenceIcon({ kind, isCurrent = false }: { kind: GitReferenceKind; isCurrent?: boolean }) {
+function ReferenceIcon({
+  kind,
+  isCurrent = false,
+  isMarked = false,
+}: {
+  kind: GitReferenceKind;
+  isCurrent?: boolean;
+  isMarked?: boolean;
+}) {
+  if (isMarked) return <StarIcon className="size-3.5 fill-amber-400 text-amber-400" />;
   if (isCurrent) return <CheckIcon className="size-3.5 text-amber-400" />;
   if (kind === "tag") return <TagIcon className="size-3.5 text-amber-400" />;
   if (kind === "remote") return <NetworkIcon className="size-3.5 text-subtle-foreground" />;
@@ -63,6 +79,7 @@ interface GitReferenceTreeProps {
   onReferenceAction: (action: GitReferenceAction, reference: GitReference) => void;
   onSetUpstream: (branch: GitReference, upstream: GitReference | null) => void;
   onManageRemotes: () => void;
+  onFetch: () => void;
 }
 
 function ActionIcon({ action }: { action: GitReferenceAction }) {
@@ -84,6 +101,131 @@ function ActionIcon({ action }: { action: GitReferenceAction }) {
   if (action === "rename") return <PencilIcon />;
   if (action === "deleteLocal" || action === "deleteRemote") return <TrashIcon />;
   return <GitBranchIcon />;
+}
+
+function ReferenceToolbarButton({
+  label,
+  disabled = false,
+  active = false,
+  onClick,
+  children,
+}: {
+  label: string;
+  disabled?: boolean;
+  active?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip content={label} side="right" triggerClassName="w-full justify-center">
+      <button
+        type="button"
+        aria-label={label}
+        aria-pressed={active ? true : undefined}
+        disabled={disabled}
+        onClick={onClick}
+        className={cn(
+          "flex size-8 items-center justify-center rounded-sm text-subtle-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-30 [&_svg]:size-4",
+          active && "bg-accent/70 text-amber-400",
+        )}
+      >
+        {children}
+      </button>
+    </Tooltip>
+  );
+}
+
+function GitReferenceToolbar({
+  selectedReference,
+  currentReference,
+  isMutating,
+  isMarked,
+  hasReferences,
+  onReferenceAction,
+  onFetch,
+  onToggleMark,
+  onExpandAll,
+  onCollapseAll,
+}: {
+  selectedReference: GitReference | null;
+  currentReference: GitReference | null;
+  isMutating: boolean;
+  isMarked: boolean;
+  hasReferences: boolean;
+  onReferenceAction: (action: GitReferenceAction, reference: GitReference) => void;
+  onFetch: () => void;
+  onToggleMark: () => void;
+  onExpandAll: () => void;
+  onCollapseAll: () => void;
+}) {
+  const { t } = useTranslation();
+  const state = getGitReferenceToolbarState(selectedReference, currentReference, isMutating);
+  const branchSource = selectedReference ?? currentReference;
+  return (
+    <div className="flex w-9 shrink-0 flex-col items-center border-border border-r bg-surface/60 py-1">
+      <ReferenceToolbarButton
+        label={t("git.log.toolbar.newBranch")}
+        disabled={!state.canCreateBranch}
+        onClick={() => branchSource && onReferenceAction("createBranch", branchSource)}
+      >
+        <PlusIcon />
+      </ReferenceToolbarButton>
+      <ReferenceToolbarButton
+        label={t("git.log.toolbar.updateSelected")}
+        disabled={!state.canUpdateSelected}
+        onClick={() => selectedReference && onReferenceAction("update", selectedReference)}
+      >
+        <ArrowClockwiseIcon />
+      </ReferenceToolbarButton>
+      <ReferenceToolbarButton
+        label={t("git.log.toolbar.deleteBranch")}
+        disabled={!state.canDeleteBranch}
+        onClick={() => selectedReference && onReferenceAction("deleteLocal", selectedReference)}
+      >
+        <TrashIcon />
+      </ReferenceToolbarButton>
+      <ReferenceToolbarButton
+        label={t("git.log.toolbar.compareWithCurrent")}
+        disabled={!state.canCompareWithCurrent}
+        onClick={() => selectedReference && onReferenceAction("compareWithCurrent", selectedReference)}
+      >
+        <GitDiffIcon />
+      </ReferenceToolbarButton>
+
+      <div className="my-1 h-px w-5 bg-border" />
+      <ReferenceToolbarButton
+        label={t("git.log.toolbar.fetch")}
+        disabled={!state.canFetch}
+        onClick={onFetch}
+      >
+        <DownloadSimpleIcon />
+      </ReferenceToolbarButton>
+      <ReferenceToolbarButton
+        label={t(isMarked ? "git.log.toolbar.unmark" : "git.log.toolbar.mark")}
+        disabled={!state.canToggleMark}
+        active={isMarked}
+        onClick={onToggleMark}
+      >
+        <StarIcon className={cn(isMarked && "fill-current")} />
+      </ReferenceToolbarButton>
+
+      <div className="mt-auto" />
+      <ReferenceToolbarButton
+        label={t("git.expandAll")}
+        disabled={!hasReferences}
+        onClick={onExpandAll}
+      >
+        <ChevronExpandYIcon />
+      </ReferenceToolbarButton>
+      <ReferenceToolbarButton
+        label={t("git.collapseAll")}
+        disabled={!hasReferences}
+        onClick={onCollapseAll}
+      >
+        <ArrowsInLineVerticalIcon />
+      </ReferenceToolbarButton>
+    </div>
+  );
 }
 
 function ReferenceActionMenu({
@@ -210,7 +352,11 @@ function ReferenceActionMenu({
               const disabled =
                 isMutating ||
                 (action === "checkoutAndUpdate" && !reference.upstreamShortName) ||
-                (action === "update" && !reference.isCurrent);
+                (action === "update" &&
+                  !(
+                    reference.isCurrent ||
+                    (reference.upstreamShortName && (reference.behind ?? 0) > 0)
+                  ));
               return (
                 <ContextMenuItem
                   key={action}
@@ -238,6 +384,7 @@ function ReferenceNode({
   collapsedGroups,
   currentReference,
   remoteReferences,
+  markedReferenceFullNames,
   isMutating,
   onToggleGroup,
   onSelect,
@@ -251,6 +398,7 @@ function ReferenceNode({
   collapsedGroups: Set<string>;
   currentReference: GitReference | null;
   remoteReferences: GitReference[];
+  markedReferenceFullNames: Set<string>;
   isMutating: boolean;
   onToggleGroup: (id: string) => void;
   onSelect: (reference: GitReference) => void;
@@ -298,7 +446,13 @@ function ReferenceNode({
         {isGroup && !node.reference ? (
           <FolderIcon className="size-3.5 shrink-0 text-subtle-foreground" />
         ) : (
-          <ReferenceIcon kind={kind} isCurrent={node.reference?.isCurrent} />
+          <ReferenceIcon
+            kind={kind}
+            isCurrent={node.reference?.isCurrent}
+            isMarked={
+              node.reference ? markedReferenceFullNames.has(node.reference.fullName) : false
+            }
+          />
         )}
         <span className="truncate">{node.name}</span>
         {node.reference ? (
@@ -353,6 +507,7 @@ function ReferenceNode({
             collapsedGroups={collapsedGroups}
             currentReference={currentReference}
             remoteReferences={remoteReferences}
+            markedReferenceFullNames={markedReferenceFullNames}
             isMutating={isMutating}
             onToggleGroup={onToggleGroup}
             onSelect={onSelect}
@@ -372,22 +527,56 @@ export function GitReferenceTree({
   onReferenceAction,
   onSetUpstream,
   onManageRemotes,
+  onFetch,
 }: GitReferenceTreeProps) {
   const { t } = useTranslation();
   const collapsedSectionIds = useGitLogPreferencesStore.use.collapsedReferenceSections();
   const collapsedGroupIds = useGitLogPreferencesStore.use.collapsedReferenceGroups();
-  const { toggleReferenceSection, toggleReferenceGroup } = useGitLogPreferencesStore.use.actions();
+  const markedReferenceIds = useGitLogPreferencesStore.use.markedReferenceFullNames();
+  const {
+    toggleReferenceSection,
+    toggleReferenceGroup,
+    setReferenceExpansion,
+    toggleMarkedReference,
+  } = useGitLogPreferencesStore.use.actions();
   const scrollRef = useRef<HTMLDivElement>(null);
   const collapsedSections = useMemo(() => new Set(collapsedSectionIds), [collapsedSectionIds]);
   const collapsedGroups = useMemo(() => new Set(collapsedGroupIds), [collapsedGroupIds]);
+  const markedLocalReferenceFullNames = useMemo(
+    () => {
+      const localReferenceFullNames = new Set(
+        references
+          .filter((reference) => reference.kind === "local")
+          .map((reference) => reference.fullName),
+      );
+      return new Set(
+        markedReferenceIds.filter((fullName) => localReferenceFullNames.has(fullName)),
+      );
+    },
+    [markedReferenceIds, references],
+  );
   const currentReference = references.find((reference) => reference.isCurrent) ?? null;
   const remoteReferences = useMemo(
     () => references.filter((reference) => reference.kind === "remote"),
     [references],
   );
   const trees = useMemo(
-    () => new Map(SECTION_KEYS.map(({ kind }) => [kind, buildGitReferenceTree(references, kind)])),
-    [references],
+    () =>
+      new Map(
+        SECTION_KEYS.map(({ kind }) => [
+          kind,
+          buildGitReferenceTree(
+            references,
+            kind,
+            kind === "local" ? markedLocalReferenceFullNames : undefined,
+          ),
+        ]),
+      ),
+    [markedLocalReferenceFullNames, references],
+  );
+  const allReferenceGroupIds = useMemo(
+    () => [...trees.values()].flatMap(collectGitReferenceGroupIds),
+    [trees],
   );
 
   useLayoutEffect(() => {
@@ -397,90 +586,119 @@ export function GitReferenceTree({
   }, []);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-surface/45 font-sans ui-text-sm select-none">
-      <div className="flex h-8 shrink-0 items-center border-border border-b px-2 text-subtle-foreground">
-        {t("git.log.references")}
-        <span className="ml-auto tabular-nums">{references.length}</span>
-      </div>
-      <div
-        ref={scrollRef}
-        data-scroll-container=""
-        className="min-h-0 flex-1 overflow-auto p-1.5"
-      >
-        <button
-          type="button"
-          onClick={() => onSelect(currentReference)}
-          className={cn(
-            "mb-1 flex h-7 w-full items-center gap-2 rounded px-2 text-left font-medium hover:bg-accent/80",
-            selectedReference?.fullName === currentReference?.fullName &&
-              "bg-accent text-accent-foreground",
-          )}
+    <div className="flex h-full min-h-0 bg-surface/45 font-sans ui-text-sm select-none">
+      <GitReferenceToolbar
+        selectedReference={selectedReference}
+        currentReference={currentReference}
+        isMutating={isMutating}
+        isMarked={
+          selectedReference?.kind === "local" &&
+          markedLocalReferenceFullNames.has(selectedReference.fullName)
+        }
+        hasReferences={references.length > 0}
+        onReferenceAction={onReferenceAction}
+        onFetch={onFetch}
+        onToggleMark={() => {
+          if (selectedReference?.kind === "local") {
+            toggleMarkedReference(selectedReference.fullName);
+          }
+        }}
+        onExpandAll={() => setReferenceExpansion([], [])}
+        onCollapseAll={() =>
+          setReferenceExpansion(
+            SECTION_KEYS.map(({ kind }) => kind),
+            allReferenceGroupIds,
+          )
+        }
+      />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex h-8 shrink-0 items-center border-border border-b px-2 text-subtle-foreground">
+          {t("git.log.references")}
+          <span className="ml-auto tabular-nums">{references.length}</span>
+        </div>
+        <div
+          ref={scrollRef}
+          data-scroll-container=""
+          className="min-h-0 flex-1 overflow-auto p-1.5"
         >
-          <span className="text-primary">→</span>
-          <span className="truncate">{t("git.log.headCurrentBranch")}</span>
-          {currentReference ? (
-            <span className="ml-auto max-w-24 truncate text-subtle-foreground">
-              {currentReference.shortName}
-            </span>
-          ) : null}
-        </button>
+          <button
+            type="button"
+            onClick={() => onSelect(currentReference)}
+            className={cn(
+              "mb-1 flex h-7 w-full items-center gap-2 rounded px-2 text-left font-medium hover:bg-accent/80",
+              selectedReference?.fullName === currentReference?.fullName &&
+                "bg-accent text-accent-foreground",
+            )}
+          >
+            <span className="text-primary">→</span>
+            <span className="truncate">{t("git.log.headCurrentBranch")}</span>
+            {currentReference ? (
+              <span className="ml-auto max-w-24 truncate text-subtle-foreground">
+                {currentReference.shortName}
+              </span>
+            ) : null}
+          </button>
 
-        {SECTION_KEYS.map(({ kind, titleKey }) => {
-          const collapsed = collapsedSections.has(kind);
-          const nodes = trees.get(kind) ?? [];
-          return (
-            <div key={kind} className="mb-1">
-              <ContextMenu>
-                <ContextMenuTrigger
-                  render={<button type="button" />}
-                  onClick={() => toggleReferenceSection(kind)}
-                  className="flex h-6 w-full items-center gap-1.5 rounded px-1.5 text-left font-medium hover:bg-accent/80"
-                >
-                  {collapsed ? (
-                    <CaretRightIcon className="size-3" />
+          {SECTION_KEYS.map(({ kind, titleKey }) => {
+            const collapsed = collapsedSections.has(kind);
+            const nodes = trees.get(kind) ?? [];
+            return (
+              <div key={kind} className="mb-1">
+                <ContextMenu>
+                  <ContextMenuTrigger
+                    render={<button type="button" />}
+                    onClick={() => toggleReferenceSection(kind)}
+                    className="flex h-6 w-full items-center gap-1.5 rounded px-1.5 text-left font-medium hover:bg-accent/80"
+                  >
+                    {collapsed ? (
+                      <CaretRightIcon className="size-3" />
+                    ) : (
+                      <CaretDownIcon className="size-3" />
+                    )}
+                    <FolderIcon className="size-3.5 text-subtle-foreground" />
+                    {t(titleKey)}
+                    <span className="ml-auto text-subtle-foreground tabular-nums">
+                      {countGitReferencesByKind(references, kind)}
+                    </span>
+                  </ContextMenuTrigger>
+                  {kind === "remote" ? (
+                    <ContextMenuContent>
+                      <ContextMenuItem onClick={onManageRemotes}>
+                        <NetworkIcon />
+                        {t("git.log.manageRemotes")}
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  ) : null}
+                </ContextMenu>
+                {!collapsed &&
+                  (nodes.length ? (
+                    nodes.map((node) => (
+                      <ReferenceNode
+                        key={node.id}
+                        node={node}
+                        kind={kind}
+                        depth={0}
+                        selectedFullName={selectedReference?.fullName}
+                        collapsedGroups={collapsedGroups}
+                        currentReference={currentReference}
+                        remoteReferences={remoteReferences}
+                        markedReferenceFullNames={markedLocalReferenceFullNames}
+                        isMutating={isMutating}
+                        onToggleGroup={toggleReferenceGroup}
+                        onSelect={onSelect}
+                        onReferenceAction={onReferenceAction}
+                        onSetUpstream={onSetUpstream}
+                      />
+                    ))
                   ) : (
-                    <CaretDownIcon className="size-3" />
-                  )}
-                  <FolderIcon className="size-3.5 text-subtle-foreground" />
-                  {t(titleKey)}
-                  <span className="ml-auto text-subtle-foreground tabular-nums">
-                    {countGitReferencesByKind(references, kind)}
-                  </span>
-                </ContextMenuTrigger>
-                {kind === "remote" ? (
-                  <ContextMenuContent>
-                    <ContextMenuItem onClick={onManageRemotes}>
-                      <NetworkIcon />
-                      {t("git.log.manageRemotes")}
-                    </ContextMenuItem>
-                  </ContextMenuContent>
-                ) : null}
-              </ContextMenu>
-              {!collapsed &&
-                (nodes.length ? (
-                  nodes.map((node) => (
-                    <ReferenceNode
-                      key={node.id}
-                      node={node}
-                      kind={kind}
-                      depth={0}
-                      selectedFullName={selectedReference?.fullName}
-                      collapsedGroups={collapsedGroups}
-                      currentReference={currentReference}
-                      remoteReferences={remoteReferences}
-                      isMutating={isMutating}
-                      onToggleGroup={toggleReferenceGroup}
-                      onSelect={onSelect}
-                      onReferenceAction={onReferenceAction}
-                      onSetUpstream={onSetUpstream}
-                    />
-                  ))
-                ) : (
-                  <div className="h-6 pl-8 leading-6 text-subtle-foreground">{t("git.log.none")}</div>
-                ))}
-            </div>
-          );
-        })}
+                    <div className="h-6 pl-8 leading-6 text-subtle-foreground">
+                      {t("git.log.none")}
+                    </div>
+                  ))}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

@@ -18,6 +18,7 @@ interface GitLogPreferencesStore {
   inspectorPanelLayout: GitLogPanelLayout;
   collapsedReferenceSections: GitReferenceKind[];
   collapsedReferenceGroups: string[];
+  markedReferenceFullNames: string[];
   actions: {
     setFilterQuery: (query: string) => void;
     setFilterScope: (scope: GitLogFilterScope) => void;
@@ -26,6 +27,8 @@ interface GitLogPreferencesStore {
     setInspectorPanelLayout: (layout: GitLogPanelLayout) => void;
     toggleReferenceSection: (kind: GitReferenceKind) => void;
     toggleReferenceGroup: (id: string) => void;
+    setReferenceExpansion: (sections: GitReferenceKind[], groups: string[]) => void;
+    toggleMarkedReference: (fullName: string) => void;
   };
 }
 
@@ -54,6 +57,7 @@ const useGitLogPreferencesStoreBase = create<GitLogPreferencesStore>()(
       inspectorPanelLayout: DEFAULT_INSPECTOR_LAYOUT,
       collapsedReferenceSections: [],
       collapsedReferenceGroups: [],
+      markedReferenceFullNames: [],
       actions: {
         setFilterQuery: (filterQuery) => set({ filterQuery }),
         setFilterScope: (filterScope) => set({ filterScope }),
@@ -67,6 +71,12 @@ const useGitLogPreferencesStoreBase = create<GitLogPreferencesStore>()(
         toggleReferenceGroup: (id) =>
           set((state) => ({
             collapsedReferenceGroups: toggleListItem(state.collapsedReferenceGroups, id),
+          })),
+        setReferenceExpansion: (collapsedReferenceSections, collapsedReferenceGroups) =>
+          set({ collapsedReferenceSections, collapsedReferenceGroups }),
+        toggleMarkedReference: (fullName) =>
+          set((state) => ({
+            markedReferenceFullNames: toggleListItem(state.markedReferenceFullNames, fullName),
           })),
       },
     }),

@@ -12,6 +12,7 @@ describe("Git Log preferences", () => {
     actions.setInspectorPanelLayout({ files: 70, details: 30 });
     actions.toggleReferenceSection("remote");
     actions.toggleReferenceGroup("remote:origin");
+    actions.toggleMarkedReference("refs/heads/main");
 
     expect(useGitLogPreferencesStore.getState()).toMatchObject({
       filterQuery: "graph",
@@ -21,6 +22,13 @@ describe("Git Log preferences", () => {
       inspectorPanelLayout: { files: 70, details: 30 },
       collapsedReferenceSections: ["remote"],
       collapsedReferenceGroups: ["remote:origin"],
+      markedReferenceFullNames: ["refs/heads/main"],
+    });
+
+    actions.setReferenceExpansion(["local", "remote", "tag"], ["local:feature"]);
+    expect(useGitLogPreferencesStore.getState()).toMatchObject({
+      collapsedReferenceSections: ["local", "remote", "tag"],
+      collapsedReferenceGroups: ["local:feature"],
     });
 
     actions.setFilterQuery("");
@@ -28,7 +36,7 @@ describe("Git Log preferences", () => {
     actions.setShowDecorations(true);
     actions.setMainPanelLayout({ references: 19, commits: 57, inspector: 24 });
     actions.setInspectorPanelLayout({ files: 62, details: 38 });
-    actions.toggleReferenceSection("remote");
-    actions.toggleReferenceGroup("remote:origin");
+    actions.setReferenceExpansion([], []);
+    actions.toggleMarkedReference("refs/heads/main");
   });
 });

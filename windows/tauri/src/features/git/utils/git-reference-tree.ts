@@ -19,9 +19,17 @@ export function countGitReferencesByKind(
   return references.filter((reference) => reference.kind === kind).length;
 }
 
+export function collectGitReferenceGroupIds(nodes: GitReferenceTreeNode[]): string[] {
+  return nodes.flatMap((node) => [
+    ...(node.children.length > 0 ? [node.id] : []),
+    ...collectGitReferenceGroupIds(node.children),
+  ]);
+}
+
 export function buildGitReferenceTree(
   references: GitReference[],
   kind: GitReferenceKind,
+  markedReferenceFullNames: ReadonlySet<string> = new Set(),
 ): GitReferenceTreeNode[] {
   const roots: MutableReferenceNode[] = [];
 
@@ -42,8 +50,24 @@ export function buildGitReferenceTree(
     });
   }
 
+  const containsMarkedReference = (node: MutableReferenceNode): boolean =>
+    Boolean(node.reference && markedReferenceFullNames.has(node.reference.fullName)) ||
+    node.children.some(containsMarkedReference);
+
   const sortNodes = (nodes: MutableReferenceNode[]) => {
     nodes.sort((left, right) => {
+      const leftIsMarked = Boolean(
+        left.reference && markedReferenceFullNames.has(left.reference.fullName),
+      );
+      const rightIsMarked = Boolean(
+        right.reference && markedReferenceFullNames.has(right.reference.fullName),
+      );
+      if (leftIsMarked !== rightIsMarked) return leftIsMarked ? -1 : 1;
+
+      const leftContainsMarked = containsMarkedReference(left);
+      const rightContainsMarked = containsMarkedReference(right);
+      if (leftContainsMarked !== rightContainsMarked) return leftContainsMarked ? -1 : 1;
+
       if (Boolean(left.children.length) !== Boolean(right.children.length)) {
         return left.children.length ? -1 : 1;
       }

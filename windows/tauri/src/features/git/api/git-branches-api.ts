@@ -216,6 +216,23 @@ export const unsetBranchUpstream = async (
   });
 };
 
+export const updateBranch = async (
+  repoPath: string,
+  reference: GitReference,
+): Promise<void> => {
+  const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+  await tauriInvoke("git.write", {
+    repoPath: resolvedRepoPath,
+    operation: "updateBranch",
+    ...referencePayload(reference),
+  });
+  emitGitChanged({
+    repoPath: resolvedRepoPath,
+    scopes: ["history", "refs", "remotes"],
+    source: "update-branch",
+  });
+};
+
 export const deleteBranch = async (repoPath: string, branchName: string): Promise<boolean> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
