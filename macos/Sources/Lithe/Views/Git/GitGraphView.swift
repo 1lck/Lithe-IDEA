@@ -14,9 +14,23 @@ struct GitGraphRowActions {
     let onCreateTag: (GitCommit) -> Void
 }
 
+/// Immutable graph data prepared by the log's data-refresh task. Keeping the
+/// rows and routing together prevents selection and hover updates from
+/// reconstructing graph topology during the view's render pass.
+struct GitGraphPresentation: Sendable {
+    let rows: [GitGraphRow]
+    let routingSnapshot: GitGraphRoutingSnapshot
+    let hasMissingParents: Bool
+
+    static let empty = GitGraphPresentation(
+        rows: [],
+        routingSnapshot: GitGraphRoutingSnapshot(rows: [], laneCount: 0),
+        hasMissingParents: false
+    )
+}
+
 struct GitGraphView: View {
-    let layout: GitGraphLayout
-    let visibleHashes: Set<String>?
+    let presentation: GitGraphPresentation
     let selectedHash: String?
     let showCommitDecorations: Bool
     let actions: GitGraphRowActions
@@ -24,12 +38,9 @@ struct GitGraphView: View {
     private let rowHeight: CGFloat = 30
 
     var body: some View {
-        let routing = GitGraphLayoutService.routingSnapshot(
-            for: GitGraphLayout(rows: visibleRows, laneCount: layout.laneCount, hasMissingParents: layout.hasMissingParents)
-        )
         ZStack(alignment: .topLeading) {
             LazyVStack(spacing: 0) {
-                ForEach(visibleRows) { row in
+                ForEach(presentation.rows) { row in
                     GitGraphRowView(
                         row: row,
                         graphWidth: maximumGraphWidth,
@@ -42,7 +53,7 @@ struct GitGraphView: View {
                     .id(row.commit.hash)
                 }
 
-                if layout.hasMissingParents {
+                if presentation.hasMissingParents {
                     HStack(spacing: 7) {
                         Image(systemName: "ellipsis")
                         Text("Older commits are outside the loaded history")
@@ -56,22 +67,17 @@ struct GitGraphView: View {
             }
 
             GitGraphNSViewRepresentable(
-                snapshot: routing,
+                snapshot: presentation.routingSnapshot,
                 width: maximumGraphWidth,
                 rowHeight: rowHeight
             )
-            .frame(width: maximumGraphWidth, height: CGFloat(visibleRows.count) * rowHeight)
+            .frame(width: maximumGraphWidth, height: CGFloat(presentation.rows.count) * rowHeight)
             .allowsHitTesting(false)
         }
     }
 
     private var maximumGraphWidth: CGFloat {
-        max(30, CGFloat(max(layout.laneCount, 1)) * 13 + 16)
-    }
-
-    private var visibleRows: [GitGraphRow] {
-        guard let visibleHashes else { return layout.rows }
-        return layout.rows.filter { visibleHashes.contains($0.commit.hash) }
+        max(30, CGFloat(max(presentation.routingSnapshot.laneCount, 1)) * 13 + 16)
     }
 }
 

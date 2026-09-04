@@ -77,7 +77,23 @@ package final class GitFeatureModel: ObservableObject {
         gitCommitsVersionCounter &+= 1
         return gitCommitsVersionCounter
     }
-    @Published package private(set) var gitLogMatchedCommitHashes: Set<String>?
+    @Published package private(set) var gitLogMatchedCommitHashes: Set<String>? {
+        didSet { gitLogFilterVersion = Self.nextGitLogFilterVersion() }
+    }
+    /// Monotonic token for completed Git Log filter results. Rendering uses the
+    /// token as a task key instead of comparing a potentially large hash set on
+    /// every SwiftUI body evaluation.
+    ///
+    /// Like `gitCommitsVersion`, this changes with the published source value
+    /// and therefore does not need a second publication of its own.
+    package private(set) var gitLogFilterVersion = 0
+
+    private static var gitLogFilterVersionCounter = 0
+
+    private static func nextGitLogFilterVersion() -> Int {
+        gitLogFilterVersionCounter &+= 1
+        return gitLogFilterVersionCounter
+    }
     @Published package private(set) var isFilteringGitLog = false
     @Published package var selectedGitReference: GitReference?
     /// `nil` is the current checkout when this is false, and all references

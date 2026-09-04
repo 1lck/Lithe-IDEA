@@ -34,11 +34,7 @@ struct GitLogView: View {
     @State private var gitCommitFileLoadTask: Task<Void, Never>?
     @State private var showsGitLogBranchFilterPopover = false
     @State private var showsGitLogAuthorFilterPopover = false
-    @State private var graphLayout = GitGraphLayout(
-        rows: [],
-        laneCount: 0,
-        hasMissingParents: false
-    )
+    @State private var graphPresentation = GitGraphPresentation.empty
     @FocusState private var gitLogSearchFocused: Bool
     @FocusState private var gitLogCommitListFocused: Bool
 
@@ -74,13 +70,29 @@ struct GitLogView: View {
             primaryContent
         }
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.sidebar)
-        .task(id: model.gitCommitsVersion) {
+        .task(id: graphPresentationTaskIdentity) {
+            let taskIdentity = graphPresentationTaskIdentity
             let commits = model.gitCommits
-            let updatedLayout = await Task.detached(priority: .userInitiated) {
-                GitGraphLayoutService.layout(commits: commits)
+            let visibleHashes = visibleCommitHashes
+            let presentation = await Task.detached(priority: .userInitiated) {
+                let layout = GitGraphLayoutService.layout(commits: commits)
+                let rows = visibleHashes.map { hashes in
+                    layout.rows.filter { hashes.contains($0.commit.hash) }
+                } ?? layout.rows
+                return GitGraphPresentation(
+                    rows: rows,
+                    routingSnapshot: GitGraphLayoutService.routingSnapshot(
+                        for: GitGraphLayout(
+                            rows: rows,
+                            laneCount: layout.laneCount,
+                            hasMissingParents: layout.hasMissingParents
+                        )
+                    ),
+                    hasMissingParents: layout.hasMissingParents
+                )
             }.value
-            guard model.gitCommits == commits else { return }
-            graphLayout = updatedLayout
+            guard taskIdentity == graphPresentationTaskIdentity else { return }
+            graphPresentation = presentation
         }
         // The three section arrays are derived, not user state. Rebuilding them
         // here rather than in `body` keeps the flattening off the render path
@@ -1141,8 +1153,7 @@ struct GitLogView: View {
                     ScrollView {
                         VStack(spacing: 0) {
                             GitGraphView(
-                                layout: graphLayout,
-                                visibleHashes: visibleCommitHashes,
+                                presentation: graphPresentation,
                                 selectedHash: model.selectedGitCommit?.hash,
                                 showCommitDecorations: showCommitDecorations,
                                 actions: graphRowActions
@@ -1418,7 +1429,15 @@ struct GitLogView: View {
             author: selectedGitLogAuthor,
             datePreset: selectedGitLogDatePreset,
             path: gitLogPathFilter,
-            commitHashes: model.gitCommits.map(\.hash)
+            commitsVersion: model.gitCommitsVersion
+        )
+    }
+
+    private var graphPresentationTaskIdentity: GitGraphPresentationTaskIdentity {
+        GitGraphPresentationTaskIdentity(
+            commitsVersion: model.gitCommitsVersion,
+            filterVersion: model.gitLogFilterVersion,
+            hasActiveFilter: hasActiveGitLogFilter
         )
     }
 
@@ -1887,7 +1906,13 @@ private struct GitLogFilterTaskIdentity: Hashable {
     let author: GitLogAuthorSelection?
     let datePreset: GitLogDatePreset
     let path: String
-    let commitHashes: [String]
+    let commitsVersion: Int
+}
+
+private struct GitGraphPresentationTaskIdentity: Hashable {
+    let commitsVersion: Int
+    let filterVersion: Int
+    let hasActiveFilter: Bool
 }
 
 enum GitLogDatePreset: String, CaseIterable, Identifiable, Hashable {

@@ -257,6 +257,8 @@ extension AppModel {
     var gitLogMatchedCommitHashes: Set<String>? {
         gitFeatureIfActive?.gitLogMatchedCommitHashes
     }
+    /// Constant-time change key for completed Git Log filtering work.
+    var gitLogFilterVersion: Int { gitFeatureIfActive?.gitLogFilterVersion ?? 0 }
     var isFilteringGitLog: Bool { gitFeatureIfActive?.isFilteringGitLog ?? false }
     var selectedGitReference: GitReference? {
         get { gitFeatureIfActive?.selectedGitReference }
