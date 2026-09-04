@@ -1468,7 +1468,7 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         if request.maven_context.is_none() {
             arguments.extend([json!("-B"), json!("-ntp")]);
             if let Some(module) = maven["module"].as_str().filter(|m| *m != ".") {
-                arguments.extend([json!("-pl"), json!(module)]);
+                arguments.extend([json!("-pl"), json!(module), json!("-am")]);
             }
         }
         let main = maven["mainClass"].as_str().ok_or_else(|| {
@@ -1525,7 +1525,7 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         if request.maven_context.is_none() {
             arguments.extend([json!("-B"), json!("-ntp")]);
             if let Some(module) = maven["module"].as_str().filter(|m| *m != ".") {
-                arguments.extend([json!("-pl"), json!(module)]);
+                arguments.extend([json!("-pl"), json!(module), json!("-am")]);
             }
             if let Some(profiles) = maven["profiles"].as_array().filter(|p| !p.is_empty()) {
                 arguments.extend([
@@ -1593,7 +1593,7 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
                 context,
                 module,
                 trailing_arguments,
-                false,
+                true,
             )?;
             arguments = shared_plan
                 .arguments

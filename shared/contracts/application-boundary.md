@@ -337,5 +337,5 @@ context. A Run Configuration's explicit Profiles and toolchain paths take
 precedence; explicit `cwd` and `extensions.maven.skipTests` values also take
 precedence, including `skipTests: false`. Unset values inherit the project
 settings. The shared Core applies the final Maven argument order for all three
-entry points. Tool-window module launches add `-am`; Run and Debug retain their
-existing `-pl <module>` behavior without implicitly building dependencies.
+entry points. Tool-window, Run, and Debug module launches add `-am` so reactor
+dependencies are built before the selected module.

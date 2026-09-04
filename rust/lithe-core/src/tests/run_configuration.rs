@@ -244,7 +244,7 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
     assert_eq!(plan["ok"], true, "{plan}");
     assert_eq!(plan["data"]["workingDirectory"], "projects/demo");
     assert_eq!(
-        &plan["data"]["arguments"].as_array().unwrap()[..11],
+        &plan["data"]["arguments"].as_array().unwrap()[..12],
         [
             "-B",
             "-ntp",
@@ -254,12 +254,13 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
             "/local/settings.xml",
             "-pl",
             "service",
+            "-am",
             "-DskipTests",
             "-Dspring-boot.run.main-class=com.example.App",
             "spring-boot:run"
         ]
     );
-    assert!(!plan["data"]["arguments"]
+    assert!(plan["data"]["arguments"]
         .as_array()
         .unwrap()
         .iter()
@@ -310,7 +311,7 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
         .as_array()
         .unwrap()
         .iter()
-        .any(|argument| argument == "-am" || argument == "-DskipTests"));
+        .any(|argument| argument == "-DskipTests"));
 
     let java_plan: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
@@ -2343,6 +2344,7 @@ fn migrated_v1_documents_produce_identical_launch_arguments() {
             "-ntp",
             "-pl",
             "backend",
+            "-am",
             "-P",
             "local",
             "-Dspring-boot.run.main-class=com.example.App",

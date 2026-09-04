@@ -940,15 +940,15 @@ selected `profiles`, optional platform-local `settingsPath` and
 the configuration fingerprint. The response contains the `project-maven`
 toolchain reference, an argument array, the workspace-relative reactor working
 directory, and a deterministic SHA-256 configuration fingerprint. Profiles are
-sorted and de-duplicated. Module plans from `maven.launchPlan` use
-`-pl <module> -am`; Run and Debug plans use `-pl <module>` without `-am`.
-Settings use `-s`; a local repository override uses `-Dmaven.repo.local=<path>`;
-skipped tests use `-DskipTests`. Explicit Run `cwd`, Profiles, and
-`extensions.maven.skipTests` values override the project context, including
-`skipTests: false`. The core never reads `settings.xml` and never copies its
-path into a portable project document. Maven itself continues to read
-`.mvn/maven.config`; the plan does not expand or duplicate that file's
-arguments. Fixtures are in `shared/fixtures/maven/launch-plan-v1.json`.
+sorted and de-duplicated. Module plans from `maven.launchPlan` and Maven-backed
+Run and Debug plans use `-pl <module> -am`. Settings use `-s`; a local
+repository override uses `-Dmaven.repo.local=<path>`; skipped tests use
+`-DskipTests`. Explicit Run `cwd`, Profiles, and `extensions.maven.skipTests`
+values override the project context, including `skipTests: false`. The core
+never reads `settings.xml` and never copies its path into a portable project
+document. Maven itself continues to read `.mvn/maven.config`; the plan does not
+expand or duplicate that file's arguments. Fixtures are in
+`shared/fixtures/maven/launch-plan-v1.json`.
 
 `maven.diagnostics` accepts `{ "root": string, "output": string }` and returns
 `{ "issues": [] }`. Diagnostic paths may be absolute or workspace-relative;
@@ -1060,7 +1060,8 @@ the resolved Run Configuration replace the context profiles; otherwise the
 project profiles are inherited. Explicit `extensions.maven.skipTests` and
 `cwd` values also replace the context values. Core applies the shared settings,
 module, Skip Tests, and reactor-working-directory rules to the generated
-framework or Java-main arguments without adding tool-window-only `-am`. It
+framework or Java-main arguments, including `-am` for selected reactor
+modules. It
 returns a toolchain
 reference, argument array, project-relative working directory, and structured
 environment references. It does not return a shell command or platform
