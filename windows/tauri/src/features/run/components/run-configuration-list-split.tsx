@@ -9,6 +9,11 @@ import {
   clampRunConfigurationListWidth,
   getRunConfigurationListMaxWidth,
 } from "../utils/run-configuration-list-layout";
+import {
+  nextRunConfigurationListWidthForKey,
+  startDocumentResizeSession,
+  type DocumentResizeSession,
+} from "../utils/run-configuration-list-resize-session";
 
 interface RunConfigurationListSplitProps {
   list: React.ReactNode;
@@ -17,8 +22,8 @@ interface RunConfigurationListSplitProps {
 
 /**
  * Local layout container for the Run tool window's configuration list.
- * Keeps drag width mutations out of RunPane and only commits on mouseup,
- * matching macOS LitheSplitPaneView persistence.
+ * Keeps drag width mutations out of RunPane and only commits when a resize
+ * session ends, matching macOS LitheSplitPaneView persistence.
  */
 export function RunConfigurationListSplit({ list, content }: RunConfigurationListSplitProps) {
   const { t } = useTranslation();
@@ -28,6 +33,8 @@ export function RunConfigurationListSplit({ list, content }: RunConfigurationLis
   );
   const containerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const sessionRef = useRef<DocumentResizeSession | null>(null);
+  const isMountedRef = useRef(true);
   const [containerWidth, setContainerWidth] = useState(0);
   const [width, setWidth] = useState(() =>
     clampRunConfigurationListWidth(storedWidth, typeof window !== "undefined" ? window.innerWidth : 1280),
@@ -37,6 +44,18 @@ export function RunConfigurationListSplit({ list, content }: RunConfigurationLis
   const clampWidth = useCallback(
     (value: number) => clampRunConfigurationListWidth(value, containerWidth || 1280),
     [containerWidth],
+  );
+
+  const commitWidth = useCallback(
+    (nextWidth: number) => {
+      setConfigurationListWidth(nextWidth);
+      if (isMountedRef.current) {
+        setWidth(nextWidth);
+        setIsResizing(false);
+      }
+      sessionRef.current = null;
+    },
+    [setConfigurationListWidth],
   );
 
   useLayoutEffect(() => {
@@ -59,44 +78,58 @@ export function RunConfigurationListSplit({ list, content }: RunConfigurationLis
     setWidth(clampWidth(storedWidth));
   }, [storedWidth, clampWidth]);
 
-  const handleMouseDown = useCallback(
-    (event: React.MouseEvent) => {
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      // Persist the in-flight width, then drop listeners/body styles/RAF.
+      sessionRef.current?.dispose({ commit: true });
+      sessionRef.current = null;
+    };
+  }, []);
+
+  const handlePointerDown = useCallback(
+    (event: React.PointerEvent) => {
       event.preventDefault();
-      setIsResizing(true);
+      sessionRef.current?.dispose({ commit: true });
 
-      const startX = event.clientX;
-      const startWidth = width;
-      let currentWidth = startWidth;
-      let rafId: number | null = null;
       const listEl = listRef.current;
-
-      const handleMouseMove = (moveEvent: MouseEvent) => {
-        currentWidth = clampWidth(startWidth + (moveEvent.clientX - startX));
-        if (rafId !== null) cancelAnimationFrame(rafId);
-        rafId = requestAnimationFrame(() => {
+      sessionRef.current = startDocumentResizeSession({
+        startX: event.clientX,
+        startWidth: width,
+        clampWidth,
+        applyWidth: (nextWidth) => {
           if (listEl) {
-            listEl.style.width = `${currentWidth}px`;
+            listEl.style.width = `${nextWidth}px`;
           }
-        });
-      };
-
-      const handleMouseUp = () => {
-        if (rafId !== null) cancelAnimationFrame(rafId);
-        setWidth(currentWidth);
-        setIsResizing(false);
-        setConfigurationListWidth(currentWidth);
-        document.removeEventListener("mousemove", handleMouseMove);
-        document.removeEventListener("mouseup", handleMouseUp);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      };
-
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
+        },
+        commitWidth,
+        onActiveChange: (active) => {
+          if (isMountedRef.current) {
+            setIsResizing(active);
+          }
+        },
+      });
     },
-    [width, clampWidth, setConfigurationListWidth],
+    [width, clampWidth, commitWidth],
+  );
+
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      const nextWidth = nextRunConfigurationListWidthForKey(
+        width,
+        event.key,
+        containerWidth || 1280,
+      );
+      if (nextWidth == null) {
+        return;
+      }
+
+      event.preventDefault();
+      setWidth(nextWidth);
+      setConfigurationListWidth(nextWidth);
+    },
+    [width, containerWidth, setConfigurationListWidth],
   );
 
   const minWidth = Math.min(
@@ -114,7 +147,8 @@ export function RunConfigurationListSplit({ list, content }: RunConfigurationLis
       >
         {list}
         <div
-          onMouseDown={handleMouseDown}
+          onPointerDown={handlePointerDown}
+          onKeyDown={handleKeyDown}
           style={{ width: RUN_CONFIGURATION_LIST_HANDLE_THICKNESS }}
           className={cn(
             "group absolute top-0 right-0 z-20 flex h-full translate-x-1/2 cursor-col-resize items-center justify-center",
