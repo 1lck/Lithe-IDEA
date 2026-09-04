@@ -34,7 +34,9 @@ import {
   openGlobalSearchSidebar,
   toggleDiagnosticsPane,
 } from "@/features/layout/actions/workbench-tool-window-actions";
+import { toggleMavenRunPane } from "@/features/maven/actions/maven-tool-window-actions";
 import { RunIcon } from "@/features/run/components/run-icon";
+import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import {
   toggleGitLogPane,
@@ -73,6 +75,7 @@ import {
   GitBranchIcon,
   GitGraphIcon,
   MagnifyingGlassIcon,
+  PackageIcon,
   TerminalWindowIcon,
   WarningIcon,
 } from "@/ui/icons";
@@ -124,6 +127,13 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
   const openSettingsDialog = useUIState((state) => state.openSettingsDialog);
   const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible);
   const bottomPaneActiveTab = useUIState((state) => state.bottomPaneActiveTab);
+  const hasMavenRun = useMavenStore(
+    (state) =>
+      state.taskStatus !== "idle" ||
+      state.taskTitle !== null ||
+      state.lastExitCode !== null ||
+      state.issues.length > 0,
+  );
   const configuredActivityRailWidth = useSettingsStore((state) => state.settings.activityRailWidth);
   const askWhereToOpenProjects = useSettingsStore((state) => state.settings.askWhereToOpenProjects);
   const openFoldersInNewWindow = useSettingsStore((state) => state.settings.openFoldersInNewWindow);
@@ -183,6 +193,14 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
       ["files", { id: "files", label: t("workbench.project"), icon: <FilesIcon /> }],
       ["git", { id: "git", label: t("workbench.changes"), icon: <GitBranchIcon /> }],
       ["search", { id: "search", label: t("workbench.search"), icon: <MagnifyingGlassIcon /> }],
+      [
+        "maven",
+        {
+          id: "maven",
+          label: `${t("run.title")} - ${t("maven.title")}`,
+          icon: <PackageIcon />,
+        },
+      ],
       ["run", { id: "run", label: t("workbench.run"), icon: <RunIcon /> }],
       [
         "terminal",
@@ -630,6 +648,8 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
                   isDiagnosticsActive={isBottomPaneVisible && bottomPaneActiveTab === "diagnostics"}
                   onRunClick={() => toggleRunPane()}
                   isRunActive={isBottomPaneVisible && bottomPaneActiveTab === "run"}
+                  onMavenClick={hasMavenRun ? () => toggleMavenRunPane() : undefined}
+                  isMavenActive={isBottomPaneVisible && bottomPaneActiveTab === "maven"}
                   compact={!expanded}
                   showLabels={expanded}
                   orientation="vertical"

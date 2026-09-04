@@ -1,11 +1,17 @@
 import { applyRightToolWindowIntent } from "@/features/layout/actions/right-tool-window-actions";
+import type { BottomPaneTab } from "@/features/window/stores/ui-state/types/ui-state.types";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 
 const MAVEN_TOOL_WINDOW_VIEW = "maven";
 
 interface MavenRunPaneUpdate {
-  bottomPaneActiveTab: "maven";
-  isBottomPaneVisible: true;
+  bottomPaneActiveTab: BottomPaneTab;
+  isBottomPaneVisible: boolean;
+}
+
+interface MavenRunPaneState {
+  bottomPaneActiveTab: BottomPaneTab;
+  isBottomPaneVisible: boolean;
 }
 
 export function resolveMavenRunPaneUpdate(): MavenRunPaneUpdate {
@@ -15,15 +21,34 @@ export function resolveMavenRunPaneUpdate(): MavenRunPaneUpdate {
   };
 }
 
-export function openMavenRunPane(): void {
+export function resolveMavenRunPaneToggleUpdate(state: MavenRunPaneState): MavenRunPaneUpdate {
+  if (state.isBottomPaneVisible && state.bottomPaneActiveTab === "maven") {
+    return {
+      bottomPaneActiveTab: state.bottomPaneActiveTab,
+      isBottomPaneVisible: false,
+    };
+  }
+
+  return resolveMavenRunPaneUpdate();
+}
+
+function applyMavenRunPaneUpdate(update: MavenRunPaneUpdate): void {
   const state = useUIState.getState();
-  const update = resolveMavenRunPaneUpdate();
   if (state.bottomPaneActiveTab !== update.bottomPaneActiveTab) {
     state.setBottomPaneActiveTab(update.bottomPaneActiveTab);
   }
-  if (!state.isBottomPaneVisible) {
+  if (state.isBottomPaneVisible !== update.isBottomPaneVisible) {
     state.setIsBottomPaneVisible(update.isBottomPaneVisible);
   }
+}
+
+export function openMavenRunPane(): void {
+  applyMavenRunPaneUpdate(resolveMavenRunPaneUpdate());
+}
+
+export function toggleMavenRunPane(): void {
+  const state = useUIState.getState();
+  applyMavenRunPaneUpdate(resolveMavenRunPaneToggleUpdate(state));
 }
 
 export function closeMavenToolWindow(): void {

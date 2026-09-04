@@ -19,6 +19,7 @@ import {
   GitGraphIcon,
   FilesIcon,
   MagnifyingGlassIcon,
+  PackageIcon,
   TerminalWindowIcon,
   WarningIcon,
 } from "@/ui/icons";
@@ -70,6 +71,8 @@ interface SidebarPaneSelectorProps {
   isDiagnosticsActive?: boolean;
   onRunClick?: () => void;
   isRunActive?: boolean;
+  onMavenClick?: () => void;
+  isMavenActive?: boolean;
   compact?: boolean;
   showLabels?: boolean;
   orientation?: "horizontal" | "vertical";
@@ -92,6 +95,8 @@ export const SidebarPaneSelector = ({
   isDiagnosticsActive = false,
   onRunClick,
   isRunActive = false,
+  onMavenClick,
+  isMavenActive = false,
   compact = false,
   showLabels = false,
   orientation = "horizontal",
@@ -103,9 +108,7 @@ export const SidebarPaneSelector = ({
   const isBufferOwnedSurfaceActive = isSearchActive;
   const isPrimarySidebarItemActive = isSidebarVisible && !isBufferOwnedSurfaceActive;
   const isFilesActive =
-    isPrimarySidebarItemActive &&
-    !isGitViewActive &&
-    activeSidebarView === "files";
+    isPrimarySidebarItemActive && !isGitViewActive && activeSidebarView === "files";
   const sidebarActivityItemsOrder = useSettingsStore(
     (state) => state.settings.sidebarActivityItemsOrder,
   );
@@ -233,6 +236,22 @@ export const SidebarPaneSelector = ({
             } satisfies SidebarPaneItem,
           ]
         : []),
+      ...(onMavenClick
+        ? [
+            {
+              id: "maven",
+              label: showLabels ? `${t("run.title")} - ${t("maven.title")}` : undefined,
+              icon: <PackageIcon className={iconClassName} />,
+              isActive: isMavenActive,
+              onClick: onMavenClick,
+              ariaLabel: `${t("run.title")} - ${t("maven.title")}`,
+              tooltip: {
+                content: `${t("run.title")} - ${t("maven.title")}`,
+                side: tooltipSide,
+              },
+            } satisfies SidebarPaneItem,
+          ]
+        : []),
       ...(onSettingsClick
         ? [
             {
@@ -269,6 +288,8 @@ export const SidebarPaneSelector = ({
       onRunClick,
       onSettingsClick,
       isRunActive,
+      onMavenClick,
+      isMavenActive,
       onViewChange,
       showLabels,
       t,
@@ -339,7 +360,9 @@ export const SidebarPaneSelector = ({
           {topItems.map(renderVerticalItem)}
         </div>
         {bottomItems.length > 0 ? (
-          <div className="flex shrink-0 flex-col gap-1 pt-1">{bottomItems.map(renderVerticalItem)}</div>
+          <div className="flex shrink-0 flex-col gap-1 pt-1">
+            {bottomItems.map(renderVerticalItem)}
+          </div>
         ) : null}
       </nav>
     );

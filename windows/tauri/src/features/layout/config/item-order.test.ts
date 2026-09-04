@@ -25,7 +25,7 @@ describe("footer item order", () => {
 });
 
 describe("sidebar activity order", () => {
-  test("keeps Maven out of the left sidebar visibility order", () => {
+  test("keeps Maven output in the left sidebar visibility order", () => {
     expect(
       sidebarActivityVisibilityItemIds({
         search: true,
@@ -37,13 +37,14 @@ describe("sidebar activity order", () => {
       "files",
       "git",
       "search",
+      "maven",
       "run",
       "terminal",
       "diagnostics",
       "gitLog",
       "settings",
     ]);
-    expect([...SIDEBAR_ACTIVITY_ITEM_IDS]).not.toContain("maven");
+    expect([...SIDEBAR_ACTIVITY_ITEM_IDS]).toContain("maven");
   });
 
   test("hides and restores Run independently", () => {
@@ -57,8 +58,9 @@ describe("sidebar activity order", () => {
     expect([...SIDEBAR_ACTIVITY_ITEM_IDS]).not.toContain("database");
   });
 
-  test("places Run, Terminal, Diagnostics, Git Log, then Settings", () => {
+  test("places Maven output before Run, Terminal, Diagnostics, Git Log, then Settings", () => {
     expect([...SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS]).toEqual([
+      "maven",
       "run",
       "terminal",
       "diagnostics",
@@ -67,9 +69,17 @@ describe("sidebar activity order", () => {
     ]);
   });
 
-  test("drops Maven from a legacy persisted left sidebar order", () => {
-    expect(normalizeItemOrder(["maven", "run"], SIDEBAR_ACTIVITY_ITEM_IDS)).not.toContain(
+  test("keeps Maven output in a persisted left sidebar order", () => {
+    expect(normalizeItemOrder(["maven", "run"], SIDEBAR_ACTIVITY_ITEM_IDS)).toEqual([
       "maven",
-    );
+      "run",
+      "files",
+      "git",
+      "search",
+      "terminal",
+      "diagnostics",
+      "gitLog",
+      "settings",
+    ]);
   });
 });

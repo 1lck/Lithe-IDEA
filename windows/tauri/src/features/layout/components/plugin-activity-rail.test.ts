@@ -36,8 +36,25 @@ test("right activity rail places Maven in the upper right tool group", async () 
   expect(railSource.indexOf('<PackageIcon className="size-4.5" />')).toBeGreaterThan(
     railSource.indexOf("<NotificationsTrigger />"),
   );
-  expect(sidebarSource).not.toContain('id: "maven"');
+  expect(sidebarSource).toContain('id: "maven"');
   expect(transparencyStyles).toContain(".lithe-plugin-activity-rail");
+});
+
+test("left activity rail restores retained Maven output separately", async () => {
+  const sidebarSource = await Bun.file(
+    new URL("./sidebar/sidebar-pane-selector.tsx", import.meta.url),
+  ).text();
+  const mainSidebarSource = await Bun.file(
+    new URL("./sidebar/main-sidebar.tsx", import.meta.url),
+  ).text();
+
+  expect(mainSidebarSource).toContain("const hasMavenRun = useMavenStore");
+  expect(mainSidebarSource).toContain(
+    "onMavenClick={hasMavenRun ? () => toggleMavenRunPane() : undefined}",
+  );
+  expect(sidebarSource).toContain("onClick: onMavenClick");
+  expect(sidebarSource).toContain('id: "maven"');
+  expect(sidebarSource).toContain("isActive: isMavenActive");
 });
 
 test("Maven navigation stays right while task output uses the bottom pane", async () => {
