@@ -48,6 +48,16 @@ struct GitWorktreesView: View {
             case .current, .available: return LitheTheme.success
             }
         }
+
+        init(_ status: GitWorktreeStatusKind) {
+            switch status {
+            case .pathMissing: self = .pathMissing
+            case .locked: self = .locked
+            case .modified: self = .modified
+            case .current: self = .current
+            case .available: self = .available
+            }
+        }
     }
 
     private enum WorktreeConfirmation: Identifiable {
@@ -78,6 +88,7 @@ struct GitWorktreesView: View {
     @State private var isLoadingMoreHistory = false
     @State private var selectedWorktreeID: String?
     @State private var activeSection = WorktreeSection.overview
+    @State private var projectedWorktrees: [GitWorktreeListItem] = []
 
     var body: some View {
         GeometryReader { geometry in
@@ -130,6 +141,23 @@ struct GitWorktreesView: View {
         .task(id: selectedWorktree?.id) {
             guard let worktree = selectedWorktree, !worktree.isPrunable else { return }
             await model.inspectGitWorktree(worktree)
+        }
+        .task(id: worktreeListProjectionIdentity) {
+            let taskIdentity = worktreeListProjectionIdentity
+            let worktrees = model.gitWorktrees
+            let query = searchText
+            let inspection = model.gitWorktreeInspection
+            let currentChangeCount = model.gitChanges.count
+            let projection = await Task.detached(priority: .userInitiated) {
+                GitWorktreeListProjection.items(
+                    worktrees: worktrees,
+                    query: query,
+                    inspection: inspection,
+                    currentChangeCount: currentChangeCount
+                )
+            }.value
+            guard taskIdentity == worktreeListProjectionIdentity else { return }
+            projectedWorktrees = projection
         }
         .onChange(of: model.gitWorktrees.map(\.id)) { _ in
             selectAvailableWorktree()
@@ -282,8 +310,8 @@ struct GitWorktreesView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 7) {
-                        ForEach(filteredWorktrees) { worktree in
-                            worktreeListRow(worktree)
+                        ForEach(projectedWorktrees) { item in
+                            worktreeListRow(item)
                         }
                     }
                     .padding(10)
@@ -294,13 +322,13 @@ struct GitWorktreesView: View {
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.sidebar)
     }
 
-    private func worktreeListRow(_ worktree: GitWorktree) -> some View {
+    private func worktreeListRow(_ item: GitWorktreeListItem) -> some View {
+        let worktree = item.worktree
         let isSelected = selectedWorktree?.id == worktree.id
-        let status = worktreeStatusKind(worktree)
         return GitWorktreeListRow(
             worktree: worktree,
             isSelected: isSelected,
-            status: status,
+            status: WorktreeStatusKind(item.status),
             onSelect: {
                 selectedWorktreeID = worktree.id
                 activeSection = .overview
@@ -830,13 +858,16 @@ struct GitWorktreesView: View {
     }
 
     private var filteredWorktrees: [GitWorktree] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return model.gitWorktrees }
-        return model.gitWorktrees.filter {
-            $0.displayName.localizedCaseInsensitiveContains(query)
-                || $0.path.localizedCaseInsensitiveContains(query)
-                || ($0.branchName?.localizedCaseInsensitiveContains(query) ?? false)
-        }
+        projectedWorktrees.map(\.worktree)
+    }
+
+    private var worktreeListProjectionIdentity: WorktreeListProjectionIdentity {
+        WorktreeListProjectionIdentity(
+            worktreesVersion: model.gitWorktreesVersion,
+            inspectionVersion: model.gitWorktreeInspectionVersion,
+            currentChangeCount: model.gitChanges.count,
+            query: searchText
+        )
     }
 
     private var selectedWorktree: GitWorktree? {
@@ -1081,6 +1112,13 @@ private struct GitWorktreeListRow: View, Equatable {
         }
         .lithePointer()
     }
+}
+
+private struct WorktreeListProjectionIdentity: Hashable {
+    let worktreesVersion: Int
+    let inspectionVersion: Int
+    let currentChangeCount: Int
+    let query: String
 }
 
 private struct GitWorktreeCreateView: View {

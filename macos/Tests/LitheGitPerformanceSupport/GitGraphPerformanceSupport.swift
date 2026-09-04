@@ -289,3 +289,71 @@ package struct GitGraphRenderBenchmark: Codable, Equatable, Sendable {
         nativeViewportDrawCalls = 1
     }
 }
+
+/// Deterministic Worktrees projection benchmark. It measures the pure list
+/// projection used by the macOS surface, not SwiftUI compositor time.
+package struct GitWorktreeProjectionBenchmark: Codable, Equatable, Sendable {
+    package let worktreeCount: Int
+    package let matchedCount: Int
+    package let sampleCount: Int
+    package let medianMs: Double
+    package let p95Ms: Double
+
+    package static func run(worktreeCount: Int, sampleCount: Int = 21) -> Self {
+        let worktrees = (0..<worktreeCount).map(makeWorktree)
+        let clock = ContinuousClock()
+        var samples: [Double] = []
+        samples.reserveCapacity(sampleCount)
+        var matchedCount = 0
+        for _ in 0..<sampleCount {
+            let start = clock.now
+            let items = GitWorktreeListProjection.items(
+                worktrees: worktrees,
+                query: "feature-9",
+                inspection: nil,
+                currentChangeCount: 0
+            )
+            matchedCount = items.count
+            samples.append(milliseconds(clock.now - start))
+        }
+        let sorted = samples.sorted()
+        return Self(
+            worktreeCount: worktreeCount,
+            matchedCount: matchedCount,
+            sampleCount: sampleCount,
+            medianMs: sorted[sorted.count / 2],
+            p95Ms: sorted[max(0, Int(ceil(Double(sorted.count) * 0.95)) - 1)]
+        )
+    }
+
+    private init(worktreeCount: Int, matchedCount: Int, sampleCount: Int, medianMs: Double, p95Ms: Double) {
+        self.worktreeCount = worktreeCount
+        self.matchedCount = matchedCount
+        self.sampleCount = sampleCount
+        self.medianMs = medianMs
+        self.p95Ms = p95Ms
+    }
+
+    private static func makeWorktree(index: Int) -> GitWorktree {
+        let isLocked = index % 97 == 0
+        let isPrunable = index % 113 == 0
+        return GitWorktree(
+            path: "/tmp/lithe-worktree-\(index)",
+            head: String(format: "%040llx", UInt64(index + 1)),
+            branch: "refs/heads/feature-\(index)",
+            isCurrent: index == 0,
+            isPrimary: index == 0,
+            isBare: false,
+            isDetached: false,
+            isLocked: isLocked,
+            lockReason: isLocked ? "fixture" : nil,
+            isPrunable: isPrunable,
+            pruneReason: isPrunable ? "fixture" : nil
+        )
+    }
+
+    private static func milliseconds(_ duration: Duration) -> Double {
+        let components = duration.components
+        return Double(components.seconds) * 1_000 + Double(components.attoseconds) / 1_000_000_000_000_000
+    }
+}

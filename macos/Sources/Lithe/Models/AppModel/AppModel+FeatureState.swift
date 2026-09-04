@@ -168,12 +168,16 @@ extension AppModel {
     var gitStashes: [GitStash] { gitFeatureIfActive?.gitStashes ?? [] }
     var gitShelves: [GitShelfEntry] { gitFeatureIfActive?.gitShelves ?? [] }
     var gitWorktrees: [GitWorktree] { gitFeatureIfActive?.gitWorktrees ?? [] }
+    /// Constant-time change key for the Worktrees list projection.
+    var gitWorktreesVersion: Int { gitFeatureIfActive?.gitWorktreesVersion ?? 0 }
     var gitWorktreeLoadState: GitWorktreeLoadState {
         gitFeatureIfActive?.gitWorktreeLoadState ?? .idle
     }
     var gitWorktreeInspection: GitWorktreeInspection? {
         gitFeatureIfActive?.gitWorktreeInspection
     }
+    /// Constant-time change key for worktree detail publications.
+    var gitWorktreeInspectionVersion: Int { gitFeatureIfActive?.gitWorktreeInspectionVersion ?? 0 }
     var gitWorktreeInspectionLoadState: GitWorktreeInspectionLoadState {
         gitFeatureIfActive?.gitWorktreeInspectionLoadState ?? .idle
     }

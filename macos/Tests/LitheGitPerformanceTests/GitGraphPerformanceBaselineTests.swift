@@ -137,6 +137,17 @@ struct GitGraphPerformanceBaselineTests {
         #expect(snapshot.rows[0].routes[0].targetLane == nil)
         #expect(snapshot.rows[0].routes[0].isMissing)
     }
+
+    @Test("The Worktrees projection stays bounded for a large list")
+    func worktreeProjectionBaseline() {
+        let benchmark = GitWorktreeProjectionBenchmark.run(worktreeCount: 1_000)
+        print(
+            "GitWorktrees projection: rows=\(benchmark.worktreeCount), matches=\(benchmark.matchedCount), samples=\(benchmark.sampleCount), median=\(String(format: "%.3f", benchmark.medianMs))ms, p95=\(String(format: "%.3f", benchmark.p95Ms))ms"
+        )
+        #expect(benchmark.matchedCount == 111)
+        #expect(benchmark.sampleCount == 21)
+        #expect(benchmark.p95Ms < 100)
+    }
 }
 
 @MainActor

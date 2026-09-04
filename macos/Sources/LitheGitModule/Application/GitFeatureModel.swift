@@ -14,9 +14,31 @@ package final class GitFeatureModel: ObservableObject {
     @Published private var pendingStagingStates: [GitChange.ID: Bool] = [:]
     @Published package private(set) var gitStashes: [GitStash] = []
     @Published package private(set) var gitShelves: [GitShelfEntry] = []
-    @Published package private(set) var gitWorktrees: [GitWorktree] = []
+    @Published package private(set) var gitWorktrees: [GitWorktree] = [] {
+        didSet { gitWorktreesVersion = Self.nextGitWorktreesVersion() }
+    }
+    /// Constant-time key for the worktree list projection task.
+    package private(set) var gitWorktreesVersion = 0
+
+    private static var gitWorktreesVersionCounter = 0
+
+    private static func nextGitWorktreesVersion() -> Int {
+        gitWorktreesVersionCounter &+= 1
+        return gitWorktreesVersionCounter
+    }
     @Published package private(set) var gitWorktreeLoadState = GitWorktreeLoadState.idle
-    @Published package private(set) var gitWorktreeInspection: GitWorktreeInspection?
+    @Published package private(set) var gitWorktreeInspection: GitWorktreeInspection? {
+        didSet { gitWorktreeInspectionVersion = Self.nextGitWorktreeInspectionVersion() }
+    }
+    /// Constant-time key for completed worktree detail publications.
+    package private(set) var gitWorktreeInspectionVersion = 0
+
+    private static var gitWorktreeInspectionVersionCounter = 0
+
+    private static func nextGitWorktreeInspectionVersion() -> Int {
+        gitWorktreeInspectionVersionCounter &+= 1
+        return gitWorktreeInspectionVersionCounter
+    }
     @Published package private(set) var gitWorktreeInspectionLoadState = GitWorktreeInspectionLoadState.idle
     @Published package private(set) var isPerformingStashOperation = false
     @Published package private(set) var isPerformingShelfOperation = false
