@@ -95,6 +95,25 @@ struct GitGraphPerformanceBaselineTests {
         #expect(samples.count == 10)
         #expect(median < 100)
     }
+
+    @Test("The routing snapshot preserves layout topology and ordering")
+    func routingSnapshotPreservesTopology() {
+        let commits = SyntheticGitGraphFixture.mergeHeavy(commitCount: 1_000)
+        let layout = GitGraphLayoutService.layout(commits: commits)
+        let snapshot = GitGraphLayoutService.routingSnapshot(for: layout)
+
+        #expect(snapshot.laneCount == layout.laneCount)
+        #expect(snapshot.rows.count == layout.rows.count)
+        for (index, pair) in zip(layout.rows, snapshot.rows).enumerated() {
+            let (layoutRow, snapshotRow) = pair
+            #expect(snapshotRow.rowIndex == index)
+            #expect(snapshotRow.nodeLane == layoutRow.lane)
+            #expect(snapshotRow.incoming.map(\.lane) == layoutRow.incomingLaneColors.enumerated().compactMap { lane, color in color.map { _ in lane } })
+            #expect(snapshotRow.routes.map(\.targetLane) == layoutRow.parentEdges.map(\.targetLane))
+            #expect(snapshotRow.routes.map(\.colorIndex) == layoutRow.parentEdges.map(\.colorIndex))
+            #expect(snapshotRow.routes.map(\.isMissing) == layoutRow.parentEdges.map(\.isMissing))
+        }
+    }
 }
 
 @MainActor
