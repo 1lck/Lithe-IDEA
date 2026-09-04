@@ -3552,6 +3552,146 @@ struct EditorDocumentTests {
         #expect(markStore.savedMarks?["assets"] == .resources)
     }
 
+    /// A preference write can outlive the workspace that initiated it. Releasing
+    /// the controlled store after switching projects must not publish old marks.
+    @Test
+    @MainActor
+    func directoryMarkSaveDoesNotPublishIntoAReplacementWorkspace() async {
+        let firstWorkspace = URL(fileURLWithPath: "/tmp/directory-mark-first")
+        let secondWorkspace = URL(fileURLWithPath: "/tmp/directory-mark-second")
+        let saveStarted = TestGate()
+        let releaseSave = TestGate()
+        defer { releaseSave.open() }
+        let markStore = BlockingWorkspaceDirectoryMarkStore(
+            initialByWorkspace: [secondWorkspace.standardizedFileURL.path: ["Sources": .sources]],
+            saveStarted: saveStarted,
+            releaseSave: releaseSave
+        )
+        let model = WorkspaceFeatureModel(
+            operations: EmptyWorkspaceOperations(),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            gitWatchContextProvider: SequencedGitWatchContextProvider([nil]),
+            directoryWatcherFactory: TestDirectoryWatcherFactory(),
+            workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore()),
+            directoryMarkStore: markStore
+        )
+
+        model.beginWorkspace(at: firstWorkspace, visibilityRules: .default)
+        let saveTask = Task {
+            await model.markDirectory(
+                firstWorkspace.appendingPathComponent("assets", isDirectory: true),
+                as: .resources
+            )
+        }
+
+        #expect(await saveStarted.waitUntilOpen(timeout: .seconds(5)))
+        model.beginWorkspace(at: secondWorkspace, visibilityRules: .default)
+        releaseSave.open()
+        await saveTask.value
+
+        #expect(model.directoryMarks == ["Sources": .sources])
+    }
+
+    @Test
+    @MainActor
+    func consecutiveDirectoryMarksPersistInInvocationOrder() async {
+        let workspace = URL(fileURLWithPath: "/tmp/directory-mark-consecutive")
+        let saveStarted = TestGate()
+        let releaseSave = TestGate()
+        defer { releaseSave.open() }
+        let markStore = BlockingWorkspaceDirectoryMarkStore(
+            initialByWorkspace: [:],
+            saveStarted: saveStarted,
+            releaseSave: releaseSave
+        )
+        let model = WorkspaceFeatureModel(
+            operations: EmptyWorkspaceOperations(),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            gitWatchContextProvider: SequencedGitWatchContextProvider([nil]),
+            directoryWatcherFactory: TestDirectoryWatcherFactory(),
+            workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore()),
+            directoryMarkStore: markStore
+        )
+
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        let firstSave = Task {
+            await model.markDirectory(
+                workspace.appendingPathComponent("Sources", isDirectory: true),
+                as: .sources
+            )
+        }
+        #expect(await saveStarted.waitUntilOpen(timeout: .seconds(5)))
+        let secondSave = Task {
+            await model.markDirectory(
+                workspace.appendingPathComponent("assets", isDirectory: true),
+                as: .resources
+            )
+        }
+
+        releaseSave.open()
+        await firstSave.value
+        await secondSave.value
+
+        #expect(markStore.savedMarks == ["Sources": .sources, "assets": .resources])
+        #expect(model.directoryMarks == markStore.savedMarks)
+    }
+
+    @Test
+    @MainActor
+    func renamingDirectoryMigratesItsMarkAndDescendantMarks() async {
+        let workspace = URL(fileURLWithPath: "/tmp/directory-mark-rename")
+        let source = workspace.appendingPathComponent("Sources", isDirectory: true)
+        let markStore = RecordingWorkspaceDirectoryMarkStore(
+            initial: ["Sources": .sources, "Sources/generated": .excluded, "assets": .resources]
+        )
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: EmptyWorkspaceFileOperations(),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(),
+            refreshGit: {},
+            directoryMarkStore: markStore
+        )
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+
+        model.requestRenameProjectItem(at: source)
+        await model.performProjectItemEdit(named: "SourceCode")
+
+        let expected: [String: WorkspaceDirectoryMark] = [
+            "SourceCode": .sources,
+            "SourceCode/generated": .excluded,
+            "assets": .resources
+        ]
+        #expect(model.directoryMarks == expected)
+        #expect(markStore.savedMarks == expected)
+    }
+
+    @Test
+    @MainActor
+    func deletingDirectoryRemovesItsMarkAndDescendantMarks() async throws {
+        let workspace = URL(fileURLWithPath: "/tmp/directory-mark-delete")
+        let target = workspace.appendingPathComponent("generated", isDirectory: true)
+        let markStore = RecordingWorkspaceDirectoryMarkStore(
+            initial: ["generated": .excluded, "generated/cache": .plain, "Sources": .sources]
+        )
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: EmptyWorkspaceFileOperations(),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(),
+            refreshGit: {},
+            directoryMarkStore: markStore
+        )
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        model.requestDeleteProjectItem(at: target, isDirectory: true)
+        let request = try #require(model.pendingProjectItemDeletion)
+
+        await model.confirmProjectItemDeletion(request)
+
+        #expect(model.directoryMarks == ["Sources": .sources])
+        #expect(markStore.savedMarks == ["Sources": .sources])
+    }
+
     @Test
     @MainActor
     func workspaceInitialLoadFailureCanRetryWithoutLeavingAnEmptyProject() async {
@@ -4534,7 +4674,8 @@ private func makeWorkspaceObservationUnitModel(
     processExternalChanges: @escaping @MainActor ([URL]) -> Bool = { _ in false },
     notifyWorkspaceFileChanges: @escaping @MainActor ([WorkspaceFileChange]) -> Void = { _ in },
     reloadProjectServices: @escaping @MainActor () async -> Void = {},
-    recordHistory: @escaping @MainActor (URL, LocalHistoryReason) async -> Void = { _, _ in }
+    recordHistory: @escaping @MainActor (URL, LocalHistoryReason) async -> Void = { _, _ in },
+    directoryMarkStore: any WorkspaceDirectoryMarkStoring = EmptyWorkspaceDirectoryMarkStore()
 ) -> WorkspaceFeatureModel {
     let model = WorkspaceFeatureModel(
         operations: operations,
@@ -4542,7 +4683,8 @@ private func makeWorkspaceObservationUnitModel(
         fileStorage: InMemoryFileStorage(),
         gitWatchContextProvider: provider,
         directoryWatcherFactory: watcherFactory,
-        workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore())
+        workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore()),
+        directoryMarkStore: directoryMarkStore
     )
     model.configure(
         documentsProvider: { [] },
@@ -4594,6 +4736,47 @@ private final class RecordingWorkspaceDirectoryMarkStore: WorkspaceDirectoryMark
         lock.lock()
         defer { lock.unlock() }
         storedSavedMarks = marks
+    }
+}
+
+private final class BlockingWorkspaceDirectoryMarkStore: WorkspaceDirectoryMarkStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private let initialByWorkspace: [String: [String: WorkspaceDirectoryMark]]
+    private let saveStarted: TestGate
+    private let releaseSave: TestGate
+    private var storedSavedMarks: [String: WorkspaceDirectoryMark]?
+
+    init(
+        initialByWorkspace: [String: [String: WorkspaceDirectoryMark]],
+        saveStarted: TestGate,
+        releaseSave: TestGate
+    ) {
+        self.initialByWorkspace = initialByWorkspace
+        self.saveStarted = saveStarted
+        self.releaseSave = releaseSave
+    }
+
+    var savedMarks: [String: WorkspaceDirectoryMark]? {
+        lock.withLock { storedSavedMarks }
+    }
+
+    func loadDirectoryMarks(
+        for workspaceURL: URL
+    ) throws -> [String: WorkspaceDirectoryMark] {
+        initialByWorkspace[workspaceURL.standardizedFileURL.path] ?? [:]
+    }
+
+    func saveDirectoryMarks(
+        _ marks: [String: WorkspaceDirectoryMark],
+        for workspaceURL: URL
+    ) throws {
+        saveStarted.open()
+        guard releaseSave.waitSynchronously(timeout: 5) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        lock.withLock {
+            storedSavedMarks = marks
+        }
     }
 }
 
