@@ -12,6 +12,7 @@ struct MavenView: View {
     @State private var customGoal = ""
     @State private var customProfile = ""
     @State private var settingsPath = ""
+    @State private var localRepositoryPath = ""
     @State private var mavenExecutablePath = ""
     @State private var javaHomePath = ""
 
@@ -622,6 +623,13 @@ struct MavenView: View {
                 }
             )
             settingsPathRow(
+                title: "Local Repository",
+                value: $localRepositoryPath,
+                choose: {
+                    model.platformUI.chooseDirectory(title: "Choose Maven Local Repository", prompt: "Choose")
+                }
+            )
+            settingsPathRow(
                 title: "Maven Home or Executable",
                 value: $mavenExecutablePath,
                 choose: {
@@ -722,6 +730,7 @@ struct MavenView: View {
 
     private func presentSettings() {
         settingsPath = feature.settingsPath ?? ""
+        localRepositoryPath = feature.localRepositoryPath ?? ""
         mavenExecutablePath = feature.mavenExecutablePath ?? ""
         javaHomePath = feature.javaHomePath ?? ""
         isSettingsSheetPresented = true
@@ -730,6 +739,7 @@ struct MavenView: View {
     private func saveSettings() {
         feature.updateLocalConfiguration(
             settingsPath: settingsPath,
+            localRepositoryPath: localRepositoryPath,
             mavenExecutablePath: mavenExecutablePath,
             javaHomePath: javaHomePath
         )

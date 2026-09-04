@@ -138,6 +138,12 @@ function MavenSettingsDialog({
   }> = [
     { id: "maven-settings-xml", field: "settingsPath", label: "settings.xml", directory: false },
     {
+      id: "maven-local-repository",
+      field: "localRepositoryPath",
+      label: t("maven.localRepository"),
+      directory: true,
+    },
+    {
       id: "maven-executable",
       field: "mavenExecutablePath",
       label: t("maven.mavenExecutable"),
@@ -233,6 +239,7 @@ export default function MavenPane() {
   const customProfiles = useMavenStore((state) => state.customProfiles);
   const skipTests = useMavenStore((state) => state.skipTests);
   const settingsPath = useMavenStore((state) => state.settingsPath);
+  const localRepositoryPath = useMavenStore((state) => state.localRepositoryPath);
   const mavenExecutablePath = useMavenStore((state) => state.mavenExecutablePath);
   const javaHomePath = useMavenStore((state) => state.javaHomePath);
   const configurationSaveError = useMavenStore((state) => state.configurationSaveError);
@@ -747,7 +754,7 @@ export default function MavenPane() {
       ) : null}
       {settingsDialogOpen ? (
         <MavenSettingsDialog
-          initial={{ settingsPath, mavenExecutablePath, javaHomePath }}
+          initial={{ settingsPath, localRepositoryPath, mavenExecutablePath, javaHomePath }}
           error={configurationSaveError}
           onClose={() => setSettingsDialogOpen(false)}
           onSave={actions.updateLocalConfiguration}
