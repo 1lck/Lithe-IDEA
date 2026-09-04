@@ -1,3 +1,4 @@
+@testable import Lithe
 import LitheGitModule
 import LitheGitPerformanceSupport
 import AppKit
@@ -158,6 +159,74 @@ struct GitGraphPerformanceBaselineTests {
         #expect(benchmark.visibleItemCount > benchmark.fileCount)
         #expect(benchmark.sampleCount == 21)
         #expect(benchmark.p95Ms < 30)
+    }
+
+    @Test("The native Worktree rows surface samples only the visible viewport")
+    @MainActor
+    func nativeWorktreeRowsSurfaceBaseline() throws {
+        let rows = (0..<5_000).map { index in
+            GitWorktreeRowsSnapshot.Row.commit(
+                subject: "Synthetic worktree commit \(index)",
+                author: "Lithe Performance Fixture",
+                date: "2026/09/05 00:00"
+            )
+        }
+        let snapshot = GitWorktreeRowsSnapshot(
+            identity: .history(inspectionVersion: 1, query: ""),
+            rows: rows
+        )
+        let view = GitWorktreeRowsNSView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 900,
+            height: CGFloat(rows.count) * GitWorktreeRowsView.rowHeight
+        ))
+        view.update(snapshot: snapshot, rowHeight: GitWorktreeRowsView.rowHeight)
+        let viewport = CGRect(
+            x: 0,
+            y: CGFloat(2_500) * GitWorktreeRowsView.rowHeight,
+            width: 900,
+            height: 420
+        )
+        let visibleRange = try #require(GitWorktreeRowsNSView.visibleRowRange(
+            rowCount: rows.count,
+            rowHeight: GitWorktreeRowsView.rowHeight,
+            dirtyRect: viewport
+        ))
+        let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 900,
+            pixelsHigh: 420,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bitmapFormat: [],
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        )!
+        let context = NSGraphicsContext(bitmapImageRep: bitmap)!
+        let clock = ContinuousClock()
+        var samples: [Double] = []
+        samples.reserveCapacity(10)
+        for _ in 0..<10 {
+            let start = clock.now
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context
+            view.draw(viewport)
+            NSGraphicsContext.restoreGraphicsState()
+            samples.append(milliseconds(clock.now - start))
+        }
+        let sorted = samples.sorted()
+        let median = sorted[sorted.count / 2]
+        let p95 = sorted[Int(ceil(Double(sorted.count) * 0.95)) - 1]
+        print(
+            "Worktree native rows: total=\(rows.count), visible=\(visibleRange.count), samples=\(samples.count), median=\(String(format: "%.3f", median))ms, p95=\(String(format: "%.3f", p95))ms"
+        )
+        #expect(visibleRange.count <= 14)
+        #expect(median < 30)
+        #expect(p95 < 100)
     }
 }
 

@@ -176,6 +176,7 @@ let package = Package(
         .testTarget(
             name: "LitheGitPerformanceTests",
             dependencies: [
+                "Lithe",
                 "LitheGitModule",
                 "LitheGitPerformanceSupport",
                 .product(name: "Testing", package: "swift-testing")
