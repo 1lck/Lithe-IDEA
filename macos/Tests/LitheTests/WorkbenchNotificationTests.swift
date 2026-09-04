@@ -39,7 +39,7 @@ struct WorkbenchNotificationTests {
 
         model.clearNotifications()
         #expect(model.notifications.isEmpty)
-        #expect(model.notificationMessage == nil)
+        #expect(model.activeNotifications.isEmpty)
     }
 
     @Test

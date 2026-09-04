@@ -18,7 +18,6 @@ extension AppModel {
             let removed = activeNotifications.removeFirst()
             cancelNotificationDismissal(for: removed.id)
         }
-        notificationMessage = message
         if areNotificationsHovered {
             notificationRemainingDurations[notification.id] = WorkbenchNotificationTiming.displayDuration
         } else {
@@ -56,7 +55,6 @@ extension AppModel {
         guard activeNotifications.contains(where: { $0.id == id }) else { return }
         activeNotifications.removeAll { $0.id == id }
         cancelNotificationDismissal(for: id)
-        notificationMessage = activeNotifications.last?.message
     }
 
     func markAllNotificationsRead() {
@@ -75,7 +73,6 @@ extension AppModel {
         notificationDismissalDeadlines.removeAll()
         notificationRemainingDurations.removeAll()
         areNotificationsHovered = false
-        notificationMessage = nil
     }
 
     private func scheduleNotificationDismissal(
