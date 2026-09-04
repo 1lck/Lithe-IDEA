@@ -327,7 +327,8 @@ final class AppModel: ObservableObject, Identifiable {
             fileOperations: services.fileOperations,
             gitWatchContextProvider: services.gitWatchContextProvider,
             directoryWatcherFactory: services.directoryWatcherFactory,
-            workspaceSessionStore: services.workspaceSessionStore
+            workspaceSessionStore: services.workspaceSessionStore,
+            directoryMarkStore: services.directoryMarkStore
         )
         githubFeature = GitHubFeatureModel(service: services.githubService)
         Task { @MainActor [workspaceFeature, moduleRuntime = services.moduleRuntime] in
@@ -1124,6 +1125,10 @@ final class AppModel: ObservableObject, Identifiable {
 
     func refreshWorkspace() async {
         await workspaceFeature.refreshCurrent()
+    }
+
+    func markProjectDirectory(_ url: URL, as mark: WorkspaceDirectoryMark) async {
+        await workspaceFeature.markDirectory(url, as: mark)
     }
 
     func requestCreateFile(in directory: URL) {

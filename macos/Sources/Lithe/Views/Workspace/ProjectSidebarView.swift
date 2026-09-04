@@ -1,3 +1,4 @@
+import LitheCoreContracts
 import LitheGitModule
 import SwiftUI
 
@@ -39,6 +40,7 @@ struct ProjectSidebarView: View {
                                         repositoryRoot: model.gitRepositoryRoot,
                                         projection: model.gitTreeStatusProjection
                                     ),
+                                    directoryMarks: model.projectDirectoryMarks,
                                     actions: ProjectTreeActions(model: model),
                                     expandedDirectoryPathsSnapshot: expandedDirectoryPaths,
                                     expandedDirectoryPaths: $expandedDirectoryPaths,
@@ -242,6 +244,9 @@ private final class ProjectTreeActions: @unchecked Sendable {
     nonisolated func refreshWorkspace() {
         Task { await self.model.refreshWorkspace() }
     }
+    nonisolated func markDirectory(_ url: URL, as mark: WorkspaceDirectoryMark) {
+        Task { await self.model.markProjectDirectory(url, as: mark) }
+    }
     nonisolated func showGitDirectoryDiff(_ url: URL) {
         Task { await self.model.showGitDirectoryDiff(for: url) }
     }
@@ -265,6 +270,7 @@ private struct ProjectFileTreeContent: View, Equatable {
     let rowHeight: CGFloat
     let activeDocumentURL: URL?
     let gitStatus: ProjectGitStatusSnapshot
+    let directoryMarks: [String: WorkspaceDirectoryMark]
     let actions: ProjectTreeActions
     let expandedDirectoryPathsSnapshot: Set<String>
     @Binding var expandedDirectoryPaths: Set<String>
@@ -276,6 +282,7 @@ private struct ProjectFileTreeContent: View, Equatable {
             && lhs.rowHeight == rhs.rowHeight
             && lhs.activeDocumentURL == rhs.activeDocumentURL
             && lhs.gitStatus == rhs.gitStatus
+            && lhs.directoryMarks == rhs.directoryMarks
             && lhs.expandedDirectoryPathsSnapshot == rhs.expandedDirectoryPathsSnapshot
             && lhs.contextMenuPath == rhs.contextMenuPath
     }
@@ -288,6 +295,8 @@ private struct ProjectFileTreeContent: View, Equatable {
             rowHeight: rowHeight,
             activeDocumentURL: activeDocumentURL,
             gitStatus: gitStatus,
+            projectRootURL: root.url,
+            directoryMarks: directoryMarks,
             actions: actions,
             expandedDirectoryPaths: $expandedDirectoryPaths,
             contextMenuPath: $contextMenuPath
@@ -303,6 +312,8 @@ private struct FileNodeRow: View {
     let rowHeight: CGFloat
     let activeDocumentURL: URL?
     let gitStatus: ProjectGitStatusSnapshot
+    let projectRootURL: URL
+    let directoryMarks: [String: WorkspaceDirectoryMark]
     let actions: ProjectTreeActions
     @Binding var expandedDirectoryPaths: Set<String>
     @Binding var contextMenuPath: String?
@@ -335,6 +346,8 @@ private struct FileNodeRow: View {
                             rowHeight: rowHeight,
                             activeDocumentURL: activeDocumentURL,
                             gitStatus: gitStatus,
+                            projectRootURL: projectRootURL,
+                            directoryMarks: directoryMarks,
                             actions: actions,
                             expandedDirectoryPaths: $expandedDirectoryPaths,
                             contextMenuPath: $contextMenuPath
@@ -365,7 +378,7 @@ private struct FileNodeRow: View {
                     .font(.system(size: 8, weight: .bold))
                     .frame(width: 10)
                     .foregroundStyle(LitheTheme.secondaryText)
-                LitheIcon(kind: node.iconKind, size: LitheTheme.Metrics.treeIconSize)
+                LitheIcon(kind: directoryIconKind, size: LitheTheme.Metrics.treeIconSize)
                     .frame(width: LitheTheme.Metrics.treeIconSize, height: LitheTheme.Metrics.treeIconSize)
                 Text(node.name)
                     .font(.system(size: LitheTheme.Metrics.treeFontSize, weight: depth == 0 ? .semibold : .regular))
@@ -470,6 +483,11 @@ private struct FileNodeRow: View {
             ]
         }
 
+        items += [
+            .submenu("Mark Target As", items: directoryMarkMenuItems),
+            .separator
+        ]
+
         if depth == 0 {
             items += [
                 .action("Show Project in Finder", systemImage: "folder") {
@@ -516,6 +534,59 @@ private struct FileNodeRow: View {
             }
         ]
         return items
+    }
+
+    private var directoryMarkMenuItems: [LitheContextMenuItem] {
+        WorkspaceDirectoryMark.allCases.map { mark in
+            .action(
+                directoryMarkTitle(mark),
+                iconKind: LitheIcons.kind(for: mark),
+                shortcut: currentDirectoryMark == mark ? "✓" : nil
+            ) {
+                actions.markDirectory(node.url, as: mark)
+            }
+        }
+    }
+
+    private func directoryMarkTitle(_ mark: WorkspaceDirectoryMark) -> String {
+        switch mark {
+        case .plain: "Normal Folder"
+        case .sources: "Sources Root"
+        case .resources: "Resources Root"
+        case .excluded: "Excluded"
+        case .module: "Module Root"
+        case .package: "Package"
+        }
+    }
+
+    private var currentDirectoryMark: WorkspaceDirectoryMark? {
+        directoryMarks[relativeDirectoryPath(for: node.url)]
+    }
+
+    private var directoryIconKind: LitheIconKind {
+        if let currentDirectoryMark {
+            return LitheIcons.kind(for: currentDirectoryMark)
+        }
+        var ancestor = node.url.deletingLastPathComponent()
+        let rootPath = projectRootURL.standardizedFileURL.path
+        while ancestor.standardizedFileURL.path.hasPrefix(rootPath) {
+            if let mark = directoryMarks[relativeDirectoryPath(for: ancestor)] {
+                if mark == .sources, LitheIcons.isValidPackageName(node.url.lastPathComponent) {
+                    return .packageFolder
+                }
+                break
+            }
+            guard ancestor.standardizedFileURL.path != rootPath else { break }
+            ancestor.deleteLastPathComponent()
+        }
+        return node.iconKind
+    }
+
+    private func relativeDirectoryPath(for url: URL) -> String {
+        let rootPath = projectRootURL.standardizedFileURL.path
+        let targetPath = url.standardizedFileURL.path
+        guard targetPath != rootPath else { return "." }
+        return String(targetPath.dropFirst(rootPath.count + 1))
     }
 
     private var fileContextMenuItems: [LitheContextMenuItem] {

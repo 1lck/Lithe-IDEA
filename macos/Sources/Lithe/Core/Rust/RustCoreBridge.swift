@@ -205,6 +205,16 @@ struct RustCoreBridge: Sendable {
     }
 
     struct MavenScanPayload: Decodable, Sendable {
+        struct SourceRoot: Decodable, Sendable {
+            let path: String
+            let kind: String
+
+            func makeModel() -> MavenSourceRoot? {
+                guard let kind = MavenSourceRootKind(rawValue: kind) else { return nil }
+                return MavenSourceRoot(path: path, kind: kind)
+            }
+        }
+
         struct Profile: Decodable, Sendable {
             let id: String
             let isActiveByDefault: Bool
@@ -220,6 +230,7 @@ struct RustCoreBridge: Sendable {
             let artifactID: String
             let version: String?
             let packaging: String
+            let sourceRoots: [SourceRoot]?
             let modules: [Module]
 
             enum CodingKeys: String, CodingKey {
@@ -228,6 +239,7 @@ struct RustCoreBridge: Sendable {
                 case artifactID = "artifactId"
                 case version
                 case packaging
+                case sourceRoots
                 case modules
             }
 
@@ -239,7 +251,8 @@ struct RustCoreBridge: Sendable {
                     artifactID: artifactID,
                     version: version,
                     packaging: packaging,
-                    modules: modules.map { $0.makeModel(rootURL: rootURL) }
+                    modules: modules.map { $0.makeModel(rootURL: rootURL) },
+                    sourceRoots: sourceRoots?.compactMap { $0.makeModel() } ?? []
                 )
             }
         }
@@ -249,6 +262,7 @@ struct RustCoreBridge: Sendable {
         let artifactID: String
         let version: String?
         let packaging: String
+        let sourceRoots: [SourceRoot]?
         let modules: [Module]
         let profiles: [Profile]
         let hasWrapper: Bool
@@ -259,6 +273,7 @@ struct RustCoreBridge: Sendable {
             case artifactID = "artifactId"
             case version
             case packaging
+            case sourceRoots
             case modules
             case profiles
             case hasWrapper
@@ -279,7 +294,8 @@ struct RustCoreBridge: Sendable {
                 profiles: profiles.map {
                     MavenProfile(id: $0.id, isActiveByDefault: $0.isActiveByDefault)
                 },
-                hasWrapper: hasWrapper
+                hasWrapper: hasWrapper,
+                sourceRoots: sourceRoots?.compactMap { $0.makeModel() } ?? []
             )
         }
     }

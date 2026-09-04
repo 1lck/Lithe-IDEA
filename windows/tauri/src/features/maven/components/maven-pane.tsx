@@ -46,6 +46,7 @@ import {
   type MavenModule,
   type MavenSettings,
 } from "../types/maven.types";
+import { MavenSourceRootRows } from "./maven-source-root-rows";
 
 interface TreeNodeProps {
   id: string;
@@ -346,6 +347,22 @@ export default function MavenPane() {
     void handleFileSelect(target, false, line, column ?? undefined, undefined, false);
   };
 
+  const renderSourceRoots = (ownerId: string, sourceRoots: MavenModule["sourceRoots"]) => {
+    if (sourceRoots.length === 0) return null;
+    const id = `${ownerId}:source-roots`;
+    return (
+      <TreeNode
+        id={id}
+        title={t("maven.sourceRoots")}
+        icon={<FolderIcon className="size-3.5" />}
+        expanded={expanded.has(id)}
+        onToggle={toggleExpanded}
+      >
+        <MavenSourceRootRows sourceRoots={sourceRoots} />
+      </TreeNode>
+    );
+  };
+
   const renderLifecycle = (ownerId: string, module: MavenModule | null) => {
     const id = `${ownerId}:lifecycle`;
     return (
@@ -395,6 +412,7 @@ export default function MavenPane() {
         onToggle={toggleExpanded}
         onSelect={() => setSelectedModule(module.relativePath)}
       >
+        {renderSourceRoots(id, module.sourceRoots)}
         {renderLifecycle(id, module)}
         {module.modules.map(renderModule)}
       </TreeNode>
@@ -611,6 +629,7 @@ export default function MavenPane() {
                 onToggle={toggleExpanded}
                 onSelect={() => setSelectedModule(null)}
               >
+                {renderSourceRoots(`project:${project.relativePath}`, project.sourceRoots)}
                 {renderLifecycle(`project:${project.relativePath}`, null)}
                 {project.modules.map(renderModule)}
               </TreeNode>

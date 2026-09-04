@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 import LitheGitModule
 import LitheLocalHistoryModule
 import LitheSearchModule
@@ -10,6 +11,9 @@ extension AppModel {
     var isIndexingSpring: Bool { springFeature.isIndexing }
     var rootNode: FileNode? { workspaceFeature.rootNode }
     var projectFiles: [URL] { workspaceFeature.projectFiles }
+    var projectDirectoryMarks: [String: WorkspaceDirectoryMark] {
+        workspaceFeature.directoryMarks
+    }
     var javaEnvironmentReport: JavaEnvironmentReport? {
         runtimeFeature.javaEnvironmentReport
     }
