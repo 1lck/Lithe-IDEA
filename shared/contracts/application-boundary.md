@@ -319,10 +319,10 @@ assemble Maven arguments. Portable profile and Skip Tests defaults conform to
 [`maven-portable-configuration-v1.schema.json`](maven-portable-configuration-v1.schema.json).
 The transient Core request conforms to
 [`maven-launch-context-v1.schema.json`](maven-launch-context-v1.schema.json).
-External `settings.xml`, Maven executable, and Maven JDK paths remain in a
-machine-local store. They may be supplied transiently to Core for planning and
-fingerprinting, but Core never opens `settings.xml` or serializes those paths
-into the portable project context.
+External `settings.xml`, local repository, Maven executable, and Maven JDK
+paths remain in a machine-local store. They may be supplied transiently to Core
+for planning and fingerprinting, but Core never opens `settings.xml` or
+serializes those paths into the portable project context.
 
 The Java language-server startup consumes that same context. Core exposes the
 selected `settings.xml` to JDT LS as

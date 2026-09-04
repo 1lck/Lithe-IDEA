@@ -157,6 +157,7 @@ describe("Maven workspace state", () => {
       local: {
         version: 1,
         settingsPath: "C:/Users/example/.m2/settings.xml",
+        localRepositoryPath: "D:/maven-repo",
         mavenExecutablePath: "D:/Tools/apache-maven",
         javaHomePath: "C:/Java/jdk-21",
       },
@@ -170,6 +171,7 @@ describe("Maven workspace state", () => {
       reactorPath: "reactor",
       profiles: ["dev", "qa"],
       settingsPath: "C:/Users/example/.m2/settings.xml",
+      localRepositoryPath: "D:/maven-repo",
       skipTests: true,
       mavenExecutablePath: "D:/Tools/apache-maven",
       javaHomePath: "C:/Java/jdk-21",
@@ -186,6 +188,7 @@ describe("Maven workspace state", () => {
 
     store.getState().actions.updateLocalConfiguration({
       settingsPath: "C:/Users/example/.m2/settings.xml",
+      localRepositoryPath: "D:/maven-repo",
       mavenExecutablePath: "D:/Tools/apache-maven",
       javaHomePath: "C:/Java/jdk-21",
     });
@@ -200,9 +203,11 @@ describe("Maven workspace state", () => {
       skipTests: false,
     });
     expect(configuration?.portable).not.toHaveProperty("settingsPath");
+    expect(configuration?.portable).not.toHaveProperty("localRepositoryPath");
     expect(configuration?.local).toEqual({
       version: 1,
       settingsPath: "C:/Users/example/.m2/settings.xml",
+      localRepositoryPath: "D:/maven-repo",
       mavenExecutablePath: "D:/Tools/apache-maven",
       javaHomePath: "C:/Java/jdk-21",
     });
