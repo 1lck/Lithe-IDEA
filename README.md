@@ -203,6 +203,7 @@ Before submitting a change, run:
 
 ```bash
 ./scripts/test-macos.sh
+./scripts/test-git-performance-baseline.sh
 ./scripts/verify-core.sh
 ./scripts/verify-git-graph.sh
 ./scripts/verify-service-boundaries.sh
@@ -210,6 +211,9 @@ Before submitting a change, run:
 ./scripts/verify-windows-boundaries.sh
 ./scripts/verify-rust-core.sh
 ```
+
+`test-git-performance-baseline.sh` runs deterministic Git graph work gates and
+records an optimized multi-sample timing baseline under `.artifacts/`.
 
 See [Repository layout and shared boundaries](./docs/architecture/repository-layout.md) for directory ownership, cross-platform boundaries, sharing rules, and the required Rust Core comment standard. Include your verification steps and known limitations when submitting a change.
 
