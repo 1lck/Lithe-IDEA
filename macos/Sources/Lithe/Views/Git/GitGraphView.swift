@@ -81,6 +81,446 @@ struct GitGraphView: View {
     }
 }
 
+/// Native viewport for the middle commit list. The commit rows remain hosted
+/// by one SwiftUI document view so their existing actions and accessibility
+/// stay intact, while wheel movement is handled entirely by AppKit.
+struct GitGraphScrollView: NSViewRepresentable {
+    let presentation: GitGraphPresentation
+    let selectedHash: String?
+    let showCommitDecorations: Bool
+    let canLoadMore: Bool
+    let isLoadingMore: Bool
+    let actions: GitGraphRowActions
+    let onLoadMore: () -> Void
+
+    private let rowHeight: CGFloat = 30
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = Self.makeScrollView(
+            presentation: presentation,
+            selectedHash: selectedHash,
+            showCommitDecorations: showCommitDecorations,
+            canLoadMore: canLoadMore,
+            isLoadingMore: isLoadingMore,
+            actions: actions,
+            onLoadMore: onLoadMore
+        )
+        return scrollView
+    }
+
+    static func makeScrollView(
+        presentation: GitGraphPresentation,
+        selectedHash: String?,
+        showCommitDecorations: Bool,
+        canLoadMore: Bool,
+        isLoadingMore: Bool,
+        actions: GitGraphRowActions,
+        onLoadMore: @escaping () -> Void
+    ) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasHorizontalScroller = false
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
+        scrollView.horizontalScrollElasticity = .none
+        scrollView.verticalScrollElasticity = .allowed
+
+        let documentView = GitGraphScrollDocumentView()
+        documentView.update(
+            presentation: presentation,
+            selectedHash: selectedHash,
+            showCommitDecorations: showCommitDecorations,
+            canLoadMore: canLoadMore,
+            isLoadingMore: isLoadingMore,
+            actions: actions,
+            onLoadMore: onLoadMore
+        )
+        documentView.autoresizingMask = [.width]
+        scrollView.documentView = documentView
+        return scrollView
+    }
+
+    func updateNSView(_ nsView: NSScrollView, context: Context) {
+        guard let documentView = nsView.documentView as? GitGraphScrollDocumentView else { return }
+        documentView.update(
+            presentation: presentation,
+            selectedHash: selectedHash,
+            showCommitDecorations: showCommitDecorations,
+            canLoadMore: canLoadMore,
+            isLoadingMore: isLoadingMore,
+            actions: actions,
+            onLoadMore: onLoadMore
+        )
+        let width = max(nsView.contentView.bounds.width, 1)
+        documentView.updateLayout(width: width, viewportHeight: nsView.contentView.bounds.height)
+
+        guard let selectedIndex = presentation.rows.firstIndex(where: { $0.commit.hash == selectedHash }) else { return }
+        nsView.contentView.scrollToVisible(
+            NSRect(
+                x: 0,
+                y: CGFloat(selectedIndex) * rowHeight,
+                width: width,
+                height: rowHeight
+            )
+        )
+    }
+}
+
+final class GitGraphScrollDocumentView: NSView {
+    private let graphView = GitGraphNSView()
+    private let commitRowsView = GitGraphCommitRowsNSView()
+    private let loadMoreButton = NSButton()
+    private var loadMoreTarget: GitGraphLoadMoreButtonTarget?
+    private var canLoadMore = false
+    private var isLoadingMore = false
+    private var hasMissingParents = false
+    private var onLoadMore: (() -> Void)?
+    private var rowCount = 0
+    private var graphWidth: CGFloat = 30
+    private let rowHeight: CGFloat = 30
+
+    override var isFlipped: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        addSubview(graphView)
+        addSubview(commitRowsView)
+        loadMoreButton.setButtonType(.momentaryPushIn)
+        loadMoreButton.isBordered = false
+        loadMoreButton.bezelStyle = .inline
+        loadMoreButton.alignment = .center
+        loadMoreButton.font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
+        loadMoreButton.contentTintColor = LitheTheme.nsColor(.accent, isDark: false)
+        addSubview(loadMoreButton)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    func update(
+        presentation: GitGraphPresentation,
+        selectedHash: String?,
+        showCommitDecorations: Bool,
+        canLoadMore: Bool,
+        isLoadingMore: Bool,
+        actions: GitGraphRowActions,
+        onLoadMore: @escaping () -> Void
+    ) {
+        graphWidth = max(30, CGFloat(max(presentation.routingSnapshot.laneCount, 1)) * 13 + 16)
+        rowCount = presentation.rows.count + (presentation.hasMissingParents ? 1 : 0)
+        hasMissingParents = presentation.hasMissingParents
+        self.canLoadMore = canLoadMore
+        self.isLoadingMore = isLoadingMore
+        self.onLoadMore = onLoadMore
+        loadMoreTarget = GitGraphLoadMoreButtonTarget(action: onLoadMore)
+        loadMoreButton.target = loadMoreTarget
+        loadMoreButton.action = #selector(GitGraphLoadMoreButtonTarget.invoke)
+        loadMoreButton.title = isLoadingMore
+            ? String(localized: "Loading commits…")
+            : String(localized: "Load more commits")
+        loadMoreButton.isHidden = !canLoadMore
+        loadMoreButton.isEnabled = !isLoadingMore
+        graphView.update(
+            snapshot: presentation.routingSnapshot,
+            width: graphWidth,
+            rowHeight: rowHeight
+        )
+        commitRowsView.update(
+            rows: presentation.rows,
+            selectedHash: selectedHash,
+            showDecorations: showCommitDecorations,
+            graphWidth: graphWidth,
+            rowHeight: rowHeight,
+            actions: actions
+        )
+        needsLayout = true
+        needsDisplay = true
+    }
+
+    func updateLayout(width: CGFloat, viewportHeight: CGFloat) {
+        let footerHeight = canLoadMore ? rowHeight + 2 : 0
+        let height = max(viewportHeight, CGFloat(rowCount) * rowHeight + footerHeight)
+        let size = CGSize(width: max(width, 1), height: height)
+        if frame.size != size { setFrameSize(size) }
+        graphView.frame = CGRect(x: 0, y: 0, width: graphWidth, height: height)
+        commitRowsView.frame = CGRect(
+            x: graphWidth,
+            y: 0,
+            width: max(0, width - graphWidth),
+            height: CGFloat(rowCount) * rowHeight
+        )
+        let missingParentsHeight = hasMissingParents ? rowHeight : 0
+        loadMoreButton.frame = CGRect(
+            x: 0,
+            y: CGFloat(presentationRowCount) * rowHeight + missingParentsHeight + 1,
+            width: max(0, width),
+            height: rowHeight
+        )
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let firstFooterRow = CGFloat(presentationRowCount) * rowHeight
+        let missingParentsHeight = hasMissingParents ? rowHeight : 0
+        let footerY = firstFooterRow + missingParentsHeight
+        guard dirtyRect.maxY >= footerY else { return }
+        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let divider = LitheTheme.nsColor(.divider, isDark: isDark)
+        divider.setFill()
+        NSBezierPath(rect: CGRect(x: 0, y: footerY, width: bounds.width, height: 1)).fill()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if point.x < graphWidth {
+            commitRowsView.select(rowIndex: Int(floor(point.y / rowHeight)))
+            return
+        }
+        super.mouseDown(with: event)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let point = convert(event.locationInWindow, from: nil)
+        if point.x < graphWidth {
+            return commitRowsView.menu(for: event)
+        }
+        return super.menu(for: event)
+    }
+
+    private var presentationRowCount: Int {
+        max(0, rowCount - (hasMissingParents ? 1 : 0))
+    }
+
+    override func layout() {
+        super.layout()
+        updateLayout(width: bounds.width, viewportHeight: bounds.height)
+    }
+}
+
+private final class GitGraphLoadMoreButtonTarget: NSObject {
+    private let action: () -> Void
+
+    init(action: @escaping () -> Void) {
+        self.action = action
+    }
+
+    @objc func invoke() {
+        action()
+    }
+}
+
+final class GitGraphCommitRowsNSView: NSView {
+    private var rows: [GitGraphRow] = []
+    private var selectedHash: String?
+    private var showDecorations = false
+    private var graphWidth: CGFloat = 30
+    private var rowHeight: CGFloat = 30
+    private var actions: GitGraphRowActions?
+    private var drawingStyle: DrawingStyle?
+    private var hoveredIndex: Int?
+
+    override var isFlipped: Bool { true }
+
+    func update(
+        rows: [GitGraphRow],
+        selectedHash: String?,
+        showDecorations: Bool,
+        graphWidth: CGFloat,
+        rowHeight: CGFloat,
+        actions: GitGraphRowActions
+    ) {
+        guard self.rows != rows
+                || self.selectedHash != selectedHash
+                || self.showDecorations != showDecorations
+                || self.graphWidth != graphWidth
+                || self.rowHeight != rowHeight else { return }
+        self.rows = rows
+        self.selectedHash = selectedHash
+        self.showDecorations = showDecorations
+        self.graphWidth = graphWidth
+        self.rowHeight = rowHeight
+        self.actions = actions
+        needsDisplay = true
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        drawingStyle = nil
+        needsDisplay = true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let index = Int(floor(convert(event.locationInWindow, from: nil).y / rowHeight))
+        let next = rows.indices.contains(index) ? index : nil
+        guard hoveredIndex != next else { return }
+        hoveredIndex = next
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        guard hoveredIndex != nil else { return }
+        hoveredIndex = nil
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard !rows.isEmpty, let style = resolvedDrawingStyle() else { return }
+        let first = max(0, Int(floor(dirtyRect.minY / rowHeight)))
+        let last = min(rows.count - 1, Int(ceil(dirtyRect.maxY / rowHeight)))
+        guard first <= last else { return }
+        let context = NSGraphicsContext.current?.cgContext
+
+        for index in first...last {
+            let row = rows[index]
+            let rect = CGRect(x: 0, y: CGFloat(index) * rowHeight, width: bounds.width, height: rowHeight)
+            if selectedHash == row.commit.hash {
+                style.selection.setFill()
+                NSBezierPath(rect: rect).fill()
+            } else if hoveredIndex == index {
+                style.hover.setFill()
+                NSBezierPath(rect: rect).fill()
+            }
+            drawText(
+                row.commit.subject,
+                in: CGRect(x: 0, y: rect.minY, width: max(0, rect.width - 230), height: rowHeight),
+                font: style.body,
+                color: style.primary
+            )
+            drawText(
+                row.commit.authorName,
+                in: CGRect(x: max(0, rect.maxX - 222), y: rect.minY, width: 104, height: rowHeight),
+                font: style.meta,
+                color: style.secondary
+            )
+            drawText(
+                row.commit.date,
+                in: CGRect(x: max(0, rect.maxX - 118), y: rect.minY, width: 110, height: rowHeight),
+                font: style.monoMeta,
+                color: style.secondary,
+                alignment: .right
+            )
+            if showDecorations, !row.labels.isEmpty {
+                drawLabels(row.labels, in: rect, style: style, context: context)
+            }
+            style.divider.setFill()
+            NSBezierPath(rect: CGRect(x: 0, y: rect.maxY - 1, width: rect.width, height: 1)).fill()
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let index = Int(floor(convert(event.locationInWindow, from: nil).y / rowHeight))
+        select(rowIndex: index)
+    }
+
+    func select(rowIndex index: Int) {
+        guard rows.indices.contains(index), let actions else { return }
+        actions.onSelect(rows[index].commit)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let index = Int(floor(convert(event.locationInWindow, from: nil).y / rowHeight))
+        guard rows.indices.contains(index), let actions else { return nil }
+        let commit = rows[index].commit
+        let target = GitGraphCommitMenuTarget(commit: commit, actions: actions)
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Copy Commit Hash", action: #selector(GitGraphCommitMenuTarget.copyHash), keyEquivalent: "")
+        menu.addItem(withTitle: "Copy Short Hash", action: #selector(GitGraphCommitMenuTarget.copyShortHash), keyEquivalent: "")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "New Tag…", action: #selector(GitGraphCommitMenuTarget.createTag), keyEquivalent: "")
+        menu.addItem(withTitle: "Cherry-pick Commit…", action: #selector(GitGraphCommitMenuTarget.cherryPick), keyEquivalent: "")
+        menu.addItem(withTitle: "Revert Commit…", action: #selector(GitGraphCommitMenuTarget.revert), keyEquivalent: "")
+        menu.addItem(withTitle: "Reset Current Branch to Here…", action: #selector(GitGraphCommitMenuTarget.reset), keyEquivalent: "")
+        for item in menu.items { item.target = target }
+        return menu
+    }
+
+    private func drawLabels(_ labels: [GitGraphLabel], in rect: CGRect, style: DrawingStyle, context: CGContext?) {
+        var x = max(0, rect.width - 230)
+        for label in labels.reversed() {
+            let width = min(130, max(28, (label.title as NSString).size(withAttributes: [.font: style.meta]).width + 14))
+            x -= width + 5
+            style.labelBackground.setFill()
+            NSBezierPath(rect: CGRect(x: x, y: rect.midY - 8, width: width, height: 16)).fill()
+            drawText(label.title, in: CGRect(x: x + 7, y: rect.minY, width: width - 10, height: rect.height), font: style.meta, color: style.primary)
+        }
+    }
+
+    private func drawText(_ text: String, in rect: CGRect, font: NSFont, color: NSColor, alignment: NSTextAlignment = .left) {
+        guard rect.width > 0 else { return }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = alignment
+        paragraph.lineBreakMode = .byTruncatingTail
+        let height = ceil(font.ascender - font.descender)
+        (text as NSString).draw(in: CGRect(x: rect.minX, y: rect.midY - height / 2, width: rect.width, height: height), withAttributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph])
+    }
+
+    private func resolvedDrawingStyle() -> DrawingStyle? {
+        if let drawingStyle { return drawingStyle }
+        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let style = DrawingStyle(isDark: isDark)
+        drawingStyle = style
+        return style
+    }
+
+    private struct DrawingStyle {
+        let body = NSFont.systemFont(ofSize: 12.5)
+        let meta = NSFont.systemFont(ofSize: 11.5)
+        let monoMeta = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .regular)
+        let primary: NSColor
+        let secondary: NSColor
+        let divider: NSColor
+        let selection: NSColor
+        let hover: NSColor
+        let labelBackground: NSColor
+
+        init(isDark: Bool) {
+            primary = LitheTheme.nsColor(.primaryText, isDark: isDark)
+            secondary = LitheTheme.nsColor(.secondaryText, isDark: isDark)
+            divider = LitheTheme.nsColor(.divider, isDark: isDark)
+            selection = LitheTheme.nsColor(.accent, isDark: isDark).withAlphaComponent(0.16)
+            hover = LitheTheme.nsColor(.toolHeader, isDark: isDark).withAlphaComponent(0.55)
+            labelBackground = LitheTheme.nsColor(.toolHeader, isDark: isDark)
+        }
+    }
+}
+
+private final class GitGraphCommitMenuTarget: NSObject {
+    let commit: GitCommit
+    let actions: GitGraphRowActions
+
+    init(commit: GitCommit, actions: GitGraphRowActions) {
+        self.commit = commit
+        self.actions = actions
+    }
+
+    @objc func copyHash() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(commit.hash, forType: .string)
+    }
+
+    @objc func copyShortHash() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(commit.shortHash, forType: .string)
+    }
+
+    @objc func createTag() { actions.onCreateTag(commit) }
+    @objc func cherryPick() { actions.onCherryPick(commit) }
+    @objc func revert() { actions.onRevert(commit) }
+    @objc func reset() { actions.onReset(commit) }
+}
+
 private struct GitGraphRowView: View, Equatable {
     let row: GitGraphRow
     let graphWidth: CGFloat
@@ -324,6 +764,12 @@ private final class GitGraphNSView: NSView {
                 context.strokeEllipse(in: nodeRect.insetBy(dx: 1, dy: 1))
             }
         }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // Graph strokes are visual only; the document view routes clicks to
+        // the matching commit row so the whole row remains selectable.
+        nil
     }
 
     private func nodeColorIndex(_ row: GitGraphRoutingRow) -> Int {
