@@ -5,10 +5,19 @@ description = "Lithe Windows desktop application"
 edition = "2021"
 license = "Apache-2.0"
 
+[features]
+test-support = []
+
+[[bin]]
+name = "fake-dap-adapter"
+path = "src/bin/fake_dap_adapter.rs"
+required-features = ["test-support"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 lithe-core = { path = "../../../rust/lithe-core" }
 lithe-project = { path = "../crates/project" }

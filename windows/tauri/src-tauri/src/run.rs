@@ -1315,7 +1315,7 @@ fn quote_windows_arg(argument: &str) -> String {
     quoted
 }
 
-fn apply_creation_flags(command: &mut Command) {
+pub(crate) fn apply_creation_flags(command: &mut Command) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -1324,7 +1324,7 @@ fn apply_creation_flags(command: &mut Command) {
     let _ = command;
 }
 
-fn decode_process_bytes(bytes: &[u8]) -> String {
+pub(crate) fn decode_process_bytes(bytes: &[u8]) -> String {
     if bytes.is_empty() {
         return String::new();
     }
@@ -1351,7 +1351,7 @@ fn looks_like_real_utf8(bytes: &[u8]) -> bool {
         })
 }
 
-fn incomplete_suffix_len(bytes: &[u8]) -> usize {
+pub(crate) fn incomplete_suffix_len(bytes: &[u8]) -> usize {
     match bytes.last() {
         Some(&byte) if byte >= 0x81 => 1,
         _ => 0,
