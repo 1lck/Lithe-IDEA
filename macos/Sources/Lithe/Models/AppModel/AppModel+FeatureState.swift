@@ -276,6 +276,8 @@ extension AppModel {
         set { gitFeatureIfActive?.selectedGitCommit = newValue }
     }
     var selectedGitCommitFiles: [GitCommitFile] { gitFeatureIfActive?.selectedGitCommitFiles ?? [] }
+    /// Constant-time change key for the commit file tree projection.
+    var selectedGitCommitFilesVersion: Int { gitFeatureIfActive?.selectedGitCommitFilesVersion ?? 0 }
     var selectedGitCommitFilesLoadState: GitCommitFilesLoadState {
         gitFeatureIfActive?.selectedGitCommitFilesLoadState ?? .idle
     }

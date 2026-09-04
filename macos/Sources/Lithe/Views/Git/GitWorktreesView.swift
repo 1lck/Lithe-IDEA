@@ -89,6 +89,7 @@ struct GitWorktreesView: View {
     @State private var selectedWorktreeID: String?
     @State private var activeSection = WorktreeSection.overview
     @State private var projectedWorktrees: [GitWorktreeListItem] = []
+    @State private var projectedHistoryCommits: [GitCommit] = []
 
     var body: some View {
         GeometryReader { geometry in
@@ -158,6 +159,25 @@ struct GitWorktreesView: View {
             }.value
             guard taskIdentity == worktreeListProjectionIdentity else { return }
             projectedWorktrees = projection
+        }
+        .task(id: worktreeHistoryProjectionIdentity) {
+            let taskIdentity = worktreeHistoryProjectionIdentity
+            guard let inspection = model.gitWorktreeInspection else {
+                projectedHistoryCommits = []
+                return
+            }
+            let query = historySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let commits = inspection.commits
+            let projection = await Task.detached(priority: .userInitiated) {
+                guard !query.isEmpty else { return commits }
+                return commits.filter {
+                    $0.subject.localizedCaseInsensitiveContains(query)
+                        || $0.authorName.localizedCaseInsensitiveContains(query)
+                    || $0.hash.localizedCaseInsensitiveContains(query)
+                }
+            }.value
+            guard taskIdentity == currentWorktreeHistoryProjectionIdentity else { return }
+            projectedHistoryCommits = projection
         }
         .onChange(of: model.gitWorktrees.map(\.id)) { _ in
             selectAvailableWorktree()
@@ -546,23 +566,12 @@ struct GitWorktreesView: View {
             } else {
                 worktreeCard(title: "Changes") {
                     LazyVStack(spacing: 0) {
-                        ForEach(inspection.changes) { change in
-                            HStack(spacing: 10) {
-                                Text(change.displayStatus)
-                                    .font(Visual.mono)
-                                    .foregroundStyle(changeColor(change))
-                                    .frame(width: 22)
-                                Text(change.path)
-                                    .font(Visual.body)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                Spacer()
-                                Text(LocalizedStringKey(change.isStaged ? "Staged" : "Unstaged"))
-                                    .font(Visual.metadata)
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                            }
-                            .padding(.vertical, 9)
-                            if change.id != inspection.changes.last?.id { Divider() }
+                        ForEach(Array(inspection.changes.enumerated()), id: \.element.id) { index, change in
+                            GitWorktreeChangeRow(
+                                change: change,
+                                showsDivider: index < inspection.changes.count - 1
+                            )
+                            .equatable()
                         }
                     }
                 }
@@ -582,11 +591,7 @@ struct GitWorktreesView: View {
             } else {
                 worktreeCard(title: "Commit History") {
                     let query = historySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let commits = query.isEmpty ? inspection.commits : inspection.commits.filter {
-                        $0.subject.localizedCaseInsensitiveContains(query)
-                            || $0.authorName.localizedCaseInsensitiveContains(query)
-                            || $0.hash.localizedCaseInsensitiveContains(query)
-                    }
+                    let commits = projectedHistoryCommits
                     VStack(alignment: .leading, spacing: 10) {
                         TextField("Search commits", text: $historySearchText)
                             .textFieldStyle(.roundedBorder)
@@ -598,28 +603,12 @@ struct GitWorktreesView: View {
                                 .padding(.vertical, 8)
                         }
                         LazyVStack(spacing: 0) {
-                            ForEach(commits) { commit in
-                            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                                Image(systemName: "circle.fill")
-                                    .font(.system(size: 7))
-                                    .foregroundStyle(LitheTheme.accent)
-                                Text(commit.subject)
-                                    .font(Visual.bodyMedium)
-                                    .foregroundStyle(LitheTheme.primaryText)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                Spacer()
-                                Text(commit.authorName)
-                                    .font(Visual.metadata)
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                                    .lineLimit(1)
-                                Text(commit.date)
-                                    .font(Visual.metadata)
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                                    .lineLimit(1)
-                            }
-                            .padding(.vertical, 8)
-                            if commit.id != commits.last?.id { Divider() }
+                            ForEach(Array(commits.enumerated()), id: \.element.id) { index, commit in
+                                GitWorktreeHistoryRow(
+                                    commit: commit,
+                                    showsDivider: index < commits.count - 1
+                                )
+                                .equatable()
                             }
                         }
                         if query.isEmpty && inspection.hasMoreCommits {
@@ -868,6 +857,18 @@ struct GitWorktreesView: View {
             currentChangeCount: model.gitChanges.count,
             query: searchText
         )
+    }
+
+    private var worktreeHistoryProjectionIdentity: WorktreeHistoryProjectionIdentity {
+        WorktreeHistoryProjectionIdentity(
+            worktreeID: selectedWorktree?.id,
+            inspectionVersion: model.gitWorktreeInspectionVersion,
+            query: historySearchText
+        )
+    }
+
+    private var currentWorktreeHistoryProjectionIdentity: WorktreeHistoryProjectionIdentity {
+        worktreeHistoryProjectionIdentity
     }
 
     private var selectedWorktree: GitWorktree? {
@@ -1119,6 +1120,85 @@ private struct WorktreeListProjectionIdentity: Hashable {
     let inspectionVersion: Int
     let currentChangeCount: Int
     let query: String
+}
+
+private struct WorktreeHistoryProjectionIdentity: Hashable {
+    let worktreeID: String?
+    let inspectionVersion: Int
+    let query: String
+}
+
+private struct GitWorktreeHistoryRow: View, Equatable {
+    let commit: GitCommit
+    let showsDivider: Bool
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.commit == rhs.commit && lhs.showsDivider == rhs.showsDivider
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: "circle.fill")
+                    .font(.system(size: 7))
+                    .foregroundStyle(LitheTheme.accent)
+                Text(commit.subject)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer()
+                Text(commit.authorName)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .lineLimit(1)
+                Text(commit.date)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .lineLimit(1)
+            }
+            .padding(.vertical, 8)
+            if showsDivider { Divider() }
+        }
+    }
+}
+
+private struct GitWorktreeChangeRow: View, Equatable {
+    let change: GitChange
+    let showsDivider: Bool
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.change == rhs.change && lhs.showsDivider == rhs.showsDivider
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Text(change.displayStatus)
+                    .font(.system(size: 12.5, design: .monospaced))
+                    .foregroundStyle(color)
+                    .frame(width: 22)
+                Text(change.path)
+                    .font(.system(size: 13))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Text(LocalizedStringKey(change.isStaged ? "Staged" : "Unstaged"))
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+            .padding(.vertical, 9)
+            if showsDivider { Divider() }
+        }
+    }
+
+    private var color: Color {
+        switch change.kind {
+        case .added: LitheTheme.success
+        case .deleted, .conflicted: LitheTheme.error
+        case .modified, .moved, .copied: LitheTheme.warning
+        }
+    }
 }
 
 private struct GitWorktreeCreateView: View {

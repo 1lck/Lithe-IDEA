@@ -35,13 +35,15 @@ struct GitLogView: View {
     @State private var showsGitLogBranchFilterPopover = false
     @State private var showsGitLogAuthorFilterPopover = false
     @State private var graphPresentation = GitGraphPresentation.empty
+    @State private var commitFileTreeSnapshot = GitCommitFileTreeSnapshot.empty
+    @State private var commitDetailPresentation = GitCommitDetailPresentation.empty
     @FocusState private var gitLogSearchFocused: Bool
     @FocusState private var gitLogCommitListFocused: Bool
 
     /// IntelliJ's Git tool window uses the macOS system UI font throughout;
     /// only hashes and timestamps use a monospaced face. Keeping these values
     /// together makes the Git surface read as one coherent tool window.
-    private enum GitVisual {
+    fileprivate enum GitVisual {
         static let title = Font.system(size: 13.5, weight: .semibold)
         static let toolbar = Font.system(size: 12.5, weight: .regular)
         static let section = Font.system(size: 13, weight: .medium)
@@ -93,6 +95,32 @@ struct GitLogView: View {
             }.value
             guard taskIdentity == graphPresentationTaskIdentity else { return }
             graphPresentation = presentation
+        }
+        .task(id: commitFileTreeProjectionIdentity) {
+            let taskIdentity = commitFileTreeProjectionIdentity
+            let files = model.selectedGitCommitFiles
+            let rootName = model.projectName
+            let collapsedGroups = collapsedFileGroups
+            let snapshot = await Task.detached(priority: .userInitiated) {
+                let root = GitCommitFileTreeNode.build(from: files, rootName: rootName)
+                var items: [GitCommitFileTreeItem] = []
+                Self.appendVisibleCommitFileTreeItems(
+                    for: root,
+                    depth: 0,
+                    collapsedGroups: collapsedGroups,
+                    into: &items
+                )
+                return GitCommitFileTreeSnapshot(visibleItems: items)
+            }.value
+            guard taskIdentity == currentCommitFileTreeProjectionIdentity else { return }
+            commitFileTreeSnapshot = snapshot
+        }
+        .task(id: model.selectedGitCommit?.hash) {
+            guard let commit = model.selectedGitCommit else {
+                commitDetailPresentation = .empty
+                return
+            }
+            commitDetailPresentation = GitCommitDetailPresentation(commit: commit)
         }
         // The three section arrays are derived, not user state. Rebuilding them
         // here rather than in `body` keeps the flattening off the render path
@@ -1280,7 +1308,7 @@ struct GitLogView: View {
                 GeometryReader { geometry in
                     ScrollView(.vertical) {
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(visibleCommitFileTreeItems) { item in
+                            ForEach(commitFileTreeSnapshot.visibleItems) { item in
                                 commitFileTreeItemRow(item)
                             }
                         }
@@ -1299,21 +1327,21 @@ struct GitLogView: View {
 
     private var commitDetail: some View {
         Group {
-            if let commit = model.selectedGitCommit {
+            if commitDetailPresentation.isVisible {
                 VStack(alignment: .leading, spacing: 9) {
-                    Text(commit.subject)
+                    Text(commitDetailPresentation.subject)
                         .font(.system(size: 13.5, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
                         .lineLimit(2)
-                    Text("\(commit.shortHash)  \(commit.authorName) <\(commit.authorEmail)>")
+                    Text("\(commitDetailPresentation.shortHash)  \(commitDetailPresentation.authorName) <\(commitDetailPresentation.authorEmail)>")
                         .font(GitVisual.meta)
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(1)
-                    Text(commit.date)
+                    Text(commitDetailPresentation.date)
                         .font(GitVisual.monoMeta)
                         .foregroundStyle(LitheTheme.secondaryText)
-                    if !commit.decorations.isEmpty {
-                        Text(commit.decorations)
+                    if !commitDetailPresentation.decorations.isEmpty {
+                        Text(commitDetailPresentation.decorations)
                         .font(GitVisual.meta)
                             .foregroundStyle(LitheTheme.accent)
                             .lineLimit(2)
@@ -1674,35 +1702,20 @@ struct GitLogView: View {
         showsGitLogPathPopover = false
     }
 
-    private var commitFileTree: GitCommitFileTreeNode {
-        GitCommitFileTreeNode.build(
-            from: model.selectedGitCommitFiles,
-            rootName: model.projectName
-        )
-    }
-
-    private var visibleCommitFileTreeItems: [GitCommitFileTreeItem] {
-        var items: [GitCommitFileTreeItem] = []
-        appendVisibleCommitFileTreeItems(
-            for: commitFileTree,
-            depth: 0,
-            into: &items
-        )
-        return items
-    }
-
-    private func appendVisibleCommitFileTreeItems(
+    nonisolated private static func appendVisibleCommitFileTreeItems(
         for node: GitCommitFileTreeNode,
         depth: Int,
+        collapsedGroups: Set<String>,
         into items: inout [GitCommitFileTreeItem]
     ) {
         items.append(.folder(node, depth: depth))
-        guard !collapsedFileGroups.contains(node.id) else { return }
+        guard !collapsedGroups.contains(node.id) else { return }
 
         for directory in node.directories {
-            appendVisibleCommitFileTreeItems(
+            Self.appendVisibleCommitFileTreeItems(
                 for: directory,
                 depth: depth + 1,
+                collapsedGroups: collapsedGroups,
                 into: &items
             )
         }
@@ -1716,48 +1729,42 @@ struct GitLogView: View {
         switch item {
         case let .folder(node, depth):
             let isCollapsed = collapsedFileGroups.contains(node.id)
-            Button {
-                if isCollapsed {
-                    collapsedFileGroups.remove(node.id)
-                } else {
-                    collapsedFileGroups.insert(node.id)
-                }
-            } label: {
-                HStack(spacing: 7) {
-                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                        .font(.system(size: 8, weight: .bold))
-                        .frame(width: 10)
-                        .foregroundStyle(LitheTheme.secondaryText)
-                    LitheSystemIcon(systemImage: "folder")
-                        .frame(width: 14, height: 14)
-                        .foregroundStyle(LitheTheme.secondaryText)
-                    Text(node.name)
-                        .font(GitVisual.bodyMedium)
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .lineLimit(1)
-                    Text(node.fileCount == 1 ? "1 file" : "\(node.fileCount) files")
-                        .font(GitVisual.meta)
-                        .foregroundStyle(LitheTheme.secondaryText)
-                    if depth == 0, let rootPath = commitFileRootSubtitle {
-                        Text(rootPath)
-                            .font(GitVisual.meta)
-                            .foregroundStyle(LitheTheme.secondaryText.opacity(0.76))
-                            .lineLimit(1)
+            GitCommitFileFolderRow(
+                node: node,
+                depth: depth,
+                isCollapsed: isCollapsed,
+                rootSubtitle: depth == 0 ? commitFileRootSubtitle : nil,
+                onToggle: {
+                    if isCollapsed {
+                        collapsedFileGroups.remove(node.id)
+                    } else {
+                        collapsedFileGroups.insert(node.id)
                     }
-                    Spacer(minLength: 8)
                 }
-                .padding(.leading, 8 + CGFloat(depth * 16))
-                .padding(.trailing, 8)
-                .frame(maxWidth: .infinity, minHeight: GitVisual.treeRowHeight, alignment: .leading)
-                .contentShape(Rectangle())
-                .litheRowHover(cornerRadius: 4)
-            }
-            .buttonStyle(.plain)
-            .lithePointer()
+            )
+            .equatable()
 
         case let .file(file, depth):
-            commitFileRow(file, depth: depth)
+            GitCommitFileRow(
+                file: file,
+                depth: depth,
+                isActive: model.selectedGitCommitFile?.id == file.id,
+                onSelect: { model.showGitCommitDiff(for: file) }
+            )
+            .equatable()
         }
+    }
+
+    private var commitFileTreeProjectionIdentity: CommitFileTreeProjectionIdentity {
+        CommitFileTreeProjectionIdentity(
+            filesVersion: model.selectedGitCommitFilesVersion,
+            rootName: model.projectName,
+            collapsedGroups: collapsedFileGroups
+        )
+    }
+
+    private var currentCommitFileTreeProjectionIdentity: CommitFileTreeProjectionIdentity {
+        commitFileTreeProjectionIdentity
     }
 
     private var commitFileRootSubtitle: String? {
@@ -1841,10 +1848,70 @@ struct GitLogView: View {
         min(max(value, minimum), maximum)
     }
 
-    private func commitFileRow(_ file: GitCommitFile, depth: Int) -> some View {
-        Button {
-            model.showGitCommitDiff(for: file)
-        } label: {
+}
+
+private struct GitCommitFileFolderRow: View, Equatable {
+    let node: GitCommitFileTreeNode
+    let depth: Int
+    let isCollapsed: Bool
+    let rootSubtitle: String?
+    let onToggle: () -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.node == rhs.node
+            && lhs.depth == rhs.depth
+            && lhs.isCollapsed == rhs.isCollapsed
+            && lhs.rootSubtitle == rhs.rootSubtitle
+    }
+
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(spacing: 7) {
+                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+                    .frame(width: 10)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                LitheSystemIcon(systemImage: "folder")
+                    .frame(width: 14, height: 14)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                Text(node.name)
+                    .font(GitLogView.GitVisual.bodyMedium)
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .lineLimit(1)
+                Text(node.fileCount == 1 ? "1 file" : "\(node.fileCount) files")
+                    .font(GitLogView.GitVisual.meta)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                if let rootSubtitle {
+                    Text(rootSubtitle)
+                        .font(GitLogView.GitVisual.meta)
+                        .foregroundStyle(LitheTheme.secondaryText.opacity(0.76))
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+            }
+            .padding(.leading, 8 + CGFloat(depth * 16))
+            .padding(.trailing, 8)
+            .frame(maxWidth: .infinity, minHeight: GitLogView.GitVisual.treeRowHeight, alignment: .leading)
+            .contentShape(Rectangle())
+            .litheRowHover(cornerRadius: 4)
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+    }
+}
+
+private struct GitCommitFileRow: View, Equatable {
+    let file: GitCommitFile
+    let depth: Int
+    let isActive: Bool
+    let onSelect: () -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.file == rhs.file && lhs.depth == rhs.depth && lhs.isActive == rhs.isActive
+    }
+
+    var body: some View {
+        Button(action: onSelect) {
             HStack(spacing: 7) {
                 Text(file.status)
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
@@ -1853,16 +1920,16 @@ struct GitLogView: View {
                 LitheIcon(kind: LitheIcons.kind(forFilePath: file.path), size: 14)
                     .frame(width: 14, height: 14)
                 Text((file.path as NSString).lastPathComponent)
-                    .font(GitVisual.body)
+                    .font(GitLogView.GitVisual.body)
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
                 Spacer(minLength: 8)
             }
             .padding(.leading, 30 + CGFloat(max(depth - 1, 0) * 16))
             .padding(.trailing, 8)
-            .frame(maxWidth: .infinity, minHeight: GitVisual.treeRowHeight, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: GitLogView.GitVisual.treeRowHeight, alignment: .leading)
             .litheRowHover(
-                isActive: model.selectedGitCommitFile?.id == file.id,
+                isActive: isActive,
                 cornerRadius: 4,
                 activeBackground: LitheTheme.subtleSelection
             )
@@ -1870,6 +1937,13 @@ struct GitLogView: View {
         }
         .buttonStyle(.plain)
         .lithePointer()
+    }
+
+    private func fileStatusColor(_ status: String) -> Color {
+        if status.hasPrefix("A") { return LitheTheme.success }
+        if status.hasPrefix("D") { return .red.opacity(0.85) }
+        if status.hasPrefix("R") { return LitheTheme.accent }
+        return LitheTheme.warning
     }
 }
 
@@ -1963,7 +2037,67 @@ enum GitLogDatePreset: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
-private enum GitCommitFileTreeItem: Identifiable {
+private struct GitCommitFileTreeSnapshot: Sendable {
+    let visibleItems: [GitCommitFileTreeItem]
+
+    static let empty = GitCommitFileTreeSnapshot(visibleItems: [])
+}
+
+private struct CommitFileTreeProjectionIdentity: Hashable {
+    let filesVersion: Int
+    let rootName: String
+    let collapsedGroups: Set<String>
+}
+
+private struct GitCommitDetailPresentation: Equatable, Sendable {
+    let isVisible: Bool
+    let subject: String
+    let shortHash: String
+    let authorName: String
+    let authorEmail: String
+    let date: String
+    let decorations: String
+
+    static let empty = GitCommitDetailPresentation(
+        isVisible: false,
+        subject: "",
+        shortHash: "",
+        authorName: "",
+        authorEmail: "",
+        date: "",
+        decorations: ""
+    )
+
+    init(commit: GitCommit) {
+        isVisible = true
+        subject = commit.subject
+        shortHash = commit.shortHash
+        authorName = commit.authorName
+        authorEmail = commit.authorEmail
+        date = commit.date
+        decorations = commit.decorations
+    }
+
+    private init(
+        isVisible: Bool,
+        subject: String,
+        shortHash: String,
+        authorName: String,
+        authorEmail: String,
+        date: String,
+        decorations: String
+    ) {
+        self.isVisible = isVisible
+        self.subject = subject
+        self.shortHash = shortHash
+        self.authorName = authorName
+        self.authorEmail = authorEmail
+        self.date = date
+        self.decorations = decorations
+    }
+}
+
+private enum GitCommitFileTreeItem: Identifiable, Equatable, Sendable {
     case folder(GitCommitFileTreeNode, depth: Int)
     case file(GitCommitFile, depth: Int)
 

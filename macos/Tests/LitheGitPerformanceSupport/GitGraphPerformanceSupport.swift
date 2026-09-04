@@ -72,6 +72,81 @@ package enum SyntheticGitGraphFixture {
     }
 }
 
+/// Measures the detached work performed by the Git commit file-tree projection.
+/// The fixture uses stable nested paths so the sample covers directory merging,
+/// sorting, and flattening without filesystem or process input.
+package struct GitCommitFileTreeProjectionBenchmark: Sendable {
+    package let fileCount: Int
+    package let visibleItemCount: Int
+    package let sampleCount: Int
+    package let medianMs: Double
+    package let p95Ms: Double
+
+    package static func run(fileCount: Int, samples: Int = 21) -> Self {
+        precondition(fileCount > 0 && samples > 0)
+        let files = syntheticFiles(count: fileCount)
+        var durations: [Double] = []
+        durations.reserveCapacity(samples)
+        var visibleCount = 0
+
+        let clock = ContinuousClock()
+        for _ in 0..<samples {
+            let start = clock.now
+            let root = GitCommitFileTreeNode.build(from: files, rootName: "Repository")
+            var items: [TreeProjectionItem] = []
+            flatten(root, depth: 0, collapsedGroups: [], into: &items)
+            visibleCount = items.count
+            durations.append(milliseconds(clock.now - start))
+        }
+
+        let sorted = durations.sorted()
+        let median = sorted[sorted.count / 2]
+        let p95 = sorted[max(0, Int(ceil(Double(sorted.count) * 0.95)) - 1)]
+        return Self(
+            fileCount: fileCount,
+            visibleItemCount: visibleCount,
+            sampleCount: samples,
+            medianMs: median,
+            p95Ms: p95
+        )
+    }
+
+    private struct TreeProjectionItem {
+        let id: String
+    }
+
+    private static func syntheticFiles(count: Int) -> [GitCommitFile] {
+        (0..<count).map { index in
+            let group = index % 40
+            let bucket = index / 40
+            return GitCommitFile(
+                status: index.isMultiple(of: 5) ? "A" : "M",
+                path: "Sources/Feature\(group)/Module\(bucket % 12)/File\(index).swift"
+            )
+        }
+    }
+
+    private static func flatten(
+        _ node: GitCommitFileTreeNode,
+        depth: Int,
+        collapsedGroups: Set<String>,
+        into items: inout [TreeProjectionItem]
+    ) {
+        items.append(TreeProjectionItem(id: node.id))
+        guard !collapsedGroups.contains(node.id) else { return }
+        for directory in node.directories {
+            flatten(directory, depth: depth + 1, collapsedGroups: collapsedGroups, into: &items)
+        }
+        items.append(contentsOf: node.files.map { TreeProjectionItem(id: $0.id) })
+    }
+
+    private static func milliseconds(_ duration: Duration) -> Double {
+        let components = duration.components
+        return Double(components.seconds) * 1_000
+            + Double(components.attoseconds) / 1_000_000_000_000_000
+    }
+}
+
 /// Stable output-shape counters for the synthetic graph fixtures. These values
 /// protect lane density and edge structure; optimized timing samples separately
 /// monitor execution cost because identical output can come from faster code.

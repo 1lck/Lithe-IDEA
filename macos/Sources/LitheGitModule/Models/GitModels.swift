@@ -273,7 +273,7 @@ package struct GitCommitFile: Identifiable, Hashable, Sendable {
     package var id: String { "\(status):\(path)" }
 }
 
-package struct GitCommitFileTreeNode: Identifiable, Sendable {
+package struct GitCommitFileTreeNode: Identifiable, Equatable, Sendable {
     package let path: String
     package let name: String
     package let directories: [GitCommitFileTreeNode]

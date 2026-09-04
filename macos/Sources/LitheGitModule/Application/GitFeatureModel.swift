@@ -123,7 +123,12 @@ package final class GitFeatureModel: ObservableObject {
     /// highlighting HEAD while the core is actually queried with `--all`.
     @Published package private(set) var isShowingAllGitReferences = false
     @Published package var selectedGitCommit: GitCommit?
-    @Published package private(set) var selectedGitCommitFiles: [GitCommitFile] = []
+    @Published package private(set) var selectedGitCommitFiles: [GitCommitFile] = [] {
+        didSet { selectedGitCommitFilesVersion &+= 1 }
+    }
+    /// Constant-time change key for the commit file tree projection.
+    package private(set) var selectedGitCommitFilesVersion = 0
+
     @Published package private(set) var selectedGitCommitFilesLoadState =
         GitCommitFilesLoadState.idle
     @Published package var selectedGitCommitFile: GitCommitFile?

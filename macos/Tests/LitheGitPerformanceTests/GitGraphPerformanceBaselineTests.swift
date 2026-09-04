@@ -81,7 +81,7 @@ struct GitGraphPerformanceBaselineTests {
         samples.reserveCapacity(10)
 
         for _ in 0..<1 {
-            sampleFrame(view: view, context: context, clock: clock)
+            _ = sampleFrame(view: view, context: context, clock: clock)
         }
         for _ in 0..<10 {
             samples.append(sampleFrame(view: view, context: context, clock: clock))
@@ -147,6 +147,17 @@ struct GitGraphPerformanceBaselineTests {
         #expect(benchmark.matchedCount == 111)
         #expect(benchmark.sampleCount == 21)
         #expect(benchmark.p95Ms < 100)
+    }
+
+    @Test("The commit file tree projection stays bounded for large diffs")
+    func commitFileTreeProjectionBaseline() {
+        let benchmark = GitCommitFileTreeProjectionBenchmark.run(fileCount: 5_000)
+        print(
+            "Git commit file-tree projection: files=\(benchmark.fileCount), visible=\(benchmark.visibleItemCount), samples=\(benchmark.sampleCount), median=\(String(format: "%.3f", benchmark.medianMs))ms, p95=\(String(format: "%.3f", benchmark.p95Ms))ms"
+        )
+        #expect(benchmark.visibleItemCount > benchmark.fileCount)
+        #expect(benchmark.sampleCount == 21)
+        #expect(benchmark.p95Ms < 30)
     }
 }
 
