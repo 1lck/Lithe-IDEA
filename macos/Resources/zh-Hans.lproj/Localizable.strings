@@ -276,6 +276,13 @@
 "Show Project in Finder" = "在 Finder 中显示项目";
 "Copy Project Path" = "复制项目路径";
 "Copy Path" = "复制路径";
+"Mark Target As" = "将目标标记为";
+"Sources Root" = "源代码根目录";
+"Resources Root" = "资源根目录";
+"Excluded" = "已排除";
+"Module Root" = "模块根目录";
+"Package" = "包";
+"Normal Folder" = "普通文件夹";
 "Copy Relative Path" = "复制相对路径";
 "New Project…" = "新建项目…";
 "New File…" = "新建文件…";

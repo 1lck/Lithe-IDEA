@@ -162,6 +162,13 @@
 "Open in Lithe" = "Open in Lithe";
 "Show in Finder" = "Show in Finder";
 "Copy Path" = "Copy Path";
+"Mark Target As" = "Mark Target As";
+"Sources Root" = "Sources Root";
+"Resources Root" = "Resources Root";
+"Excluded" = "Excluded";
+"Module Root" = "Module Root";
+"Package" = "Package";
+"Normal Folder" = "Normal Folder";
 "Unlock Worktree" = "Unlock Worktree";
 "Lock Worktree" = "Lock Worktree";
 "Remove Worktree…" = "Remove Worktree…";

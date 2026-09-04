@@ -21,8 +21,9 @@ struct CodeEditorPalette {
     }
     var text: NSColor {
         guard theme == .lithe else { return themeColor(.primaryText) }
+        if !isDark { return themeColor(.primaryText) }
         return color(
-            light: (0, 0, 0, 0.82),
+            light: (0.122, 0.137, 0.161, 1),
             dark: (0.737, 0.745, 0.769, 1)
         )
     }
