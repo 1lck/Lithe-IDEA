@@ -289,6 +289,7 @@ export function useFileExplorerContextMenu({
       items.push({ id: "sep-dir", label: "", separator: true, onClick: () => {} });
     } else {
       const fileName = getBaseName(contextMenu.path, "");
+      const isMarkdownFile = /\.(md|markdown|rmd)$/i.test(fileName);
       const canCreateEnvTemplate =
         isEnvFileName(fileName) &&
         !contextMenu.path.startsWith("remote://") &&
@@ -301,6 +302,33 @@ export function useFileExplorerContextMenu({
           icon: <FolderOpen />,
           onClick: () => onFileSelect(contextMenu.path, false),
         },
+        ...(isMarkdownFile
+          ? [
+              {
+                id: "open-preview",
+                label: t("files.openPreview"),
+                icon: <Eye />,
+                onClick: async () => {
+                  try {
+                    const content = await readTextFile(contextMenu.path);
+                    const previewPath = `${contextMenu.path}:preview`;
+                    const previewName = `${fileName} (Preview)`;
+
+                    useBufferStore.getState().actions.openContent({
+                      type: "markdownPreview",
+                      path: previewPath,
+                      name: previewName,
+                      content,
+                      sourceFilePath: contextMenu.path,
+                    });
+                  } catch (error) {
+                    console.error("Failed to open markdown preview:", error);
+                    toast.error(t("files.openFailed", { name: fileName }));
+                  }
+                },
+              },
+            ]
+          : []),
         {
           id: "copy-content",
           label: t("files.copyContent"),
