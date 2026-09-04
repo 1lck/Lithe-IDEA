@@ -352,6 +352,115 @@ struct GitGraphPerformanceBaselineTests {
         #expect(median < 30)
         #expect(p95 < 100)
     }
+
+    @Test("The native Git commit file tree draws only the visible viewport")
+    @MainActor
+    func nativeGitCommitFileTreeFrameBaseline() throws {
+        let files = (0..<5_000).map { index in
+            GitCommitFile(
+                status: index.isMultiple(of: 5) ? "A" : "M",
+                path: "Sources/Feature\(index % 40)/Module\((index / 40) % 12)/File\(index).swift"
+            )
+        }
+        let root = GitCommitFileTreeNode.build(from: files, rootName: "Repository")
+        var items: [GitCommitFileTreeItem] = []
+        appendVisibleFileTreeItems(root, depth: 0, collapsedFolderIDs: [], into: &items)
+
+        let view = GitCommitFileTreeNSView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 900,
+            height: CGFloat(items.count) * GitCommitFileTreeNSView.rowHeight + 10
+        ))
+        view.update(
+            items: items,
+            selectedFileID: files[2_500].id,
+            rootSubtitle: nil,
+            collapsedFolderIDs: [],
+            onToggleFolder: { _ in },
+            onSelectFile: { _ in }
+        )
+
+        let dirtyRect = CGRect(
+            x: 0,
+            y: 2_500 * GitCommitFileTreeNSView.rowHeight,
+            width: 900,
+            height: 420
+        )
+        let visibleRange = try #require(GitCommitFileTreeNSView.visibleRowRange(
+            itemCount: items.count,
+            rowHeight: GitCommitFileTreeNSView.rowHeight,
+            dirtyRect: dirtyRect
+        ))
+        let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 900,
+            pixelsHigh: 420,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bitmapFormat: [],
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        )!
+        let context = NSGraphicsContext(bitmapImageRep: bitmap)!
+        let clock = ContinuousClock()
+        var samples: [Double] = []
+        samples.reserveCapacity(10)
+        for _ in 0..<2 {
+            drawFileTreeFrame(view: view, dirtyRect: dirtyRect, context: context)
+        }
+        for _ in 0..<10 {
+            let start = clock.now
+            drawFileTreeFrame(view: view, dirtyRect: dirtyRect, context: context)
+            samples.append(milliseconds(clock.now - start))
+        }
+
+        let sorted = samples.sorted()
+        let median = sorted[sorted.count / 2]
+        let p95 = sorted[Int(ceil(Double(sorted.count) * 0.95)) - 1]
+        print(
+            "Git commit file-tree native rows: total=\(items.count), visible=\(visibleRange.count), samples=\(samples.count), median=\(String(format: "%.3f", median))ms, p95=\(String(format: "%.3f", p95))ms"
+        )
+        #expect(visibleRange.count <= 17)
+        #expect(median < 30)
+        #expect(p95 < 100)
+    }
+}
+
+@MainActor
+private func drawFileTreeFrame(
+    view: GitCommitFileTreeNSView,
+    dirtyRect: CGRect,
+    context: NSGraphicsContext
+) {
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = context
+    view.draw(dirtyRect)
+    NSGraphicsContext.restoreGraphicsState()
+}
+
+private func appendVisibleFileTreeItems(
+    _ node: GitCommitFileTreeNode,
+    depth: Int,
+    collapsedFolderIDs: Set<String>,
+    into items: inout [GitCommitFileTreeItem]
+) {
+    items.append(.folder(node, depth: depth))
+    guard !collapsedFolderIDs.contains(node.id) else { return }
+    for directory in node.directories {
+        appendVisibleFileTreeItems(
+            directory,
+            depth: depth + 1,
+            collapsedFolderIDs: collapsedFolderIDs,
+            into: &items
+        )
+    }
+    for file in node.files {
+        items.append(.file(file, depth: depth + 1))
+    }
 }
 
 @MainActor

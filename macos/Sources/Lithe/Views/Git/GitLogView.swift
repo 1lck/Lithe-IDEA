@@ -1279,22 +1279,22 @@ struct GitLogView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .ready:
-                GeometryReader { geometry in
-                    ScrollView(.vertical) {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(commitFileTreeSnapshot.visibleItems) { item in
-                                commitFileTreeItemRow(item)
-                            }
+                GitCommitFileTreeScrollView(
+                    items: commitFileTreeSnapshot.visibleItems,
+                    selectedFileID: model.selectedGitCommitFile?.id,
+                    rootSubtitle: commitFileRootSubtitle,
+                    collapsedFolderIDs: collapsedFileGroups,
+                    onToggleFolder: { folderID in
+                        if collapsedFileGroups.contains(folderID) {
+                            collapsedFileGroups.remove(folderID)
+                        } else {
+                            collapsedFileGroups.insert(folderID)
                         }
-                        .padding(.vertical, 5)
-                        .frame(
-                            minWidth: geometry.size.width,
-                            minHeight: geometry.size.height,
-                            alignment: .topLeading
-                        )
+                    },
+                    onSelectFile: { file in
+                        model.showGitCommitDiff(for: file)
                     }
-                    .litheScrollViewChrome(hideHorizontal: true)
-                }
+                )
             }
         }
     }
@@ -1921,6 +1921,264 @@ private struct GitCommitFileRow: View, Equatable {
     }
 }
 
+/// Native viewport for the changed-files tree. The projection remains a flat,
+/// deterministic list, while AppKit handles scrolling and draws only rows in
+/// the dirty rect.
+struct GitCommitFileTreeScrollView: NSViewRepresentable {
+    let items: [GitCommitFileTreeItem]
+    let selectedFileID: String?
+    let rootSubtitle: String?
+    let collapsedFolderIDs: Set<String>
+    let onToggleFolder: (String) -> Void
+    let onSelectFile: (GitCommitFile) -> Void
+
+    func makeNSView(context: Context) -> NSScrollView {
+        Self.makeScrollView(
+            items: items,
+            selectedFileID: selectedFileID,
+            rootSubtitle: rootSubtitle,
+            collapsedFolderIDs: collapsedFolderIDs,
+            onToggleFolder: onToggleFolder,
+            onSelectFile: onSelectFile
+        )
+    }
+
+    static func makeScrollView(
+        items: [GitCommitFileTreeItem],
+        selectedFileID: String?,
+        rootSubtitle: String?,
+        collapsedFolderIDs: Set<String>,
+        onToggleFolder: @escaping (String) -> Void,
+        onSelectFile: @escaping (GitCommitFile) -> Void
+    ) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasHorizontalScroller = false
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
+        scrollView.horizontalScrollElasticity = .none
+        scrollView.verticalScrollElasticity = .allowed
+        let documentView = GitCommitFileTreeNSView()
+        documentView.autoresizingMask = [.width]
+        documentView.update(
+            items: items,
+            selectedFileID: selectedFileID,
+            rootSubtitle: rootSubtitle,
+            collapsedFolderIDs: collapsedFolderIDs,
+            onToggleFolder: onToggleFolder,
+            onSelectFile: onSelectFile
+        )
+        scrollView.documentView = documentView
+        return scrollView
+    }
+
+    func updateNSView(_ nsView: NSScrollView, context: Context) {
+        guard let documentView = nsView.documentView as? GitCommitFileTreeNSView else { return }
+        documentView.update(
+            items: items,
+            selectedFileID: selectedFileID,
+            rootSubtitle: rootSubtitle,
+            collapsedFolderIDs: collapsedFolderIDs,
+            onToggleFolder: onToggleFolder,
+            onSelectFile: onSelectFile
+        )
+        documentView.updateLayout(width: nsView.contentView.bounds.width, viewportHeight: nsView.contentView.bounds.height)
+    }
+}
+
+final class GitCommitFileTreeNSView: NSView {
+    static let rowHeight: CGFloat = 28
+    private var items: [GitCommitFileTreeItem] = []
+    private var selectedFileID: String?
+    private var rootSubtitle: String?
+    private var collapsedFolderIDs: Set<String> = []
+    private var onToggleFolder: ((String) -> Void)?
+    private var onSelectFile: ((GitCommitFile) -> Void)?
+    private var drawingStyle: DrawingStyle?
+    private var hoveredIndex: Int?
+
+    override var isFlipped: Bool { true }
+    override var isOpaque: Bool { false }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setAccessibilityRole(.list)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    func update(
+        items: [GitCommitFileTreeItem],
+        selectedFileID: String?,
+        rootSubtitle: String?,
+        collapsedFolderIDs: Set<String>,
+        onToggleFolder: @escaping (String) -> Void,
+        onSelectFile: @escaping (GitCommitFile) -> Void
+    ) {
+        guard self.items != items || self.selectedFileID != selectedFileID || self.rootSubtitle != rootSubtitle || self.collapsedFolderIDs != collapsedFolderIDs else {
+            self.onToggleFolder = onToggleFolder
+            self.onSelectFile = onSelectFile
+            return
+        }
+        self.items = items
+        self.selectedFileID = selectedFileID
+        self.rootSubtitle = rootSubtitle
+        self.collapsedFolderIDs = collapsedFolderIDs
+        self.onToggleFolder = onToggleFolder
+        self.onSelectFile = onSelectFile
+        hoveredIndex = nil
+        setAccessibilityValue(String(format: String(localized: "%lld items"), items.count))
+        needsDisplay = true
+    }
+
+    func updateLayout(width: CGFloat, viewportHeight: CGFloat) {
+        let height = max(viewportHeight, CGFloat(items.count) * Self.rowHeight + 10)
+        let size = CGSize(width: max(width, 1), height: height)
+        if frame.size != size { setFrameSize(size) }
+    }
+
+    static func visibleRowRange(
+        itemCount: Int,
+        rowHeight: CGFloat,
+        dirtyRect: CGRect,
+        topInset: CGFloat = 5
+    ) -> ClosedRange<Int>? {
+        guard itemCount > 0, rowHeight > 0, !dirtyRect.isEmpty else { return nil }
+        let first = max(0, Int(floor((dirtyRect.minY - topInset) / rowHeight)))
+        let last = min(itemCount - 1, Int(ceil((dirtyRect.maxY - topInset) / rowHeight)))
+        return first <= last ? first...last : nil
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let index = Int(floor((convert(event.locationInWindow, from: nil).y - 5) / Self.rowHeight))
+        let next = items.indices.contains(index) ? index : nil
+        guard hoveredIndex != next else { return }
+        hoveredIndex = next
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        guard hoveredIndex != nil else { return }
+        hoveredIndex = nil
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard !items.isEmpty, let style = resolvedDrawingStyle() else { return }
+        guard let visibleRange = Self.visibleRowRange(
+            itemCount: items.count,
+            rowHeight: Self.rowHeight,
+            dirtyRect: dirtyRect
+        ) else { return }
+
+        for index in visibleRange {
+            let item = items[index]
+            let rect = CGRect(x: 0, y: 5 + CGFloat(index) * Self.rowHeight, width: bounds.width, height: Self.rowHeight)
+            let isSelected: Bool
+            switch item {
+            case .folder: isSelected = false
+            case let .file(file, _): isSelected = selectedFileID == file.id
+            }
+            if isSelected || hoveredIndex == index {
+                (isSelected ? style.selection : style.hover).setFill()
+                NSBezierPath(rect: rect).fill()
+            }
+            switch item {
+            case let .folder(node, depth):
+                drawText(collapsedFolderIDs.contains(node.id) ? "›" : "⌄", in: CGRect(x: 8 + CGFloat(depth * 16), y: rect.minY, width: 12, height: rect.height), font: style.chevron, color: style.secondary)
+                drawText("■", in: CGRect(x: 24 + CGFloat(depth * 16), y: rect.minY, width: 14, height: rect.height), font: style.icon, color: style.secondary)
+                drawText(node.name, in: CGRect(x: 45 + CGFloat(depth * 16), y: rect.minY, width: max(0, rect.width - 150), height: rect.height), font: style.bodyMedium, color: style.primary)
+                drawText(node.fileCount == 1 ? "1 file" : "\(node.fileCount) files", in: CGRect(x: max(45, rect.maxX - 105), y: rect.minY, width: 95, height: rect.height), font: style.meta, color: style.secondary, alignment: .right)
+                if depth == 0, let rootSubtitle {
+                    drawText(rootSubtitle, in: CGRect(x: max(45, rect.maxX - 250), y: rect.minY, width: 135, height: rect.height), font: style.meta, color: style.secondary, alignment: .right)
+                }
+            case let .file(file, depth):
+                drawText(file.status, in: CGRect(x: 30 + CGFloat(max(depth - 1, 0) * 16), y: rect.minY, width: 18, height: rect.height), font: style.mono, color: statusColor(file.status, style: style))
+                drawText((file.path as NSString).lastPathComponent, in: CGRect(x: 55 + CGFloat(max(depth - 1, 0) * 16), y: rect.minY, width: max(0, rect.width - 70), height: rect.height), font: style.body, color: style.primary)
+            }
+            style.divider.setFill()
+            NSBezierPath(rect: CGRect(x: 0, y: rect.maxY - 1, width: rect.width, height: 1)).fill()
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let index = Int(floor((convert(event.locationInWindow, from: nil).y - 5) / Self.rowHeight))
+        guard items.indices.contains(index) else { return }
+        switch items[index] {
+        case let .folder(node, _): onToggleFolder?(node.id)
+        case let .file(file, _): onSelectFile?(file)
+        }
+    }
+
+    private func drawText(_ text: String, in rect: CGRect, font: NSFont, color: NSColor, alignment: NSTextAlignment = .left) {
+        guard rect.width > 0 else { return }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = alignment
+        paragraph.lineBreakMode = .byTruncatingMiddle
+        let height = ceil(font.ascender - font.descender)
+        (text as NSString).draw(in: CGRect(x: rect.minX, y: rect.midY - height / 2, width: rect.width, height: height), withAttributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph])
+    }
+
+    private func statusColor(_ status: String, style: DrawingStyle) -> NSColor {
+        if status.hasPrefix("A") { return style.success }
+        if status.hasPrefix("D") { return style.error }
+        if status.hasPrefix("R") { return style.accent }
+        return style.warning
+    }
+
+    private func resolvedDrawingStyle() -> DrawingStyle? {
+        if let drawingStyle { return drawingStyle }
+        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let style = DrawingStyle(isDark: isDark)
+        drawingStyle = style
+        return style
+    }
+
+    private struct DrawingStyle {
+        let body = NSFont.systemFont(ofSize: 13)
+        let bodyMedium = NSFont.systemFont(ofSize: 13, weight: .medium)
+        let meta = NSFont.systemFont(ofSize: 12)
+        let mono = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
+        let chevron = NSFont.systemFont(ofSize: 13, weight: .medium)
+        let icon = NSFont.systemFont(ofSize: 10)
+        let primary: NSColor
+        let secondary: NSColor
+        let divider: NSColor
+        let selection: NSColor
+        let hover: NSColor
+        let accent: NSColor
+        let success: NSColor
+        let warning: NSColor
+        let error: NSColor
+
+        init(isDark: Bool) {
+            primary = LitheTheme.nsColor(.primaryText, isDark: isDark)
+            secondary = LitheTheme.nsColor(.secondaryText, isDark: isDark)
+            divider = LitheTheme.nsColor(.divider, isDark: isDark)
+            selection = LitheTheme.nsColor(.accent, isDark: isDark).withAlphaComponent(0.16)
+            hover = LitheTheme.nsColor(.toolHeader, isDark: isDark).withAlphaComponent(0.55)
+            accent = LitheTheme.nsColor(.accent, isDark: isDark)
+            success = LitheTheme.nsColor(.success, isDark: isDark)
+            warning = LitheTheme.nsColor(.warning, isDark: isDark)
+            error = LitheTheme.nsColor(.error, isDark: isDark)
+        }
+    }
+}
+
 enum GitLogCommitSelection {
     static func adjacentCommit(
         in commits: [GitCommit],
@@ -2071,7 +2329,7 @@ private struct GitCommitDetailPresentation: Equatable, Sendable {
     }
 }
 
-private enum GitCommitFileTreeItem: Identifiable, Equatable, Sendable {
+enum GitCommitFileTreeItem: Identifiable, Equatable, Sendable {
     case folder(GitCommitFileTreeNode, depth: Int)
     case file(GitCommitFile, depth: Int)
 
