@@ -2,6 +2,7 @@
 import LitheGitModule
 import LitheGitPerformanceSupport
 import AppKit
+import QuartzCore
 import Testing
 
 @Suite("Git graph performance baseline", .serialized)
@@ -427,6 +428,200 @@ struct GitGraphPerformanceBaselineTests {
         #expect(visibleRange.count <= 17)
         #expect(median < 30)
         #expect(p95 < 100)
+    }
+
+    @Test(
+        "The native Git log keeps a window display-link cadence while scrolling",
+        .enabled(
+            if: ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 14,
+            "Requires macOS 14 or newer for NSWindow display links."
+        )
+    )
+    @MainActor
+    func windowCompositorFrameSample() throws {
+        guard NSScreen.main != nil else {
+            print("Window compositor sample skipped: no active WindowServer display.")
+            return
+        }
+
+        let commits = SyntheticGitGraphFixture.mergeHeavy(commitCount: 5_000)
+        let layout = GitGraphLayoutService.layout(commits: commits)
+        let presentation = GitGraphPresentation(
+            rows: layout.rows,
+            routingSnapshot: GitGraphLayoutService.routingSnapshot(for: layout),
+            hasMissingParents: layout.hasMissingParents
+        )
+        let actions = GitGraphRowActions(
+            onSelect: { _ in },
+            onCherryPick: { _ in },
+            onRevert: { _ in },
+            onReset: { _ in },
+            onCreateTag: { _ in }
+        )
+        let scrollView = GitGraphScrollView.makeScrollView(
+            presentation: presentation,
+            selectedHash: presentation.rows.first?.commit.hash,
+            showCommitDecorations: true,
+            canLoadMore: true,
+            isLoadingMore: false,
+            actions: actions,
+            onLoadMore: {}
+        )
+        scrollView.frame = CGRect(x: 0, y: 0, width: 900, height: 520)
+
+        let screenFrame = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1200, height: 800)
+        let window = NSWindow(
+            contentRect: CGRect(
+                x: screenFrame.midX - 450,
+                y: screenFrame.midY - 260,
+                width: 900,
+                height: 520
+            ),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.level = .floating
+        window.ignoresMouseEvents = true
+        window.backgroundColor = .clear
+        window.contentView = scrollView
+        let application = NSApplication.shared
+        application.setActivationPolicy(.accessory)
+        application.finishLaunching()
+        application.activate(ignoringOtherApps: true)
+        window.orderFrontRegardless()
+        window.makeKey()
+        window.displayIfNeeded()
+        guard window.isVisible, window.screen != nil else {
+            print("Window compositor sample skipped: test window is not attached to a display.")
+            window.orderOut(nil)
+            window.close()
+            return
+        }
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+
+        let sampler = WindowCompositorFrameSampler(
+            window: window,
+            scrollView: scrollView,
+            targetFrameCount: 45
+        )
+        sampler.start()
+
+        let deadline = CACurrentMediaTime() + 3.0
+        while !sampler.isComplete && CACurrentMediaTime() < deadline {
+            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+        }
+        guard sampler.isComplete else {
+            throw TestTimeoutError(
+                message: "Window display-link produced \(sampler.sampleCount) samples before the 3-second deadline."
+            )
+        }
+
+        let result = sampler.result()
+        print(
+            "Window compositor sample: callbacks=\(result.sampleCount), median=\(String(format: "%.3f", result.medianFrameTimeMs))ms, p95=\(String(format: "%.3f", result.p95FrameTimeMs))ms, effectiveFPS=\(String(format: "%.1f", result.effectiveFPS)), droppedOpportunities=\(result.droppedFrameOpportunities)"
+        )
+        #expect(result.sampleCount == 45)
+        #expect(result.medianFrameTimeMs > 0)
+        #expect(result.p95FrameTimeMs < 100)
+        #expect(result.effectiveFPS > 1)
+    }
+}
+
+private struct TestTimeoutError: Error, CustomStringConvertible {
+    let message: String
+
+    var description: String { message }
+}
+
+@available(macOS 14.0, *)
+@MainActor
+private final class WindowCompositorFrameSampler: NSObject {
+    struct Result {
+        let sampleCount: Int
+        let medianFrameTimeMs: Double
+        let p95FrameTimeMs: Double
+        let effectiveFPS: Double
+        let droppedFrameOpportunities: Int
+    }
+
+    private weak var window: NSWindow?
+    private weak var scrollView: NSScrollView?
+    private let targetFrameCount: Int
+    private var displayLink: CADisplayLink?
+    private var timestamps: [CFTimeInterval] = []
+    private var expectedDuration: CFTimeInterval?
+    private var tickCount = 0
+    private(set) var isComplete = false
+
+    var sampleCount: Int { timestamps.count }
+
+    init(window: NSWindow, scrollView: NSScrollView, targetFrameCount: Int) {
+        self.window = window
+        self.scrollView = scrollView
+        self.targetFrameCount = targetFrameCount
+        super.init()
+    }
+
+    func start() {
+        guard let window else { return }
+        let link = window.displayLink(target: self, selector: #selector(displayLinkTick(_:)))
+        displayLink = link
+        link.add(to: .main, forMode: .default)
+    }
+
+    func result() -> Result {
+        let intervals = zip(timestamps, timestamps.dropFirst()).map { max(0, $1 - $0) * 1_000 }
+        let sorted = intervals.sorted()
+        let median = sorted.isEmpty ? 0 : sorted[sorted.count / 2]
+        let p95Index = max(0, Int(ceil(Double(sorted.count) * 0.95)) - 1)
+        let p95 = sorted.isEmpty ? 0 : sorted[p95Index]
+        let totalSeconds = intervals.reduce(0, +) / 1_000
+        let fps = totalSeconds > 0 ? Double(intervals.count) / totalSeconds : 0
+        let duration = expectedDuration ?? 1.0 / 60.0
+        let dropped = intervals.reduce(into: 0) { total, interval in
+            total += max(0, Int((interval / 1_000 / duration).rounded()) - 1)
+        }
+        return Result(
+            sampleCount: intervals.count,
+            medianFrameTimeMs: median,
+            p95FrameTimeMs: p95,
+            effectiveFPS: fps,
+            droppedFrameOpportunities: dropped
+        )
+    }
+
+    @objc private func displayLinkTick(_ sender: CADisplayLink) {
+        if timestamps.last != nil {
+            timestamps.append(sender.timestamp)
+        } else {
+            timestamps.append(sender.timestamp)
+        }
+        expectedDuration = sender.duration > 0 ? sender.duration : expectedDuration
+        tickCount += 1
+
+        if let scrollView,
+           let documentView = scrollView.documentView {
+            let maxY = max(0, documentView.bounds.height - scrollView.contentView.bounds.height)
+            let phase = CGFloat(tickCount % 240) / 239
+            scrollView.contentView.setBoundsOrigin(NSPoint(x: 0, y: maxY * phase))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            window?.displayIfNeeded()
+        }
+
+        if timestamps.count >= targetFrameCount + 1 {
+            isComplete = true
+            stop()
+        }
+    }
+
+    private func stop() {
+        displayLink?.invalidate()
+        displayLink = nil
     }
 }
 
