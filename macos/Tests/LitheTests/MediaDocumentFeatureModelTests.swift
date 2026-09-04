@@ -9,7 +9,8 @@ struct MediaDocumentFeatureModelTests {
     func recognizesSupportedImageAndVideoExtensionsCaseInsensitively() {
         #expect(MediaDocumentKind.from(fileExtension: "PNG") == .image)
         #expect(MediaDocumentKind.from(url: URL(fileURLWithPath: "/tmp/preview.Mp4")) == .video)
-        #expect(MediaDocumentKind.from(fileExtension: "svg") == nil)
+        #expect(MediaDocumentKind.from(fileExtension: "svg") == .image)
+        #expect(MediaDocumentKind.from(fileExtension: "SVG") == .image)
         #expect(MediaDocumentKind.from(fileExtension: "bin") == nil)
     }
 
@@ -117,6 +118,18 @@ struct MediaDocumentFeatureModelTests {
 
         #expect(appModel.standaloneFileURL == nil)
         #expect(appModel.openMediaDocuments.isEmpty)
+    }
+
+    @Test
+    func openFileRoutesSvgToTheMediaViewerInsteadOfTheTextEditor() throws {
+        let appModel = makeAppModel()
+        let svgURL = URL(fileURLWithPath: "/tmp/assets/icon.svg")
+        appModel.openFile(svgURL)
+
+        let media = try #require(appModel.activeMediaDocument)
+        #expect(media.url.standardizedFileURL == svgURL.standardizedFileURL)
+        #expect(media.kind == .image)
+        #expect(appModel.openDocuments.isEmpty)
     }
 
     private func makeAppModel() -> AppModel {

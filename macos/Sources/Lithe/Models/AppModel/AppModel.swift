@@ -1093,6 +1093,13 @@ final class AppModel: ObservableObject, Identifiable {
         selectedChange = nil
         closeBranchComparison()
         editorNavigationTarget = nil
+        // Media extensions (including SVG, which is plain-text XML) open in the
+        // media viewer instead of the text editor. This mirrors the dispatch in
+        // `openStandaloneFile`.
+        if let mediaKind = MediaDocumentKind.from(url: url) {
+            openMediaFile(url, kind: mediaKind)
+            return
+        }
         documentFeature.openFile(url, isReadOnly: isReadOnly, displayPath: displayPath)
     }
 
