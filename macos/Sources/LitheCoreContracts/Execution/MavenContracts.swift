@@ -219,17 +219,20 @@ package struct MavenLocalConfiguration: Codable, Equatable, Sendable {
 
     package var version: Int
     package var settingsPath: String?
+    package var localRepositoryPath: String?
     package var mavenExecutablePath: String?
     package var javaHomePath: String?
 
     package init(
         version: Int = currentVersion,
         settingsPath: String? = nil,
+        localRepositoryPath: String? = nil,
         mavenExecutablePath: String? = nil,
         javaHomePath: String? = nil
     ) {
         self.version = version
         self.settingsPath = settingsPath
+        self.localRepositoryPath = localRepositoryPath
         self.mavenExecutablePath = mavenExecutablePath
         self.javaHomePath = javaHomePath
     }
@@ -255,6 +258,7 @@ package struct MavenLaunchContext: Codable, Equatable, Sendable {
     package let reactorPath: String
     package let profiles: [String]
     package let settingsPath: String?
+    package let localRepositoryPath: String?
     package let skipTests: Bool
     package let mavenExecutablePath: String?
     package let javaHomePath: String?
@@ -264,6 +268,7 @@ package struct MavenLaunchContext: Codable, Equatable, Sendable {
         reactorPath: String,
         profiles: [String],
         settingsPath: String?,
+        localRepositoryPath: String? = nil,
         skipTests: Bool,
         mavenExecutablePath: String?,
         javaHomePath: String?
@@ -272,6 +277,7 @@ package struct MavenLaunchContext: Codable, Equatable, Sendable {
         self.reactorPath = reactorPath
         self.profiles = profiles
         self.settingsPath = settingsPath
+        self.localRepositoryPath = localRepositoryPath
         self.skipTests = skipTests
         self.mavenExecutablePath = mavenExecutablePath
         self.javaHomePath = javaHomePath
@@ -315,6 +321,9 @@ package func redactedMavenArgumentsForDisplay(_ arguments: [String]) -> [String]
             }
         } else if argument.hasPrefix("--settings=") || argument.hasPrefix("-s=") {
             result.append(String(argument.prefix { $0 != "=" }) + "=<settings.xml>")
+            index += 1
+        } else if argument.hasPrefix("-Dmaven.repo.local=") {
+            result.append("-Dmaven.repo.local=<localRepository>")
             index += 1
         } else {
             result.append(argument)

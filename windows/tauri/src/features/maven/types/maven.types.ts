@@ -49,6 +49,7 @@ export interface MavenLaunchContext {
   reactorPath: string;
   profiles: string[];
   settingsPath?: string | null;
+  localRepositoryPath?: string | null;
   skipTests: boolean;
   mavenExecutablePath?: string | null;
   javaHomePath?: string | null;
@@ -80,6 +81,7 @@ export interface MavenPortableConfiguration {
 export interface MavenLocalConfiguration {
   version: 1;
   settingsPath?: string | null;
+  localRepositoryPath?: string | null;
   mavenExecutablePath?: string | null;
   javaHomePath?: string | null;
 }
@@ -91,6 +93,7 @@ export interface MavenStoredConfiguration {
 
 export interface MavenSettings {
   settingsPath: string;
+  localRepositoryPath: string;
   mavenExecutablePath: string;
   javaHomePath: string;
 }

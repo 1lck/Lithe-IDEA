@@ -935,18 +935,19 @@ entry is a lifecycle or custom goal. Later entries may be ordinary Maven CLI
 arguments such as `-Dname=value` or `-q`. They remain separate process arguments
 and are never interpreted by a shell. Context version 1 contains the
 workspace-relative `reactorPath`,
-selected `profiles`, optional platform-local `settingsPath`, `skipTests`, and
-optional Maven/JDK paths used only for the configuration fingerprint. The
-response contains the `project-maven` toolchain reference, an argument array,
-the workspace-relative reactor working directory, and a deterministic SHA-256
-configuration fingerprint. Profiles are sorted and de-duplicated. Module plans
-from `maven.launchPlan` and Maven-backed Run and Debug plans use
-`-pl <module> -am`. Settings use `-s`; skipped tests use
+selected `profiles`, optional platform-local `settingsPath` and
+`localRepositoryPath`, `skipTests`, and optional Maven/JDK paths used only for
+the configuration fingerprint. The response contains the `project-maven`
+toolchain reference, an argument array, the workspace-relative reactor working
+directory, and a deterministic SHA-256 configuration fingerprint. Profiles are
+sorted and de-duplicated. Module plans from `maven.launchPlan` and Maven-backed
+Run and Debug plans use `-pl <module> -am`. Settings use `-s`; a local
+repository override uses `-Dmaven.repo.local=<path>`; skipped tests use
 `-DskipTests`. Explicit Run `cwd`, Profiles, and `extensions.maven.skipTests`
-values override the project context, including `skipTests: false`.
-The core never reads `settings.xml` and never copies its path into a portable
-project document. Maven itself continues to read `.mvn/maven.config`; the plan
-does not expand or duplicate that file's arguments. Fixtures are in
+values override the project context, including `skipTests: false`. The core
+never reads `settings.xml` and never copies its path into a portable project
+document. Maven itself continues to read `.mvn/maven.config`; the plan does not
+expand or duplicate that file's arguments. Fixtures are in
 `shared/fixtures/maven/launch-plan-v1.json`.
 
 `maven.diagnostics` accepts `{ "root": string, "output": string }` and returns

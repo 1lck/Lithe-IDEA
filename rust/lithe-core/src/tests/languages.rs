@@ -354,6 +354,7 @@ fn maven_jdt_configuration_includes_module_java_source_paths() {
             reactor_path: ".".to_string(),
             profiles: Vec::new(),
             settings_path: None,
+            local_repository_path: None,
             skip_tests: false,
             maven_executable_path: None,
             java_home_path: None,

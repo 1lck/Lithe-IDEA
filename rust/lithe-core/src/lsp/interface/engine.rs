@@ -3560,6 +3560,7 @@ mod tests {
                     "enterprise".to_string(),
                 ],
                 settings_path: Some("/local/settings.xml".to_string()),
+                local_repository_path: None,
                 skip_tests: true,
                 maven_executable_path: Some("/local/maven/bin/mvn".to_string()),
                 java_home_path: Some("/local/jdk".to_string()),
