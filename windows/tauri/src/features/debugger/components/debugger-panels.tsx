@@ -16,7 +16,29 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { ScrollArea } from "@/ui/scroll-area";
 import { cn } from "@/utils/cn";
 import { getBaseName } from "@/utils/path-helpers";
-import type { DebugBreakpoint, DebugStackFrame, DebugThread } from "../types/debugger.types";
+import type {
+  DebugBreakpoint,
+  DebugSession,
+  DebugStackFrame,
+  DebugThread,
+} from "../types/debugger.types";
+
+export type DebugSessionDisplayStatus =
+  | DebugSession["status"]
+  | "exited"
+  | "stopped"
+  | "failed";
+
+export function getDebugSessionDisplayStatus(
+  status: DebugSession["status"],
+  endedReason?: string,
+): DebugSessionDisplayStatus {
+  if (status !== "idle") return status;
+  if (endedReason === "exited" || endedReason === "stopped" || endedReason === "failed") {
+    return endedReason;
+  }
+  return "idle";
+}
 
 const debugSectionVariants = cva(
   "flex min-h-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-surface/30",
@@ -83,7 +105,7 @@ export function DebugEmptyState({ children }: { children: ReactNode }) {
   );
 }
 
-export function DebugSessionStatusIcon({ status }: { status: "idle" | "running" | "paused" }) {
+export function DebugSessionStatusIcon({ status }: { status: DebugSessionDisplayStatus }) {
   const { t } = useTranslation();
   if (status === "running") {
     return <Spinner label={t("debugger.statusRunning")} compact />;
@@ -91,6 +113,14 @@ export function DebugSessionStatusIcon({ status }: { status: "idle" | "running" 
 
   if (status === "paused") {
     return <Pause size={12} className="shrink-0 text-warning" weight="fill" />;
+  }
+
+  if (status === "failed") {
+    return <Circle size={10} className="shrink-0 text-destructive" weight="fill" />;
+  }
+
+  if (status === "exited") {
+    return <Circle size={10} className="shrink-0 text-success" weight="fill" />;
   }
 
   return <Circle size={10} className="shrink-0 text-subtle-foreground" weight="fill" />;
@@ -147,7 +177,7 @@ export function DebugThreads({
 }: {
   threads: DebugThread[];
   selectedThreadId?: number;
-  onSelect: (threadId: number) => void;
+  onSelect: (threadId: number) => void | Promise<void>;
 }) {
   const { t } = useTranslation();
   if (threads.length === 0) {
@@ -164,7 +194,7 @@ export function DebugThreads({
             "font-sans flex w-full items-center gap-2 px-3 py-1.5 text-left ui-text-sm hover:bg-accent/70",
             thread.id === selectedThreadId && "bg-selected/70",
           )}
-          onClick={() => onSelect(thread.id)}
+          onClick={() => void onSelect(thread.id)}
         >
           <Stack size={13} className="shrink-0 text-subtle-foreground" />
           <span className="min-w-0 flex-1 truncate text-foreground">{thread.name}</span>

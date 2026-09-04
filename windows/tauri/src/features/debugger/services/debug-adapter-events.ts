@@ -1,4 +1,5 @@
 import {
+  createDebugOperationId,
   sendDebugAdapterRequest,
   stopDebugAdapterSession,
   subscribeDebuggerEvents,
@@ -36,6 +37,16 @@ export function initializeDebuggerEventBridge(): Promise<void> {
     });
 
   return pendingSubscription;
+}
+
+export async function selectDebugThread(sessionId: string, threadId: number): Promise<void> {
+  const store = useDebuggerStore.getState();
+  store.actions.setStoppedState({
+    reason: store.stoppedState?.reason ?? "pause",
+    threadId,
+    description: store.stoppedState?.description,
+  });
+  await requestStackTrace(sessionId, threadId);
 }
 
 // Rust Core emits normalized events only: no DAP frames, request sequences, or
@@ -142,9 +153,11 @@ async function handleOperationCompleted(sessionId: string, event: Record<string,
   if (operationId) {
     store.actions.clearAdapterRequest(operationId);
   }
+  if (!context) return;
 
   switch (kind) {
     case "threads": {
+      if (context.command !== "threads") return;
       const threads = toThreads(result?.threads);
       store.actions.setThreads(threads);
       const firstThreadId = threads[0]?.id;
@@ -154,6 +167,12 @@ async function handleOperationCompleted(sessionId: string, event: Record<string,
       return;
     }
     case "stackTrace": {
+      if (
+        context.command !== "stackTrace" ||
+        context.threadId !== store.stoppedState?.threadId
+      ) {
+        return;
+      }
       const frames = toStackFrames(result?.stackFrames);
       store.actions.setStackFrames(frames);
       const firstFrameId = frames[0]?.id;
@@ -163,6 +182,7 @@ async function handleOperationCompleted(sessionId: string, event: Record<string,
       return;
     }
     case "scopes": {
+      if (context.command !== "scopes" || context.frameId !== store.selectedFrameId) return;
       const scopes = toScopes(result?.scopes);
       store.actions.setScopes(scopes);
       await Promise.all(
@@ -214,36 +234,27 @@ function handleOperationFailed(event: Record<string, unknown>) {
 }
 
 async function requestThreads(sessionId: string) {
-  const operationId = createOperationId();
+  const operationId = createDebugOperationId();
   registerContext(operationId, { command: "threads" });
   await sendDebugAdapterRequest(sessionId, "threads", undefined, operationId);
 }
 
 async function requestStackTrace(sessionId: string, threadId: number) {
-  const operationId = createOperationId();
+  const operationId = createDebugOperationId();
   registerContext(operationId, { command: "stackTrace", threadId });
   await sendDebugAdapterRequest(sessionId, "stackTrace", { threadId }, operationId);
 }
 
 async function requestScopes(sessionId: string, frameId: number) {
-  const operationId = createOperationId();
+  const operationId = createDebugOperationId();
   registerContext(operationId, { command: "scopes", frameId });
   await sendDebugAdapterRequest(sessionId, "scopes", { frameId }, operationId);
 }
 
 async function requestVariables(sessionId: string, variablesReference: number) {
-  const operationId = createOperationId();
+  const operationId = createDebugOperationId();
   registerContext(operationId, { command: "variables", variablesReference });
   await sendDebugAdapterRequest(sessionId, "variables", { variablesReference }, operationId);
-}
-
-let operationCounter = 0;
-function createOperationId(): string {
-  if (Object.keys(useDebuggerStore.getState().pendingRequests).length === 0) {
-    operationCounter = 0;
-  }
-  operationCounter += 1;
-  return `debug-op-${operationCounter}`;
 }
 
 function registerContext(operationId: string, context: DebugRequestContext) {

@@ -1,11 +1,20 @@
 import { beforeEach, expect, mock, test } from "bun:test";
-import type { DebugProtocolMessage } from "../types/debugger.types";
+import type { DebugProtocolMessage, DebugSessionEnded } from "../types/debugger.types";
 
 let operationCounter = 0;
+let debugOperationCounter = 0;
 const sendDebugAdapterRequest = mock(
-  async (): Promise<{ sessionId: string; operationId: string }> => {
+  async (
+    _sessionId: string,
+    _command: string,
+    _argumentsPayload?: unknown,
+    requestedOperationId?: string,
+  ): Promise<{ sessionId: string; operationId: string }> => {
     operationCounter += 1;
-    return { sessionId: "session-1", operationId: `debug-op-${operationCounter}` };
+    return {
+      sessionId: "session-1",
+      operationId: requestedOperationId ?? `adapter-op-${operationCounter}`,
+    };
   },
 );
 const stopDebugAdapterSession = mock(async (_sessionId: string): Promise<void> => {});
@@ -14,12 +23,13 @@ const subscribeDebuggerEvents = mock(async () => () => {});
 type DebuggerEventHandlers = {
   onMessage?: (payload: DebugProtocolMessage) => void | Promise<void>;
   onOutput?: (payload: unknown) => void;
-  onSessionEnded?: (payload: unknown) => void;
+  onSessionEnded?: (payload: DebugSessionEnded) => void;
 };
 
 let capturedHandlers: DebuggerEventHandlers = {};
 
 mock.module("@/features/debugger/services/debug-adapter-service", () => ({
+  createDebugOperationId: () => `ui-debug-op-${++debugOperationCounter}`,
   sendDebugAdapterRequest,
   stopDebugAdapterSession,
   subscribeDebuggerEvents: async (handlers: DebuggerEventHandlers) => {
@@ -28,7 +38,9 @@ mock.module("@/features/debugger/services/debug-adapter-service", () => ({
   },
 }));
 
-const { initializeDebuggerEventBridge } = await import("./debug-adapter-events");
+const { initializeDebuggerEventBridge, selectDebugThread } = await import(
+  "./debug-adapter-events"
+);
 const { useDebuggerStore } = await import("../stores/debugger.store");
 
 // The bridge returns the awaited event-handling promise, so tests await the
@@ -36,14 +48,24 @@ const { useDebuggerStore } = await import("../stores/debugger.store");
 const emitMessage = (sessionId: string, message: unknown) =>
   capturedHandlers.onMessage?.({ sessionId, message });
 
+const getRequestOperationId = (callIndex: number): string => {
+  const operationId = sendDebugAdapterRequest.mock.calls[callIndex]?.[3];
+  if (typeof operationId !== "string") {
+    throw new Error(`Request ${callIndex} did not include an operation ID.`);
+  }
+  return operationId;
+};
+
 beforeEach(() => {
   operationCounter = 0;
+  debugOperationCounter = 0;
   sendDebugAdapterRequest.mockClear();
   stopDebugAdapterSession.mockClear();
   useDebuggerStore.setState({
     pendingRequests: {},
     threads: [],
     stackFrames: [],
+    selectedFrameId: null,
     scopes: [],
     variablesByReference: {},
     watchResults: {},
@@ -80,10 +102,58 @@ test("stopped events pause the session and cascade into stack trace requests", a
   });
   expect(sendDebugAdapterRequest).toHaveBeenCalledWith("session-1", "stackTrace", {
     threadId: 3,
-  }, "debug-op-1");
-  expect(state.pendingRequests["debug-op-1"]).toEqual({
+  }, getRequestOperationId(0));
+  expect(state.pendingRequests[getRequestOperationId(0)]).toEqual({
     command: "stackTrace",
     threadId: 3,
+  });
+});
+
+test("selecting another thread clears stale inspection data and ignores its late response", async () => {
+  await initializeDebuggerEventBridge();
+  startSession("session-1");
+  await emitMessage("session-1", { type: "stopped", reason: "breakpoint", threadId: 1 });
+
+  const oldStackOperationId = getRequestOperationId(0);
+  const actions = useDebuggerStore.getState().actions;
+  actions.setStackFrames([{ id: 11, name: "old", line: 1, column: 1 }]);
+  actions.setScopes([{ name: "Locals", variablesReference: 10 }]);
+  actions.setVariables(10, [{ name: "old", value: "1", variablesReference: 0 }]);
+
+  await selectDebugThread("session-1", 2);
+
+  const selectedStackOperationId = getRequestOperationId(1);
+  const selectedState = useDebuggerStore.getState();
+  expect(selectedStackOperationId).not.toBe(oldStackOperationId);
+  expect(selectedState.stoppedState?.threadId).toBe(2);
+  expect(selectedState.stackFrames).toEqual([]);
+  expect(selectedState.scopes).toEqual([]);
+  expect(selectedState.variablesByReference).toEqual({});
+  expect(selectedState.pendingRequests).toEqual({
+    [selectedStackOperationId]: { command: "stackTrace", threadId: 2 },
+  });
+
+  await emitMessage("session-1", {
+    type: "operationCompleted",
+    operationId: oldStackOperationId,
+    result: { kind: "stackTrace", stackFrames: [{ id: 12, name: "stale", line: 2, column: 1 }] },
+  });
+  expect(useDebuggerStore.getState().stackFrames).toEqual([]);
+
+  await emitMessage("session-1", {
+    type: "operationCompleted",
+    operationId: selectedStackOperationId,
+    result: { kind: "stackTrace", stackFrames: [{ id: 21, name: "current", line: 3, column: 1 }] },
+  });
+
+  const currentState = useDebuggerStore.getState();
+  expect(currentState.stackFrames).toEqual([
+    { id: 21, name: "current", line: 3, column: 1, sourcePath: undefined },
+  ]);
+  expect(currentState.selectedFrameId).toBe(21);
+  expect(currentState.pendingRequests[getRequestOperationId(2)]).toEqual({
+    command: "scopes",
+    frameId: 21,
   });
 });
 
@@ -105,8 +175,8 @@ test("normalized thread results fill the thread list and cascade further", async
   expect(state.pendingRequests["threads-op"]).toBeUndefined();
   expect(sendDebugAdapterRequest).toHaveBeenCalledWith("session-1", "stackTrace", {
     threadId: 1,
-  }, "debug-op-1");
-  expect(state.pendingRequests["debug-op-1"]).toEqual({
+  }, getRequestOperationId(0));
+  expect(state.pendingRequests[getRequestOperationId(0)]).toEqual({
     command: "stackTrace",
     threadId: 1,
   });
@@ -174,6 +244,37 @@ test("terminated events end only the matching session", async () => {
 
   expect(useDebuggerStore.getState().activeSession?.status).toBe("idle");
   expect(useDebuggerStore.getState().endedSessions).toEqual([]);
+});
+
+test("session-ended events preserve the native terminal reason for presentation", async () => {
+  await initializeDebuggerEventBridge();
+  startSession("session-1");
+
+  capturedHandlers.onSessionEnded?.({ sessionId: "session-1", reason: "failed" });
+
+  const state = useDebuggerStore.getState();
+  expect(state.activeSession?.status).toBe("idle");
+  expect(state.endedSessions).toEqual([{ sessionId: "session-1", reason: "failed" }]);
+
+  state.actions.clearAdapterTranscript();
+  expect(useDebuggerStore.getState().endedSessions).toEqual([
+    { sessionId: "session-1", reason: "failed" },
+  ]);
+});
+
+test("late session-ended events do not clear a restarted session", async () => {
+  await initializeDebuggerEventBridge();
+  startSession("session-1");
+  startSession("session-2");
+  useDebuggerStore.getState().actions.setStoppedState({ reason: "breakpoint", threadId: 2 });
+
+  capturedHandlers.onSessionEnded?.({ sessionId: "session-1", reason: "exited" });
+
+  const state = useDebuggerStore.getState();
+  expect(state.activeSession?.id).toBe("session-2");
+  expect(state.activeSession?.status).toBe("running");
+  expect(state.stoppedState?.threadId).toBe(2);
+  expect(state.endedSessions).toEqual([{ sessionId: "session-1", reason: "exited" }]);
 });
 
 test("stale events from a previous session cannot modify a restarted session", async () => {

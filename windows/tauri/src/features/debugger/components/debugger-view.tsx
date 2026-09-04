@@ -31,6 +31,7 @@ import {
   stopDebugAdapterSession,
   syncDebugBreakpoints,
 } from "../services/debug-adapter-service";
+import { selectDebugThread } from "../services/debug-adapter-events";
 import { useDebuggerStore } from "../stores/debugger.store";
 import {
   buildDebugCommand,
@@ -45,6 +46,8 @@ import {
   DebugSessionStatusIcon,
   DebugStackFrames,
   DebugThreads,
+  getDebugSessionDisplayStatus,
+  type DebugSessionDisplayStatus,
 } from "./debugger-panels";
 import { DebugWatchPanel } from "./debugger-watch-panel";
 import { DebugVariablesPanel } from "./debugger-variables-panel";
@@ -62,15 +65,30 @@ const getActiveDebuggableFile = (state: ReturnType<typeof useBufferStore.getStat
   };
 };
 
-function DebugStatusBadge({ status }: { status: "idle" | "running" | "paused" }) {
-  const variant = status === "paused" ? "default" : status === "running" ? "accent" : "muted";
+function DebugStatusBadge({ status }: { status: DebugSessionDisplayStatus }) {
+  const variant =
+    status === "failed"
+      ? "error"
+      : status === "exited"
+        ? "success"
+        : status === "paused"
+          ? "warning"
+          : status === "running"
+            ? "accent"
+            : "muted";
   const { t } = useTranslation();
   const statusLabel =
     status === "running"
       ? t("debugger.statusRunning")
       : status === "paused"
         ? t("debugger.statusPaused")
-        : t("debugger.statusIdle");
+        : status === "exited"
+          ? t("debugger.statusExited")
+          : status === "stopped"
+            ? t("debugger.statusStopped")
+            : status === "failed"
+              ? t("debugger.statusFailed")
+              : t("debugger.statusIdle");
 
   return (
     <Badge variant={variant} size="compact" className="gap-1.5">
@@ -97,6 +115,7 @@ export default function DebuggerView() {
   const scopes = useDebuggerStore.use.scopes();
   const variablesByReference = useDebuggerStore.use.variablesByReference();
   const adapterOutput = useDebuggerStore.use.adapterOutput();
+  const endedSessions = useDebuggerStore.use.endedSessions();
   const pendingRequests = useDebuggerStore.use.pendingRequests();
   const debuggerActions = useDebuggerStore.use.actions();
   const [customCommand, setCustomCommand] = useState("");
@@ -148,6 +167,12 @@ export default function DebuggerView() {
     ? Boolean(resolvedSelectedConfig.adapterCommand.trim())
     : Boolean(selectedCommand.trim());
   const isActiveSession = activeSession?.status === "running" || activeSession?.status === "paused";
+  const activeSessionEndReason = activeSession
+    ? endedSessions.filter((event) => event.sessionId === activeSession.id).slice(-1)[0]?.reason
+    : undefined;
+  const activeSessionDisplayStatus = activeSession
+    ? getDebugSessionDisplayStatus(activeSession.status, activeSessionEndReason)
+    : "idle";
   const isAdapterSession = Boolean(isActiveSession && resolvedActiveConfig.adapterCommand);
   const activeThreadId = stoppedState?.threadId ?? threads[0]?.id;
   const canSendAdapterThreadRequest = Boolean(isAdapterSession && activeThreadId);
@@ -398,7 +423,7 @@ export default function DebuggerView() {
             <StepOutIcon />
           </Button>
         </div>
-        {activeSession ? <DebugStatusBadge status={activeSession.status} /> : null}
+        {activeSession ? <DebugStatusBadge status={activeSessionDisplayStatus} /> : null}
         <Button
           variant="ghost"
           tooltip={t("debugger.toggleCurrentLineBreakpoint")}
@@ -582,9 +607,13 @@ export default function DebuggerView() {
             <DebugThreads
               threads={threads}
               selectedThreadId={activeThreadId}
-              onSelect={(threadId) => {
-                if (activeSession?.id) {
-                  debuggerActions.setStoppedState({ reason: stoppedState?.reason ?? "pause", threadId });
+              onSelect={async (threadId) => {
+                if (!activeSession?.id || !isPaused) return;
+                setStartError(null);
+                try {
+                  await selectDebugThread(activeSession.id, threadId);
+                } catch (error) {
+                  setStartError(error instanceof Error ? error.message : String(error));
                 }
               }}
             />

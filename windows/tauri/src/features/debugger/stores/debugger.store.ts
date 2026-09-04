@@ -338,15 +338,20 @@ export const useDebuggerStore = createSelectors(
       },
 
       recordSessionEnded: (event) => {
-        set((state) => ({
-          endedSessions: [...state.endedSessions.slice(-99), event],
-          activeSession:
-            state.activeSession?.id === event.sessionId
-              ? { ...state.activeSession, status: "idle" }
-              : state.activeSession,
-          stoppedState: null,
-          watchResults: {},
-        }));
+        set((state) => {
+          const activeSession = state.activeSession;
+          const isActiveSession = activeSession?.id === event.sessionId;
+          return {
+            endedSessions: [...state.endedSessions.slice(-99), event],
+            activeSession:
+              isActiveSession && activeSession
+                ? { ...activeSession, status: "idle" }
+                : activeSession,
+            ...(isActiveSession
+              ? { stoppedState: null, watchResults: {}, pendingRequests: {} }
+              : {}),
+          };
+        });
       },
 
       registerAdapterRequest: (operationId, context) => {
@@ -395,14 +400,30 @@ export const useDebuggerStore = createSelectors(
       },
 
       setStoppedState: (stoppedState) => {
-        set({ stoppedState });
+        set((state) => {
+          const shouldClearInspection =
+            stoppedState === null ||
+            state.stoppedState === null ||
+            stoppedState.threadId !== state.stoppedState.threadId;
+
+          return shouldClearInspection
+            ? {
+                stoppedState,
+                stackFrames: [],
+                selectedFrameId: null,
+                scopes: [],
+                variablesByReference: {},
+                watchResults: {},
+                pendingRequests: {},
+              }
+            : { stoppedState };
+        });
       },
 
       clearAdapterTranscript: () => {
         set({
           adapterMessages: [],
           adapterOutput: [],
-          endedSessions: [],
           pendingRequests: {},
         });
       },
