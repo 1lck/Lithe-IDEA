@@ -3526,6 +3526,34 @@ struct EditorDocumentTests {
 
     @Test
     @MainActor
+    func workspaceDirectoryMarksLoadAndPersistByRelativePath() async {
+        let workspace = URL(fileURLWithPath: "/tmp/directory-mark-workspace")
+        let markStore = RecordingWorkspaceDirectoryMarkStore(initial: ["Sources": .sources])
+        let model = WorkspaceFeatureModel(
+            operations: EmptyWorkspaceOperations(),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            gitWatchContextProvider: SequencedGitWatchContextProvider([nil]),
+            directoryWatcherFactory: TestDirectoryWatcherFactory(),
+            workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore()),
+            directoryMarkStore: markStore
+        )
+
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        #expect(model.directoryMarks == ["Sources": .sources])
+
+        await model.markDirectory(
+            workspace.appendingPathComponent("assets", isDirectory: true),
+            as: .resources
+        )
+
+        #expect(model.directoryMarks["assets"] == .resources)
+        #expect(markStore.savedMarks?["Sources"] == .sources)
+        #expect(markStore.savedMarks?["assets"] == .resources)
+    }
+
+    @Test
+    @MainActor
     func workspaceInitialLoadFailureCanRetryWithoutLeavingAnEmptyProject() async {
         let operations = SequencedWorkspaceOperations(snapshotAvailability: [false, true])
         let model = WorkspaceFeatureModel(
@@ -4536,6 +4564,37 @@ private func makeWorkspaceObservationUnitModel(
         onSnapshotLoaded: { _, _, _ in }
     )
     return model
+}
+
+private final class RecordingWorkspaceDirectoryMarkStore: WorkspaceDirectoryMarkStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private let initial: [String: WorkspaceDirectoryMark]
+    private var storedSavedMarks: [String: WorkspaceDirectoryMark]?
+
+    init(initial: [String: WorkspaceDirectoryMark]) {
+        self.initial = initial
+    }
+
+    var savedMarks: [String: WorkspaceDirectoryMark]? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedSavedMarks
+    }
+
+    func loadDirectoryMarks(
+        for workspaceURL: URL
+    ) throws -> [String: WorkspaceDirectoryMark] {
+        initial
+    }
+
+    func saveDirectoryMarks(
+        _ marks: [String: WorkspaceDirectoryMark],
+        for workspaceURL: URL
+    ) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        storedSavedMarks = marks
+    }
 }
 
 @MainActor

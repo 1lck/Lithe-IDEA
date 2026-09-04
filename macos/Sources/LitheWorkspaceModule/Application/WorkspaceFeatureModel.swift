@@ -18,6 +18,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     @Published package private(set) var isLoadingWorkspace = false
     @Published package private(set) var isRefreshingWorkspace = false
     @Published package private(set) var loadErrorMessage: String?
+    @Published package private(set) var directoryMarks: [String: WorkspaceDirectoryMark] = [:]
     @Published package var projectItemEditRequest: ProjectItemEditRequest?
     @Published package var pendingProjectItemDeletion: ProjectItemDeletionRequest?
     @Published package private(set) var isPerformingProjectItemOperation = false
@@ -28,6 +29,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private let gitWatchContextProvider: any GitWatchContextProviding
     private let directoryWatcherFactory: any DirectoryWatcherFactory
     private let workspaceSessionStore: any WorkspaceSessionStoring
+    private let directoryMarkStore: any WorkspaceDirectoryMarkStoring
     private var workspaceURL: URL?
     private var visibilityRules = FileVisibilityRules.default
     private var watchConfiguration: DirectoryWatchConfiguration?
@@ -72,13 +74,15 @@ package final class WorkspaceFeatureModel: ObservableObject {
         fileOperations: any WorkspaceFileOperations,
         gitWatchContextProvider: any GitWatchContextProviding,
         directoryWatcherFactory: any DirectoryWatcherFactory,
-        workspaceSessionStore: any WorkspaceSessionStoring
+        workspaceSessionStore: any WorkspaceSessionStoring,
+        directoryMarkStore: any WorkspaceDirectoryMarkStoring = EmptyWorkspaceDirectoryMarkStore()
     ) {
         self.operations = operations
         self.fileOperations = fileOperations
         self.gitWatchContextProvider = gitWatchContextProvider
         self.directoryWatcherFactory = directoryWatcherFactory
         self.workspaceSessionStore = workspaceSessionStore
+        self.directoryMarkStore = directoryMarkStore
     }
 
     package func configureProjection(
@@ -186,6 +190,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         workspaceURL = nil
         hasRestoredWorkspaceSession = false
         rootNode = nil
+        directoryMarks = [:]
         projectFiles = []
         appliedSnapshot = nil
         isLoadingWorkspace = false
@@ -208,6 +213,12 @@ package final class WorkspaceFeatureModel: ObservableObject {
     package func beginWorkspace(at url: URL, visibilityRules: FileVisibilityRules) {
         workspaceGeneration &+= 1
         workspaceURL = url.standardizedFileURL
+        do {
+            directoryMarks = try directoryMarkStore.loadDirectoryMarks(for: url)
+        } catch {
+            directoryMarks = [:]
+            notify?("Could not read directory marks: \(error.localizedDescription)")
+        }
         self.visibilityRules = visibilityRules
         hasRestoredWorkspaceSession = false
         pendingExternalPaths.removeAll()
@@ -342,6 +353,36 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 self?.workspaceURL == workspaceURL && self?.workspaceGeneration == generation
             }
         )
+    }
+
+    package func markDirectory(_ url: URL, as mark: WorkspaceDirectoryMark) async {
+        guard let workspaceURL,
+              let relativePath = Self.relativePath(for: url, in: workspaceURL) else { return }
+        var updatedMarks = directoryMarks
+        updatedMarks[relativePath] = mark
+
+        let store = directoryMarkStore
+        let saveError = await Task.detached(priority: .userInitiated) {
+            do {
+                try store.saveDirectoryMarks(updatedMarks, for: workspaceURL)
+                return nil as String?
+            } catch {
+                return error.localizedDescription
+            }
+        }.value
+        if let saveError {
+            notify?("Could not update directory mark: \(saveError)")
+            return
+        }
+        directoryMarks = updatedMarks
+    }
+
+    private static func relativePath(for url: URL, in workspaceURL: URL) -> String? {
+        let rootPath = workspaceURL.standardizedFileURL.path
+        let targetPath = url.standardizedFileURL.path
+        if targetPath == rootPath { return "." }
+        guard targetPath.hasPrefix(rootPath + "/") else { return nil }
+        return String(targetPath.dropFirst(rootPath.count + 1))
     }
 
     package func startWatchingCurrent() {
