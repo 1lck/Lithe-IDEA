@@ -67,5 +67,15 @@ for localization in en.lproj zh-Hans.lproj; do
 done
 codesign --force --deep --sign - "$APP_DIR"
 
+print "Preview launched. Close the app to finish this command; Ctrl-C only stops waiting and preserves the running preview bundle at: $APP_DIR"
+set +e
 open -n -W "$APP_DIR"
-rm -rf "$INSTANCE_DIR"
+OPEN_STATUS=$?
+set -e
+
+if (( OPEN_STATUS == 0 )); then
+    rm -rf "$INSTANCE_DIR"
+else
+    print -u2 -- "Preview wait interrupted (status $OPEN_STATUS); keeping $INSTANCE_DIR so the running app can finish safely"
+fi
+exit "$OPEN_STATUS"
