@@ -71,6 +71,7 @@ export interface MavenState {
   customProfiles: string[];
   skipTests: boolean;
   settingsPath: string;
+  localRepositoryPath: string;
   mavenExecutablePath: string;
   javaHomePath: string;
   configurationSaveError: string | null;
@@ -134,6 +135,7 @@ export function mavenLaunchContext(state: MavenState): MavenLaunchContext | null
     reactorPath: state.project.relativePath,
     profiles: normalizedProfiles(state.selectedProfiles),
     settingsPath: state.settingsPath || null,
+    localRepositoryPath: state.localRepositoryPath || null,
     skipTests: state.skipTests,
     mavenExecutablePath: state.mavenExecutablePath || null,
     javaHomePath: state.javaHomePath || null,
@@ -150,6 +152,7 @@ function storedConfiguration(state: MavenState): MavenStoredConfiguration {
   const local: MavenLocalConfiguration = {
     version: 1,
     settingsPath: state.settingsPath || null,
+    localRepositoryPath: state.localRepositoryPath || null,
     mavenExecutablePath: state.mavenExecutablePath || null,
     javaHomePath: state.javaHomePath || null,
   };
@@ -158,9 +161,11 @@ function storedConfiguration(state: MavenState): MavenStoredConfiguration {
 
 function displayArguments(arguments_: readonly string[]): string {
   return arguments_
-    .map((argument, index) =>
-      index > 0 && arguments_[index - 1] === "-s" ? "<settings.xml>" : argument,
-    )
+    .map((argument, index) => {
+      if (index > 0 && arguments_[index - 1] === "-s") return "<settings.xml>";
+      if (argument.startsWith("-Dmaven.repo.local=")) return "-Dmaven.repo.local=<localRepository>";
+      return argument;
+    })
     .join(" ");
 }
 
@@ -225,6 +230,7 @@ export const createMavenStore = (
       customProfiles: [],
       skipTests: false,
       settingsPath: "",
+      localRepositoryPath: "",
       mavenExecutablePath: "",
       javaHomePath: "",
       configurationSaveError: null,
@@ -277,6 +283,7 @@ export const createMavenStore = (
                 customProfiles: [],
                 skipTests: false,
                 settingsPath: "",
+                localRepositoryPath: "",
                 mavenExecutablePath: "",
                 javaHomePath: "",
                 reloadRequired: false,
@@ -306,6 +313,7 @@ export const createMavenStore = (
               customProfiles,
               skipTests: stored.portable?.skipTests ?? false,
               settingsPath: normalizedPath(stored.local?.settingsPath),
+              localRepositoryPath: normalizedPath(stored.local?.localRepositoryPath),
               mavenExecutablePath: normalizedPath(stored.local?.mavenExecutablePath),
               javaHomePath: normalizedPath(stored.local?.javaHomePath),
               reloadRequired: false,
@@ -321,6 +329,7 @@ export const createMavenStore = (
               customProfiles: [],
               skipTests: false,
               settingsPath: "",
+              localRepositoryPath: "",
               mavenExecutablePath: "",
               javaHomePath: "",
             });
@@ -369,12 +378,14 @@ export const createMavenStore = (
         updateLocalConfiguration: (settings) => {
           const next = {
             settingsPath: normalizedPath(settings.settingsPath),
+            localRepositoryPath: normalizedPath(settings.localRepositoryPath),
             mavenExecutablePath: normalizedPath(settings.mavenExecutablePath),
             javaHomePath: normalizedPath(settings.javaHomePath),
           };
           const state = get();
           if (
             next.settingsPath === state.settingsPath &&
+            next.localRepositoryPath === state.localRepositoryPath &&
             next.mavenExecutablePath === state.mavenExecutablePath &&
             next.javaHomePath === state.javaHomePath
           ) {

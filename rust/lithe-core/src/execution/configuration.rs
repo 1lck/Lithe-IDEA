@@ -1468,7 +1468,7 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         if request.maven_context.is_none() {
             arguments.extend([json!("-B"), json!("-ntp")]);
             if let Some(module) = maven["module"].as_str().filter(|m| *m != ".") {
-                arguments.extend([json!("-pl"), json!(module)]);
+                arguments.extend([json!("-pl"), json!(module), json!("-am")]);
             }
         }
         let main = maven["mainClass"].as_str().ok_or_else(|| {
@@ -1525,7 +1525,7 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         if request.maven_context.is_none() {
             arguments.extend([json!("-B"), json!("-ntp")]);
             if let Some(module) = maven["module"].as_str().filter(|m| *m != ".") {
-                arguments.extend([json!("-pl"), json!(module)]);
+                arguments.extend([json!("-pl"), json!(module), json!("-am")]);
             }
             if let Some(profiles) = maven["profiles"].as_array().filter(|p| !p.is_empty()) {
                 arguments.extend([
@@ -1593,7 +1593,7 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
                 context,
                 module,
                 trailing_arguments,
-                false,
+                true,
             )?;
             arguments = shared_plan
                 .arguments
@@ -2403,7 +2403,10 @@ fn detect_requirements(
     if maven_root.join("mvnw").exists() {
         maven.wrapper = Some("./mvnw".to_string());
     }
-    maven.version = maven_wrapper_version(maven_root);
+    // Wrapper distribution is a floor for system Maven, not an exact pin. A
+    // newer installed Maven (for example 3.9.x against a 3.6.x wrapper URL)
+    // remains valid for launch planning and run diagnostics.
+    maven.minimum_version = maven_wrapper_version(maven_root);
     let mut toolchains = BTreeMap::new();
     let consumes = |toolchain: &str| {
         configurations.iter().any(|configuration| {
@@ -2485,11 +2488,12 @@ fn toolchain_diagnostics(
             .as_deref()
             .or(requirement.version.as_deref());
         if let Some(required) = required_version {
-            if !version_satisfies(
-                &candidate.version,
-                required,
-                requirement.minimum_version.is_some(),
-            ) {
+            // Maven wrapper properties historically landed in `version`. Treat
+            // that field as a minimum for Maven so already-written requirement
+            // documents do not block newer system Maven installs.
+            let treat_as_minimum = requirement.minimum_version.is_some()
+                || (requirement.kind == "maven" && requirement.version.is_some());
+            if !version_satisfies(&candidate.version, required, treat_as_minimum) {
                 append_toolchain_diagnostics(
                     &mut diagnostics,
                     &consumer_ids,

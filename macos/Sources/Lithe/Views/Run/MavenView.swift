@@ -12,6 +12,7 @@ struct MavenView: View {
     @State private var customGoal = ""
     @State private var customProfile = ""
     @State private var settingsPath = ""
+    @State private var localRepositoryPath = ""
     @State private var mavenExecutablePath = ""
     @State private var javaHomePath = ""
 
@@ -222,6 +223,10 @@ struct MavenView: View {
                     isSelected: selectedModuleID == nil,
                     onLabelAction: { selectedModuleID = nil }
                 ) {
+                    sourceRootsNode(
+                        ownerID: projectNodeID(project),
+                        sourceRoots: project.sourceRoots
+                    )
                     lifecycleNode(ownerID: projectNodeID(project), module: nil)
                     ForEach(project.modules) { module in
                         moduleTreeNode(module)
@@ -244,6 +249,7 @@ struct MavenView: View {
                 isSelected: selectedModuleID == module.id,
                 onLabelAction: { selectedModuleID = module.id }
             ) {
+                sourceRootsNode(ownerID: moduleNodeID(module), sourceRoots: module.sourceRoots)
                 lifecycleNode(ownerID: moduleNodeID(module), module: module)
                 ForEach(module.modules) { childModule in
                     moduleTreeNode(childModule)
@@ -266,6 +272,47 @@ struct MavenView: View {
                 }
             }
         )
+    }
+
+    private func sourceRootsNode(
+        ownerID: String,
+        sourceRoots: [MavenSourceRoot]
+    ) -> AnyView {
+        let nodeID = childNodeID(ownerID: ownerID, name: "source-roots")
+        guard !sourceRoots.isEmpty else { return AnyView(EmptyView()) }
+        return AnyView(
+            treeNode(
+                id: nodeID,
+                title: "Source Roots",
+                systemImage: "folder",
+                onLabelAction: { toggleNode(nodeID) }
+            ) {
+                ForEach(sourceRoots) { sourceRoot in
+                    sourceRootRow(sourceRoot)
+                }
+            }
+        )
+    }
+
+    private func sourceRootRow(_ sourceRoot: MavenSourceRoot) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "folder")
+                .font(.system(size: 11))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .frame(width: 16)
+            Text(sourceRoot.path)
+                .font(.system(size: 11.5, design: .monospaced))
+                .foregroundStyle(LitheTheme.primaryText)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            Text(sourceRoot.kind.title)
+                .font(.system(size: 10))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: 24)
     }
 
     private func profileRow(_ profile: MavenProfile) -> some View {
@@ -576,6 +623,13 @@ struct MavenView: View {
                 }
             )
             settingsPathRow(
+                title: "Local Repository",
+                value: $localRepositoryPath,
+                choose: {
+                    model.platformUI.chooseDirectory(title: "Choose Maven Local Repository", prompt: "Choose")
+                }
+            )
+            settingsPathRow(
                 title: "Maven Home or Executable",
                 value: $mavenExecutablePath,
                 choose: {
@@ -676,6 +730,7 @@ struct MavenView: View {
 
     private func presentSettings() {
         settingsPath = feature.settingsPath ?? ""
+        localRepositoryPath = feature.localRepositoryPath ?? ""
         mavenExecutablePath = feature.mavenExecutablePath ?? ""
         javaHomePath = feature.javaHomePath ?? ""
         isSettingsSheetPresented = true
@@ -684,6 +739,7 @@ struct MavenView: View {
     private func saveSettings() {
         feature.updateLocalConfiguration(
             settingsPath: settingsPath,
+            localRepositoryPath: localRepositoryPath,
             mavenExecutablePath: mavenExecutablePath,
             javaHomePath: javaHomePath
         )

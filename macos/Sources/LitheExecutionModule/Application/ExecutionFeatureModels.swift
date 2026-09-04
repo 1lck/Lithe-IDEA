@@ -30,6 +30,7 @@ package final class MavenFeatureModel: ObservableObject {
     package var selectedProfiles: Set<String> { service.selectedProfiles }
     package var skipTests: Bool { service.skipTests }
     package var settingsPath: String? { service.settingsPath }
+    package var localRepositoryPath: String? { service.localRepositoryPath }
     package var mavenExecutablePath: String? { service.mavenExecutablePath }
     package var javaHomePath: String? { service.javaHomePath }
     package var configurationSaveError: String? { service.configurationSaveError }
@@ -67,11 +68,13 @@ package final class MavenFeatureModel: ObservableObject {
 
     package func updateLocalConfiguration(
         settingsPath: String?,
+        localRepositoryPath: String?,
         mavenExecutablePath: String?,
         javaHomePath: String?
     ) {
         service.updateLocalConfiguration(
             settingsPath: settingsPath,
+            localRepositoryPath: localRepositoryPath,
             mavenExecutablePath: mavenExecutablePath,
             javaHomePath: javaHomePath
         )

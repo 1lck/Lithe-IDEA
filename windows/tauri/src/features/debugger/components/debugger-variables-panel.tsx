@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Spinner } from "@/ui/spinner";
 import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
-import { sendDebugAdapterRequest } from "../services/debug-adapter-service";
+import { createDebugOperationId, sendDebugAdapterRequest } from "../services/debug-adapter-service";
 import { useDebuggerStore } from "../stores/debugger.store";
 import type { DebugRequestContext, DebugScope, DebugVariable } from "../types/debugger.types";
 import { DebugEmptyState } from "./debugger-panels";
@@ -13,7 +13,7 @@ interface DebugVariablesPanelProps {
   selectedFrameId: number | null;
   scopes: DebugScope[];
   variablesByReference: Record<number, DebugVariable[]>;
-  pendingRequests: Record<number, DebugRequestContext>;
+  pendingRequests: Record<string, DebugRequestContext>;
 }
 
 export function DebugVariablesPanel({
@@ -56,10 +56,11 @@ export function DebugVariablesPanel({
     if (!shouldLoadChildren) return;
 
     try {
-      const seq = await sendDebugAdapterRequest(activeSessionId, "variables", {
+      const operationId = createDebugOperationId();
+      debuggerActions.registerAdapterRequest(operationId, { command: "variables", variablesReference });
+      await sendDebugAdapterRequest(activeSessionId, "variables", {
         variablesReference,
-      });
-      debuggerActions.registerAdapterRequest(seq, { command: "variables", variablesReference });
+      }, operationId);
     } catch {
       setExpandedVariableReferences((current) => {
         const next = new Set(current);

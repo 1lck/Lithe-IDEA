@@ -746,7 +746,10 @@ Java callers may also provide the versioned `mavenContext` accepted by
 publishes `settingsPath` through
 `java.configuration.maven.userSettings`, and, after `ServiceReady`, sends one
 `java.project.updateSettings` command per Maven project with
-`org.eclipse.m2e.core.selectedProfiles`. The session becomes `ready` only after
+`org.eclipse.m2e.core.selectedProfiles`. Maven Java, test, and generated source
+roots are normalized to workspace-relative `java.project.sourcePaths` during
+the same configuration flow, so JDT LS receives the selected reactor's source
+model without platform-specific POM parsing. The session becomes `ready` only after
 every command succeeds; a command error or timeout terminates the session with
 `mavenContextFailed` or `mavenContextTimeout` at the `serviceReady` stage.
 `initializeTimeoutMilliseconds` bounds only the standard LSP handshake. For a
@@ -908,8 +911,23 @@ with `/`-normalized lexical paths breaking ties, until one parses successfully;
 a malformed candidate does not hide a valid nested project. A project response
 contains its workspace `relativePath`,
 `groupId`, `artifactId`, `version`, `packaging`, recursive `modules`, `profiles`,
-and `hasWrapper`. Module paths are relative to the selected Maven root and use
-`/` separators. Malformed XML returns `parse_failed`.
+and `hasWrapper`. The root project and every recursive module also contain a
+`sourceRoots` list. Each entry has a module-relative `/`-normalized `path` and
+a `kind` of `mainJava`, `mainResources`, `testJava`, `testResources`,
+`generatedMain`, or `generatedTest`. Standard Maven roots are returned before
+their directories exist; explicit `<build>` source/resource directories and
+`maven-compiler-plugin` generated-source directories or
+`build-helper-maven-plugin` source lists replace the corresponding defaults,
+whether configured directly on the plugin or within an execution.
+`${project.build.directory}` resolves from `<build><directory>` and defaults to
+`target` only when that element is absent; unresolved or invalid explicit
+values do not silently fall back.
+Absolute, unresolved-property, and parent-traversal paths are omitted so one
+module cannot claim another module's source root. Entries are de-duplicated and
+ordered by the documented kind order, then path. Aggregator-only `pom` modules
+have no default roots. Module paths are relative to the selected Maven root and
+use `/` separators. Malformed XML returns `parse_failed`. Source-root examples
+are in `shared/fixtures/maven/source-roots-v1.json`.
 
 `maven.launchPlan` accepts a workspace `root`, a versioned `context`, an
 optional reactor-relative `module`, and an ordered `goals` array whose first
@@ -917,18 +935,19 @@ entry is a lifecycle or custom goal. Later entries may be ordinary Maven CLI
 arguments such as `-Dname=value` or `-q`. They remain separate process arguments
 and are never interpreted by a shell. Context version 1 contains the
 workspace-relative `reactorPath`,
-selected `profiles`, optional platform-local `settingsPath`, `skipTests`, and
-optional Maven/JDK paths used only for the configuration fingerprint. The
-response contains the `project-maven` toolchain reference, an argument array,
-the workspace-relative reactor working directory, and a deterministic SHA-256
-configuration fingerprint. Profiles are sorted and de-duplicated. Module plans
-from `maven.launchPlan` use `-pl <module> -am`; Run and Debug plans use
-`-pl <module>` without `-am`. Settings use `-s`; skipped tests use
+selected `profiles`, optional platform-local `settingsPath` and
+`localRepositoryPath`, `skipTests`, and optional Maven/JDK paths used only for
+the configuration fingerprint. The response contains the `project-maven`
+toolchain reference, an argument array, the workspace-relative reactor working
+directory, and a deterministic SHA-256 configuration fingerprint. Profiles are
+sorted and de-duplicated. Module plans from `maven.launchPlan` and Maven-backed
+Run and Debug plans use `-pl <module> -am`. Settings use `-s`; a local
+repository override uses `-Dmaven.repo.local=<path>`; skipped tests use
 `-DskipTests`. Explicit Run `cwd`, Profiles, and `extensions.maven.skipTests`
-values override the project context, including `skipTests: false`.
-The core never reads `settings.xml` and never copies its path into a portable
-project document. Maven itself continues to read `.mvn/maven.config`; the plan
-does not expand or duplicate that file's arguments. Fixtures are in
+values override the project context, including `skipTests: false`. The core
+never reads `settings.xml` and never copies its path into a portable project
+document. Maven itself continues to read `.mvn/maven.config`; the plan does not
+expand or duplicate that file's arguments. Fixtures are in
 `shared/fixtures/maven/launch-plan-v1.json`.
 
 `maven.diagnostics` accepts `{ "root": string, "output": string }` and returns
@@ -1041,7 +1060,8 @@ the resolved Run Configuration replace the context profiles; otherwise the
 project profiles are inherited. Explicit `extensions.maven.skipTests` and
 `cwd` values also replace the context values. Core applies the shared settings,
 module, Skip Tests, and reactor-working-directory rules to the generated
-framework or Java-main arguments without adding tool-window-only `-am`. It
+framework or Java-main arguments, including `-am` for selected reactor
+modules. It
 returns a toolchain
 reference, argument array, project-relative working directory, and structured
 environment references. It does not return a shell command or platform

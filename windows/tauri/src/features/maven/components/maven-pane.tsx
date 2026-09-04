@@ -46,6 +46,7 @@ import {
   type MavenModule,
   type MavenSettings,
 } from "../types/maven.types";
+import { MavenSourceRootRows } from "./maven-source-root-rows";
 
 interface TreeNodeProps {
   id: string;
@@ -136,6 +137,12 @@ function MavenSettingsDialog({
     directory: boolean;
   }> = [
     { id: "maven-settings-xml", field: "settingsPath", label: "settings.xml", directory: false },
+    {
+      id: "maven-local-repository",
+      field: "localRepositoryPath",
+      label: t("maven.localRepository"),
+      directory: true,
+    },
     {
       id: "maven-executable",
       field: "mavenExecutablePath",
@@ -232,6 +239,7 @@ export default function MavenPane() {
   const customProfiles = useMavenStore((state) => state.customProfiles);
   const skipTests = useMavenStore((state) => state.skipTests);
   const settingsPath = useMavenStore((state) => state.settingsPath);
+  const localRepositoryPath = useMavenStore((state) => state.localRepositoryPath);
   const mavenExecutablePath = useMavenStore((state) => state.mavenExecutablePath);
   const javaHomePath = useMavenStore((state) => state.javaHomePath);
   const configurationSaveError = useMavenStore((state) => state.configurationSaveError);
@@ -346,6 +354,22 @@ export default function MavenPane() {
     void handleFileSelect(target, false, line, column ?? undefined, undefined, false);
   };
 
+  const renderSourceRoots = (ownerId: string, sourceRoots: MavenModule["sourceRoots"]) => {
+    if (sourceRoots.length === 0) return null;
+    const id = `${ownerId}:source-roots`;
+    return (
+      <TreeNode
+        id={id}
+        title={t("maven.sourceRoots")}
+        icon={<FolderIcon className="size-3.5" />}
+        expanded={expanded.has(id)}
+        onToggle={toggleExpanded}
+      >
+        <MavenSourceRootRows sourceRoots={sourceRoots} />
+      </TreeNode>
+    );
+  };
+
   const renderLifecycle = (ownerId: string, module: MavenModule | null) => {
     const id = `${ownerId}:lifecycle`;
     return (
@@ -395,6 +419,7 @@ export default function MavenPane() {
         onToggle={toggleExpanded}
         onSelect={() => setSelectedModule(module.relativePath)}
       >
+        {renderSourceRoots(id, module.sourceRoots)}
         {renderLifecycle(id, module)}
         {module.modules.map(renderModule)}
       </TreeNode>
@@ -611,6 +636,7 @@ export default function MavenPane() {
                 onToggle={toggleExpanded}
                 onSelect={() => setSelectedModule(null)}
               >
+                {renderSourceRoots(`project:${project.relativePath}`, project.sourceRoots)}
                 {renderLifecycle(`project:${project.relativePath}`, null)}
                 {project.modules.map(renderModule)}
               </TreeNode>
@@ -728,7 +754,7 @@ export default function MavenPane() {
       ) : null}
       {settingsDialogOpen ? (
         <MavenSettingsDialog
-          initial={{ settingsPath, mavenExecutablePath, javaHomePath }}
+          initial={{ settingsPath, localRepositoryPath, mavenExecutablePath, javaHomePath }}
           error={configurationSaveError}
           onClose={() => setSettingsDialogOpen(false)}
           onSave={actions.updateLocalConfiguration}

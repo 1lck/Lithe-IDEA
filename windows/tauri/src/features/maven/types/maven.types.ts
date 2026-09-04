@@ -6,12 +6,29 @@ export interface MavenProfile {
   isActiveByDefault: boolean;
 }
 
+export const MAVEN_SOURCE_ROOT_KINDS = [
+  "mainJava",
+  "mainResources",
+  "testJava",
+  "testResources",
+  "generatedMain",
+  "generatedTest",
+] as const;
+
+export type MavenSourceRootKind = (typeof MAVEN_SOURCE_ROOT_KINDS)[number];
+
+export interface MavenSourceRoot {
+  path: string;
+  kind: MavenSourceRootKind;
+}
+
 export interface MavenModule {
   relativePath: string;
   groupId?: string | null;
   artifactId: string;
   version?: string | null;
   packaging: string;
+  sourceRoots: MavenSourceRoot[];
   modules: MavenModule[];
 }
 
@@ -21,6 +38,7 @@ export interface MavenProject {
   artifactId: string;
   version?: string | null;
   packaging: string;
+  sourceRoots: MavenSourceRoot[];
   modules: MavenModule[];
   profiles: MavenProfile[];
   hasWrapper: boolean;
@@ -31,6 +49,7 @@ export interface MavenLaunchContext {
   reactorPath: string;
   profiles: string[];
   settingsPath?: string | null;
+  localRepositoryPath?: string | null;
   skipTests: boolean;
   mavenExecutablePath?: string | null;
   javaHomePath?: string | null;
@@ -62,6 +81,7 @@ export interface MavenPortableConfiguration {
 export interface MavenLocalConfiguration {
   version: 1;
   settingsPath?: string | null;
+  localRepositoryPath?: string | null;
   mavenExecutablePath?: string | null;
   javaHomePath?: string | null;
 }
@@ -73,6 +93,7 @@ export interface MavenStoredConfiguration {
 
 export interface MavenSettings {
   settingsPath: string;
+  localRepositoryPath: string;
   mavenExecutablePath: string;
   javaHomePath: string;
 }

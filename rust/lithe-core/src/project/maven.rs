@@ -4,6 +4,7 @@ use crate::protocol::{CoreError, ErrorCode};
 use crate::protocol::{
     MavenDiagnosticResponse, MavenDiagnosticsResponse, MavenLaunchExecutableResponse,
     MavenLaunchPlanResponse, MavenModuleResponse, MavenProfileResponse, MavenScanResponse,
+    MavenSourceRootKind, MavenSourceRootResponse,
 };
 use quick_xml::events::Event;
 use quick_xml::Reader;
@@ -44,6 +45,8 @@ pub struct MavenLaunchContextRequest {
     #[serde(default)]
     pub settings_path: Option<String>,
     #[serde(default)]
+    pub local_repository_path: Option<String>,
+    #[serde(default)]
     pub skip_tests: bool,
     #[serde(default)]
     pub maven_executable_path: Option<String>,
@@ -72,6 +75,8 @@ pub(crate) struct MavenJdtConfiguration {
     pub settings_path: Option<String>,
     /// Workspace-relative reactor and recursive module directories.
     pub project_paths: Vec<String>,
+    /// Workspace-relative Java source directories imported by JDT LS.
+    pub source_paths: Vec<String>,
 }
 
 struct ValidatedMavenContext {
@@ -79,6 +84,7 @@ struct ValidatedMavenContext {
     canonical_reactor: PathBuf,
     profiles: Vec<String>,
     settings_path: Option<String>,
+    local_repository_path: Option<String>,
     skip_tests: bool,
     maven_executable_path: Option<String>,
     java_home_path: Option<String>,
@@ -131,6 +137,7 @@ pub(crate) fn launch_plan_with_arguments(
     let arguments = maven_arguments(
         &validated.profiles,
         validated.settings_path.as_deref(),
+        validated.local_repository_path.as_deref(),
         module.as_deref(),
         also_make,
         validated.skip_tests,
@@ -140,6 +147,7 @@ pub(crate) fn launch_plan_with_arguments(
         &validated.reactor_path,
         &validated.profiles,
         validated.settings_path.as_deref(),
+        validated.local_repository_path.as_deref(),
         validated.skip_tests,
         validated.maven_executable_path.as_deref(),
         validated.java_home_path.as_deref(),
@@ -162,22 +170,42 @@ pub(crate) fn jdt_configuration(
     context: MavenLaunchContextRequest,
 ) -> Result<MavenJdtConfiguration, CoreError> {
     let validated = validated_maven_context(root, context)?;
-    let project_paths = declared_modules(&validated.canonical_reactor)?
-        .into_iter()
-        .map(|module| {
+    let declared = declared_modules(&validated.canonical_reactor)?;
+    let mut project_paths = Vec::with_capacity(declared.len());
+    let mut source_paths = BTreeSet::new();
+    for module in declared {
+        let module_path = {
             if module.relative_path == "." {
                 validated.reactor_path.clone()
             } else if validated.reactor_path == "." {
-                module.relative_path
+                module.relative_path.clone()
             } else {
                 format!("{}/{}", validated.reactor_path, module.relative_path)
             }
-        })
-        .collect();
+        };
+        project_paths.push(module_path.clone());
+        for source_root in module.source_roots {
+            if !matches!(
+                source_root.kind,
+                MavenSourceRootKind::MainJava
+                    | MavenSourceRootKind::TestJava
+                    | MavenSourceRootKind::GeneratedMain
+                    | MavenSourceRootKind::GeneratedTest
+            ) {
+                continue;
+            }
+            source_paths.insert(if module_path == "." {
+                source_root.path
+            } else {
+                format!("{module_path}/{}", source_root.path)
+            });
+        }
+    }
     Ok(MavenJdtConfiguration {
         profiles: validated.profiles,
         settings_path: validated.settings_path,
         project_paths,
+        source_paths: source_paths.into_iter().collect(),
     })
 }
 
@@ -217,6 +245,10 @@ fn validated_maven_context(
         canonical_reactor,
         profiles: normalized_profiles(context.profiles)?,
         settings_path: normalized_local_path(context.settings_path, "Maven settings")?,
+        local_repository_path: normalized_local_path(
+            context.local_repository_path,
+            "Maven local repository",
+        )?,
         skip_tests: context.skip_tests,
         maven_executable_path: normalized_local_path(
             context.maven_executable_path,
@@ -230,6 +262,7 @@ fn validated_maven_context(
 pub(crate) fn maven_arguments(
     profiles: &[String],
     settings_path: Option<&str>,
+    local_repository_path: Option<&str>,
     module: Option<&str>,
     also_make: bool,
     skip_tests: bool,
@@ -241,6 +274,9 @@ pub(crate) fn maven_arguments(
     }
     if let Some(settings_path) = settings_path {
         arguments.extend(["-s".to_string(), settings_path.to_string()]);
+    }
+    if let Some(local_repository_path) = local_repository_path {
+        arguments.push(format!("-Dmaven.repo.local={local_repository_path}"));
     }
     if let Some(module) = module.filter(|value| *value != ".") {
         arguments.extend(["-pl".to_string(), module.to_string()]);
@@ -336,6 +372,7 @@ fn maven_context_fingerprint(
     reactor_path: &str,
     profiles: &[String],
     settings_path: Option<&str>,
+    local_repository_path: Option<&str>,
     skip_tests: bool,
     maven_executable_path: Option<&str>,
     java_home_path: Option<&str>,
@@ -346,6 +383,7 @@ fn maven_context_fingerprint(
         reactor_path.to_string(),
         profiles.join(","),
         settings_path.unwrap_or_default().to_string(),
+        local_repository_path.unwrap_or_default().to_string(),
         skip_tests.to_string(),
         maven_executable_path.unwrap_or_default().to_string(),
         java_home_path.unwrap_or_default().to_string(),
@@ -363,9 +401,26 @@ struct Descriptor {
     artifact_id: Option<String>,
     version: Option<String>,
     packaging: String,
+    build_directory: Option<String>,
     module_paths: Vec<String>,
     profiles: Vec<MavenProfileResponse>,
     plugins: Vec<String>,
+    source_directory: Option<String>,
+    test_source_directory: Option<String>,
+    resource_directories: Vec<String>,
+    test_resource_directories: Vec<String>,
+    generated_source_directories: Vec<String>,
+    generated_test_source_directories: Vec<String>,
+}
+
+#[derive(Debug, Default)]
+/// Configuration buffered until the owning build plugin's `artifactId` is known.
+struct PendingBuildPlugin {
+    artifact_id: Option<String>,
+    compiler_generated_source_directories: Vec<String>,
+    compiler_generated_test_source_directories: Vec<String>,
+    build_helper_source_directories: Vec<String>,
+    build_helper_test_source_directories: Vec<String>,
 }
 
 /// One module of the declared build graph, flattened with the root first.
@@ -383,6 +438,8 @@ pub struct DeclaredModule {
     pub packaging: String,
     /// `artifactId` of every plugin the module applies in `<build><plugins>`.
     pub plugins: Vec<String>,
+    /// Source roots parsed from this module's own POM.
+    pub source_roots: Vec<MavenSourceRootResponse>,
 }
 
 impl DeclaredModule {
@@ -427,6 +484,7 @@ fn collect_modules(
         .map(|value| value.to_string_lossy().replace('\\', "/"))
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| ".".to_string());
+    let current_source_roots = source_roots(Some(&current));
     modules.push(DeclaredModule {
         relative_path,
         artifact_id: current.artifact_id.unwrap_or_else(|| {
@@ -438,6 +496,7 @@ fn collect_modules(
         }),
         packaging: current.packaging,
         plugins: current.plugins,
+        source_roots: current_source_roots,
     });
     for raw_path in &current.module_paths {
         let Some(relative) = normalize_relative_path(raw_path) else {
@@ -472,6 +531,7 @@ pub fn scan(request: MavenScanRequest) -> Result<Option<MavenScanResponse>, Core
         .iter()
         .filter_map(|path| module(&root, &root, path, &mut visited))
         .collect();
+    let source_roots = source_roots(Some(&root_descriptor));
 
     Ok(Some(MavenScanResponse {
         relative_path,
@@ -484,6 +544,7 @@ pub fn scan(request: MavenScanRequest) -> Result<Option<MavenScanResponse>, Core
         }),
         version: root_descriptor.version,
         packaging: root_descriptor.packaging,
+        source_roots,
         modules,
         profiles: root_descriptor.profiles,
         has_wrapper: has_wrapper(&root),
@@ -643,8 +704,207 @@ fn module(
             .as_ref()
             .map(|value| value.packaging.clone())
             .unwrap_or_else(|| "jar".to_string()),
+        source_roots: source_roots(descriptor.as_ref()),
         modules: child_modules,
     })
+}
+
+fn source_roots(descriptor: Option<&Descriptor>) -> Vec<MavenSourceRootResponse> {
+    let Some(descriptor) = descriptor else {
+        return Vec::new();
+    };
+
+    let mut roots = BTreeSet::new();
+    let build_directory = descriptor.build_directory.as_deref().unwrap_or("target");
+    let has_compiled_output = descriptor.packaging != "pom";
+    if has_compiled_output {
+        add_source_root(
+            &mut roots,
+            MavenSourceRootKind::MainJava,
+            descriptor
+                .source_directory
+                .as_deref()
+                .unwrap_or("src/main/java"),
+            Some(build_directory),
+        );
+        if descriptor.resource_directories.is_empty() {
+            add_source_root(
+                &mut roots,
+                MavenSourceRootKind::MainResources,
+                "src/main/resources",
+                Some(build_directory),
+            );
+        } else {
+            for path in &descriptor.resource_directories {
+                add_source_root(
+                    &mut roots,
+                    MavenSourceRootKind::MainResources,
+                    path,
+                    Some(build_directory),
+                );
+            }
+        }
+        add_source_root(
+            &mut roots,
+            MavenSourceRootKind::TestJava,
+            descriptor
+                .test_source_directory
+                .as_deref()
+                .unwrap_or("src/test/java"),
+            Some(build_directory),
+        );
+        if descriptor.test_resource_directories.is_empty() {
+            add_source_root(
+                &mut roots,
+                MavenSourceRootKind::TestResources,
+                "src/test/resources",
+                Some(build_directory),
+            );
+        } else {
+            for path in &descriptor.test_resource_directories {
+                add_source_root(
+                    &mut roots,
+                    MavenSourceRootKind::TestResources,
+                    path,
+                    Some(build_directory),
+                );
+            }
+        }
+    }
+
+    if has_compiled_output {
+        let default_generated_main = format!("{build_directory}/generated-sources");
+        let generated_main = if descriptor.generated_source_directories.is_empty() {
+            vec![default_generated_main.as_str()]
+        } else {
+            descriptor
+                .generated_source_directories
+                .iter()
+                .map(String::as_str)
+                .collect()
+        };
+        for path in generated_main {
+            add_source_root(
+                &mut roots,
+                MavenSourceRootKind::GeneratedMain,
+                path,
+                Some(build_directory),
+            );
+        }
+
+        let default_generated_test = format!("{build_directory}/generated-test-sources");
+        let generated_test = if descriptor.generated_test_source_directories.is_empty() {
+            vec![default_generated_test.as_str()]
+        } else {
+            descriptor
+                .generated_test_source_directories
+                .iter()
+                .map(String::as_str)
+                .collect()
+        };
+        for path in generated_test {
+            add_source_root(
+                &mut roots,
+                MavenSourceRootKind::GeneratedTest,
+                path,
+                Some(build_directory),
+            );
+        }
+    }
+
+    roots
+        .into_iter()
+        .map(|(rank, path)| MavenSourceRootResponse {
+            path,
+            kind: source_root_kind(rank),
+        })
+        .collect()
+}
+
+fn add_source_root(
+    roots: &mut BTreeSet<(u8, String)>,
+    kind: MavenSourceRootKind,
+    raw_path: &str,
+    build_directory: Option<&str>,
+) {
+    if let Some(path) = normalize_maven_source_path(raw_path, build_directory) {
+        roots.insert((source_root_kind_rank(kind), path));
+    }
+}
+
+fn source_root_kind_rank(kind: MavenSourceRootKind) -> u8 {
+    match kind {
+        MavenSourceRootKind::MainJava => 0,
+        MavenSourceRootKind::MainResources => 1,
+        MavenSourceRootKind::TestJava => 2,
+        MavenSourceRootKind::TestResources => 3,
+        MavenSourceRootKind::GeneratedMain => 4,
+        MavenSourceRootKind::GeneratedTest => 5,
+    }
+}
+
+fn source_root_kind(rank: u8) -> MavenSourceRootKind {
+    match rank {
+        0 => MavenSourceRootKind::MainJava,
+        1 => MavenSourceRootKind::MainResources,
+        2 => MavenSourceRootKind::TestJava,
+        3 => MavenSourceRootKind::TestResources,
+        4 => MavenSourceRootKind::GeneratedMain,
+        _ => MavenSourceRootKind::GeneratedTest,
+    }
+}
+
+fn normalize_maven_source_path(raw_path: &str, build_directory: Option<&str>) -> Option<String> {
+    let mut value = raw_path.trim().replace('\\', "/");
+    value = value
+        .replace("${project.basedir}", ".")
+        .replace("${basedir}", ".");
+    if value.contains("${project.build.directory}") {
+        let build_directory = normalize_build_directory(build_directory)?;
+        value = value.replace("${project.build.directory}", &build_directory);
+    }
+    normalize_maven_path_value(&value)
+}
+
+fn normalize_build_directory(raw_path: Option<&str>) -> Option<String> {
+    let mut value = raw_path.unwrap_or("target").trim().replace('\\', "/");
+    value = value
+        .replace("${project.basedir}", ".")
+        .replace("${basedir}", ".");
+    normalize_maven_path_value(&value)
+}
+
+fn normalize_maven_path_value(raw_path: &str) -> Option<String> {
+    let mut value = raw_path.trim().replace('\\', "/");
+    if value.contains("${") || value.contains('}') {
+        return None;
+    }
+    while let Some(stripped) = value.strip_prefix("./") {
+        value = stripped.to_string();
+    }
+    let path = Path::new(&value);
+    let is_windows_absolute = value.as_bytes().get(1).is_some_and(|byte| *byte == b':');
+    if value.is_empty()
+        || path.is_absolute()
+        || is_windows_absolute
+        || path.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+    {
+        return None;
+    }
+    let normalized = value.trim_matches('/').to_string();
+    if normalized.is_empty()
+        || normalized
+            .split('/')
+            .any(|component| component.is_empty() || component == "." || component == "..")
+    {
+        return None;
+    }
+    Some(normalized)
 }
 
 fn descriptor(path: &Path) -> Result<Option<Descriptor>, CoreError> {
@@ -661,12 +921,21 @@ fn descriptor(path: &Path) -> Result<Option<Descriptor>, CoreError> {
     };
     let mut profile_id = None;
     let mut profile_active_by_default = false;
+    let mut pending_build_plugin = None;
 
     loop {
         match reader.read_event_into(&mut buffer) {
             Ok(Event::Start(event)) => {
                 let name = local_name(event.name().as_ref());
+                let starts_build_plugin = name == "plugin"
+                    && stack.len() == 3
+                    && stack[0].0 == "project"
+                    && stack[1].0 == "build"
+                    && stack[2].0 == "plugins";
                 stack.push((name.clone(), String::new()));
+                if starts_build_plugin {
+                    pending_build_plugin = Some(PendingBuildPlugin::default());
+                }
                 if name == "profile" {
                     profile_id = None;
                     profile_active_by_default = false;
@@ -715,6 +984,61 @@ fn descriptor(path: &Path) -> Result<Option<Descriptor>, CoreError> {
                         value.packaging =
                             non_empty(text.clone()).unwrap_or_else(|| "jar".to_string())
                     }
+                    "project/build/directory" => {
+                        value.build_directory = non_empty(text.clone())
+                    }
+                    "project/build/sourceDirectory" => {
+                        value.source_directory = non_empty(text.clone())
+                    }
+                    "project/build/testSourceDirectory" => {
+                        value.test_source_directory = non_empty(text.clone())
+                    }
+                    "project/build/resources/resource/directory" => {
+                        if let Some(directory) = non_empty(text.clone()) {
+                            value.resource_directories.push(directory);
+                        }
+                    }
+                    "project/build/testResources/testResource/directory" => {
+                        if let Some(directory) = non_empty(text.clone()) {
+                            value.test_resource_directories.push(directory);
+                        }
+                    }
+                    "project/build/plugins/plugin/configuration/generatedSourcesDirectory"
+                    | "project/build/plugins/plugin/executions/execution/configuration/generatedSourcesDirectory" => {
+                        if let Some(directory) = non_empty(text.clone()) {
+                            if let Some(plugin) = pending_build_plugin.as_mut() {
+                                plugin
+                                    .compiler_generated_source_directories
+                                    .push(directory);
+                            }
+                        }
+                    }
+                    "project/build/plugins/plugin/configuration/generatedTestSourcesDirectory"
+                    | "project/build/plugins/plugin/executions/execution/configuration/generatedTestSourcesDirectory" => {
+                        if let Some(directory) = non_empty(text.clone()) {
+                            if let Some(plugin) = pending_build_plugin.as_mut() {
+                                plugin
+                                    .compiler_generated_test_source_directories
+                                    .push(directory);
+                            }
+                        }
+                    }
+                    "project/build/plugins/plugin/configuration/sources/source"
+                    | "project/build/plugins/plugin/executions/execution/configuration/sources/source" => {
+                        if let Some(directory) = non_empty(text.clone()) {
+                            if let Some(plugin) = pending_build_plugin.as_mut() {
+                                plugin.build_helper_source_directories.push(directory);
+                            }
+                        }
+                    }
+                    "project/build/plugins/plugin/configuration/testSources/testSource"
+                    | "project/build/plugins/plugin/executions/execution/configuration/testSources/testSource" => {
+                        if let Some(directory) = non_empty(text.clone()) {
+                            if let Some(plugin) = pending_build_plugin.as_mut() {
+                                plugin.build_helper_test_source_directories.push(directory);
+                            }
+                        }
+                    }
                     "project/modules/module" => {
                         if let Some(module) = non_empty(text.clone()) {
                             value.module_paths.push(module);
@@ -724,8 +1048,32 @@ fn descriptor(path: &Path) -> Result<Option<Descriptor>, CoreError> {
                     // `<pluginManagement>` pins a version for children without
                     // applying it, and one under `<reporting>` never runs.
                     "project/build/plugins/plugin/artifactId" => {
-                        if let Some(artifact) = non_empty(text.clone()) {
-                            value.plugins.push(artifact);
+                        if let Some(plugin) = pending_build_plugin.as_mut() {
+                            plugin.artifact_id = non_empty(text.clone());
+                        }
+                    }
+                    "project/build/plugins/plugin" => {
+                        if let Some(plugin) = pending_build_plugin.take() {
+                            if let Some(artifact_id) = plugin.artifact_id {
+                                match artifact_id.as_str() {
+                                    "maven-compiler-plugin" => {
+                                        value.generated_source_directories.extend(
+                                            plugin.compiler_generated_source_directories,
+                                        );
+                                        value.generated_test_source_directories.extend(
+                                            plugin.compiler_generated_test_source_directories,
+                                        );
+                                    }
+                                    "build-helper-maven-plugin" => {
+                                        value.generated_source_directories
+                                            .extend(plugin.build_helper_source_directories);
+                                        value.generated_test_source_directories
+                                            .extend(plugin.build_helper_test_source_directories);
+                                    }
+                                    _ => {}
+                                }
+                                value.plugins.push(artifact_id);
+                            }
                         }
                     }
                     "project/profiles/profile/id" => profile_id = non_empty(text.clone()),
