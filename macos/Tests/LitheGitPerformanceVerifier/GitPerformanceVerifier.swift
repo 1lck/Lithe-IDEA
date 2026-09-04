@@ -38,6 +38,7 @@ struct GitPerformanceVerifier {
             throw VerificationError.invalidFixture(commitCount: commitCount)
         }
         let expected = GitGraphStructureBaseline.expected(commitCount: commitCount)
+        let renderBenchmark = GitGraphRenderBenchmark(rowCount: commitCount)
         let committedSignature = GitGraphStructureBaseline.expectedSignature(commitCount: commitCount)
         var expectedSignature: UInt64?
 
@@ -82,7 +83,8 @@ struct GitPerformanceVerifier {
             minimumMs: sorted[0],
             maximumMs: sorted[sorted.count - 1],
             signature: signatureString(signature),
-            structureBaseline: expected
+            structureBaseline: expected,
+            renderBenchmark: renderBenchmark
         )
     }
 
@@ -174,6 +176,7 @@ private struct ScenarioResult: Codable {
     let maximumMs: Double
     let signature: String
     let structureBaseline: GitGraphStructureBaseline
+    let renderBenchmark: GitGraphRenderBenchmark
 }
 
 private enum VerificationError: Error, CustomStringConvertible {

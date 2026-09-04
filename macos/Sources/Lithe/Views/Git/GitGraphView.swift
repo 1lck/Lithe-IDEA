@@ -24,31 +24,41 @@ struct GitGraphView: View {
     private let rowHeight: CGFloat = 30
 
     var body: some View {
-        LazyVStack(spacing: 0) {
-            ForEach(visibleRows) { row in
-                GitGraphRowView(
-                    row: row,
-                    graphWidth: maximumGraphWidth,
-                    rowHeight: rowHeight,
-                    isSelected: selectedHash == row.commit.hash,
-                    showCommitDecorations: showCommitDecorations,
-                    actions: actions
-                )
-                .equatable()
-                .id(row.commit.hash)
+        ZStack(alignment: .topLeading) {
+            LazyVStack(spacing: 0) {
+                ForEach(visibleRows) { row in
+                    GitGraphRowView(
+                        row: row,
+                        graphWidth: maximumGraphWidth,
+                        rowHeight: rowHeight,
+                        isSelected: selectedHash == row.commit.hash,
+                        showCommitDecorations: showCommitDecorations,
+                        actions: actions
+                    )
+                    .equatable()
+                    .id(row.commit.hash)
+                }
+
+                if layout.hasMissingParents {
+                    HStack(spacing: 7) {
+                        Image(systemName: "ellipsis")
+                        Text("Older commits are outside the loaded history")
+                    }
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(LitheTheme.tertiaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, maximumGraphWidth + 6)
+                    .frame(height: 30)
+                }
             }
 
-            if layout.hasMissingParents {
-                HStack(spacing: 7) {
-                    Image(systemName: "ellipsis")
-                    Text("Older commits are outside the loaded history")
-                }
-                .font(.system(size: 10.5))
-                .foregroundStyle(LitheTheme.tertiaryText)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, maximumGraphWidth + 6)
-                .frame(height: 30)
-            }
+            GitGraphNSViewRepresentable(
+                rows: visibleRows,
+                width: maximumGraphWidth,
+                rowHeight: rowHeight
+            )
+            .frame(width: maximumGraphWidth, height: CGFloat(visibleRows.count) * rowHeight)
+            .allowsHitTesting(false)
         }
     }
 
@@ -83,11 +93,7 @@ private struct GitGraphRowView: View, Equatable {
     var body: some View {
         Button { actions.onSelect(row.commit) } label: {
             HStack(spacing: 0) {
-                GitGraphCanvas(
-                    row: row,
-                    width: graphWidth,
-                    height: rowHeight
-                )
+                Color.clear.frame(width: graphWidth, height: rowHeight)
 
                 HStack(spacing: 0) {
                     Text(row.commit.subject)
@@ -209,122 +215,132 @@ private struct GitReferenceTagIcon: View {
     }
 }
 
-private struct GitGraphCanvas: View {
-    let row: GitGraphRow
+private struct GitGraphNSViewRepresentable: NSViewRepresentable {
+    let rows: [GitGraphRow]
     let width: CGFloat
-    let height: CGFloat
+    let rowHeight: CGFloat
 
+    func makeNSView(context: Context) -> GitGraphNSView {
+        GitGraphNSView()
+    }
+
+    func updateNSView(_ nsView: GitGraphNSView, context: Context) {
+        nsView.update(rows: rows, width: width, rowHeight: rowHeight)
+    }
+}
+
+private final class GitGraphNSView: NSView {
+    private static let palette: [NSColor] = [
+        NSColor(calibratedRed: 0.29, green: 0.72, blue: 0.45, alpha: 1),
+        NSColor(calibratedRed: 0.35, green: 0.62, blue: 0.96, alpha: 1),
+        NSColor(calibratedRed: 0.82, green: 0.47, blue: 0.82, alpha: 1),
+        NSColor(calibratedRed: 0.96, green: 0.61, blue: 0.28, alpha: 1),
+        NSColor(calibratedRed: 0.36, green: 0.78, blue: 0.78, alpha: 1),
+        NSColor(calibratedRed: 0.93, green: 0.42, blue: 0.48, alpha: 1),
+        NSColor(calibratedRed: 0.70, green: 0.63, blue: 0.94, alpha: 1)
+    ]
+
+    private var rows: [GitGraphRow] = []
+    private var graphWidth: CGFloat = 0
+    private var rowHeight: CGFloat = 30
     private let laneSpacing: CGFloat = 13
     private let laneLineWidth: CGFloat = 1.6
     private let leftPadding: CGFloat = 8
 
-    var body: some View {
-        Canvas { context, size in
-            let centerY = size.height / 2
+    override var isOpaque: Bool { false }
+    override var isFlipped: Bool { true }
+
+    func update(rows: [GitGraphRow], width: CGFloat, rowHeight: CGFloat) {
+        guard self.rows != rows || graphWidth != width || self.rowHeight != rowHeight else { return }
+        self.rows = rows
+        graphWidth = width
+        self.rowHeight = rowHeight
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        context.setShouldAntialias(true)
+
+        let firstRow = max(0, Int(floor(dirtyRect.minY / rowHeight)))
+        let lastRow = min(rows.count - 1, Int(ceil(dirtyRect.maxY / rowHeight)))
+        guard firstRow <= lastRow else { return }
+
+        for index in firstRow...lastRow {
+            let row = rows[index]
+            let top = CGFloat(index) * rowHeight
+            let centerY = top + rowHeight / 2
             let currentX = x(for: row.lane)
 
-            for (lane, incomingColorIndex) in row.incomingLaneColors.enumerated() {
-                guard let colorIndex = incomingColorIndex else { continue }
-                let path = linePath(
-                    from: CGPoint(x: x(for: lane), y: 0),
-                    to: CGPoint(x: x(for: lane), y: lane == row.lane ? centerY : size.height)
-                )
-                context.stroke(
-                    path,
-                    with: .color(GitGraphPalette.color(for: colorIndex)),
-                    style: StrokeStyle(lineWidth: laneLineWidth, lineCap: .round)
+            for (lane, colorIndex) in row.incomingLaneColors.enumerated() {
+                guard let colorIndex else { continue }
+                stroke(
+                    line(from: CGPoint(x: x(for: lane), y: top), to: CGPoint(x: x(for: lane), y: lane == row.lane ? centerY : top + rowHeight)),
+                    color: color(for: colorIndex),
+                    width: laneLineWidth,
+                    context: context
                 )
             }
 
             for edge in row.parentEdges {
-                let color = GitGraphPalette.color(for: edge.colorIndex)
+                let color = color(for: edge.colorIndex)
                 if let targetLane = edge.targetLane {
-                    let target = CGPoint(x: x(for: targetLane), y: size.height)
+                    let target = CGPoint(x: x(for: targetLane), y: top + rowHeight)
                     let start = CGPoint(x: currentX, y: centerY)
-                    var path = Path()
-                    path.move(to: start)
+                    let path: CGPath
                     if targetLane == row.lane {
-                        path.addLine(to: target)
+                        path = line(from: start, to: target)
                     } else {
-                        let controlY = centerY + (size.height - centerY) * 0.62
-                        path.addCurve(
-                            to: target,
-                            control1: CGPoint(x: start.x, y: controlY),
-                            control2: CGPoint(x: target.x, y: controlY)
-                        )
+                        let controlY = centerY + (rowHeight - rowHeight / 2) * 0.62
+                        let bezier = CGMutablePath()
+                        bezier.move(to: start)
+                        bezier.addCurve(to: target, control1: CGPoint(x: start.x, y: controlY), control2: CGPoint(x: target.x, y: controlY))
+                        path = bezier
                     }
-                    context.stroke(
-                        path,
-                        with: .color(color),
-                        style: StrokeStyle(lineWidth: laneLineWidth, lineCap: .round)
-                    )
+                    stroke(path, color: color, width: laneLineWidth, context: context)
                 } else {
-                    let path = linePath(
-                        from: CGPoint(x: currentX, y: centerY),
-                        to: CGPoint(x: currentX, y: size.height - 2)
-                    )
-                    context.stroke(
-                        path,
-                        with: .color(color.opacity(0.65)),
-                        style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [3, 2])
-                    )
+                    context.saveGState()
+                    context.setLineDash(phase: 0, lengths: [3, 2])
+                    stroke(line(from: CGPoint(x: currentX, y: centerY), to: CGPoint(x: currentX, y: top + rowHeight - 2)), color: color.withAlphaComponent(0.65), width: 1.5, context: context)
+                    context.restoreGState()
                 }
             }
 
             let nodeSize: CGFloat = row.isMerge ? 9.5 : 8.5
-            let nodeRect = CGRect(
-                x: currentX - nodeSize / 2,
-                y: centerY - nodeSize / 2,
-                width: nodeSize,
-                height: nodeSize
-            )
-            context.fill(
-                Path(ellipseIn: nodeRect),
-                with: .color(GitGraphPalette.color(for: nodeColorIndex))
-            )
+            let nodeRect = CGRect(x: currentX - nodeSize / 2, y: centerY - nodeSize / 2, width: nodeSize, height: nodeSize)
+            context.setFillColor(color(for: nodeColorIndex(row)).cgColor)
+            context.fillEllipse(in: nodeRect)
             if row.isMerge {
-                context.stroke(
-                    Path(ellipseIn: nodeRect.insetBy(dx: 1, dy: 1)),
-                    with: .color(Color.white.opacity(0.72)),
-                    style: StrokeStyle(lineWidth: 1)
-                )
+                context.setStrokeColor(NSColor.white.withAlphaComponent(0.72).cgColor)
+                context.setLineWidth(1)
+                context.strokeEllipse(in: nodeRect.insetBy(dx: 1, dy: 1))
             }
         }
-        .frame(width: width, height: height)
-        .accessibilityHidden(true)
     }
 
-    private var nodeColorIndex: Int {
-        row.incomingLaneColors[safe: row.lane].flatMap { $0 }
-            ?? row.parentEdges.first?.colorIndex
-            ?? 0
+    private func nodeColorIndex(_ row: GitGraphRow) -> Int {
+        row.incomingLaneColors[safe: row.lane].flatMap { $0 } ?? row.parentEdges.first?.colorIndex ?? 0
     }
 
-    private func x(for lane: Int) -> CGFloat {
-        leftPadding + CGFloat(lane) * laneSpacing
-    }
+    private func x(for lane: Int) -> CGFloat { leftPadding + CGFloat(lane) * laneSpacing }
 
-    private func linePath(from start: CGPoint, to end: CGPoint) -> Path {
-        var path = Path()
+    private func line(from start: CGPoint, to end: CGPoint) -> CGPath {
+        let path = CGMutablePath()
         path.move(to: start)
         path.addLine(to: end)
         return path
     }
-}
 
-private enum GitGraphPalette {
-    private static let colors: [Color] = [
-        Color(red: 0.29, green: 0.72, blue: 0.45),
-        Color(red: 0.35, green: 0.62, blue: 0.96),
-        Color(red: 0.82, green: 0.47, blue: 0.82),
-        Color(red: 0.96, green: 0.61, blue: 0.28),
-        Color(red: 0.36, green: 0.78, blue: 0.78),
-        Color(red: 0.93, green: 0.42, blue: 0.48),
-        Color(red: 0.70, green: 0.63, blue: 0.94)
-    ]
+    private func stroke(_ path: CGPath, color: NSColor, width: CGFloat, context: CGContext) {
+        context.setStrokeColor(color.cgColor)
+        context.setLineWidth(width)
+        context.setLineCap(.round)
+        context.addPath(path)
+        context.strokePath()
+    }
 
-    static func color(for index: Int) -> Color {
-        colors[index % colors.count]
+    private func color(for index: Int) -> NSColor {
+        Self.palette[index % Self.palette.count]
     }
 }
 

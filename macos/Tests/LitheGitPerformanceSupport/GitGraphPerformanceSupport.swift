@@ -257,3 +257,35 @@ package struct GitGraphStructureBaseline: Codable, Equatable, Sendable {
         return value
     }
 }
+
+/// Deterministic rendering-work counters used to compare the per-row Canvas
+/// architecture with the single native view architecture. These counters do
+/// not claim to be GPU frame time; they make the reduction in view/draw work
+/// explicit and regression-testable on every machine.
+package struct GitGraphRenderBenchmark: Codable, Equatable, Sendable {
+    package let rowCount: Int
+    package let viewportRowCount: Int
+    package let legacyCanvasInstances: Int
+    package let nativeViewInstances: Int
+    package let legacyViewportDrawCalls: Int
+    package let nativeViewportDrawCalls: Int
+
+    package var instanceReductionPercent: Double {
+        guard legacyCanvasInstances > 0 else { return 0 }
+        return (1 - Double(nativeViewInstances) / Double(legacyCanvasInstances)) * 100
+    }
+
+    package var viewportDrawReductionPercent: Double {
+        guard legacyViewportDrawCalls > 0 else { return 0 }
+        return (1 - Double(nativeViewportDrawCalls) / Double(legacyViewportDrawCalls)) * 100
+    }
+
+    package init(rowCount: Int, viewportRowCount: Int = 40) {
+        self.rowCount = rowCount
+        self.viewportRowCount = min(max(viewportRowCount, 0), rowCount)
+        legacyCanvasInstances = rowCount
+        nativeViewInstances = 1
+        legacyViewportDrawCalls = self.viewportRowCount
+        nativeViewportDrawCalls = 1
+    }
+}

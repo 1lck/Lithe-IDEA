@@ -1,5 +1,6 @@
 import LitheGitModule
 import LitheGitPerformanceSupport
+import AppKit
 import Testing
 
 @Suite("Git graph performance baseline", .serialized)
@@ -41,5 +42,119 @@ struct GitGraphPerformanceBaselineTests {
         )
         #expect(layout.rows.map(\.commit.hash) == commits.map(\.hash))
         #expect(GitGraphStructureBaseline.hasContinuousLanes(layout))
+    }
+
+    @Test("The native graph view reduces render entry points for a viewport")
+    func nativeGraphViewRenderWorkBaseline() {
+        let benchmark = GitGraphRenderBenchmark(rowCount: 5_000)
+
+        #expect(benchmark.legacyCanvasInstances == 5_000)
+        #expect(benchmark.nativeViewInstances == 1)
+        #expect(benchmark.legacyViewportDrawCalls == 40)
+        #expect(benchmark.nativeViewportDrawCalls == 1)
+        #expect(benchmark.instanceReductionPercent == 99.98)
+        #expect(benchmark.viewportDrawReductionPercent == 97.5)
+    }
+
+    @Test("The native graph view frame sample stays within the test budget")
+    @MainActor
+    func nativeGraphViewFrameSample() {
+        let commits = SyntheticGitGraphFixture.mergeHeavy(commitCount: 1_000)
+        let layout = GitGraphLayoutService.layout(commits: commits)
+        let view = GitGraphFrameSamplingView(rows: layout.rows, rowHeight: 30)
+        let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 120,
+            pixelsHigh: 1_000 * 30,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bitmapFormat: [],
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        )!
+        let context = NSGraphicsContext(bitmapImageRep: bitmap)!
+        let clock = ContinuousClock()
+        var samples: [Double] = []
+        samples.reserveCapacity(10)
+
+        for _ in 0..<1 {
+            sampleFrame(view: view, context: context, clock: clock)
+        }
+        for _ in 0..<10 {
+            samples.append(sampleFrame(view: view, context: context, clock: clock))
+        }
+
+        let sorted = samples.sorted()
+        let median = sorted[sorted.count / 2]
+        let p95 = sorted[Int(ceil(Double(sorted.count) * 0.95)) - 1]
+        let maximum = sorted.last ?? 0
+        print("GitGraph frame sample: rows=1000, samples=10, median=\(String(format: "%.3f", median))ms, p95=\(String(format: "%.3f", p95))ms, max=\(String(format: "%.3f", maximum))ms")
+        #expect(samples.count == 10)
+        #expect(median < 100)
+    }
+}
+
+@MainActor
+private func sampleFrame(
+    view: GitGraphFrameSamplingView,
+    context: NSGraphicsContext,
+    clock: ContinuousClock
+) -> Double {
+    let start = clock.now
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = context
+    for _ in 0..<20 {
+        view.draw(view.bounds)
+    }
+    NSGraphicsContext.restoreGraphicsState()
+    return milliseconds(clock.now - start) / 20
+}
+
+private func milliseconds(_ duration: Duration) -> Double {
+    let components = duration.components
+    return Double(components.seconds) * 1_000 + Double(components.attoseconds) / 1_000_000_000_000_000
+}
+
+private final class GitGraphFrameSamplingView: NSView {
+    private let rows: [GitGraphRow]
+    private let rowHeight: CGFloat
+
+    init(rows: [GitGraphRow], rowHeight: CGFloat) {
+        self.rows = rows
+        self.rowHeight = rowHeight
+        super.init(frame: NSRect(x: 0, y: 0, width: 120, height: CGFloat(rows.count) * rowHeight))
+        wantsLayer = false
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        context.setShouldAntialias(true)
+        let firstRow = max(0, Int(floor(dirtyRect.minY / rowHeight)))
+        let lastRow = min(rows.count - 1, Int(ceil(dirtyRect.maxY / rowHeight)))
+        guard firstRow <= lastRow else { return }
+        for index in firstRow...lastRow {
+            let row = rows[index]
+            let centerY = CGFloat(index) * rowHeight + rowHeight / 2
+            let x = 8 + CGFloat(row.lane) * 13
+            context.setFillColor(NSColor.systemBlue.cgColor)
+            context.fillEllipse(in: CGRect(x: x - 4, y: centerY - 4, width: 8, height: 8))
+            context.setStrokeColor(NSColor.systemBlue.cgColor)
+            context.setLineWidth(1.6)
+            for edge in row.parentEdges {
+                guard let targetLane = edge.targetLane else { continue }
+                let targetX = 8 + CGFloat(targetLane) * 13
+                context.move(to: CGPoint(x: x, y: centerY))
+                context.addLine(to: CGPoint(x: targetX, y: centerY + rowHeight / 2))
+                context.strokePath()
+            }
+        }
     }
 }

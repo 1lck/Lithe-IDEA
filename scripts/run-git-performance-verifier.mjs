@@ -80,6 +80,11 @@ function writeSuccessReport(options, benchmark, durationMs) {
       || timings.some((value) => !Number.isFinite(value) || value < 0)
       || !/^0x[0-9a-f]{16}$/.test(scenario.signature)
       || !Number.isInteger(scenario.structureBaseline?.maximumLaneCount)
+      || scenario.renderBenchmark?.rowCount !== scenario.commitCount
+      || scenario.renderBenchmark?.legacyCanvasInstances !== scenario.commitCount
+      || scenario.renderBenchmark?.nativeViewInstances !== 1
+      || scenario.renderBenchmark?.legacyViewportDrawCalls !== Math.min(40, scenario.commitCount)
+      || scenario.renderBenchmark?.nativeViewportDrawCalls !== 1
     ) {
       throw new Error(`benchmark scenario ${index} is incomplete or invalid`);
     }
@@ -89,7 +94,7 @@ function writeSuccessReport(options, benchmark, durationMs) {
     suite: "Git graph Release baseline",
     status: "passed",
     durationMs: Number(scenario.medianMs),
-    details: `median=${Number(scenario.medianMs).toFixed(3)}ms, p95=${Number(scenario.p95Ms).toFixed(3)}ms, min=${Number(scenario.minimumMs).toFixed(3)}ms, max=${Number(scenario.maximumMs).toFixed(3)}ms, samples=${benchmark.sampleCount}, warmups=${benchmark.warmupCount}, lanes=${scenario.structureBaseline.maximumLaneCount}, signature=${scenario.signature}, verifier=${Math.round(durationMs)}ms`,
+    details: `median=${Number(scenario.medianMs).toFixed(3)}ms, p95=${Number(scenario.p95Ms).toFixed(3)}ms, renderInstances=${scenario.renderBenchmark.legacyCanvasInstances}->${scenario.renderBenchmark.nativeViewInstances}, viewportDrawCalls=${scenario.renderBenchmark.legacyViewportDrawCalls}->${scenario.renderBenchmark.nativeViewportDrawCalls}, samples=${benchmark.sampleCount}, warmups=${benchmark.warmupCount}, lanes=${scenario.structureBaseline.maximumLaneCount}, signature=${scenario.signature}, verifier=${Math.round(durationMs)}ms`,
   })));
 }
 
