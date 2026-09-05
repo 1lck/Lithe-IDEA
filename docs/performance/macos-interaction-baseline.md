@@ -43,8 +43,11 @@ scripts/measure-macos-performance-baseline.sh \
   --interactive
 ```
 
-The script writes a TSV report and prints the median resident set size. Use
-Instruments' Points of Interest template to inspect the `editor.input`,
-`appmodel.relay`, `split.drag`, and `search.everywhere` signposts. The baseline
-mode disables `FrameRateMonitor`, whose per-vsync MainActor task would otherwise
-pollute the interaction trace.
+The script writes a TSV report and prints the median resident set size. During
+baseline runs, the same four interactions also emit
+`LITHE_PERF_SIGNPOST` lines to the captured process log. The TSV includes
+count, p50, p95, and max duration for `editor.input`, `appmodel.relay`,
+`split.drag`, and `search.everywhere`. Instruments can still be used for
+system-level hitches, but the report does not depend on Instruments exporting
+application signposts. The baseline mode disables `FrameRateMonitor`, whose
+per-vsync MainActor task would otherwise pollute the interaction trace.

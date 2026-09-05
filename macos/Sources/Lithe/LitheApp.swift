@@ -270,6 +270,11 @@ struct LitheApp: App {
 
     init() {
         let store = MacUserDefaultsStore()
+        if LithePerformanceBaseline.isEnabled {
+            LitheSignpost.configureBaselineOutput { line in
+                FileHandle.standardError.write(Data(line.utf8))
+            }
+        }
         let settings = AppSettings(
             store: store,
             logDirectoryProvider: MacServiceContainer.makeLogDirectoryProvider()

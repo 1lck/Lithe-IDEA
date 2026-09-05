@@ -23,7 +23,7 @@ struct SplitHandleView: View {
     @State private var isHovering = false
     @State private var isDragging = false
     @State private var dragScheduler = LitheDragUpdateScheduler()
-    @State private var dragSignpost: OSSignpostIntervalState?
+    @State private var dragSignpost: LitheSignpost.State?
     @State private var cursor = SplitHandleCursor()
 
     init(
