@@ -1395,7 +1395,8 @@ final class AppModel: ObservableObject, Identifiable {
             try languageToolingSessions.synchronizeLanguageServer(
                 for: document.url,
                 text: document.text,
-                rootURL: workspaceURL
+                rootURL: workspaceURL,
+                changes: document.takePendingLanguageServerChanges()
             )
             languageToolingFeature.markActivationSucceeded(providerID: descriptor.id)
             if let moduleID = services.pluginCatalog.languageSupport(for: document.url)?
