@@ -59,6 +59,22 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
         replaceText(newText, publish: isDirty != remainsUnpersisted)
     }
 
+    /// Applies the editor's latest change without asking the NSTextView for a
+    /// full document snapshot. The editor and document model stay in lockstep
+    /// through the same UTF-16 range used by NSTextView.
+    func applyLiveEditorEdit(replacedRange: NSRange, replacement: String) {
+        let source = storedText as NSString
+        guard replacedRange.location != NSNotFound,
+              replacedRange.location >= 0,
+              replacedRange.length >= 0,
+              replacedRange.location <= source.length,
+              replacedRange.length <= source.length - replacedRange.location else {
+            return
+        }
+        let nextText = source.replacingCharacters(in: replacedRange, with: replacement)
+        applyLiveEditorText(nextText)
+    }
+
     private func replaceText(_ newText: String, publish: Bool) {
         guard storedText != newText else { return }
         let nextRevision = lifecycleState.revision + 1
