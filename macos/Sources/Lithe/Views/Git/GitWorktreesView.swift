@@ -148,6 +148,11 @@ struct GitWorktreesView: View {
             transaction.animation = nil
             transaction.disablesAnimations = true
         }
+        // Keep the worktree surface in its own compositing layer while a
+        // splitter is dragged. This lets Core Animation move the already
+        // rendered list/detail surfaces without repainting every child view
+        // for each pointer event.
+        .compositingGroup()
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.editor)
         .task(id: model.gitRepositoryRoot) {
             await model.refreshGitWorktrees()
