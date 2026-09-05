@@ -1300,7 +1300,18 @@ struct CodeEditorView: NSViewRepresentable {
             }
             gutter?.refreshLineNumberLayout()
             isApplyingEditorChange = true
-            document?.applyLiveEditorText(textView.string)
+            if let document,
+               let replacedRange = pendingReplacedRange,
+               let replacement = pendingReplacement {
+                document.applyLiveEditorEdit(
+                    replacedRange: replacedRange,
+                    replacement: replacement
+                )
+            } else {
+                // Programmatic edits may not provide shouldChangeTextIn
+                // metadata. Keep this recovery path for those edits only.
+                document?.applyLiveEditorText(textView.string)
+            }
             if let document,
                let previousSource,
                let replacedRange = pendingReplacedRange,

@@ -3238,6 +3238,30 @@ struct EditorDocumentTests {
     }
 
     @Test
+    @MainActor
+    func liveEditorEditAppliesUTF16ReplacementWithoutFullEditorSnapshot() {
+        let document = EditorDocument(
+            url: URL(fileURLWithPath: "/tmp/live-editor-edit.txt"),
+            text: "before\nvalue",
+            modificationDate: nil
+        )
+
+        document.applyLiveEditorEdit(
+            replacedRange: NSRange(location: 7, length: 5),
+            replacement: "updated"
+        )
+
+        #expect(document.text == "before\nupdated")
+        #expect(document.isDirty)
+
+        document.applyLiveEditorEdit(
+            replacedRange: NSRange(location: 0, length: 0),
+            replacement: "A"
+        )
+        #expect(document.text == "Abefore\nupdated")
+    }
+
+    @Test
     func rustDocumentLifecyclePreservesDirtyEditorTextOnExternalChange() throws {
         let core = RustCoreBridge()
         guard core.isAvailable else { return }
