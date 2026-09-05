@@ -575,22 +575,19 @@ export const AISettings = () => {
                 type="password"
                 value={customChatApiKeyInput}
                 onChange={(event) => setCustomChatApiKeyInput(event.currentTarget.value)}
+                onBlur={() => void handleSaveCustomChatApiKey()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.currentTarget.blur();
+                  }
+                }}
                 placeholder={hasCustomChatApiKey ? t("aiSettings.saved") : t("aiSettings.apiKey")}
                 size="md"
-                className={SETTINGS_CONTROL_WIDTHS.wide}
+                className={SETTINGS_CONTROL_WIDTHS.xwide}
                 spellCheck={false}
                 autoComplete="off"
                 disabled={isSavingCustomChatApiKey}
               />
-              <Button
-                type="button"
-                variant="default"
-                onClick={handleSaveCustomChatApiKey}
-                disabled={!customChatApiKeyInput.trim() || isSavingCustomChatApiKey}
-                size="sm"
-              >
-                {t("ui.save")}
-              </Button>
               {hasCustomChatApiKey && (
                 <Button
                   type="button"
@@ -679,6 +676,12 @@ export const AISettings = () => {
                 type="password"
                 value={ollamaApiKeyInput}
                 onChange={(e) => setOllamaApiKeyInput(e.target.value)}
+                onBlur={() => void handleSaveOllamaApiKey()}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  e.preventDefault();
+                  e.currentTarget.blur();
+                }}
                 placeholder={hasStoredOllamaKey ? t("aiSettings.savedKeyPlaceholder") : "ollama-…"}
                 spellCheck={false}
                 leftIcon={Key}
@@ -689,15 +692,6 @@ export const AISettings = () => {
                 autoComplete="off"
                 disabled={isSavingOllamaKey}
               />
-              <Button
-                type="button"
-                variant="default"
-                onClick={handleSaveOllamaApiKey}
-                disabled={!ollamaApiKeyInput.trim() || isSavingOllamaKey}
-                size="sm"
-              >
-                {isSavingOllamaKey ? t("ui.saving") : t("ui.save")}
-              </Button>
               {hasStoredOllamaKey && (
                 <Button
                   type="button"
@@ -968,24 +962,19 @@ export const AISettings = () => {
                       onChange={(event) =>
                         setCustomAutocompleteApiKeyInput(event.currentTarget.value)
                       }
+                      onBlur={() => void handleSaveCustomAutocompleteApiKey()}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.currentTarget.blur();
+                        }
+                      }}
                       placeholder={
                         hasCustomAutocompleteApiKey ? t("aiSettings.saved") : t("aiSettings.apiKey")
                       }
                       size="md"
-                      className={SETTINGS_CONTROL_WIDTHS.wide}
+                      className={SETTINGS_CONTROL_WIDTHS.xwide}
                       disabled={isSavingCustomAutocompleteApiKey}
                     />
-                    <Button
-                      variant="default"
-                      onClick={handleSaveCustomAutocompleteApiKey}
-                      disabled={
-                        !customAutocompleteApiKeyInput.trim() ||
-                        isSavingCustomAutocompleteApiKey
-                      }
-                      size="sm"
-                    >
-                      {t("ui.save")}
-                    </Button>
                     {hasCustomAutocompleteApiKey && (
                       <Button
                         variant="default"
