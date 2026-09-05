@@ -334,6 +334,66 @@ struct RustCoreBridge: Sendable {
         }
     }
 
+    struct MavenDependenciesPayload: Decodable, Sendable {
+        struct Dependency: Decodable, Sendable {
+            let modulePath: String
+            let groupID: String
+            let artifactID: String
+            let version: String
+            let type: String
+            let classifier: String?
+            let scope: String
+            let resolution: String
+            let selectedVersion: String?
+            let children: [Dependency]
+
+            enum CodingKeys: String, CodingKey {
+                case modulePath
+                case groupID = "groupId"
+                case artifactID = "artifactId"
+                case version
+                case type
+                case classifier
+                case scope
+                case resolution
+                case selectedVersion
+                case children
+            }
+
+            func makeModel() throws -> MavenDependency {
+                guard let resolution = MavenDependencyResolution(rawValue: resolution) else {
+                    throw MavenOperationError(
+                        code: "parse_failed",
+                        message: "Maven dependency resolution state is invalid.",
+                        details: resolution
+                    )
+                }
+                return MavenDependency(
+                    modulePath: modulePath,
+                    groupID: groupID,
+                    artifactID: artifactID,
+                    version: version,
+                    type: type,
+                    classifier: classifier,
+                    scope: scope,
+                    resolution: resolution,
+                    selectedVersion: selectedVersion,
+                    children: try children.map { try $0.makeModel() }
+                )
+            }
+        }
+
+        let modulePath: String
+        let dependencies: [Dependency]
+
+        func makeModel() throws -> MavenDependencyTree {
+            MavenDependencyTree(
+                modulePath: modulePath,
+                dependencies: try dependencies.map { try $0.makeModel() }
+            )
+        }
+    }
+
     struct JavaRunConfigurationsPayload: Decodable, Sendable {
         struct MainClass: Decodable, Sendable {
             let path: String
@@ -1346,6 +1406,12 @@ struct RustCoreBridge: Sendable {
         let goals: [String]
     }
 
+    private struct MavenDependencyPlanRequest: Encodable {
+        let root: String
+        let context: MavenLaunchContext
+        let module: String?
+    }
+
     private struct MarkdownRenderRequest: Encodable {
         let source: String
     }
@@ -1742,6 +1808,11 @@ struct RustCoreBridge: Sendable {
 
     private struct MavenDiagnosticsRequest: Encodable {
         let root: String
+        let output: String
+    }
+
+    private struct MavenDependenciesRequest: Encodable {
+        let modulePath: String
         let output: String
     }
 
@@ -2492,6 +2563,31 @@ struct RustCoreBridge: Sendable {
                 module: module,
                 goals: goals
             )
+        )
+    }
+
+    func mavenDependencyPlan(
+        at rootURL: URL,
+        context: MavenLaunchContext,
+        module: String?
+    ) -> Result<MavenLaunchPlanPayload, CoreCallError> {
+        executeResult(
+            command: "maven.dependencyPlan",
+            payload: MavenDependencyPlanRequest(
+                root: rootURL.standardizedFileURL.path,
+                context: context,
+                module: module
+            )
+        )
+    }
+
+    func mavenDependencies(
+        modulePath: String,
+        output: String
+    ) -> Result<MavenDependenciesPayload, CoreCallError> {
+        executeResult(
+            command: "maven.dependencies",
+            payload: MavenDependenciesRequest(modulePath: modulePath, output: output)
         )
     }
 

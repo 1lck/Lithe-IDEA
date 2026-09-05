@@ -81,6 +81,10 @@ pub enum CoreCommand {
     MavenScan,
     /// Produces a deterministic Maven invocation (`maven.launchPlan`).
     MavenLaunchPlan,
+    /// Produces a bounded Maven dependency-tree invocation (`maven.dependencyPlan`).
+    MavenDependencyPlan,
+    /// Normalizes Maven dependency-tree output (`maven.dependencies`).
+    MavenDependencies,
     /// Normalizes diagnostics from Maven output (`maven.diagnostics`).
     MavenDiagnostics,
     /// Renders and sanitizes shared Markdown (`markdown.render`).
@@ -276,6 +280,8 @@ impl CoreCommand {
             "history.delete" => Some(Self::HistoryDelete),
             "maven.scan" => Some(Self::MavenScan),
             "maven.launchPlan" => Some(Self::MavenLaunchPlan),
+            "maven.dependencyPlan" => Some(Self::MavenDependencyPlan),
+            "maven.dependencies" => Some(Self::MavenDependencies),
             "maven.diagnostics" => Some(Self::MavenDiagnostics),
             "markdown.render" => Some(Self::MarkdownRender),
             "debug.createSession" => Some(Self::DebugCreateSession),

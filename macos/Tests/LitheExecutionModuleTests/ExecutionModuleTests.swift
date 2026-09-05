@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import LitheApplicationKernel
 @testable import LitheExecutionModule
@@ -438,6 +439,7 @@ struct ExecutionModuleTests {
         let service = MavenService(
             runtimeService: runtime,
             process: process,
+            dependencyProcess: TestStreamingProcess(),
             mavenOperations: operations,
             configurationStore: store
         )
@@ -493,6 +495,7 @@ struct ExecutionModuleTests {
         let service = MavenService(
             runtimeService: MavenRecordingRuntime(),
             process: process,
+            dependencyProcess: TestStreamingProcess(),
             mavenOperations: RecordingMavenOperations(project: project, plan: plan)
         )
 
@@ -526,6 +529,7 @@ struct ExecutionModuleTests {
         let service = MavenService(
             runtimeService: MavenRecordingRuntime(),
             process: process,
+            dependencyProcess: TestStreamingProcess(),
             mavenOperations: FingerprintingMavenOperations(project: project)
         )
 
@@ -542,6 +546,179 @@ struct ExecutionModuleTests {
         service.run(phase: .validate, module: nil)
         _ = try #require(await process.nextStart(timeout: .seconds(1)))
         #expect(!service.isReloadRequired)
+    }
+
+    @Test
+    func mavenServiceResolvesDependenciesOnTheSecondBoundedProcess() async throws {
+        let workspace = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let module = MavenModule(
+            relativePath: "service",
+            url: workspace.appendingPathComponent("service", isDirectory: true),
+            groupID: "dev.lithe",
+            artifactID: "service",
+            version: "1.0",
+            packaging: "jar",
+            modules: []
+        )
+        let project = MavenProject(
+            rootURL: workspace,
+            pomURL: workspace.appendingPathComponent("pom.xml"),
+            groupID: "dev.lithe",
+            artifactID: "demo",
+            version: "1.0",
+            packaging: "pom",
+            modules: [module],
+            profiles: [],
+            hasWrapper: false
+        )
+        let plan = MavenLaunchPlan(
+            version: 1,
+            toolchain: "project-maven",
+            arguments: ["dependency:tree"],
+            workingDirectory: ".",
+            configurationFingerprint: "sha256:dependency"
+        )
+        let dependency = MavenDependency(
+            modulePath: "service",
+            groupID: "org.example",
+            artifactID: "library",
+            version: "1.0",
+            type: "jar",
+            classifier: nil,
+            scope: "compile",
+            resolution: .resolved,
+            selectedVersion: nil,
+            children: []
+        )
+        let operations = RecordingMavenOperations(
+            project: project,
+            plan: plan,
+            dependencyTree: MavenDependencyTree(modulePath: "service", dependencies: [dependency])
+        )
+        let buildProcess = MavenRecordingProcess()
+        let dependencyProcess = MavenRecordingProcess()
+        let service = MavenService(
+            runtimeService: MavenRecordingRuntime(),
+            process: buildProcess,
+            dependencyProcess: dependencyProcess,
+            mavenOperations: operations
+        )
+
+        await service.loadProject(at: workspace, files: [project.pomURL, module.url])
+        service.loadDependencies(for: "service")
+        let request = try #require(await dependencyProcess.nextStart(timeout: .seconds(1)))
+
+        #expect(request.arguments == plan.arguments)
+        #expect(request.timeoutMilliseconds == 60_000)
+        #expect(!buildProcess.isRunning)
+        #expect(operations.lastDependencyModule == "service")
+        dependencyProcess.onOutput?("[INFO] dependency tree\n")
+        dependencyProcess.onTermination?(0)
+        let state = await dependencyState(
+            service,
+            modulePath: "service",
+            matching: { if case .ready = $0 { true } else { false } }
+        )
+
+        #expect(state == .ready([dependency]))
+        #expect(operations.lastDependencyOutput == "[INFO] dependency tree\n")
+    }
+
+    @Test
+    func mavenServiceStopCancelsAnActiveDependencyProcess() async throws {
+        let workspace = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let project = MavenProject(
+            rootURL: workspace,
+            pomURL: workspace.appendingPathComponent("pom.xml"),
+            groupID: "dev.lithe",
+            artifactID: "demo",
+            version: "1.0",
+            packaging: "jar",
+            modules: [],
+            profiles: [],
+            hasWrapper: false
+        )
+        let plan = MavenLaunchPlan(
+            version: 1,
+            toolchain: "project-maven",
+            arguments: ["dependency:tree"],
+            workingDirectory: ".",
+            configurationFingerprint: "sha256:dependency"
+        )
+        let dependencyProcess = MavenRecordingProcess()
+        let service = MavenService(
+            runtimeService: MavenRecordingRuntime(),
+            process: MavenRecordingProcess(),
+            dependencyProcess: dependencyProcess,
+            mavenOperations: RecordingMavenOperations(project: project, plan: plan)
+        )
+
+        await service.loadProject(at: workspace, files: [project.pomURL])
+        service.loadDependencies(for: ".")
+        _ = try #require(await dependencyProcess.nextStart(timeout: .seconds(1)))
+
+        service.stop()
+
+        #expect(!dependencyProcess.isRunning)
+        #expect(service.dependencyState(for: ".") == .cancelled)
+        #expect(!service.isResolvingDependencies)
+    }
+
+    @Test
+    func mavenServiceReportsDependencyTimeoutFromTheProcessLifecycle() async throws {
+        let workspace = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let project = MavenProject(
+            rootURL: workspace,
+            pomURL: workspace.appendingPathComponent("pom.xml"),
+            groupID: "dev.lithe",
+            artifactID: "demo",
+            version: "1.0",
+            packaging: "jar",
+            modules: [],
+            profiles: [],
+            hasWrapper: false
+        )
+        let plan = MavenLaunchPlan(
+            version: 1,
+            toolchain: "project-maven",
+            arguments: ["dependency:tree"],
+            workingDirectory: ".",
+            configurationFingerprint: "sha256:dependency"
+        )
+        let dependencyProcess = MavenRecordingProcess()
+        let service = MavenService(
+            runtimeService: MavenRecordingRuntime(),
+            process: MavenRecordingProcess(),
+            dependencyProcess: dependencyProcess,
+            mavenOperations: RecordingMavenOperations(project: project, plan: plan)
+        )
+
+        await service.loadProject(at: workspace, files: [project.pomURL])
+        service.loadDependencies(for: ".")
+        let request = try #require(await dependencyProcess.nextStart(timeout: .seconds(1)))
+        dependencyProcess.onStateChange?(ProcessLifecycleEvent(
+            operationID: request.operationID,
+            state: .stopping,
+            exitCode: nil,
+            message: "Process timed out"
+        ))
+        dependencyProcess.onStateChange?(ProcessLifecycleEvent(
+            operationID: request.operationID,
+            state: .finished,
+            exitCode: 15,
+            message: nil
+        ))
+        let state = await dependencyState(
+            service,
+            modulePath: ".",
+            matching: { if case .failed = $0 { true } else { false } }
+        )
+
+        guard case .failed(let message) = state else {
+            Issue.record("Expected a failed Maven dependency state")
+            return
+        }
+        #expect(message == "Maven dependency resolution timed out after 60 seconds.")
     }
 
     private func factory(recorder: Recorder) -> ModuleFactory {
@@ -600,6 +777,7 @@ private func makeTestGraph() -> ExecutionFeatureGraph {
     let maven = MavenService(
         runtimeService: runtime,
         process: TestStreamingProcess(),
+        dependencyProcess: TestStreamingProcess(),
         mavenOperations: TestMavenOperations()
     )
     let run = RunService(
@@ -621,6 +799,35 @@ private func makeTestGraph() -> ExecutionFeatureGraph {
         processFactory: { TestStreamingProcess() }
     )
     return ExecutionFeatureGraph(maven: maven, run: run, tests: tests)
+}
+
+@MainActor
+private func dependencyState(
+    _ service: MavenService,
+    modulePath: String,
+    matching: @escaping @Sendable (MavenDependencyLoadState) -> Bool
+) async -> MavenDependencyLoadState? {
+    let stateTask: Task<MavenDependencyLoadState?, Never> = Task { @MainActor in
+        let initial = service.dependencyState(for: modulePath)
+        if matching(initial) { return initial }
+        for await states in service.$dependencyStates.values {
+            let state = states[modulePath] ?? .idle
+            if matching(state) { return state }
+        }
+        return nil
+    }
+    return await withTaskGroup(of: MavenDependencyLoadState?.self) { group in
+        group.addTask { await stateTask.value }
+        group.addTask {
+            // test-stability: allow(swift-real-sleep) reason: this task is the bounded failure deadline for event-driven dependency-state observation.
+            try? await ContinuousClock().sleep(for: .seconds(1))
+            return nil
+        }
+        let result = await group.next() ?? nil
+        group.cancelAll()
+        stateTask.cancel()
+        return result
+    }
 }
 
 @MainActor
@@ -675,13 +882,21 @@ private final class RecordingMavenOperations: MavenProjectOperations, @unchecked
     private let lock = NSLock()
     private let project: MavenProject
     private let plan: MavenLaunchPlan
+    private let dependencyTree: MavenDependencyTree
     private var recordedContext: MavenLaunchContext?
     private var recordedModule: String?
     private var recordedGoals: [String] = []
+    private var recordedDependencyModule: String?
+    private var recordedDependencyOutput: String?
 
-    init(project: MavenProject, plan: MavenLaunchPlan) {
+    init(
+        project: MavenProject,
+        plan: MavenLaunchPlan,
+        dependencyTree: MavenDependencyTree = MavenDependencyTree(modulePath: ".", dependencies: [])
+    ) {
         self.project = project
         self.plan = plan
+        self.dependencyTree = dependencyTree
     }
 
     var lastContext: MavenLaunchContext? {
@@ -700,6 +915,18 @@ private final class RecordingMavenOperations: MavenProjectOperations, @unchecked
         lock.lock()
         defer { lock.unlock() }
         return recordedGoals
+    }
+
+    var lastDependencyModule: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedDependencyModule
+    }
+
+    var lastDependencyOutput: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedDependencyOutput
     }
 
     func scanMavenProject(at rootURL: URL, files: [URL]) throws -> MavenProject? {
@@ -721,6 +948,24 @@ private final class RecordingMavenOperations: MavenProjectOperations, @unchecked
     }
 
     func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue] { [] }
+
+    func mavenDependencyPlan(
+        at rootURL: URL,
+        context: MavenLaunchContext,
+        module: String?
+    ) throws -> MavenLaunchPlan {
+        lock.lock()
+        recordedDependencyModule = module
+        lock.unlock()
+        return plan
+    }
+
+    func mavenDependencies(modulePath: String, output: String) throws -> MavenDependencyTree {
+        lock.lock()
+        recordedDependencyOutput = output
+        lock.unlock()
+        return dependencyTree
+    }
 }
 
 private final class FingerprintingMavenOperations: MavenProjectOperations, @unchecked Sendable {
