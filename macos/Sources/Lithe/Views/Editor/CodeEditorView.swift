@@ -1287,6 +1287,8 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         func textDidChange(_ notification: Notification) {
+            let signpost = LitheSignpost.begin("editor.input")
+            defer { LitheSignpost.end("editor.input", signpost) }
             guard let textView else { return }
             guard document?.isReadOnly != true else { return }
             let codeTextView = textView as? CodeTextView

@@ -81,6 +81,8 @@ stable error code and a user-facing message:
 | `history.delete` | Delete one history entry and its snapshot |
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
 | `maven.launchPlan` | Produce a deterministic Maven invocation from a versioned project context |
+| `maven.dependencyPlan` | Produce a bounded dependency-tree invocation for one Maven module |
+| `maven.dependencies` | Normalize bounded Maven dependency-plugin output into a deterministic tree |
 | `maven.diagnostics` | Parse stable Maven compiler diagnostics from build output |
 | `debug.createSession` | Create a transport-neutral DAP session and return its initialize frame |
 | `debug.launch` | Queue a launch or attach request, including during initialization |
@@ -935,19 +937,39 @@ entry is a lifecycle or custom goal. Later entries may be ordinary Maven CLI
 arguments such as `-Dname=value` or `-q`. They remain separate process arguments
 and are never interpreted by a shell. Context version 1 contains the
 workspace-relative `reactorPath`,
-selected `profiles`, optional platform-local `settingsPath`, `skipTests`, and
-optional Maven/JDK paths used only for the configuration fingerprint. The
-response contains the `project-maven` toolchain reference, an argument array,
-the workspace-relative reactor working directory, and a deterministic SHA-256
-configuration fingerprint. Profiles are sorted and de-duplicated. Module plans
-from `maven.launchPlan` and Maven-backed Run and Debug plans use
-`-pl <module> -am`. Settings use `-s`; skipped tests use
+selected `profiles`, optional platform-local `settingsPath` and
+`localRepositoryPath`, `skipTests`, and optional Maven/JDK paths used only for
+the configuration fingerprint. The response contains the `project-maven`
+toolchain reference, an argument array, the workspace-relative reactor working
+directory, and a deterministic SHA-256 configuration fingerprint. Profiles are
+sorted and de-duplicated. Module plans from `maven.launchPlan` and Maven-backed
+Run and Debug plans use `-pl <module> -am`. Settings use `-s`; a local
+repository override uses `-Dmaven.repo.local=<path>`; skipped tests use
 `-DskipTests`. Explicit Run `cwd`, Profiles, and `extensions.maven.skipTests`
-values override the project context, including `skipTests: false`.
-The core never reads `settings.xml` and never copies its path into a portable
-project document. Maven itself continues to read `.mvn/maven.config`; the plan
-does not expand or duplicate that file's arguments. Fixtures are in
+values override the project context, including `skipTests: false`. The core
+never reads `settings.xml` and never copies its path into a portable project
+document. Maven itself continues to read `.mvn/maven.config`; the plan does not
+expand or duplicate that file's arguments. Fixtures are in
 `shared/fixtures/maven/launch-plan-v1.json`.
+
+`maven.dependencyPlan` accepts the same workspace `root`, versioned `context`,
+and optional reactor-relative `module`. It returns a launch plan for the fixed
+`maven-dependency-plugin:3.8.1:tree` goal with verbose text output, disabled
+color, and an English locale. Module queries use `-pl <module>` without `-am`;
+the read-only query does not build reactor dependencies. Platform adapters own
+the child process, apply a bounded timeout, and keep it independent from an
+ordinary Maven build session.
+
+`maven.dependencies` accepts `{ "modulePath": string, "output": string }` and
+returns the normalized module path plus a recursively nested `dependencies`
+array. Each node contains `modulePath`, `groupId`, `artifactId`, `version`,
+`type`, nullable `classifier`, `scope`, `resolution`, nullable
+`selectedVersion`, and `children`. Resolution is `resolved`,
+`omittedDuplicate`, or `omittedConflict`. Core removes ANSI control sequences
+and unrelated Maven log lines, then sorts every level deterministically. Input
+is limited to 500,000 Unicode scalar values, 10,000 dependency nodes, and 64
+levels; malformed or excessive output returns `parse_failed`. The compatibility
+fixture is `shared/fixtures/maven/dependency-tree-v1.json`.
 
 `maven.diagnostics` accepts `{ "root": string, "output": string }` and returns
 `{ "issues": [] }`. Diagnostic paths may be absolute or workspace-relative;

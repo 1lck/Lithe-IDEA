@@ -39,6 +39,7 @@ import {
 } from "../services/reload-maven-workspace";
 import {
   MAVEN_LIFECYCLE_PHASES,
+  type MavenDependency,
   type MavenLifecyclePhase,
   type MavenModule,
   type MavenSettings,
@@ -72,17 +73,26 @@ function TreeNode({
   onSelect,
   children,
 }: TreeNodeProps) {
+  const hasChildren = children !== undefined && children !== null;
   return (
     <div>
       <div className={cn("flex min-h-7 items-center rounded-sm", selected && "bg-selected")}>
-        <button
-          type="button"
-          className="flex size-6 shrink-0 items-center justify-center text-subtle-foreground"
-          onClick={() => onToggle(id)}
-          aria-label={expanded ? "Collapse" : "Expand"}
-        >
-          {expanded ? <CaretDownIcon className="size-3" /> : <CaretRightIcon className="size-3" />}
-        </button>
+        {hasChildren ? (
+          <button
+            type="button"
+            className="flex size-6 shrink-0 items-center justify-center text-subtle-foreground"
+            onClick={() => onToggle(id)}
+            aria-label={expanded ? "Collapse" : "Expand"}
+          >
+            {expanded ? (
+              <CaretDownIcon className="size-3" />
+            ) : (
+              <CaretRightIcon className="size-3" />
+            )}
+          </button>
+        ) : (
+          <span className="size-6 shrink-0" />
+        )}
         <button
           type="button"
           className="flex min-w-0 flex-1 items-center gap-1.5 py-1 pr-2 text-left"
@@ -99,7 +109,7 @@ function TreeNode({
           ) : null}
         </button>
       </div>
-      {expanded && children ? (
+      {expanded && hasChildren ? (
         <div className="ml-4 border-border/60 border-l pl-1">{children}</div>
       ) : null}
     </div>
@@ -138,6 +148,12 @@ function MavenSettingsDialog({
     directory: boolean;
   }> = [
     { id: "maven-settings-xml", field: "settingsPath", label: "settings.xml", directory: false },
+    {
+      id: "maven-local-repository",
+      field: "localRepositoryPath",
+      label: t("maven.localRepository"),
+      directory: true,
+    },
     {
       id: "maven-executable",
       field: "mavenExecutablePath",
@@ -234,11 +250,18 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
   const customProfiles = useMavenStore((state) => state.customProfiles);
   const skipTests = useMavenStore((state) => state.skipTests);
   const settingsPath = useMavenStore((state) => state.settingsPath);
+  const localRepositoryPath = useMavenStore((state) => state.localRepositoryPath);
   const mavenExecutablePath = useMavenStore((state) => state.mavenExecutablePath);
   const javaHomePath = useMavenStore((state) => state.javaHomePath);
   const configurationSaveError = useMavenStore((state) => state.configurationSaveError);
   const reloadRequired = useMavenStore((state) => state.reloadRequired);
   const taskStatus = useMavenStore((state) => state.taskStatus);
+  const taskError = useMavenStore((state) => state.taskError);
+  const runningTitle = useMavenStore((state) => state.runningTitle);
+  const output = useMavenStore((state) => state.output);
+  const issues = useMavenStore((state) => state.issues);
+  const lastExitCode = useMavenStore((state) => state.lastExitCode);
+  const dependencyLoads = useMavenStore((state) => state.dependencyLoads);
   const actions = useMavenStore((state) => state.actions);
   const [selectedModule, setSelectedModule] = useState<string | null>(null);
   const [selectedPhase, setSelectedPhase] = useState<MavenLifecyclePhase>("compile");
@@ -353,6 +376,119 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
     );
   };
 
+  const openModulePom = (modulePath: string) => {
+    if (!root || !project) return;
+    const path = joinPath(
+      root,
+      project.relativePath === "." ? "" : project.relativePath,
+      modulePath === "." ? "" : modulePath,
+      "pom.xml",
+    );
+    void handleFileSelect(path, false, undefined, undefined, undefined, false);
+  };
+
+  const renderDependency = (dependency: MavenDependency, id: string): ReactNode => {
+    const marker =
+      dependency.resolution === "omittedConflict"
+        ? `${t("maven.omittedConflict")}${dependency.selectedVersion ? ` -> ${dependency.selectedVersion}` : ""}`
+        : dependency.resolution === "omittedDuplicate"
+          ? t("maven.omittedDuplicate")
+          : null;
+    const classifier = dependency.classifier ? `:${dependency.classifier}` : "";
+    const subtitle = `${dependency.groupId}:${dependency.version}:${dependency.type}${classifier} [${dependency.scope}]${marker ? ` (${marker})` : ""}`;
+    const children =
+      dependency.children.length > 0
+        ? dependency.children.map((child, index) =>
+            renderDependency(child, `${id}:${child.groupId}:${child.artifactId}:${index}`),
+          )
+        : undefined;
+    return (
+      <TreeNode
+        key={id}
+        id={id}
+        title={dependency.artifactId}
+        subtitle={subtitle}
+        icon={
+          dependency.resolution === "resolved" ? (
+            <PackageIcon className="size-3.5" />
+          ) : (
+            <WarningIcon className="size-3.5 text-warning" />
+          )
+        }
+        expanded={expanded.has(id)}
+        onToggle={toggleExpanded}
+        onSelect={() => openModulePom(dependency.modulePath)}
+      >
+        {children}
+      </TreeNode>
+    );
+  };
+
+  const renderDependencies = (ownerId: string, modulePath: string) => {
+    const id = `${ownerId}:dependencies`;
+    const load = dependencyLoads[modulePath] ?? {
+      status: "idle" as const,
+      dependencies: [],
+      error: null,
+    };
+    const toggle = () => {
+      const shouldLoad = !expanded.has(id);
+      toggleExpanded(id);
+      if (shouldLoad) void actions.loadDependencies(modulePath);
+    };
+    return (
+      <TreeNode
+        id={id}
+        title={t("maven.dependencies")}
+        icon={<PackageIcon className="size-3.5" />}
+        expanded={expanded.has(id)}
+        onToggle={toggle}
+      >
+        {load.status === "loading" ? (
+          <div className="flex min-h-8 items-center gap-2 px-2 text-subtle-foreground ui-text-sm">
+            <Spinner compact />
+            <span className="min-w-0 flex-1 truncate">{t("maven.dependencyLoading")}</span>
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() => void actions.cancelDependencies(modulePath)}
+            >
+              {t("ui.cancel")}
+            </Button>
+          </div>
+        ) : load.status === "failed" ? (
+          <div className="space-y-1 px-2 py-1.5">
+            <div className="flex items-start gap-1.5 text-destructive ui-text-sm">
+              <WarningIcon className="mt-0.5 size-3.5 shrink-0" />
+              <span className="min-w-0 break-words">{load.error}</span>
+            </div>
+            <Button size="xs" variant="ghost" onClick={() => void actions.loadDependencies(modulePath)}>
+              {t("ui.retry")}
+            </Button>
+          </div>
+        ) : load.status === "cancelled" ? (
+          <div className="flex min-h-8 items-center gap-2 px-2 text-warning ui-text-sm">
+            <span className="min-w-0 flex-1 truncate">{t("maven.dependencyCancelled")}</span>
+            <Button size="xs" variant="ghost" onClick={() => void actions.loadDependencies(modulePath)}>
+              {t("ui.retry")}
+            </Button>
+          </div>
+        ) : load.status === "ready" && load.dependencies.length === 0 ? (
+          <div className="px-2 py-1.5 text-subtle-foreground ui-text-sm">
+            {t("maven.noDependencies")}
+          </div>
+        ) : (
+          load.dependencies.map((dependency, index) =>
+            renderDependency(
+              dependency,
+              `${id}:${dependency.groupId}:${dependency.artifactId}:${index}`,
+            ),
+          )
+        )}
+      </TreeNode>
+    );
+  };
+
   const renderLifecycle = (ownerId: string, module: MavenModule | null) => {
     const id = `${ownerId}:lifecycle`;
     return (
@@ -404,6 +540,7 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
       >
         {renderSourceRoots(id, module.sourceRoots)}
         {renderLifecycle(id, module)}
+        {renderDependencies(id, module.relativePath)}
         {module.modules.map(renderModule)}
       </TreeNode>
     );
@@ -598,6 +735,7 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
               >
                 {renderSourceRoots(`project:${project.relativePath}`, project.sourceRoots)}
                 {renderLifecycle(`project:${project.relativePath}`, null)}
+                {renderDependencies(`project:${project.relativePath}`, ".")}
                 {project.modules.map(renderModule)}
               </TreeNode>
             </div>
@@ -667,7 +805,7 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
       ) : null}
       {settingsDialogOpen ? (
         <MavenSettingsDialog
-          initial={{ settingsPath, mavenExecutablePath, javaHomePath }}
+          initial={{ settingsPath, localRepositoryPath, mavenExecutablePath, javaHomePath }}
           error={configurationSaveError}
           onClose={() => setSettingsDialogOpen(false)}
           onSave={actions.updateLocalConfiguration}

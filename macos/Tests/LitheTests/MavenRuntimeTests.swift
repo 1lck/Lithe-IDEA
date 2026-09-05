@@ -142,6 +142,26 @@ struct MavenRuntimeTests {
     }
 
     @Test
+    func mavenDependencyPayloadDecodesTheSharedFixture() throws {
+        let fixture = try Self.dependencyTreeFixture()
+        let tree = try fixture.expected.makeModel()
+
+        #expect(fixture.version == 1)
+        #expect(tree.modulePath == fixture.modulePath)
+        #expect(fixture.output.contains("omitted for conflict with 2.0"))
+        #expect(tree.dependencies.map(\.artifactID) == [
+            "compile-lib", "provided-lib", "runtime-lib", "test-lib"
+        ])
+        let compileDependency = try #require(tree.dependencies.first)
+        let conflict = try #require(compileDependency.children.first)
+        #expect(conflict.resolution == .omittedConflict)
+        #expect(conflict.selectedVersion == "2.0")
+        let testDependency = try #require(tree.dependencies.last)
+        #expect(testDependency.classifier == "tests")
+        #expect(testDependency.scope == "test")
+    }
+
+    @Test
     func mavenConfigurationSeparatesPortableAndLocalPaths() throws {
         let testRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-maven-store-\(UUID().uuidString)", isDirectory: true)
@@ -284,6 +304,21 @@ struct MavenRuntimeTests {
             from: Data(contentsOf: url)
         )
     }
+
+    private static func dependencyTreeFixture() throws -> MavenDependencyTreeFixture {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let url = repositoryRoot.appendingPathComponent(
+            "shared/fixtures/maven/dependency-tree-v1.json"
+        )
+        return try JSONDecoder().decode(
+            MavenDependencyTreeFixture.self,
+            from: Data(contentsOf: url)
+        )
+    }
 }
 
 private struct MavenPlatformContractFixture: Decodable {
@@ -296,6 +331,13 @@ private struct MavenPlatformContractFixture: Decodable {
 
     let lifecyclePhases: [String]
     let storageIdentityCases: [StorageIdentityCase]
+}
+
+private struct MavenDependencyTreeFixture: Decodable {
+    let version: Int
+    let modulePath: String
+    let output: String
+    let expected: RustCoreBridge.MavenDependenciesPayload
 }
 
 private struct MavenTestFileStorage: FileStorage {

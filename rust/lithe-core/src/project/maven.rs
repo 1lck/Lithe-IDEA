@@ -2,6 +2,7 @@
 
 use crate::protocol::{CoreError, ErrorCode};
 use crate::protocol::{
+    MavenDependenciesResponse, MavenDependencyResolutionResponse, MavenDependencyResponse,
     MavenDiagnosticResponse, MavenDiagnosticsResponse, MavenLaunchExecutableResponse,
     MavenLaunchPlanResponse, MavenModuleResponse, MavenProfileResponse, MavenScanResponse,
     MavenSourceRootKind, MavenSourceRootResponse,
@@ -33,6 +34,11 @@ pub struct MavenDiagnosticsRequest {
 }
 
 const MAVEN_CONTEXT_VERSION: u32 = 1;
+const MAVEN_DEPENDENCY_PLUGIN_GOAL: &str =
+    "org.apache.maven.plugins:maven-dependency-plugin:3.8.1:tree";
+const MAX_MAVEN_DEPENDENCY_OUTPUT_CHARACTERS: usize = 500_000;
+const MAX_MAVEN_DEPENDENCY_NODES: usize = 10_000;
+const MAX_MAVEN_DEPENDENCY_DEPTH: usize = 64;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -44,6 +50,8 @@ pub struct MavenLaunchContextRequest {
     pub profiles: Vec<String>,
     #[serde(default)]
     pub settings_path: Option<String>,
+    #[serde(default)]
+    pub local_repository_path: Option<String>,
     #[serde(default)]
     pub skip_tests: bool,
     #[serde(default)]
@@ -66,6 +74,24 @@ pub struct MavenLaunchPlanRequest {
     pub goals: Vec<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// One bounded dependency-tree invocation for a validated Maven module.
+pub struct MavenDependencyPlanRequest {
+    pub root: String,
+    pub context: MavenLaunchContextRequest,
+    #[serde(default)]
+    pub module: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Captured Maven dependency-plugin output associated with one reactor module.
+pub struct MavenDependenciesRequest {
+    pub module_path: String,
+    pub output: String,
+}
+
 #[derive(Debug, Clone)]
 /// Validated Maven import settings consumed by the JDT LS adapter.
 pub(crate) struct MavenJdtConfiguration {
@@ -82,6 +108,7 @@ struct ValidatedMavenContext {
     canonical_reactor: PathBuf,
     profiles: Vec<String>,
     settings_path: Option<String>,
+    local_repository_path: Option<String>,
     skip_tests: bool,
     maven_executable_path: Option<String>,
     java_home_path: Option<String>,
@@ -96,6 +123,26 @@ pub fn launch_plan(request: MavenLaunchPlanRequest) -> Result<MavenLaunchPlanRes
         request.module,
         arguments,
         true,
+    )
+}
+
+/// Produces a fixed, non-recursive Maven dependency-tree invocation.
+pub fn dependency_plan(
+    request: MavenDependencyPlanRequest,
+) -> Result<MavenLaunchPlanResponse, CoreError> {
+    launch_plan_with_arguments(
+        request.root,
+        request.context,
+        request.module,
+        vec![
+            MAVEN_DEPENDENCY_PLUGIN_GOAL.to_string(),
+            "-Dverbose=true".to_string(),
+            "-DoutputType=text".to_string(),
+            "-Dstyle.color=never".to_string(),
+            "-Duser.language=en".to_string(),
+            "-Duser.country=US".to_string(),
+        ],
+        false,
     )
 }
 
@@ -134,6 +181,7 @@ pub(crate) fn launch_plan_with_arguments(
     let arguments = maven_arguments(
         &validated.profiles,
         validated.settings_path.as_deref(),
+        validated.local_repository_path.as_deref(),
         module.as_deref(),
         also_make,
         validated.skip_tests,
@@ -143,6 +191,7 @@ pub(crate) fn launch_plan_with_arguments(
         &validated.reactor_path,
         &validated.profiles,
         validated.settings_path.as_deref(),
+        validated.local_repository_path.as_deref(),
         validated.skip_tests,
         validated.maven_executable_path.as_deref(),
         validated.java_home_path.as_deref(),
@@ -240,6 +289,10 @@ fn validated_maven_context(
         canonical_reactor,
         profiles: normalized_profiles(context.profiles)?,
         settings_path: normalized_local_path(context.settings_path, "Maven settings")?,
+        local_repository_path: normalized_local_path(
+            context.local_repository_path,
+            "Maven local repository",
+        )?,
         skip_tests: context.skip_tests,
         maven_executable_path: normalized_local_path(
             context.maven_executable_path,
@@ -253,6 +306,7 @@ fn validated_maven_context(
 pub(crate) fn maven_arguments(
     profiles: &[String],
     settings_path: Option<&str>,
+    local_repository_path: Option<&str>,
     module: Option<&str>,
     also_make: bool,
     skip_tests: bool,
@@ -264,6 +318,9 @@ pub(crate) fn maven_arguments(
     }
     if let Some(settings_path) = settings_path {
         arguments.extend(["-s".to_string(), settings_path.to_string()]);
+    }
+    if let Some(local_repository_path) = local_repository_path {
+        arguments.push(format!("-Dmaven.repo.local={local_repository_path}"));
     }
     if let Some(module) = module.filter(|value| *value != ".") {
         arguments.extend(["-pl".to_string(), module.to_string()]);
@@ -359,6 +416,7 @@ fn maven_context_fingerprint(
     reactor_path: &str,
     profiles: &[String],
     settings_path: Option<&str>,
+    local_repository_path: Option<&str>,
     skip_tests: bool,
     maven_executable_path: Option<&str>,
     java_home_path: Option<&str>,
@@ -369,6 +427,7 @@ fn maven_context_fingerprint(
         reactor_path.to_string(),
         profiles.join(","),
         settings_path.unwrap_or_default().to_string(),
+        local_repository_path.unwrap_or_default().to_string(),
         skip_tests.to_string(),
         maven_executable_path.unwrap_or_default().to_string(),
         java_home_path.unwrap_or_default().to_string(),
@@ -640,6 +699,247 @@ pub fn diagnostics(
         })
         .collect();
     Ok(MavenDiagnosticsResponse { issues })
+}
+
+#[derive(Clone)]
+struct ParsedDependency {
+    depth: usize,
+    node: MavenDependencyResponse,
+}
+
+/// Parses bounded Maven dependency-plugin text into a deterministic tree.
+pub fn dependencies(
+    request: MavenDependenciesRequest,
+) -> Result<MavenDependenciesResponse, CoreError> {
+    if request
+        .output
+        .chars()
+        .nth(MAX_MAVEN_DEPENDENCY_OUTPUT_CHARACTERS)
+        .is_some()
+    {
+        return Err(CoreError::new(
+            ErrorCode::ParseFailed,
+            "Maven dependency output exceeds the supported limit",
+        )
+        .with_details(format!(
+            "maximumCharacters={MAX_MAVEN_DEPENDENCY_OUTPUT_CHARACTERS}"
+        )));
+    }
+    let module_path = normalized_project_path(&request.module_path, "Maven module")?;
+    let ansi =
+        Regex::new(r"\x1b\[[0-?]*[ -/]*[@-~]").expect("static ANSI escape expression is valid");
+    let mut parsed = Vec::new();
+    for raw_line in request.output.lines() {
+        let line = ansi.replace_all(raw_line, "");
+        let Some(entry) = parse_dependency_line(&line, &module_path)? else {
+            continue;
+        };
+        if parsed.len() == MAX_MAVEN_DEPENDENCY_NODES {
+            return Err(CoreError::new(
+                ErrorCode::ParseFailed,
+                "Maven dependency count exceeds the supported limit",
+            )
+            .with_details(format!("maximumNodes={MAX_MAVEN_DEPENDENCY_NODES}")));
+        }
+        parsed.push(entry);
+    }
+
+    let mut cursor = 0;
+    let dependencies = if parsed.is_empty() {
+        Vec::new()
+    } else {
+        if parsed[0].depth != 0 {
+            return Err(invalid_dependency_structure());
+        }
+        let dependencies = build_dependency_level(&parsed, &mut cursor, 0)?;
+        if cursor != parsed.len() {
+            return Err(invalid_dependency_structure());
+        }
+        dependencies
+    };
+    Ok(MavenDependenciesResponse {
+        module_path,
+        dependencies,
+    })
+}
+
+fn parse_dependency_line(
+    raw_line: &str,
+    module_path: &str,
+) -> Result<Option<ParsedDependency>, CoreError> {
+    let trimmed = raw_line.trim();
+    let line = trimmed
+        .strip_prefix("[INFO]")
+        .and_then(|value| value.strip_prefix(' '))
+        .unwrap_or(trimmed);
+    let marker = match (line.find("+- "), line.find("\\- ")) {
+        (Some(left), Some(right)) => left.min(right),
+        (Some(index), None) | (None, Some(index)) => index,
+        (None, None) => return Ok(None),
+    };
+    let prefix = &line[..marker];
+    let mut chunks = prefix.as_bytes().chunks_exact(3);
+    if !chunks.all(|chunk| chunk == b"|  " || chunk == b"   ") || !chunks.remainder().is_empty() {
+        return Ok(None);
+    }
+    let depth = prefix.len() / 3;
+    if depth >= MAX_MAVEN_DEPENDENCY_DEPTH {
+        return Err(CoreError::new(
+            ErrorCode::ParseFailed,
+            "Maven dependency tree exceeds the supported depth",
+        )
+        .with_details(format!("maximumDepth={MAX_MAVEN_DEPENDENCY_DEPTH}")));
+    }
+
+    let value = line[(marker + 3)..].trim();
+    // Verbose dependency-plugin output wraps omitted nodes as
+    // `(coordinate - annotation)`, while resolved nodes use
+    // `coordinate (annotation)`. Normalize both forms before splitting the
+    // Maven coordinate so duplicate/conflict markers remain observable.
+    let (coordinate, annotation) = if let Some(inner) = value
+        .strip_prefix('(')
+        .and_then(|value| value.strip_suffix(')'))
+    {
+        inner
+            .split_once(" - ")
+            .map(|(coordinate, annotation)| (coordinate.trim(), Some(annotation.trim())))
+            .unwrap_or((inner.trim(), None))
+    } else {
+        value
+            .split_once(" (")
+            .map(|(coordinate, annotation)| (coordinate, Some(annotation.trim_end_matches(')'))))
+            .unwrap_or((value, None))
+    };
+    let parts = coordinate.split(':').collect::<Vec<_>>();
+    let (group_id, artifact_id, artifact_type, classifier, version, scope) = match parts.as_slice()
+    {
+        [group_id, artifact_id, artifact_type, version, scope] => (
+            *group_id,
+            *artifact_id,
+            *artifact_type,
+            None,
+            *version,
+            *scope,
+        ),
+        [group_id, artifact_id, artifact_type, classifier, version, scope] => (
+            *group_id,
+            *artifact_id,
+            *artifact_type,
+            Some(*classifier),
+            *version,
+            *scope,
+        ),
+        _ => return Ok(None),
+    };
+    if [group_id, artifact_id, artifact_type, version, scope]
+        .iter()
+        .any(|value| value.trim().is_empty())
+        || classifier.is_some_and(|value| value.trim().is_empty())
+    {
+        return Ok(None);
+    }
+
+    let (resolution, selected_version) = dependency_resolution(annotation);
+    Ok(Some(ParsedDependency {
+        depth,
+        node: MavenDependencyResponse {
+            module_path: module_path.to_string(),
+            group_id: group_id.to_string(),
+            artifact_id: artifact_id.to_string(),
+            version: version.to_string(),
+            r#type: artifact_type.to_string(),
+            classifier: classifier.map(str::to_string),
+            scope: scope.to_string(),
+            resolution,
+            selected_version,
+            children: Vec::new(),
+        },
+    }))
+}
+
+fn dependency_resolution(
+    annotation: Option<&str>,
+) -> (MavenDependencyResolutionResponse, Option<String>) {
+    let Some(annotation) = annotation else {
+        return (MavenDependencyResolutionResponse::Resolved, None);
+    };
+    let normalized = annotation.to_ascii_lowercase();
+    const CONFLICT: &str = "omitted for conflict with ";
+    if let Some(index) = normalized.find(CONFLICT) {
+        let selected_version = annotation[(index + CONFLICT.len())..]
+            .split_whitespace()
+            .next()
+            .map(|value| value.trim_end_matches([',', ')']).to_string())
+            .filter(|value| !value.is_empty());
+        return (
+            MavenDependencyResolutionResponse::OmittedConflict,
+            selected_version,
+        );
+    }
+    if normalized.contains("omitted for duplicate") {
+        return (MavenDependencyResolutionResponse::OmittedDuplicate, None);
+    }
+    (MavenDependencyResolutionResponse::Resolved, None)
+}
+
+fn build_dependency_level(
+    parsed: &[ParsedDependency],
+    cursor: &mut usize,
+    depth: usize,
+) -> Result<Vec<MavenDependencyResponse>, CoreError> {
+    let mut dependencies = Vec::new();
+    while *cursor < parsed.len() {
+        let entry_depth = parsed[*cursor].depth;
+        if entry_depth < depth {
+            break;
+        }
+        if entry_depth > depth {
+            return Err(invalid_dependency_structure());
+        }
+        let mut dependency = parsed[*cursor].node.clone();
+        *cursor += 1;
+        if *cursor < parsed.len() {
+            let next_depth = parsed[*cursor].depth;
+            if next_depth > depth + 1 {
+                return Err(invalid_dependency_structure());
+            }
+            if next_depth == depth + 1 {
+                dependency.children = build_dependency_level(parsed, cursor, depth + 1)?;
+            }
+        }
+        sort_dependencies(&mut dependency.children);
+        dependencies.push(dependency);
+    }
+    sort_dependencies(&mut dependencies);
+    Ok(dependencies)
+}
+
+fn sort_dependencies(dependencies: &mut [MavenDependencyResponse]) {
+    dependencies.sort_by(|left, right| {
+        (
+            &left.group_id,
+            &left.artifact_id,
+            &left.r#type,
+            &left.classifier,
+            &left.version,
+            &left.scope,
+        )
+            .cmp(&(
+                &right.group_id,
+                &right.artifact_id,
+                &right.r#type,
+                &right.classifier,
+                &right.version,
+                &right.scope,
+            ))
+    });
+}
+
+fn invalid_dependency_structure() -> CoreError {
+    CoreError::new(
+        ErrorCode::ParseFailed,
+        "Maven dependency tree structure is invalid",
+    )
 }
 
 fn module(
