@@ -228,6 +228,7 @@ struct MavenView: View {
                         sourceRoots: project.sourceRoots
                     )
                     lifecycleNode(ownerID: projectNodeID(project), module: nil)
+                    dependencyNode(ownerID: projectNodeID(project), modulePath: ".")
                     ForEach(project.modules) { module in
                         moduleTreeNode(module)
                     }
@@ -251,6 +252,7 @@ struct MavenView: View {
             ) {
                 sourceRootsNode(ownerID: moduleNodeID(module), sourceRoots: module.sourceRoots)
                 lifecycleNode(ownerID: moduleNodeID(module), module: module)
+                dependencyNode(ownerID: moduleNodeID(module), modulePath: module.relativePath)
                 ForEach(module.modules) { childModule in
                     moduleTreeNode(childModule)
                 }
@@ -292,6 +294,197 @@ struct MavenView: View {
                 }
             }
         )
+    }
+
+    private func dependencyNode(ownerID: String, modulePath: String) -> AnyView {
+        let nodeID = childNodeID(ownerID: ownerID, name: "dependencies")
+        let toggle = {
+            let shouldLoad = !isNodeExpanded(nodeID)
+            toggleNode(nodeID)
+            if shouldLoad {
+                feature.loadDependencies(for: modulePath)
+            }
+        }
+        return AnyView(
+            treeNode(
+                id: nodeID,
+                title: "Dependencies",
+                systemImage: "shippingbox",
+                onToggleAction: toggle,
+                onLabelAction: toggle
+            ) {
+                dependencyContent(
+                    feature.dependencyState(for: modulePath),
+                    modulePath: modulePath,
+                    ownerID: nodeID
+                )
+            }
+        )
+    }
+
+    private func dependencyContent(
+        _ state: MavenDependencyLoadState,
+        modulePath: String,
+        ownerID: String
+    ) -> AnyView {
+        switch state {
+        case .idle:
+            return AnyView(EmptyView())
+        case .loading:
+            return AnyView(
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.mini)
+                    Text("Resolving dependencies...")
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Button("Cancel") {
+                        feature.cancelDependencies(for: modulePath)
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .font(.system(size: 11.5))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .padding(.horizontal, 4)
+                .frame(minHeight: 28)
+            )
+        case .failed(let message):
+            return AnyView(
+                VStack(alignment: .leading, spacing: 4) {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(LitheTheme.error)
+                        .lineLimit(2)
+                    Button("Retry") {
+                        feature.loadDependencies(for: modulePath)
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .padding(.horizontal, 4)
+                .padding(.vertical, 3)
+            )
+        case .cancelled:
+            return AnyView(
+                HStack(spacing: 6) {
+                    Text("Dependency resolution cancelled")
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Button("Retry") {
+                        feature.loadDependencies(for: modulePath)
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .font(.system(size: 11.5))
+                .foregroundStyle(LitheTheme.warning)
+                .padding(.horizontal, 4)
+                .frame(minHeight: 28)
+            )
+        case .ready(let dependencies):
+            if dependencies.isEmpty {
+                return AnyView(
+                    Text("No dependencies")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .padding(.horizontal, 4)
+                        .frame(minHeight: 28)
+                )
+            }
+            return AnyView(
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(dependencies.enumerated()), id: \.offset) { index, dependency in
+                        dependencyTreeNode(
+                            dependency,
+                            id: ownerID + ":" + dependency.groupID + ":" + dependency.artifactID + ":" + String(index)
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    private func dependencyTreeNode(_ dependency: MavenDependency, id: String) -> AnyView {
+        if dependency.children.isEmpty {
+            return AnyView(dependencyRow(dependency))
+        }
+        return AnyView(
+            treeNode(
+                id: id,
+                title: dependency.artifactID,
+                subtitle: dependencySubtitle(dependency),
+                systemImage: dependency.resolution == .resolved
+                    ? "shippingbox"
+                    : "exclamationmark.triangle.fill",
+                onLabelAction: { openDependencyPom(dependency) }
+            ) {
+                ForEach(Array(dependency.children.enumerated()), id: \.offset) { index, child in
+                    dependencyTreeNode(
+                        child,
+                        id: id + ":" + child.groupID + ":" + child.artifactID + ":" + String(index)
+                    )
+                }
+            }
+        )
+    }
+
+    private func dependencyRow(_ dependency: MavenDependency) -> some View {
+        Button {
+            openDependencyPom(dependency)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: dependency.resolution == .resolved
+                    ? "shippingbox"
+                    : "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(
+                        dependency.resolution == .resolved ? LitheTheme.accent : LitheTheme.warning
+                    )
+                    .frame(width: 16)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(dependency.artifactID)
+                        .font(.system(size: 12))
+                        .foregroundStyle(LitheTheme.primaryText)
+                        .lineLimit(1)
+                    Text(dependencySubtitle(dependency))
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minHeight: 28)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+        .padding(.leading, 16)
+        .help("Open module pom.xml")
+    }
+
+    private func dependencySubtitle(_ dependency: MavenDependency) -> String {
+        let classifier = dependency.classifier.map { ":" + $0 } ?? ""
+        let marker = switch dependency.resolution {
+        case .resolved:
+            ""
+        case .omittedDuplicate:
+            " (duplicate omitted)"
+        case .omittedConflict:
+            " (conflict -> " + (dependency.selectedVersion ?? "selected") + ")"
+        }
+        return dependency.groupID + ":" + dependency.version + ":" + dependency.type
+            + classifier + " [" + dependency.scope + "]" + marker
+    }
+
+    private func openDependencyPom(_ dependency: MavenDependency) {
+        guard let project = feature.project else { return }
+        if dependency.modulePath == "." {
+            model.openFile(project.pomURL)
+            return
+        }
+        guard let module = project.allModules.first(where: {
+            $0.relativePath == dependency.modulePath
+        }) else { return }
+        model.openFile(module.url.appendingPathComponent("pom.xml"))
     }
 
     private func sourceRootRow(_ sourceRoot: MavenSourceRoot) -> some View {
@@ -422,13 +615,18 @@ struct MavenView: View {
         subtitle: String? = nil,
         systemImage: String,
         isSelected: Bool = false,
+        onToggleAction: (() -> Void)? = nil,
         onLabelAction: @escaping () -> Void,
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 2) {
                 Button {
-                    toggleNode(id)
+                    if let onToggleAction {
+                        onToggleAction()
+                    } else {
+                        toggleNode(id)
+                    }
                 } label: {
                     Image(systemName: isNodeExpanded(id) ? "chevron.down" : "chevron.right")
                         .font(.system(size: 9, weight: .semibold))

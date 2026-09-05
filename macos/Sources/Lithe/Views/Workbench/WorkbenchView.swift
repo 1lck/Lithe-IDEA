@@ -1698,17 +1698,25 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                 maximum: maximumTopPaneHeight
             )
 
-            ZStack(alignment: .topLeading) {
-                VStack(spacing: isBottomToolVisible ? WorkbenchWorkspaceMetrics.paneSpacing : 0) {
-                    HStack(spacing: WorkbenchWorkspaceMetrics.paneSpacing) {
+            let topContent: AnyView = AnyView(
+                LitheSplitPaneView(
+                    axis: .horizontal,
+                    placement: .leading,
+                    defaultSize: resolvedSidebarWidth,
+                    minimum: minimumSidebarWidth,
+                    maximum: maximumSidebarWidth,
+                    showsIdleDivider: false,
+                    onCommit: actions.onSidebarWidthCommitted,
+                    sized: {
                         sidebar
-                            .frame(width: resolvedSidebarWidth)
                             .frame(maxHeight: .infinity)
                             .workbenchPaneChrome(
                                 background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
                                 surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
                                 roundsCorners: !hasWorkbenchBackground
                             )
+                    },
+                    flexible: {
                         editor
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .workbenchPaneChrome(
@@ -1717,67 +1725,40 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                                 roundsCorners: !hasWorkbenchBackground
                             )
                     }
-                    .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
-                    .padding(.top, WorkbenchWorkspaceMetrics.paneInset)
-                    .padding(
-                        .bottom,
-                        isBottomToolVisible ? 0 : WorkbenchWorkspaceMetrics.paneInset
-                    )
-                    .overlay(alignment: .topLeading) {
-                        sidebarResizeHandle(
-                            resolvedSidebarWidth: resolvedSidebarWidth,
-                            minimumSidebarWidth: minimumSidebarWidth,
-                            maximumSidebarWidth: maximumSidebarWidth,
-                            bottomInset: isBottomToolVisible ? 0 : WorkbenchWorkspaceMetrics.paneInset
-                        )
-                    }
-                    .frame(height: isBottomToolVisible ? resolvedTopPaneHeight : geometry.size.height)
+                )
+            )
 
-                    if isBottomToolVisible {
-                        bottomTool
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .workbenchPaneChrome(
-                                background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
-                                surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
-                                roundsCorners: !hasWorkbenchBackground
-                            )
-                            .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
-                            .padding(.bottom, WorkbenchWorkspaceMetrics.paneInset)
-                            .frame(maxHeight: .infinity)
-                    }
-                }
-
+            Group {
                 if isBottomToolVisible {
-                    Rectangle()
-                        .fill(LitheTheme.titlebar)
-                        .frame(height: WorkbenchWorkspaceMetrics.paneSpacing)
-                        .position(
-                            x: geometry.size.width / 2,
-                            y: resolvedTopPaneHeight
-                                + WorkbenchWorkspaceMetrics.paneSpacing / 2
-                        )
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-
-                    topPaneResizeHandle(
-                        resolvedTopPaneHeight: resolvedTopPaneHeight,
-                        minimumTopPaneHeight: minimumTopPaneHeight,
-                        maximumTopPaneHeight: maximumTopPaneHeight
+                    LitheSplitPaneView(
+                        axis: .vertical,
+                        placement: .leading,
+                        defaultSize: resolvedTopPaneHeight,
+                        minimum: minimumTopPaneHeight,
+                        maximum: maximumTopPaneHeight,
+                        showsIdleDivider: false,
+                        onCommit: actions.onTopPaneHeightCommitted,
+                        sized: {
+                            topContent
+                                .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
+                                .padding(.top, WorkbenchWorkspaceMetrics.paneInset)
+                        },
+                        flexible: {
+                            bottomTool
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .workbenchPaneChrome(
+                                    background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
+                                    surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
+                                    roundsCorners: !hasWorkbenchBackground
+                                )
+                                .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
+                                .padding(.bottom, WorkbenchWorkspaceMetrics.paneInset)
+                        }
                     )
-                }
-
-                if isBottomToolVisible, showsBottomToolMinimize {
-                    Button(action: actions.onBottomToolMinimize) {
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    .litheIconButton()
-                    .help("Collapse tool window")
-                    .accessibilityLabel("Collapse tool window")
-                    .position(
-                        x: geometry.size.width - ActivityBarMetrics.rightWidth - 20,
-                        y: resolvedTopPaneHeight + WorkbenchWorkspaceMetrics.paneSpacing + 16
-                    )
+                } else {
+                    topContent
+                        .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
+                        .padding(.vertical, WorkbenchWorkspaceMetrics.paneInset)
                 }
             }
             .frame(
@@ -1833,8 +1814,11 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                 actions.onSidebarWidthCommitted(finalWidth)
             }
         )
+        .frame(maxHeight: .infinity)
         .padding(.top, WorkbenchWorkspaceMetrics.paneInset)
         .padding(.bottom, bottomInset)
+        .contentShape(Rectangle())
+        .zIndex(1)
         .offset(
             x: WorkbenchWorkspaceMetrics.paneInset
                 + resolvedSidebarWidth
@@ -1871,7 +1855,10 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                 actions.onTopPaneHeightCommitted(finalHeight)
             }
         )
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
+        .contentShape(Rectangle())
+        .zIndex(1)
         .offset(
             y: resolvedTopPaneHeight
                 + WorkbenchWorkspaceMetrics.paneSpacing / 2
