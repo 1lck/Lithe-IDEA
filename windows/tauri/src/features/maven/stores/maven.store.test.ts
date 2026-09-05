@@ -33,6 +33,7 @@ const project: MavenProject = {
   artifactId: "demo",
   version: "1.0.0",
   packaging: "pom",
+  sourceRoots: [],
   hasWrapper: true,
   profiles: [
     { id: "default", isActiveByDefault: true },

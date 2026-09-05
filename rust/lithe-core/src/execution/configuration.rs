@@ -12,7 +12,7 @@ use std::path::{Component, Path, PathBuf};
 
 const VERSION: u32 = 2;
 const LEGACY_VERSION: u32 = 1;
-const GENERATOR_REVISION: &str = "2";
+const GENERATOR_REVISION: &str = "3";
 /// Toolchain requirements and `project.json` are separate documents that happen
 /// to live under `.lithe`. Their schema did not change with run-config v2, so
 /// they keep their own version and must not be validated against `VERSION`.
@@ -467,11 +467,6 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .filter(|value| value.is_spring_boot)
         .map(|value| (value.path.clone(), value.qualified_name.clone()))
         .collect::<Vec<_>>();
-    let main_class_sources = scanned
-        .main_classes
-        .iter()
-        .map(|value| (value.qualified_name.clone(), value.path.clone()))
-        .collect::<BTreeMap<_, _>>();
     let mut maven_owners = BTreeMap::<Option<String>, Option<(PathBuf, String)>>::new();
     let configurations = scanned
         .configurations
@@ -508,11 +503,7 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
             if let Some(main_class) = value.main_class.as_ref() {
                 maven.insert("mainClass".to_string(), json!(main_class));
             }
-            let source_path = value
-                .main_class
-                .as_ref()
-                .and_then(|name| main_class_sources.get(name))
-                .cloned();
+            let source_path = value.source_path;
             // Maven ownership is per entry: one workspace can contain standalone
             // Java files or multiple independent reactors in the same request.
             let uses_maven_toolchain = maven_owner.is_some() && provider != "java.current-file";
@@ -523,9 +514,10 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
             }
             let mut extensions = BTreeMap::new();
             extensions.insert("maven".to_string(), Value::Object(maven));
-            if let Some(path) = source_path.as_ref() {
-                extensions.insert("java".to_string(), json!({ "source": path }));
-            }
+            extensions.insert(
+                "java".to_string(),
+                json!({ "source": source_path, "sourceSet": value.source_set }),
+            );
             Ok(RunConfiguration {
                 id,
                 name: value.name,
@@ -550,7 +542,7 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
                 members: Vec::new(),
                 extensions,
                 disabled: false,
-                source: source_path,
+                source: Some(source_path),
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -1476,7 +1468,7 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         if request.maven_context.is_none() {
             arguments.extend([json!("-B"), json!("-ntp")]);
             if let Some(module) = maven["module"].as_str().filter(|m| *m != ".") {
-                arguments.extend([json!("-pl"), json!(module)]);
+                arguments.extend([json!("-pl"), json!(module), json!("-am")]);
             }
         }
         let main = maven["mainClass"].as_str().ok_or_else(|| {
@@ -1486,11 +1478,19 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
             )
         })?;
         arguments.push(json!(format!("-Dexec.mainClass={main}")));
+        let uses_test_classpath = uses_java_test_source_set(config);
+        if uses_test_classpath {
+            // Exec Maven Plugin excludes test output and dependencies by default.
+            arguments.push(json!("-Dexec.classpathScope=test"));
+        }
         if !program_arguments.is_empty() {
             arguments.push(json!(format!(
                 "-Dexec.args={}",
                 string_arguments(&program_arguments)
             )));
+        }
+        if uses_test_classpath {
+            arguments.push(json!("test-compile"));
         }
         arguments.push(json!("org.codehaus.mojo:exec-maven-plugin:3.5.0:java"));
     } else if is_java_main {
@@ -1525,7 +1525,7 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         if request.maven_context.is_none() {
             arguments.extend([json!("-B"), json!("-ntp")]);
             if let Some(module) = maven["module"].as_str().filter(|m| *m != ".") {
-                arguments.extend([json!("-pl"), json!(module)]);
+                arguments.extend([json!("-pl"), json!(module), json!("-am")]);
             }
             if let Some(profiles) = maven["profiles"].as_array().filter(|p| !p.is_empty()) {
                 arguments.extend([
@@ -1593,7 +1593,7 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
                 context,
                 module,
                 trailing_arguments,
-                false,
+                true,
             )?;
             arguments = shared_plan
                 .arguments
@@ -1651,6 +1651,21 @@ fn configuration_override_has_key(
 fn is_maven_backed(provider: &str) -> bool {
     matches!(provider, "java.current-file" | "java.main" | "maven.module")
         || framework_goal(provider).is_some()
+}
+
+fn uses_java_test_source_set(configuration: &Value) -> bool {
+    match configuration["extensions"]["java"]["sourceSet"].as_str() {
+        Some("test") => true,
+        Some(_) => false,
+        // Generated documents from older versions predate the explicit source
+        // set. Preserve their launch behavior until regeneration replaces them.
+        None => configuration["extensions"]["java"]["source"]
+            .as_str()
+            .is_some_and(|source| {
+                let normalized = source.to_ascii_lowercase();
+                normalized.starts_with("src/test/") || normalized.contains("/src/test/")
+            }),
+    }
 }
 
 /// How a framework's Maven goal expects a debugger to be attached.

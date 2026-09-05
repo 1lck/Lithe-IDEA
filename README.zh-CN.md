@@ -15,6 +15,10 @@
   </p>
 
   <p>
+    <a href="https://hellogithub.com/repository/1lck/Lithe-IDEA" target="_blank"><img src="https://abroad.hellogithub.com/v1/widgets/recommend.svg?rid=633af067f07d4d16af010b9dc16c0b8d&amp;claim_uid=7NYd4yvRlGtqfgr" alt="Featured | HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54"></a>
+  </p>
+
+  <p>
     <a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="https://img.shields.io/badge/QQ_群-163027877-EB1923?style=for-the-badge&logo=qq&logoColor=white" alt="加入 Lithe QQ 群 163027877"></a>
     <a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="https://img.shields.io/badge/微信交流群-点击加入-07C160?style=for-the-badge&logo=wechat&logoColor=white" alt="加入 Lithe 微信交流群"></a>
   </p>
@@ -128,7 +132,23 @@ brew install --cask 1lck/lithe/lithe
 brew upgrade --cask lithe
 ```
 
-Java 功能需要 JDK 17 或更高版本。正式安装包已包含 Eclipse JDT Language Server，无需单独安装 JDTLS。
+### macOS 提示“无法打开 Lithe.app”
+
+如果 macOS 提示“Apple 无法验证 Lithe.app 是否包含可能危害 Mac 安全或泄漏隐私的恶意软件”，通常是因为手动下载的安装包尚未经过 Apple 公证。请先确认应用来自可信的 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest)，然后选择以下任一方式：
+
+<p align="center">
+  <img src="./docs/assets/screenshots/macos-app-verification-warning.png" width="492" alt="macOS 提示无法打开 Lithe.app">
+</p>
+
+1. 在“应用程序”中按住 Control 键点按 `Lithe.app`，选择“打开”，再在确认对话框中选择“打开”。
+2. 如果仍被阻止，打开“系统设置 > 隐私与安全性”，在安全性提示旁点按“仍要打开”，然后再次启动应用。
+3. 也可以在终端中移除下载文件的隔离标记：
+
+   ```bash
+   sudo xattr -dr com.apple.quarantine /Applications/Lithe.app
+   ```
+
+上述命令只应对你确认来源可靠的应用使用；通过 Homebrew 安装通常不需要手动执行这些步骤。
 
 ## 架构概览
 
@@ -154,7 +174,9 @@ flowchart LR
     Tauri -->|"Rust crate"| Core
 ```
 
-## 如何开发
+<details>
+<summary><strong>如何开发</strong></summary>
+
 
 开发环境需要 Swift 6.2 或更高版本。运行完整测试需要 Xcode；基础 SwiftPM 构建只需要 Command Line Tools。
 
@@ -191,9 +213,11 @@ open dist/Lithe.app
 
 目录归属、跨平台边界、共享规则以及 Rust Core 必须遵守的注释规范见[仓库目录与共享边界](./docs/architecture/repository-layout.md)。提交功能改动时，请说明验证方式和已知限制。
 
+</details>
+
 ## 项目支持
 
-### ❤️ 赞助商
+### ❤️ 赞助商 <sup><a href="mailto:2188718831@qq.com">成为赞助商</a></sup>
 
 <table>
   <tr>
@@ -209,7 +233,7 @@ open dist/Lithe.app
   <tr>
     <td width="112" align="center">
       <a href="https://codezsy.com">
-        <img src="./docs/assets/sponsors/codez.png" width="64" alt="CodeZ 中转站">
+        <img src="https://raw.githubusercontent.com/zwenooo/z/main/logo/codez-logo-bq.png" width="64" alt="CodeZ 中转站">
       </a>
     </td>
     <td>
@@ -263,8 +287,6 @@ open dist/Lithe.app
 Lithe 采用 [Apache License 2.0](./LICENSE) 授权。
 
 ## Star History
-
-每个日期点表示北京时间当天 `00:00` 时仓库的累计 Star 数。图表从 2026 年 8 月 2 日的 0 开始。
 
 <a href="https://www.star-history.com/#1lck/Lithe-IDEA&Date">
   <img alt="Star History 图表" src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-light.svg" />

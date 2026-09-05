@@ -3030,7 +3030,7 @@ struct RunConfigurationIntegrationTests {
         )
         let plan = SharedLaunchPlan(
             executable: .toolchain("project-maven"),
-            arguments: ["-B", "-ntp", "-pl", "backend", "-P", "dev", "spring-boot:run"],
+            arguments: ["-B", "-ntp", "-pl", "backend", "-am", "-P", "dev", "spring-boot:run"],
             workingDirectory: "backend"
         )
         let fixture = makeFixture(
@@ -3133,12 +3133,12 @@ struct RunConfigurationIntegrationTests {
         )
         let firstPlan = SharedLaunchPlan(
             executable: .toolchain("project-maven"),
-            arguments: ["-B", "-ntp", "-pl", "backend", "spring-boot:run"],
+            arguments: ["-B", "-ntp", "-pl", "backend", "-am", "spring-boot:run"],
             workingDirectory: "."
         )
         let secondPlan = SharedLaunchPlan(
             executable: .toolchain("project-maven"),
-            arguments: ["-B", "-ntp", "-pl", "worker", "-P", "local", "spring-boot:run"],
+            arguments: ["-B", "-ntp", "-pl", "worker", "-am", "-P", "local", "spring-boot:run"],
             workingDirectory: "worker"
         )
         let fixture = makeFixture(
@@ -3190,7 +3190,7 @@ struct RunConfigurationIntegrationTests {
         )
         let backendPlan = SharedLaunchPlan(
             executable: .toolchain("project-maven"),
-            arguments: ["-B", "-ntp", "-pl", "backend", "spring-boot:run"],
+            arguments: ["-B", "-ntp", "-pl", "backend", "-am", "spring-boot:run"],
             workingDirectory: "."
         )
         let frontendPlan = SharedLaunchPlan(

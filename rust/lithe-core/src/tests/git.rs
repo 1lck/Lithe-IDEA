@@ -41,6 +41,118 @@ fn git_status_returns_contract_shape() {
 }
 
 #[test]
+fn git_status_preserves_both_paths_of_a_staged_rename() {
+    let root = temporary_root("git-status-rename");
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| history_git(&root, arguments);
+    assert!(run(&["init", "-q", "-b", "main"]).status.success());
+    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    fs::write(root.join("old-name.txt"), "content\n").expect("file should be writable");
+    assert!(run(&["add", "old-name.txt"]).status.success());
+    assert!(run(&["commit", "-qm", "initial"]).status.success());
+    assert!(run(&["mv", "old-name.txt", "new-name.txt"])
+        .status
+        .success());
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&serde_json::json!({
+            "id": "git-status-rename",
+            "command": "git.status",
+            "payload": { "root": root }
+        }))
+        .expect("Git request should encode"),
+    ))
+    .expect("Git response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(
+        response["data"]["changes"].as_array().map(Vec::len),
+        Some(1)
+    );
+    assert_eq!(response["data"]["changes"][0]["status"], "R ");
+    assert_eq!(response["data"]["changes"][0]["path"], "new-name.txt");
+    assert_eq!(
+        response["data"]["changes"][0]["originalPath"],
+        "old-name.txt"
+    );
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
+fn git_diff_worktree_snapshot_matches_selected_path_commit_semantics() {
+    let root = git_write_repository("git-diff-worktree-snapshot");
+    let run = |arguments: &[&str]| history_git(&root, arguments);
+    fs::write(root.join("recreated.txt"), "base\n").expect("file should be writable");
+    fs::write(root.join("partial.txt"), "one\nbase\n").expect("file should be writable");
+    assert!(run(&["add", "--all"]).status.success());
+    assert!(run(&["commit", "-qm", "initial"]).status.success());
+
+    assert!(run(&["rm", "--cached", "-q", "--", "recreated.txt"])
+        .status
+        .success());
+    fs::write(root.join("recreated.txt"), "changed\n").expect("file should be writable");
+    fs::write(root.join("partial.txt"), "staged\nbase\n").expect("file should be writable");
+    assert!(run(&["add", "--", "partial.txt"]).status.success());
+    fs::write(root.join("partial.txt"), "staged\nworktree\n").expect("file should be writable");
+    let cached_before = run(&["diff", "--cached", "--binary"]).stdout;
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&serde_json::json!({
+            "id": "git-diff-worktree-snapshot",
+            "command": "git.diff",
+            "payload": {
+                "root": root,
+                "pathspecs": ["recreated.txt", "partial.txt"],
+                "worktreeSnapshot": true
+            }
+        }))
+        .expect("Git snapshot request should encode"),
+    ))
+    .expect("Git snapshot response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response:?}");
+    let patch = response["data"]["patch"]
+        .as_str()
+        .expect("Git snapshot should return a patch");
+    assert!(patch.contains("-one"), "{patch}");
+    assert!(patch.contains("+staged"), "{patch}");
+    assert!(patch.contains("-base"), "{patch}");
+    assert!(patch.contains("+worktree"), "{patch}");
+    assert!(patch.contains("+changed"), "{patch}");
+    assert!(!patch.contains("deleted file mode"), "{patch}");
+    assert_eq!(run(&["diff", "--cached", "--binary"]).stdout, cached_before);
+
+    let reference_response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&serde_json::json!({
+            "id": "git-diff-reference-with-untracked",
+            "command": "git.diff",
+            "payload": {
+                "root": root,
+                "pathspecs": ["recreated.txt"],
+                "reference": "HEAD",
+                "untracked": true
+            }
+        }))
+        .expect("Git reference diff request should encode"),
+    ))
+    .expect("Git reference diff response should be JSON");
+    assert_eq!(reference_response["ok"], true, "{reference_response:?}");
+    assert!(
+        reference_response["data"]["patch"]
+            .as_str()
+            .is_some_and(|patch| patch.contains("+changed")),
+        "{reference_response:?}"
+    );
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
 fn git_status_does_not_refresh_the_index() {
     let root = temporary_root("git-status-index");
     fs::create_dir_all(&root).expect("temporary repository should be creatable");
@@ -181,8 +293,8 @@ fn git_command_returns_separate_process_streams_and_combined_output() {
 }
 
 #[test]
-fn git_write_validates_and_executes_shared_mutations() {
-    let root = temporary_root("git-write");
+fn git_write_commits_only_selected_paths_and_keeps_other_index_entries() {
+    let root = temporary_root("git-write-selected-commit");
     fs::create_dir_all(&root).expect("temporary repository should be creatable");
     let run = |arguments: &[&str]| {
         Command::new("git")
@@ -197,41 +309,645 @@ fn git_write_validates_and_executes_shared_mutations() {
         .status
         .success());
     assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
-    assert!(run(&["remote", "add", "origin", "."]).status.success());
-    fs::write(root.join("example.txt"), "initial\n").expect("file should be writable");
+    fs::write(root.join("selected.txt"), "initial\n").expect("file should be writable");
+    fs::write(root.join("other.txt"), "initial\n").expect("file should be writable");
+    assert!(run(&["add", "--all"]).status.success());
+    assert!(run(&["commit", "-qm", "initial"]).status.success());
 
-    let request = |operation: &str, payload: Value| -> Value {
-        let request = serde_json::json!({
-            "id": operation,
+    fs::write(root.join("selected.txt"), "selected staged change\n")
+        .expect("file should be writable");
+    assert!(run(&["add", "selected.txt"]).status.success());
+    fs::write(
+        root.join("selected.txt"),
+        "selected staged and unstaged change\n",
+    )
+    .expect("file should be writable");
+    fs::write(root.join("other.txt"), "other staged change\n").expect("file should be writable");
+    fs::write(root.join("new.txt"), "selected untracked\n").expect("file should be writable");
+    assert!(run(&["add", "other.txt"]).status.success());
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&serde_json::json!({
+            "id": "selected-commit",
             "command": "git.write",
             "payload": {
                 "root": root,
-                "operation": operation,
-                "paths": [],
-                "reference": null,
-                "referenceKind": null,
-                "revision": null,
-                "name": null,
-                "message": null,
-                "remote": null,
-                "destination": null,
-                "mode": null,
-                "includeUntracked": false,
-                "checkout": false,
-                "amend": false
+                "operation": "commit",
+                "message": "selected paths",
+                "paths": ["selected.txt", "new.txt"]
             }
-        });
-        let mut request = request;
-        if let Value::Object(overrides) = payload {
-            for (key, value) in overrides {
-                request["payload"][key.as_str()] = value;
+        }))
+        .expect("selected commit request should encode"),
+    ))
+    .expect("selected commit response should be JSON");
+    assert_eq!(response["ok"], true, "{response:?}");
+
+    let show = run(&["show", "--pretty=format:", "--name-only", "HEAD"]);
+    let committed_paths = String::from_utf8_lossy(&show.stdout)
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    assert_eq!(committed_paths, vec!["new.txt", "selected.txt"]);
+    assert_eq!(
+        String::from_utf8_lossy(&run(&["diff", "--cached", "--name-only"]).stdout).trim(),
+        "other.txt"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run(&["show", "HEAD:selected.txt"]).stdout),
+        "selected staged and unstaged change\n"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run(&["show", "HEAD:new.txt"]).stdout),
+        "selected untracked\n"
+    );
+
+    fs::remove_dir_all(root).expect("temporary workspace should be removable");
+}
+
+#[test]
+fn git_write_commits_a_selected_rename_with_both_paths() {
+    let root = temporary_root("git-write-selected-rename");
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| history_git(&root, arguments);
+    assert!(run(&["init", "-q", "-b", "main"]).status.success());
+    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    fs::write(root.join("old-name.txt"), "content\n").expect("file should be writable");
+    assert!(run(&["add", "old-name.txt"]).status.success());
+    assert!(run(&["commit", "-qm", "initial"]).status.success());
+    assert!(run(&["mv", "old-name.txt", "new-name.txt"])
+        .status
+        .success());
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&serde_json::json!({
+            "id": "selected-rename",
+            "command": "git.write",
+            "payload": {
+                "root": root,
+                "operation": "commit",
+                "message": "rename selected file",
+                "paths": ["new-name.txt", "old-name.txt"]
             }
-        }
-        serde_json::from_str(&execute_json(
-            &serde_json::to_string(&request).expect("write request should encode"),
-        ))
-        .expect("write response should be JSON")
+        }))
+        .expect("selected rename request should encode"),
+    ))
+    .expect("selected rename response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(response["data"]["exitCode"], 0, "{response:?}");
+    let changed = git_text(
+        &root,
+        &["show", "--pretty=format:", "--name-status", "HEAD"],
+    );
+    assert!(
+        changed.starts_with("R100\told-name.txt\tnew-name.txt"),
+        "{changed}"
+    );
+    assert!(!root.join("old-name.txt").exists());
+    assert!(root.join("new-name.txt").exists());
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
+fn git_write_selected_commit_uses_stdin_for_a_large_path_set() {
+    let root = temporary_root("git-write-selected-many-paths");
+    fs::create_dir_all(root.join("selected")).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| history_git(&root, arguments);
+    assert!(run(&["init", "-q", "-b", "main"]).status.success());
+    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    assert!(run(&["commit", "-q", "--allow-empty", "-m", "initial"])
+        .status
+        .success());
+
+    let paths = (0..384)
+        .map(|index| {
+            let path = format!(
+                "selected/{index:04}-{}.txt",
+                "long-path-component-used-to-cross-the-windows-command-line-limit"
+            );
+            fs::write(root.join(&path), format!("{index}\n")).expect("file should be writable");
+            path
+        })
+        .collect::<Vec<_>>();
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&serde_json::json!({
+            "id": "selected-many-paths",
+            "command": "git.write",
+            "payload": {
+                "root": root,
+                "operation": "commit",
+                "message": "commit many selected paths",
+                "paths": paths
+            }
+        }))
+        .expect("large selected commit request should encode"),
+    ))
+    .expect("large selected commit response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(response["data"]["exitCode"], 0, "{response:?}");
+    let stage_invocation = response["data"]["invocations"]
+        .as_array()
+        .expect("invocations should be present")
+        .iter()
+        .find(|invocation| invocation["arguments"][0] == "add")
+        .expect("stage invocation should be recorded");
+    assert!(stage_invocation["arguments"]
+        .as_array()
+        .expect("stage arguments should be present")
+        .iter()
+        .any(|argument| argument == "--pathspec-from-file=-"));
+    assert_eq!(
+        git_text(&root, &["show", "--pretty=format:", "--name-only", "HEAD"])
+            .lines()
+            .filter(|line| !line.is_empty())
+            .count(),
+        384
+    );
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
+fn git_write_restores_the_index_when_a_selected_commit_hook_fails() {
+    let root = temporary_root("git-write-selected-hook-failure");
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
     };
+    assert!(run(&["init", "-q"]).status.success());
+    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    fs::write(root.join("selected.txt"), "initial\n").expect("file should be writable");
+    fs::write(root.join("other.txt"), "initial\n").expect("file should be writable");
+    assert!(run(&["add", "--all"]).status.success());
+    assert!(run(&["commit", "-qm", "initial"]).status.success());
+
+    fs::write(root.join("selected.txt"), "selected worktree change\n")
+        .expect("file should be writable");
+    fs::write(root.join("other.txt"), "other staged change\n").expect("file should be writable");
+    assert!(run(&["add", "other.txt"]).status.success());
+    let cached_before = run(&["diff", "--cached", "--binary"]).stdout;
+
+    let hook = root.join(".git/hooks/pre-commit");
+    fs::write(&hook, "#!/bin/sh\nexit 1\n").expect("hook should be writable");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&hook)
+            .expect("hook metadata should be readable")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&hook, permissions).expect("hook should be executable");
+    }
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&serde_json::json!({
+            "id": "selected-commit-hook-failure",
+            "command": "git.write",
+            "payload": {
+                "root": root,
+                "operation": "commit",
+                "message": "must fail",
+                "paths": ["selected.txt"]
+            }
+        }))
+        .expect("selected commit request should encode"),
+    ))
+    .expect("selected commit response should be JSON");
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_ne!(response["data"]["exitCode"], 0, "{response:?}");
+    assert_eq!(run(&["diff", "--cached", "--binary"]).stdout, cached_before);
+    assert_eq!(
+        String::from_utf8_lossy(&run(&["diff", "--name-only"]).stdout).trim(),
+        "selected.txt"
+    );
+
+    fs::remove_dir_all(root).expect("temporary workspace should be removable");
+}
+
+#[test]
+fn git_write_preserves_real_index_changes_made_by_a_failing_hook() {
+    let root = temporary_root("git-write-selected-hook-real-index");
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| history_git(&root, arguments);
+    assert!(run(&["init", "-q", "-b", "main"]).status.success());
+    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    fs::write(root.join("selected.txt"), "initial\n").expect("file should be writable");
+    fs::write(root.join("hook-staged.txt"), "initial\n").expect("file should be writable");
+    assert!(run(&["add", "--all"]).status.success());
+    assert!(run(&["commit", "-qm", "initial"]).status.success());
+    fs::write(root.join("selected.txt"), "selected change\n").expect("file should be writable");
+    fs::write(root.join("hook-staged.txt"), "staged by hook\n").expect("file should be writable");
+
+    let hook = root.join(".git/hooks/pre-commit");
+    fs::write(
+        &hook,
+        "#!/bin/sh\nunset GIT_DIR GIT_COMMON_DIR GIT_WORK_TREE GIT_INDEX_FILE\ngit add -- hook-staged.txt\nexit 1\n",
+    )
+    .expect("hook should be writable");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&hook)
+            .expect("hook metadata should be readable")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&hook, permissions).expect("hook should be executable");
+    }
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&serde_json::json!({
+            "id": "selected-hook-real-index",
+            "command": "git.write",
+            "payload": {
+                "root": root,
+                "operation": "commit",
+                "message": "must fail",
+                "paths": ["selected.txt"]
+            }
+        }))
+        .expect("selected commit request should encode"),
+    ))
+    .expect("selected commit response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_ne!(response["data"]["exitCode"], 0, "{response:?}");
+    assert_eq!(
+        git_text(&root, &["diff", "--cached", "--name-only"]),
+        "hook-staged.txt"
+    );
+    assert_eq!(git_text(&root, &["diff", "--name-only"]), "selected.txt");
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
+fn git_write_checks_selected_worktree_conflict_markers_before_committing() {
+    let root = temporary_root("git-write-selected-markers");
+    fs::create_dir_all(root.join("selected")).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    fs::write(root.join("selected/file.txt"), "initial\n").expect("file should be writable");
+    assert!(run(&["add", "--all"]).status.success());
+    assert!(run(&["commit", "-qm", "initial"]).status.success());
+    let head_before = run(&["rev-parse", "HEAD"]).stdout;
+
+    fs::write(
+        root.join("selected/file.txt"),
+        "<<<<<<< ours\nleft\n=======\nright\n>>>>>>> theirs\n",
+    )
+    .expect("file should be writable");
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&serde_json::json!({
+            "id": "selected-commit-markers",
+            "command": "git.write",
+            "payload": {
+                "root": root,
+                "operation": "commit",
+                "message": "must not commit markers",
+                "paths": ["selected"]
+            }
+        }))
+        .expect("selected commit request should encode"),
+    ))
+    .expect("selected commit response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(
+        response["data"]["operationError"]["message"],
+        "Conflict markers remain in selected files"
+    );
+    assert!(run(&["diff", "--cached", "--name-only"]).stdout.is_empty());
+    assert_eq!(run(&["rev-parse", "HEAD"]).stdout, head_before);
+
+    fs::remove_dir_all(root).expect("temporary workspace should be removable");
+}
+
+#[test]
+fn git_write_appends_shared_and_local_ignore_patterns_without_duplicates() {
+    let root = temporary_root("git-write-ignore");
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    fs::write(root.join(".gitignore"), "# existing").expect("gitignore should be writable");
+
+    let request = |operation: &str, paths: Value| -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::to_string(&serde_json::json!({
+                "id": operation,
+                "command": "git.write",
+                "payload": {"root": root, "operation": operation, "paths": paths}
+            }))
+            .expect("ignore request should encode"),
+        ))
+        .expect("ignore response should be JSON")
+    };
+
+    let shared_paths = serde_json::json!(["build output/", "reports/file[1].txt"]);
+    let shared = request("ignore", shared_paths.clone());
+    assert_eq!(shared["ok"], true, "{shared:?}");
+    assert_eq!(request("ignore", shared_paths)["ok"], true);
+    assert_eq!(
+        fs::read_to_string(root.join(".gitignore")).expect("gitignore should be readable"),
+        "# existing\n/build\\ output/\n/reports/file\\[1\\].txt\n"
+    );
+
+    fs::create_dir_all(root.join("cache")).expect("excluded directory should be creatable");
+    fs::create_dir_all(root.join("unselected")).expect("unselected directory should be creatable");
+    fs::write(root.join("cache/data.txt"), "excluded\n").expect("excluded file should be writable");
+    fs::write(root.join("secret#file.txt"), "excluded\n")
+        .expect("excluded file should be writable");
+    fs::write(root.join("unselected/keep.txt"), "keep\n")
+        .expect("unselected file should be writable");
+
+    let local_paths = serde_json::json!(["cache/", "secret#file.txt"]);
+    let local = request("exclude", local_paths.clone());
+    assert_eq!(local["ok"], true, "{local:?}");
+    assert_eq!(request("exclude", local_paths)["ok"], true);
+    assert_eq!(
+        fs::read_to_string(root.join(".git/info/exclude"))
+            .expect("local exclude file should be readable")
+            .lines()
+            .filter(|line| line.starts_with('/'))
+            .collect::<Vec<_>>(),
+        vec!["/cache/", "/secret\\#file.txt"]
+    );
+    assert!(root.join("cache/data.txt").is_file());
+    assert!(root.join("secret#file.txt").is_file());
+    assert!(root.join("unselected/keep.txt").is_file());
+
+    fs::create_dir_all(root.join("build output")).expect("ignored directory should be creatable");
+    fs::create_dir_all(root.join("reports")).expect("ignored directory should be creatable");
+    fs::write(root.join("build output/generated.txt"), "ignored\n")
+        .expect("ignored file should be writable");
+    fs::write(root.join("reports/file[1].txt"), "ignored\n")
+        .expect("ignored file should be writable");
+    assert!(run(&["check-ignore", "-q", "build output/generated.txt"])
+        .status
+        .success());
+    assert!(run(&["check-ignore", "-q", "reports/file[1].txt"])
+        .status
+        .success());
+    assert!(run(&["check-ignore", "-q", "cache/data.txt"])
+        .status
+        .success());
+    assert!(run(&["check-ignore", "-q", "secret#file.txt"])
+        .status
+        .success());
+
+    let invalid = request("ignore", serde_json::json!(["unsafe\npattern"]));
+    assert_eq!(invalid["ok"], false);
+    assert_eq!(invalid["error"]["code"], "invalid_request");
+
+    fs::remove_dir_all(root).expect("temporary workspace should be removable");
+}
+
+#[test]
+fn git_write_edits_a_local_commit_message_and_rebuilds_descendants() {
+    let root = history_rewrite_repository("git-edit-commit-message");
+    commit_history_file(&root, "story.txt", "one\n", "one");
+    commit_history_file(&root, "story.txt", "two\n", "two");
+    let target = git_text(&root, &["rev-parse", "HEAD"]);
+    commit_history_file(&root, "story.txt", "three\n", "three");
+    let original_tree = git_text(&root, &["rev-parse", "HEAD^{tree}"]);
+
+    let response = history_write(
+        &root,
+        serde_json::json!({
+            "operation": "editCommitMessage",
+            "revision": target,
+            "message": "two edited"
+        }),
+    );
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(response["data"]["exitCode"], 0, "{response:?}");
+    assert_eq!(
+        git_text(&root, &["log", "--format=%s"]),
+        "three\ntwo edited\none"
+    );
+    assert_eq!(
+        git_text(&root, &["rev-parse", "HEAD^{tree}"]),
+        original_tree
+    );
+    assert_eq!(git_text(&root, &["status", "--porcelain"]), "");
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
+fn git_write_squashes_a_contiguous_local_commit_range() {
+    let root = history_rewrite_repository("git-squash-commits");
+    commit_history_file(&root, "story.txt", "one\n", "one");
+    commit_history_file(&root, "story.txt", "two\n", "two");
+    let older = git_text(&root, &["rev-parse", "HEAD"]);
+    commit_history_file(&root, "story.txt", "three\n", "three");
+    let newer = git_text(&root, &["rev-parse", "HEAD"]);
+    commit_history_file(&root, "tail.txt", "tail\n", "tail");
+    let tail = git_text(&root, &["rev-parse", "HEAD"]);
+    let original_tree = git_text(&root, &["rev-parse", "HEAD^{tree}"]);
+
+    let rejected = history_write(
+        &root,
+        serde_json::json!({
+            "operation": "squashCommits",
+            "revisions": [tail, older],
+            "message": "must be rejected"
+        }),
+    );
+    assert_eq!(rejected["ok"], true, "{rejected:?}");
+    assert_eq!(
+        rejected["data"]["operationError"]["code"],
+        "invalid_request"
+    );
+    assert!(rejected["data"]["operationError"]["message"]
+        .as_str()
+        .expect("error message should be text")
+        .contains("contiguous"));
+
+    let response = history_write(
+        &root,
+        serde_json::json!({
+            "operation": "squashCommits",
+            "revisions": [newer, older],
+            "message": "two and three"
+        }),
+    );
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(response["data"]["exitCode"], 0, "{response:?}");
+    assert_eq!(
+        git_text(&root, &["log", "--format=%s"]),
+        "tail\ntwo and three\none"
+    );
+    assert_eq!(git_text(&root, &["rev-list", "--count", "HEAD"]), "3");
+    assert_eq!(
+        git_text(&root, &["rev-parse", "HEAD^{tree}"]),
+        original_tree
+    );
+    assert_eq!(git_text(&root, &["status", "--porcelain"]), "");
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
+fn git_write_deletes_a_local_commit_and_replays_later_changes() {
+    let root = history_rewrite_repository("git-delete-commit");
+    commit_history_file(&root, "base.txt", "base\n", "base");
+    commit_history_file(&root, "dropped.txt", "drop\n", "drop this commit");
+    let target = git_text(&root, &["rev-parse", "HEAD"]);
+    commit_history_file(&root, "kept.txt", "keep\n", "keep this commit");
+
+    let response = history_write(
+        &root,
+        serde_json::json!({"operation": "deleteCommit", "revision": target}),
+    );
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(response["data"]["exitCode"], 0, "{response:?}");
+    assert_eq!(
+        git_text(&root, &["log", "--format=%s"]),
+        "keep this commit\nbase"
+    );
+    assert!(!root.join("dropped.txt").exists());
+    assert_eq!(
+        fs::read_to_string(root.join("kept.txt")).expect("kept file should remain"),
+        "keep\n"
+    );
+    assert_eq!(git_text(&root, &["status", "--porcelain"]), "");
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
+fn git_write_deletes_a_local_commit_and_preserves_a_later_empty_commit() {
+    let root = history_rewrite_repository("git-delete-before-empty-commit");
+    commit_history_file(&root, "base.txt", "base\n", "base");
+    commit_history_file(&root, "dropped.txt", "drop\n", "drop this commit");
+    let target = git_text(&root, &["rev-parse", "HEAD"]);
+    assert!(
+        history_git(&root, &["commit", "--allow-empty", "-qm", "keep empty"])
+            .status
+            .success()
+    );
+
+    let response = history_write(
+        &root,
+        serde_json::json!({"operation": "deleteCommit", "revision": target}),
+    );
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(response["data"]["exitCode"], 0, "{response:?}");
+    assert_eq!(git_text(&root, &["log", "--format=%s"]), "keep empty\nbase");
+    assert!(!root.join("dropped.txt").exists());
+    assert_eq!(git_text(&root, &["status", "--porcelain"]), "");
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
+fn git_history_rewrite_rejects_commits_reachable_from_remote_refs() {
+    let root = history_rewrite_repository("git-rewrite-published");
+    commit_history_file(&root, "story.txt", "published\n", "published");
+    let target = git_text(&root, &["rev-parse", "HEAD"]);
+    assert!(
+        history_git(&root, &["update-ref", "refs/remotes/origin/main", "HEAD"])
+            .status
+            .success()
+    );
+
+    let response = history_write(
+        &root,
+        serde_json::json!({
+            "operation": "editCommitMessage",
+            "revision": target,
+            "message": "must be rejected"
+        }),
+    );
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(
+        response["data"]["operationError"]["code"],
+        "invalid_request"
+    );
+    assert!(response["data"]["operationError"]["message"]
+        .as_str()
+        .expect("error message should be text")
+        .contains("remote"));
+    assert_eq!(git_text(&root, &["log", "-1", "--format=%s"]), "published");
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
+fn git_history_rewrite_rejects_a_dirty_working_tree() {
+    let root = history_rewrite_repository("git-rewrite-dirty");
+    commit_history_file(&root, "story.txt", "clean\n", "clean");
+    let target = git_text(&root, &["rev-parse", "HEAD"]);
+    fs::write(root.join("story.txt"), "dirty\n").expect("test file should be writable");
+
+    let response = history_write(
+        &root,
+        serde_json::json!({
+            "operation": "editCommitMessage",
+            "revision": target,
+            "message": "must be rejected"
+        }),
+    );
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(
+        response["data"]["operationError"]["code"],
+        "invalid_request"
+    );
+    assert!(response["data"]["operationError"]["message"]
+        .as_str()
+        .expect("error message should be text")
+        .contains("clean working tree"));
+    assert_eq!(git_text(&root, &["log", "-1", "--format=%s"]), "clean");
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
+fn git_write_executes_stage_and_discard_mutations() {
+    let root = git_write_repository("git-write-stage-discard");
+    let run = |arguments: &[&str]| history_git(&root, arguments);
+    fs::write(root.join("example.txt"), "initial\n").expect("file should be writable");
+    let request = |operation: &str, payload: Value| git_write_request(&root, operation, payload);
 
     let stage = request("stage", serde_json::json!({"paths": ["example.txt"]}));
     assert_eq!(stage["ok"], true);
@@ -263,8 +979,8 @@ fn git_write_validates_and_executes_shared_mutations() {
         "initial\n"
     );
 
-    // Conflict-dialog rollback must discard both sides of a file, including
-    // a staged edit followed by a working-tree edit.
+    // A confirmed rollback must discard both sides of a file, including a
+    // staged edit followed by a working-tree edit.
     fs::write(root.join("example.txt"), "staged\n").expect("file should be writable");
     assert!(run(&["add", "example.txt"]).status.success());
     fs::write(root.join("example.txt"), "working\n").expect("file should be writable");
@@ -272,7 +988,14 @@ fn git_write_validates_and_executes_shared_mutations() {
     assert_eq!(discard_all["ok"], true, "{discard_all:?}");
     assert_eq!(
         discard_all["data"]["arguments"],
-        serde_json::json!(["checkout", "HEAD", "--", "example.txt"])
+        serde_json::json!([
+            "restore",
+            "--source=HEAD",
+            "--staged",
+            "--worktree",
+            "--pathspec-from-file=-",
+            "--pathspec-file-nul"
+        ])
     );
     assert_eq!(
         discard_all["data"]["invocations"]
@@ -281,12 +1004,29 @@ fn git_write_validates_and_executes_shared_mutations() {
             .iter()
             .map(|invocation| invocation["arguments"][0].as_str().unwrap_or_default())
             .collect::<Vec<_>>(),
-        vec!["status", "checkout"]
+        vec!["status", "restore"]
     );
     assert_eq!(
         fs::read_to_string(root.join("example.txt")).expect("file should be readable"),
         "initial\n"
     );
+    assert_eq!(
+        String::from_utf8_lossy(&run(&["status", "--porcelain"]).stdout),
+        ""
+    );
+
+    fs::write(root.join("newly-added.txt"), "staged addition\n")
+        .expect("new file should be writable");
+    assert!(run(&["add", "newly-added.txt"]).status.success());
+    fs::write(root.join("untracked-all.txt"), "untracked\n")
+        .expect("untracked file should be writable");
+    let discard_added = request(
+        "discardAll",
+        serde_json::json!({"paths": ["newly-added.txt", "untracked-all.txt"]}),
+    );
+    assert_eq!(discard_added["ok"], true, "{discard_added:?}");
+    assert!(!root.join("newly-added.txt").exists());
+    assert!(!root.join("untracked-all.txt").exists());
     assert_eq!(
         String::from_utf8_lossy(&run(&["status", "--porcelain"]).stdout),
         ""
@@ -338,6 +1078,16 @@ fn git_write_validates_and_executes_shared_mutations() {
         true
     );
     assert!(!root.join("untracked.txt").exists());
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
+fn git_write_executes_branch_pull_and_stash_mutations() {
+    let root = git_write_repository("git-write-branch-workflows");
+    let run = |arguments: &[&str]| history_git(&root, arguments);
+    commit_history_file(&root, "example.txt", "initial\n", "initial");
+    let request = |operation: &str, payload: Value| git_write_request(&root, operation, payload);
 
     let current = String::from_utf8_lossy(&run(&["branch", "--show-current"]).stdout)
         .trim()
@@ -472,6 +1222,366 @@ fn git_write_validates_and_executes_shared_mutations() {
         fs::read_to_string(root.join("example.txt")).expect("file should be readable"),
         "working tree\n"
     );
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
+fn git_write_sets_upstream_from_the_complete_remote_reference() {
+    let root = git_write_repository("git-write-complete-upstream");
+    commit_history_file(&root, "base.txt", "base\n", "initial");
+    let current = git_text(&root, &["branch", "--show-current"]);
+    assert!(history_git(
+        &root,
+        &[
+            "remote",
+            "add",
+            "team/origin",
+            "https://example.invalid/team/repository.git"
+        ]
+    )
+    .status
+    .success());
+    assert!(history_git(
+        &root,
+        &["update-ref", "refs/remotes/team/origin/feature/foo", "HEAD"]
+    )
+    .status
+    .success());
+    assert!(history_git(&root, &["branch", "team/origin/feature/foo"])
+        .status
+        .success());
+
+    let response = git_write_request(
+        &root,
+        "setUpstream",
+        serde_json::json!({
+            "name": current,
+            "gitReference": {
+                "fullName": "refs/remotes/team/origin/feature/foo",
+                "shortName": "team/origin/feature/foo",
+                "kind": "remote"
+            }
+        }),
+    );
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(response["data"]["exitCode"], 0, "{response:?}");
+    assert_eq!(
+        git_text(&root, &["config", &format!("branch.{current}.remote")]),
+        "team/origin"
+    );
+    assert_eq!(
+        git_text(&root, &["config", &format!("branch.{current}.merge")]),
+        "refs/heads/feature/foo"
+    );
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
+fn git_write_creates_a_tracked_worktree_from_an_unambiguous_complete_remote_reference() {
+    struct RemovePathsOnDrop(Vec<std::path::PathBuf>);
+
+    impl Drop for RemovePathsOnDrop {
+        fn drop(&mut self) {
+            for path in self.0.iter().rev() {
+                let _ = fs::remove_dir_all(path);
+            }
+        }
+    }
+
+    let root = git_write_repository("git-write-complete-worktree-reference");
+    let destination = root.with_extension("tracked-worktree");
+    let _cleanup = RemovePathsOnDrop(vec![root.clone(), destination.clone()]);
+    commit_history_file(&root, "base.txt", "base\n", "initial");
+    assert!(
+        history_git(&root, &["update-ref", "refs/remotes/origin/main", "HEAD"])
+            .status
+            .success()
+    );
+    assert!(history_git(&root, &["branch", "origin/main", "HEAD"])
+        .status
+        .success());
+
+    let response = git_write_request(
+        &root,
+        "createWorktree",
+        serde_json::json!({
+            "destination": destination,
+            "name": "feature/tracked-worktree",
+            "gitReference": {
+                "fullName": "refs/remotes/origin/main",
+                "shortName": "origin/main",
+                "kind": "remote"
+            }
+        }),
+    );
+
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(response["data"]["exitCode"], 0, "{response:?}");
+    let invocations = response["data"]["invocations"]
+        .as_array()
+        .expect("worktree invocations should be an array");
+    assert_eq!(
+        invocations
+            .iter()
+            .filter(|invocation| invocation["arguments"][0] == "worktree")
+            .count(),
+        1,
+        "{response:?}"
+    );
+    assert!(
+        invocations
+            .iter()
+            .all(|invocation| invocation["arguments"][0] != "config"),
+        "{response:?}"
+    );
+    assert_eq!(
+        response["data"]["arguments"],
+        serde_json::json!([
+            "worktree",
+            "add",
+            "--track",
+            "-b",
+            "feature/tracked-worktree",
+            "--",
+            destination,
+            "refs/remotes/origin/main"
+        ])
+    );
+    assert_eq!(
+        git_text(&root, &["config", "branch.feature/tracked-worktree.remote"]),
+        "origin"
+    );
+    assert_eq!(
+        git_text(&root, &["config", "branch.feature/tracked-worktree.merge"]),
+        "refs/heads/main"
+    );
+    assert_eq!(
+        git_text(&destination, &["branch", "--show-current"]),
+        "feature/tracked-worktree"
+    );
+}
+
+#[test]
+fn git_worktrees_lists_primary_linked_and_locked_metadata() {
+    struct RemovePathsOnDrop(Vec<std::path::PathBuf>);
+
+    impl Drop for RemovePathsOnDrop {
+        fn drop(&mut self) {
+            for path in self.0.iter().rev() {
+                let _ = fs::remove_dir_all(path);
+            }
+        }
+    }
+
+    let root = git_write_repository("git-worktrees-list");
+    let destination = root.with_extension("linked worktree-测试");
+    let _cleanup = RemovePathsOnDrop(vec![root.clone(), destination.clone()]);
+    commit_history_file(&root, "base.txt", "base\n", "initial");
+    assert!(history_git(
+        &root,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "feature/linked",
+            destination.to_str().expect("test path should be UTF-8"),
+        ],
+    )
+    .status
+    .success());
+    assert!(history_git(
+        &root,
+        &[
+            "worktree",
+            "lock",
+            "--reason",
+            "Codex task",
+            destination.to_str().expect("test path should be UTF-8"),
+        ],
+    )
+    .status
+    .success());
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&serde_json::json!({
+            "id": "git-worktrees-list",
+            "command": "git.worktrees",
+            "payload": { "root": root }
+        }))
+        .expect("worktrees request should encode"),
+    ))
+    .expect("worktrees response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response:?}");
+    let worktrees = response["data"]["worktrees"]
+        .as_array()
+        .expect("worktrees should be an array");
+    assert_eq!(worktrees.len(), 2, "{response:?}");
+    assert_eq!(worktrees[0]["isPrimary"], true);
+    assert_eq!(worktrees[0]["isCurrent"], true);
+    assert_eq!(
+        worktrees[1]["path"],
+        destination
+            .canonicalize()
+            .expect("linked worktree should canonicalize")
+            .to_string_lossy()
+            .as_ref()
+    );
+    assert_eq!(worktrees[1]["branch"], "refs/heads/feature/linked");
+    assert_eq!(worktrees[1]["isLocked"], true);
+    assert_eq!(worktrees[1]["lockReason"], "Codex task");
+}
+
+#[test]
+fn git_write_manages_only_registered_non_primary_worktrees() {
+    struct RemovePathsOnDrop(Vec<std::path::PathBuf>);
+
+    impl Drop for RemovePathsOnDrop {
+        fn drop(&mut self) {
+            for path in self.0.iter().rev() {
+                let _ = fs::remove_dir_all(path);
+            }
+        }
+    }
+
+    let root = git_write_repository("git-worktree-mutations");
+    let destination = root.with_extension("managed-worktree");
+    let stale_destination = root.with_extension("stale-worktree");
+    let _cleanup = RemovePathsOnDrop(vec![
+        root.clone(),
+        destination.clone(),
+        stale_destination.clone(),
+    ]);
+    commit_history_file(&root, "base.txt", "base\n", "initial");
+    for (path, branch) in [
+        (&destination, "feature/managed"),
+        (&stale_destination, "feature/stale"),
+    ] {
+        assert!(history_git(
+            &root,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                branch,
+                path.to_str().expect("test path should be UTF-8"),
+            ],
+        )
+        .status
+        .success());
+    }
+    let registered_destination = destination
+        .canonicalize()
+        .expect("managed worktree should canonicalize");
+    let registered_root = root.canonicalize().expect("repository should canonicalize");
+
+    let locked = git_write_request(
+        &root,
+        "lockWorktree",
+        serde_json::json!({ "destination": registered_destination }),
+    );
+    assert_eq!(locked["ok"], true, "{locked:?}");
+    assert_eq!(locked["data"]["exitCode"], 0, "{locked:?}");
+    let rejected_locked_remove = git_write_request(
+        &root,
+        "removeWorktree",
+        serde_json::json!({ "destination": registered_destination }),
+    );
+    assert_eq!(
+        rejected_locked_remove["ok"], true,
+        "{rejected_locked_remove:?}"
+    );
+    assert_eq!(
+        rejected_locked_remove["data"]["operationError"]["code"], "invalid_request",
+        "{rejected_locked_remove:?}"
+    );
+    let unlocked = git_write_request(
+        &root,
+        "unlockWorktree",
+        serde_json::json!({ "destination": registered_destination }),
+    );
+    assert_eq!(unlocked["data"]["exitCode"], 0, "{unlocked:?}");
+
+    fs::write(destination.join("dirty.txt"), "dirty\n").expect("worktree should be writable");
+    let dirty_remove = git_write_request(
+        &root,
+        "removeWorktree",
+        serde_json::json!({ "destination": registered_destination }),
+    );
+    assert_eq!(dirty_remove["ok"], true, "{dirty_remove:?}");
+    assert_ne!(dirty_remove["data"]["exitCode"], 0, "{dirty_remove:?}");
+    let forced_remove = git_write_request(
+        &root,
+        "removeWorktree",
+        serde_json::json!({ "destination": registered_destination, "force": true }),
+    );
+    assert_eq!(forced_remove["data"]["exitCode"], 0, "{forced_remove:?}");
+    assert!(!destination.exists());
+
+    let primary_remove = git_write_request(
+        &root,
+        "removeWorktree",
+        serde_json::json!({ "destination": registered_root }),
+    );
+    assert_eq!(
+        primary_remove["data"]["operationError"]["code"], "invalid_request",
+        "{primary_remove:?}"
+    );
+    let unrelated_remove = git_write_request(
+        &root,
+        "removeWorktree",
+        serde_json::json!({ "destination": root.with_extension("unregistered") }),
+    );
+    assert_eq!(
+        unrelated_remove["data"]["operationError"]["code"], "invalid_request",
+        "{unrelated_remove:?}"
+    );
+
+    let repair = git_write_request(&root, "repairWorktrees", serde_json::json!({}));
+    assert_eq!(repair["data"]["exitCode"], 0, "{repair:?}");
+
+    fs::remove_dir_all(&stale_destination).expect("stale worktree should be removable");
+    let unrelated_missing_remove = git_write_request(
+        &root,
+        "removeWorktree",
+        serde_json::json!({
+            "destination": root.with_extension("another-missing-worktree")
+        }),
+    );
+    assert_eq!(
+        unrelated_missing_remove["data"]["operationError"]["code"], "invalid_request",
+        "{unrelated_missing_remove:?}"
+    );
+    let prune = git_write_request(&root, "pruneWorktrees", serde_json::json!({}));
+    assert_eq!(prune["data"]["exitCode"], 0, "{prune:?}");
+    let listed: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&serde_json::json!({
+            "id": "git-worktrees-after-prune",
+            "command": "git.worktrees",
+            "payload": { "root": root }
+        }))
+        .expect("worktrees request should encode"),
+    ))
+    .expect("worktrees response should be JSON");
+    assert_eq!(
+        listed["data"]["worktrees"].as_array().map(Vec::len),
+        Some(1),
+        "{listed:?}"
+    );
+}
+
+#[test]
+fn git_write_executes_checkout_preflight_clone_and_validation() {
+    let root = git_write_repository("git-write-checkout-workflows");
+    let run = |arguments: &[&str]| history_git(&root, arguments);
+    commit_history_file(&root, "example.txt", "initial\n", "initial");
+    let request = |operation: &str, payload: Value| git_write_request(&root, operation, payload);
+    let current = git_text(&root, &["branch", "--show-current"]);
+    assert!(run(&["branch", "feature/core"]).status.success());
 
     // Checkout conflict handling. `feature/core` and the current branch hold different
     // content for conflict.txt, so a dirty working copy of it blocks a plain switch.
@@ -609,6 +1719,539 @@ fn git_write_validates_and_executes_shared_mutations() {
     );
     assert_eq!(invalid["ok"], false);
     assert_eq!(invalid["error"]["code"], "invalid_request");
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
+fn git_write_creates_deletes_and_records_tags() {
+    let root = temporary_root("git-tags");
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    fs::write(root.join("example.txt"), "initial\n").expect("file should be writable");
+    assert!(run(&["add", "example.txt"]).status.success());
+    assert!(run(&["commit", "-qm", "initial"]).status.success());
+    let head = String::from_utf8_lossy(&run(&["rev-parse", "HEAD"]).stdout)
+        .trim()
+        .to_string();
+
+    let request = |operation: &str, payload: Value| -> Value {
+        let request = serde_json::json!({
+            "id": operation,
+            "command": "git.write",
+            "payload": {
+                "root": root,
+                "operation": operation,
+                "paths": [],
+                "reference": null,
+                "referenceKind": null,
+                "revision": null,
+                "name": null,
+                "message": null,
+                "remote": null,
+                "destination": null,
+                "mode": null,
+                "includeUntracked": false,
+                "checkout": false,
+                "amend": false
+            }
+        });
+        let mut request = request;
+        if let Value::Object(overrides) = payload {
+            for (key, value) in overrides {
+                request["payload"][key.as_str()] = value;
+            }
+        }
+        serde_json::from_str(&execute_json(
+            &serde_json::to_string(&request).expect("write request should encode"),
+        ))
+        .expect("write response should be JSON")
+    };
+
+    // A lightweight tag points straight at the target commit and never
+    // carries the structured deletion record.
+    let lightweight = request(
+        "createTag",
+        serde_json::json!({"name": "v1.0", "revision": "HEAD"}),
+    );
+    assert_eq!(lightweight["ok"], true, "{lightweight:?}");
+    assert!(lightweight["data"].get("tagDeletion").is_none());
+    assert_eq!(
+        String::from_utf8_lossy(&run(&["rev-parse", "refs/tags/v1.0"]).stdout).trim(),
+        head
+    );
+
+    // An annotation creates a tag object whose CRLF and trailing blank lines
+    // must survive the later delete/restore round trip byte for byte.
+    let annotated = request(
+        "createTag",
+        serde_json::json!({
+            "name": "v2.0",
+            "revision": "HEAD",
+            "message": "release\r\n\r\nsecond paragraph\r\n\r\n"
+        }),
+    );
+    assert_eq!(annotated["ok"], true, "{annotated:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&run(&["cat-file", "-t", "refs/tags/v2.0"]).stdout).trim(),
+        "tag"
+    );
+    let annotated_tag_object =
+        String::from_utf8_lossy(&run(&["rev-parse", "refs/tags/v2.0"]).stdout)
+            .trim()
+            .to_string();
+
+    // An empty name is a missing required field. The format matrix below is
+    // shared with the macOS dialog through `tag-names.json`, so both sides
+    // reject exactly the same names: `git check-ref-format` refname rules,
+    // per-component checks such as `foo/.bar`, and the command-line guards.
+    // Each rejection must happen before any subprocess so the error stays a
+    // plain invalid_request envelope.
+    let tag_names: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../shared/fixtures/git/tag-names.json"
+    )))
+    .expect("tag name fixture should be valid JSON");
+    let empty = request(
+        "createTag",
+        serde_json::json!({"name": "", "revision": "HEAD"}),
+    );
+    assert_eq!(empty["ok"], false, "{empty:?}");
+    assert_eq!(empty["error"]["code"], "invalid_request");
+    assert_eq!(empty["error"]["message"], "Missing or invalid Git tag name");
+    for name in tag_names["invalid"].as_array().expect("invalid list") {
+        let name = name.as_str().expect("invalid name should be a string");
+        let response = request(
+            "createTag",
+            serde_json::json!({"name": name, "revision": "HEAD"}),
+        );
+        assert_eq!(response["ok"], false, "name {name:?}: {response:?}");
+        assert_eq!(
+            response["error"]["code"], "invalid_request",
+            "name {name:?}"
+        );
+    }
+    for name in tag_names["valid"].as_array().expect("valid list") {
+        let name = name.as_str().expect("valid name should be a string");
+        let response = request(
+            "createTag",
+            serde_json::json!({"name": name, "revision": "HEAD"}),
+        );
+        assert_eq!(response["ok"], true, "name {name:?}: {response:?}");
+    }
+
+    // A duplicate name is a structured operation error so callers can show it
+    // in place instead of parsing Git's stderr.
+    let duplicate = request(
+        "createTag",
+        serde_json::json!({"name": "v1.0", "revision": "HEAD"}),
+    );
+    assert_eq!(duplicate["ok"], true, "{duplicate:?}");
+    assert_eq!(
+        duplicate["data"]["operationError"]["code"],
+        "invalid_request"
+    );
+    assert_eq!(
+        duplicate["data"]["operationError"]["message"],
+        "A tag named 'v1.0' already exists"
+    );
+
+    let unresolvable = request(
+        "createTag",
+        serde_json::json!({"name": "v3.0", "revision": "no-such-revision"}),
+    );
+    assert_eq!(unresolvable["ok"], true, "{unresolvable:?}");
+    assert_eq!(
+        unresolvable["data"]["operationError"]["code"],
+        "invalid_request"
+    );
+    assert_eq!(
+        unresolvable["data"]["operationError"]["message"],
+        "Could not resolve tag target 'no-such-revision'"
+    );
+
+    // Tree and blob revisions are valid Git objects but not valid targets for
+    // this commit-only contract. Neither rejection may leave a tag behind.
+    let tree = String::from_utf8_lossy(&run(&["rev-parse", "HEAD^{tree}"]).stdout)
+        .trim()
+        .to_string();
+    let blob = String::from_utf8_lossy(&run(&["hash-object", "example.txt"]).stdout)
+        .trim()
+        .to_string();
+    for (name, revision) in [("tree-target", tree), ("blob-target", blob)] {
+        let response = request(
+            "createTag",
+            serde_json::json!({"name": name, "revision": revision}),
+        );
+        assert_eq!(response["ok"], true, "{response:?}");
+        assert_eq!(
+            response["data"]["operationError"]["message"],
+            format!("Could not resolve tag target '{revision}'")
+        );
+        assert_ne!(
+            run(&[
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                &format!("refs/tags/{name}")
+            ])
+            .status
+            .code(),
+            Some(0)
+        );
+    }
+
+    // Deleting a lightweight tag reports the commit it pointed at.
+    let delete_lightweight = request("deleteTag", serde_json::json!({"name": "v1.0"}));
+    assert_eq!(delete_lightweight["ok"], true, "{delete_lightweight:?}");
+    assert_eq!(delete_lightweight["data"]["exitCode"], 0);
+    assert_eq!(delete_lightweight["data"]["tagDeletion"]["name"], "v1.0");
+    assert_eq!(
+        delete_lightweight["data"]["tagDeletion"]["kind"],
+        "lightweight"
+    );
+    assert_eq!(
+        delete_lightweight["data"]["tagDeletion"]["deletedTarget"],
+        head
+    );
+    assert!(delete_lightweight["data"]["invocations"]
+        .as_array()
+        .expect("tag deletion invocations should be an array")
+        .iter()
+        .any(|invocation| {
+            invocation["arguments"]
+                == serde_json::json!(["update-ref", "-d", "refs/tags/v1.0", head])
+        }));
+    assert!(delete_lightweight["data"]["tagDeletion"]
+        .get("message")
+        .is_none());
+    assert!(
+        run(&["rev-parse", "--verify", "--quiet", "refs/tags/v1.0"])
+            .status
+            .code()
+            != Some(0)
+    );
+
+    // Deleting an annotated tag carries the peeled commit and the original
+    // annotation so a restore can rebuild the message byte for byte.
+    let delete_annotated = request("deleteTag", serde_json::json!({"name": "v2.0"}));
+    assert_eq!(delete_annotated["ok"], true, "{delete_annotated:?}");
+    let deletion = &delete_annotated["data"]["tagDeletion"];
+    assert_eq!(deletion["name"], "v2.0");
+    assert_eq!(deletion["kind"], "annotated");
+    assert_eq!(
+        deletion["message"],
+        "release\r\n\r\nsecond paragraph\r\n\r\n"
+    );
+    assert_eq!(deletion["deletedTarget"], head);
+    assert!(delete_annotated["data"]["invocations"]
+        .as_array()
+        .expect("annotated tag deletion invocations should be an array")
+        .iter()
+        .any(|invocation| {
+            invocation["arguments"]
+                == serde_json::json!(["update-ref", "-d", "refs/tags/v2.0", annotated_tag_object])
+        }));
+
+    // Deleting a missing tag fails with the stable not-exist message.
+    let missing = request("deleteTag", serde_json::json!({"name": "v1.0"}));
+    assert_eq!(missing["ok"], true, "{missing:?}");
+    assert_eq!(missing["data"]["operationError"]["code"], "invalid_request");
+    assert_eq!(
+        missing["data"]["operationError"]["message"],
+        "The tag 'v1.0' does not exist"
+    );
+
+    // Restoring reuses createTag with the recorded target and message, so the
+    // rebuilt annotation must match the original message exactly.
+    let restore = request(
+        "createTag",
+        serde_json::json!({
+            "name": deletion["name"],
+            "revision": deletion["deletedTarget"],
+            "message": deletion["message"]
+        }),
+    );
+    assert_eq!(restore["ok"], true, "{restore:?}");
+    let restored_object = run(&["cat-file", "tag", "refs/tags/v2.0"]);
+    assert!(restored_object
+        .stdout
+        .ends_with(b"\n\nrelease\r\n\r\nsecond paragraph\r\n\r\n"));
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
+fn git_write_records_the_deleted_branch_target() {
+    let root = temporary_root("git-branch-delete");
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q", "-b", "main"]).status.success());
+    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    fs::write(root.join("example.txt"), "initial\n").expect("file should be writable");
+    assert!(run(&["add", "example.txt"]).status.success());
+    assert!(run(&["commit", "-qm", "initial"]).status.success());
+    assert!(run(&["branch", "feature/short-lived"]).status.success());
+    assert!(run(&[
+        "config",
+        "branch.feature/short-lived.description",
+        "temporary"
+    ])
+    .status
+    .success());
+    let head = String::from_utf8_lossy(&run(&["rev-parse", "HEAD"]).stdout)
+        .trim()
+        .to_string();
+
+    let request = |operation: &str, payload: Value| -> Value {
+        let request = serde_json::json!({
+            "id": operation,
+            "command": "git.write",
+            "payload": {
+                "root": root,
+                "operation": operation,
+                "paths": [],
+                "reference": null,
+                "referenceKind": null,
+                "revision": null,
+                "name": null,
+                "message": null,
+                "remote": null,
+                "destination": null,
+                "mode": null,
+                "includeUntracked": false,
+                "checkout": false,
+                "amend": false
+            }
+        });
+        let mut request = request;
+        if let Value::Object(overrides) = payload {
+            for (key, value) in overrides {
+                request["payload"][key.as_str()] = value;
+            }
+        }
+        serde_json::from_str(&execute_json(
+            &serde_json::to_string(&request).expect("write request should encode"),
+        ))
+        .expect("write response should be JSON")
+    };
+
+    // A successful branch deletion carries the commit the branch pointed at so
+    // the host can offer a restore, exactly like the tag deletion record.
+    let deletion = request(
+        "deleteBranch",
+        serde_json::json!({"reference": "refs/heads/feature/short-lived"}),
+    );
+    assert_eq!(deletion["ok"], true, "{deletion:?}");
+    assert_eq!(deletion["data"]["exitCode"], 0);
+    assert_eq!(
+        deletion["data"]["branchDeletion"]["name"], "feature/short-lived",
+        "{deletion:?}"
+    );
+    assert_eq!(deletion["data"]["branchDeletion"]["deletedTarget"], head);
+    assert!(deletion["data"]["invocations"]
+        .as_array()
+        .expect("branch deletion invocations should be an array")
+        .iter()
+        .any(|invocation| {
+            invocation["arguments"]
+                == serde_json::json!(["update-ref", "-d", "refs/heads/feature/short-lived", head])
+        }));
+    assert!(deletion["data"].get("tagDeletion").is_none());
+    assert_ne!(
+        run(&["config", "--get", "branch.feature/short-lived.description"])
+            .status
+            .code(),
+        Some(0),
+        "branch-local configuration should be removed with the ref"
+    );
+
+    // Deleting a missing branch fails with the stable not-exist message.
+    let missing = request(
+        "deleteBranch",
+        serde_json::json!({"reference": "refs/heads/feature/short-lived"}),
+    );
+    assert_eq!(missing["ok"], true, "{missing:?}");
+    assert_eq!(missing["data"]["operationError"]["code"], "invalid_request");
+    assert_eq!(
+        missing["data"]["operationError"]["message"],
+        "The branch 'feature/short-lived' does not exist"
+    );
+
+    // Restoring replays createBranch against the recorded commit.
+    let restore = request(
+        "createBranch",
+        serde_json::json!({
+            "gitReference": {
+                "fullName": deletion["data"]["branchDeletion"]["deletedTarget"],
+                "shortName": deletion["data"]["branchDeletion"]["deletedTarget"],
+                "kind": "local"
+            },
+            "name": "feature/short-lived",
+            "checkout": false
+        }),
+    );
+    assert_eq!(restore["ok"], true, "{restore:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&run(&["rev-parse", "refs/heads/feature/short-lived"]).stdout)
+            .trim(),
+        head
+    );
+
+    // A config lock can make metadata cleanup fail after the expected-OID ref
+    // deletion has already succeeded. The response must still carry recovery
+    // data so hosts can offer Restore alongside the cleanup warning.
+    assert!(run(&["branch", "feature/config-locked"]).status.success());
+    assert!(run(&[
+        "config",
+        "branch.feature/config-locked.description",
+        "temporary"
+    ])
+    .status
+    .success());
+    let config_lock = root.join(".git/config.lock");
+    fs::write(&config_lock, "locked\n").expect("config lock should be creatable");
+    let cleanup_warning = request(
+        "deleteBranch",
+        serde_json::json!({"reference": "refs/heads/feature/config-locked"}),
+    );
+    fs::remove_file(config_lock).expect("config lock should be removable");
+    assert_eq!(cleanup_warning["ok"], true, "{cleanup_warning:?}");
+    assert!(cleanup_warning["data"].get("operationError").is_none());
+    assert_eq!(
+        cleanup_warning["data"]["warnings"][0]["code"],
+        "branch_config_cleanup_failed"
+    );
+    assert_eq!(
+        cleanup_warning["data"]["branchDeletion"]["name"], "feature/config-locked",
+        "{cleanup_warning:?}"
+    );
+    assert_eq!(
+        cleanup_warning["data"]["branchDeletion"]["deletedTarget"],
+        head
+    );
+    assert_ne!(
+        run(&[
+            "show-ref",
+            "--verify",
+            "--quiet",
+            "refs/heads/feature/config-locked"
+        ])
+        .status
+        .code(),
+        Some(0)
+    );
+
+    // Atomic deletion must retain the safety contract of `git branch -d` and
+    // refuse a branch whose tip is not merged into its upstream or HEAD.
+    assert!(run(&["switch", "-q", "feature/short-lived"])
+        .status
+        .success());
+    fs::write(root.join("feature.txt"), "unmerged\n").expect("file should be writable");
+    assert!(run(&["add", "feature.txt"]).status.success());
+    assert!(run(&["commit", "-qm", "unmerged branch work"])
+        .status
+        .success());
+    assert!(run(&["switch", "-q", "main"]).status.success());
+    let unmerged = request(
+        "deleteBranch",
+        serde_json::json!({"reference": "refs/heads/feature/short-lived"}),
+    );
+    assert_eq!(unmerged["ok"], true, "{unmerged:?}");
+    assert_eq!(
+        unmerged["data"]["operationError"]["code"],
+        "invalid_request"
+    );
+    assert_eq!(
+        unmerged["data"]["operationError"]["message"],
+        "The branch 'feature/short-lived' is not fully merged"
+    );
+    assert!(run(&[
+        "show-ref",
+        "--verify",
+        "--quiet",
+        "refs/heads/feature/short-lived"
+    ])
+    .status
+    .success());
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
+fn git_write_rolls_back_large_selected_path_set_without_command_line_overflow() {
+    let root = temporary_root("git-write-large-rollback");
+    fs::create_dir_all(root.join("bulk")).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+
+    // This path set exceeds the Windows process command-line limit when every
+    // path is passed as a separate argument.
+    let paths = (0..240)
+        .map(|index| format!("bulk/{index:03}_{}.txt", "selected_path_segment_".repeat(6)))
+        .collect::<Vec<_>>();
+    for path in &paths {
+        fs::write(root.join(path), "initial\n").expect("tracked file should be writable");
+    }
+    assert!(run(&["add", "--all"]).status.success());
+    assert!(run(&["commit", "-qm", "initial"]).status.success());
+    for path in &paths {
+        fs::write(root.join(path), "changed\n").expect("tracked file should be writable");
+    }
+    assert!(run(&["add", "--all"]).status.success());
+
+    let request = serde_json::json!({
+        "id": "large-rollback",
+        "command": "git.write",
+        "payload": {
+            "root": root,
+            "operation": "discardAll",
+            "paths": paths
+        }
+    });
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&request).expect("rollback request should encode"),
+    ))
+    .expect("rollback response should be JSON");
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert!(run(&["status", "--porcelain"]).stdout.is_empty());
+    assert_eq!(
+        fs::read_to_string(root.join(&paths[0])).expect("tracked file should be readable"),
+        "initial\n"
+    );
 
     fs::remove_dir_all(root).expect("temporary repository should be removable");
 }
@@ -1238,6 +2881,110 @@ fn git_diff_and_apply_round_trip_a_patch() {
 }
 
 #[test]
+fn git_diff_resolves_the_empty_tree_for_a_sha256_repository() {
+    let root = temporary_root("git-diff-sha256-empty-tree");
+    fs::create_dir_all(&root).expect("temporary workspace should be creatable");
+    let run = |arguments: &[&str]| history_git(&root, arguments);
+    assert!(run(&["init", "-q", "--object-format=sha256", "-b", "main"])
+        .status
+        .success());
+    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    fs::write(root.join("root.txt"), "root\n").expect("root file should be writable");
+    assert!(run(&["add", "root.txt"]).status.success());
+    assert!(run(&["commit", "-qm", "root"]).status.success());
+    fs::write(root.join("later.txt"), "later\n").expect("later file should be writable");
+    assert!(run(&["add", "later.txt"]).status.success());
+    assert!(run(&["commit", "-qm", "later"]).status.success());
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "sha256-root-range",
+            "command": "git.diff",
+            "payload": {
+                "root": root,
+                "pathspecs": ["."],
+                "reference": "HEAD",
+                "emptyTreeBase": true
+            }
+        })
+        .to_string(),
+    ))
+    .expect("Git diff response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response:?}");
+    let patch = response["data"]["patch"]
+        .as_str()
+        .expect("root range should return a patch");
+    assert!(patch.contains("root.txt"), "{patch}");
+    assert!(patch.contains("later.txt"), "{patch}");
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
+fn git_typed_two_reference_comparison_preserves_both_identities() {
+    let root = temporary_root("git-typed-comparison");
+    fs::create_dir_all(&root).expect("temporary workspace should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    let main = String::from_utf8_lossy(&run(&["branch", "--show-current"]).stdout)
+        .trim()
+        .to_string();
+    fs::write(root.join("example.txt"), "main\n").expect("file should be writable");
+    assert!(run(&["add", "example.txt"]).status.success());
+    assert!(run(&["commit", "-qm", "initial"]).status.success());
+    assert!(run(&["switch", "-qc", "feature"]).status.success());
+    fs::write(root.join("example.txt"), "feature\n").expect("file should be writable");
+    assert!(run(&["commit", "-qam", "feature"]).status.success());
+    assert!(run(&["switch", "-q", &main]).status.success());
+
+    let typed_references = serde_json::json!({
+        "gitReference": {
+            "fullName": format!("refs/heads/{main}"),
+            "shortName": main,
+            "kind": "local"
+        },
+        "targetGitReference": {
+            "fullName": "refs/heads/feature",
+            "shortName": "feature",
+            "kind": "local"
+        }
+    });
+    for (command, id) in [
+        ("git.diff", "typed-diff"),
+        ("git.comparison", "typed-files"),
+    ] {
+        let mut payload = typed_references.clone();
+        payload["root"] = serde_json::json!(root);
+        if command == "git.diff" {
+            payload["pathspecs"] = serde_json::json!(["."]);
+        }
+        let request = serde_json::json!({ "id": id, "command": command, "payload": payload });
+        let response: Value = serde_json::from_str(&execute_json(&request.to_string()))
+            .expect("comparison response should be JSON");
+        assert_eq!(response["ok"], true, "{response:?}");
+        assert!(response["data"].to_string().contains("example.txt"));
+    }
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
 fn git_history_returns_references_and_commit_graph_fields() {
     let root = temporary_root("git-history");
     fs::create_dir_all(&root).expect("temporary workspace should be creatable");
@@ -1257,6 +3004,16 @@ fn git_history_returns_references_and_commit_graph_fields() {
     fs::write(root.join("example.txt"), "hello\n").expect("file should be writable");
     assert!(run(&["add", "example.txt"]).status.success());
     assert!(run(&["commit", "-qm", "initial"]).status.success());
+
+    assert!(run(&["tag", "commit-tag", "HEAD"]).status.success());
+    let tree = String::from_utf8_lossy(&run(&["rev-parse", "HEAD^{tree}"]).stdout)
+        .trim()
+        .to_string();
+    assert!(run(&["tag", "tree-tag", &tree]).status.success());
+    let blob = String::from_utf8_lossy(&run(&["hash-object", "example.txt"]).stdout)
+        .trim()
+        .to_string();
+    assert!(run(&["tag", "blob-tag", &blob]).status.success());
 
     let commit_hash = String::from_utf8_lossy(&run(&["rev-parse", "HEAD"]).stdout)
         .trim()
@@ -1356,8 +3113,111 @@ fn git_history_returns_references_and_commit_graph_fields() {
         .expect("references should be an array")
         .iter()
         .any(|reference| reference["kind"] == "local"));
+    for (name, expected) in [
+        ("commit-tag", true),
+        ("tree-tag", false),
+        ("blob-tag", false),
+    ] {
+        let reference = response["data"]["references"]
+            .as_array()
+            .expect("references should be an array")
+            .iter()
+            .find(|reference| reference["shortName"] == name)
+            .expect("tag reference should be present");
+        assert_eq!(reference["peelsToCommit"], expected, "tag {name}");
+    }
 
     fs::remove_dir_all(root).expect("temporary workspace should be removable");
+}
+
+#[test]
+fn git_history_reports_tracking_counts_for_a_noncurrent_local_branch() {
+    struct RemoveOnDrop(std::path::PathBuf);
+
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    let root = temporary_root("git-history-tracking-counts");
+    let _cleanup = RemoveOnDrop(root.clone());
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q", "-b", "main"]).status.success());
+    assert!(run(&[
+        "remote",
+        "add",
+        "origin",
+        "https://example.invalid/repository.git",
+    ])
+    .status
+    .success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    fs::write(root.join("story.txt"), "base\n").expect("test file should be writable");
+    assert!(run(&["add", "story.txt"]).status.success());
+    assert!(run(&["commit", "-qm", "base"]).status.success());
+    assert!(run(&["branch", "feature"]).status.success());
+
+    assert!(run(&["checkout", "-q", "feature"]).status.success());
+    fs::write(root.join("story.txt"), "local\n").expect("test file should be writable");
+    assert!(run(&["commit", "-qam", "local feature"]).status.success());
+
+    assert!(run(&["checkout", "-q", "main"]).status.success());
+    assert!(run(&["checkout", "-qb", "remote-feature"]).status.success());
+    fs::write(root.join("story.txt"), "remote\n").expect("test file should be writable");
+    assert!(run(&["commit", "-qam", "remote feature"]).status.success());
+    let remote_commit = git_text(&root, &["rev-parse", "HEAD"]);
+    assert!(run(&["checkout", "-q", "main"]).status.success());
+    assert!(
+        run(&["update-ref", "refs/remotes/origin/feature", &remote_commit,])
+            .status
+            .success()
+    );
+    assert!(run(&["branch", "-D", "remote-feature"]).status.success());
+    assert!(
+        run(&["update-ref", "refs/remotes/origin/main", "refs/heads/main"])
+            .status
+            .success()
+    );
+    assert!(run(&["branch", "--set-upstream-to=origin/main", "main"])
+        .status
+        .success());
+    assert!(
+        run(&["branch", "--set-upstream-to=origin/feature", "feature",])
+            .status
+            .success()
+    );
+
+    let request = serde_json::json!({
+        "id": "history-tracking-counts",
+        "command": "git.history",
+        "payload": {"root": root, "limit": 10}
+    });
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&request).expect("history request should encode"),
+    ))
+    .expect("history response should be JSON");
+    assert_eq!(response["ok"], true, "{response:?}");
+    let feature = response["data"]["references"]
+        .as_array()
+        .expect("references should be an array")
+        .iter()
+        .find(|reference| reference["shortName"] == "feature")
+        .expect("feature reference should be returned");
+    assert_eq!(feature["isCurrent"], false);
+    assert_eq!(feature["upstreamShortName"], "origin/feature");
+    assert_eq!(feature["ahead"], 1);
+    assert_eq!(feature["behind"], 1);
 }
 
 #[test]
@@ -1438,6 +3298,129 @@ fn git_history_returns_bounded_recent_checkout_order_and_stable_fallback() {
         recent_names(&switched),
         ["gamma", "zeta", "epsilon", "delta", "alpha"]
     );
+}
+
+#[test]
+fn git_history_page_returns_disjoint_incremental_pages() {
+    struct RemoveOnDrop(std::path::PathBuf);
+
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    let root = temporary_root("git-history-pages");
+    let _cleanup = RemoveOnDrop(root.clone());
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    for index in 0..4 {
+        fs::write(root.join("example.txt"), format!("{index}\n"))
+            .expect("test file should be writable");
+        assert!(run(&["add", "example.txt"]).status.success());
+        assert!(run(&["commit", "-qm", &format!("commit-{index}")])
+            .status
+            .success());
+    }
+
+    let execute_page = |id: &str, cursor: Option<&str>| {
+        let request = serde_json::json!({
+            "id": id,
+            "command": "git.historyPage",
+            "payload": {
+                "root": root,
+                "reference": "HEAD",
+                "cursor": cursor,
+                "limit": 2
+            }
+        });
+        serde_json::from_str::<Value>(&execute_json(
+            &serde_json::to_string(&request).expect("history page request should encode"),
+        ))
+        .expect("history page response should be JSON")
+    };
+
+    let first = execute_page("history-page-1", None);
+    let cursor = first["data"]["nextCursor"]
+        .as_str()
+        .expect("first page should return a cursor")
+        .to_string();
+    let second = execute_page("history-page-2", Some(&cursor));
+    let subjects = |response: &Value| {
+        response["data"]["commits"]
+            .as_array()
+            .expect("commits should be an array")
+            .iter()
+            .map(|commit| {
+                commit["subject"]
+                    .as_str()
+                    .expect("commit subject should be text")
+                    .to_string()
+            })
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(subjects(&first), ["commit-3", "commit-2"]);
+    assert_eq!(first["data"]["nextCursor"], cursor);
+    assert_eq!(first["data"]["hasMore"], true);
+    assert_eq!(subjects(&second), ["commit-1", "commit-0"]);
+    assert_eq!(second["data"]["nextCursor"], Value::Null);
+    assert_eq!(second["data"]["hasMore"], false);
+
+    let abandoned = execute_page("history-page-abandoned", None);
+    let abandoned_cursor = abandoned["data"]["nextCursor"]
+        .as_str()
+        .expect("unfinished page should return a cursor");
+    let close_request = serde_json::json!({
+        "id": "history-cursor-close",
+        "command": "git.historyCursorClose",
+        "payload": {"root": root, "cursor": abandoned_cursor}
+    });
+    let close: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&close_request).expect("cursor close request should encode"),
+    ))
+    .expect("cursor close response should be JSON");
+    assert_eq!(close["data"]["closed"], true);
+
+    let legacy_request = serde_json::json!({
+        "id": "history-page-legacy",
+        "command": "git.historyPage",
+        "payload": {"root": root, "reference": "HEAD", "offset": 0, "limit": 2}
+    });
+    let legacy: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&legacy_request).expect("legacy page request should encode"),
+    ))
+    .expect("legacy page response should be JSON");
+    assert_eq!(legacy["data"]["nextOffset"], 2);
+    assert_eq!(legacy["data"].get("nextCursor"), None);
+
+    let references_request = serde_json::json!({
+        "id": "references",
+        "command": "git.references",
+        "payload": {"root": root}
+    });
+    let references: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&references_request).expect("references request should encode"),
+    ))
+    .expect("references response should be JSON");
+    assert_eq!(references["data"]["userName"], "Lithe Test");
+    assert_eq!(references["data"]["userEmail"], "test@example.com");
+    assert!(references["data"]["references"]
+        .as_array()
+        .expect("references should be an array")
+        .iter()
+        .any(|reference| reference["kind"] == "local"));
 }
 
 #[test]
@@ -1923,4 +3906,408 @@ fn explicit_pull_resolves_nested_remote_and_branch_names_against_bare_remote() {
         "nested\n"
     );
     fs::remove_dir_all(root).expect("fixture should be removable");
+}
+
+#[test]
+fn git_typed_remote_checkout_rebase_blocks_dirty_tree_before_switching() {
+    let root = temporary_root("git-checkout-rebase-remote");
+    let upstream = root.join("upstream");
+    let work = root.join("work");
+    fs::create_dir_all(&upstream).expect("temporary workspace should be creatable");
+    let git = |directory: &Path, arguments: &[&str]| history_git(directory, arguments);
+    let identify = |directory: &Path| {
+        assert!(git(directory, &["config", "core.autocrlf", "false"])
+            .status
+            .success());
+        assert!(
+            git(directory, &["config", "user.email", "test@example.com"])
+                .status
+                .success()
+        );
+        assert!(git(directory, &["config", "user.name", "Lithe Test"])
+            .status
+            .success());
+    };
+    assert!(git(&upstream, &["init", "-q", "-b", "main"])
+        .status
+        .success());
+    identify(&upstream);
+    fs::write(upstream.join("base.txt"), "base\n").expect("base file should be writable");
+    assert!(git(&upstream, &["add", "."]).status.success());
+    assert!(git(&upstream, &["commit", "-qm", "base"]).status.success());
+    assert!(git(&upstream, &["switch", "-qc", "feature"])
+        .status
+        .success());
+    fs::write(upstream.join("feature.txt"), "feature\n").expect("feature file should be writable");
+    assert!(git(&upstream, &["add", "."]).status.success());
+    assert!(git(&upstream, &["commit", "-qm", "feature"])
+        .status
+        .success());
+    assert!(git(&upstream, &["switch", "-q", "main"]).status.success());
+    fs::write(upstream.join("main.txt"), "main\n").expect("main file should be writable");
+    assert!(git(&upstream, &["add", "."]).status.success());
+    assert!(git(&upstream, &["commit", "-qm", "main"]).status.success());
+    assert!(git(
+        &root,
+        &[
+            "clone",
+            "-q",
+            "-c",
+            "core.autocrlf=false",
+            "-b",
+            "main",
+            upstream.to_str().expect("path should be UTF-8"),
+            "work"
+        ]
+    )
+    .status
+    .success());
+    identify(&work);
+
+    let write = |operation: &str, extra: Value| -> Value {
+        let mut payload = serde_json::json!({
+            "root": work,
+            "operation": operation,
+            "gitReference": {
+                "fullName": "refs/remotes/origin/feature",
+                "shortName": "origin/feature",
+                "kind": "remote"
+            }
+        });
+        if let Value::Object(fields) = extra {
+            for (key, value) in fields {
+                payload[key] = value;
+            }
+        }
+        serde_json::from_str(&execute_json(
+            &serde_json::to_string(&serde_json::json!({
+                "id": operation,
+                "command": "git.write",
+                "payload": payload
+            }))
+            .expect("request should encode"),
+        ))
+        .expect("response should decode")
+    };
+
+    fs::write(work.join("untracked.txt"), "dirty\n").expect("dirty file should be writable");
+    let blocked = write("checkoutAndRebase", serde_json::json!({}));
+    assert_eq!(blocked["ok"], true, "{blocked}");
+    assert_eq!(blocked["data"]["operationError"]["code"], "invalid_request");
+    assert_eq!(git_text(&work, &["branch", "--show-current"]), "main");
+
+    fs::remove_file(work.join("untracked.txt")).expect("dirty file should be removable");
+    let completed = write("checkoutAndRebase", serde_json::json!({}));
+    assert_eq!(completed["ok"], true, "{completed}");
+    assert_eq!(completed["data"]["exitCode"], 0, "{completed}");
+    assert_eq!(git_text(&work, &["branch", "--show-current"]), "feature");
+    assert!(
+        git(&work, &["merge-base", "--is-ancestor", "main", "feature"])
+            .status
+            .success()
+    );
+
+    fs::remove_dir_all(root).expect("Git fixture should be removable");
+}
+
+#[test]
+fn git_remote_checkout_rejects_a_same_named_local_branch_with_another_upstream() {
+    let root = temporary_root("git-checkout-remote-upstream-identity");
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| history_git(&root, arguments);
+    assert!(run(&["init", "-q", "-b", "main"]).status.success());
+    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    fs::write(root.join("base.txt"), "base\n").expect("file should be writable");
+    assert!(run(&["add", "base.txt"]).status.success());
+    assert!(run(&["commit", "-qm", "base"]).status.success());
+    assert!(run(&[
+        "remote",
+        "add",
+        "origin",
+        "https://example.invalid/origin.git"
+    ])
+    .status
+    .success());
+    assert!(run(&[
+        "remote",
+        "add",
+        "upstream",
+        "https://example.invalid/upstream.git"
+    ])
+    .status
+    .success());
+    assert!(run(&["update-ref", "refs/remotes/origin/feature", "HEAD"])
+        .status
+        .success());
+    assert!(
+        run(&["update-ref", "refs/remotes/upstream/feature", "HEAD"])
+            .status
+            .success()
+    );
+    assert!(run(&["branch", "feature", "refs/remotes/origin/feature"])
+        .status
+        .success());
+    assert!(
+        run(&["branch", "--set-upstream-to=origin/feature", "feature"])
+            .status
+            .success()
+    );
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&serde_json::json!({
+            "id": "checkout-upstream-feature",
+            "command": "git.write",
+            "payload": {
+                "root": root,
+                "operation": "checkout",
+                "gitReference": {
+                    "fullName": "refs/remotes/upstream/feature",
+                    "shortName": "upstream/feature",
+                    "kind": "remote"
+                }
+            }
+        }))
+        .expect("remote checkout request should encode"),
+    ))
+    .expect("remote checkout response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(
+        response["data"]["operationError"]["message"],
+        "A same-named local branch tracks a different Git reference"
+    );
+    assert_eq!(git_text(&root, &["branch", "--show-current"]), "main");
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
+fn git_explicit_remote_pull_validates_identity_and_strategy() {
+    let root = temporary_root("git-pull-remote-reference");
+    let upstream = root.join("upstream");
+    let work = root.join("work");
+    fs::create_dir_all(&upstream).expect("temporary workspace should be creatable");
+    assert!(history_git(&upstream, &["init", "-q", "-b", "main"])
+        .status
+        .success());
+    assert!(
+        history_git(&upstream, &["config", "user.email", "test@example.com"])
+            .status
+            .success()
+    );
+    assert!(
+        history_git(&upstream, &["config", "user.name", "Lithe Test"])
+            .status
+            .success()
+    );
+    fs::write(upstream.join("base.txt"), "base\n").expect("base file should be writable");
+    assert!(history_git(&upstream, &["add", "."]).status.success());
+    assert!(history_git(&upstream, &["commit", "-qm", "base"])
+        .status
+        .success());
+    assert!(history_git(&upstream, &["switch", "-qc", "feature"])
+        .status
+        .success());
+    fs::write(upstream.join("feature.txt"), "feature\n").expect("feature file should be writable");
+    assert!(history_git(&upstream, &["add", "."]).status.success());
+    assert!(history_git(&upstream, &["commit", "-qm", "feature"])
+        .status
+        .success());
+    assert!(history_git(&upstream, &["switch", "-q", "main"])
+        .status
+        .success());
+    fs::write(upstream.join("main.txt"), "main\n").expect("main file should be writable");
+    assert!(history_git(&upstream, &["add", "."]).status.success());
+    assert!(history_git(&upstream, &["commit", "-qm", "main"])
+        .status
+        .success());
+    assert!(history_git(
+        &root,
+        &[
+            "clone",
+            "-q",
+            "-c",
+            "core.autocrlf=false",
+            "-b",
+            "main",
+            upstream.to_str().expect("path should be UTF-8"),
+            "work"
+        ]
+    )
+    .status
+    .success());
+    assert!(
+        history_git(&work, &["config", "user.email", "test@example.com"])
+            .status
+            .success()
+    );
+    assert!(history_git(&work, &["config", "user.name", "Lithe Test"])
+        .status
+        .success());
+
+    let pull = |reference: Value, mode: &str| -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::to_string(&serde_json::json!({
+                "id": "pull-remote",
+                "command": "git.write",
+                "payload": {
+                    "root": work,
+                    "operation": "pull",
+                    "gitReference": reference,
+                    "mode": mode
+                }
+            }))
+            .expect("request should encode"),
+        ))
+        .expect("response should decode")
+    };
+    let remote_reference = serde_json::json!({
+        "fullName": "refs/remotes/origin/feature",
+        "shortName": "origin/feature",
+        "kind": "remote"
+    });
+    let merged = pull(remote_reference.clone(), "merge");
+    assert_eq!(merged["ok"], true, "{merged}");
+    assert_eq!(merged["data"]["exitCode"], 0, "{merged}");
+    assert_eq!(
+        git_text(&work, &["rev-list", "--parents", "-n", "1", "HEAD"])
+            .split_whitespace()
+            .count(),
+        3
+    );
+
+    let mismatched = pull(
+        serde_json::json!({
+            "fullName": "refs/remotes/origin/feature",
+            "shortName": "feature",
+            "kind": "local"
+        }),
+        "rebase",
+    );
+    assert_eq!(mismatched["ok"], false, "{mismatched}");
+    assert_eq!(mismatched["error"]["code"], "invalid_request");
+
+    fs::remove_dir_all(root).expect("Git fixture should be removable");
+}
+
+fn git_write_repository(label: &str) -> std::path::PathBuf {
+    let root = temporary_root(label);
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    assert!(history_git(&root, &["init", "-q"]).status.success());
+    assert!(history_git(&root, &["config", "core.autocrlf", "false"])
+        .status
+        .success());
+    assert!(
+        history_git(&root, &["config", "user.email", "test@example.com"])
+            .status
+            .success()
+    );
+    assert!(history_git(&root, &["config", "user.name", "Lithe Test"])
+        .status
+        .success());
+    assert!(history_git(&root, &["remote", "add", "origin", "."])
+        .status
+        .success());
+    root
+}
+
+fn git_write_request(root: &Path, operation: &str, overrides: Value) -> Value {
+    let mut request = serde_json::json!({
+        "id": operation,
+        "command": "git.write",
+        "payload": {
+            "root": root,
+            "operation": operation,
+            "paths": [],
+            "reference": null,
+            "referenceKind": null,
+            "revision": null,
+            "name": null,
+            "message": null,
+            "remote": null,
+            "destination": null,
+            "mode": null,
+            "includeUntracked": false,
+            "checkout": false,
+            "amend": false
+        }
+    });
+    if let Value::Object(overrides) = overrides {
+        for (key, value) in overrides {
+            request["payload"][key.as_str()] = value;
+        }
+    }
+    serde_json::from_str(&execute_json(
+        &serde_json::to_string(&request).expect("write request should encode"),
+    ))
+    .expect("write response should be JSON")
+}
+
+fn history_rewrite_repository(label: &str) -> std::path::PathBuf {
+    let root = temporary_root(label);
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    assert!(history_git(&root, &["init", "-q", "-b", "main"])
+        .status
+        .success());
+    assert!(history_git(&root, &["config", "core.autocrlf", "false"])
+        .status
+        .success());
+    assert!(
+        history_git(&root, &["config", "user.email", "test@example.com"])
+            .status
+            .success()
+    );
+    assert!(history_git(&root, &["config", "user.name", "Lithe Test"])
+        .status
+        .success());
+    root
+}
+
+fn commit_history_file(root: &Path, path: &str, contents: &str, message: &str) {
+    fs::write(root.join(path), contents).expect("history fixture file should be writable");
+    assert!(history_git(root, &["add", "--", path]).status.success());
+    assert!(history_git(root, &["commit", "-qm", message])
+        .status
+        .success());
+}
+
+fn history_write(root: &Path, overrides: Value) -> Value {
+    let mut payload = serde_json::json!({"root": root});
+    if let Value::Object(overrides) = overrides {
+        for (key, value) in overrides {
+            payload[key.as_str()] = value;
+        }
+    }
+    serde_json::from_str(&execute_json(
+        &serde_json::to_string(&serde_json::json!({
+            "id": "history-write",
+            "command": "git.write",
+            "payload": payload
+        }))
+        .expect("history rewrite request should encode"),
+    ))
+    .expect("history rewrite response should be JSON")
+}
+
+fn history_git(root: &Path, arguments: &[&str]) -> std::process::Output {
+    Command::new("git")
+        .args(arguments)
+        .current_dir(root)
+        .output()
+        .expect("git should be available")
+}
+
+fn git_text(root: &Path, arguments: &[&str]) -> String {
+    let output = history_git(root, arguments);
+    assert!(
+        output.status.success(),
+        "git {:?} failed: {}",
+        arguments,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
 }

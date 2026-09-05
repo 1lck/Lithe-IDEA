@@ -130,10 +130,42 @@ const renderHighlightedContent = (
     return renderSegment(0, content.length, "plain");
   }
 
+  // Prefer narrower captures first so nested markup tokens (common in XML)
+  // win over wide parent ranges. Concatenating overlapping slices would
+  // otherwise duplicate characters in the rendered diff line.
+  const resolvedTokens = [...tokens]
+    .map((token) => {
+      const start = Math.max(0, token.startPosition.column);
+      const end = Math.min(content.length, token.endPosition.column);
+      if (end <= start) return null;
+      return {
+        ...token,
+        startPosition: { row: 0, column: start },
+        endPosition: { row: 0, column: end },
+      } satisfies HighlightToken;
+    })
+    .filter((token): token is HighlightToken => token !== null)
+    .sort((left, right) => {
+      const leftSize = left.endPosition.column - left.startPosition.column;
+      const rightSize = right.endPosition.column - right.startPosition.column;
+      if (leftSize !== rightSize) return leftSize - rightSize;
+      return left.startPosition.column - right.startPosition.column;
+    })
+    .reduce<HighlightToken[]>((accepted, token) => {
+      const overlaps = accepted.some(
+        (other) =>
+          token.startPosition.column < other.endPosition.column &&
+          token.endPosition.column > other.startPosition.column,
+      );
+      if (!overlaps) accepted.push(token);
+      return accepted;
+    }, [])
+    .sort((left, right) => left.startPosition.column - right.startPosition.column);
+
   const result: React.ReactNode[] = [];
   let lastEnd = 0;
 
-  for (const [tokenIndex, token] of tokens.entries()) {
+  for (const [tokenIndex, token] of resolvedTokens.entries()) {
     const start = token.startPosition.column;
     const end = token.endPosition.column;
 
@@ -142,7 +174,6 @@ const renderHighlightedContent = (
     }
 
     result.push(renderSegment(start, end, `token-${start}-${end}-${tokenIndex}`, token.type));
-
     lastEnd = end;
   }
 
@@ -181,8 +212,8 @@ export function getSplitLineMeta(line: DiffLineProps["line"], splitSide: "left" 
   };
 }
 
-function getUnifiedLineGutterLabel(line: DiffLineProps["line"]) {
-  if (line.line_type === "removed") return "-";
+export function getUnifiedLineGutterLabel(line: DiffLineProps["line"]) {
+  if (line.line_type === "removed") return line.old_line_number ?? "";
   return line.new_line_number ?? line.old_line_number ?? "";
 }
 

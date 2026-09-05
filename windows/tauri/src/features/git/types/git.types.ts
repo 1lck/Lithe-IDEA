@@ -1,7 +1,12 @@
 export interface GitFile {
   path: string;
+  originalPath?: string;
   status: "modified" | "added" | "deleted" | "untracked" | "renamed";
   staged: boolean;
+  /** Raw porcelain XY status retained for whole-path commit review semantics. */
+  rawStatus?: string;
+  /** Whether the worktree differs from the index for this path. */
+  worktree?: boolean;
 }
 
 export interface GitStatus {
@@ -29,14 +34,56 @@ export interface GitReference {
   fullName: string;
   shortName: string;
   kind: GitReferenceKind;
+  peelsToCommit: boolean;
   isCurrent: boolean;
   upstreamShortName?: string;
+  ahead?: number;
+  behind?: number;
 }
 
 export interface GitHistorySnapshot {
   references: GitReference[];
   recentReferences: GitReference[];
   commits: GitCommit[];
+  hasMore: boolean;
+}
+
+export type GitPushTagScope = "none" | "all" | "reachable";
+
+export interface GitPushExpectation {
+  localBranch: string;
+  localHead: string;
+  remote: string;
+  remoteBranch: string;
+  remoteTrackingOid: string | null;
+  tags: GitPushTagSnapshot[];
+}
+
+export interface GitPushTagSnapshot {
+  fullName: string;
+  objectId: string;
+}
+
+export interface GitOperationWarning {
+  code: string;
+  message: string;
+  details?: string;
+}
+
+export interface GitPushPreview extends GitPushExpectation {
+  upstream: string | null;
+  commits: GitCommit[];
+  hasMore: boolean;
+}
+
+export interface GitReferenceSnapshot {
+  references: GitReference[];
+  recentReferences: GitReference[];
+}
+
+export interface GitHistoryPage {
+  commits: GitCommit[];
+  nextCursor?: string;
   hasMore: boolean;
 }
 
@@ -110,20 +157,19 @@ export interface GitPullPreflight {
 export type PullStrategy = "ffOnly" | "merge" | "rebase";
 
 export type GitPullResult =
-  | { status: "pulled"; strategy: PullStrategy; message: string }
-  | { status: "cancelled"; message: string }
+  | { status: "pulled"; strategy: PullStrategy }
+  | { status: "cancelled" }
   | {
       status: "blocked";
       reason: "no-upstream" | "up-to-date" | "dirty" | "state-changed";
-      message: string;
     }
   | {
       status: "failed";
       stage: "fetch" | "preflight" | "pull";
-      message: string;
+      error?: string;
     }
-  | { status: "conflict"; operation: GitOperationState; message: string }
-  | { status: "duplicate"; message: string };
+  | { status: "conflict"; operation: GitOperationState }
+  | { status: "duplicate" };
 
 export interface GitStash {
   index: number;

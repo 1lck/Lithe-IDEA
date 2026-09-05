@@ -25,7 +25,7 @@ verification scripts are the executable source of boundary checks.
 | Workspace | visible snapshot, relative paths, file metadata, deterministic ordering | workspace root selection, native dialogs, and watchers |
 | Documents | relative-path validation, UTF-8 read/write results, dirty/save state | native file integration and external-change notifications |
 | Search | query matching, deterministic result ordering, symbols, and replacement preview | workspace lifecycle and optional index persistence |
-| Git | changes, commits, branches, diffs, history, worktree-aware PR publication context, validation, and mutation results | Git executable discovery, credentials, process environment |
+| Git | changes, commits, branches, diffs, history, worktree listing and safe management, worktree-aware PR publication context, validation, and mutation results | Git executable discovery, credentials, process environment, opening checkout paths |
 | GitHub | remote parsing, trusted request plans, normalized branch comparisons and pull requests/reviews/comments, deterministic ordering, and stable errors | OAuth configuration, HTTPS, browser opening, and operating-system credential storage |
 | Runtime | Java/Maven requirements, normalized candidates, and effective toolchain references | JDK/Maven probing and executable paths |
 | Language tooling | provider catalog, local fallback results, complete LSP process/session runtime, capabilities, diagnostics, UTF-16 edits, and normalized feature results | executable/environment discovery and UI provider routing |
@@ -288,6 +288,13 @@ without leaking an unusable absolute path or macOS security-scoped bookmark.
 Search and Git examples are kept in `shared/fixtures/`. New behavior should
 add a fixture before adding a second platform implementation.
 
+Git history clients load reference metadata independently from bounded commit
+pages. The first page may load concurrently with references, but later pages
+append through Core's opaque `nextCursor` while continuing the same bounded Git
+log stream. Changing repositories or references and closing the history view
+cancels the owning `operationID` and closes any retained cursor; a late result
+cannot replace the active selection and its returned cursor is also closed.
+
 Run configuration behavior is exposed through the `runConfig.*` commands.
 Platform clients coordinate inspection, generation, resolution, typed document
 edits, and launch planning, but must not implement a second JSON merger,
@@ -330,5 +337,5 @@ context. A Run Configuration's explicit Profiles and toolchain paths take
 precedence; explicit `cwd` and `extensions.maven.skipTests` values also take
 precedence, including `skipTests: false`. Unset values inherit the project
 settings. The shared Core applies the final Maven argument order for all three
-entry points. Tool-window module launches add `-am`; Run and Debug retain their
-existing `-pl <module>` behavior without implicitly building dependencies.
+entry points. Tool-window, Run, and Debug module launches add `-am` so reactor
+dependencies are built before the selected module.

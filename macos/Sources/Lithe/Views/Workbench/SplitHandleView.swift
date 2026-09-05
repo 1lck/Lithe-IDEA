@@ -21,9 +21,7 @@ struct SplitHandleView: View {
 
     @State private var isHovering = false
     @State private var isDragging = false
-    @State private var lastTranslation: CGFloat = 0
-    @State private var dragUpdateBuffer = FrameCoalescedDragUpdateBuffer()
-    @State private var dragUpdateTask: Task<Void, Never>?
+    @State private var dragScheduler = LitheDragUpdateScheduler()
     @State private var cursor = SplitHandleCursor()
 
     init(
@@ -62,26 +60,24 @@ struct SplitHandleView: View {
                 .onChanged { value in
                     if !isDragging {
                         isDragging = true
-                        lastTranslation = 0
                         cursor.update(isResizing: true, cursor: resizeCursor)
                         onDragStarted()
                     }
                     let currentTranslation = axis == .horizontal ? value.translation.width : value.translation.height
-                    // Pointer devices can deliver substantially more events than the
-                    // display can present. Keep only the newest translation for the
-                    // next frame instead of forcing every intermediate layout.
-                    if abs(currentTranslation - lastTranslation) >= 1 {
-                        lastTranslation = currentTranslation
-                        scheduleDragUpdate(currentTranslation)
+                    // Pointer devices can deliver substantially more events than
+                    // the display can present. The scheduler keeps only the
+                    // newest translation for the next run-loop turn and applies
+                    // the sub-point deadband, so no per-event @State is written.
+                    dragScheduler.submit(currentTranslation) { translation in
+                        onDragChanged(translation)
                     }
                 }
                 .onEnded { value in
                     let finalTranslation = axis == .horizontal
                         ? value.translation.width
                         : value.translation.height
-                    cancelScheduledDragUpdate()
+                    dragScheduler.cancel()
                     isDragging = false
-                    lastTranslation = 0
                     cursor.update(isResizing: isHovering, cursor: resizeCursor)
                     onDragEnded(finalTranslation)
                 }
@@ -92,7 +88,7 @@ struct SplitHandleView: View {
             cursor.update(isResizing: isInside || isDragging, cursor: resizeCursor)
         }
         .onDisappear {
-            cancelScheduledDragUpdate()
+            dragScheduler.cancel()
             cursor.update(isResizing: false, cursor: resizeCursor)
         }
         .help(axis == .horizontal ? "Drag left or right to resize" : "Drag up or down to resize")
@@ -140,25 +136,6 @@ struct SplitHandleView: View {
 
     private var resizeCursor: NSCursor {
         axis == .horizontal ? .resizeLeftRight : .resizeUpDown
-    }
-
-    private func scheduleDragUpdate(_ translation: CGFloat) {
-        guard dragUpdateBuffer.submit(translation) else { return }
-        dragUpdateTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(16))
-            guard !Task.isCancelled else { return }
-            let translation = dragUpdateBuffer.takePendingValue()
-            dragUpdateTask = nil
-            if let translation {
-                onDragChanged(translation)
-            }
-        }
-    }
-
-    private func cancelScheduledDragUpdate() {
-        dragUpdateTask?.cancel()
-        dragUpdateTask = nil
-        dragUpdateBuffer.cancel()
     }
 }
 

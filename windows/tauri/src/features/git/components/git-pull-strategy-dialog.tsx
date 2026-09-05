@@ -1,6 +1,10 @@
 import { Button } from "@/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/ui/dialog";
 import { useTranslation } from "@/i18n/locale-provider";
+import { useProjectStore } from "@/features/window/stores/project.store";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { getGitPullWorkflow } from "../api/git-remotes-api";
+import { useRepositoryStore } from "../stores/git-repository.store";
 import type { GitPullPreflight, PullStrategy } from "../types/git.types";
 
 interface GitPullStrategyDialogProps {
@@ -44,9 +48,7 @@ const GitPullStrategyDialog = ({ preflight, onSelect }: GitPullStrategyDialogPro
               <div className="text-base font-semibold">{preflight.behind}</div>
             </div>
           </div>
-          <p className="text-xs text-subtle-foreground">
-            {t("git.pullStrategyHint")}
-          </p>
+          <p className="text-xs text-subtle-foreground">{t("git.pullStrategyHint")}</p>
         </div>
         <DialogFooter>
           <Button autoFocus variant="ghost" size="xs" onClick={() => onSelect(null)}>
@@ -64,4 +66,29 @@ const GitPullStrategyDialog = ({ preflight, onSelect }: GitPullStrategyDialogPro
   );
 };
 
-export default GitPullStrategyDialog;
+/** Owns the single strategy prompt for Pull requests started from any Git surface. */
+export function GitPullStrategyDialogHost() {
+  const activeRepoPath = useRepositoryStore.use.activeRepoPath();
+  const rootFolderPath = useProjectStore((state) => state.rootFolderPath);
+  const repoPath = activeRepoPath ?? rootFolderPath ?? "";
+  const workflow = useMemo(() => getGitPullWorkflow(repoPath), [repoPath]);
+  const snapshot = useSyncExternalStore(
+    workflow.subscribe,
+    workflow.getSnapshot,
+    workflow.getSnapshot,
+  );
+
+  useEffect(
+    () => () => {
+      workflow.chooseStrategy(null);
+    },
+    [workflow],
+  );
+
+  return (
+    <GitPullStrategyDialog
+      preflight={snapshot.pendingPreflight}
+      onSelect={(strategy) => workflow.chooseStrategy(strategy)}
+    />
+  );
+}

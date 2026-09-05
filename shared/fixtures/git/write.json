@@ -23,6 +23,29 @@
       }
     },
     {
+      "operation": "setUpstream",
+      "payload": {
+        "name": "feature/core",
+        "gitReference": {
+          "fullName": "refs/remotes/origin/feature/core",
+          "shortName": "origin/feature/core",
+          "kind": "remote"
+        }
+      }
+    },
+    {
+      "operation": "createWorktree",
+      "payload": {
+        "destination": "../feature-core-worktree",
+        "name": "feature/core-worktree",
+        "gitReference": {
+          "fullName": "refs/remotes/origin/feature/core",
+          "shortName": "origin/feature/core",
+          "kind": "remote"
+        }
+      }
+    },
+    {
       "operation": "checkout",
       "payload": {
         "reference": "refs/heads/main",
@@ -30,10 +53,30 @@
       }
     },
     {
+      "operation": "checkout",
+      "payload": {
+        "gitReference": {
+          "fullName": "refs/remotes/origin/feature/core",
+          "shortName": "origin/feature/core",
+          "kind": "remote"
+        }
+      }
+    },
+    {
       "operation": "checkoutAndRebase",
       "payload": {
         "reference": "refs/remotes/origin/feature/core",
         "referenceKind": "remote"
+      }
+    },
+    {
+      "operation": "checkoutAndRebase",
+      "payload": {
+        "gitReference": {
+          "fullName": "refs/remotes/origin/feature/core",
+          "shortName": "origin/feature/core",
+          "kind": "remote"
+        }
       }
     },
     {
@@ -45,10 +88,95 @@
       }
     },
     {
+      "operation": "push",
+      "payload": {
+        "gitReference": {
+          "fullName": "refs/heads/feature/core",
+          "shortName": "feature/core",
+          "kind": "local"
+        },
+        "expectedPush": {
+          "localBranch": "feature/core",
+          "localHead": "2222222222222222222222222222222222222222",
+          "remote": "origin",
+          "remoteBranch": "feature/core",
+          "remoteTrackingOid": "1111111111111111111111111111111111111111"
+        },
+        "force": true,
+        "pushTags": "reachable"
+      }
+    },
+    {
+      "operation": "pull",
+      "payload": {
+        "gitReference": {
+          "fullName": "refs/remotes/origin/feature/core",
+          "shortName": "origin/feature/core",
+          "kind": "remote"
+        },
+        "mode": "rebase"
+      }
+    },
+    {
+      "operation": "deleteRemoteBranch",
+      "payload": {
+        "gitReference": {
+          "fullName": "refs/remotes/team/origin/feature/core",
+          "shortName": "team/origin/feature/core",
+          "kind": "remote"
+        }
+      }
+    },
+    {
       "operation": "stashPush",
       "payload": {
         "message": "Save work",
         "includeUntracked": true
+      }
+    },
+    {
+      "operation": "createTag",
+      "payload": {
+        "name": "v1.0.0",
+        "revision": "2f1c9a4"
+      }
+    },
+    {
+      "operation": "createTag",
+      "payload": {
+        "name": "v2.0.0",
+        "revision": "8e4b2d7",
+        "message": "Release 2.0.0"
+      }
+    },
+    {
+      "operation": "deleteTag",
+      "payload": {
+        "name": "v2.0.0"
+      }
+    },
+    {
+      "operation": "deleteBranch",
+      "payload": {
+        "reference": "refs/heads/feature/pending"
+      }
+    }
+  ],
+  "responses": [
+    {
+      "operation": "deleteTag",
+      "tagDeletion": {
+        "name": "v2.0.0",
+        "deletedTarget": "8e4b2d7bb019f0e5a3c6f1a2d4e5b6c7d8e9f0a1",
+        "kind": "annotated",
+        "message": "Release 2.0.0"
+      }
+    },
+    {
+      "operation": "deleteBranch",
+      "branchDeletion": {
+        "name": "feature/pending",
+        "deletedTarget": "2f1c9a4bb019f0e5a3c6f1a2d4e5b6c7d8e9f0a1"
       }
     }
   ],
@@ -69,11 +197,49 @@
       "errorCode": "invalid_request"
     },
     {
+      "operation": "createTag",
+      "payload": {
+        "name": "bad tag name",
+        "revision": "HEAD"
+      },
+      "errorCode": "invalid_request"
+    },
+    {
       "operation": "pull",
       "payload": {
         "reference": "refs/heads/main",
         "referenceKind": "local",
         "mode": "merge"
+      },
+      "errorCode": "invalid_request"
+    },
+    {
+      "operation": "checkoutAndRebase",
+      "payload": {
+        "gitReference": {
+          "fullName": "refs/remotes/origin/feature/core",
+          "shortName": "feature/core",
+          "kind": "local"
+        }
+      },
+      "errorCode": "invalid_request"
+    },
+    {
+      "operation": "push",
+      "payload": {
+        "reference": "refs/heads/main",
+        "pushTags": "invalid"
+      },
+      "errorCode": "invalid_request"
+    },
+    {
+      "operation": "deleteRemoteBranch",
+      "payload": {
+        "gitReference": {
+          "fullName": "refs/heads/main",
+          "shortName": "main",
+          "kind": "local"
+        }
       },
       "errorCode": "invalid_request"
     }

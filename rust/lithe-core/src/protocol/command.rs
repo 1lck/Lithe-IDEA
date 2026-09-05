@@ -195,6 +195,8 @@ pub enum CoreCommand {
     GitStatus,
     /// Resolves paths a Git-aware watcher must observe (`git.watchContext`).
     GitWatchContext,
+    /// Lists worktrees registered for the repository (`git.worktrees`).
+    GitWorktrees,
     /// Describes the checked-out branch or detached worktree for PR creation (`git.pullRequestContext`).
     GitPullRequestContext,
     /// Executes a caller-supplied argument vector without a shell (`git.command`).
@@ -207,6 +209,14 @@ pub enum CoreCommand {
     GitApply,
     /// Lists references and bounded commit history (`git.history`).
     GitHistory,
+    /// Lists Git references without repeating commit history (`git.references`).
+    GitReferences,
+    /// Returns one cursor-based commit page (`git.historyPage`).
+    GitHistoryPage,
+    /// Releases an incremental history cursor (`git.historyCursorClose`).
+    GitHistoryCursorClose,
+    /// Resolves the destination and commits for a branch push (`git.pushPreview`).
+    GitPushPreview,
     /// Resolves metadata for one commit (`git.commit`).
     GitCommit,
     /// Lists paths changed by one commit (`git.commitFiles`).
@@ -323,12 +333,17 @@ impl CoreCommand {
             "spring.index" => Some(Self::SpringIndex),
             "git.status" => Some(Self::GitStatus),
             "git.watchContext" => Some(Self::GitWatchContext),
+            "git.worktrees" => Some(Self::GitWorktrees),
             "git.pullRequestContext" => Some(Self::GitPullRequestContext),
             "git.command" => Some(Self::GitCommand),
             "git.write" => Some(Self::GitWrite),
             "git.diff" => Some(Self::GitDiff),
             "git.apply" => Some(Self::GitApply),
             "git.history" => Some(Self::GitHistory),
+            "git.references" => Some(Self::GitReferences),
+            "git.historyPage" => Some(Self::GitHistoryPage),
+            "git.historyCursorClose" => Some(Self::GitHistoryCursorClose),
+            "git.pushPreview" => Some(Self::GitPushPreview),
             "git.commit" => Some(Self::GitCommit),
             "git.commitFiles" => Some(Self::GitCommitFiles),
             "git.comparison" => Some(Self::GitComparison),
@@ -413,5 +428,13 @@ mod tests {
         ] {
             assert!(CoreCommand::parse(command).is_some(), "missing {command}");
         }
+    }
+
+    #[test]
+    fn parses_git_push_preview_command() {
+        assert!(matches!(
+            CoreCommand::parse("git.pushPreview"),
+            Some(CoreCommand::GitPushPreview)
+        ));
     }
 }

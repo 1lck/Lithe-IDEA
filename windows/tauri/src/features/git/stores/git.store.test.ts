@@ -151,3 +151,34 @@ describe("Git operation state refresh", () => {
     });
   });
 });
+
+describe("Git source control session", () => {
+  test("keeps commit selections, message, and collapsed folders per repository", () => {
+    const store = createGitStore();
+
+    store.getState().actions.updateSourceControlSession("C:/repo-a", {
+      commitSelectedPaths: ["src/main.ts"],
+      commitMessage: "Keep this draft",
+      collapsedFolders: ["tracked:src"],
+    });
+    store.getState().actions.updateSourceControlSession("C:/repo-b", {
+      commitSelectedPaths: ["README.md"],
+    });
+
+    expect(store.getState().sourceControlSessions["C:/repo-a"]).toEqual({
+      commitSelectedPaths: ["src/main.ts"],
+      commitMessage: "Keep this draft",
+      collapsedFolders: ["tracked:src"],
+      collapsedSections: [],
+    });
+    expect(store.getState().sourceControlSessions["C:/repo-b"]?.commitSelectedPaths).toEqual([
+      "README.md",
+    ]);
+  });
+
+  test("starts with no files selected", () => {
+    const store = createGitStore();
+
+    expect(store.getState().sourceControlSessions).toEqual({});
+  });
+});

@@ -4,15 +4,21 @@
       "fullName": "refs/heads/feature/recent",
       "shortName": "feature/recent",
       "kind": "local",
+      "peelsToCommit": true,
       "isCurrent": true,
-      "upstreamShortName": null
+      "upstreamShortName": null,
+      "ahead": 0,
+      "behind": 0
     },
     {
       "fullName": "refs/heads/main",
       "shortName": "main",
       "kind": "local",
+      "peelsToCommit": true,
       "isCurrent": false,
-      "upstreamShortName": "origin/main"
+      "upstreamShortName": "origin/main",
+      "ahead": 2,
+      "behind": 1
     }
   ],
   "recentReferences": [
@@ -20,15 +26,21 @@
       "fullName": "refs/heads/feature/recent",
       "shortName": "feature/recent",
       "kind": "local",
+      "peelsToCommit": true,
       "isCurrent": true,
-      "upstreamShortName": null
+      "upstreamShortName": null,
+      "ahead": 0,
+      "behind": 0
     },
     {
       "fullName": "refs/heads/main",
       "shortName": "main",
       "kind": "local",
+      "peelsToCommit": true,
       "isCurrent": false,
-      "upstreamShortName": "origin/main"
+      "upstreamShortName": "origin/main",
+      "ahead": 2,
+      "behind": 1
     }
   ],
   "commits": [

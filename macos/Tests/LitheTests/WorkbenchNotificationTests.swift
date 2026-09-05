@@ -24,13 +24,22 @@ struct WorkbenchNotificationTests {
         #expect(model.notifications.first?.message == "Message 100")
         #expect(model.notifications.last?.message == "Message 1")
         #expect(model.notifications.allSatisfy { !$0.isRead })
+        #expect(model.activeNotifications.map(\.message) == ["Message 98", "Message 99", "Message 100"])
+
+        model.setNotificationStackHovered(true)
+        model.showNotification("Message 101")
+        #expect(model.activeNotifications.map(\.message) == ["Message 99", "Message 100", "Message 101"])
+
+        let dismissedID = model.activeNotifications[1].id
+        model.dismissNotification(dismissedID)
+        #expect(model.activeNotifications.map(\.message) == ["Message 99", "Message 101"])
 
         model.markAllNotificationsRead()
         #expect(model.notifications.allSatisfy { $0.isRead })
 
         model.clearNotifications()
         #expect(model.notifications.isEmpty)
-        #expect(model.notificationMessage == nil)
+        #expect(model.activeNotifications.isEmpty)
     }
 
     @Test

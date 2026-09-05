@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "kindOrder": [
+    "mainJava",
+    "mainResources",
+    "testJava",
+    "testResources",
+    "generatedMain",
+    "generatedTest"
+  ],
+  "cases": [
+    {
+      "name": "standard module",
+      "sourceRoots": [
+        { "path": "src/main/java", "kind": "mainJava" },
+        { "path": "src/main/resources", "kind": "mainResources" },
+        { "path": "src/test/java", "kind": "testJava" },
+        { "path": "src/test/resources", "kind": "testResources" },
+        { "path": "target/generated-sources", "kind": "generatedMain" },
+        { "path": "target/generated-test-sources", "kind": "generatedTest" }
+      ]
+    },
+    {
+      "name": "configured module",
+      "sourceRoots": [
+        { "path": "custom/java", "kind": "mainJava" },
+        { "path": "custom/resources", "kind": "mainResources" },
+        { "path": "custom/test-java", "kind": "testJava" },
+        { "path": "custom/test-resources", "kind": "testResources" },
+        { "path": "target/generated-sources/annotations", "kind": "generatedMain" },
+        { "path": "target/generated-test-sources", "kind": "generatedTest" }
+      ]
+    },
+    {
+      "name": "custom build directory",
+      "sourceRoots": [
+        { "path": "src/main/java", "kind": "mainJava" },
+        { "path": "src/main/resources", "kind": "mainResources" },
+        { "path": "src/test/java", "kind": "testJava" },
+        { "path": "src/test/resources", "kind": "testResources" },
+        { "path": "build-output/generated-sources/annotations", "kind": "generatedMain" },
+        { "path": "build-output/generated-test-sources/fixtures", "kind": "generatedTest" }
+      ]
+    },
+    {
+      "name": "execution-scoped generated sources",
+      "sourceRoots": [
+        { "path": "src/main/java", "kind": "mainJava" },
+        { "path": "src/main/resources", "kind": "mainResources" },
+        { "path": "src/test/java", "kind": "testJava" },
+        { "path": "src/test/resources", "kind": "testResources" },
+        { "path": "target/generated-sources/openapi", "kind": "generatedMain" },
+        { "path": "target/generated-test-sources/fixtures", "kind": "generatedTest" }
+      ]
+    }
+  ]
+}

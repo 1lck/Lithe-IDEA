@@ -7,16 +7,16 @@ struct ChangesSidebarView: View {
     @State private var selectedTab = CommitTab.commit
     @State private var trackedExpanded = true
     @State private var untrackedExpanded = true
-    @State private var commitAreaHeight: CGFloat = 124
-    @State private var commitAreaDragStart: CGFloat = 124
     @State private var stashMessage = "WIP"
     @State private var includeUntracked = true
     @State private var selectedStash: GitStash?
     @State private var selectedShelf: GitShelfEntry?
     @State private var pendingDropStash: GitStash?
     @State private var pendingDropShelf: GitShelfEntry?
+    @State private var sectionsCache = GitChangeSectionsCache()
 
     var body: some View {
+        let _ = LitheSignpost.bodyEvaluated("ChangesSidebarView")
         VStack(spacing: 0) {
             tabHeader
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
@@ -159,42 +159,25 @@ struct ChangesSidebarView: View {
                 minimumCommitHeight,
                 availableCommitHeight
             )
-            let resolvedCommitHeight = constrained(
-                commitAreaHeight,
-                minimum: minimumCommitHeight,
-                maximum: maximumCommitHeight
-            )
 
             VStack(spacing: 0) {
                 commitToolbar
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
-                changeList
-                    .frame(minHeight: minimumListHeight)
-                SplitHandleView(
+
+                LitheSplitPaneView(
                     axis: .vertical,
-                    onDragStarted: {
-                        commitAreaDragStart = resolvedCommitHeight
-                    },
-                    onDragChanged: { translation in
-                        commitAreaHeight = constrained(
-                            commitAreaDragStart - translation,
-                            minimum: minimumCommitHeight,
-                            maximum: maximumCommitHeight
-                        )
-                    },
-                    onDragEnded: { translation in
-                        commitAreaHeight = constrained(
-                            commitAreaDragStart - translation,
-                            minimum: minimumCommitHeight,
-                            maximum: maximumCommitHeight
-                        )
-                    }
+                    placement: .trailing,
+                    defaultSize: Self.defaultCommitAreaHeight,
+                    minimum: minimumCommitHeight,
+                    maximum: maximumCommitHeight,
+                    sized: { commitArea },
+                    flexible: { changeList.frame(minHeight: minimumListHeight) }
                 )
-                commitArea
-                    .frame(height: resolvedCommitHeight)
             }
         }
     }
+
+    private static let defaultCommitAreaHeight: CGFloat = 124
 
     private var shelfContent: some View {
         VStack(spacing: 0) {
@@ -331,11 +314,17 @@ struct ChangesSidebarView: View {
         }
         .buttonStyle(.plain)
         .lithePointer()
-        .contextMenu {
-            Button("Apply") { Task { await model.applyStash(stash) } }
-            Button("Pop") { Task { await model.applyStash(stash, pop: true) } }
-            Divider()
-            Button("Drop", role: .destructive) { pendingDropStash = stash }
+        .litheContextMenu {
+            [
+                .action("Apply", systemImage: "arrow.down.circle", action: {
+                    Task { await model.applyStash(stash) }
+                }),
+                .action("Pop", systemImage: "arrow.up.circle", action: {
+                    Task { await model.applyStash(stash, pop: true) }
+                }),
+                .separator,
+                .action("Drop", role: .destructive, action: { pendingDropStash = stash })
+            ]
         }
     }
 
@@ -383,9 +372,13 @@ struct ChangesSidebarView: View {
         }
         .buttonStyle(.plain)
         .lithePointer()
-        .contextMenu {
-            Button("Restore") { Task { await model.applyShelf(shelf) } }
-            Button("Drop", role: .destructive) { pendingDropShelf = shelf }
+        .litheContextMenu {
+            [
+                .action("Restore", systemImage: "arrow.uturn.backward", action: {
+                    Task { await model.applyShelf(shelf) }
+                }),
+                .action("Drop", role: .destructive, action: { pendingDropShelf = shelf })
+            ]
         }
     }
 
@@ -620,63 +613,55 @@ struct ChangesSidebarView: View {
         .frame(height: 30)
         .background(model.selectedChange?.id == change.id ? LitheTheme.subtleSelection : .clear)
         .clipShape(RoundedRectangle(cornerRadius: 4))
-        .contextMenu {
-            changeContextMenu(for: change)
+        .litheContextMenu {
+            changeContextMenuItems(for: change)
         }
     }
 
-    @ViewBuilder
-    private func changeContextMenu(for change: GitChange) -> some View {
+    private func changeContextMenuItems(for change: GitChange) -> [LitheContextMenuItem] {
+        var items: [LitheContextMenuItem] = []
         if change.kind != .deleted {
-            Button("Open") {
+            items.append(.action("Open", systemImage: "doc.text", action: {
                 model.openFile(change.url, displayPath: change.path)
-            }
+            }))
         }
-
-        Button("Show Diff") {
+        items.append(.action("Show Diff", systemImage: "doc.text.magnifyingglass", action: {
             model.selectChange(change)
-        }
-
-        Divider()
-
-        if change.isStaged {
-            Button("Unstage") {
-                model.toggleStaging(change)
-            }
-        } else {
-            Button("Stage File") {
-                model.toggleStaging(change)
-            }
-        }
-
+        }))
+        items.append(.separator)
+        items.append(.action(
+            change.isStaged ? "Unstage" : "Stage File",
+            systemImage: change.isStaged ? "arrow.uturn.backward" : "plus.square",
+            action: { model.toggleStaging(change) }
+        ))
         if change.hasWorkingTreeChange {
-            Button("Discard Changes", role: .destructive) {
-                model.requestDiscardChange(change)
-            }
+            items.append(.action(
+                "Discard Changes",
+                systemImage: "trash",
+                role: .destructive,
+                action: { model.requestDiscardChange(change) }
+            ))
         }
-
-        Divider()
-
-        Button("Local History…") {
-            model.showLocalHistory(for: change.url)
-        }
-        .disabled(change.kind == .deleted)
-
-        Button("Show in Finder") {
-            let url = change.kind == .deleted
-                ? change.url.deletingLastPathComponent()
-                : change.url
-            model.revealProjectItemInFinder(url)
-        }
-
-        Menu("Copy Path / Reference") {
-            Button("Copy Path") {
-                model.copyProjectItemPath(change.url, relative: false)
-            }
-            Button("Copy Relative Path") {
-                model.copyProjectItemPath(change.url, relative: true)
-            }
-        }
+        items += [
+            .separator,
+            .action(
+                "Local History…",
+                systemImage: "clock.arrow.circlepath",
+                isEnabled: change.kind != .deleted,
+                action: { model.showLocalHistory(for: change.url) }
+            ),
+            .action("Show in Finder", systemImage: "folder", action: {
+                let url = change.kind == .deleted
+                    ? change.url.deletingLastPathComponent()
+                    : change.url
+                model.revealProjectItemInFinder(url)
+            }),
+            .submenu("Copy Path / Reference", items: [
+                .action("Copy Path", action: { model.copyProjectItemPath(change.url, relative: false) }),
+                .action("Copy Relative Path", action: { model.copyProjectItemPath(change.url, relative: true) })
+            ])
+        ]
+        return items
     }
 
     private var commitArea: some View {
@@ -769,7 +754,7 @@ struct ChangesSidebarView: View {
             }
             .controlSize(.small)
         }
-        .padding(10)
+        .padding([.top, .horizontal], 10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.toolHeader)
     }
@@ -790,17 +775,25 @@ struct ChangesSidebarView: View {
         .padding(24)
     }
 
+    /// All four sections come from one pass over `gitChanges`; see
+    /// `GitChangeSectionsCache`.
+    private var changeSections: GitChangeSectionsCache.Sections {
+        sectionsCache.sections(
+            changes: model.gitChanges,
+            conflictFilterPaths: model.gitConflictFilterPaths
+        )
+    }
+
     private var trackedChanges: [GitChange] {
-        displayedChanges.filter { $0.kind != .added }
+        changeSections.tracked
     }
 
     private var addedChanges: [GitChange] {
-        displayedChanges.filter { $0.kind == .added }
+        changeSections.added
     }
 
     private var displayedChanges: [GitChange] {
-        guard !model.gitConflictFilterPaths.isEmpty else { return model.gitChanges }
-        return model.gitChanges.filter { model.gitConflictFilterPaths.contains($0.path) }
+        changeSections.displayed
     }
 
     private func isEffectivelyStaged(_ change: GitChange) -> Bool {
@@ -817,7 +810,7 @@ struct ChangesSidebarView: View {
     }
 
     private var stagedChanges: [GitChange] {
-        model.gitChanges.filter(\.isStaged)
+        changeSections.staged
     }
 
     private var canCommit: Bool {

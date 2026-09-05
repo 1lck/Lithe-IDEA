@@ -43,6 +43,7 @@ import {
   restoreProjectUiState,
 } from "@/features/window/stores/workspace-ui-session";
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
+import { getProjectDisplayLabel } from "@/features/window/utils/project-display-label";
 import { createAppWindow } from "@/features/window/utils/create-app-window";
 import { serializeTerminals } from "@/features/terminal/lib/terminal-session-storage";
 import { useTerminalTabsStore } from "@/features/terminal/stores/terminal-tabs.store";
@@ -641,7 +642,7 @@ const openLocalWorkspace = async (
       state.isFileTreeLoading = true;
     });
 
-    const projectName = getFolderName(path);
+    const folderName = getFolderName(path);
 
     const readDirectoryStartedAt = performance.now();
     logWorkspaceOpenStep("start", "readDirectoryContents", path);
@@ -649,7 +650,7 @@ const openLocalWorkspace = async (
     logWorkspaceOpenStep("end", "readDirectoryContents", path, readDirectoryStartedAt);
 
     const fileTree = sortFileEntries(entries);
-    const wrappedFileTree = wrapWithRootFolder(fileTree, path, projectName);
+    const wrappedFileTree = wrapWithRootFolder(fileTree, path, folderName);
 
     if (treeState === "expand-root") {
       fileTreeStore.getState().actions.setExpandedPaths(new Set([path]));
@@ -657,18 +658,20 @@ const openLocalWorkspace = async (
       fileTreeStore.getState().actions.collapseAll();
     }
 
+    const workspaceTab = useWorkspaceTabsStore
+      .getState()
+      .projectTabs.find((projectTab) => projectTab.id === workspaceId);
+    const displayName = workspaceTab ? getProjectDisplayLabel(workspaceTab) : folderName;
+
     const { setRootFolderPath, setProjectName, setActiveProjectId } =
       projectStore.getState().actions;
     setRootFolderPath(path);
-    setProjectName(projectName);
+    setProjectName(displayName);
 
     if (restoreUiState) {
       restoreProjectUiState(path, workspaceId);
     }
 
-    const workspaceTab = useWorkspaceTabsStore
-      .getState()
-      .projectTabs.find((projectTab) => projectTab.id === workspaceId);
     setActiveProjectId(workspaceId);
     if (!prewarm) {
       useRecentFoldersStore.getState().actions.addToRecents(path, {
@@ -683,7 +686,7 @@ const openLocalWorkspace = async (
       state.isFileTreeLoading = false;
       state.files = wrappedFileTree;
       state.rootFolderPath = path;
-      state.workspaceFolders = [{ path, name: projectName, isPrimary: true }];
+      state.workspaceFolders = [{ path, name: folderName, isPrimary: true }];
       state.filesVersion++;
       state.projectFilesCache = undefined;
     });
@@ -1432,6 +1435,9 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           // Add project to workspace tabs
           useWorkspaceTabsStore.getState().actions.addProjectTab(remotePath, connection.name);
           const activeProjectTab = useWorkspaceTabsStore.getState().actions.getActiveProjectTab();
+          const displayName = activeProjectTab
+            ? getProjectDisplayLabel(activeProjectTab)
+            : connection.name;
 
           // Initialize tree UI state: expand remote root
           useFileTreeStore
@@ -1444,7 +1450,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             .getStore(workspaceId)
             .getState().actions;
           setRootFolderPath(remotePath);
-          setProjectName(connection.name);
+          setProjectName(displayName);
           setActiveProjectId(activeProjectTab?.id);
           restoreProjectUiState(remotePath, workspaceId);
 
@@ -1517,6 +1523,9 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
 
           useWorkspaceTabsStore.getState().actions.addProjectTab(wslPath, projectName);
           const activeProjectTab = useWorkspaceTabsStore.getState().actions.getActiveProjectTab();
+          const displayName = activeProjectTab
+            ? getProjectDisplayLabel(activeProjectTab)
+            : projectName;
           useFileTreeStore
             .getStore(workspaceId)
             .getState()
@@ -1526,7 +1535,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             .getStore(workspaceId)
             .getState().actions;
           setRootFolderPath(wslPath);
-          setProjectName(projectName);
+          setProjectName(displayName);
           setActiveProjectId(activeProjectTab?.id);
           restoreProjectUiState(wslPath, workspaceId);
 
@@ -3084,6 +3093,11 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             await getJavaWorkspaceLanguageServerOwner().stop({
               workspaceId: projectId,
               root: path,
+            });
+            await invoke("debug_stop_workspace_sessions", {
+              workspacePath: path,
+            }).catch((error) => {
+              console.error("Failed to stop debug sessions for the project:", error);
             });
             const terminalSessions = useTerminalStore.getStore(projectId).getState().sessions;
             await Promise.all(

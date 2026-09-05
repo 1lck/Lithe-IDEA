@@ -205,6 +205,16 @@ struct RustCoreBridge: Sendable {
     }
 
     struct MavenScanPayload: Decodable, Sendable {
+        struct SourceRoot: Decodable, Sendable {
+            let path: String
+            let kind: String
+
+            func makeModel() -> MavenSourceRoot? {
+                guard let kind = MavenSourceRootKind(rawValue: kind) else { return nil }
+                return MavenSourceRoot(path: path, kind: kind)
+            }
+        }
+
         struct Profile: Decodable, Sendable {
             let id: String
             let isActiveByDefault: Bool
@@ -220,6 +230,7 @@ struct RustCoreBridge: Sendable {
             let artifactID: String
             let version: String?
             let packaging: String
+            let sourceRoots: [SourceRoot]?
             let modules: [Module]
 
             enum CodingKeys: String, CodingKey {
@@ -228,6 +239,7 @@ struct RustCoreBridge: Sendable {
                 case artifactID = "artifactId"
                 case version
                 case packaging
+                case sourceRoots
                 case modules
             }
 
@@ -239,7 +251,8 @@ struct RustCoreBridge: Sendable {
                     artifactID: artifactID,
                     version: version,
                     packaging: packaging,
-                    modules: modules.map { $0.makeModel(rootURL: rootURL) }
+                    modules: modules.map { $0.makeModel(rootURL: rootURL) },
+                    sourceRoots: sourceRoots?.compactMap { $0.makeModel() } ?? []
                 )
             }
         }
@@ -249,6 +262,7 @@ struct RustCoreBridge: Sendable {
         let artifactID: String
         let version: String?
         let packaging: String
+        let sourceRoots: [SourceRoot]?
         let modules: [Module]
         let profiles: [Profile]
         let hasWrapper: Bool
@@ -259,6 +273,7 @@ struct RustCoreBridge: Sendable {
             case artifactID = "artifactId"
             case version
             case packaging
+            case sourceRoots
             case modules
             case profiles
             case hasWrapper
@@ -279,7 +294,8 @@ struct RustCoreBridge: Sendable {
                 profiles: profiles.map {
                     MavenProfile(id: $0.id, isActiveByDefault: $0.isActiveByDefault)
                 },
-                hasWrapper: hasWrapper
+                hasWrapper: hasWrapper,
+                sourceRoots: sourceRoots?.compactMap { $0.makeModel() } ?? []
             )
         }
     }
@@ -818,6 +834,24 @@ struct RustCoreBridge: Sendable {
             let conflictedPaths: [String]
         }
 
+        struct TagDeletion: Decodable, Sendable {
+            let name: String
+            let deletedTarget: String
+            let kind: GitTagKind
+            let message: String?
+        }
+
+        struct BranchDeletion: Decodable, Sendable {
+            let name: String
+            let deletedTarget: String
+        }
+
+        struct Warning: Decodable, Sendable {
+            let code: String
+            let message: String
+            let details: String?
+        }
+
         let arguments: [String]?
         let output: String
         let stdout: String?
@@ -826,6 +860,9 @@ struct RustCoreBridge: Sendable {
         let invocations: [Invocation]?
         let operationError: OperationError?
         let stashRestore: StashRestore?
+        let tagDeletion: TagDeletion?
+        let branchDeletion: BranchDeletion?
+        let warnings: [Warning]?
     }
 
     struct GitDiffPayload: Decodable, Sendable {
@@ -899,6 +936,7 @@ struct RustCoreBridge: Sendable {
             let fullName: String
             let shortName: String
             let kind: String
+            let peelsToCommit: Bool
             let isCurrent: Bool
             let upstreamShortName: String?
         }
@@ -929,6 +967,7 @@ struct RustCoreBridge: Sendable {
                         fullName: reference.fullName,
                         shortName: reference.shortName,
                         kind: kind,
+                        peelsToCommit: reference.peelsToCommit,
                         isCurrent: reference.isCurrent,
                         upstreamShortName: reference.upstreamShortName
                     )
@@ -939,6 +978,7 @@ struct RustCoreBridge: Sendable {
                         fullName: reference.fullName,
                         shortName: reference.shortName,
                         kind: kind,
+                        peelsToCommit: reference.peelsToCommit,
                         isCurrent: reference.isCurrent,
                         upstreamShortName: reference.upstreamShortName
                     )
@@ -959,6 +999,59 @@ struct RustCoreBridge: Sendable {
                 identity: (userName == nil && userEmail == nil)
                     ? nil
                     : GitIdentity(name: userName, email: userEmail)
+            )
+        }
+    }
+
+    struct GitReferencesPayload: Decodable, Sendable {
+        let references: [GitHistoryPayload.Reference]
+        let recentReferences: [GitHistoryPayload.Reference]
+        let userName: String?
+        let userEmail: String?
+
+        func makeSnapshot() -> GitReferenceSnapshot {
+            GitReferenceSnapshot(
+                references: references.compactMap(makeReference),
+                recentReferences: recentReferences.compactMap(makeReference),
+                identity: (userName == nil && userEmail == nil)
+                    ? nil
+                    : GitIdentity(name: userName, email: userEmail)
+            )
+        }
+
+        private func makeReference(_ reference: GitHistoryPayload.Reference) -> GitReference? {
+            guard let kind = GitReferenceKind(rawValue: reference.kind) else { return nil }
+            return GitReference(
+                fullName: reference.fullName,
+                shortName: reference.shortName,
+                kind: kind,
+                isCurrent: reference.isCurrent,
+                upstreamShortName: reference.upstreamShortName
+            )
+        }
+    }
+
+    struct GitHistoryPagePayload: Decodable, Sendable {
+        let commits: [GitHistoryPayload.Commit]
+        let nextCursor: String?
+        let hasMore: Bool
+
+        func makePage() -> GitHistoryPage {
+            GitHistoryPage(
+                commits: commits.map { commit in
+                    GitCommit(
+                        hash: commit.hash,
+                        shortHash: commit.shortHash,
+                        parentHashes: commit.parentHashes,
+                        authorName: commit.authorName,
+                        authorEmail: commit.authorEmail,
+                        date: commit.date,
+                        subject: commit.subject,
+                        decorations: commit.decorations
+                    )
+                },
+                nextCursor: nextCursor,
+                hasMore: hasMore
             )
         }
     }
@@ -1107,6 +1200,40 @@ struct RustCoreBridge: Sendable {
                 gitCommonDirectory: URL(fileURLWithPath: gitCommonDirectory).standardizedFileURL
             )
         }
+    }
+
+    struct GitWorktreesPayload: Decodable, Sendable {
+        struct Worktree: Decodable, Sendable {
+            let path: String
+            let head: String
+            let branch: String?
+            let isCurrent: Bool
+            let isPrimary: Bool
+            let isBare: Bool
+            let isDetached: Bool
+            let isLocked: Bool
+            let lockReason: String?
+            let isPrunable: Bool
+            let pruneReason: String?
+
+            func makeModel() -> GitWorktree {
+                GitWorktree(
+                    path: path,
+                    head: head,
+                    branch: branch,
+                    isCurrent: isCurrent,
+                    isPrimary: isPrimary,
+                    isBare: isBare,
+                    isDetached: isDetached,
+                    isLocked: isLocked,
+                    lockReason: lockReason,
+                    isPrunable: isPrunable,
+                    pruneReason: pruneReason
+                )
+            }
+        }
+
+        let worktrees: [Worktree]
     }
 
     struct GitPullRequestContextPayload: Decodable, Sendable {
@@ -1720,11 +1847,24 @@ struct RustCoreBridge: Sendable {
         let input: String?
     }
 
+    private struct GitReferenceRequest: Encodable {
+        let fullName: String
+        let shortName: String
+        let kind: String
+
+        init(_ reference: GitReference) {
+            fullName = reference.fullName
+            shortName = reference.shortName
+            kind = reference.kind.rawValue
+        }
+    }
+
     private struct GitWriteRequest: Encodable {
         let root: String
         let operation: String
         let paths: [String]
         let reference: String?
+        let gitReference: GitReferenceRequest?
         let referenceKind: String?
         let revision: String?
         let name: String?
@@ -1743,6 +1883,8 @@ struct RustCoreBridge: Sendable {
         let root: String
         let pathspecs: [String]
         let reference: String?
+        let gitReference: GitReferenceRequest?
+        let targetGitReference: GitReferenceRequest?
         let commit: String?
         let staged: Bool
         let untracked: Bool
@@ -1762,6 +1904,26 @@ struct RustCoreBridge: Sendable {
         let limit: Int
     }
 
+    private struct GitReferencesRequest: Encodable {
+        let root: String
+    }
+
+    private struct GitHistoryPageRequest: Encodable {
+        let root: String
+        let reference: String?
+        let cursor: String?
+        let limit: Int
+    }
+
+    private struct GitHistoryCursorCloseRequest: Encodable {
+        let root: String
+        let cursor: String
+    }
+
+    private struct GitHistoryCursorClosePayload: Decodable {
+        let closed: Bool
+    }
+
     private struct GitCommitRequest: Encodable {
         let root: String
         let commit: String
@@ -1774,7 +1936,9 @@ struct RustCoreBridge: Sendable {
 
     private struct GitComparisonRequest: Encodable {
         let root: String
-        let reference: String
+        let reference: String?
+        let gitReference: GitReferenceRequest?
+        let targetGitReference: GitReferenceRequest?
     }
 
     private struct GitStashesRequest: Encodable {
@@ -1783,7 +1947,7 @@ struct RustCoreBridge: Sendable {
 
     private struct GitCheckoutPreflightRequest: Encodable {
         let root: String
-        let reference: String
+        let gitReference: GitReferenceRequest
     }
 
     private struct GitOperationStateRequest: Encodable {
@@ -1800,7 +1964,8 @@ struct RustCoreBridge: Sendable {
 
     private struct GitIntegrationPreflightRequest: Encodable {
         let root: String
-        let reference: String
+        let reference: String?
+        let gitReference: GitReferenceRequest?
         let operation: String
     }
 
@@ -2568,6 +2733,13 @@ struct RustCoreBridge: Sendable {
         return try? result.get()
     }
 
+    func gitWorktrees(at rootURL: URL) -> GitWorktreesPayload? {
+        execute(
+            command: "git.worktrees",
+            payload: GitStatusRequest(root: rootURL.standardizedFileURL.path)
+        )
+    }
+
     func gitPullRequestContext(
         at rootURL: URL
     ) -> Result<GitPullRequestContextPayload, CoreCallError> {
@@ -2613,6 +2785,7 @@ struct RustCoreBridge: Sendable {
         operation: String,
         paths: [String] = [],
         reference: String? = nil,
+        gitReference: GitReference? = nil,
         referenceKind: String? = nil,
         revision: String? = nil,
         name: String? = nil,
@@ -2633,6 +2806,7 @@ struct RustCoreBridge: Sendable {
                 operation: operation,
                 paths: paths,
                 reference: reference,
+                gitReference: gitReference.map(GitReferenceRequest.init),
                 referenceKind: referenceKind,
                 revision: revision,
                 name: name,
@@ -2649,12 +2823,12 @@ struct RustCoreBridge: Sendable {
         )
     }
 
-    func gitCheckoutPreflight(at rootURL: URL, reference: String) -> GitCheckoutPreflightPayload? {
+    func gitCheckoutPreflight(at rootURL: URL, reference: GitReference) -> GitCheckoutPreflightPayload? {
         execute(
             command: "git.checkoutPreflight",
             payload: GitCheckoutPreflightRequest(
                 root: rootURL.standardizedFileURL.path,
-                reference: reference
+                gitReference: GitReferenceRequest(reference)
             )
         )
     }
@@ -2688,7 +2862,8 @@ struct RustCoreBridge: Sendable {
 
     func gitIntegrationPreflight(
         at rootURL: URL,
-        reference: String,
+        reference: String? = nil,
+        gitReference: GitReference? = nil,
         operation: String
     ) -> GitIntegrationPreflightPayload? {
         execute(
@@ -2696,6 +2871,7 @@ struct RustCoreBridge: Sendable {
             payload: GitIntegrationPreflightRequest(
                 root: rootURL.standardizedFileURL.path,
                 reference: reference,
+                gitReference: gitReference.map(GitReferenceRequest.init),
                 operation: operation
             )
         )
@@ -2706,6 +2882,7 @@ struct RustCoreBridge: Sendable {
         operation: String,
         paths: [String] = [],
         reference: String? = nil,
+        gitReference: GitReference? = nil,
         referenceKind: String? = nil,
         revision: String? = nil,
         name: String? = nil,
@@ -2726,6 +2903,7 @@ struct RustCoreBridge: Sendable {
                 operation: operation,
                 paths: paths,
                 reference: reference,
+                gitReference: gitReference.map(GitReferenceRequest.init),
                 referenceKind: referenceKind,
                 revision: revision,
                 name: name,
@@ -2746,6 +2924,8 @@ struct RustCoreBridge: Sendable {
         at rootURL: URL,
         pathspecs: [String],
         reference: String? = nil,
+        gitReference: GitReference? = nil,
+        targetGitReference: GitReference? = nil,
         commit: String? = nil,
         staged: Bool,
         untracked: Bool,
@@ -2758,6 +2938,8 @@ struct RustCoreBridge: Sendable {
                 root: rootURL.standardizedFileURL.path,
                 pathspecs: pathspecs,
                 reference: reference,
+                gitReference: gitReference.map(GitReferenceRequest.init),
+                targetGitReference: targetGitReference.map(GitReferenceRequest.init),
                 commit: commit,
                 staged: staged,
                 untracked: untracked,
@@ -2812,6 +2994,47 @@ struct RustCoreBridge: Sendable {
         )
     }
 
+    func gitReferences(
+        at rootURL: URL,
+        operationID: String
+    ) -> GitReferencesPayload? {
+        execute(
+            command: "git.references",
+            payload: GitReferencesRequest(root: rootURL.standardizedFileURL.path),
+            operationID: operationID
+        )
+    }
+
+    func gitHistoryPage(
+        at rootURL: URL,
+        reference: String?,
+        cursor: String?,
+        limit: Int,
+        operationID: String
+    ) -> GitHistoryPagePayload? {
+        execute(
+            command: "git.historyPage",
+            payload: GitHistoryPageRequest(
+                root: rootURL.standardizedFileURL.path,
+                reference: reference,
+                cursor: cursor,
+                limit: limit
+            ),
+            operationID: operationID
+        )
+    }
+
+    func closeGitHistoryCursor(at rootURL: URL, cursor: String) -> Bool {
+        let payload: GitHistoryCursorClosePayload? = execute(
+            command: "git.historyCursorClose",
+            payload: GitHistoryCursorCloseRequest(
+                root: rootURL.standardizedFileURL.path,
+                cursor: cursor
+            )
+        )
+        return payload?.closed ?? false
+    }
+
     func gitCommit(at rootURL: URL, commit: String) -> GitCommitPayload? {
         execute(
             command: "git.commit",
@@ -2829,12 +3052,19 @@ struct RustCoreBridge: Sendable {
         )
     }
 
-    func gitComparison(at rootURL: URL, reference: String) -> GitComparisonPayload? {
+    func gitComparison(
+        at rootURL: URL,
+        reference: String? = nil,
+        gitReference: GitReference? = nil,
+        targetGitReference: GitReference? = nil
+    ) -> GitComparisonPayload? {
         execute(
             command: "git.comparison",
             payload: GitComparisonRequest(
                 root: rootURL.standardizedFileURL.path,
-                reference: reference
+                reference: reference,
+                gitReference: gitReference.map(GitReferenceRequest.init),
+                targetGitReference: targetGitReference.map(GitReferenceRequest.init)
             )
         )
     }
@@ -3327,9 +3557,14 @@ struct RustCoreBridge: Sendable {
 
     private func execute<Payload: Encodable, Data: Decodable>(
         command: String,
-        payload: Payload
+        payload: Payload,
+        operationID: String? = nil
     ) -> Data? {
-        try? executeResult(command: command, payload: payload).get()
+        try? executeResult(
+            command: command,
+            payload: payload,
+            operationID: operationID
+        ).get()
     }
 
     /// Runs a command whose success carries no data. The core encodes those as a

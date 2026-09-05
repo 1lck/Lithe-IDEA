@@ -1,3 +1,4 @@
+import LitheCoreContracts
 import LitheGitModule
 import SwiftUI
 
@@ -6,11 +7,11 @@ struct ProjectSidebarView: View {
     let rowHeight: CGFloat
     @State private var expandedDirectoryPaths: Set<String> = []
     @State private var expandedTreeRootPath: String?
+    @State private var contextMenuPath: String?
 
     var body: some View {
         VStack(spacing: 0) {
             sidebarHeader
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
             if model.isLoadingWorkspace {
                 VStack(spacing: 10) {
@@ -39,9 +40,11 @@ struct ProjectSidebarView: View {
                                         repositoryRoot: model.gitRepositoryRoot,
                                         projection: model.gitTreeStatusProjection
                                     ),
+                                    directoryMarks: model.projectDirectoryMarks,
                                     actions: ProjectTreeActions(model: model),
                                     expandedDirectoryPathsSnapshot: expandedDirectoryPaths,
-                                    expandedDirectoryPaths: $expandedDirectoryPaths
+                                    expandedDirectoryPaths: $expandedDirectoryPaths,
+                                    contextMenuPath: $contextMenuPath
                                 )
                                 .equatable()
                             }
@@ -53,6 +56,7 @@ struct ProjectSidebarView: View {
                             )
                         }
                         .scrollContentBackground(.hidden)
+                        .litheScrollViewChrome(usesCompactScrollers: true)
                         .task(
                             id: ProjectTreeTaskID(
                                 rootPath: root.url.standardizedFileURL.path,
@@ -85,28 +89,6 @@ struct ProjectSidebarView: View {
                             }
                             if let request = revealRequest {
                                 model.consumeProjectTreeRevealRequest(id: request.id)
-                            }
-                        }
-                        .contextMenu {
-                            Button("New File…") {
-                                model.requestCreateFile(in: root.url)
-                            }
-                            Button("New Directory…") {
-                                model.requestCreateDirectory(in: root.url)
-                            }
-                            Divider()
-                            Button("Show Project in Finder") {
-                                model.revealProjectItemInFinder(root.url)
-                            }
-                            Button("Show Project Local History…") {
-                                model.showProjectLocalHistory()
-                            }
-                            Button("Copy Project Path") {
-                                model.copyProjectItemPath(root.url, relative: false)
-                            }
-                            Divider()
-                            Button("Refresh") {
-                                Task { await model.refreshWorkspace() }
                             }
                         }
                     }
@@ -262,6 +244,9 @@ private final class ProjectTreeActions: @unchecked Sendable {
     nonisolated func refreshWorkspace() {
         Task { await self.model.refreshWorkspace() }
     }
+    nonisolated func markDirectory(_ url: URL, as mark: WorkspaceDirectoryMark) {
+        Task { await self.model.markProjectDirectory(url, as: mark) }
+    }
     nonisolated func showGitDirectoryDiff(_ url: URL) {
         Task { await self.model.showGitDirectoryDiff(for: url) }
     }
@@ -270,6 +255,9 @@ private final class ProjectTreeActions: @unchecked Sendable {
     }
     nonisolated func showLocalHistory(_ url: URL) {
         Task { @MainActor in self.model.showLocalHistory(for: url) }
+    }
+    nonisolated func showProjectLocalHistory() {
+        Task { @MainActor in self.model.showProjectLocalHistory() }
     }
     func javaIconKind(_ url: URL) async -> LitheIconKind? {
         await model.javaIconKind(for: url)
@@ -282,9 +270,11 @@ private struct ProjectFileTreeContent: View, Equatable {
     let rowHeight: CGFloat
     let activeDocumentURL: URL?
     let gitStatus: ProjectGitStatusSnapshot
+    let directoryMarks: [String: WorkspaceDirectoryMark]
     let actions: ProjectTreeActions
     let expandedDirectoryPathsSnapshot: Set<String>
     @Binding var expandedDirectoryPaths: Set<String>
+    @Binding var contextMenuPath: String?
 
     static func == (lhs: ProjectFileTreeContent, rhs: ProjectFileTreeContent) -> Bool {
         lhs.root == rhs.root
@@ -292,7 +282,9 @@ private struct ProjectFileTreeContent: View, Equatable {
             && lhs.rowHeight == rhs.rowHeight
             && lhs.activeDocumentURL == rhs.activeDocumentURL
             && lhs.gitStatus == rhs.gitStatus
+            && lhs.directoryMarks == rhs.directoryMarks
             && lhs.expandedDirectoryPathsSnapshot == rhs.expandedDirectoryPathsSnapshot
+            && lhs.contextMenuPath == rhs.contextMenuPath
     }
 
     var body: some View {
@@ -303,8 +295,11 @@ private struct ProjectFileTreeContent: View, Equatable {
             rowHeight: rowHeight,
             activeDocumentURL: activeDocumentURL,
             gitStatus: gitStatus,
+            projectRootURL: root.url,
+            directoryMarks: directoryMarks,
             actions: actions,
-            expandedDirectoryPaths: $expandedDirectoryPaths
+            expandedDirectoryPaths: $expandedDirectoryPaths,
+            contextMenuPath: $contextMenuPath
         )
         .id(root.url.standardizedFileURL.path)
     }
@@ -317,8 +312,11 @@ private struct FileNodeRow: View {
     let rowHeight: CGFloat
     let activeDocumentURL: URL?
     let gitStatus: ProjectGitStatusSnapshot
+    let projectRootURL: URL
+    let directoryMarks: [String: WorkspaceDirectoryMark]
     let actions: ProjectTreeActions
     @Binding var expandedDirectoryPaths: Set<String>
+    @Binding var contextMenuPath: String?
     @State private var resolvedJavaIconKind: LitheIconKind?
 
     private var rowWidth: CGFloat {
@@ -348,8 +346,11 @@ private struct FileNodeRow: View {
                             rowHeight: rowHeight,
                             activeDocumentURL: activeDocumentURL,
                             gitStatus: gitStatus,
+                            projectRootURL: projectRootURL,
+                            directoryMarks: directoryMarks,
                             actions: actions,
-                            expandedDirectoryPaths: $expandedDirectoryPaths
+                            expandedDirectoryPaths: $expandedDirectoryPaths,
+                            contextMenuPath: $contextMenuPath
                         )
                         .id(child.url.standardizedFileURL.path)
                     }
@@ -362,6 +363,7 @@ private struct FileNodeRow: View {
 
     private var directoryRow: some View {
         Button {
+            contextMenuPath = nil
             if isExpanded {
                 expandedDirectoryPaths.remove(node.url.path)
                 node.collapsedAncestorPaths.forEach { expandedDirectoryPaths.remove($0) }
@@ -376,7 +378,7 @@ private struct FileNodeRow: View {
                     .font(.system(size: 8, weight: .bold))
                     .frame(width: 10)
                     .foregroundStyle(LitheTheme.secondaryText)
-                LitheIcon(kind: node.iconKind, size: LitheTheme.Metrics.treeIconSize)
+                LitheIcon(kind: directoryIconKind, size: LitheTheme.Metrics.treeIconSize)
                     .frame(width: LitheTheme.Metrics.treeIconSize, height: LitheTheme.Metrics.treeIconSize)
                 Text(node.name)
                     .font(.system(size: LitheTheme.Metrics.treeFontSize, weight: depth == 0 ? .semibold : .regular))
@@ -392,18 +394,24 @@ private struct FileNodeRow: View {
             .frame(height: rowHeight)
             .contentShape(Rectangle())
             .litheRowHover(
+                isActive: contextMenuPath == node.url.standardizedFileURL.path,
                 cornerRadius: LitheTheme.Metrics.projectTreeSelectionCornerRadius,
+                activeBackground: LitheTheme.subtleSelection,
                 animation: nil
             )
         }
         .buttonStyle(LitheTreeRowButtonStyle())
         .lithePointer()
         .padding(.horizontal, LitheTheme.Metrics.projectTreeContentHorizontalInset)
-        .contextMenu { directoryContextMenu }
+        .litheContextMenu(
+            items: { directoryContextMenuItems },
+            onRightClick: { contextMenuPath = node.url.standardizedFileURL.path }
+        )
     }
 
     private var fileRow: some View {
         Button {
+            contextMenuPath = nil
             actions.openFile(node.url)
         } label: {
             HStack(spacing: 6) {
@@ -431,7 +439,8 @@ private struct FileNodeRow: View {
             .contentShape(Rectangle())
             .litheRowHover(
                 isActive: activeDocumentURL?.standardizedFileURL.path
-                    == node.url.standardizedFileURL.path,
+                    == node.url.standardizedFileURL.path
+                    || contextMenuPath == node.url.standardizedFileURL.path,
                 cornerRadius: LitheTheme.Metrics.projectTreeSelectionCornerRadius,
                 activeBackground: LitheTheme.subtleSelection,
                 animation: nil
@@ -440,106 +449,187 @@ private struct FileNodeRow: View {
         .buttonStyle(LitheTreeRowButtonStyle())
         .lithePointer()
         .padding(.horizontal, LitheTheme.Metrics.projectTreeContentHorizontalInset)
-        .contextMenu { fileContextMenu }
+        .litheContextMenu(
+            items: { fileContextMenuItems },
+            onRightClick: { contextMenuPath = node.url.standardizedFileURL.path }
+        )
         .task(id: node.url.standardizedFileURL.path) {
             guard node.url.pathExtension.lowercased() == "java" else { return }
             resolvedJavaIconKind = await actions.javaIconKind(node.url)
         }
     }
 
-    @ViewBuilder
-    private var directoryContextMenu: some View {
+    private var directoryContextMenuItems: [LitheContextMenuItem] {
+        var items: [LitheContextMenuItem] = []
+
+        items += [
+            .submenu("New", items: [
+                .action("New File…", systemImage: "doc") {
+                    actions.requestCreateFile(node.url)
+                },
+                .action("New Directory…", systemImage: "folder") {
+                    actions.requestCreateDirectory(node.url)
+                }
+            ]),
+            .separator
+        ]
+
         if gitStatus.kind(for: node.url, isDirectory: true) != nil {
-            Button("Show Git Diff") {
-                actions.showGitDirectoryDiff(node.url)
+            items += [
+                .action("Show Git Diff", systemImage: "arrow.triangle.branch") {
+                    actions.showGitDirectoryDiff(node.url)
+                },
+                .separator
+            ]
+        }
+
+        items += [
+            .submenu("Mark Target As", items: directoryMarkMenuItems),
+            .separator
+        ]
+
+        if depth == 0 {
+            items += [
+                .action("Show Project in Finder", systemImage: "folder") {
+                    actions.revealInFinder(node.url)
+                },
+                .action("Show Project Local History…", systemImage: "clock.arrow.circlepath") {
+                    actions.showProjectLocalHistory()
+                },
+                .action("Copy Project Path", systemImage: "doc.on.doc") {
+                    actions.copyPath(node.url, relative: false)
+                },
+                .action("Copy Relative Path") {
+                    actions.copyPath(node.url, relative: true)
+                }
+            ]
+        } else {
+            items += [
+                .action("Show in Finder", systemImage: "folder") {
+                    actions.revealInFinder(node.url)
+                },
+                .action("Copy Path", systemImage: "doc.on.doc") {
+                    actions.copyPath(node.url, relative: false)
+                },
+                .action("Copy Relative Path") {
+                    actions.copyPath(node.url, relative: true)
+                },
+                .separator,
+                .action("Duplicate") {
+                    actions.duplicate(node.url)
+                },
+                .action("Rename…") {
+                    actions.requestRename(node.url)
+                },
+                .action("Move to Trash", systemImage: "trash", role: .destructive) {
+                    actions.requestDelete(node.url, true)
+                }
+            ]
+        }
+
+        items += [
+            .separator,
+            .action("Refresh", systemImage: "arrow.clockwise") {
+                actions.refreshWorkspace()
             }
-            Divider()
-        }
+        ]
+        return items
+    }
 
-        Button("New File…") {
-            actions.requestCreateFile(node.url)
-        }
-        Button("New Directory…") {
-            actions.requestCreateDirectory(node.url)
-        }
-
-        Divider()
-
-        Button("Show in Finder") {
-            actions.revealInFinder(node.url)
-        }
-        Button("Copy Path") {
-            actions.copyPath(node.url, relative: false)
-        }
-        Button("Copy Relative Path") {
-            actions.copyPath(node.url, relative: true)
-        }
-
-        if depth > 0 {
-            Divider()
-
-            Button("Duplicate") {
-                actions.duplicate(node.url)
+    private var directoryMarkMenuItems: [LitheContextMenuItem] {
+        WorkspaceDirectoryMark.allCases.map { mark in
+            .action(
+                directoryMarkTitle(mark),
+                iconKind: LitheIcons.kind(for: mark),
+                shortcut: currentDirectoryMark == mark ? "✓" : nil
+            ) {
+                actions.markDirectory(node.url, as: mark)
             }
-            Button("Rename…") {
-                actions.requestRename(node.url)
-            }
-            Button("Move to Trash", role: .destructive) {
-                actions.requestDelete(node.url, true)
-            }
-        }
-
-        Divider()
-
-        Button("Refresh") {
-            actions.refreshWorkspace()
         }
     }
 
-    @ViewBuilder
-    private var fileContextMenu: some View {
-        Group {
-            Button("Open") {
+    private func directoryMarkTitle(_ mark: WorkspaceDirectoryMark) -> String {
+        switch mark {
+        case .plain: "Normal Folder"
+        case .sources: "Sources Root"
+        case .resources: "Resources Root"
+        case .excluded: "Excluded"
+        case .module: "Module Root"
+        case .package: "Package"
+        }
+    }
+
+    private var currentDirectoryMark: WorkspaceDirectoryMark? {
+        directoryMarks[relativeDirectoryPath(for: node.url)]
+    }
+
+    private var directoryIconKind: LitheIconKind {
+        if let currentDirectoryMark {
+            return LitheIcons.kind(for: currentDirectoryMark)
+        }
+        var ancestor = node.url.deletingLastPathComponent()
+        let rootPath = projectRootURL.standardizedFileURL.path
+        while ancestor.standardizedFileURL.path.hasPrefix(rootPath) {
+            if let mark = directoryMarks[relativeDirectoryPath(for: ancestor)] {
+                if mark == .sources, LitheIcons.isValidPackageName(node.url.lastPathComponent) {
+                    return .packageFolder
+                }
+                break
+            }
+            guard ancestor.standardizedFileURL.path != rootPath else { break }
+            ancestor.deleteLastPathComponent()
+        }
+        return node.iconKind
+    }
+
+    private func relativeDirectoryPath(for url: URL) -> String {
+        let rootPath = projectRootURL.standardizedFileURL.path
+        let targetPath = url.standardizedFileURL.path
+        guard targetPath != rootPath else { return "." }
+        return String(targetPath.dropFirst(rootPath.count + 1))
+    }
+
+    private var fileContextMenuItems: [LitheContextMenuItem] {
+        var items: [LitheContextMenuItem] = [
+            .action("Open") {
                 actions.openFile(node.url)
             }
+        ]
 
-            if let change = gitStatus.change(for: node.url) {
-                Button("Show Git Diff") {
+        if let change = gitStatus.change(for: node.url) {
+            items += [
+                .action("Show Git Diff", systemImage: "arrow.triangle.branch") {
                     actions.selectChange(change)
                 }
-            }
+            ]
         }
 
-        Divider()
-
-        Group {
-            Button("Duplicate") {
+        items += [
+            .separator,
+            .action("Duplicate") {
                 actions.duplicate(node.url)
-            }
-            Button("Rename…") {
+            },
+            .action("Rename…") {
                 actions.requestRename(node.url)
-            }
-            Button("Local History…") {
+            },
+            .action("Local History…", systemImage: "clock.arrow.circlepath") {
                 actions.showLocalHistory(node.url)
-            }
-            Button("Move to Trash", role: .destructive) {
+            },
+            .action("Move to Trash", systemImage: "trash", role: .destructive) {
                 actions.requestDelete(node.url, false)
-            }
-        }
-
-        Divider()
-
-        Group {
-            Button("Show in Finder") {
+            },
+            .separator,
+            .action("Show in Finder", systemImage: "folder") {
                 actions.revealInFinder(node.url)
-            }
-            Button("Copy Path") {
+            },
+            .action("Copy Path", systemImage: "doc.on.doc") {
                 actions.copyPath(node.url, relative: false)
-            }
-            Button("Copy Relative Path") {
+            },
+            .action("Copy Relative Path") {
                 actions.copyPath(node.url, relative: true)
             }
-        }
+        ]
+        return items
     }
 
     private var gitStatusColor: Color? {

@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 import LitheGitModule
 import LitheLocalHistoryModule
 import LitheSearchModule
@@ -10,6 +11,9 @@ extension AppModel {
     var isIndexingSpring: Bool { springFeature.isIndexing }
     var rootNode: FileNode? { workspaceFeature.rootNode }
     var projectFiles: [URL] { workspaceFeature.projectFiles }
+    var projectDirectoryMarks: [String: WorkspaceDirectoryMark] {
+        workspaceFeature.directoryMarks
+    }
     var javaEnvironmentReport: JavaEnvironmentReport? {
         runtimeFeature.javaEnvironmentReport
     }
@@ -29,6 +33,8 @@ extension AppModel {
     }
 
     var openDocuments: [EditorDocument] { documentFeature.openDocuments }
+    var openMediaDocuments: [MediaDocument] { mediaFeature.openMediaDocuments }
+    var activeMediaDocument: MediaDocument? { mediaFeature.activeMediaDocument }
     var standaloneFileLoadState: StandaloneFileLoadState {
         documentFeature.standaloneFileLoadState
     }
@@ -61,6 +67,8 @@ extension AppModel {
     func consumeProjectTreeRevealRequest(id: UUID) {
         documentFeature.consumeProjectTreeRevealRequest(id: id)
     }
+
+    var activeMediaDocumentID: UUID? { mediaFeature.activeMediaDocumentID }
 
     var activeDocumentID: UUID? {
         get { documentFeature.activeDocumentID }
@@ -122,6 +130,12 @@ extension AppModel {
                 orderedIDs: editorTabOrderFeature.terminalIDs
             )
             selectEditorTerminalSession(session)
+        case .media(let mediaID):
+            guard let media = openMediaDocuments.first(where: { $0.id == mediaID }) else {
+                editorTabOrderFeature.remove(item)
+                return
+            }
+            selectMediaDocument(media)
         }
     }
     var pendingCloseDocument: EditorDocument? { documentFeature.pendingCloseDocument }
@@ -153,6 +167,19 @@ extension AppModel {
     }
     var gitStashes: [GitStash] { gitFeatureIfActive?.gitStashes ?? [] }
     var gitShelves: [GitShelfEntry] { gitFeatureIfActive?.gitShelves ?? [] }
+    var gitWorktrees: [GitWorktree] { gitFeatureIfActive?.gitWorktrees ?? [] }
+    var gitWorktreeLoadState: GitWorktreeLoadState {
+        gitFeatureIfActive?.gitWorktreeLoadState ?? .idle
+    }
+    var gitWorktreeInspection: GitWorktreeInspection? {
+        gitFeatureIfActive?.gitWorktreeInspection
+    }
+    var gitWorktreeInspectionLoadState: GitWorktreeInspectionLoadState {
+        gitFeatureIfActive?.gitWorktreeInspectionLoadState ?? .idle
+    }
+    var isPerformingWorktreeOperation: Bool {
+        gitFeatureIfActive?.isPerformingWorktreeOperation ?? false
+    }
     var gitSaveChangesPolicy: GitSaveChangesPolicy { settings.gitSaveChangesPolicy }
     var isPerformingStashOperation: Bool { gitFeatureIfActive?.isPerformingStashOperation ?? false }
     var isPerformingShelfOperation: Bool { gitFeatureIfActive?.isPerformingShelfOperation ?? false }
@@ -213,11 +240,20 @@ extension AppModel {
     var requestedStashReference: String? {
         gitFeatureIfActive?.requestedStashReference
     }
+    var recentlyDeletedTag: GitTagDeletion? {
+        gitFeatureIfActive?.recentlyDeletedTag
+    }
+    var recentlyDeletedBranch: GitBranchDeletion? {
+        gitFeatureIfActive?.recentlyDeletedBranch
+    }
     var isCommitting: Bool { gitFeatureIfActive?.isCommitting ?? false }
     var gitBlameLines: [URL: [GitBlameLine]] { gitFeatureIfActive?.gitBlameLines ?? [:] }
     var gitReferences: [GitReference] { gitFeatureIfActive?.gitReferences ?? [] }
     var recentGitReferences: [GitReference] { gitFeatureIfActive?.recentGitReferences ?? [] }
     var gitCommits: [GitCommit] { gitFeatureIfActive?.gitCommits ?? [] }
+    /// Cheap stand-in for `gitCommits` as a change key. Comparing the array
+    /// itself made every `.task(id:)` evaluation walk the whole commit list.
+    var gitCommitsVersion: Int { gitFeatureIfActive?.gitCommitsVersion ?? 0 }
     var gitLogMatchedCommitHashes: Set<String>? {
         gitFeatureIfActive?.gitLogMatchedCommitHashes
     }
@@ -225,6 +261,9 @@ extension AppModel {
     var selectedGitReference: GitReference? {
         get { gitFeatureIfActive?.selectedGitReference }
         set { gitFeatureIfActive?.selectedGitReference = newValue }
+    }
+    var isShowingAllGitReferences: Bool {
+        gitFeatureIfActive?.isShowingAllGitReferences ?? false
     }
     var selectedGitCommit: GitCommit? {
         get { gitFeatureIfActive?.selectedGitCommit }

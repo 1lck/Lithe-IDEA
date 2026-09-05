@@ -1,0 +1,89 @@
+name: Lithe issue labels
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+
+concurrency:
+  group: lithe-issue-labels-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.event.issue.pull_request == null
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const issue = (await github.rest.issues.get({ owner, repo, issue_number })).data;
+            const body = issue.body || '';
+            const field = (heading) => {
+              const match = body.match(new RegExp(`###\\s+${heading}\\s*\\r?\\n+([^\\r\\n]+)`, 'i'));
+              return match?.[1]?.trim() || '';
+            };
+            const priority = field('Priority / 优先级').match(/^(P[012])\b/i)?.[1]?.toUpperCase() || null;
+            const platform = {
+              'macOS': 'platform:macos',
+              'Windows': 'platform:windows',
+              'Cross-platform / 跨平台': 'platform:cross-platform',
+              'Other / 其他': 'platform:other',
+            }[field('Platform / 平台') || field('Target platform / 目标平台')] || null;
+            const area = {
+              'Editor / 编辑器': 'area:editor',
+              'Language support / 语言服务': 'area:language',
+              'Maven': 'area:maven',
+              'Run / 运行': 'area:run',
+              'Debug / 调试': 'area:debug',
+              'Test / 测试': 'area:test',
+              'Terminal / 终端': 'area:terminal',
+              'Git': 'area:git',
+              'GitHub': 'area:github',
+              'Project and workspace / 项目与工作区': 'area:project',
+              'Search / 搜索': 'area:search',
+              'Extensions / 扩展': 'area:extensions',
+              'Settings / 设置': 'area:settings',
+              'Database / 数据库': 'area:database',
+              'Docker': 'area:docker',
+              'Remote and WSL / 远程与 WSL': 'area:remote',
+              'AI': 'area:ai',
+              'UI / 界面': 'area:ui',
+              'UX / 用户体验': 'area:ux',
+              'Other / 其他': 'area:other',
+            }[field('Area / 模块')] || null;
+            const type = /^\[(Bug|Feature)\]\s*/i.exec(issue.title || '')?.[1]?.toLowerCase();
+            const managedLabels = [
+              'bug', 'enhancement', 'P0', 'P1', 'P2',
+              'platform:macos', 'platform:windows', 'platform:cross-platform', 'platform:other',
+              'area:editor', 'area:language', 'area:maven', 'area:run', 'area:debug', 'area:test',
+              'area:terminal', 'area:git', 'area:github', 'area:project', 'area:search',
+              'area:extensions', 'area:settings', 'area:database', 'area:docker', 'area:remote',
+              'area:ai', 'area:ui', 'area:ux', 'area:other',
+            ];
+            const selectedLabels = [type === 'bug' ? 'bug' : type === 'feature' ? 'enhancement' : null, platform, area, priority].filter(Boolean);
+            const currentLabels = issue.labels
+              .map((label) => typeof label === 'string' ? label : label.name)
+              .filter(Boolean);
+            const nextLabels = currentLabels.filter((label) => !managedLabels.includes(label));
+            nextLabels.push(...selectedLabels);
+            const unchanged = currentLabels.length === nextLabels.length &&
+              currentLabels.every((label, index) => label === nextLabels[index]);
+            if (unchanged) return;
+            for (const name of selectedLabels) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({ owner, repo, name, color: '1D76DB' }).catch((createError) => {
+                  if (createError.status !== 422) throw createError;
+                });
+              }
+            }
+            await github.rest.issues.setLabels({ owner, repo, issue_number, labels: nextLabels });

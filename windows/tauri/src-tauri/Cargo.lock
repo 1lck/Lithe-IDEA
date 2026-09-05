@@ -2612,6 +2612,7 @@ dependencies = [
 name = "lithe-windows"
 version = "0.3.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "keyring",
  "lithe-core",

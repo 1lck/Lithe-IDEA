@@ -21,6 +21,68 @@ public struct GitProcessInvocation: Equatable, Sendable {
     public var output: String { standardOutput + standardError }
 }
 
+/// The two tag object forms supported by the shared Git contract.
+public enum GitTagKind: String, Codable, Sendable {
+    case lightweight
+    case annotated
+}
+
+/// Everything a host needs to rebuild a deleted tag later: the record is kept
+/// in session state only, and restores replay `createTag` with these values.
+public struct GitTagDeletion: Equatable, Sendable {
+    public let name: String
+    /// The commit the deleted ref resolved to (peeled for annotated tags).
+    public let deletedTarget: String
+    /// Tag form taken from the deleted ref's object type.
+    public let kind: GitTagKind
+    /// Original annotation, if any; lightweight tags carry `nil`.
+    public let message: String?
+
+    public init(name: String, deletedTarget: String, kind: GitTagKind, message: String?) {
+        self.name = name
+        self.deletedTarget = deletedTarget
+        self.kind = kind
+        self.message = message
+    }
+
+    public var isAnnotated: Bool { kind == .annotated }
+
+    /// A lightweight tag has no annotation, while an annotated tag always
+    /// carries a message value (which may be empty) so restore preserves form.
+    public var hasConsistentKindAndMessage: Bool {
+        switch kind {
+        case .lightweight:
+            message == nil
+        case .annotated:
+            message != nil
+        }
+    }
+}
+
+/// A deleted local branch and the commit it pointed at, kept in session state
+/// so the host can offer a restore.
+public struct GitBranchDeletion: Equatable, Sendable {
+    public let name: String
+    public let deletedTarget: String
+
+    public init(name: String, deletedTarget: String) {
+        self.name = name
+        self.deletedTarget = deletedTarget
+    }
+}
+
+public struct GitOperationWarning: Equatable, Sendable {
+    public let code: String
+    public let message: String
+    public let details: String?
+
+    public init(code: String, message: String, details: String? = nil) {
+        self.code = code
+        self.message = message
+        self.details = details
+    }
+}
+
 public struct GitProcessResult: Sendable {
     public let arguments: [String]
     public let output: String
@@ -30,6 +92,9 @@ public struct GitProcessResult: Sendable {
     public let invocations: [GitProcessInvocation]
     public let operationErrorMessage: String?
     public let stashRestoreConflict: GitStashRestoreConflict?
+    public let tagDeletion: GitTagDeletion?
+    public let branchDeletion: GitBranchDeletion?
+    public let warnings: [GitOperationWarning]
     public init(
         arguments: [String] = [],
         output: String,
@@ -38,7 +103,10 @@ public struct GitProcessResult: Sendable {
         exitCode: Int32,
         invocations: [GitProcessInvocation] = [],
         operationErrorMessage: String? = nil,
-        stashRestoreConflict: GitStashRestoreConflict? = nil
+        stashRestoreConflict: GitStashRestoreConflict? = nil,
+        tagDeletion: GitTagDeletion? = nil,
+        branchDeletion: GitBranchDeletion? = nil,
+        warnings: [GitOperationWarning] = []
     ) {
         self.arguments = arguments
         self.output = output
@@ -48,6 +116,9 @@ public struct GitProcessResult: Sendable {
         self.invocations = invocations
         self.operationErrorMessage = operationErrorMessage
         self.stashRestoreConflict = stashRestoreConflict
+        self.tagDeletion = tagDeletion
+        self.branchDeletion = branchDeletion
+        self.warnings = warnings
     }
 }
 

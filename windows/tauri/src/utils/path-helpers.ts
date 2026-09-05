@@ -4,7 +4,17 @@
  * @returns The normalized path
  */
 export const normalizePath = (path: string): string => {
-  return path.replace(/\\/g, "/");
+  const normalized = path.replace(/\\/g, "/");
+  // Windows filesystem watchers may emit verbatim paths while workspace
+  // state is stored in the ordinary drive/UNC form. Keep both forms
+  // comparable before doing containment or relative-path calculations.
+  if (normalized.slice(0, "//?/UNC/".length).toLowerCase() === "//?/unc/") {
+    return `//${normalized.slice("//?/UNC/".length)}`;
+  }
+  if (normalized.startsWith("//?/")) {
+    return normalized.slice("//?/".length);
+  }
+  return normalized;
 };
 
 export const stripTrailingPathSeparators = (path: string): string => {

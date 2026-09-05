@@ -18,6 +18,7 @@ import { isWslPath } from "@/features/wsl/utils/wsl-path";
 import { useTerminalStore } from "@/features/terminal/stores/terminal.store";
 import { useMenuEventsWrapper } from "@/features/window/hooks/use-menu-events-wrapper";
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
+import { getProjectDisplayLabel } from "@/features/window/utils/project-display-label";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { toast } from "sonner";
 import { useTranslation } from "@/i18n/locale-provider";
@@ -199,7 +200,9 @@ export function MainLayout() {
         }
 
         useWorkspaceTabsStore.getState().actions.removeProjectTab(activeTab.id);
-        toast.warning(t("fileSystem.removedMissingProject", { name: activeTab.name }));
+        toast.warning(
+          t("fileSystem.removedMissingProject", { name: getProjectDisplayLabel(activeTab) }),
+        );
       }
     };
 

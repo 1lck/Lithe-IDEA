@@ -38,7 +38,7 @@ interface DebuggerState {
   scopes: DebugScope[];
   variablesByReference: Record<number, DebugVariable[]>;
   stoppedState: DebugStoppedState | null;
-  pendingRequests: Record<number, DebugRequestContext>;
+  pendingRequests: Record<string, DebugRequestContext>;
   actions: {
     hydrate: () => void;
     setWorkspaceConfigs: (configs: DebugLaunchConfig[]) => void;
@@ -59,8 +59,8 @@ interface DebuggerState {
     recordAdapterMessage: (message: DebugProtocolMessage) => void;
     recordAdapterOutput: (output: DebugProcessOutput) => void;
     recordSessionEnded: (event: DebugSessionEnded) => void;
-    registerAdapterRequest: (seq: number, context: DebugRequestContext) => void;
-    clearAdapterRequest: (seq: number) => void;
+    registerAdapterRequest: (operationId: string, context: DebugRequestContext) => void;
+    clearAdapterRequest: (operationId: string) => void;
     setThreads: (threads: DebugThread[]) => void;
     setStackFrames: (frames: DebugStackFrame[]) => void;
     selectStackFrame: (frameId: number | null) => void;
@@ -338,30 +338,35 @@ export const useDebuggerStore = createSelectors(
       },
 
       recordSessionEnded: (event) => {
-        set((state) => ({
-          endedSessions: [...state.endedSessions.slice(-99), event],
-          activeSession:
-            state.activeSession?.id === event.sessionId
-              ? { ...state.activeSession, status: "idle" }
-              : state.activeSession,
-          stoppedState: null,
-          watchResults: {},
-        }));
+        set((state) => {
+          const activeSession = state.activeSession;
+          const isActiveSession = activeSession?.id === event.sessionId;
+          return {
+            endedSessions: [...state.endedSessions.slice(-99), event],
+            activeSession:
+              isActiveSession && activeSession
+                ? { ...activeSession, status: "idle" }
+                : activeSession,
+            ...(isActiveSession
+              ? { stoppedState: null, watchResults: {}, pendingRequests: {} }
+              : {}),
+          };
+        });
       },
 
-      registerAdapterRequest: (seq, context) => {
+      registerAdapterRequest: (operationId, context) => {
         set((state) => ({
           pendingRequests: {
             ...state.pendingRequests,
-            [seq]: context,
+            [operationId]: context,
           },
         }));
       },
 
-      clearAdapterRequest: (seq) => {
+      clearAdapterRequest: (operationId) => {
         set((state) => {
           const nextPendingRequests = { ...state.pendingRequests };
-          delete nextPendingRequests[seq];
+          delete nextPendingRequests[operationId];
           return { pendingRequests: nextPendingRequests };
         });
       },
@@ -395,14 +400,30 @@ export const useDebuggerStore = createSelectors(
       },
 
       setStoppedState: (stoppedState) => {
-        set({ stoppedState });
+        set((state) => {
+          const shouldClearInspection =
+            stoppedState === null ||
+            state.stoppedState === null ||
+            stoppedState.threadId !== state.stoppedState.threadId;
+
+          return shouldClearInspection
+            ? {
+                stoppedState,
+                stackFrames: [],
+                selectedFrameId: null,
+                scopes: [],
+                variablesByReference: {},
+                watchResults: {},
+                pendingRequests: {},
+              }
+            : { stoppedState };
+        });
       },
 
       clearAdapterTranscript: () => {
         set({
           adapterMessages: [],
           adapterOutput: [],
-          endedSessions: [],
           pendingRequests: {},
         });
       },

@@ -8,9 +8,10 @@ use crate::community::{
 use crate::git::{
     self, GitApplyRequest, GitBlameRequest, GitCheckoutPreflightRequest, GitCommandRequest,
     GitCommitFilesRequest, GitCommitRequest, GitComparisonRequest, GitConflictMarkerRequest,
-    GitDiffRequest, GitHistoryRequest, GitIntegrationPreflightRequest, GitOperationStateRequest,
-    GitPullPreflightRequest, GitPullRequestContextRequest, GitStashesRequest, GitStatusRequest,
-    GitWatchContextRequest, GitWriteRequest,
+    GitDiffRequest, GitHistoryCursorCloseRequest, GitHistoryPageRequest, GitHistoryRequest,
+    GitIntegrationPreflightRequest, GitOperationStateRequest, GitPullPreflightRequest,
+    GitPullRequestContextRequest, GitPushPreviewRequest, GitReferencesRequest, GitStashesRequest,
+    GitStatusRequest, GitWatchContextRequest, GitWorktreesRequest, GitWriteRequest,
 };
 use crate::github::{NormalizeResponseRequest, ParseRemoteRequest, RequestPlanRequest};
 use crate::languages::{
@@ -1429,6 +1430,22 @@ fn execute(request: &str) -> CoreResponse {
             }
         }
 
+        CoreCommand::GitWorktrees => {
+            match serde_json::from_value::<GitWorktreesRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid Git worktrees request")
+                        .with_details(error.to_string())
+                })
+                .and_then(git::worktrees)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git worktrees should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+
         CoreCommand::GitPullRequestContext => {
             match serde_json::from_value::<GitPullRequestContextRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1515,6 +1532,76 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Git history response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitReferences => {
+            match serde_json::from_value::<GitReferencesRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid Git references request")
+                        .with_details(error.to_string())
+                })
+                .and_then(git::references)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git references response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitHistoryPage => {
+            match serde_json::from_value::<GitHistoryPageRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git history page request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::history_page)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git history page response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitHistoryCursorClose => {
+            match serde_json::from_value::<GitHistoryCursorCloseRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git history cursor close request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::close_history_cursor)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Git history cursor close response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitPushPreview => {
+            match serde_json::from_value::<GitPushPreviewRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git push preview request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::push_preview)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git push preview response should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }
