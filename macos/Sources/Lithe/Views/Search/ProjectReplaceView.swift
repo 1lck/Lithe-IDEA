@@ -140,7 +140,7 @@ struct ProjectReplaceView: View {
                     .font(.system(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                 Button("Apply") {
-                    Task { await model.applyProjectReplacement() }
+                    Task { await model.applyProjectReplacement(query: query) }
                 }
                 .buttonStyle(.borderedProminent)
                 .lithePointer()

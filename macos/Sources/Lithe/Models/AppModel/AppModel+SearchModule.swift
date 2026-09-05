@@ -110,9 +110,9 @@ extension AppModel {
         selectedProjectReplacementPaths = Set(projectReplacementFiles.map(\.relativePath))
     }
 
-    func applyProjectReplacement() async {
+    func applyProjectReplacement(query: String) async {
         guard let rootURL = workspaceURL,
-              !projectReplaceQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let searchFeature = await activateSearchModule() else { return }
         let result = await searchFeature.applyProjectReplacement(
             at: rootURL, selectedPaths: selectedProjectReplacementPaths,
