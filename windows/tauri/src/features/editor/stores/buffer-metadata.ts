@@ -1,5 +1,6 @@
 import type {
   EditorLspDocumentBinding,
+  MarkdownViewMode,
   PaneContent,
 } from "@/features/panes/types/pane-content.types";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
@@ -14,6 +15,7 @@ export interface EditorBufferSurface {
   languageOverride?: string;
   lspDocument?: EditorLspDocumentBinding;
   contentRevision: number;
+  markdownViewMode?: MarkdownViewMode;
 }
 
 export function getBufferContentRevision(buffer: PaneContent | null | undefined): number {
@@ -38,6 +40,7 @@ export function getEditorBufferSurface(
     languageOverride: buffer.type === "editor" ? buffer.languageOverride : undefined,
     lspDocument: buffer.type === "editor" ? buffer.lspDocument : undefined,
     contentRevision: getBufferContentRevision(buffer),
+    markdownViewMode: buffer.type === "editor" ? buffer.markdownViewMode : undefined,
   };
 }
 
@@ -65,6 +68,7 @@ export function editorBufferSurfacesEqual(
     left.lspDocument?.documentUri === right.lspDocument?.documentUri &&
     left.lspDocument?.sessionFilePath === right.lspDocument?.sessionFilePath &&
     left.lspDocument?.languageId === right.lspDocument?.languageId &&
-    left.contentRevision === right.contentRevision
+    left.contentRevision === right.contentRevision &&
+    left.markdownViewMode === right.markdownViewMode
   );
 }

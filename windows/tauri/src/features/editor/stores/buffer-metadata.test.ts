@@ -39,6 +39,37 @@ describe("editor buffer surface", () => {
     expect(editorBufferSurfacesEqual(before, after)).toBe(false);
   });
 
+  test("carries the markdown view mode so switching modes re-renders the editor", () => {
+    const before = getEditorBufferSurface(editorBuffer({ path: "docs/readme.md" }));
+    const after = getEditorBufferSurface(
+      editorBuffer({ path: "docs/readme.md", markdownViewMode: "preview" }),
+    );
+    expect(before?.markdownViewMode).toBeUndefined();
+    expect(after?.markdownViewMode).toBe("preview");
+    expect(editorBufferSurfacesEqual(before, after)).toBe(false);
+    expect(
+      editorBufferSurfacesEqual(
+        getEditorBufferSurface(editorBuffer({ markdownViewMode: "preview" })),
+        getEditorBufferSurface(editorBuffer({ markdownViewMode: "preview" })),
+      ),
+    ).toBe(true);
+  });
+
+  test("never reports a markdown view mode for preview buffers", () => {
+    const previewBuffer = {
+      id: "preview-1",
+      type: "markdownPreview" as const,
+      path: "docs/readme.md:preview",
+      name: "readme.md (Preview)",
+      isPinned: false,
+      isPreview: false,
+      isActive: true,
+      content: "",
+      sourceFilePath: "docs/readme.md",
+    };
+    expect(getEditorBufferSurface(previewBuffer)?.markdownViewMode).toBeUndefined();
+  });
+
   test("preserves virtual document language and LSP binding metadata", () => {
     const surface = getEditorBufferSurface(
       editorBuffer({
