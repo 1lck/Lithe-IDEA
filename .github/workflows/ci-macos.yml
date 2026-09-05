@@ -132,7 +132,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.swift == 'true'
     runs-on: macos-14
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - name: Check out source
@@ -156,8 +156,15 @@ jobs:
             --suite-timeout-seconds 660 -- \
             --skip WebKitIntegrationTests \
             --skip GitStatusObservationTests \
+            --skip LitheGitPerformanceTests \
             --skip '(LitheDatabaseModuleTests|LitheTests\.LitheCoreLogicTests/database)' \
             --skip '([Pp]lugin|LitheGoSupportModuleTests|LinuxDo)'
+
+      - name: Run Git performance baseline
+        timeout-minutes: 15
+        env:
+          LITHE_GIT_PERFORMANCE_SKIP_TEST_BUILD: "1"
+        run: ./scripts/test-git-performance-baseline.sh
 
       - name: Run Git status observation tests
         timeout-minutes: 3
@@ -184,7 +191,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-stability-macos
-          path: .artifacts/test-stability/
+          path: |
+            .artifacts/test-stability/
+            .artifacts/performance/
           if-no-files-found: ignore
           retention-days: 14
 

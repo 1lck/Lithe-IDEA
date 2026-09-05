@@ -93,4 +93,22 @@ struct LitheDragUpdateSchedulerTests {
         scheduler.flushPendingDeliveryForTesting()
         #expect(delivered == [70.5])
     }
+
+    @Test
+    func benchmarkReportsBurstCompression() {
+        let scheduler = makeScheduler()
+        var delivered: [CGFloat] = []
+
+        // A high-frequency pointer stream must produce one layout update for
+        // the burst, keeping the measurable work proportional to display turns.
+        for value in stride(from: CGFloat(0), to: 240, by: 1) {
+            scheduler.submit(value, minimumChange: 0) { delivered.append($0) }
+        }
+        scheduler.flushPendingDeliveryForTesting()
+
+        #expect(scheduler.submittedCount == 240)
+        #expect(scheduler.deliveredCount == 1)
+        #expect(Double(scheduler.deliveredCount) / Double(scheduler.submittedCount) <= 0.01)
+        #expect(delivered == [239])
+    }
 }

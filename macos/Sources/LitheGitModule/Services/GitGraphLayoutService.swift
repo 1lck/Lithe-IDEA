@@ -121,6 +121,31 @@ package enum GitGraphLayoutService {
         )
     }
 
+    /// Converts the legacy layout into the compact routing snapshot used by
+    /// the native surface. No renderer coordinates or view state cross this
+    /// boundary.
+    package static func routingSnapshot(for layout: GitGraphLayout) -> GitGraphRoutingSnapshot {
+        GitGraphRoutingSnapshot(
+            rows: layout.rows.enumerated().map { index, row in
+                GitGraphRoutingRow(
+                    rowIndex: index,
+                    nodeLane: row.lane,
+                    incoming: row.incomingLaneColors.enumerated().compactMap { lane, color in
+                        color.map { GitGraphRoutingSegment(lane: lane, colorIndex: $0) }
+                    },
+                    routes: row.parentEdges.map {
+                        GitGraphRoutingRoute(
+                            targetLane: $0.targetLane,
+                            colorIndex: $0.colorIndex,
+                            isMissing: $0.isMissing
+                        )
+                    }
+                )
+            },
+            laneCount: layout.laneCount
+        )
+    }
+
     /// Returns the leftmost free slot, widening the lane set only when every
     /// existing slot is occupied.
     private static func claimSlot(in slots: inout [Lane?]) -> Int {

@@ -1,5 +1,9 @@
 //! Deterministic Git inspection and mutation behind the shared command contract.
 
+// The initial projection/routing IR is deliberately not command- or host-facing
+// until both native products can consume the same versioned contract.
+#[allow(dead_code)]
+pub(crate) mod graph;
 mod history;
 mod mutations;
 

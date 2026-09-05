@@ -134,6 +134,67 @@ package struct GitWorktree: Identifiable, Hashable, Sendable {
     }
 }
 
+/// Stable, renderer-neutral status used by the Worktrees list projection.
+package enum GitWorktreeStatusKind: String, Equatable, Sendable {
+    case pathMissing
+    case locked
+    case modified
+    case current
+    case available
+}
+
+/// Worktree row data prepared outside the SwiftUI render path.
+package struct GitWorktreeListItem: Identifiable, Equatable, Sendable {
+    package let worktree: GitWorktree
+    package let status: GitWorktreeStatusKind
+
+    package var id: String { worktree.id }
+
+    package init(worktree: GitWorktree, status: GitWorktreeStatusKind) {
+        self.worktree = worktree
+        self.status = status
+    }
+}
+
+package enum GitWorktreeListProjection {
+    /// Filters and classifies rows with one linear pass. The inspection is
+    /// passed as a value so unrelated Git model publications cannot trigger
+    /// repeated status lookups for every row.
+    package static func items(
+        worktrees: [GitWorktree],
+        query rawQuery: String,
+        inspection: GitWorktreeInspection?,
+        currentChangeCount: Int
+    ) -> [GitWorktreeListItem] {
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        return worktrees.compactMap { worktree in
+            if !query.isEmpty,
+               !worktree.displayName.localizedCaseInsensitiveContains(query),
+               !worktree.path.localizedCaseInsensitiveContains(query),
+               !(worktree.branchName?.localizedCaseInsensitiveContains(query) ?? false)
+            {
+                return nil
+            }
+
+            let status: GitWorktreeStatusKind
+            if worktree.isPrunable {
+                status = .pathMissing
+            } else if worktree.isLocked {
+                status = .locked
+            } else if inspection?.worktreeID == worktree.id, let inspection, !inspection.changes.isEmpty {
+                status = .modified
+            } else if worktree.isCurrent, currentChangeCount > 0 {
+                status = .modified
+            } else if worktree.isCurrent {
+                status = .current
+            } else {
+                status = .available
+            }
+            return GitWorktreeListItem(worktree: worktree, status: status)
+        }
+    }
+}
+
 package enum GitReferenceKind: String, Sendable {
     case local
     case remote
@@ -212,7 +273,7 @@ package struct GitCommitFile: Identifiable, Hashable, Sendable {
     package var id: String { "\(status):\(path)" }
 }
 
-package struct GitCommitFileTreeNode: Identifiable, Sendable {
+package struct GitCommitFileTreeNode: Identifiable, Equatable, Sendable {
     package let path: String
     package let name: String
     package let directories: [GitCommitFileTreeNode]

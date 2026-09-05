@@ -1383,6 +1383,14 @@
 "The checkout path does not exist" = "检出路径不存在";
 "Could not inspect this worktree" = "无法检查此工作树";
 "Loading worktree details" = "正在加载工作树详情";
+"Load more commits" = "加载更多提交";
+"Loading commits…" = "正在加载提交…";
+"Copy Commit Hash" = "复制提交哈希";
+"Copy Short Hash" = "复制短哈希";
+"New Tag…" = "新建标签…";
+"Cherry-pick Commit…" = "拣选提交…";
+"Revert Commit…" = "还原提交…";
+"Reset Current Branch to Here…" = "将当前分支重置到这里…";
 "Reading changes and recent commits." = "正在读取文件更改和最近提交。";
 "No local changes" = "没有本地更改";
 "This worktree has no uncommitted changes." = "此工作树没有未提交的更改。";

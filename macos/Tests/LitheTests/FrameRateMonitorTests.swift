@@ -1,4 +1,5 @@
 import Combine
+import Foundation
 import Testing
 @testable import Lithe
 
@@ -33,5 +34,22 @@ struct FrameRateMonitorTests {
         monitor.recordFrameForTesting(at: 0.002)
         monitor.recordFrameForTesting(at: 0.5)
         #expect(monitor.framesPerSecond == 4)
+    }
+
+    @Test
+    func ignoresOneNearRefreshRateWindowBeforePublishingAChange() {
+        let monitor = FrameRateMonitor(sampleWindow: 1)
+        monitor.recordFrameForTesting(at: 0)
+        for second in 1 ... 60 {
+            monitor.recordFrameForTesting(at: TimeInterval(second) / 60)
+        }
+        #expect(monitor.framesPerSecond == 61)
+
+        // One 58 FPS-sized window is boundary jitter, not a useful status
+        // transition. A repeated result is required before publication.
+        for second in 61 ... 118 {
+            monitor.recordFrameForTesting(at: 1 + TimeInterval(second - 60) / 58)
+        }
+        #expect(monitor.framesPerSecond == 61)
     }
 }

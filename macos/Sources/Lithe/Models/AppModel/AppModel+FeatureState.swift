@@ -168,12 +168,16 @@ extension AppModel {
     var gitStashes: [GitStash] { gitFeatureIfActive?.gitStashes ?? [] }
     var gitShelves: [GitShelfEntry] { gitFeatureIfActive?.gitShelves ?? [] }
     var gitWorktrees: [GitWorktree] { gitFeatureIfActive?.gitWorktrees ?? [] }
+    /// Constant-time change key for the Worktrees list projection.
+    var gitWorktreesVersion: Int { gitFeatureIfActive?.gitWorktreesVersion ?? 0 }
     var gitWorktreeLoadState: GitWorktreeLoadState {
         gitFeatureIfActive?.gitWorktreeLoadState ?? .idle
     }
     var gitWorktreeInspection: GitWorktreeInspection? {
         gitFeatureIfActive?.gitWorktreeInspection
     }
+    /// Constant-time change key for worktree detail publications.
+    var gitWorktreeInspectionVersion: Int { gitFeatureIfActive?.gitWorktreeInspectionVersion ?? 0 }
     var gitWorktreeInspectionLoadState: GitWorktreeInspectionLoadState {
         gitFeatureIfActive?.gitWorktreeInspectionLoadState ?? .idle
     }
@@ -257,6 +261,8 @@ extension AppModel {
     var gitLogMatchedCommitHashes: Set<String>? {
         gitFeatureIfActive?.gitLogMatchedCommitHashes
     }
+    /// Constant-time change key for completed Git Log filtering work.
+    var gitLogFilterVersion: Int { gitFeatureIfActive?.gitLogFilterVersion ?? 0 }
     var isFilteringGitLog: Bool { gitFeatureIfActive?.isFilteringGitLog ?? false }
     var selectedGitReference: GitReference? {
         get { gitFeatureIfActive?.selectedGitReference }
@@ -270,6 +276,8 @@ extension AppModel {
         set { gitFeatureIfActive?.selectedGitCommit = newValue }
     }
     var selectedGitCommitFiles: [GitCommitFile] { gitFeatureIfActive?.selectedGitCommitFiles ?? [] }
+    /// Constant-time change key for the commit file tree projection.
+    var selectedGitCommitFilesVersion: Int { gitFeatureIfActive?.selectedGitCommitFilesVersion ?? 0 }
     var selectedGitCommitFilesLoadState: GitCommitFilesLoadState {
         gitFeatureIfActive?.selectedGitCommitFilesLoadState ?? .idle
     }

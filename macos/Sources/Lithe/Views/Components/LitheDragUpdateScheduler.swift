@@ -24,6 +24,11 @@ final class LitheDragUpdateScheduler {
     private var pendingDelivery: (@MainActor () -> Void)?
     private let delivery: Delivery
 
+    #if DEBUG
+    private(set) var submittedCount = 0
+    private(set) var deliveredCount = 0
+    #endif
+
     nonisolated init(delivery: Delivery = .mainRunLoopTurn) {
         self.delivery = delivery
     }
@@ -35,12 +40,18 @@ final class LitheDragUpdateScheduler {
         minimumChange: CGFloat = 1,
         deliver: @escaping @MainActor (CGFloat) -> Void
     ) {
+        #if DEBUG
+        submittedCount += 1
+        #endif
         if let last = lastDeliveredValue, abs(value - last) < minimumChange { return }
         guard buffer.submit(value) else { return }
         let work: @MainActor () -> Void = { [weak self] in
             guard let self, let value = self.buffer.takePendingValue() else { return }
             self.lastDeliveredValue = value
             self.pendingDelivery = nil
+            #if DEBUG
+            self.deliveredCount += 1
+            #endif
             deliver(value)
         }
         switch delivery {
