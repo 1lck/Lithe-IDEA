@@ -625,6 +625,46 @@ struct ExecutionModuleTests {
     }
 
     @Test
+    func mavenServiceStopCancelsAnActiveDependencyProcess() async throws {
+        let workspace = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let project = MavenProject(
+            rootURL: workspace,
+            pomURL: workspace.appendingPathComponent("pom.xml"),
+            groupID: "dev.lithe",
+            artifactID: "demo",
+            version: "1.0",
+            packaging: "jar",
+            modules: [],
+            profiles: [],
+            hasWrapper: false
+        )
+        let plan = MavenLaunchPlan(
+            version: 1,
+            toolchain: "project-maven",
+            arguments: ["dependency:tree"],
+            workingDirectory: ".",
+            configurationFingerprint: "sha256:dependency"
+        )
+        let dependencyProcess = MavenRecordingProcess()
+        let service = MavenService(
+            runtimeService: MavenRecordingRuntime(),
+            process: MavenRecordingProcess(),
+            dependencyProcess: dependencyProcess,
+            mavenOperations: RecordingMavenOperations(project: project, plan: plan)
+        )
+
+        await service.loadProject(at: workspace, files: [project.pomURL])
+        service.loadDependencies(for: ".")
+        _ = try #require(await dependencyProcess.nextStart(timeout: .seconds(1)))
+
+        service.stop()
+
+        #expect(!dependencyProcess.isRunning)
+        #expect(service.dependencyState(for: ".") == .cancelled)
+        #expect(!service.isResolvingDependencies)
+    }
+
+    @Test
     func mavenServiceReportsDependencyTimeoutFromTheProcessLifecycle() async throws {
         let workspace = URL(fileURLWithPath: "/workspace", isDirectory: true)
         let project = MavenProject(

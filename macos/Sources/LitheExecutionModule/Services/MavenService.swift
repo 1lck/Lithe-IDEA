@@ -333,6 +333,7 @@ package final class MavenService: ObservableObject {
 
     package func stop() {
         launchPlanID = UUID()
+        cancelActiveDependency(markCancelled: true)
         guard isRunning else { return }
         taskState = .stopping
         if activeOperationID != nil {

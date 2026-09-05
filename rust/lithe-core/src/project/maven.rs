@@ -731,10 +731,24 @@ fn parse_dependency_line(
     }
 
     let value = line[(marker + 3)..].trim();
-    let (coordinate, annotation) = value
-        .split_once(" (")
-        .map(|(coordinate, annotation)| (coordinate, Some(annotation.trim_end_matches(')'))))
-        .unwrap_or((value, None));
+    // Verbose dependency-plugin output wraps omitted nodes as
+    // `(coordinate - annotation)`, while resolved nodes use
+    // `coordinate (annotation)`. Normalize both forms before splitting the
+    // Maven coordinate so duplicate/conflict markers remain observable.
+    let (coordinate, annotation) = if let Some(inner) = value
+        .strip_prefix('(')
+        .and_then(|value| value.strip_suffix(')'))
+    {
+        inner
+            .split_once(" - ")
+            .map(|(coordinate, annotation)| (coordinate.trim(), Some(annotation.trim())))
+            .unwrap_or((inner.trim(), None))
+    } else {
+        value
+            .split_once(" (")
+            .map(|(coordinate, annotation)| (coordinate, Some(annotation.trim_end_matches(')'))))
+            .unwrap_or((value, None))
+    };
     let parts = coordinate.split(':').collect::<Vec<_>>();
     let (group_id, artifact_id, artifact_type, classifier, version, scope) = match parts.as_slice()
     {

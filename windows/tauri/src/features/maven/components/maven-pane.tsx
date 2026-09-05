@@ -375,7 +375,8 @@ export default function MavenPane() {
         : dependency.resolution === "omittedDuplicate"
           ? t("maven.omittedDuplicate")
           : null;
-    const subtitle = `${dependency.groupId}:${dependency.version} [${dependency.scope}]${marker ? ` (${marker})` : ""}`;
+    const classifier = dependency.classifier ? `:${dependency.classifier}` : "";
+    const subtitle = `${dependency.groupId}:${dependency.version}:${dependency.type}${classifier} [${dependency.scope}]${marker ? ` (${marker})` : ""}`;
     const children =
       dependency.children.length > 0
         ? dependency.children.map((child, index) =>

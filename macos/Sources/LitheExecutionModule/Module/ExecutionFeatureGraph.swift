@@ -66,7 +66,7 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
     }
 
     package func stop() {
-        maven.stop(); maven.cancelAllDependencies(); run.stop(); tests.stop()
+        maven.stop(); run.stop(); tests.stop()
         releaseLeases()
         activityObservers.removeAll()
     }
