@@ -3266,6 +3266,31 @@ struct EditorDocumentTests {
 
     @Test
     @MainActor
+    func liveEditorEditsProduceOrderedLanguageServerChanges() {
+        let document = EditorDocument(
+            url: URL(fileURLWithPath: "/tmp/live-editor-lsp.txt"),
+            text: "one\ntwo",
+            modificationDate: nil
+        )
+
+        document.applyLiveEditorEdit(
+            replacedRange: NSRange(location: 4, length: 3),
+            replacement: "second"
+        )
+        document.applyLiveEditorEdit(
+            replacedRange: NSRange(location: 0, length: 0),
+            replacement: "A"
+        )
+
+        let changes = document.takePendingLanguageServerChanges()
+        #expect(changes.map(\.text) == ["second", "A"])
+        #expect(changes[0].start == LanguageServerDocumentPosition(line: 1, utf16Column: 0))
+        #expect(changes[0].end == LanguageServerDocumentPosition(line: 1, utf16Column: 3))
+        #expect(document.takePendingLanguageServerChanges().isEmpty)
+    }
+
+    @Test
+    @MainActor
     func liveEditorEditAppliesUTF16ReplacementWithoutFullEditorSnapshot() {
         let document = EditorDocument(
             url: URL(fileURLWithPath: "/tmp/live-editor-edit.txt"),

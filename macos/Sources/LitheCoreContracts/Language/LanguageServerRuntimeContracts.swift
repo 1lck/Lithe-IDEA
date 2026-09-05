@@ -83,6 +83,42 @@ package struct LanguageServerDocumentSync: Equatable, Sendable {
     }
 }
 
+package struct LanguageServerDocumentPosition: Equatable, Sendable, Codable {
+    package let line: Int
+    package let utf16Column: Int
+
+    package init(line: Int, utf16Column: Int) {
+        self.line = line
+        self.utf16Column = utf16Column
+    }
+}
+
+package struct LanguageServerDocumentChange: Equatable, Sendable, Codable {
+    package let start: LanguageServerDocumentPosition
+    package let end: LanguageServerDocumentPosition
+    package let text: String
+
+    package init(
+        start: LanguageServerDocumentPosition,
+        end: LanguageServerDocumentPosition,
+        text: String
+    ) {
+        self.start = start
+        self.end = end
+        self.text = text
+    }
+}
+
+package protocol IncrementalLanguageServerRuntimeCore {
+    func syncLanguageServerDocument(
+        sessionID: String,
+        fileURL: URL,
+        languageID: String,
+        text: String,
+        changes: [LanguageServerDocumentChange]
+    ) -> Result<LanguageServerDocumentSync, LanguageServerRuntimeFailure>
+}
+
 package enum LanguageServerWorkspaceFileChangeKind: String, Equatable, Sendable {
     case created
     case changed

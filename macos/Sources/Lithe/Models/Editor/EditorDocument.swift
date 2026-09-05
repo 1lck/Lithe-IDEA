@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 
 @MainActor
 final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable {
@@ -25,6 +26,7 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
     @Published private(set) var savedText: String
     private(set) var lifecycleState: DocumentLifecycleState
     private(set) var lastKnownModificationDate: Date?
+    private var pendingLanguageServerChanges: [LanguageServerDocumentChange] = []
 
     init(
         url: URL,
@@ -71,8 +73,37 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
               replacedRange.length <= source.length - replacedRange.location else {
             return
         }
+        let start = Self.position(at: replacedRange.location, in: source)
+        let end = Self.position(at: NSMaxRange(replacedRange), in: source)
+        pendingLanguageServerChanges.append(
+            LanguageServerDocumentChange(
+                start: start,
+                end: end,
+                text: replacement
+            )
+        )
         let nextText = source.replacingCharacters(in: replacedRange, with: replacement)
         applyLiveEditorText(nextText)
+    }
+
+    func takePendingLanguageServerChanges() -> [LanguageServerDocumentChange] {
+        defer { pendingLanguageServerChanges.removeAll(keepingCapacity: true) }
+        return pendingLanguageServerChanges
+    }
+
+    private static func position(
+        at offset: Int,
+        in source: NSString
+    ) -> LanguageServerDocumentPosition {
+        let safeOffset = min(max(offset, 0), source.length)
+        let lineRange = source.lineRange(
+            for: NSRange(location: safeOffset, length: 0)
+        )
+        return LanguageServerDocumentPosition(
+            line: source.substring(with: NSRange(location: 0, length: lineRange.location))
+                .split(separator: "\n", omittingEmptySubsequences: false).count - 1,
+            utf16Column: safeOffset - lineRange.location
+        )
     }
 
     private func replaceText(_ newText: String, publish: Bool) {
