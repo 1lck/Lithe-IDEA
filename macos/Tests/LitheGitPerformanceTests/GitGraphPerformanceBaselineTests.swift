@@ -209,9 +209,15 @@ struct GitGraphPerformanceBaselineTests {
         )!
         let context = NSGraphicsContext(bitmapImageRep: bitmap)!
         let clock = ContinuousClock()
+        for _ in 0..<3 {
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context
+            view.draw(viewport)
+            NSGraphicsContext.restoreGraphicsState()
+        }
         var samples: [Double] = []
-        samples.reserveCapacity(10)
-        for _ in 0..<10 {
+        samples.reserveCapacity(21)
+        for _ in 0..<21 {
             let start = clock.now
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = context
@@ -253,8 +259,126 @@ struct GitGraphPerformanceBaselineTests {
         #expect(scrollView.documentView === documentView)
         #expect(scrollView.hasVerticalScroller)
         #expect(!scrollView.hasHorizontalScroller)
+        #expect(scrollView.usesPredominantAxisScrolling)
+        #expect(scrollView.scrollsDynamically)
         #expect(documentView.frame.height == CGFloat(rows.count) * GitWorktreeRowsView.rowHeight)
         #expect(documentView.frame.width == scrollView.contentView.bounds.width)
+    }
+
+    @Test("Worktree rows preserve the viewport while history grows")
+    @MainActor
+    func worktreeRowsPreserveScrollOrigin() {
+        let previous = CGPoint(x: 0, y: 2_400)
+
+        #expect(
+            GitWorktreeRowsScrollView.preservedScrollOrigin(
+                previous: previous,
+                documentHeight: 5_000 * GitWorktreeRowsView.rowHeight,
+                viewportHeight: 420
+            ) == previous
+        )
+        #expect(
+            GitWorktreeRowsScrollView.preservedScrollOrigin(
+                previous: previous,
+                documentHeight: 1_000,
+                viewportHeight: 420
+            ) == CGPoint(x: 0, y: 580)
+        )
+        #expect(
+            GitWorktreeRowsScrollView.preservedScrollOrigin(
+                previous: CGPoint(x: 0, y: -10),
+                documentHeight: 1_000,
+                viewportHeight: 420
+            ) == CGPoint.zero
+        )
+    }
+
+    @Test("The worktree list uses one native scrolling surface")
+    @MainActor
+    func nativeWorktreeListScrollContainerBaseline() throws {
+        let items = (0..<5_000).map { index in
+            makeWorktreeListFixtureItem(index: index, isCurrent: index == 0, status: index == 0 ? .current : .available)
+        }
+        let scrollView = GitWorktreeListScrollView.makeScrollView(
+            items: items,
+            selectedWorktreeID: items.first?.id,
+            onSelect: { _ in }
+        )
+        scrollView.frame = CGRect(x: 0, y: 0, width: 360, height: 420)
+        scrollView.layoutSubtreeIfNeeded()
+        let documentView = try #require(scrollView.documentView as? GitWorktreeListNSView)
+        documentView.updateLayout(width: scrollView.contentView.bounds.width)
+
+        #expect(scrollView.documentView === documentView)
+        #expect(scrollView.hasVerticalScroller)
+        #expect(!scrollView.hasHorizontalScroller)
+        #expect(scrollView.usesPredominantAxisScrolling)
+        #expect(scrollView.scrollsDynamically)
+        #expect(documentView.frame.height > CGFloat(items.count) * GitWorktreeListScrollView.rowHeight)
+        #expect(documentView.frame.width == scrollView.contentView.bounds.width)
+    }
+
+    @Test("The native worktree list draws only visible rows")
+    @MainActor
+    func nativeWorktreeListFrameBaseline() throws {
+        let items = (0..<5_000).map { index in
+            makeWorktreeListFixtureItem(index: index, isCurrent: false, status: .available)
+        }
+        let view = GitWorktreeListNSView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 360,
+            height: CGFloat(items.count) * (GitWorktreeListScrollView.rowHeight + GitWorktreeListScrollView.rowSpacing)
+        ))
+        view.update(items: items, selectedWorktreeID: items[2_500].id, onSelect: { _ in })
+        let viewport = CGRect(x: 0, y: 2_500 * Int(GitWorktreeListScrollView.rowHeight + GitWorktreeListScrollView.rowSpacing), width: 360, height: 420)
+        let visibleRange = try #require(GitWorktreeListNSView.visibleRowRange(
+            rowCount: items.count,
+            rowHeight: GitWorktreeListScrollView.rowHeight,
+            rowSpacing: GitWorktreeListScrollView.rowSpacing,
+            inset: GitWorktreeListScrollView.verticalInset,
+            dirtyRect: viewport
+        ))
+        let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 360,
+            pixelsHigh: 420,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bitmapFormat: [],
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        )!
+        let context = NSGraphicsContext(bitmapImageRep: bitmap)!
+        let clock = ContinuousClock()
+        for _ in 0..<3 {
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context
+            view.draw(viewport)
+            NSGraphicsContext.restoreGraphicsState()
+        }
+        var samples: [Double] = []
+        samples.reserveCapacity(21)
+        for _ in 0..<21 {
+            let start = clock.now
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context
+            view.draw(viewport)
+            NSGraphicsContext.restoreGraphicsState()
+            samples.append(milliseconds(clock.now - start))
+        }
+        let sorted = samples.sorted()
+        let median = sorted[sorted.count / 2]
+        let p95 = sorted[Int(ceil(Double(sorted.count) * 0.95)) - 1]
+        print(
+            "Worktree list native rows: total=\(items.count), visible=\(visibleRange.count), samples=\(samples.count), median=\(String(format: "%.3f", median))ms, p95=\(String(format: "%.3f", p95))ms"
+        )
+        #expect(visibleRange.count <= 7)
+        #expect(median < 30)
+        #expect(p95 < 100)
     }
 
     @Test("The Git log commit list uses one native scrolling viewport")
@@ -290,6 +414,34 @@ struct GitGraphPerformanceBaselineTests {
         #expect(!scrollView.hasHorizontalScroller)
         #expect(scrollView.documentView != nil)
         #expect(scrollView.contentView.bounds.height == 420)
+    }
+
+    @Test("Loading more commits preserves the current scroll origin")
+    @MainActor
+    func loadMorePreservesScrollOrigin() {
+        let previous = CGPoint(x: 0, y: 2_400)
+
+        #expect(
+            GitGraphScrollView.preservedScrollOrigin(
+                previous: previous,
+                documentHeight: 5_000 * 30,
+                viewportHeight: 420
+            ) == previous
+        )
+        #expect(
+            GitGraphScrollView.preservedScrollOrigin(
+                previous: previous,
+                documentHeight: 1_000,
+                viewportHeight: 420
+            ) == CGPoint(x: 0, y: 580)
+        )
+        #expect(
+            GitGraphScrollView.preservedScrollOrigin(
+                previous: CGPoint(x: 0, y: -10),
+                documentHeight: 1_000,
+                viewportHeight: 420
+            ) == CGPoint.zero
+        )
     }
 
     @Test("The native Git log commit rows draw only the visible viewport")
@@ -530,6 +682,119 @@ struct GitGraphPerformanceBaselineTests {
         #expect(result.p95FrameTimeMs < 100)
         #expect(result.effectiveFPS > 1)
     }
+
+    @Test(
+        "The native Worktree rows keep a window display-link cadence while scrolling",
+        .enabled(
+            if: ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 14,
+            "Requires macOS 14 or newer for NSWindow display links."
+        )
+    )
+    @MainActor
+    func worktreeWindowCompositorFrameSample() throws {
+        guard NSScreen.main != nil else {
+            print("Worktree window compositor sample skipped: no active WindowServer display.")
+            return
+        }
+
+        let rows = (0..<5_000).map { index in
+            GitWorktreeRowsSnapshot.Row.commit(
+                subject: "Synthetic worktree commit \(index)",
+                author: "Lithe Performance Fixture",
+                date: "2026/09/05 00:00"
+            )
+        }
+        let scrollView = GitWorktreeRowsScrollView.makeScrollView(snapshot: GitWorktreeRowsSnapshot(
+            identity: .history(inspectionVersion: 1, query: ""),
+            rows: rows
+        ))
+        scrollView.frame = CGRect(x: 0, y: 0, width: 900, height: 520)
+
+        let screenFrame = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1200, height: 800)
+        let window = NSWindow(
+            contentRect: CGRect(
+                x: screenFrame.midX - 450,
+                y: screenFrame.midY - 260,
+                width: 900,
+                height: 520
+            ),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.level = .floating
+        window.ignoresMouseEvents = true
+        window.backgroundColor = .clear
+        window.contentView = scrollView
+        let application = NSApplication.shared
+        application.setActivationPolicy(.accessory)
+        application.finishLaunching()
+        application.activate(ignoringOtherApps: true)
+        window.orderFrontRegardless()
+        window.makeKey()
+        window.displayIfNeeded()
+        guard window.isVisible, window.screen != nil else {
+            print("Worktree window compositor sample skipped: test window is not attached to a display.")
+            window.orderOut(nil)
+            window.close()
+            return
+        }
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+
+        let sampler = WindowCompositorFrameSampler(
+            window: window,
+            scrollView: scrollView,
+            targetFrameCount: 45
+        )
+        sampler.start()
+
+        let deadline = CACurrentMediaTime() + 3.0
+        while !sampler.isComplete && CACurrentMediaTime() < deadline {
+            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+        }
+        guard sampler.isComplete else {
+            throw TestTimeoutError(
+                message: "Worktree window display-link produced \(sampler.sampleCount) samples before the 3-second deadline."
+            )
+        }
+
+        let result = sampler.result()
+        print(
+            "Worktree window compositor sample: callbacks=\(result.sampleCount), median=\(String(format: "%.3f", result.medianFrameTimeMs))ms, p95=\(String(format: "%.3f", result.p95FrameTimeMs))ms, effectiveFPS=\(String(format: "%.1f", result.effectiveFPS)), droppedOpportunities=\(result.droppedFrameOpportunities)"
+        )
+        #expect(result.sampleCount == 45)
+        #expect(result.medianFrameTimeMs > 0)
+        #expect(result.p95FrameTimeMs < 100)
+        #expect(result.effectiveFPS > 1)
+    }
+}
+
+private func makeWorktreeListFixtureItem(
+    index: Int,
+    isCurrent: Bool,
+    status: GitWorktreeStatusKind
+) -> GitWorktreeListItem {
+    let path = "/tmp/lithe-worktree-\(index)"
+    let head = String(format: "%040llx", UInt64(index + 1))
+    let branch = "refs/heads/feature-\(index)"
+    let worktree = GitWorktree(
+        path: path,
+        head: head,
+        branch: branch,
+        isCurrent: isCurrent,
+        isPrimary: index == 0,
+        isBare: false,
+        isDetached: false,
+        isLocked: false,
+        lockReason: nil,
+        isPrunable: false,
+        pruneReason: nil
+    )
+    return GitWorktreeListItem(worktree: worktree, status: status)
 }
 
 private struct TestTimeoutError: Error, CustomStringConvertible {

@@ -137,6 +137,21 @@ struct AppLocalizationTests {
     }
 
     @Test
+    func simplifiedChineseResourcesCoverGitHistoryPagination() throws {
+        let translations = try simplifiedChineseTranslations()
+
+        #expect(translations["Load more commits"] == "加载更多提交")
+        #expect(translations["Loading commits…"] == "正在加载提交…")
+        #expect(translations["Older commits are outside the loaded history"] == "更早的提交不在当前加载的历史范围内")
+        #expect(translations["Copy Commit Hash"] == "复制提交哈希")
+        #expect(translations["Copy Short Hash"] == "复制短哈希")
+        #expect(translations["New Tag…"] == "新建标签…")
+        #expect(translations["Cherry-pick Commit…"] == "拣选提交…")
+        #expect(translations["Revert Commit…"] == "还原提交…")
+        #expect(translations["Reset Current Branch to Here…"] == "将当前分支重置到这里…")
+    }
+
+    @Test
     func simplifiedChineseResourcesCoverKeymapControls() throws {
         let translations = try simplifiedChineseTranslations()
 

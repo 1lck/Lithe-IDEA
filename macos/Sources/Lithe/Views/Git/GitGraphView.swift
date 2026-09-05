@@ -56,7 +56,7 @@ struct GitGraphView: View {
                 if presentation.hasMissingParents {
                     HStack(spacing: 7) {
                         Image(systemName: "ellipsis")
-                        Text("Older commits are outside the loaded history")
+                        Text(String(localized: "Older commits are outside the loaded history"))
                     }
                     .font(.system(size: 10.5))
                     .foregroundStyle(LitheTheme.tertiaryText)
@@ -94,6 +94,20 @@ struct GitGraphScrollView: NSViewRepresentable {
     let onLoadMore: () -> Void
 
     private let rowHeight: CGFloat = 30
+
+    /// Keep the user's viewport stable while the document grows or is
+    /// refreshed for reasons unrelated to selection.
+    static func preservedScrollOrigin(
+        previous: CGPoint,
+        documentHeight: CGFloat,
+        viewportHeight: CGFloat
+    ) -> CGPoint {
+        let maxY = max(0, documentHeight - viewportHeight)
+        return CGPoint(
+            x: previous.x,
+            y: min(max(previous.y, 0), maxY)
+        )
+    }
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = Self.makeScrollView(
@@ -144,7 +158,8 @@ struct GitGraphScrollView: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let documentView = nsView.documentView as? GitGraphScrollDocumentView else { return }
-        documentView.update(
+        let previousOrigin = nsView.contentView.bounds.origin
+        let selectionChanged = documentView.update(
             presentation: presentation,
             selectedHash: selectedHash,
             showCommitDecorations: showCommitDecorations,
@@ -156,15 +171,30 @@ struct GitGraphScrollView: NSViewRepresentable {
         let width = max(nsView.contentView.bounds.width, 1)
         documentView.updateLayout(width: width, viewportHeight: nsView.contentView.bounds.height)
 
-        guard let selectedIndex = presentation.rows.firstIndex(where: { $0.commit.hash == selectedHash }) else { return }
-        nsView.contentView.scrollToVisible(
-            NSRect(
-                x: 0,
-                y: CGFloat(selectedIndex) * rowHeight,
-                width: width,
-                height: rowHeight
+        if selectionChanged,
+           let selectedIndex = presentation.rows.firstIndex(where: { $0.commit.hash == selectedHash }) {
+            // Selection changes are the only updates that should move the
+            // viewport. Appending a history page must leave the user's
+            // current scroll position untouched.
+            nsView.contentView.scrollToVisible(
+                NSRect(
+                    x: 0,
+                    y: CGFloat(selectedIndex) * rowHeight,
+                    width: width,
+                    height: rowHeight
+                )
             )
-        )
+        } else {
+            // Growing the document view can make AppKit adjust the clip view
+            // origin. Restore the previous origin for data-only updates such
+            // as Load more, clamped by the new document bounds.
+            nsView.layoutSubtreeIfNeeded()
+            nsView.contentView.setBoundsOrigin(Self.preservedScrollOrigin(
+                previous: previousOrigin,
+                documentHeight: documentView.bounds.height,
+                viewportHeight: nsView.contentView.bounds.height
+            ))
+        }
     }
 }
 
@@ -176,6 +206,11 @@ final class GitGraphScrollDocumentView: NSView {
     private var canLoadMore = false
     private var isLoadingMore = false
     private var hasMissingParents = false
+    private var selectedHash: String?
+    private var rows: [GitGraphRow] = []
+    private var routingSnapshot = GitGraphRoutingSnapshot(rows: [], laneCount: 0)
+    private var showCommitDecorations = false
+    private var didConfigureLoadMoreButton = false
     private var onLoadMore: (() -> Void)?
     private var rowCount = 0
     private var graphWidth: CGFloat = 30
@@ -199,6 +234,7 @@ final class GitGraphScrollDocumentView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
+    @discardableResult
     func update(
         presentation: GitGraphPresentation,
         selectedHash: String?,
@@ -207,36 +243,63 @@ final class GitGraphScrollDocumentView: NSView {
         isLoadingMore: Bool,
         actions: GitGraphRowActions,
         onLoadMore: @escaping () -> Void
-    ) {
-        graphWidth = max(30, CGFloat(max(presentation.routingSnapshot.laneCount, 1)) * 13 + 16)
+    ) -> Bool {
+        let selectionChanged = self.selectedHash != selectedHash
+        let nextGraphWidth = max(30, CGFloat(max(presentation.routingSnapshot.laneCount, 1)) * 13 + 16)
+        let graphChanged = routingSnapshot != presentation.routingSnapshot || graphWidth != nextGraphWidth
+        let rowsChanged = rows != presentation.rows
+        let missingParentsChanged = hasMissingParents != presentation.hasMissingParents
+        let showDecorationsChanged = self.showCommitDecorations != showCommitDecorations
+        let loadMoreStateChanged = self.canLoadMore != canLoadMore
+        let loadingStateChanged = self.isLoadingMore != isLoadingMore
+
+        self.selectedHash = selectedHash
+        graphWidth = nextGraphWidth
         rowCount = presentation.rows.count + (presentation.hasMissingParents ? 1 : 0)
         hasMissingParents = presentation.hasMissingParents
+        rows = presentation.rows
+        routingSnapshot = presentation.routingSnapshot
+        self.showCommitDecorations = showCommitDecorations
         self.canLoadMore = canLoadMore
         self.isLoadingMore = isLoadingMore
         self.onLoadMore = onLoadMore
+        if !didConfigureLoadMoreButton || loadMoreStateChanged || loadingStateChanged {
+            loadMoreButton.title = isLoadingMore
+                ? String(localized: "Loading commits…")
+                : String(localized: "Load more commits")
+            loadMoreButton.isHidden = !canLoadMore
+            loadMoreButton.isEnabled = !isLoadingMore
+            didConfigureLoadMoreButton = true
+        }
+        // The callback may capture refreshed feature state, so keep the
+        // target current even when the rendered button state is unchanged.
         loadMoreTarget = GitGraphLoadMoreButtonTarget(action: onLoadMore)
         loadMoreButton.target = loadMoreTarget
         loadMoreButton.action = #selector(GitGraphLoadMoreButtonTarget.invoke)
-        loadMoreButton.title = isLoadingMore
-            ? String(localized: "Loading commits…")
-            : String(localized: "Load more commits")
-        loadMoreButton.isHidden = !canLoadMore
-        loadMoreButton.isEnabled = !isLoadingMore
-        graphView.update(
-            snapshot: presentation.routingSnapshot,
-            width: graphWidth,
-            rowHeight: rowHeight
-        )
-        commitRowsView.update(
-            rows: presentation.rows,
-            selectedHash: selectedHash,
-            showDecorations: showCommitDecorations,
-            graphWidth: graphWidth,
-            rowHeight: rowHeight,
-            actions: actions
-        )
-        needsLayout = true
-        needsDisplay = true
+        if graphChanged {
+            graphView.update(
+                snapshot: presentation.routingSnapshot,
+                width: graphWidth,
+                rowHeight: rowHeight
+            )
+        }
+        if rowsChanged || selectionChanged || showDecorationsChanged {
+            commitRowsView.update(
+                rows: presentation.rows,
+                selectedHash: selectedHash,
+                showDecorations: showCommitDecorations,
+                graphWidth: graphWidth,
+                rowHeight: rowHeight,
+                actions: actions
+            )
+        } else {
+            commitRowsView.updateActions(actions)
+        }
+        if graphChanged || rowsChanged || missingParentsChanged || loadMoreStateChanged {
+            needsLayout = true
+            needsDisplay = true
+        }
+        return selectionChanged
     }
 
     func updateLayout(width: CGFloat, viewportHeight: CGFloat) {
@@ -244,20 +307,23 @@ final class GitGraphScrollDocumentView: NSView {
         let height = max(viewportHeight, CGFloat(rowCount) * rowHeight + footerHeight)
         let size = CGSize(width: max(width, 1), height: height)
         if frame.size != size { setFrameSize(size) }
-        graphView.frame = CGRect(x: 0, y: 0, width: graphWidth, height: height)
-        commitRowsView.frame = CGRect(
+        let graphFrame = CGRect(x: 0, y: 0, width: graphWidth, height: height)
+        if graphView.frame != graphFrame { graphView.frame = graphFrame }
+        let rowsFrame = CGRect(
             x: graphWidth,
             y: 0,
             width: max(0, width - graphWidth),
             height: CGFloat(rowCount) * rowHeight
         )
+        if commitRowsView.frame != rowsFrame { commitRowsView.frame = rowsFrame }
         let missingParentsHeight = hasMissingParents ? rowHeight : 0
-        loadMoreButton.frame = CGRect(
+        let buttonFrame = CGRect(
             x: 0,
             y: CGFloat(presentationRowCount) * rowHeight + missingParentsHeight + 1,
             width: max(0, width),
             height: rowHeight
         )
+        if loadMoreButton.frame != buttonFrame { loadMoreButton.frame = buttonFrame }
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -319,6 +385,7 @@ final class GitGraphCommitRowsNSView: NSView {
     private var actions: GitGraphRowActions?
     private var drawingStyle: DrawingStyle?
     private var hoveredIndex: Int?
+    private var labelWidthCache: [String: CGFloat] = [:]
 
     override var isFlipped: Bool { true }
 
@@ -336,6 +403,7 @@ final class GitGraphCommitRowsNSView: NSView {
                 || self.graphWidth != graphWidth
                 || self.rowHeight != rowHeight else { return }
         self.rows = rows
+        labelWidthCache.removeAll(keepingCapacity: true)
         self.selectedHash = selectedHash
         self.showDecorations = showDecorations
         self.graphWidth = graphWidth
@@ -344,9 +412,14 @@ final class GitGraphCommitRowsNSView: NSView {
         needsDisplay = true
     }
 
+    func updateActions(_ actions: GitGraphRowActions) {
+        self.actions = actions
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         drawingStyle = nil
+        labelWidthCache.removeAll(keepingCapacity: true)
         needsDisplay = true
     }
 
@@ -365,14 +438,20 @@ final class GitGraphCommitRowsNSView: NSView {
         let index = Int(floor(convert(event.locationInWindow, from: nil).y / rowHeight))
         let next = rows.indices.contains(index) ? index : nil
         guard hoveredIndex != next else { return }
+        let previous = hoveredIndex
         hoveredIndex = next
-        needsDisplay = true
+        if let previous {
+            setNeedsDisplay(NSRect(x: 0, y: CGFloat(previous) * rowHeight, width: bounds.width, height: rowHeight))
+        }
+        if let next {
+            setNeedsDisplay(NSRect(x: 0, y: CGFloat(next) * rowHeight, width: bounds.width, height: rowHeight))
+        }
     }
 
     override func mouseExited(with event: NSEvent) {
-        guard hoveredIndex != nil else { return }
+        guard let previous = hoveredIndex else { return }
         hoveredIndex = nil
-        needsDisplay = true
+        setNeedsDisplay(NSRect(x: 0, y: CGFloat(previous) * rowHeight, width: bounds.width, height: rowHeight))
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -435,13 +514,13 @@ final class GitGraphCommitRowsNSView: NSView {
         let commit = rows[index].commit
         let target = GitGraphCommitMenuTarget(commit: commit, actions: actions)
         let menu = NSMenu()
-        menu.addItem(withTitle: "Copy Commit Hash", action: #selector(GitGraphCommitMenuTarget.copyHash), keyEquivalent: "")
-        menu.addItem(withTitle: "Copy Short Hash", action: #selector(GitGraphCommitMenuTarget.copyShortHash), keyEquivalent: "")
+        menu.addItem(withTitle: String(localized: "Copy Commit Hash"), action: #selector(GitGraphCommitMenuTarget.copyHash), keyEquivalent: "")
+        menu.addItem(withTitle: String(localized: "Copy Short Hash"), action: #selector(GitGraphCommitMenuTarget.copyShortHash), keyEquivalent: "")
         menu.addItem(.separator())
-        menu.addItem(withTitle: "New Tag…", action: #selector(GitGraphCommitMenuTarget.createTag), keyEquivalent: "")
-        menu.addItem(withTitle: "Cherry-pick Commit…", action: #selector(GitGraphCommitMenuTarget.cherryPick), keyEquivalent: "")
-        menu.addItem(withTitle: "Revert Commit…", action: #selector(GitGraphCommitMenuTarget.revert), keyEquivalent: "")
-        menu.addItem(withTitle: "Reset Current Branch to Here…", action: #selector(GitGraphCommitMenuTarget.reset), keyEquivalent: "")
+        menu.addItem(withTitle: String(localized: "New Tag…"), action: #selector(GitGraphCommitMenuTarget.createTag), keyEquivalent: "")
+        menu.addItem(withTitle: String(localized: "Cherry-pick Commit…"), action: #selector(GitGraphCommitMenuTarget.cherryPick), keyEquivalent: "")
+        menu.addItem(withTitle: String(localized: "Revert Commit…"), action: #selector(GitGraphCommitMenuTarget.revert), keyEquivalent: "")
+        menu.addItem(withTitle: String(localized: "Reset Current Branch to Here…"), action: #selector(GitGraphCommitMenuTarget.reset), keyEquivalent: "")
         for item in menu.items { item.target = target }
         return menu
     }
@@ -449,19 +528,36 @@ final class GitGraphCommitRowsNSView: NSView {
     private func drawLabels(_ labels: [GitGraphLabel], in rect: CGRect, style: DrawingStyle, context: CGContext?) {
         var x = max(0, rect.width - 230)
         for label in labels.reversed() {
-            let width = min(130, max(28, (label.title as NSString).size(withAttributes: [.font: style.meta]).width + 14))
+            let measuredWidth = labelWidthCache[label.title] ?? {
+                let value = (label.title as NSString).size(withAttributes: [.font: style.meta]).width + 14
+                labelWidthCache[label.title] = value
+                return value
+            }()
+            let width = min(130, max(28, measuredWidth))
             x -= width + 5
             style.labelBackground.setFill()
-            NSBezierPath(rect: CGRect(x: x, y: rect.midY - 8, width: width, height: 16)).fill()
+            NSBezierPath(roundedRect: CGRect(x: x, y: rect.midY - 8, width: width, height: 16), xRadius: 4, yRadius: 4).fill()
             drawText(label.title, in: CGRect(x: x + 7, y: rect.minY, width: width - 10, height: rect.height), font: style.meta, color: style.primary)
         }
     }
 
+    private static let leftParagraphStyle: NSParagraphStyle = {
+        let style = NSMutableParagraphStyle()
+        style.alignment = .left
+        style.lineBreakMode = .byTruncatingTail
+        return style.copy() as! NSParagraphStyle
+    }()
+
+    private static let rightParagraphStyle: NSParagraphStyle = {
+        let style = NSMutableParagraphStyle()
+        style.alignment = .right
+        style.lineBreakMode = .byTruncatingTail
+        return style.copy() as! NSParagraphStyle
+    }()
+
     private func drawText(_ text: String, in rect: CGRect, font: NSFont, color: NSColor, alignment: NSTextAlignment = .left) {
         guard rect.width > 0 else { return }
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = alignment
-        paragraph.lineBreakMode = .byTruncatingTail
+        let paragraph = alignment == .right ? Self.rightParagraphStyle : Self.leftParagraphStyle
         let height = ceil(font.ascender - font.descender)
         (text as NSString).draw(in: CGRect(x: rect.minX, y: rect.midY - height / 2, width: rect.width, height: height), withAttributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph])
     }
