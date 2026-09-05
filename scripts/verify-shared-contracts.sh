@@ -34,7 +34,7 @@ windows_lithe_theme="windows/tauri/src/extensions/themes/builtin/lithe.json"
   abort "Maven portable required fields differ from v1" unless portable.fetch("required").sort == portable_fields
 
   abort "Maven launch-context schema ID mismatch" unless launch.fetch("$id").end_with?("/maven-launch-context-v1.schema.json")
-  launch_fields = %w[javaHomePath mavenExecutablePath profiles reactorPath settingsPath skipTests version]
+  launch_fields = %w[javaHomePath localRepositoryPath mavenExecutablePath profiles reactorPath settingsPath skipTests version]
   abort "Maven launch-context fields differ from v1" unless launch.fetch("properties").keys.sort == launch_fields.sort
   abort "Maven launch-context required fields differ from v1" unless launch.fetch("required").sort == %w[profiles reactorPath skipTests version]
 

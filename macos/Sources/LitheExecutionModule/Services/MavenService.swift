@@ -15,6 +15,7 @@ package final class MavenService: ObservableObject {
     @Published package private(set) var customProfiles: [String] = []
     @Published package private(set) var skipTests = false
     @Published package private(set) var settingsPath: String?
+    @Published package private(set) var localRepositoryPath: String?
     @Published package private(set) var mavenExecutablePath: String?
     @Published package private(set) var javaHomePath: String?
     @Published package private(set) var configurationSaveError: String?
@@ -56,6 +57,7 @@ package final class MavenService: ObservableObject {
             reactorPath: reactorPath,
             profiles: selectedProfiles.sorted(),
             settingsPath: settingsPath,
+            localRepositoryPath: localRepositoryPath,
             skipTests: skipTests,
             mavenExecutablePath: mavenExecutablePath,
             javaHomePath: javaHomePath
@@ -245,16 +247,20 @@ package final class MavenService: ObservableObject {
 
     package func updateLocalConfiguration(
         settingsPath: String?,
+        localRepositoryPath: String?,
         mavenExecutablePath: String?,
         javaHomePath: String?
     ) {
         let settings = normalizedLocalPath(settingsPath)
+        let localRepository = normalizedLocalPath(localRepositoryPath)
         let executable = normalizedLocalPath(mavenExecutablePath)
         let javaHome = normalizedLocalPath(javaHomePath)
         guard settings != self.settingsPath
+                || localRepository != self.localRepositoryPath
                 || executable != self.mavenExecutablePath
                 || javaHome != self.javaHomePath else { return }
         self.settingsPath = settings
+        self.localRepositoryPath = localRepository
         self.mavenExecutablePath = executable
         self.javaHomePath = javaHome
         configurationDidChange()
@@ -367,6 +373,7 @@ package final class MavenService: ObservableObject {
         customProfiles = []
         skipTests = false
         settingsPath = nil
+        localRepositoryPath = nil
         mavenExecutablePath = nil
         javaHomePath = nil
         configurationFingerprint = nil
@@ -397,6 +404,7 @@ package final class MavenService: ObservableObject {
             reactorPath: reactorPath,
             profiles: selectedProfiles.sorted(),
             settingsPath: settingsPath,
+            localRepositoryPath: localRepositoryPath,
             skipTests: skipTests,
             mavenExecutablePath: mavenExecutablePath,
             javaHomePath: javaHomePath
@@ -686,6 +694,7 @@ package final class MavenService: ObservableObject {
         customProfiles = normalizedProfiles(portable?.customProfiles ?? [])
         skipTests = portable?.skipTests ?? false
         settingsPath = normalizedLocalPath(stored?.local?.settingsPath)
+        localRepositoryPath = normalizedLocalPath(stored?.local?.localRepositoryPath)
         mavenExecutablePath = normalizedLocalPath(stored?.local?.mavenExecutablePath)
         javaHomePath = normalizedLocalPath(stored?.local?.javaHomePath)
     }
@@ -743,6 +752,7 @@ package final class MavenService: ObservableObject {
             ),
             local: MavenLocalConfiguration(
                 settingsPath: settingsPath,
+                localRepositoryPath: localRepositoryPath,
                 mavenExecutablePath: mavenExecutablePath,
                 javaHomePath: javaHomePath
             )

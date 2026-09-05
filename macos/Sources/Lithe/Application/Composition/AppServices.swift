@@ -43,6 +43,7 @@ final class AppServices {
     let aiConfigurationSources: [any AIConfigurationSource]
     let recentProjectsStore: RecentProjectsStore
     let workspaceSessionStore: WorkspaceSessionStore
+    let directoryMarkStore: any WorkspaceDirectoryMarkStoring
     let workbenchLayoutStore: WorkbenchLayoutStore
     let workbenchBackgroundPlatform: any WorkbenchBackgroundPlatformProviding
     let directoryWatcherFactory: any DirectoryWatcherFactory
@@ -78,6 +79,7 @@ final class AppServices {
         aiConfigurationSources: [any AIConfigurationSource],
         recentProjectsStore: RecentProjectsStore,
         workspaceSessionStore: WorkspaceSessionStore,
+        directoryMarkStore: any WorkspaceDirectoryMarkStoring,
         workbenchLayoutStore: WorkbenchLayoutStore,
         workbenchBackgroundPlatform: any WorkbenchBackgroundPlatformProviding,
         directoryWatcherFactory: any DirectoryWatcherFactory,
@@ -121,6 +123,7 @@ final class AppServices {
         self.aiConfigurationSources = aiConfigurationSources
         self.recentProjectsStore = recentProjectsStore
         self.workspaceSessionStore = workspaceSessionStore
+        self.directoryMarkStore = directoryMarkStore
         self.workbenchLayoutStore = workbenchLayoutStore
         self.workbenchBackgroundPlatform = workbenchBackgroundPlatform
         self.directoryWatcherFactory = directoryWatcherFactory

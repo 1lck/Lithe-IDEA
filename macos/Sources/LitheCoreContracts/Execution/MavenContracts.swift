@@ -1,5 +1,38 @@
 import Foundation
 
+package enum MavenSourceRootKind: String, CaseIterable, Identifiable, Hashable, Sendable {
+    case mainJava
+    case mainResources
+    case testJava
+    case testResources
+    case generatedMain
+    case generatedTest
+
+    package var id: String { rawValue }
+    package var title: String {
+        switch self {
+        case .mainJava: "main Java"
+        case .mainResources: "main resources"
+        case .testJava: "test Java"
+        case .testResources: "test resources"
+        case .generatedMain: "generated main"
+        case .generatedTest: "generated test"
+        }
+    }
+}
+
+package struct MavenSourceRoot: Identifiable, Hashable, Sendable {
+    package let path: String
+    package let kind: MavenSourceRootKind
+
+    package init(path: String, kind: MavenSourceRootKind) {
+        self.path = path
+        self.kind = kind
+    }
+
+    package var id: String { "\(kind.rawValue):\(path)" }
+}
+
 package struct MavenProject: Identifiable, Hashable, Sendable {
     package let rootURL: URL
     package let pomURL: URL
@@ -7,6 +40,7 @@ package struct MavenProject: Identifiable, Hashable, Sendable {
     package let artifactID: String
     package let version: String?
     package let packaging: String
+    package let sourceRoots: [MavenSourceRoot]
     package let modules: [MavenModule]
     package let profiles: [MavenProfile]
     package let hasWrapper: Bool
@@ -20,7 +54,8 @@ package struct MavenProject: Identifiable, Hashable, Sendable {
         packaging: String,
         modules: [MavenModule],
         profiles: [MavenProfile],
-        hasWrapper: Bool
+        hasWrapper: Bool,
+        sourceRoots: [MavenSourceRoot] = []
     ) {
         self.rootURL = rootURL
         self.pomURL = pomURL
@@ -28,6 +63,7 @@ package struct MavenProject: Identifiable, Hashable, Sendable {
         self.artifactID = artifactID
         self.version = version
         self.packaging = packaging
+        self.sourceRoots = sourceRoots
         self.modules = modules
         self.profiles = profiles
         self.hasWrapper = hasWrapper
@@ -46,6 +82,7 @@ package struct MavenModule: Identifiable, Hashable, Sendable {
     package let artifactID: String
     package let version: String?
     package let packaging: String
+    package let sourceRoots: [MavenSourceRoot]
     package let modules: [MavenModule]
 
     package init(
@@ -55,7 +92,8 @@ package struct MavenModule: Identifiable, Hashable, Sendable {
         artifactID: String,
         version: String?,
         packaging: String,
-        modules: [MavenModule]
+        modules: [MavenModule],
+        sourceRoots: [MavenSourceRoot] = []
     ) {
         self.relativePath = relativePath
         self.url = url
@@ -63,6 +101,7 @@ package struct MavenModule: Identifiable, Hashable, Sendable {
         self.artifactID = artifactID
         self.version = version
         self.packaging = packaging
+        self.sourceRoots = sourceRoots
         self.modules = modules
     }
 
@@ -180,17 +219,20 @@ package struct MavenLocalConfiguration: Codable, Equatable, Sendable {
 
     package var version: Int
     package var settingsPath: String?
+    package var localRepositoryPath: String?
     package var mavenExecutablePath: String?
     package var javaHomePath: String?
 
     package init(
         version: Int = currentVersion,
         settingsPath: String? = nil,
+        localRepositoryPath: String? = nil,
         mavenExecutablePath: String? = nil,
         javaHomePath: String? = nil
     ) {
         self.version = version
         self.settingsPath = settingsPath
+        self.localRepositoryPath = localRepositoryPath
         self.mavenExecutablePath = mavenExecutablePath
         self.javaHomePath = javaHomePath
     }
@@ -216,6 +258,7 @@ package struct MavenLaunchContext: Codable, Equatable, Sendable {
     package let reactorPath: String
     package let profiles: [String]
     package let settingsPath: String?
+    package let localRepositoryPath: String?
     package let skipTests: Bool
     package let mavenExecutablePath: String?
     package let javaHomePath: String?
@@ -225,6 +268,7 @@ package struct MavenLaunchContext: Codable, Equatable, Sendable {
         reactorPath: String,
         profiles: [String],
         settingsPath: String?,
+        localRepositoryPath: String? = nil,
         skipTests: Bool,
         mavenExecutablePath: String?,
         javaHomePath: String?
@@ -233,6 +277,7 @@ package struct MavenLaunchContext: Codable, Equatable, Sendable {
         self.reactorPath = reactorPath
         self.profiles = profiles
         self.settingsPath = settingsPath
+        self.localRepositoryPath = localRepositoryPath
         self.skipTests = skipTests
         self.mavenExecutablePath = mavenExecutablePath
         self.javaHomePath = javaHomePath
@@ -337,6 +382,9 @@ package func redactedMavenArgumentsForDisplay(_ arguments: [String]) -> [String]
             }
         } else if argument.hasPrefix("--settings=") || argument.hasPrefix("-s=") {
             result.append(String(argument.prefix { $0 != "=" }) + "=<settings.xml>")
+            index += 1
+        } else if argument.hasPrefix("-Dmaven.repo.local=") {
+            result.append("-Dmaven.repo.local=<localRepository>")
             index += 1
         } else {
             result.append(argument)

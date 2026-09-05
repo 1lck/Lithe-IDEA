@@ -319,10 +319,10 @@ assemble Maven arguments. Portable profile and Skip Tests defaults conform to
 [`maven-portable-configuration-v1.schema.json`](maven-portable-configuration-v1.schema.json).
 The transient Core request conforms to
 [`maven-launch-context-v1.schema.json`](maven-launch-context-v1.schema.json).
-External `settings.xml`, Maven executable, and Maven JDK paths remain in a
-machine-local store. They may be supplied transiently to Core for planning and
-fingerprinting, but Core never opens `settings.xml` or serializes those paths
-into the portable project context.
+External `settings.xml`, local repository, Maven executable, and Maven JDK
+paths remain in a machine-local store. They may be supplied transiently to Core
+for planning and fingerprinting, but Core never opens `settings.xml` or
+serializes those paths into the portable project context.
 
 Expanding a module's Dependencies node starts an on-demand query using
 `maven.dependencyPlan`; Core owns the fixed plugin arguments and normalizes the
@@ -347,5 +347,5 @@ context. A Run Configuration's explicit Profiles and toolchain paths take
 precedence; explicit `cwd` and `extensions.maven.skipTests` values also take
 precedence, including `skipTests: false`. Unset values inherit the project
 settings. The shared Core applies the final Maven argument order for all three
-entry points. Tool-window module launches add `-am`; Run and Debug retain their
-existing `-pl <module>` behavior without implicitly building dependencies.
+entry points. Tool-window, Run, and Debug module launches add `-am` so reactor
+dependencies are built before the selected module.

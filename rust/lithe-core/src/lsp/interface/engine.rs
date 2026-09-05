@@ -750,6 +750,7 @@ impl LspEngine {
                             settings_path: configuration.settings_path,
                             profiles: configuration.profiles,
                             project_uris,
+                            source_paths: configuration.source_paths,
                         })
                     },
                 )
@@ -3559,6 +3560,7 @@ mod tests {
                     "enterprise".to_string(),
                 ],
                 settings_path: Some("/local/settings.xml".to_string()),
+                local_repository_path: None,
                 skip_tests: true,
                 maven_executable_path: Some("/local/maven/bin/mvn".to_string()),
                 java_home_path: Some("/local/jdk".to_string()),
@@ -3936,6 +3938,15 @@ mod tests {
         assert_eq!(
             configuration["params"]["settings"]["java"]["configuration"]["maven"]["userSettings"],
             "/local/settings.xml"
+        );
+        assert_eq!(
+            configuration["params"]["settings"]["java"]["project"]["sourcePaths"],
+            json!([
+                "reactor/module-a/nested/src/main/java",
+                "reactor/module-a/nested/src/test/java",
+                "reactor/module-a/nested/target/generated-sources",
+                "reactor/module-a/nested/target/generated-test-sources"
+            ])
         );
         harness.server.send(json!({
             "jsonrpc": "2.0",

@@ -1,4 +1,5 @@
 import AppKit
+import LitheCoreContracts
 import SwiftUI
 
 /// 项目树、标签页、面包屑和 Search Everywhere 共用的图标分类。
@@ -155,6 +156,17 @@ enum LitheIcons {
         )
     }
 
+    static func kind(for directoryMark: WorkspaceDirectoryMark) -> LitheIconKind {
+        switch directoryMark {
+        case .plain: .folder
+        case .sources: .sourceFolder
+        case .resources: .resourceFolder
+        case .excluded: .excludedFolder
+        case .module: .moduleFolder
+        case .package: .packageFolder
+        }
+    }
+
     static func kind(forFilePath path: String) -> LitheIconKind {
         let fileName = (path as NSString).lastPathComponent
         return fileKind(
@@ -177,6 +189,18 @@ enum LitheIcons {
         let resourceName = filename.deletingPathExtension
         let darkFilename = "\(resourceName)_dark.\(filename.pathExtension)"
         return directory.isEmpty ? darkFilename : "\(directory)/\(darkFilename)"
+    }
+
+    /// Returns the light-theme sibling for folder assets whose base SVG uses
+    /// IntelliJ's dark palette. The sibling keeps the original path data so
+    /// switching appearance changes only color, never silhouette.
+    static func lightIdeaAssetPath(for resourcePath: String) -> String {
+        let path = resourcePath as NSString
+        let directory = path.deletingLastPathComponent
+        let filename = path.lastPathComponent as NSString
+        let resourceName = filename.deletingPathExtension
+        let lightFilename = "\(resourceName)_light.\(filename.pathExtension)"
+        return directory.isEmpty ? lightFilename : "\(directory)/\(lightFilename)"
     }
 
     /// Maps the editor gutter breakpoint state to the matching IntelliJ
@@ -433,9 +457,28 @@ enum LitheIcons {
     /// Loads an imported IntelliJ SVG from the app bundle. Keeping this lookup
     /// behind the same catalog lets the sidebar, tabs and breadcrumbs reuse it.
     @MainActor
-    static func ideaImage(for kind: LitheIconKind) -> NSImage? {
+    static func ideaImage(for kind: LitheIconKind, isDark: Bool = false) -> NSImage? {
         guard let assetPath = ideaAssetPaths[kind] else { return nil }
+        if !isDark,
+           isFolderKind(kind),
+           let lightImage = ideaImage(resourcePath: lightIdeaAssetPath(for: assetPath)) {
+            return lightImage
+        }
+        if isDark,
+           let darkImage = ideaImage(resourcePath: darkIdeaAssetPath(for: assetPath)) {
+            return darkImage
+        }
         return ideaImage(resourcePath: assetPath)
+    }
+
+    private static func isFolderKind(_ kind: LitheIconKind) -> Bool {
+        switch kind {
+        case .folder, .sourceFolder, .resourceFolder,
+             .excludedFolder, .moduleFolder, .packageFolder:
+            true
+        default:
+            false
+        }
     }
 
     /// Loads an arbitrary imported IntelliJ SVG. This is used for chrome icons
@@ -522,15 +565,10 @@ struct LitheIcon: View {
     var size: CGFloat = 14
 
     var body: some View {
-        if let image = LitheIcons.ideaImage(for: kind) {
+        if let image = LitheIcons.ideaImage(for: kind, isDark: colorScheme == .dark) {
             Image(nsImage: image)
                 .resizable()
                 .interpolation(.high)
-                // IntelliJ's catalog is authored against a dark canvas. A
-                // small contrast normalization keeps its semantic colors
-                // legible on light surfaces without turning them monochrome.
-                .saturation(colorScheme == .light ? 0.94 : 1)
-                .contrast(colorScheme == .light ? 0.90 : 1)
                 .frame(width: size, height: size)
         } else {
             switch LitheIcons.appearance(for: kind) {

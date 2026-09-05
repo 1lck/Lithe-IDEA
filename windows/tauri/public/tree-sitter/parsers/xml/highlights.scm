@@ -30,4 +30,7 @@
 
 (cdata_start) @keyword
 (cdata_end) @keyword
-(content) @string
+
+; Do not capture `(content)`: in nested markup (for example Maven pom.xml) that
+; node spans child elements across many lines. Diff rendering concatenates token
+; slices, so overlapping multi-line content tokens duplicate visible text.

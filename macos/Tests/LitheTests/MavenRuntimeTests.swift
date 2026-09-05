@@ -33,12 +33,14 @@ struct MavenRuntimeTests {
             "artifactId": "root",
             "version": "1.0",
             "packaging": "pom",
+            "sourceRoots": [{"path": "src/main/java", "kind": "mainJava"}],
             "modules": [{
                 "relativePath": "module-a",
                 "groupId": "com.example",
                 "artifactId": "child",
                 "version": "1.0",
                 "packaging": "jar",
+                "sourceRoots": [{"path": "src/test/java", "kind": "testJava"}],
                 "modules": []
             }],
             "profiles": [{"id": "dev", "isActiveByDefault": true}],
@@ -62,9 +64,15 @@ struct MavenRuntimeTests {
         #expect(project.pomURL == expectedRoot.appendingPathComponent("pom.xml"))
         #expect(project.groupID == "com.example")
         #expect(project.artifactID == "root")
+        #expect(project.sourceRoots == [
+            MavenSourceRoot(path: "src/main/java", kind: .mainJava)
+        ])
         #expect(project.modules.count == 1)
         #expect(project.modules[0].groupID == "com.example")
         #expect(project.modules[0].artifactID == "child")
+        #expect(project.modules[0].sourceRoots == [
+            MavenSourceRoot(path: "src/test/java", kind: .testJava)
+        ])
         #expect(project.modules[0].url == expectedRoot.appendingPathComponent("module-a"))
         #expect(project.profiles == [MavenProfile(id: "dev", isActiveByDefault: true)])
         #expect(project.hasWrapper)
