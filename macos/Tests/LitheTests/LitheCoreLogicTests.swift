@@ -2573,6 +2573,33 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func highlightedRangeCacheShiftsUnchangedRangesAfterAnEdit() {
+        var cache = HighlightedRangeCache()
+        cache.insert(NSRange(location: 0, length: 10))
+        cache.insert(NSRange(location: 20, length: 10))
+        cache.insert(NSRange(location: 40, length: 10))
+
+        cache.applyEdit(
+            replacedRange: NSRange(location: 12, length: 4),
+            replacementLength: 8
+        )
+        #expect(cache.ranges == [
+            NSRange(location: 0, length: 10),
+            NSRange(location: 24, length: 10),
+            NSRange(location: 44, length: 10)
+        ])
+
+        cache.applyEdit(
+            replacedRange: NSRange(location: 24, length: 10),
+            replacementLength: 0
+        )
+        #expect(cache.ranges == [
+            NSRange(location: 0, length: 10),
+            NSRange(location: 34, length: 10)
+        ])
+    }
+
+    @Test
     @MainActor
     func codeEditorShiftsFindMatchesAcrossASingleLineEdit() {
         let textView = CodeTextView(frame: .zero)
