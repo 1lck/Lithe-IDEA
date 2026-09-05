@@ -1217,7 +1217,7 @@ export function MonacoEditor({
           if (model) executeMonacoTextEdit(toMonacoRange(model, range), text);
         },
         selectAll: selectEntireModel,
-        focus: () => editor.focus(),
+        focus: () => editorRef.current?.focus(),
         addSelectionToNextFindMatch: () =>
           runMonacoSelectionAction("editor.action.addSelectionToNextFindMatch"),
         addSelectionToPreviousFindMatch: () =>
