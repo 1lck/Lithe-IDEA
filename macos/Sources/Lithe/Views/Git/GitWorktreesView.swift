@@ -141,6 +141,13 @@ struct GitWorktreesView: View {
                 }
             )
         }
+        // Window resizing continuously proposes new sizes. Keep those layout
+        // passes transactional so SwiftUI does not animate pane bounds or
+        // replay content transitions while the pointer is moving.
+        .transaction { transaction in
+            transaction.animation = nil
+            transaction.disablesAnimations = true
+        }
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.editor)
         .task(id: model.gitRepositoryRoot) {
             await model.refreshGitWorktrees()
@@ -378,33 +385,17 @@ struct GitWorktreesView: View {
             if filteredWorktrees.isEmpty {
                 listEmptyState
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 7) {
-                        ForEach(projectedWorktrees) { item in
-                            worktreeListRow(item)
-                        }
+                GitWorktreeListScrollView(
+                    items: projectedWorktrees,
+                    selectedWorktreeID: selectedWorktreeID,
+                    onSelect: { worktreeID in
+                        selectedWorktreeID = worktreeID
+                        activeSection = .overview
                     }
-                    .padding(10)
-                }
-                .litheScrollViewChrome()
+                )
             }
         }
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.sidebar)
-    }
-
-    private func worktreeListRow(_ item: GitWorktreeListItem) -> some View {
-        let worktree = item.worktree
-        let isSelected = selectedWorktree?.id == worktree.id
-        return GitWorktreeListRow(
-            worktree: worktree,
-            isSelected: isSelected,
-            status: WorktreeStatusKind(item.status),
-            onSelect: {
-                selectedWorktreeID = worktree.id
-                activeSection = .overview
-            }
-        )
-        .equatable()
     }
 
     private func worktreeStatusKind(_ worktree: GitWorktree) -> WorktreeStatusKind {
@@ -745,8 +736,14 @@ struct GitWorktreesView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(LitheTheme.raised)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        // Keep the native scrolling surface out of a SwiftUI mask. A rounded
+        // clip on a card containing NSScrollView can force an offscreen
+        // compositing pass for every wheel frame; the scroll view already
+        // clips its document content to the viewport.
+        .background {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(LitheTheme.raised)
+        }
         .overlay {
             RoundedRectangle(cornerRadius: 6)
                 .stroke(LitheTheme.panelBorder, lineWidth: 1)
@@ -1125,72 +1122,6 @@ struct GitWorktreesView: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-private struct GitWorktreeListRow: View, Equatable {
-    let worktree: GitWorktree
-    let isSelected: Bool
-    let status: GitWorktreesView.WorktreeStatusKind
-    let onSelect: () -> Void
-
-    static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.worktree == rhs.worktree
-            && lhs.isSelected == rhs.isSelected
-            && lhs.status == rhs.status
-    }
-
-    var body: some View {
-        Button(action: onSelect) {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 7) {
-                    Text(worktree.isPrimary ? String(localized: "Main Worktree") : worktree.displayName)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .lineLimit(1)
-                    if worktree.isPrimary {
-                        Image(systemName: "crown.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(LitheTheme.warning)
-                    }
-                    if worktree.isCurrent {
-                        Text("Current")
-                            .font(.system(size: 12.5))
-                            .foregroundStyle(LitheTheme.accent)
-                    }
-                    Spacer(minLength: 6)
-                    HStack(spacing: 5) {
-                        Circle().fill(status.color).frame(width: 8, height: 8)
-                        Text(status.title)
-                            .font(.system(size: 12.5))
-                            .foregroundStyle(LitheTheme.primaryText)
-                    }
-                    Image(systemName: "ellipsis")
-                        .foregroundStyle(LitheTheme.secondaryText)
-                }
-                Text(worktree.path)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(String(format: String(localized: "Branch: %@"), worktree.branchName ?? String(localized: "Detached HEAD")))
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .background(isSelected ? LitheTheme.subtleSelection : LitheTheme.raised)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay {
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(isSelected ? LitheTheme.inputFocusBorder : LitheTheme.panelBorder, lineWidth: 1)
-        }
-        .lithePointer()
     }
 }
 
