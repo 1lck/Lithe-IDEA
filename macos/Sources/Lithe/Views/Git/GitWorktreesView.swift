@@ -508,6 +508,11 @@ struct GitWorktreesView: View {
                     }
                     actionCard(worktree)
                 }
+                // Keep every overview card on the same content width. Without
+                // an explicit width, the adaptive action grid can make its
+                // card hug its intrinsic button width after a pane resize,
+                // leaving a blank strip beside it until another layout pass.
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(14)
             .litheScrollViewChrome()
