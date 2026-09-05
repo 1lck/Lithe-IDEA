@@ -1,7 +1,7 @@
 import "./styles.css";
 import { exists } from "@tauri-apps/plugin-fs";
 import { open } from "@tauri-apps/plugin-shell";
-import { useCallback, useRef } from "react";
+import { useCallback, useDeferredValue, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useEditorSettingsStore } from "@/features/editor/stores/settings.store";
@@ -32,7 +32,10 @@ export function MarkdownPreview() {
   const handleFileSelect = useFileSystemStore((state) => state.handleFileSelect);
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath) || "";
   const containerRef = useRef<HTMLDivElement>(null);
-  const html = useHighlightedMarkdown(sourceContent, { frontMatter: "render" });
+  // Re-parse at low priority so live typing in the split editor stays smooth;
+  // the preview lags a beat behind, matching the macOS preview debounce.
+  const deferredSourceContent = useDeferredValue(sourceContent);
+  const html = useHighlightedMarkdown(deferredSourceContent, { frontMatter: "render" });
 
   const resolvePath = useCallback(
     (href: string, currentFilePath: string): string => {
