@@ -589,6 +589,7 @@ struct GitGraphPerformanceBaselineTests {
             "Requires macOS 14 or newer for NSWindow display links."
         )
     )
+    @available(macOS 14.0, *)
     @MainActor
     func windowCompositorFrameSample() throws {
         guard NSScreen.main != nil else {
@@ -663,6 +664,16 @@ struct GitGraphPerformanceBaselineTests {
         )
         sampler.start()
 
+        let firstSampleDeadline = CACurrentMediaTime() + 0.5
+        while sampler.sampleCount == 0 && CACurrentMediaTime() < firstSampleDeadline {
+            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+        }
+        guard sampler.sampleCount > 0 else {
+            sampler.stop()
+            print("Window compositor sample skipped: WindowServer did not deliver a display-link callback.")
+            return
+        }
+
         let deadline = CACurrentMediaTime() + 3.0
         while !sampler.isComplete && CACurrentMediaTime() < deadline {
             RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
@@ -690,6 +701,7 @@ struct GitGraphPerformanceBaselineTests {
             "Requires macOS 14 or newer for NSWindow display links."
         )
     )
+    @available(macOS 14.0, *)
     @MainActor
     func worktreeWindowCompositorFrameSample() throws {
         guard NSScreen.main != nil else {
@@ -751,6 +763,16 @@ struct GitGraphPerformanceBaselineTests {
             targetFrameCount: 45
         )
         sampler.start()
+
+        let firstSampleDeadline = CACurrentMediaTime() + 0.5
+        while sampler.sampleCount == 0 && CACurrentMediaTime() < firstSampleDeadline {
+            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+        }
+        guard sampler.sampleCount > 0 else {
+            sampler.stop()
+            print("Worktree window compositor sample skipped: WindowServer did not deliver a display-link callback.")
+            return
+        }
 
         let deadline = CACurrentMediaTime() + 3.0
         while !sampler.isComplete && CACurrentMediaTime() < deadline {
@@ -884,7 +906,7 @@ private final class WindowCompositorFrameSampler: NSObject {
         }
     }
 
-    private func stop() {
+    func stop() {
         displayLink?.invalidate()
         displayLink = nil
     }

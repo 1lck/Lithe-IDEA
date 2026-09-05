@@ -33,11 +33,22 @@ fi
 cp -R "$APP_DIR" "$STAGING_DIR/Lithe.app"
 ln -s /Applications "$STAGING_DIR/Applications"
 
-hdiutil create \
-    -volname "Lithe" \
-    -srcfolder "$STAGING_DIR" \
-    -ov \
-    -format UDZO \
-    "$DMG_PATH"
+for attempt in 1 2 3; do
+    if hdiutil create \
+        -volname "Lithe" \
+        -srcfolder "$STAGING_DIR" \
+        -ov \
+        -format UDZO \
+        "$DMG_PATH"; then
+        break
+    fi
+    if (( attempt == 3 )); then
+        print -u2 -- "Unable to create disk image after $attempt attempts: $DMG_PATH"
+        exit 1
+    fi
+    # macOS can briefly report the temporary image resource as busy while a
+    # previous hdiutil helper exits; retry without changing the package input.
+    sleep $((attempt * 2))
+done
 
 print -r -- "$DMG_PATH"
