@@ -4,6 +4,7 @@ version = "0.3.0"
 description = "Lithe Windows desktop application"
 edition = "2021"
 license = "Apache-2.0"
+default-run = "lithe-windows"
 
 [features]
 test-support = []

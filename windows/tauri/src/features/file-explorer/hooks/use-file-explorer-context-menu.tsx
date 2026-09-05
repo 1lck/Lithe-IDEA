@@ -23,6 +23,7 @@ import {
 } from "@/ui/icons";
 import { useCallback, useMemo, useState } from "react";
 import { writeClipboardText } from "@/utils/clipboard";
+import { isMarkdownPreviewableFile } from "@/features/editor/markdown/previewable";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { readFile as readTextFile, writeFile } from "@/features/file-system/controllers/platform";
 import {
@@ -301,6 +302,33 @@ export function useFileExplorerContextMenu({
           icon: <FolderOpen />,
           onClick: () => onFileSelect(contextMenu.path, false),
         },
+        ...(isMarkdownPreviewableFile(contextMenu.path)
+          ? [
+              {
+                id: "open-preview",
+                label: t("files.openPreview"),
+                icon: <Eye />,
+                onClick: async () => {
+                  try {
+                    const content = await readTextFile(contextMenu.path);
+                    const previewPath = `${contextMenu.path}:preview`;
+                    const previewName = `${fileName} (Preview)`;
+
+                    useBufferStore.getState().actions.openContent({
+                      type: "markdownPreview",
+                      path: previewPath,
+                      name: previewName,
+                      content,
+                      sourceFilePath: contextMenu.path,
+                    });
+                  } catch (error) {
+                    console.error("Failed to open markdown preview:", error);
+                    toast.error(t("files.openFailed", { name: fileName }));
+                  }
+                },
+              },
+            ]
+          : []),
         {
           id: "copy-content",
           label: t("files.copyContent"),

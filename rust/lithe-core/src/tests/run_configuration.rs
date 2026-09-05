@@ -206,8 +206,12 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
         "./mvnw"
     );
     assert_eq!(
-        response["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["version"],
+        response["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["minimumVersion"],
         "3.9.9"
+    );
+    assert!(
+        response["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["version"]
+            .is_null()
     );
 
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
@@ -240,7 +244,7 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
     assert_eq!(plan["ok"], true, "{plan}");
     assert_eq!(plan["data"]["workingDirectory"], "projects/demo");
     assert_eq!(
-        &plan["data"]["arguments"].as_array().unwrap()[..11],
+        &plan["data"]["arguments"].as_array().unwrap()[..12],
         [
             "-B",
             "-ntp",
@@ -250,12 +254,13 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
             "/local/settings.xml",
             "-pl",
             "service",
+            "-am",
             "-DskipTests",
             "-Dspring-boot.run.main-class=com.example.App",
             "spring-boot:run"
         ]
     );
-    assert!(!plan["data"]["arguments"]
+    assert!(plan["data"]["arguments"]
         .as_array()
         .unwrap()
         .iter()
@@ -306,7 +311,7 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
         .as_array()
         .unwrap()
         .iter()
-        .any(|argument| argument == "-am" || argument == "-DskipTests"));
+        .any(|argument| argument == "-DskipTests"));
 
     let java_plan: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
@@ -1575,8 +1580,12 @@ fn run_configuration_generation_detects_declared_toolchain_versions() {
         "temurin"
     );
     assert_eq!(
-        generated["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["version"],
+        generated["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["minimumVersion"],
         "3.9.9"
+    );
+    assert!(
+        generated["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["version"]
+            .is_null()
     );
 
     fs::remove_dir_all(root).unwrap();
@@ -1742,6 +1751,67 @@ fn run_configuration_inspection_summarizes_changed_inputs() {
     assert_eq!(
         inspected["data"]["diagnostics"][0]["message"],
         "Project inputs changed: 0 added, 0 removed, 1 modified"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn maven_wrapper_version_accepts_newer_system_maven() {
+    let root = temporary_root("run-config-maven-wrapper-minimum");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        r#"{"version":1,"configurations":[{"id":"spring","name":"Spring","type":"spring-boot.maven","toolchains":{"java":"project-jdk","maven":"project-maven"}}]}"#,
+    )
+    .unwrap();
+    // Legacy documents stored the wrapper distribution under `version`.
+    // That value is a floor for system Maven, not an exact pin.
+    fs::write(
+        root.join(".lithe/toolchains/requirements.json"),
+        r#"{"version":1,"toolchains":{"project-maven":{"type":"maven","version":"3.6.3","java":"project-jdk"}}}"#,
+    )
+    .unwrap();
+
+    let resolve = |version: &str| -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "resolve-maven",
+                "command": "runConfig.resolve",
+                "payload": {
+                    "root": root,
+                    "toolchainCandidates": [{
+                        "id": "project-maven",
+                        "type": "maven",
+                        "version": version,
+                        "vendor": ""
+                    }]
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap()
+    };
+
+    let newer = resolve("3.9.16");
+    assert!(
+        newer["data"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|value| value["code"] != "toolchainVersionMismatch"),
+        "{newer}"
+    );
+
+    let older = resolve("3.5.4");
+    assert!(
+        older["data"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value["code"] == "toolchainVersionMismatch"),
+        "{older}"
     );
 
     fs::remove_dir_all(root).unwrap();
@@ -2274,6 +2344,7 @@ fn migrated_v1_documents_produce_identical_launch_arguments() {
             "-ntp",
             "-pl",
             "backend",
+            "-am",
             "-P",
             "local",
             "-Dspring-boot.run.main-class=com.example.App",

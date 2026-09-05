@@ -9,7 +9,9 @@ const windowListen = mock(async (event: string, handler: (event: { payload: unkn
 });
 const globalListen = mock(async () => () => {});
 const appendOutput = mock(() => undefined);
+const appendDependencyOutput = mock(() => undefined);
 const finishProcess = mock(() => undefined);
+const finishDependencyProcess = mock(async () => undefined);
 const releaseMavenSessionWorkspace = mock(() => undefined);
 
 mock.module("@tauri-apps/api/webviewWindow", () => ({
@@ -22,7 +24,12 @@ mock.module("@tauri-apps/api/event", () => ({ listen: globalListen }));
 mock.module("../stores/maven.store", () => ({
   mavenStoreForSession: () => ({
     getState: () => ({
-      actions: { appendOutput, finishProcess },
+      actions: {
+        appendOutput,
+        appendDependencyOutput,
+        finishProcess,
+        finishDependencyProcess,
+      },
     }),
   }),
   releaseMavenSessionWorkspace,
@@ -33,7 +40,9 @@ const { ensureMavenProcessListeners } = await import("./use-maven-process-events
 describe("maven process event listeners", () => {
   beforeEach(() => {
     appendOutput.mockClear();
+    appendDependencyOutput.mockClear();
     finishProcess.mockClear();
+    finishDependencyProcess.mockClear();
     releaseMavenSessionWorkspace.mockClear();
   });
 
@@ -68,5 +77,26 @@ describe("maven process event listeners", () => {
     });
 
     expect(appendOutput).toHaveBeenCalledWith("maven:task-1", "BUILD SUCCESS\n");
+  });
+
+  test("routes dependency sessions without mutating build output", () => {
+    const outputHandler = eventHandlers.get("run-output");
+    const exitHandler = eventHandlers.get("run-exit");
+    expect(outputHandler).toBeDefined();
+    expect(exitHandler).toBeDefined();
+
+    outputHandler?.({
+      payload: { sessionId: "maven-dependency:task-1", chunk: "[INFO] tree\n" },
+    });
+    exitHandler?.({
+      payload: { sessionId: "maven-dependency:task-1", exitCode: 0 },
+    });
+
+    expect(appendDependencyOutput).toHaveBeenCalledWith(
+      "maven-dependency:task-1",
+      "[INFO] tree\n",
+    );
+    expect(appendOutput).not.toHaveBeenCalled();
+    expect(finishDependencyProcess).toHaveBeenCalledWith("maven-dependency:task-1", 0);
   });
 });

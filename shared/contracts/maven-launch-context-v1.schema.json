@@ -13,6 +13,7 @@
       "items": { "type": "string", "minLength": 1 }
     },
     "settingsPath": { "type": ["string", "null"] },
+    "localRepositoryPath": { "type": ["string", "null"] },
     "skipTests": { "type": "boolean" },
     "mavenExecutablePath": { "type": ["string", "null"] },
     "javaHomePath": { "type": ["string", "null"] }

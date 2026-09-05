@@ -307,7 +307,9 @@ final class AppModel: ObservableObject, Identifiable {
     func scheduleObjectWillChangeRelay() {
         guard !isObjectWillChangeRelayScheduled else { return }
         isObjectWillChangeRelayScheduled = true
+        let signpost = LitheSignpost.begin("appmodel.relay")
         Task { @MainActor [weak self] in
+            defer { LitheSignpost.end("appmodel.relay", signpost) }
             guard let self else { return }
             self.isObjectWillChangeRelayScheduled = false
             self.objectWillChange.send()
