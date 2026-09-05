@@ -51,6 +51,8 @@ extension AppModel {
     }
 
     func searchEverywhere(options: ProjectSearchOptions = .default) async {
+        let signpost = LitheSignpost.begin("search.everywhere")
+        defer { LitheSignpost.end("search.everywhere", signpost) }
         guard let searchFeature = await activateSearchModule() else { return }
         guard let workspaceURL else { searchFeature.clearSearchEverywhere(); return }
         let query = searchEverywhereQuery

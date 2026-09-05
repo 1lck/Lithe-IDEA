@@ -1,4 +1,5 @@
 import AppKit
+import os
 import SwiftUI
 
 enum LitheSplitAxis {
@@ -22,6 +23,7 @@ struct SplitHandleView: View {
     @State private var isHovering = false
     @State private var isDragging = false
     @State private var dragScheduler = LitheDragUpdateScheduler()
+    @State private var dragSignpost: OSSignpostIntervalState?
     @State private var cursor = SplitHandleCursor()
 
     init(
@@ -61,6 +63,7 @@ struct SplitHandleView: View {
                     if !isDragging {
                         isDragging = true
                         cursor.update(isResizing: true, cursor: resizeCursor)
+                        dragSignpost = LitheSignpost.begin("split.drag")
                         onDragStarted()
                     }
                     let currentTranslation = axis == .horizontal ? value.translation.width : value.translation.height
@@ -79,6 +82,10 @@ struct SplitHandleView: View {
                     dragScheduler.cancel()
                     isDragging = false
                     cursor.update(isResizing: isHovering, cursor: resizeCursor)
+                    if let dragSignpost {
+                        LitheSignpost.end("split.drag", dragSignpost)
+                        self.dragSignpost = nil
+                    }
                     onDragEnded(finalTranslation)
                 }
         )
@@ -89,6 +96,10 @@ struct SplitHandleView: View {
         }
         .onDisappear {
             dragScheduler.cancel()
+            if let dragSignpost {
+                LitheSignpost.end("split.drag", dragSignpost)
+                self.dragSignpost = nil
+            }
             cursor.update(isResizing: false, cursor: resizeCursor)
         }
         .help(axis == .horizontal ? "Drag left or right to resize" : "Drag up or down to resize")

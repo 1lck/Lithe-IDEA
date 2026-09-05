@@ -325,11 +325,13 @@ struct LitheApp: App {
             startedAt: litheProcessLaunchDate,
             baselineReporter: { marker in
                 Self.appendApplicationLog(applicationLogWriter, message: marker + "\n")
+                Self.emitPerformanceBaselineMarker(marker)
             },
             logsPerformanceBaseline: ProcessInfo.processInfo.environment["LITHE_PERFORMANCE_BASELINE"] == "1",
             processRegistry: processRegistry,
             memorySampler: MacProcessMemorySampler()
         ))
+        Self.emitPerformanceBaselineMarker(LithePerformanceBaseline.configurationMarker())
         let updateChecker = UpdateChecker()
         _updateChecker = StateObject(wrappedValue: updateChecker)
         appDelegate.projectSessions = projectSessions
@@ -376,6 +378,13 @@ struct LitheApp: App {
         }
     }
 
+    private static func emitPerformanceBaselineMarker(_ marker: String) {
+        guard LithePerformanceBaseline.isEnabled else { return }
+        let data = Data((marker + "\n").utf8)
+        FileHandle.standardOutput.write(data)
+        FileHandle.standardOutput.synchronizeFile()
+    }
+
     private var model: AppModel { projectSessions.activeModel }
 
     var body: some Scene {
@@ -396,7 +405,9 @@ struct LitheApp: App {
                 .preferredColorScheme(settings.themePreference.preferredColorScheme)
                 .task {
                     memoryUsageMonitor.start()
-                    frameRateMonitor.start()
+                    if !LithePerformanceBaseline.isEnabled {
+                        frameRateMonitor.start()
+                    }
                 }
         }
         .defaultSize(
