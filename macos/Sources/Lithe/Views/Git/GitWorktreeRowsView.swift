@@ -56,6 +56,8 @@ struct GitWorktreeRowsScrollView: NSViewRepresentable {
         scrollView.scrollerStyle = .overlay
         scrollView.horizontalScrollElasticity = .none
         scrollView.verticalScrollElasticity = .allowed
+        scrollView.usesPredominantAxisScrolling = true
+        scrollView.scrollsDynamically = true
 
         let documentView = GitWorktreeRowsNSView()
         documentView.autoresizingMask = [.width]
@@ -66,8 +68,28 @@ struct GitWorktreeRowsScrollView: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let documentView = nsView.documentView as? GitWorktreeRowsNSView else { return }
-        documentView.update(snapshot: snapshot, rowHeight: GitWorktreeRowsView.rowHeight)
-        documentView.updateLayout(width: nsView.contentView.bounds.width)
+        let previousOrigin = nsView.contentView.bounds.origin
+        let contentChanged = documentView.update(snapshot: snapshot, rowHeight: GitWorktreeRowsView.rowHeight)
+        let layoutChanged = documentView.updateLayout(width: nsView.contentView.bounds.width)
+        if contentChanged || layoutChanged {
+            nsView.contentView.setBoundsOrigin(Self.preservedScrollOrigin(
+                previous: previousOrigin,
+                documentHeight: documentView.bounds.height,
+                viewportHeight: nsView.contentView.bounds.height
+            ))
+        }
+    }
+
+    static func preservedScrollOrigin(
+        previous: CGPoint,
+        documentHeight: CGFloat,
+        viewportHeight: CGFloat
+    ) -> CGPoint {
+        let maxY = max(0, documentHeight - viewportHeight)
+        return CGPoint(
+            x: max(previous.x, 0),
+            y: min(max(previous.y, 0), maxY)
+        )
     }
 }
 
@@ -81,6 +103,7 @@ final class GitWorktreeRowsNSView: NSView {
     )
     private var rowHeight = GitWorktreeRowsView.rowHeight
     private var drawingStyle: DrawingStyle?
+    private var lastLayoutWidth: CGFloat = -.greatestFiniteMagnitude
 
     override var isOpaque: Bool { false }
     override var isFlipped: Bool { true }
@@ -93,8 +116,9 @@ final class GitWorktreeRowsNSView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    func update(snapshot: GitWorktreeRowsSnapshot, rowHeight: CGFloat) {
-        guard self.snapshot != snapshot || self.rowHeight != rowHeight else { return }
+    @discardableResult
+    func update(snapshot: GitWorktreeRowsSnapshot, rowHeight: CGFloat) -> Bool {
+        guard self.snapshot != snapshot || self.rowHeight != rowHeight else { return false }
         self.snapshot = snapshot
         self.rowHeight = rowHeight
         setAccessibilityLabel(snapshot.accessibilityLabel)
@@ -103,17 +127,21 @@ final class GitWorktreeRowsNSView: NSView {
             snapshot.rows.count
         ))
         needsDisplay = true
+        return true
     }
 
-    func updateLayout(width: CGFloat) {
-        guard width.isFinite, width > 0 else { return }
+    @discardableResult
+    func updateLayout(width: CGFloat) -> Bool {
+        guard width.isFinite, width > 0, width != lastLayoutWidth else { return false }
+        lastLayoutWidth = width
         let documentSize = CGSize(
             width: width,
             height: CGFloat(snapshot.rows.count) * rowHeight
         )
-        guard frame.size != documentSize else { return }
+        guard frame.size != documentSize else { return false }
         setFrameSize(documentSize)
         needsDisplay = true
+        return true
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -277,9 +305,7 @@ final class GitWorktreeRowsNSView: NSView {
         alignment: NSTextAlignment = .left
     ) {
         guard rect.width > 0 else { return }
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineBreakMode = lineBreakMode
-        paragraph.alignment = alignment
+        let paragraph = resolvedParagraphStyle(lineBreakMode: lineBreakMode, alignment: alignment)
         let height = ceil(font.ascender - font.descender)
         let textRect = CGRect(
             x: rect.minX,
@@ -295,6 +321,17 @@ final class GitWorktreeRowsNSView: NSView {
                 .paragraphStyle: paragraph
             ]
         )
+    }
+
+    private func resolvedParagraphStyle(
+        lineBreakMode: NSLineBreakMode,
+        alignment: NSTextAlignment
+    ) -> NSParagraphStyle {
+        let style = resolvedDrawingStyle()
+        if lineBreakMode == .byTruncatingTail, alignment == .left { return style.bodyParagraph }
+        if lineBreakMode == .byTruncatingMiddle, alignment == .left { return style.middleParagraph }
+        if lineBreakMode == .byTruncatingTail, alignment == .right { return style.rightParagraph }
+        return style.customParagraph(lineBreakMode: lineBreakMode, alignment: alignment)
     }
 
     private func resolvedDrawingStyle() -> DrawingStyle {
@@ -317,6 +354,9 @@ final class GitWorktreeRowsNSView: NSView {
         let warning: NSColor
         let error: NSColor
         let divider: NSColor
+        let bodyParagraph: NSParagraphStyle
+        let middleParagraph: NSParagraphStyle
+        let rightParagraph: NSParagraphStyle
 
         init(isDark: Bool) {
             primaryText = LitheTheme.nsColor(.primaryText, isDark: isDark)
@@ -326,6 +366,9 @@ final class GitWorktreeRowsNSView: NSView {
             warning = LitheTheme.nsColor(.warning, isDark: isDark)
             error = LitheTheme.nsColor(.error, isDark: isDark)
             divider = LitheTheme.nsColor(.divider, isDark: isDark)
+            bodyParagraph = Self.paragraph(lineBreakMode: .byTruncatingTail, alignment: .left)
+            middleParagraph = Self.paragraph(lineBreakMode: .byTruncatingMiddle, alignment: .left)
+            rightParagraph = Self.paragraph(lineBreakMode: .byTruncatingTail, alignment: .right)
         }
 
         func statusColor(_ color: GitWorktreeRowsSnapshot.StatusColor) -> NSColor {
@@ -334,6 +377,17 @@ final class GitWorktreeRowsNSView: NSView {
             case .warning: warning
             case .error: error
             }
+        }
+
+        func customParagraph(lineBreakMode: NSLineBreakMode, alignment: NSTextAlignment) -> NSParagraphStyle {
+            Self.paragraph(lineBreakMode: lineBreakMode, alignment: alignment)
+        }
+
+        private static func paragraph(lineBreakMode: NSLineBreakMode, alignment: NSTextAlignment) -> NSParagraphStyle {
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineBreakMode = lineBreakMode
+            paragraph.alignment = alignment
+            return paragraph
         }
     }
 }
