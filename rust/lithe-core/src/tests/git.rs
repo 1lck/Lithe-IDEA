@@ -3818,6 +3818,161 @@ fn git_pull_preflight_reports_divergence_and_strategies_resolve_it() {
 }
 
 #[test]
+fn git_write_updates_a_noncurrent_branch_without_switching_head() {
+    let root = temporary_root("git-update-noncurrent-branch");
+    let remote = root.join("remote.git");
+    let seed = root.join("seed");
+    let work = root.join("work");
+    fs::create_dir_all(&seed).expect("seed repository should be creatable");
+    fs::create_dir_all(&work).expect("work repository should be creatable");
+    let git = |directory: &Path, arguments: &[&str]| history_git(directory, arguments);
+
+    assert!(git(
+        &root,
+        &["init", "--bare", "-q", remote.to_string_lossy().as_ref()]
+    )
+    .status
+    .success());
+    assert!(git(&seed, &["init", "-q", "-b", "main"]).status.success());
+    assert!(git(&seed, &["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(git(&seed, &["config", "user.name", "Lithe Test"])
+        .status
+        .success());
+    fs::write(seed.join("base.txt"), "base\n").expect("base file should be writable");
+    assert!(git(&seed, &["add", "."]).status.success());
+    assert!(git(&seed, &["commit", "-qm", "base"]).status.success());
+    assert!(git(&seed, &["switch", "-c", "feature/core"])
+        .status
+        .success());
+    fs::write(seed.join("feature.txt"), "one\n").expect("feature file should be writable");
+    assert!(git(&seed, &["add", "."]).status.success());
+    assert!(git(&seed, &["commit", "-qm", "feature one"])
+        .status
+        .success());
+    assert!(git(
+        &seed,
+        &[
+            "remote",
+            "add",
+            "team/origin",
+            remote.to_string_lossy().as_ref()
+        ]
+    )
+    .status
+    .success());
+    assert!(git(
+        &seed,
+        &["push", "-q", "team/origin", "main", "feature/core"]
+    )
+    .status
+    .success());
+
+    assert!(git(&work, &["init", "-q"]).status.success());
+    assert!(git(
+        &work,
+        &[
+            "remote",
+            "add",
+            "team/origin",
+            remote.to_string_lossy().as_ref()
+        ]
+    )
+    .status
+    .success());
+    assert!(git(&work, &["fetch", "-q", "team/origin"]).status.success());
+    assert!(git(
+        &work,
+        &[
+            "switch",
+            "-c",
+            "main",
+            "--track",
+            "refs/remotes/team/origin/main"
+        ]
+    )
+    .status
+    .success());
+    assert!(git(
+        &work,
+        &[
+            "branch",
+            "feature/core",
+            "refs/remotes/team/origin/feature/core"
+        ]
+    )
+    .status
+    .success());
+    assert!(git(
+        &work,
+        &[
+            "branch",
+            "--set-upstream-to=refs/remotes/team/origin/feature/core",
+            "feature/core"
+        ]
+    )
+    .status
+    .success());
+
+    fs::write(seed.join("feature.txt"), "one\ntwo\n").expect("feature file should be writable");
+    assert!(git(&seed, &["add", "."]).status.success());
+    assert!(git(&seed, &["commit", "-qm", "feature two"])
+        .status
+        .success());
+    assert!(git(&seed, &["push", "-q", "team/origin", "feature/core"])
+        .status
+        .success());
+
+    let previous_feature = git_text(&work, &["rev-parse", "refs/heads/feature/core"]);
+    let remote_feature = git_text(&seed, &["rev-parse", "refs/heads/feature/core"]);
+    let response = git_write_request(
+        &work,
+        "updateBranch",
+        serde_json::json!({
+            "gitReference": {
+                "fullName": "refs/heads/feature/core",
+                "shortName": "feature/core",
+                "kind": "local"
+            }
+        }),
+    );
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(response["data"]["exitCode"], 0, "{response}");
+    assert_eq!(git_text(&work, &["branch", "--show-current"]), "main");
+    assert_ne!(previous_feature, remote_feature);
+    assert_eq!(
+        git_text(&work, &["rev-parse", "refs/heads/feature/core"]),
+        remote_feature
+    );
+    assert_eq!(
+        git_text(
+            &work,
+            &["rev-parse", "refs/remotes/team/origin/feature/core"]
+        ),
+        remote_feature
+    );
+
+    let current = git_write_request(
+        &work,
+        "updateBranch",
+        serde_json::json!({
+            "gitReference": {
+                "fullName": "refs/heads/main",
+                "shortName": "main",
+                "kind": "local"
+            }
+        }),
+    );
+    assert_eq!(current["ok"], true, "{current}");
+    assert_eq!(current["data"]["operationError"]["code"], "invalid_request");
+    assert_eq!(git_text(&work, &["branch", "--show-current"]), "main");
+
+    fs::remove_dir_all(root).expect("Git fixture should be removable");
+}
+
+#[test]
 fn explicit_pull_resolves_nested_remote_and_branch_names_against_bare_remote() {
     let root = temporary_root("git-pull-nested-ref");
     let source = root.join("source");

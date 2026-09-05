@@ -16,6 +16,7 @@ const {
   renameBranch,
   setBranchUpstream,
   unsetBranchUpstream,
+  updateBranch,
 } = await import("./git-branches-api");
 
 beforeEach(() => {
@@ -129,6 +130,30 @@ describe("Git branch reference mutations", () => {
       repoPath: "C:/repo",
       operation: "unsetUpstream",
       name: "main",
+    });
+  });
+
+  test("updates a selected local branch through its complete Core identity", async () => {
+    const localReference = {
+      fullName: "refs/heads/feature/orders",
+      shortName: "feature/orders",
+      kind: "local" as const,
+      peelsToCommit: true,
+      isCurrent: false,
+      upstreamShortName: "origin/feature/orders",
+      behind: 2,
+    };
+
+    await updateBranch("C:/repo", localReference);
+
+    expect(invoke).toHaveBeenCalledWith("git.write", {
+      repoPath: "C:/repo",
+      operation: "updateBranch",
+      gitReference: {
+        fullName: localReference.fullName,
+        shortName: localReference.shortName,
+        kind: localReference.kind,
+      },
     });
   });
 });

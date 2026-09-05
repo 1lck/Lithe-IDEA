@@ -19,6 +19,7 @@ import {
   renameBranch,
   setBranchUpstream,
   unsetBranchUpstream,
+  updateBranch,
 } from "../../api/git-branches-api";
 import {
   checkoutAndRebase,
@@ -27,7 +28,7 @@ import {
   rebaseOntoBranch,
   type IntegrationOutcome,
 } from "../../api/git-integration-api";
-import { deleteRemoteBranch } from "../../api/git-remotes-api";
+import { deleteRemoteBranch, fetchChanges } from "../../api/git-remotes-api";
 import { addWorktreeFromReference } from "../../api/git-worktrees-api";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import { useRepositoryStore } from "../../stores/git-repository.store";
@@ -80,6 +81,7 @@ export function GitLogToolWindow() {
     selectedReference,
     isLoadingMore,
     selectReference,
+    forgetReference,
     refresh,
     loadMore,
   } = useGitLogController(repoPath);
@@ -371,9 +373,10 @@ export function GitLogToolWindow() {
       defaultValue: reference.shortName,
     });
     if (!newName?.trim() || newName.trim() === reference.shortName) return;
-    await runReferenceMutation(t("git.log.renameBranch"), () =>
-      renameBranch(repoPath, reference.shortName, newName.trim()),
-    );
+    await runReferenceMutation(t("git.log.renameBranch"), async () => {
+      await renameBranch(repoPath, reference.shortName, newName.trim());
+      forgetReference(reference);
+    });
   };
 
   const deleteLocalReference = async (reference: GitReference) => {
@@ -387,6 +390,7 @@ export function GitLogToolWindow() {
       if (!(await deleteBranch(repoPath, reference.shortName))) {
         throw new Error(t("git.actionFailed", { action: t("git.deleteBranch") }));
       }
+      forgetReference(reference);
     });
   };
 
@@ -397,14 +401,19 @@ export function GitLogToolWindow() {
       { title: t("git.log.deleteRemoteBranch"), confirmLabel: t("git.delete") },
     );
     if (!confirmed) return;
-    await runReferenceMutation(t("git.log.deleteRemoteBranch"), () =>
-      deleteRemoteBranch(repoPath, reference),
-    );
+    await runReferenceMutation(t("git.log.deleteRemoteBranch"), async () => {
+      await deleteRemoteBranch(repoPath, reference);
+      forgetReference(reference);
+    });
   };
 
-  const updateCurrentBranch = async () => {
+  const updateSelectedBranch = async (reference: GitReference) => {
     if (!repoPath || isReferenceMutationPending) return;
     const action = t("git.log.updateBranch");
+    if (!reference.isCurrent) {
+      await runReferenceMutation(action, () => updateBranch(repoPath, reference));
+      return;
+    }
     setIsReferenceOperating(true);
     try {
       await pullWorkflow.pull();
@@ -412,6 +421,24 @@ export function GitLogToolWindow() {
       toast.error(referenceActionErrorMessage(action, error));
     } finally {
       setIsReferenceOperating(false);
+    }
+  };
+
+  const fetchReferences = async () => {
+    if (!repoPath || isReferenceMutationPending) return;
+    setIsReferenceOperating(true);
+    try {
+      const result = await fetchChanges(repoPath);
+      if (!result.success) throw new Error(result.error || t("git.fetchFailed"));
+      toast.success(t("git.changesFetched"));
+    } catch (error) {
+      toast.error(referenceActionErrorMessage(t("git.fetch"), error));
+    } finally {
+      try {
+        await refresh();
+      } finally {
+        setIsReferenceOperating(false);
+      }
     }
   };
 
@@ -454,7 +481,7 @@ export function GitLogToolWindow() {
         void checkoutAndUpdateReference(reference);
         break;
       case "update":
-        void updateCurrentBranch();
+        void updateSelectedBranch(reference);
         break;
       case "push":
         void pushSelectedBranch(reference);
@@ -592,6 +619,7 @@ export function GitLogToolWindow() {
               onReferenceAction={handleReferenceAction}
               onSetUpstream={(branch, upstream) => void setSelectedBranchUpstream(branch, upstream)}
               onManageRemotes={() => setShowRemoteManager(true)}
+              onFetch={() => void fetchReferences()}
             />
           </ResizablePanel>
           <ResizableHandle />

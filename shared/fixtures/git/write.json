@@ -34,6 +34,16 @@
       }
     },
     {
+      "operation": "updateBranch",
+      "payload": {
+        "gitReference": {
+          "fullName": "refs/heads/feature/core",
+          "shortName": "feature/core",
+          "kind": "local"
+        }
+      }
+    },
+    {
       "operation": "createWorktree",
       "payload": {
         "destination": "../feature-core-worktree",
