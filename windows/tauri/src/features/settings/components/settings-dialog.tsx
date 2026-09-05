@@ -18,6 +18,7 @@ import {
   type Icon,
 } from "@/ui/icons";
 import { MacSettingsPanel, type MacSettingsCategory } from "./macos-settings-panels";
+import { showConfirmDialog } from "@/ui/dialog";
 
 interface SettingsDialogProps {
   isOpen: boolean;
@@ -82,7 +83,15 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
             type="button"
             variant="ghost"
             className="text-subtle-foreground"
-            onClick={() => void resetToDefaults()}
+            onClick={async () => {
+              const confirmed = await showConfirmDialog(
+                t("settings.mac.restoreDefaultsConfirm"),
+                { title: t("settings.mac.restoreDefaults") }
+              );
+              if (confirmed) {
+                void resetToDefaults();
+              }
+            }}
           >
             {t("settings.mac.restoreDefaults")}
           </Button>
