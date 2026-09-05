@@ -9,7 +9,7 @@ import LitheRustCore
 /// The JSON request/response shape is also the contract that the future
 /// Windows Qt binding will consume. The bridge stays synchronous at this
 /// layer; callers move filesystem and Git work off the main actor.
-struct RustCoreBridge: Sendable {
+struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     private struct Request<Payload: Encodable>: Encodable {
         let id: String
         let operationId: String?
@@ -330,6 +330,66 @@ struct RustCoreBridge: Sendable {
                 arguments: arguments,
                 workingDirectory: workingDirectory,
                 configurationFingerprint: configurationFingerprint
+            )
+        }
+    }
+
+    struct MavenDependenciesPayload: Decodable, Sendable {
+        struct Dependency: Decodable, Sendable {
+            let modulePath: String
+            let groupID: String
+            let artifactID: String
+            let version: String
+            let type: String
+            let classifier: String?
+            let scope: String
+            let resolution: String
+            let selectedVersion: String?
+            let children: [Dependency]
+
+            enum CodingKeys: String, CodingKey {
+                case modulePath
+                case groupID = "groupId"
+                case artifactID = "artifactId"
+                case version
+                case type
+                case classifier
+                case scope
+                case resolution
+                case selectedVersion
+                case children
+            }
+
+            func makeModel() throws -> MavenDependency {
+                guard let resolution = MavenDependencyResolution(rawValue: resolution) else {
+                    throw MavenOperationError(
+                        code: "parse_failed",
+                        message: "Maven dependency resolution state is invalid.",
+                        details: resolution
+                    )
+                }
+                return MavenDependency(
+                    modulePath: modulePath,
+                    groupID: groupID,
+                    artifactID: artifactID,
+                    version: version,
+                    type: type,
+                    classifier: classifier,
+                    scope: scope,
+                    resolution: resolution,
+                    selectedVersion: selectedVersion,
+                    children: try children.map { try $0.makeModel() }
+                )
+            }
+        }
+
+        let modulePath: String
+        let dependencies: [Dependency]
+
+        func makeModel() throws -> MavenDependencyTree {
+            MavenDependencyTree(
+                modulePath: modulePath,
+                dependencies: try dependencies.map { try $0.makeModel() }
             )
         }
     }
@@ -1346,6 +1406,12 @@ struct RustCoreBridge: Sendable {
         let goals: [String]
     }
 
+    private struct MavenDependencyPlanRequest: Encodable {
+        let root: String
+        let context: MavenLaunchContext
+        let module: String?
+    }
+
     private struct MarkdownRenderRequest: Encodable {
         let source: String
     }
@@ -1603,10 +1669,23 @@ struct RustCoreBridge: Sendable {
     }
 
     private struct LspSyncDocumentRequest: Encodable {
+        struct Change: Encodable {
+            let range: Range
+            let text: String
+        }
+        struct Position: Encodable {
+            let line: Int
+            let character: Int
+        }
+        struct Range: Encodable {
+            let start: LspSyncDocumentRequest.Position
+            let end: LspSyncDocumentRequest.Position
+        }
         let sessionId: String
         let uri: String
         let languageId: String
         let text: String
+        let contentChanges: [Change]
     }
 
     private struct LspWorkspaceFilesChangedRequest: Encodable {
@@ -1742,6 +1821,11 @@ struct RustCoreBridge: Sendable {
 
     private struct MavenDiagnosticsRequest: Encodable {
         let root: String
+        let output: String
+    }
+
+    private struct MavenDependenciesRequest: Encodable {
+        let modulePath: String
         let output: String
     }
 
@@ -2492,6 +2576,31 @@ struct RustCoreBridge: Sendable {
                 module: module,
                 goals: goals
             )
+        )
+    }
+
+    func mavenDependencyPlan(
+        at rootURL: URL,
+        context: MavenLaunchContext,
+        module: String?
+    ) -> Result<MavenLaunchPlanPayload, CoreCallError> {
+        executeResult(
+            command: "maven.dependencyPlan",
+            payload: MavenDependencyPlanRequest(
+                root: rootURL.standardizedFileURL.path,
+                context: context,
+                module: module
+            )
+        )
+    }
+
+    func mavenDependencies(
+        modulePath: String,
+        output: String
+    ) -> Result<MavenDependenciesPayload, CoreCallError> {
+        executeResult(
+            command: "maven.dependencies",
+            payload: MavenDependenciesRequest(modulePath: modulePath, output: output)
         )
     }
 
@@ -3307,7 +3416,8 @@ struct RustCoreBridge: Sendable {
         sessionID: String,
         fileURL: URL,
         languageID: String,
-        text: String
+        text: String,
+        changes: [LanguageServerDocumentChange] = []
     ) -> Result<LspSyncDocumentPayload, CoreCallError> {
         executeResult(
             command: "lsp.syncDocument",
@@ -3315,9 +3425,53 @@ struct RustCoreBridge: Sendable {
                 sessionId: sessionID,
                 uri: fileURL.standardizedFileURL.absoluteString,
                 languageId: languageID,
-                text: text
+                // Keep the full snapshot for the initial didOpen and as a
+                // recovery source; Rust emits range-based didChange when safe.
+                text: text,
+                contentChanges: changes.map { change in
+                    LspSyncDocumentRequest.Change(
+                        range: .init(
+                            start: LspSyncDocumentRequest.Position(
+                                line: change.start.line,
+                                character: change.start.utf16Column
+                            ),
+                            end: LspSyncDocumentRequest.Position(
+                                line: change.end.line,
+                                character: change.end.utf16Column
+                            )
+                        ),
+                        text: change.text
+                    )
+                }
             )
         )
+    }
+
+    func syncLanguageServerDocument(
+        sessionID: String,
+        fileURL: URL,
+        languageID: String,
+        text: String,
+        changes: [LanguageServerDocumentChange]
+    ) -> Result<LanguageServerDocumentSync, LanguageServerRuntimeFailure> {
+        lspSyncDocument(
+            sessionID: sessionID,
+            fileURL: fileURL,
+            languageID: languageID,
+            text: text,
+            changes: changes
+        ).map {
+            LanguageServerDocumentSync(
+                documentVersion: $0.documentVersion,
+                changed: $0.changed
+            )
+        }.mapError { error in
+            LanguageServerRuntimeFailure(
+                code: error.code,
+                message: error.message,
+                details: error.details
+            )
+        }
     }
 
     func lspWorkspaceFilesChanged(

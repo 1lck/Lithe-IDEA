@@ -318,8 +318,8 @@ extension AppModel {
     var searchEverywhereResults: SearchEverywhereResults {
         searchFeatureIfActive?.searchEverywhereResults ?? SearchEverywhereResults()
     }
-    var searchEverywhereActionMatches: [LitheAction] {
-        LitheActionRegistry.actions(for: self).filter { $0.matches(searchEverywhereQuery) }
+    func searchEverywhereActionMatches(query: String) -> [LitheAction] {
+        LitheActionRegistry.actions(for: self).filter { $0.matches(query) }
     }
     var isSearchingEverywhere: Bool { searchFeatureIfActive?.isSearchingEverywhere ?? false }
     var projectReplacementFiles: [ProjectReplacementFile] {

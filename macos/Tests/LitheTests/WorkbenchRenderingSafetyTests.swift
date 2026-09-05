@@ -5,6 +5,20 @@ import Testing
 @Suite("Workbench rendering safety")
 struct WorkbenchRenderingSafetyTests {
     @Test
+    func projectNamePopupDoesNotNestTheApplicationEventLoop() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/Lithe/Views/Workspace/ProjectSidebarView.swift"
+        ), encoding: .utf8)
+
+        // A nested modal loop can starve the SwiftUI focus task and freeze the workbench.
+        #expect(source.range(of: #"\brunModal\s*\("#, options: .regularExpression) == nil)
+    }
+
+    @Test
     func workspaceReservesTheRightActivityBar() {
         #expect(WorkbenchLayoutMetrics.workspaceTrailingInset == WorkbenchLayoutMetrics.rightActivityBarWidth)
     }

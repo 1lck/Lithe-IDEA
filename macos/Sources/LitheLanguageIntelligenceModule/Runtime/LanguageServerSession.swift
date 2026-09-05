@@ -168,6 +168,29 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
     }
 
+    package func synchronize(
+        fileURL: URL,
+        text: String,
+        languageID: String,
+        changes: [LanguageServerDocumentChange]
+    ) throws {
+        guard let sessionID else { throw LanguageServerRuntimeSessionError.notReady }
+        guard let incrementalCore = core as? any IncrementalLanguageServerRuntimeCore else {
+            return try synchronize(fileURL: fileURL, text: text, languageID: languageID)
+        }
+        switch incrementalCore.syncLanguageServerDocument(
+            sessionID: sessionID,
+            fileURL: fileURL.standardizedFileURL,
+            languageID: languageID,
+            text: text,
+            changes: changes
+        ) {
+        case .success(let sync):
+            documentVersions[fileURL.standardizedFileURL] = sync.documentVersion
+        case .failure(let error):
+            throw LanguageServerRuntimeSessionError.documentSyncFailed(error.userMessage)
+        }
+    }
     package func notifyWorkspaceFilesChanged(
         _ changes: [LanguageServerWorkspaceFileChange]
     ) throws {

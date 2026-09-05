@@ -219,17 +219,20 @@ package struct MavenLocalConfiguration: Codable, Equatable, Sendable {
 
     package var version: Int
     package var settingsPath: String?
+    package var localRepositoryPath: String?
     package var mavenExecutablePath: String?
     package var javaHomePath: String?
 
     package init(
         version: Int = currentVersion,
         settingsPath: String? = nil,
+        localRepositoryPath: String? = nil,
         mavenExecutablePath: String? = nil,
         javaHomePath: String? = nil
     ) {
         self.version = version
         self.settingsPath = settingsPath
+        self.localRepositoryPath = localRepositoryPath
         self.mavenExecutablePath = mavenExecutablePath
         self.javaHomePath = javaHomePath
     }
@@ -255,6 +258,7 @@ package struct MavenLaunchContext: Codable, Equatable, Sendable {
     package let reactorPath: String
     package let profiles: [String]
     package let settingsPath: String?
+    package let localRepositoryPath: String?
     package let skipTests: Bool
     package let mavenExecutablePath: String?
     package let javaHomePath: String?
@@ -264,6 +268,7 @@ package struct MavenLaunchContext: Codable, Equatable, Sendable {
         reactorPath: String,
         profiles: [String],
         settingsPath: String?,
+        localRepositoryPath: String? = nil,
         skipTests: Bool,
         mavenExecutablePath: String?,
         javaHomePath: String?
@@ -272,6 +277,7 @@ package struct MavenLaunchContext: Codable, Equatable, Sendable {
         self.reactorPath = reactorPath
         self.profiles = profiles
         self.settingsPath = settingsPath
+        self.localRepositoryPath = localRepositoryPath
         self.skipTests = skipTests
         self.mavenExecutablePath = mavenExecutablePath
         self.javaHomePath = javaHomePath
@@ -300,6 +306,67 @@ package struct MavenLaunchPlan: Equatable, Sendable {
     }
 }
 
+package enum MavenDependencyResolution: String, Equatable, Sendable {
+    case resolved
+    case omittedDuplicate
+    case omittedConflict
+}
+
+package struct MavenDependency: Equatable, Sendable {
+    package let modulePath: String
+    package let groupID: String
+    package let artifactID: String
+    package let version: String
+    package let type: String
+    package let classifier: String?
+    package let scope: String
+    package let resolution: MavenDependencyResolution
+    package let selectedVersion: String?
+    package let children: [MavenDependency]
+
+    package init(
+        modulePath: String,
+        groupID: String,
+        artifactID: String,
+        version: String,
+        type: String,
+        classifier: String?,
+        scope: String,
+        resolution: MavenDependencyResolution,
+        selectedVersion: String?,
+        children: [MavenDependency]
+    ) {
+        self.modulePath = modulePath
+        self.groupID = groupID
+        self.artifactID = artifactID
+        self.version = version
+        self.type = type
+        self.classifier = classifier
+        self.scope = scope
+        self.resolution = resolution
+        self.selectedVersion = selectedVersion
+        self.children = children
+    }
+}
+
+package struct MavenDependencyTree: Equatable, Sendable {
+    package let modulePath: String
+    package let dependencies: [MavenDependency]
+
+    package init(modulePath: String, dependencies: [MavenDependency]) {
+        self.modulePath = modulePath
+        self.dependencies = dependencies
+    }
+}
+
+package enum MavenDependencyLoadState: Equatable, Sendable {
+    case idle
+    case loading
+    case ready([MavenDependency])
+    case failed(String)
+    case cancelled
+}
+
 package func redactedMavenArgumentsForDisplay(_ arguments: [String]) -> [String] {
     var result: [String] = []
     var index = 0
@@ -315,6 +382,9 @@ package func redactedMavenArgumentsForDisplay(_ arguments: [String]) -> [String]
             }
         } else if argument.hasPrefix("--settings=") || argument.hasPrefix("-s=") {
             result.append(String(argument.prefix { $0 != "=" }) + "=<settings.xml>")
+            index += 1
+        } else if argument.hasPrefix("-Dmaven.repo.local=") {
+            result.append("-Dmaven.repo.local=<localRepository>")
             index += 1
         } else {
             result.append(argument)
@@ -349,7 +419,36 @@ package protocol MavenProjectOperations: Sendable {
         module: String?,
         goals: [String]
     ) throws -> MavenLaunchPlan
+    func mavenDependencyPlan(
+        at rootURL: URL,
+        context: MavenLaunchContext,
+        module: String?
+    ) throws -> MavenLaunchPlan
+    func mavenDependencies(modulePath: String, output: String) throws -> MavenDependencyTree
     func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue]
+}
+
+extension MavenProjectOperations {
+    package func mavenDependencyPlan(
+        at _: URL,
+        context _: MavenLaunchContext,
+        module _: String?
+    ) throws -> MavenLaunchPlan {
+        throw MavenOperationError(
+            code: "not_supported",
+            message: "Maven dependency planning is unavailable."
+        )
+    }
+
+    package func mavenDependencies(
+        modulePath _: String,
+        output _: String
+    ) throws -> MavenDependencyTree {
+        throw MavenOperationError(
+            code: "not_supported",
+            message: "Maven dependency parsing is unavailable."
+        )
+    }
 }
 
 package protocol MavenConfigurationStoring: Sendable {
