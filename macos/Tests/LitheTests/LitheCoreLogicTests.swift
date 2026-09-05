@@ -2573,6 +2573,33 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func highlightedRangeCacheShiftsUnchangedRangesAfterAnEdit() {
+        var cache = HighlightedRangeCache()
+        cache.insert(NSRange(location: 0, length: 10))
+        cache.insert(NSRange(location: 20, length: 10))
+        cache.insert(NSRange(location: 40, length: 10))
+
+        cache.applyEdit(
+            replacedRange: NSRange(location: 12, length: 4),
+            replacementLength: 8
+        )
+        #expect(cache.ranges == [
+            NSRange(location: 0, length: 10),
+            NSRange(location: 24, length: 10),
+            NSRange(location: 44, length: 10)
+        ])
+
+        cache.applyEdit(
+            replacedRange: NSRange(location: 24, length: 10),
+            replacementLength: 0
+        )
+        #expect(cache.ranges == [
+            NSRange(location: 0, length: 10),
+            NSRange(location: 34, length: 10)
+        ])
+    }
+
+    @Test
     @MainActor
     func codeEditorShiftsFindMatchesAcrossASingleLineEdit() {
         let textView = CodeTextView(frame: .zero)
@@ -3235,6 +3262,55 @@ struct EditorDocumentTests {
         document.applyLiveEditorText("before")
         #expect(!document.isDirty)
         #expect(publishCount == 2)
+    }
+
+    @Test
+    @MainActor
+    func liveEditorEditsProduceOrderedLanguageServerChanges() {
+        let document = EditorDocument(
+            url: URL(fileURLWithPath: "/tmp/live-editor-lsp.txt"),
+            text: "one\ntwo",
+            modificationDate: nil
+        )
+
+        document.applyLiveEditorEdit(
+            replacedRange: NSRange(location: 4, length: 3),
+            replacement: "second"
+        )
+        document.applyLiveEditorEdit(
+            replacedRange: NSRange(location: 0, length: 0),
+            replacement: "A"
+        )
+
+        let changes = document.takePendingLanguageServerChanges()
+        #expect(changes.map(\.text) == ["second", "A"])
+        #expect(changes[0].start == LanguageServerDocumentPosition(line: 1, utf16Column: 0))
+        #expect(changes[0].end == LanguageServerDocumentPosition(line: 1, utf16Column: 3))
+        #expect(document.takePendingLanguageServerChanges().isEmpty)
+    }
+
+    @Test
+    @MainActor
+    func liveEditorEditAppliesUTF16ReplacementWithoutFullEditorSnapshot() {
+        let document = EditorDocument(
+            url: URL(fileURLWithPath: "/tmp/live-editor-edit.txt"),
+            text: "before\nvalue",
+            modificationDate: nil
+        )
+
+        document.applyLiveEditorEdit(
+            replacedRange: NSRange(location: 7, length: 5),
+            replacement: "updated"
+        )
+
+        #expect(document.text == "before\nupdated")
+        #expect(document.isDirty)
+
+        document.applyLiveEditorEdit(
+            replacedRange: NSRange(location: 0, length: 0),
+            replacement: "A"
+        )
+        #expect(document.text == "Abefore\nupdated")
     }
 
     @Test

@@ -1300,7 +1300,18 @@ struct CodeEditorView: NSViewRepresentable {
             }
             gutter?.refreshLineNumberLayout()
             isApplyingEditorChange = true
-            document?.applyLiveEditorText(textView.string)
+            if let document,
+               let replacedRange = pendingReplacedRange,
+               let replacement = pendingReplacement {
+                document.applyLiveEditorEdit(
+                    replacedRange: replacedRange,
+                    replacement: replacement
+                )
+            } else {
+                // Programmatic edits may not provide shouldChangeTextIn
+                // metadata. Keep this recovery path for those edits only.
+                document?.applyLiveEditorText(textView.string)
+            }
             if let document,
                let previousSource,
                let replacedRange = pendingReplacedRange,
@@ -1315,9 +1326,12 @@ struct CodeEditorView: NSViewRepresentable {
             if let document {
                 scheduleDocumentChange(document)
             }
-            highlight(in: pendingHighlightRange)
             let findReplacedRange = pendingReplacedRange
             let findInsertedLength = pendingHighlightRange?.length ?? 0
+            highlight(
+                in: pendingHighlightRange,
+                replacedLength: pendingReplacedRange?.length
+            )
             pendingHighlightRange = nil
             pendingReplacedRange = nil
             pendingReplacement = nil
@@ -1434,12 +1448,18 @@ struct CodeEditorView: NSViewRepresentable {
             return changed
         }
 
-        func highlight(in editedRange: NSRange? = nil) {
+        func highlight(in editedRange: NSRange? = nil, replacedLength: Int? = nil) {
             guard let textView, let textStorage = textView.textStorage else { return }
             let fullRange = NSRange(location: 0, length: textStorage.length)
             let font = textView.font ?? LitheTheme.editorFont(size: 13)
             if let editedRange {
-                highlightedRanges.removeAll()
+                highlightedRanges.applyEdit(
+                    replacedRange: NSRange(
+                        location: editedRange.location,
+                        length: replacedLength ?? editedRange.length
+                    ),
+                    replacementLength: editedRange.length
+                )
                 let target = SyntaxHighlighter.targetRange(
                     for: editedRange,
                     in: textStorage.string as NSString,
@@ -5717,5 +5737,30 @@ struct HighlightedRangeCache {
 
     mutating func removeAll() {
         ranges.removeAll(keepingCapacity: true)
+    }
+
+    /// Keeps cached ranges valid after NSTextStorage applies an edit. Ranges
+    /// crossing the edit are discarded; ranges after it are shifted by the
+    /// UTF-16 length delta.
+    mutating func applyEdit(replacedRange: NSRange, replacementLength: Int) {
+        guard replacedRange.location != NSNotFound,
+              replacedRange.location >= 0,
+              replacedRange.length >= 0,
+              replacementLength >= 0 else {
+            removeAll()
+            return
+        }
+
+        let editEnd = NSMaxRange(replacedRange)
+        let delta = replacementLength - replacedRange.length
+        ranges = ranges.compactMap { range in
+            if NSMaxRange(range) > replacedRange.location && range.location < editEnd {
+                return nil
+            }
+            if range.location >= editEnd {
+                return NSRange(location: range.location + delta, length: range.length)
+            }
+            return range
+        }
     }
 }

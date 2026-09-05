@@ -108,9 +108,7 @@ export const SidebarPaneSelector = ({
   const isBufferOwnedSurfaceActive = isSearchActive;
   const isPrimarySidebarItemActive = isSidebarVisible && !isBufferOwnedSurfaceActive;
   const isFilesActive =
-    isPrimarySidebarItemActive &&
-    !isGitViewActive &&
-    activeSidebarView === "files";
+    isPrimarySidebarItemActive && !isGitViewActive && activeSidebarView === "files";
   const sidebarActivityItemsOrder = useSettingsStore(
     (state) => state.settings.sidebarActivityItemsOrder,
   );
@@ -242,13 +240,13 @@ export const SidebarPaneSelector = ({
         ? [
             {
               id: "maven",
-              label: showLabels ? t("workbench.maven") : undefined,
+              label: showLabels ? `${t("run.title")} - ${t("maven.title")}` : undefined,
               icon: <PackageIcon className={iconClassName} />,
               isActive: isMavenActive,
               onClick: onMavenClick,
-              ariaLabel: t("workbench.maven"),
+              ariaLabel: `${t("run.title")} - ${t("maven.title")}`,
               tooltip: {
-                content: t("workbench.maven"),
+                content: `${t("run.title")} - ${t("maven.title")}`,
                 side: tooltipSide,
               },
             } satisfies SidebarPaneItem,
@@ -288,9 +286,9 @@ export const SidebarPaneSelector = ({
       onDiagnosticsClick,
       isDiagnosticsActive,
       onRunClick,
-      onMavenClick,
       onSettingsClick,
       isRunActive,
+      onMavenClick,
       isMavenActive,
       onViewChange,
       showLabels,
@@ -362,7 +360,9 @@ export const SidebarPaneSelector = ({
           {topItems.map(renderVerticalItem)}
         </div>
         {bottomItems.length > 0 ? (
-          <div className="flex shrink-0 flex-col gap-1 pt-1">{bottomItems.map(renderVerticalItem)}</div>
+          <div className="flex shrink-0 flex-col gap-1 pt-1">
+            {bottomItems.map(renderVerticalItem)}
+          </div>
         ) : null}
       </nav>
     );

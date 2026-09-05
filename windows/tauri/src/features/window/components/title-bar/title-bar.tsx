@@ -279,7 +279,6 @@ const TitleBar = ({ showMinimal = false, onOpenProjectPicker }: TitleBarProps) =
     return (
       <ChromeBar
         region="title"
-        data-tauri-drag-region
         onMouseDown={handleTitleBarMouseDown}
         className="lithe-title-bar relative z-50 justify-between select-none"
       >
@@ -305,7 +304,6 @@ const TitleBar = ({ showMinimal = false, onOpenProjectPicker }: TitleBarProps) =
             "lithe-title-bar font-sans ui-text-chrome relative z-50 flex h-(--lithe-title-bar-height) items-center justify-between gap-(--lithe-chrome-gap) bg-transparent pr-(--lithe-chrome-padding-inline) text-subtle-foreground",
             isFullscreen ? "pl-2" : "pl-23.5",
           )}
-          data-tauri-drag-region
           onMouseDown={handleTitleBarMouseDown}
         >
           <ChromeGroup className="pointer-events-auto h-full">
@@ -325,12 +323,11 @@ const TitleBar = ({ showMinimal = false, onOpenProjectPicker }: TitleBarProps) =
   return (
     <ContextMenu>
       <ContextMenuTrigger
-        data-tauri-drag-region
         onMouseDown={handleTitleBarMouseDown}
         onContextMenu={handleTitleBarContextMenu}
         className="lithe-title-bar font-sans ui-text-chrome relative z-50 flex h-(--lithe-title-bar-height) items-center justify-between gap-(--lithe-chrome-gap) bg-surface px-(--lithe-chrome-padding-inline) text-muted-foreground"
       >
-        <ChromeGroup data-tauri-drag-region grow className="min-w-0">
+        <ChromeGroup grow className="min-w-0">
           <ChromeGroup className="pointer-events-auto min-w-0">
             {menuItem}
             {projectControls}

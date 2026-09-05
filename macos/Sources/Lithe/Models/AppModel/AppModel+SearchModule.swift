@@ -42,6 +42,7 @@ extension AppModel {
     func toggleSearchEverywhere() {
         guard workspaceURL != nil, !isSearchEverywhereVisible else { return }
         isSearchEverywhereVisible = true
+        Task { _ = await activateSearchModule() }
     }
 
     func dismissSearchEverywhere() {
@@ -50,16 +51,20 @@ extension AppModel {
         searchFeatureIfActive?.clearSearchEverywhere()
     }
 
-    func searchEverywhere(options: ProjectSearchOptions = .default) async {
+    func searchEverywhere(
+        query: String,
+        options: ProjectSearchOptions = .default
+    ) async {
         let signpost = LitheSignpost.begin("search.everywhere")
         defer { LitheSignpost.end("search.everywhere", signpost) }
         guard let searchFeature = await activateSearchModule() else { return }
         guard let workspaceURL else { searchFeature.clearSearchEverywhere(); return }
-        let query = searchEverywhereQuery
         await searchFeature.searchEverywhere(
             at: workspaceURL, query: query, options: options,
             visibilityRules: settings.fileVisibilityRules.searchRules,
-            isCurrent: { [weak self] in self?.workspaceURL == workspaceURL && self?.searchEverywhereQuery == query }
+            isCurrent: { [weak self] in
+                self?.workspaceURL == workspaceURL && self?.isSearchEverywhereVisible == true
+            }
         )
         try? services.moduleRuntime.markIdle(.search)
     }
@@ -86,25 +91,28 @@ extension AppModel {
         isProjectReplaceVisible = true
     }
 
-    func previewProjectReplacement() async {
+    func previewProjectReplacement(
+        query: String,
+        replacement: String,
+        options: ProjectSearchOptions
+    ) async {
         guard let rootURL = workspaceURL, let searchFeature = await activateSearchModule() else { return }
-        let query = projectReplaceQuery
         let overrides = openDocumentTextOverrides(rootURL: rootURL)
         await searchFeature.previewProjectReplacement(
-            at: rootURL, query: query, replacement: projectReplaceText,
+            at: rootURL, query: query, replacement: replacement,
             paths: projectFiles.compactMap { workspaceRelativePath(for: $0, root: rootURL) },
-            textOverrides: overrides, options: projectReplaceOptions,
+            textOverrides: overrides, options: options,
             visibilityRules: settings.fileVisibilityRules.searchRules,
-            isCurrent: { [weak self] in self?.workspaceURL == rootURL && self?.projectReplaceQuery == query }
+            isCurrent: { [weak self] in self?.workspaceURL == rootURL && self?.isProjectReplaceVisible == true }
         )
         try? services.moduleRuntime.markIdle(.search)
-        guard projectReplaceQuery == query else { return }
+        guard isProjectReplaceVisible else { return }
         selectedProjectReplacementPaths = Set(projectReplacementFiles.map(\.relativePath))
     }
 
-    func applyProjectReplacement() async {
+    func applyProjectReplacement(query: String) async {
         guard let rootURL = workspaceURL,
-              !projectReplaceQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let searchFeature = await activateSearchModule() else { return }
         let result = await searchFeature.applyProjectReplacement(
             at: rootURL, selectedPaths: selectedProjectReplacementPaths,
