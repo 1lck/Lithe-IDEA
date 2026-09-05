@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type {
+  MavenDependenciesResponse,
   MavenDiagnostic,
   MavenLaunchPlan,
   MavenProject,
@@ -50,8 +51,30 @@ const launchPlan: MavenLaunchPlan = {
   configurationFingerprint: "fixture-fingerprint",
 };
 
+const dependencyTree: MavenDependenciesResponse = {
+  modulePath: "service",
+  dependencies: [
+    {
+      modulePath: "service",
+      groupId: "org.example",
+      artifactId: "library",
+      version: "1.0.0",
+      type: "jar",
+      classifier: null,
+      scope: "compile",
+      resolution: "resolved",
+      selectedVersion: null,
+      children: [],
+    },
+  ],
+};
+
 const scanMavenProject = mock(async (_root: string, _paths?: string[]) => project);
 const createMavenLaunchPlan = mock(async () => launchPlan);
+const createMavenDependencyPlan = mock(async () => launchPlan);
+const parseMavenDependencies = mock(
+  async (_modulePath: string, _output: string): Promise<MavenDependenciesResponse> => dependencyTree,
+);
 const parseMavenDiagnostics = mock(
   async (_root: string, _output: string): Promise<MavenDiagnostic[]> => [],
 );
@@ -73,9 +96,11 @@ const startMavenProcess = mock(async () => undefined);
 const stopMavenProcess = mock(async () => undefined);
 
 const dependencies = {
+  createMavenDependencyPlan,
   createMavenLaunchPlan,
   loadMavenConfiguration,
   parseMavenDiagnostics,
+  parseMavenDependencies,
   resolveMavenLaunch,
   saveWorkspaceBeforeLaunch,
   scanMavenProject,
@@ -92,14 +117,45 @@ beforeEach(() => {
   writeMavenConfiguration.mockClear();
   createMavenLaunchPlan.mockReset();
   createMavenLaunchPlan.mockResolvedValue(launchPlan);
+  createMavenDependencyPlan.mockReset();
+  createMavenDependencyPlan.mockResolvedValue(launchPlan);
   parseMavenDiagnostics.mockReset();
   parseMavenDiagnostics.mockResolvedValue([]);
+  parseMavenDependencies.mockReset();
+  parseMavenDependencies.mockResolvedValue(dependencyTree);
   resolveMavenLaunch.mockClear();
   saveWorkspaceBeforeLaunch.mockReset();
   saveWorkspaceBeforeLaunch.mockResolvedValue(undefined);
   startMavenProcess.mockClear();
   stopMavenProcess.mockClear();
 });
+
+class ManualTimer {
+  private nextId = 1;
+  private readonly callbacks = new Map<number, () => void | Promise<void>>();
+
+  readonly set = (callback: () => void | Promise<void>) => {
+    const id = this.nextId++;
+    this.callbacks.set(id, callback);
+    return id as unknown as ReturnType<typeof setTimeout>;
+  };
+
+  readonly clear = (timer: ReturnType<typeof setTimeout>) => {
+    this.callbacks.delete(timer as unknown as number);
+  };
+
+  get size(): number {
+    return this.callbacks.size;
+  }
+
+  async fireNext(): Promise<void> {
+    const id = [...this.callbacks.keys()].sort((left, right) => left - right)[0];
+    if (id === undefined) throw new Error("No timer is scheduled.");
+    const callback = this.callbacks.get(id);
+    this.callbacks.delete(id);
+    await callback?.();
+  }
+}
 
 afterEach(() => workspaceRuntimeRegistry.resetForTests());
 
@@ -157,6 +213,7 @@ describe("Maven workspace state", () => {
       local: {
         version: 1,
         settingsPath: "C:/Users/example/.m2/settings.xml",
+        localRepositoryPath: "D:/maven-repo",
         mavenExecutablePath: "D:/Tools/apache-maven",
         javaHomePath: "C:/Java/jdk-21",
       },
@@ -170,6 +227,7 @@ describe("Maven workspace state", () => {
       reactorPath: "reactor",
       profiles: ["dev", "qa"],
       settingsPath: "C:/Users/example/.m2/settings.xml",
+      localRepositoryPath: "D:/maven-repo",
       skipTests: true,
       mavenExecutablePath: "D:/Tools/apache-maven",
       javaHomePath: "C:/Java/jdk-21",
@@ -186,6 +244,7 @@ describe("Maven workspace state", () => {
 
     store.getState().actions.updateLocalConfiguration({
       settingsPath: "C:/Users/example/.m2/settings.xml",
+      localRepositoryPath: "D:/maven-repo",
       mavenExecutablePath: "D:/Tools/apache-maven",
       javaHomePath: "C:/Java/jdk-21",
     });
@@ -200,9 +259,11 @@ describe("Maven workspace state", () => {
       skipTests: false,
     });
     expect(configuration?.portable).not.toHaveProperty("settingsPath");
+    expect(configuration?.portable).not.toHaveProperty("localRepositoryPath");
     expect(configuration?.local).toEqual({
       version: 1,
       settingsPath: "C:/Users/example/.m2/settings.xml",
+      localRepositoryPath: "D:/maven-repo",
       mavenExecutablePath: "D:/Tools/apache-maven",
       javaHomePath: "C:/Java/jdk-21",
     });
@@ -401,5 +462,110 @@ describe("Maven workspace state", () => {
 
     expect(store.getState().issues).toEqual([]);
     expect(store.getState().runningTitle).toBe("test");
+  });
+});
+
+describe("Maven dependency state", () => {
+  test("loads and parses one module without replacing build task state", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    store.setState({ output: "existing build output", taskStatus: "running" });
+
+    await store.getState().actions.loadDependencies("service");
+
+    const sessionId = store.getState().activeDependencySessionId;
+    expect(sessionId).toStartWith("maven-dependency:");
+    expect(createMavenDependencyPlan).toHaveBeenCalledWith(
+      "D:/work",
+      expect.objectContaining({ reactorPath: "reactor" }),
+      "service",
+    );
+    expect(store.getState().dependencyLoads.service?.status).toBe("loading");
+    expect(store.getState().output).toBe("existing build output");
+    store.getState().actions.appendDependencyOutput(sessionId!, "[INFO] tree\n");
+    await store.getState().actions.finishDependencyProcess(sessionId!, 0);
+
+    expect(parseMavenDependencies).toHaveBeenCalledWith("service", "[INFO] tree\n");
+    expect(store.getState().dependencyLoads.service).toEqual({
+      status: "ready",
+      dependencies: dependencyTree.dependencies,
+      error: null,
+    });
+    expect(store.getState().taskStatus).toBe("running");
+    expect(store.getState().output).toBe("existing build output");
+  });
+
+  test("stops a dependency process at the injected deadline", async () => {
+    const timer = new ManualTimer();
+    const store = createMavenStore("workspace", dependencies, {
+      setTimer: timer.set,
+      clearTimer: timer.clear,
+    });
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    await store.getState().actions.loadDependencies("service");
+    const sessionId = store.getState().activeDependencySessionId;
+
+    expect(timer.size).toBe(1);
+    await timer.fireNext();
+
+    expect(stopMavenProcess).toHaveBeenCalledWith(sessionId);
+    expect(store.getState().activeDependencySessionId).toBeNull();
+    expect(store.getState().dependencyLoads.service?.status).toBe("failed");
+    expect(store.getState().dependencyLoads.service?.error).toContain("timed out");
+  });
+
+  test("shows explicit cancellation for a module dependency request", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    await store.getState().actions.loadDependencies("service");
+    const sessionId = store.getState().activeDependencySessionId;
+
+    await store.getState().actions.cancelDependencies("service");
+
+    expect(stopMavenProcess).toHaveBeenCalledWith(sessionId);
+    expect(store.getState().dependencyLoads.service).toEqual({
+      status: "cancelled",
+      dependencies: [],
+      error: null,
+    });
+  });
+
+  test("drops a parsed result after Maven configuration invalidates the request", async () => {
+    const pending = deferred<MavenDependenciesResponse>();
+    parseMavenDependencies.mockImplementationOnce(async () => pending.promise);
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    await store.getState().actions.loadDependencies("service");
+    const sessionId = store.getState().activeDependencySessionId;
+    const finishing = store.getState().actions.finishDependencyProcess(sessionId!, 0);
+
+    store.getState().actions.setSelectedProfiles(["dev"]);
+    pending.resolve(dependencyTree);
+    await finishing;
+
+    expect(store.getState().dependencyLoads).toEqual({});
+  });
+
+  test("cancels a module still being parsed when another dependency request starts", async () => {
+    const pending = deferred<MavenDependenciesResponse>();
+    parseMavenDependencies.mockImplementationOnce(async () => pending.promise);
+    const timer = new ManualTimer();
+    const store = createMavenStore("workspace", dependencies, {
+      setTimer: timer.set,
+      clearTimer: timer.clear,
+    });
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    await store.getState().actions.loadDependencies("service");
+    const sessionId = store.getState().activeDependencySessionId;
+    const finishing = store.getState().actions.finishDependencyProcess(sessionId!, 0);
+
+    await store.getState().actions.loadDependencies("other");
+
+    expect(store.getState().dependencyLoads.service?.status).toBe("cancelled");
+    expect(store.getState().dependencyLoads.other?.status).toBe("loading");
+    pending.resolve(dependencyTree);
+    await finishing;
+    expect(store.getState().dependencyLoads.service?.status).toBe("cancelled");
+    await store.getState().actions.cancelDependencies("other");
   });
 });
