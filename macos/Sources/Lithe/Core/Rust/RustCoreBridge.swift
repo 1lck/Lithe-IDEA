@@ -9,7 +9,7 @@ import LitheRustCore
 /// The JSON request/response shape is also the contract that the future
 /// Windows Qt binding will consume. The bridge stays synchronous at this
 /// layer; callers move filesystem and Git work off the main actor.
-struct RustCoreBridge: Sendable {
+struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     private struct Request<Payload: Encodable>: Encodable {
         let id: String
         let operationId: String?
@@ -1669,10 +1669,23 @@ struct RustCoreBridge: Sendable {
     }
 
     private struct LspSyncDocumentRequest: Encodable {
+        struct Change: Encodable {
+            let range: Range
+            let text: String
+        }
+        struct Position: Encodable {
+            let line: Int
+            let character: Int
+        }
+        struct Range: Encodable {
+            let start: LspSyncDocumentRequest.Position
+            let end: LspSyncDocumentRequest.Position
+        }
         let sessionId: String
         let uri: String
         let languageId: String
         let text: String
+        let contentChanges: [Change]
     }
 
     private struct LspWorkspaceFilesChangedRequest: Encodable {
@@ -3403,7 +3416,8 @@ struct RustCoreBridge: Sendable {
         sessionID: String,
         fileURL: URL,
         languageID: String,
-        text: String
+        text: String,
+        changes: [LanguageServerDocumentChange] = []
     ) -> Result<LspSyncDocumentPayload, CoreCallError> {
         executeResult(
             command: "lsp.syncDocument",
@@ -3411,9 +3425,53 @@ struct RustCoreBridge: Sendable {
                 sessionId: sessionID,
                 uri: fileURL.standardizedFileURL.absoluteString,
                 languageId: languageID,
-                text: text
+                // Keep the full snapshot for the initial didOpen and as a
+                // recovery source; Rust emits range-based didChange when safe.
+                text: text,
+                contentChanges: changes.map { change in
+                    LspSyncDocumentRequest.Change(
+                        range: .init(
+                            start: LspSyncDocumentRequest.Position(
+                                line: change.start.line,
+                                character: change.start.utf16Column
+                            ),
+                            end: LspSyncDocumentRequest.Position(
+                                line: change.end.line,
+                                character: change.end.utf16Column
+                            )
+                        ),
+                        text: change.text
+                    )
+                }
             )
         )
+    }
+
+    func syncLanguageServerDocument(
+        sessionID: String,
+        fileURL: URL,
+        languageID: String,
+        text: String,
+        changes: [LanguageServerDocumentChange]
+    ) -> Result<LanguageServerDocumentSync, LanguageServerRuntimeFailure> {
+        lspSyncDocument(
+            sessionID: sessionID,
+            fileURL: fileURL,
+            languageID: languageID,
+            text: text,
+            changes: changes
+        ).map {
+            LanguageServerDocumentSync(
+                documentVersion: $0.documentVersion,
+                changed: $0.changed
+            )
+        }.mapError { error in
+            LanguageServerRuntimeFailure(
+                code: error.code,
+                message: error.message,
+                details: error.details
+            )
+        }
     }
 
     func lspWorkspaceFilesChanged(

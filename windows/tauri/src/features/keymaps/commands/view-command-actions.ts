@@ -1,5 +1,6 @@
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { editorAPI } from "@/features/editor/extensions/api";
+import { toggleMavenToolWindow } from "@/features/maven/actions/maven-tool-window-actions";
 import { openNotificationsToolWindow } from "@/features/notifications/actions/notifications-tool-window-actions";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useWhatsNewStore } from "@/features/settings/stores/whats-new.store";
@@ -38,13 +39,7 @@ export function toggleRunPane(): void {
 }
 
 export function toggleMavenPane(): void {
-  const state = useUIState.getState();
-  if (state.isBottomPaneVisible && state.bottomPaneActiveTab === "maven") {
-    state.setIsBottomPaneVisible(false);
-  } else {
-    state.setBottomPaneActiveTab("maven");
-    state.setIsBottomPaneVisible(true);
-  }
+  toggleMavenToolWindow();
 }
 
 export function toggleTerminalPane(): void {

@@ -46,7 +46,9 @@ final class AppModel: ObservableObject, Identifiable {
     @Published private(set) var recentProjects: [RecentProject]
     @Published var searchQuery = ""
     @Published var isSearchEverywhereVisible = false
-    @Published var searchEverywhereQuery = ""
+    // Search Everywhere owns its transient query so typing does not publish a
+    // change through the whole workbench.
+    var searchEverywhereQuery = ""
     @Published var isProjectReplaceVisible = false
     @Published var projectReplaceQuery = ""
     @Published var projectReplaceText = ""
@@ -1395,7 +1397,8 @@ final class AppModel: ObservableObject, Identifiable {
             try languageToolingSessions.synchronizeLanguageServer(
                 for: document.url,
                 text: document.text,
-                rootURL: workspaceURL
+                rootURL: workspaceURL,
+                changes: document.takePendingLanguageServerChanges()
             )
             languageToolingFeature.markActivationSucceeded(providerID: descriptor.id)
             if let moduleID = services.pluginCatalog.languageSupport(for: document.url)?

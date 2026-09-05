@@ -1,49 +1,21 @@
-import { useUIState } from "@/features/window/stores/ui-state.store";
+import {
+  applyRightToolWindowIntent,
+  resolveRightToolWindowUpdate,
+  type RightToolWindowIntent,
+  type RightToolWindowState,
+} from "@/features/layout/actions/right-tool-window-actions";
 
 const NOTIFICATIONS_TOOL_WINDOW_VIEW = "notifications";
 
-type NotificationsToolWindowIntent = "open" | "close" | "toggle";
-
-interface NotificationsToolWindowState {
-  activeRightSidebarView: string;
-  isRightSidebarVisible: boolean;
-}
-
-interface NotificationsToolWindowUpdate {
-  activeRightSidebarView: string;
-  isRightSidebarVisible: boolean;
-}
-
 export function resolveNotificationsToolWindowUpdate(
-  state: NotificationsToolWindowState,
-  intent: NotificationsToolWindowIntent,
-): NotificationsToolWindowUpdate {
-  const isNotificationsVisible =
-    state.isRightSidebarVisible && state.activeRightSidebarView === NOTIFICATIONS_TOOL_WINDOW_VIEW;
-
-  if (intent === "close" || (intent === "toggle" && isNotificationsVisible)) {
-    return {
-      activeRightSidebarView: state.activeRightSidebarView,
-      isRightSidebarVisible: false,
-    };
-  }
-
-  return {
-    activeRightSidebarView: NOTIFICATIONS_TOOL_WINDOW_VIEW,
-    isRightSidebarVisible: true,
-  };
+  state: RightToolWindowState,
+  intent: RightToolWindowIntent,
+): RightToolWindowState {
+  return resolveRightToolWindowUpdate(state, NOTIFICATIONS_TOOL_WINDOW_VIEW, intent);
 }
 
-function applyNotificationsToolWindowIntent(intent: NotificationsToolWindowIntent): void {
-  const state = useUIState.getState();
-  const update = resolveNotificationsToolWindowUpdate(state, intent);
-
-  if (update.activeRightSidebarView !== state.activeRightSidebarView) {
-    state.setActiveRightSidebarView(update.activeRightSidebarView);
-  }
-  if (update.isRightSidebarVisible !== state.isRightSidebarVisible) {
-    state.setIsRightSidebarVisible(update.isRightSidebarVisible);
-  }
+function applyNotificationsToolWindowIntent(intent: RightToolWindowIntent): void {
+  applyRightToolWindowIntent(NOTIFICATIONS_TOOL_WINDOW_VIEW, intent);
 }
 
 export function openNotificationsToolWindow(): void {
