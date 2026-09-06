@@ -17,6 +17,10 @@ function waitForEditorActivation(): Promise<void> {
 async function navigateToJumpEntryInternal(entry: JumpListEntry): Promise<boolean> {
   const bufferStore = useBufferStore.getState();
 
+  // The active editor adapter is replaced during a buffer switch. Preserve the
+  // focus request until the target Monaco surface registers its adapter.
+  editorAPI.focusWhenReady();
+
   // Try to find the buffer by ID first, then by path
   let targetBuffer = getBufferById(bufferStore.buffers, entry.bufferId);
 

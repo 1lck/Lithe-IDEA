@@ -93,6 +93,7 @@ class EditorAPIImpl implements EditorAPI {
   private textareaRef: HTMLTextAreaElement | null = null;
   private viewportRef: HTMLDivElement | null = null;
   private activeEditorAdapter: ActiveEditorAdapter | null = null;
+  private focusWhenAdapterRegisters = false;
   private activeFindAdapter: ActiveFindAdapter | null = null;
   private smartSelectionHistory: OffsetRange[] = [];
 
@@ -201,6 +202,11 @@ class EditorAPIImpl implements EditorAPI {
   }
 
   focus(): void {
+    this.activeEditorAdapter?.focus();
+  }
+
+  focusWhenReady(): void {
+    this.focusWhenAdapterRegisters = true;
     this.activeEditorAdapter?.focus();
   }
 
@@ -817,6 +823,10 @@ class EditorAPIImpl implements EditorAPI {
   setActiveEditorAdapter(adapter: ActiveEditorAdapter | null): void {
     if (adapter) {
       this.activeEditorAdapter = adapter;
+      if (this.focusWhenAdapterRegisters) {
+        this.focusWhenAdapterRegisters = false;
+        adapter.focus();
+      }
       return;
     }
 
