@@ -32,6 +32,7 @@ export const initializeThemeSystem = async () => {
       getCursorPosition: () => ({ line: 0, column: 0, offset: 0 }),
       setCursorPosition: () => {},
       focus: () => {},
+      focusWhenReady: () => {},
       selectAll: () => {},
       openFind: () => false,
       addDecoration: () => "",
