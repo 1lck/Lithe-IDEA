@@ -5,16 +5,6 @@ import LitheExecutionModule
 
 @MainActor
 extension AppModel {
-    struct DebugFeatureAccess {
-        let genericFeature: GenericDebugFeatureModel
-    }
-    struct ExecutionFeatureAccess {
-        let mavenFeature: MavenFeatureModel
-        let runFeature: RunFeatureModel
-        let tests: LanguageTestService
-        let projectDevelopment: ProjectDevelopmentFeatureModel
-    }
-
     var mavenFeatureIfActive: MavenFeatureModel? { executionCapability?.mavenFeature }
     var runFeatureIfActive: RunFeatureModel? { executionCapability?.runFeature }
     var genericDebugFeatureIfActive: GenericDebugFeatureModel? {
@@ -26,64 +16,14 @@ extension AppModel {
         // session's module graph is still being torn down. Activating first would
         // hand back a run feature that teardown releases moments later, and the
         // deferred action waiting on it would never be resumed.
-        await awaitModuleRuntimeShutdown()
-        if let mavenFeature = mavenFeatureIfActive,
-           let runFeature = runFeatureIfActive,
-           let tests = languageTestServiceIfActive,
-           let projectDevelopment = executionCapability?.projectDevelopment {
-            return ExecutionFeatureAccess(mavenFeature: mavenFeature, runFeature: runFeature, tests: tests, projectDevelopment: projectDevelopment)
-        }
-        do {
-            let value = try await services.moduleRuntime.activateCapability(.executionWorkspace)
-            guard let capability = value as? LitheExecutionModule.ExecutionModuleCapability else { return nil }
-            let mavenFeature = capability.mavenFeature
-            let runFeature = capability.runFeature
-            let tests = capability.testService
-            let projectDevelopment = capability.projectDevelopment
-            cacheModuleCapability(capability, id: .executionWorkspace, moduleID: .execution)
-            observeModuleFeature(.execution, observation: runFeature.objectWillChange.sink { [weak self] _ in
-                self?.scheduleObjectWillChangeRelay()
-            })
-            observeModuleFeature(.execution, observation: tests.objectWillChange.sink { [weak self] _ in
-                self?.scheduleObjectWillChangeRelay()
-            })
-            return ExecutionFeatureAccess(mavenFeature: mavenFeature, runFeature: runFeature, tests: tests, projectDevelopment: projectDevelopment)
-        } catch {
-            showNotification(error.localizedDescription)
-            return nil
-        }
+        await executionModuleCoordinator.activateAccess()
     }
 
     func activateDebugModule() async -> DebugFeatureAccess? {
-        await awaitModuleRuntimeShutdown()
-        if let genericFeature = genericDebugFeatureIfActive {
-            configureDebugHostHandlers(genericFeature)
-            if let workspaceURL { genericFeature.openWorkspace(at: workspaceURL) }
-            return DebugFeatureAccess(genericFeature: genericFeature)
-        }
-        do {
-            let value = try await services.moduleRuntime.activateCapability(.debugWorkspace)
-            guard let capability = value as? LitheDebugModule.DebugModuleCapability,
-                  let genericFeature = capability.genericFeature as? GenericDebugFeatureModel else { return nil }
-            configureDebugHostHandlers(genericFeature)
-            cacheModuleCapability(capability, id: .debugWorkspace, moduleID: .debug)
-            if let workspaceURL { genericFeature.openWorkspace(at: workspaceURL) }
-            observeModuleFeature(.debug, observation: genericFeature.objectWillChange.sink { [weak self] _ in
-                self?.scheduleObjectWillChangeRelay()
-            })
-            observeModuleFeature(.debug, observation: genericFeature.$state
-                .removeDuplicates()
-                .sink { [weak self] state in
-                    self?.handleDebugSessionStateChange(state)
-                })
-            return DebugFeatureAccess(genericFeature: genericFeature)
-        } catch {
-            showNotification(error.localizedDescription)
-            return nil
-        }
+        await debugModuleCoordinator.activateAccess(workspace: workspaceURL)
     }
 
-    private func configureDebugHostHandlers(_ feature: GenericDebugFeatureModel) {
+    func configureDebugHostHandlers(_ feature: GenericDebugFeatureModel) {
         feature.onStoppedLocation = { [weak self] url, line, column in
             self?.revealDebugLocation(url: url, line: line, column: column)
         }

@@ -1,6 +1,13 @@
 import SwiftUI
 import LitheGitModule
 
+struct GitWorktreeActions {
+    let openProject: (URL) -> Void
+    let reveal: (URL) -> Void
+    let copyPath: (URL) -> Void
+    let chooseParentDirectory: () -> URL?
+}
+
 struct GitWorktreesView: View {
     private enum WorktreeSection: String, CaseIterable, Identifiable {
         case overview = "Overview"
@@ -23,43 +30,6 @@ struct GitWorktreesView: View {
         static let quickInfoThreshold: CGFloat = 1_080
     }
 
-    fileprivate enum WorktreeStatusKind: Equatable {
-        case pathMissing
-        case locked
-        case modified
-        case current
-        case available
-
-        var title: LocalizedStringKey {
-            switch self {
-            case .pathMissing: return "Path Missing"
-            case .locked: return "Locked"
-            case .modified: return "Modified"
-            case .current: return "Current"
-            case .available: return "Available"
-            }
-        }
-
-        var color: Color {
-            switch self {
-            case .pathMissing: return LitheTheme.error
-            case .locked: return LitheTheme.warning
-            case .modified: return LitheTheme.warning
-            case .current, .available: return LitheTheme.success
-            }
-        }
-
-        init(_ status: GitWorktreeStatusKind) {
-            switch status {
-            case .pathMissing: self = .pathMissing
-            case .locked: self = .locked
-            case .modified: self = .modified
-            case .current: self = .current
-            case .available: self = .available
-            }
-        }
-    }
-
     private enum WorktreeConfirmation: Identifiable {
         case removal(GitWorktree, force: Bool)
         case prune
@@ -79,7 +49,9 @@ struct GitWorktreesView: View {
         let message: String
     }
 
-    @EnvironmentObject private var model: AppModel
+    @ObservedObject var feature: GitFeatureModel
+    @ObservedObject var background: WorkbenchBackgroundFeatureModel
+    let actions: GitWorktreeActions
     @State private var showsCreateSheet = false
     @State private var worktreeConfirmation: WorktreeConfirmation?
     @State private var worktreeActionNotice: WorktreeActionNotice?
@@ -88,15 +60,6 @@ struct GitWorktreesView: View {
     @State private var isLoadingMoreHistory = false
     @State private var selectedWorktreeID: String?
     @State private var activeSection = WorktreeSection.overview
-    @State private var projectedWorktrees: [GitWorktreeListItem] = []
-    @State private var projectedChangesSnapshot = GitWorktreeRowsSnapshot(
-        identity: .changes(inspectionVersion: 0),
-        rows: []
-    )
-    @State private var projectedHistorySnapshot = GitWorktreeRowsSnapshot(
-        identity: .history(inspectionVersion: 0, query: ""),
-        rows: []
-    )
 
     var body: some View {
         GeometryReader { geometry in
@@ -141,118 +104,28 @@ struct GitWorktreesView: View {
                 }
             )
         }
-        // Window resizing continuously proposes new sizes. Keep those layout
-        // passes transactional so SwiftUI does not animate pane bounds or
-        // replay content transitions while the pointer is moving.
-        .transaction { transaction in
-            transaction.animation = nil
-            transaction.disablesAnimations = true
-        }
-        // Keep the worktree surface in its own compositing layer while a
-        // splitter is dragged. This lets Core Animation move the already
-        // rendered list/detail surfaces without repainting every child view
-        // for each pointer event.
-        .compositingGroup()
-        .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.editor)
-        .task(id: model.gitRepositoryRoot) {
-            await model.refreshGitWorktrees()
+        .background(background.hasImage ? Color.clear : LitheTheme.editor)
+        .task(id: feature.gitRepositoryRoot) {
+            await feature.refreshWorktrees()
             selectAvailableWorktree()
         }
         .task(id: selectedWorktree?.id) {
             guard let worktree = selectedWorktree, !worktree.isPrunable else { return }
-            await model.inspectGitWorktree(worktree)
+            await feature.inspectWorktree(worktree)
         }
-        .task(id: worktreeListProjectionIdentity) {
-            let taskIdentity = worktreeListProjectionIdentity
-            let worktrees = model.gitWorktrees
-            let query = searchText
-            let inspection = model.gitWorktreeInspection
-            let currentChangeCount = model.gitChanges.count
-            let projection = await Task.detached(priority: .userInitiated) {
-                GitWorktreeListProjection.items(
-                    worktrees: worktrees,
-                    query: query,
-                    inspection: inspection,
-                    currentChangeCount: currentChangeCount
-                )
-            }.value
-            guard taskIdentity == worktreeListProjectionIdentity else { return }
-            projectedWorktrees = projection
-        }
-        .task(id: worktreeChangesProjectionIdentity) {
-            let taskIdentity = worktreeChangesProjectionIdentity
-            let changes: [GitChange]
-            if let selectedWorktree,
-               let inspection = matchingInspection(for: selectedWorktree) {
-                changes = inspection.changes
-            } else {
-                changes = []
-            }
-            let rows = await Task.detached(priority: .userInitiated) {
-                changes.map { change in
-                    GitWorktreeRowsSnapshot.Row.change(
-                        status: change.displayStatus,
-                        path: change.path,
-                        isStaged: change.isStaged,
-                        color: Self.nativeStatusColor(for: change.kind)
-                    )
-                }
-            }.value
-            guard taskIdentity == worktreeChangesProjectionIdentity else { return }
-            projectedChangesSnapshot = GitWorktreeRowsSnapshot(
-                identity: .changes(inspectionVersion: taskIdentity.inspectionVersion),
-                rows: rows
-            )
-        }
-        .task(id: worktreeHistoryProjectionIdentity) {
-            let taskIdentity = worktreeHistoryProjectionIdentity
-            guard let inspection = model.gitWorktreeInspection else {
-                projectedHistorySnapshot = GitWorktreeRowsSnapshot(
-                    identity: .history(
-                        inspectionVersion: taskIdentity.inspectionVersion,
-                        query: taskIdentity.query
-                    ),
-                    rows: []
-                )
-                return
-            }
-            let query = historySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-            let commits = inspection.commits
-            let rows = await Task.detached(priority: .userInitiated) {
-                let projection = query.isEmpty ? commits : commits.filter {
-                    $0.subject.localizedCaseInsensitiveContains(query)
-                        || $0.authorName.localizedCaseInsensitiveContains(query)
-                        || $0.hash.localizedCaseInsensitiveContains(query)
-                }
-                return projection.map { commit in
-                    GitWorktreeRowsSnapshot.Row.commit(
-                        subject: commit.subject,
-                        author: commit.authorName,
-                        date: commit.date
-                    )
-                }
-            }.value
-            guard taskIdentity == currentWorktreeHistoryProjectionIdentity else { return }
-            projectedHistorySnapshot = GitWorktreeRowsSnapshot(
-                identity: .history(
-                    inspectionVersion: taskIdentity.inspectionVersion,
-                    query: taskIdentity.query
-                ),
-                rows: rows
-            )
-        }
-        .onChange(of: model.gitWorktrees.map(\.id)) { _ in
+        .onChange(of: feature.gitWorktrees.map(\.id)) { _ in
             selectAvailableWorktree()
         }
         .sheet(isPresented: $showsCreateSheet) {
-            if let repositoryRoot = model.gitRepositoryRoot {
+            if let repositoryRoot = feature.gitRepositoryRoot {
                 GitWorktreeCreateView(
                     repositoryRoot: repositoryRoot,
-                    references: model.gitReferences,
-                    currentReference: model.gitReferences.first(where: \.isCurrent)
+                    references: feature.gitReferences,
+                    currentReference: feature.gitReferences.first(where: \.isCurrent),
+                    chooseParentDirectory: actions.chooseParentDirectory
                 ) { name, reference, revision, destination in
                     Task {
-                        await model.createGitWorktree(
+                        await feature.createWorktree(
                             named: name,
                             from: reference,
                             revision: revision,
@@ -260,7 +133,6 @@ struct GitWorktreesView: View {
                         )
                     }
                 }
-                .environmentObject(model)
             }
         }
         .confirmationDialog(
@@ -276,12 +148,12 @@ struct GitWorktreesView: View {
                 case .removal(let worktree, force: true):
                     Button("Force Remove", role: .destructive) {
                         worktreeConfirmation = nil
-                        Task { await model.removeGitWorktree(worktree, force: true) }
+                        Task { await feature.removeWorktree(worktree, force: true) }
                     }
                 case .removal(let worktree, force: false):
                     Button("Remove", role: .destructive) {
                         worktreeConfirmation = nil
-                        Task { await model.removeGitWorktree(worktree, force: false) }
+                        Task { await feature.removeWorktree(worktree, force: false) }
                     }
                     Button("Review Force Remove…") {
                         // Let the current confirmation finish dismissing before
@@ -294,7 +166,7 @@ struct GitWorktreesView: View {
                 case .prune:
                     Button("Prune Stale Records", role: .destructive) {
                         worktreeConfirmation = nil
-                        Task { await model.pruneGitWorktrees() }
+                        Task { await feature.pruneWorktrees() }
                     }
                 }
                 Button("Cancel", role: .cancel) { worktreeConfirmation = nil }
@@ -340,7 +212,7 @@ struct GitWorktreesView: View {
                 .controlSize(.regular)
                 .tint(LitheTheme.accent)
                 .lithePointer()
-                .disabled(model.gitReferences.isEmpty || model.isPerformingWorktreeOperation)
+                .disabled(feature.gitReferences.isEmpty || feature.isPerformingWorktreeOperation)
 
                 HStack(spacing: 7) {
                     Image(systemName: "magnifyingglass")
@@ -367,18 +239,18 @@ struct GitWorktreesView: View {
                     .font(Visual.metadata)
                     .foregroundStyle(LitheTheme.secondaryText)
                 Spacer()
-                if model.isPerformingWorktreeOperation || model.gitWorktreeLoadState == .loading {
+                if feature.isPerformingWorktreeOperation || feature.gitWorktreeLoadState == .loading {
                     ProgressView().controlSize(.small)
                 }
                 Button {
-                    Task { await model.refreshGitWorktrees() }
+                    Task { await feature.refreshWorktrees() }
                 } label: {
                     Image(systemName: "arrow.clockwise")
                         .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.plain)
                 .lithePointer()
-                .disabled(model.isPerformingWorktreeOperation)
+                .disabled(feature.isPerformingWorktreeOperation)
                 .help("Refresh worktrees")
             }
             .foregroundStyle(LitheTheme.primaryText)
@@ -390,26 +262,71 @@ struct GitWorktreesView: View {
             if filteredWorktrees.isEmpty {
                 listEmptyState
             } else {
-                GitWorktreeListScrollView(
-                    items: projectedWorktrees,
-                    selectedWorktreeID: selectedWorktreeID,
-                    onSelect: { worktreeID in
-                        selectedWorktreeID = worktreeID
-                        activeSection = .overview
+                ScrollView {
+                    LazyVStack(spacing: 7) {
+                        ForEach(filteredWorktrees) { worktree in
+                            worktreeListRow(worktree)
+                        }
                     }
-                )
+                    .padding(10)
+                }
+                .litheScrollViewChrome()
             }
         }
-        .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.sidebar)
+        .background(background.hasImage ? Color.clear : LitheTheme.sidebar)
     }
 
-    private func worktreeStatusKind(_ worktree: GitWorktree) -> WorktreeStatusKind {
-        if worktree.isPrunable { return .pathMissing }
-        if worktree.isLocked { return .locked }
-        if let inspection = matchingInspection(for: worktree), !inspection.changes.isEmpty { return .modified }
-        if worktree.isCurrent && !model.gitChanges.isEmpty { return .modified }
-        if worktree.isCurrent { return .current }
-        return .available
+    private func worktreeListRow(_ worktree: GitWorktree) -> some View {
+        let isSelected = selectedWorktree?.id == worktree.id
+        return Button {
+            selectedWorktreeID = worktree.id
+            activeSection = .overview
+        } label: {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 7) {
+                    Text(worktree.isPrimary ? String(localized: "Main Worktree") : worktree.displayName)
+                        .font(Visual.bodyMedium)
+                        .foregroundStyle(LitheTheme.primaryText)
+                        .lineLimit(1)
+                    if worktree.isPrimary {
+                        Image(systemName: "crown.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(LitheTheme.warning)
+                    }
+                    if worktree.isCurrent {
+                        worktreeBadge("Current", color: LitheTheme.accent)
+                    }
+                    Spacer(minLength: 6)
+                    worktreeStatusLabel(worktree)
+                    Image(systemName: "ellipsis")
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                Text(worktree.path)
+                    .font(Visual.metadata)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(String(
+                    format: String(localized: "Branch: %@"),
+                    worktree.branchName ?? String(localized: "Detached HEAD")
+                ))
+                    .font(Visual.metadata)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(isSelected ? LitheTheme.subtleSelection : LitheTheme.raised)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay {
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(isSelected ? LitheTheme.inputFocusBorder : LitheTheme.panelBorder, lineWidth: 1)
+        }
+        .lithePointer()
     }
 
     @ViewBuilder
@@ -420,7 +337,7 @@ struct GitWorktreesView: View {
                 detailTabs
                 Divider()
                 sectionContent(worktree)
-                if model.gitWorktrees.contains(where: \.isPrunable) {
+                if feature.gitWorktrees.contains(where: \.isPrunable) {
                     staleWorktreeBanner
                 }
             }
@@ -457,7 +374,7 @@ struct GitWorktreesView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(1)
                 Button {
-                    model.copyProjectItemPath(worktree.url, relative: false)
+                    actions.copyPath(worktree.url)
                 } label: {
                     Image(systemName: "doc.on.doc")
                         .font(.system(size: 12))
@@ -503,9 +420,9 @@ struct GitWorktreesView: View {
 
     @ViewBuilder
     private func sectionContent(_ worktree: GitWorktree) -> some View {
-        switch activeSection {
-        case .overview:
-            ScrollView {
+        ScrollView {
+            switch activeSection {
+            case .overview:
                 VStack(spacing: 12) {
                     HStack(alignment: .top, spacing: 12) {
                         basicInformationCard(worktree)
@@ -513,27 +430,16 @@ struct GitWorktreesView: View {
                     }
                     actionCard(worktree)
                 }
-                // Keep every overview card on the same content width. Without
-                // an explicit width, the adaptive action grid can make its
-                // card hug its intrinsic button width after a pane resize,
-                // leaving a blank strip beside it until another layout pass.
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(14)
-            .litheScrollViewChrome()
-        case .changes:
-            changesSection(worktree)
-                .padding(14)
-        case .history:
-            historySection(worktree)
-                .padding(14)
-        case .settings:
-            ScrollView {
+            case .changes:
+                changesSection(worktree)
+            case .history:
+                historySection(worktree)
+            case .settings:
                 settingsSection(worktree)
             }
-            .padding(14)
-            .litheScrollViewChrome()
         }
+        .padding(14)
+        .litheScrollViewChrome()
     }
 
     private func basicInformationCard(_ worktree: GitWorktree) -> some View {
@@ -544,7 +450,7 @@ struct GitWorktreesView: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Button {
-                        model.copyProjectItemPath(worktree.url, relative: false)
+                        actions.copyPath(worktree.url)
                     } label: {
                         Image(systemName: "doc.on.doc")
                     }
@@ -578,17 +484,17 @@ struct GitWorktreesView: View {
         worktreeCard(title: "Actions") {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
                 worktreeAction("Open in Lithe", icon: "macwindow") {
-                    model.openProject(worktree.url)
+                    actions.openProject(worktree.url)
                 }
                 .disabled(worktree.isPrunable)
                 .help(pathActionHelp(for: worktree))
                 worktreeAction("Show in Finder", icon: "folder") {
-                    model.revealProjectItemInFinder(worktree.url)
+                    actions.reveal(worktree.url)
                 }
                 .disabled(worktree.isPrunable)
                 .help(pathActionHelp(for: worktree))
                 worktreeAction("Copy Path", icon: "doc.on.doc") {
-                    model.copyProjectItemPath(worktree.url, relative: false)
+                    actions.copyPath(worktree.url)
                 }
                 worktreeAction(worktree.isLocked ? "Unlock Worktree" : "Lock Worktree", icon: worktree.isLocked ? "lock.open" : "lock") {
                     toggleLock(for: worktree)
@@ -600,13 +506,13 @@ struct GitWorktreesView: View {
                 .help(removalHelp(for: worktree))
                 if worktree.isPrunable {
                     worktreeAction("Repair Worktree Records", icon: "wrench.and.screwdriver") {
-                        Task { await model.repairGitWorktrees() }
+                        Task { await feature.repairWorktrees() }
                     }
                 }
                 worktreeAction("Prune Stale Records", icon: "trash.slash", destructive: worktree.isPrunable) {
                     worktreeConfirmation = .prune
                 }
-                .disabled(!model.gitWorktrees.contains(where: \.isPrunable))
+                .disabled(!feature.gitWorktrees.contains(where: \.isPrunable))
             }
         }
     }
@@ -621,8 +527,27 @@ struct GitWorktreesView: View {
             } else if inspection.changes.isEmpty {
                 worktreeMessage(icon: "checkmark.circle", title: "No local changes", detail: "This worktree has no uncommitted changes.")
             } else {
-                worktreeScrollableCard(title: "Changes") {
-                    GitWorktreeRowsScrollView(snapshot: projectedChangesSnapshot)
+                worktreeCard(title: "Changes") {
+                    VStack(spacing: 0) {
+                        ForEach(inspection.changes) { change in
+                            HStack(spacing: 10) {
+                                Text(change.displayStatus)
+                                    .font(Visual.mono)
+                                    .foregroundStyle(changeColor(change))
+                                    .frame(width: 22)
+                                Text(change.path)
+                                    .font(Visual.body)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Spacer()
+                                Text(LocalizedStringKey(change.isStaged ? "Staged" : "Unstaged"))
+                                    .font(Visual.metadata)
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                            }
+                            .padding(.vertical, 9)
+                            if change.id != inspection.changes.last?.id { Divider() }
+                        }
+                    }
                 }
             }
         } else {
@@ -638,28 +563,54 @@ struct GitWorktreesView: View {
             if inspection.commits.isEmpty {
                 worktreeMessage(icon: "clock.arrow.circlepath", title: "No commits", detail: "No commits were found for this branch.")
             } else {
-                worktreeScrollableCard(title: "Commit History") {
+                worktreeCard(title: "Commit History") {
                     let query = historySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let snapshot = projectedHistorySnapshot
+                    let commits = query.isEmpty ? inspection.commits : inspection.commits.filter {
+                        $0.subject.localizedCaseInsensitiveContains(query)
+                            || $0.authorName.localizedCaseInsensitiveContains(query)
+                            || $0.hash.localizedCaseInsensitiveContains(query)
+                    }
                     VStack(alignment: .leading, spacing: 10) {
                         TextField("Search commits", text: $historySearchText)
                             .textFieldStyle(.roundedBorder)
                             .font(Visual.body)
-                        if snapshot.rows.isEmpty {
+                        if commits.isEmpty {
                             Text("No matching commits in the loaded history.")
                                 .font(Visual.metadata)
                                 .foregroundStyle(LitheTheme.secondaryText)
                                 .padding(.vertical, 8)
-                        } else {
-                            GitWorktreeRowsScrollView(snapshot: snapshot)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                        VStack(spacing: 0) {
+                        ForEach(commits) { commit in
+                            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                Image(systemName: "circle.fill")
+                                    .font(.system(size: 7))
+                                    .foregroundStyle(LitheTheme.accent)
+                                Text(commit.subject)
+                                    .font(Visual.bodyMedium)
+                                    .foregroundStyle(LitheTheme.primaryText)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Spacer()
+                                Text(commit.authorName)
+                                    .font(Visual.metadata)
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                                    .lineLimit(1)
+                                Text(commit.date)
+                                    .font(Visual.metadata)
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                                    .lineLimit(1)
+                            }
+                            .padding(.vertical, 8)
+                            if commit.id != commits.last?.id { Divider() }
+                        }
                         }
                         if query.isEmpty && inspection.hasMoreCommits {
                             Button {
                                 guard !isLoadingMoreHistory else { return }
                                 isLoadingMoreHistory = true
                                 Task {
-                                    await model.loadMoreGitWorktreeHistory(worktree)
+                                    await feature.loadMoreWorktreeHistory(for: worktree)
                                     isLoadingMoreHistory = false
                                 }
                             } label: {
@@ -697,13 +648,13 @@ struct GitWorktreesView: View {
             worktreeCard(title: "Maintenance") {
                 if worktree.isPrunable {
                     worktreeAction("Repair Worktree Records", icon: "wrench.and.screwdriver") {
-                        Task { await model.repairGitWorktrees() }
+                        Task { await feature.repairWorktrees() }
                     }
                 }
                 worktreeAction("Prune Stale Records", icon: "trash.slash") {
                     worktreeConfirmation = .prune
                 }
-                .disabled(!model.gitWorktrees.contains(where: \.isPrunable))
+                .disabled(!feature.gitWorktrees.contains(where: \.isPrunable))
             }
             worktreeCard(title: "Danger Zone") {
                 worktreeAction("Remove Worktree…", icon: "trash", destructive: true) {
@@ -728,32 +679,6 @@ struct GitWorktreesView: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(LitheTheme.raised)
         .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay {
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(LitheTheme.panelBorder, lineWidth: 1)
-        }
-    }
-
-    private func worktreeScrollableCard<Content: View>(
-        title: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 11) {
-            Text(LocalizedStringKey(title))
-                .font(Visual.section)
-                .foregroundStyle(LitheTheme.primaryText)
-            content()
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        // Keep the native scrolling surface out of a SwiftUI mask. A rounded
-        // clip on a card containing NSScrollView can force an offscreen
-        // compositing pass for every wheel frame; the scroll view already
-        // clips its document content to the viewport.
-        .background {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(LitheTheme.raised)
-        }
         .overlay {
             RoundedRectangle(cornerRadius: 6)
                 .stroke(LitheTheme.panelBorder, lineWidth: 1)
@@ -804,7 +729,7 @@ struct GitWorktreesView: View {
         .buttonStyle(.bordered)
         .controlSize(.regular)
         .lithePointer()
-        .disabled(model.isPerformingWorktreeOperation)
+        .disabled(feature.isPerformingWorktreeOperation)
     }
 
     private var staleWorktreeBanner: some View {
@@ -814,7 +739,7 @@ struct GitWorktreesView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(String(
                     format: String(localized: "%lld worktree records need attention"),
-                    model.gitWorktrees.filter(\.isPrunable).count
+                    feature.gitWorktrees.filter(\.isPrunable).count
                 ))
                     .font(Visual.bodyMedium)
                     .foregroundStyle(LitheTheme.primaryText)
@@ -858,7 +783,7 @@ struct GitWorktreesView: View {
                         quickInformationRow("Reason", value: reason)
                     }
                     Button {
-                        model.copyProjectItemPath(worktree.url, relative: false)
+                        actions.copyPath(worktree.url)
                     } label: {
                         Label("Copy worktree path", systemImage: "arrow.right")
                             .font(Visual.bodyMedium)
@@ -871,7 +796,7 @@ struct GitWorktreesView: View {
             }
             Spacer()
         }
-        .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.sidebar)
+        .background(background.hasImage ? Color.clear : LitheTheme.sidebar)
     }
 
     private func quickInformationRow(
@@ -916,52 +841,30 @@ struct GitWorktreesView: View {
     }
 
     private var filteredWorktrees: [GitWorktree] {
-        projectedWorktrees.map(\.worktree)
-    }
-
-    private var worktreeListProjectionIdentity: WorktreeListProjectionIdentity {
-        WorktreeListProjectionIdentity(
-            worktreesVersion: model.gitWorktreesVersion,
-            inspectionVersion: model.gitWorktreeInspectionVersion,
-            currentChangeCount: model.gitChanges.count,
-            query: searchText
-        )
-    }
-
-    private var worktreeHistoryProjectionIdentity: WorktreeHistoryProjectionIdentity {
-        WorktreeHistoryProjectionIdentity(
-            worktreeID: selectedWorktree?.id,
-            inspectionVersion: model.gitWorktreeInspectionVersion,
-            query: historySearchText
-        )
-    }
-
-    private var worktreeChangesProjectionIdentity: WorktreeChangesProjectionIdentity {
-        WorktreeChangesProjectionIdentity(
-            worktreeID: selectedWorktree?.id,
-            inspectionVersion: model.gitWorktreeInspectionVersion
-        )
-    }
-
-    private var currentWorktreeHistoryProjectionIdentity: WorktreeHistoryProjectionIdentity {
-        worktreeHistoryProjectionIdentity
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return feature.gitWorktrees }
+        return feature.gitWorktrees.filter {
+            $0.displayName.localizedCaseInsensitiveContains(query)
+                || $0.path.localizedCaseInsensitiveContains(query)
+                || ($0.branchName?.localizedCaseInsensitiveContains(query) ?? false)
+        }
     }
 
     private var selectedWorktree: GitWorktree? {
         if let selectedWorktreeID,
-           let selected = model.gitWorktrees.first(where: { $0.id == selectedWorktreeID }) {
+           let selected = feature.gitWorktrees.first(where: { $0.id == selectedWorktreeID }) {
             return selected
         }
-        return model.gitWorktrees.first(where: \.isCurrent) ?? model.gitWorktrees.first
+        return feature.gitWorktrees.first(where: \.isCurrent) ?? feature.gitWorktrees.first
     }
 
     private func selectAvailableWorktree() {
         if let selectedWorktreeID,
-           model.gitWorktrees.contains(where: { $0.id == selectedWorktreeID }) {
+           feature.gitWorktrees.contains(where: { $0.id == selectedWorktreeID }) {
             return
         }
-        selectedWorktreeID = model.gitWorktrees.first(where: \.isCurrent)?.id
-            ?? model.gitWorktrees.first?.id
+        selectedWorktreeID = feature.gitWorktrees.first(where: \.isCurrent)?.id
+            ?? feature.gitWorktrees.first?.id
     }
 
     private func statusText(_ worktree: GitWorktree) -> String {
@@ -970,7 +873,7 @@ struct GitWorktreesView: View {
         if let inspection = matchingInspection(for: worktree), !inspection.changes.isEmpty {
             return "Modified"
         }
-        if worktree.isCurrent && !model.gitChanges.isEmpty { return "Modified" }
+        if worktree.isCurrent && !feature.gitChanges.isEmpty { return "Modified" }
         if worktree.isCurrent { return "Current" }
         return "Available"
     }
@@ -981,7 +884,7 @@ struct GitWorktreesView: View {
         if let inspection = matchingInspection(for: worktree), !inspection.changes.isEmpty {
             return LitheTheme.warning
         }
-        if worktree.isCurrent && !model.gitChanges.isEmpty { return LitheTheme.warning }
+        if worktree.isCurrent && !feature.gitChanges.isEmpty { return LitheTheme.warning }
         return LitheTheme.success
     }
 
@@ -990,7 +893,7 @@ struct GitWorktreesView: View {
         if let inspection = matchingInspection(for: worktree) {
             count = inspection.changes.count
         } else if worktree.isCurrent {
-            count = model.gitChanges.count
+            count = feature.gitChanges.count
         } else {
             return "Loading…"
         }
@@ -999,13 +902,13 @@ struct GitWorktreesView: View {
     }
 
     private func matchingInspection(for worktree: GitWorktree) -> GitWorktreeInspection? {
-        guard model.gitWorktreeInspection?.worktreeID == worktree.id else { return nil }
-        return model.gitWorktreeInspection
+        guard feature.gitWorktreeInspection?.worktreeID == worktree.id else { return nil }
+        return feature.gitWorktreeInspection
     }
 
     @ViewBuilder
     private var inspectionState: some View {
-        switch model.gitWorktreeInspectionLoadState {
+        switch feature.gitWorktreeInspectionLoadState {
         case .idle, .loading:
             worktreeMessage(icon: "arrow.clockwise", title: "Loading worktree details", detail: "Reading changes and recent commits.")
         case .failed(let message):
@@ -1022,7 +925,7 @@ struct GitWorktreesView: View {
                 .foregroundStyle(LitheTheme.secondaryText)
             HStack(spacing: 10) {
                 worktreeAction("Repair Worktree Records", icon: "wrench.and.screwdriver") {
-                    Task { await model.repairGitWorktrees() }
+                    Task { await feature.repairWorktrees() }
                 }
                 worktreeAction("Prune Stale Records", icon: "trash.slash", destructive: true) {
                     worktreeConfirmation = .prune
@@ -1051,7 +954,7 @@ struct GitWorktreesView: View {
         } else if worktree.isPrunable {
             worktreeActionNotice = WorktreeActionNotice(message: String(localized: "Repair or prune the missing checkout before changing its lock."))
         } else {
-            Task { await model.setGitWorktreeLocked(worktree, locked: !worktree.isLocked) }
+            Task { await feature.setWorktreeLocked(worktree, locked: !worktree.isLocked) }
         }
     }
 
@@ -1089,19 +992,9 @@ struct GitWorktreesView: View {
         }
     }
 
-    nonisolated private static func nativeStatusColor(
-        for kind: GitChangeKind
-    ) -> GitWorktreeRowsSnapshot.StatusColor {
-        switch kind {
-        case .added: .success
-        case .deleted, .conflicted: .error
-        case .modified, .moved, .copied: .warning
-        }
-    }
-
     @ViewBuilder
     private var listEmptyState: some View {
-        switch model.gitWorktreeLoadState {
+        switch feature.gitWorktreeLoadState {
         case .idle, .loading:
             worktreeMessage(icon: "arrow.clockwise", title: "Loading worktrees", detail: "Reading registered checkouts.")
         case .failed(let message):
@@ -1135,30 +1028,12 @@ struct GitWorktreesView: View {
     }
 }
 
-private struct WorktreeListProjectionIdentity: Hashable {
-    let worktreesVersion: Int
-    let inspectionVersion: Int
-    let currentChangeCount: Int
-    let query: String
-}
-
-private struct WorktreeHistoryProjectionIdentity: Hashable {
-    let worktreeID: String?
-    let inspectionVersion: Int
-    let query: String
-}
-
-private struct WorktreeChangesProjectionIdentity: Hashable {
-    let worktreeID: String?
-    let inspectionVersion: Int
-}
-
 private struct GitWorktreeCreateView: View {
-    @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     let repositoryRoot: URL
     let references: [GitReference]
     let currentReference: GitReference?
+    let chooseParentDirectory: () -> URL?
     let onSubmit: (String, GitReference, String?, URL) -> Void
 
     @State private var branchName = ""
@@ -1210,7 +1085,7 @@ private struct GitWorktreeCreateView: View {
                     TextField("Worktree destination", text: destinationBinding)
                         .textFieldStyle(.roundedBorder)
                     Button("Choose Parent…") {
-                        guard let parent = model.chooseGitWorktreeParentDirectory() else { return }
+                        guard let parent = chooseParentDirectory() else { return }
                         destinationWasEdited = true
                         destinationPath = parent.appendingPathComponent(suggestedDirectoryName).path
                     }

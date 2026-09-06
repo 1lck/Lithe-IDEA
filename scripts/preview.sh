@@ -67,6 +67,6 @@ for localization in en.lproj zh-Hans.lproj; do
 done
 codesign --force --deep --sign - "$APP_DIR"
 
-open -n "$APP_DIR" </dev/null >/dev/null 2>&1 &!
+( open -n -W "$APP_DIR" </dev/null >/dev/null 2>&1; rm -rf -- "$INSTANCE_DIR" ) &!
 print "Preview launched: $APP_DIR"
-print "This command returns immediately. Close the app when finished; remove the instance directory after the app exits."
+print "This command returns immediately; the instance directory is removed after the app exits."

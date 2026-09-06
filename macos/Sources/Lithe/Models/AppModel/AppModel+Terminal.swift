@@ -14,35 +14,14 @@ extension AppModel {
 
     @MainActor
     func activateTerminalModule() async -> Bool {
-        guard terminalCapability == nil else { return true }
-        do {
-            let value = try await services.moduleRuntime.activateCapability(.terminalWorkspace)
-            guard let capability = value as? LitheTerminalModule.TerminalModuleCapability else { return false }
-            let feature = capability.feature
-            cacheModuleCapability(capability, id: .terminalWorkspace, moduleID: .terminal)
-            observeModuleFeature(.terminal, observation: feature.objectWillChange.sink { [weak self] _ in
-                self?.scheduleObjectWillChangeRelay()
-            })
-            return true
-        } catch {
-            return false
-        }
+        await terminalModuleCoordinator.activate()
     }
 
     func toggleTerminal() {
-        isTerminalVisible.toggle()
-        guard isTerminalVisible else { return }
-        isTestsVisible = false
-        isGitLogVisible = false
-        isReferencesVisible = false
-        isProblemsVisible = false
-        isMavenVisible = false
-        isRunVisible = false
-        isDebugVisible = false
+        guard toggleToolWindow(.terminal) else { return }
         if terminalCapability == nil || activeTerminalSession == nil {
-            Task { @MainActor [weak self] in
-                guard let self, await self.activateTerminalModule() else { return }
-                _ = self.createTerminalSession()
+            terminalModuleCoordinator.activateThen { [weak self] in
+                _ = self?.createTerminalSession()
             }
         }
     }
@@ -74,23 +53,15 @@ extension AppModel {
     func createTerminalSession(shellPath: String? = nil) -> TerminalSession? {
         guard let workspaceURL else { return nil }
         guard let feature = terminalFeature else {
-            Task { @MainActor [weak self] in
-                guard let self, await self.activateTerminalModule() else { return }
-                _ = self.createTerminalSession(shellPath: shellPath)
+            terminalModuleCoordinator.activateThen { [weak self] in
+                _ = self?.createTerminalSession(shellPath: shellPath)
             }
             return nil
         }
         let session = feature.createSession(in: workspaceURL, shellPath: shellPath ?? settings.terminalShellPath)
         configureTerminalSession(session)
         terminalPlacementFeature.registerSession(session.id)
-        isTerminalVisible = true
-        isTestsVisible = false
-        isGitLogVisible = false
-        isReferencesVisible = false
-        isProblemsVisible = false
-        isMavenVisible = false
-        isRunVisible = false
-        isDebugVisible = false
+        showToolWindow(.terminal)
         return session
     }
 
@@ -167,14 +138,7 @@ extension AppModel {
             debugTerminalSessionIDsByDebugSession[debugSessionID, default: []].insert(created.session.id)
             activeDebugTerminalSessionIDsByDebugSession[debugSessionID] = created.session.id
         }
-        isTerminalVisible = true
-        isTestsVisible = false
-        isGitLogVisible = false
-        isReferencesVisible = false
-        isProblemsVisible = false
-        isMavenVisible = false
-        isRunVisible = false
-        isDebugVisible = false
+        showToolWindow(.terminal)
         created.session.focus()
         return DebugRunInTerminalResponse(processID: Int(created.processID))
     }
@@ -273,7 +237,7 @@ extension AppModel {
     func selectTerminalSession(_ session: TerminalSession) {
         guard terminalPlacementFeature.toolSessionIDs.contains(session.id) else { return }
         guard terminalFeature?.selectSession(session) == true else { return }
-        isTerminalVisible = true
+        showToolWindow(.terminal)
     }
 
     func selectEditorTerminalSession(_ session: TerminalSession) {
@@ -311,7 +275,7 @@ extension AppModel {
         editorTabOrderFeature.remove(.terminal(sessionID))
         terminalPlacementFeature.moveToTool(sessionID)
         _ = terminalFeature?.selectSession(session)
-        isTerminalVisible = true
+        showToolWindow(.terminal)
     }
 
     func moveTerminalToTool(_ sessionID: UUID, before targetSessionID: UUID) {
@@ -319,7 +283,7 @@ extension AppModel {
         editorTabOrderFeature.remove(.terminal(sessionID))
         terminalPlacementFeature.moveToTool(sessionID, before: targetSessionID)
         _ = terminalFeature?.selectSession(session)
-        isTerminalVisible = true
+        showToolWindow(.terminal)
     }
 
     func moveTerminalToTool(_ sessionID: UUID, after targetSessionID: UUID) {
@@ -327,7 +291,7 @@ extension AppModel {
         editorTabOrderFeature.remove(.terminal(sessionID))
         terminalPlacementFeature.moveToTool(sessionID, after: targetSessionID)
         _ = terminalFeature?.selectSession(session)
-        isTerminalVisible = true
+        showToolWindow(.terminal)
     }
 
     func requestCloseTerminalSession(_ session: TerminalSession) {
@@ -377,7 +341,7 @@ extension AppModel {
         terminalPlacementFeature.removeSession(session.id)
         terminalFeature?.closeSession(session)
         if terminalSessions.isEmpty {
-            isTerminalVisible = false
+            workbenchFeature.setVisibility(.terminal, isVisible: false)
             try? services.moduleRuntime.markIdle(.terminal)
         }
     }
@@ -391,7 +355,7 @@ extension AppModel {
         activeDebugTerminalSessionIDsByDebugSession.removeAll()
         editorTabOrderFeature.removeAllTerminals()
         terminalPlacementFeature.reset()
-        terminalFeature?.stopAllSessions()
+        terminalModuleCoordinator.stopAllSessions(terminalFeature)
     }
 
     var activeTerminalShellPath: String {

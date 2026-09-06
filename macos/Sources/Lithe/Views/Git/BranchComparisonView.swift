@@ -2,8 +2,9 @@ import SwiftUI
 import LitheGitModule
 
 struct BranchComparisonView: View {
-    @EnvironmentObject private var model: AppModel
+    @ObservedObject var feature: GitFeatureModel
     let comparison: GitBranchComparison
+    let onRefresh: () async -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,7 +37,7 @@ struct BranchComparisonView: View {
                 .font(.system(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
             Button("Close") {
-                model.closeBranchComparison()
+                feature.closeBranchComparison()
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -62,7 +63,7 @@ struct BranchComparisonView: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             .lithePointer()
-            .disabled(model.isLoadingBranchComparison)
+            .disabled(feature.isLoadingBranchComparison)
 
             Button {
                 moveFileSelection(by: -1)
@@ -72,7 +73,7 @@ struct BranchComparisonView: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             .lithePointer()
-            .disabled(previousFile == nil || model.isLoadingBranchComparison)
+            .disabled(previousFile == nil || feature.isLoadingBranchComparison)
 
             Button {
                 moveFileSelection(by: 1)
@@ -82,7 +83,7 @@ struct BranchComparisonView: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             .lithePointer()
-            .disabled(nextFile == nil || model.isLoadingBranchComparison)
+            .disabled(nextFile == nil || feature.isLoadingBranchComparison)
 
             Spacer()
 
@@ -108,7 +109,7 @@ struct BranchComparisonView: View {
                     .font(.system(size: 11.5, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 Spacer()
-                if model.isLoadingBranchComparison {
+                if feature.isLoadingBranchComparison {
                     ProgressView().controlSize(.mini)
                 }
             }
@@ -133,7 +134,7 @@ struct BranchComparisonView: View {
                     LazyVStack(spacing: 1) {
                         ForEach(comparison.files) { file in
                             Button {
-                                Task { await model.selectBranchComparisonFile(file) }
+                                Task { await feature.selectBranchComparisonFile(file) }
                             } label: {
                                 HStack(spacing: 7) {
                                     Text(file.status)
@@ -162,7 +163,7 @@ struct BranchComparisonView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .frame(height: 39)
                                 .background(
-                                    model.selectedBranchComparisonFile?.id == file.id
+                                    feature.selectedBranchComparisonFile?.id == file.id
                                         ? LitheTheme.subtleSelection
                                         : .clear
                                 )
@@ -184,7 +185,7 @@ struct BranchComparisonView: View {
             versionHeader
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-            if model.isLoadingBranchComparison {
+            if feature.isLoadingBranchComparison {
                 VStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text("Loading comparison…")
@@ -192,19 +193,19 @@ struct BranchComparisonView: View {
                 .font(LitheTheme.uiFont)
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if model.selectedBranchComparisonFile == nil {
+            } else if feature.selectedBranchComparisonFile == nil {
                 Text(comparison.files.isEmpty ? "The selected versions match" : "Select a file")
                     .font(LitheTheme.uiFont)
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if model.branchComparisonRows.isEmpty {
+            } else if feature.branchComparisonRows.isEmpty {
                 Text("No textual diff available")
                     .font(LitheTheme.uiFont)
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 DiffPaneView(
-                    rows: model.branchComparisonRows,
+                    rows: feature.branchComparisonRows,
                     fileExtension: selectedFileExtension
                 )
             }
@@ -237,7 +238,7 @@ struct BranchComparisonView: View {
             Text(LocalizedStringKey(title))
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
-            if let file = model.selectedBranchComparisonFile {
+            if let file = feature.selectedBranchComparisonFile {
                 Text(file.path)
                     .font(.system(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
@@ -250,12 +251,12 @@ struct BranchComparisonView: View {
     }
 
     private var selectedFileExtension: String {
-        guard let file = model.selectedBranchComparisonFile else { return "" }
+        guard let file = feature.selectedBranchComparisonFile else { return "" }
         return URL(fileURLWithPath: file.path).pathExtension
     }
 
     private var selectedFileIndex: Int? {
-        guard let selected = model.selectedBranchComparisonFile else { return nil }
+        guard let selected = feature.selectedBranchComparisonFile else { return nil }
         return comparison.files.firstIndex(where: { $0.id == selected.id })
     }
 
@@ -272,19 +273,13 @@ struct BranchComparisonView: View {
     }
 
     private func refreshComparison() {
-        Task {
-            if let target = comparison.targetReference {
-                await model.showComparison(from: comparison.reference, to: target)
-            } else {
-                await model.showComparisonWithWorkingTree(for: comparison.reference)
-            }
-        }
+        Task { await onRefresh() }
     }
 
     private func moveFileSelection(by offset: Int) {
         let file = offset < 0 ? previousFile : nextFile
         guard let file else { return }
-        Task { await model.selectBranchComparisonFile(file) }
+        Task { await feature.selectBranchComparisonFile(file) }
     }
 
     private func statusColor(_ status: String) -> Color {

@@ -151,7 +151,7 @@ private struct ActiveSessionChrome: View {
                     title: windowTitle
                 )
             )
-            .onReceive(model.$isSettingsPresented) { isPresented in
+            .onReceive(model.workbenchFeature.$isSettingsPresented) { isPresented in
                 guard isPresented else { return }
                 openWindow(id: LitheWindowID.settings)
             }

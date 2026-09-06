@@ -242,7 +242,7 @@ final class ProjectSessionManager: ObservableObject {
         )
         // Only workspace open/close should wake the window chrome. Relaying
         // every AppModel tick rebuilds every mounted project session.
-        modelObservations[model.id] = model.$workspaceURL
+        modelObservations[model.id] = model.workspaceSessionCoordinator.$workspaceURL
             .removeDuplicates()
             .dropFirst()
             .sink { [weak self] _ in
