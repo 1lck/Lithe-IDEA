@@ -67,6 +67,11 @@ for localization in en.lproj zh-Hans.lproj; do
 done
 codesign --force --deep --sign - "$APP_DIR"
 
-( open -n -W "$APP_DIR" </dev/null >/dev/null 2>&1; rm -rf -- "$INSTANCE_DIR" ) &!
+# Keep the launcher non-blocking while a bounded watcher owns cleanup. The
+# watcher waits for this specific app instance to exit, then removes its bundle.
+(
+    open -n -W "$APP_DIR" </dev/null >/dev/null 2>&1
+    rm -rf -- "$INSTANCE_DIR"
+) &!
 print "Preview launched: $APP_DIR"
 print "This command returns immediately; the instance directory is removed after the app exits."
