@@ -527,6 +527,24 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::MavenTestResults => {
+            match serde_json::from_value::<crate::project::MavenTestResultsRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Maven test-results request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::project::test_results)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Maven test results should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::MarkdownRender => {
             match serde_json::from_value::<MarkdownRenderRequest>(parsed.payload).map_err(|error| {
                 CoreError::new(ErrorCode::InvalidRequest, "Invalid Markdown render request")

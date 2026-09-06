@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceScopeMatchesRoot } from "@/features/workspace/types/workspace-launch-scope";
 import { useTranslation } from "@/i18n/locale-provider";
@@ -30,6 +31,7 @@ import { ScrollArea } from "@/ui/scroll-area";
 import { Spinner } from "@/ui/spinner";
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
+import { joinPath } from "@/utils/path-helpers";
 import { openMavenRunPane } from "../actions/maven-tool-window-actions";
 import { ensureMavenProcessListeners } from "../hooks/use-maven-process-events";
 import { availableMavenProfiles, useMavenStore } from "../stores/maven.store";
@@ -241,6 +243,7 @@ function MavenSettingsDialog({
 export default function MavenPane({ onClose }: MavenPaneProps) {
   const { t } = useTranslation();
   const workspaceId = useActiveWorkspaceId();
+  const handleFileSelect = useFileSystemStore((state) => state.handleFileSelect);
   const root = useMavenStore((state) => state.root);
   const visiblePaths = useMavenStore((state) => state.visiblePaths);
   const projectStatus = useMavenStore((state) => state.projectStatus);
@@ -257,7 +260,6 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
   const reloadRequired = useMavenStore((state) => state.reloadRequired);
   const taskStatus = useMavenStore((state) => state.taskStatus);
   const taskError = useMavenStore((state) => state.taskError);
-  const runningTitle = useMavenStore((state) => state.runningTitle);
   const output = useMavenStore((state) => state.output);
   const issues = useMavenStore((state) => state.issues);
   const lastExitCode = useMavenStore((state) => state.lastExitCode);

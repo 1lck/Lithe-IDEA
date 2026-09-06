@@ -7,6 +7,7 @@ import {
   createMavenLaunchPlan,
   parseMavenDependencies,
   parseMavenDiagnostics,
+  parseMavenTestResults,
   scanMavenProject,
 } from "../api/maven-core-api";
 import {
@@ -27,8 +28,14 @@ import type {
   MavenProjectStatus,
   MavenSettings,
   MavenStoredConfiguration,
+  MavenTestResults,
+  MavenTestRun,
   MavenTaskStatus,
 } from "../types/maven.types";
+import {
+  createMavenTestSelector,
+  resolveMavenTestTarget,
+} from "../utils/maven-test-selection";
 
 const MAXIMUM_OUTPUT_CHARACTERS = 500_000;
 const MAXIMUM_DEPENDENCY_OUTPUT_CHARACTERS = 500_000;
@@ -48,6 +55,7 @@ export interface MavenStoreDependencies {
   loadMavenConfiguration: typeof loadMavenConfiguration;
   parseMavenDiagnostics: typeof parseMavenDiagnostics;
   parseMavenDependencies: typeof parseMavenDependencies;
+  parseMavenTestResults: typeof parseMavenTestResults;
   resolveMavenLaunch: typeof resolveMavenLaunch;
   saveWorkspaceBeforeLaunch: typeof saveWorkspaceBeforeLaunch;
   scanMavenProject: typeof scanMavenProject;
@@ -62,6 +70,7 @@ const defaultMavenStoreDependencies: MavenStoreDependencies = {
   loadMavenConfiguration,
   parseMavenDiagnostics,
   parseMavenDependencies,
+  parseMavenTestResults,
   resolveMavenLaunch,
   saveWorkspaceBeforeLaunch,
   scanMavenProject,
@@ -105,6 +114,9 @@ export interface MavenState {
   output: string;
   issues: MavenDiagnostic[];
   lastExitCode: number | null;
+  testResults: MavenTestResults | null;
+  activeTestRun: MavenTestRun | null;
+  lastTestRun: MavenTestRun | null;
   dependencyLoads: Record<string, MavenDependencyLoad>;
   activeDependencySessionId: string | null;
   activeDependencyModulePath: string | null;
@@ -117,7 +129,19 @@ export interface MavenState {
     setSkipTests: (enabled: boolean) => void;
     updateLocalConfiguration: (settings: MavenSettings) => void;
     acknowledgeReload: () => void;
-    runGoals: (goals: string[], module: string | null, title: string) => Promise<void>;
+    runGoals: (
+      goals: string[],
+      module: string | null,
+      title: string,
+      testRun?: MavenTestRun,
+    ) => Promise<void>;
+    runTestClass: (filePath: string, module?: string | null) => Promise<void>;
+    runTestMethod: (
+      filePath: string,
+      method: string,
+      module?: string | null,
+    ) => Promise<void>;
+    rerunLastTest: () => Promise<void>;
     stop: () => Promise<void>;
     clearOutput: () => void;
     appendOutput: (sessionId: string, chunk: string) => void;
@@ -209,6 +233,12 @@ function trimOutput(output: string): string {
 function cancelledOutput(output: string): string {
   const separator = output && !output.endsWith("\n") ? "\n" : "";
   return trimOutput(`${output}${separator}Maven task cancelled.\n`);
+}
+
+function mavenTestGoals(selector: string): string[] {
+  // Keep the lifecycle goal first so the existing Core launch-plan validator
+  // can continue rejecting arbitrary option-only tool-window invocations.
+  return ["test", `-Dtest=${selector}`];
 }
 
 export const createMavenStore = (
@@ -311,8 +341,28 @@ export const createMavenStore = (
 
     const configurationDidChange = () => {
       invalidateDependencies();
-      set({ reloadRequired: true, configurationSaveError: null });
+      diagnosticsRevision += 1;
+      set({
+        reloadRequired: true,
+        configurationSaveError: null,
+        testResults: null,
+        activeTestRun: null,
+      });
       persistConfiguration();
+    };
+
+    const reportTestLaunchFailure = (message: string) => {
+      diagnosticsRevision += 1;
+      set({
+        taskStatus: "failed",
+        taskError: message,
+        activeSessionId: null,
+        activeTestRun: null,
+        testResults: null,
+        lastExitCode: 1,
+        output: trimOutput(`${message}\n`),
+        issues: [{ path: "", line: 1, column: null, severity: "error", message }],
+      });
     };
 
     return {
@@ -337,6 +387,9 @@ export const createMavenStore = (
       output: "",
       issues: [],
       lastExitCode: null,
+      testResults: null,
+      activeTestRun: null,
+      lastTestRun: null,
       dependencyLoads: {},
       activeDependencySessionId: null,
       activeDependencyModulePath: null,
@@ -345,6 +398,7 @@ export const createMavenStore = (
         loadProject: async (root, visiblePaths = []) => {
           const revision = ++projectLoadRevision;
           configurationRevision += 1;
+          diagnosticsRevision += 1;
           invalidateDependencies();
           const previous = get();
           if (previous.root && previous.root !== root && previous.activeSessionId) {
@@ -359,6 +413,8 @@ export const createMavenStore = (
             projectStatus: "loading",
             projectError: null,
             configurationSaveError: null,
+            testResults: null,
+            activeTestRun: null,
             ...(previous.root && previous.root !== root
               ? {
                   project: null,
@@ -369,6 +425,9 @@ export const createMavenStore = (
                   output: "",
                   issues: [],
                   lastExitCode: null,
+                  testResults: null,
+                  activeTestRun: null,
+                  lastTestRun: null,
                 }
               : {}),
           });
@@ -387,6 +446,9 @@ export const createMavenStore = (
                 mavenExecutablePath: "",
                 javaHomePath: "",
                 reloadRequired: false,
+                testResults: null,
+                activeTestRun: null,
+                lastTestRun: null,
               });
               return;
             }
@@ -432,6 +494,9 @@ export const createMavenStore = (
               localRepositoryPath: "",
               mavenExecutablePath: "",
               javaHomePath: "",
+              testResults: null,
+              activeTestRun: null,
+              lastTestRun: null,
             });
           }
         },
@@ -497,10 +562,11 @@ export const createMavenStore = (
 
         acknowledgeReload: () => set({ reloadRequired: false }),
 
-        runGoals: async (goals, module, title) => {
+        runGoals: async (goals, module, title, testRun) => {
           const state = get();
           const context = mavenLaunchContext(state);
           if (!state.root || !context || goals.length === 0) return;
+          const launchContext = testRun ? { ...context, skipTests: false } : context;
           const revision = ++launchRevision;
           diagnosticsRevision += 1;
           const previousSessionId = state.activeSessionId;
@@ -518,16 +584,23 @@ export const createMavenStore = (
             output: "",
             issues: [],
             lastExitCode: null,
+            testResults: null,
+            activeTestRun: testRun ?? null,
+            ...(testRun ? { lastTestRun: testRun } : {}),
           });
           try {
             await dependencies.saveWorkspaceBeforeLaunch(workspaceId);
             const plan = await dependencies.createMavenLaunchPlan(
               state.root,
-              context,
+              launchContext,
               goals,
               module,
             );
-            const resolved = await dependencies.resolveMavenLaunch(state.root, context, plan);
+            const resolved = await dependencies.resolveMavenLaunch(
+              state.root,
+              launchContext,
+              plan,
+            );
             if (launchRevision !== revision || get().activeSessionId !== sessionId) {
               releaseMavenSessionWorkspace(sessionId);
               return;
@@ -556,12 +629,64 @@ export const createMavenStore = (
               taskStatus: "failed",
               taskError: message,
               activeSessionId: null,
+              activeTestRun: null,
               lastExitCode: 1,
               output: trimOutput(`${get().output}${message}\n`),
               issues: [{ path: "", line: 1, column: null, severity: "error", message }],
             });
             releaseMavenSessionWorkspace(sessionId);
           }
+        },
+
+        runTestClass: async (filePath, module) => {
+          const state = get();
+          if (!state.root || !state.project) {
+            reportTestLaunchFailure("No Maven project is loaded for this Java test.");
+            return;
+          }
+          const target = resolveMavenTestTarget(filePath, state.root, state.project, module);
+          const selector = target && createMavenTestSelector(target.className);
+          if (!target || !selector) {
+            reportTestLaunchFailure("Could not resolve the Java test class from this file.");
+            return;
+          }
+          const testRun: MavenTestRun = {
+            module: target.module,
+            selector,
+            title: selector,
+          };
+          await get().actions.runGoals(mavenTestGoals(selector), target.module, selector, testRun);
+        },
+
+        runTestMethod: async (filePath, method, module) => {
+          const state = get();
+          if (!state.root || !state.project) {
+            reportTestLaunchFailure("No Maven project is loaded for this Java test.");
+            return;
+          }
+          const target = resolveMavenTestTarget(filePath, state.root, state.project, module);
+          const selector = target && createMavenTestSelector(target.className, method);
+          if (!target || !selector) {
+            reportTestLaunchFailure("Could not resolve the Java test method from this file.");
+            return;
+          }
+          const testRun: MavenTestRun = {
+            module: target.module,
+            selector,
+            title: selector,
+          };
+          await get().actions.runGoals(mavenTestGoals(selector), target.module, selector, testRun);
+        },
+
+        rerunLastTest: async () => {
+          const testRun = get().lastTestRun;
+          if (!testRun) return;
+          await get().actions.runGoals(
+            mavenTestGoals(testRun.selector),
+            testRun.module,
+            testRun.title,
+            testRun,
+          );
         },
 
         stop: async () => {
@@ -579,6 +704,7 @@ export const createMavenStore = (
                 activeSessionId: null,
                 lastExitCode: null,
                 output: cancelledOutput(get().output),
+                activeTestRun: null,
               });
             }
           } catch (error) {
@@ -602,6 +728,8 @@ export const createMavenStore = (
             lastExitCode: null,
             taskError: null,
             taskTitle: null,
+            testResults: null,
+            activeTestRun: null,
             taskStatus:
               state.taskStatus === "cancelled" || state.taskStatus === "failed"
                 ? "idle"
@@ -627,6 +755,7 @@ export const createMavenStore = (
               activeSessionId: null,
               lastExitCode: null,
               output: cancelledOutput(output),
+              activeTestRun: null,
             });
             releaseMavenSessionWorkspace(sessionId);
             return;
@@ -636,6 +765,7 @@ export const createMavenStore = (
             taskError: exitCode === 0 ? null : `Maven exited with code ${exitCode}.`,
             activeSessionId: null,
             lastExitCode: exitCode,
+            activeTestRun: null,
           });
           void dependencies
             .parseMavenDiagnostics(root, output)
@@ -651,6 +781,25 @@ export const createMavenStore = (
                     : "Unable to parse Maven build diagnostics.",
               });
             });
+          const testRun = state.activeTestRun;
+          if (testRun) {
+            void dependencies
+              .parseMavenTestResults(root, output)
+              .then((testResults) => {
+                if (diagnosticsRevision === revision && get().root === root) {
+                  set({ testResults });
+                }
+              })
+              .catch((error) => {
+                if (diagnosticsRevision !== revision || get().root !== root) return;
+                set({
+                  taskError:
+                    error instanceof Error
+                      ? error.message
+                      : "Unable to parse Maven test results.",
+                });
+              });
+          }
         },
 
         loadDependencies: async (rawModulePath) => {

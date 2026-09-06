@@ -36,6 +36,16 @@ import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspa
 import { useGitBlame } from "@/features/git/hooks/use-git-blame";
 import { keymapRegistry } from "@/features/keymaps/utils/registry";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { openMavenRunPane } from "@/features/maven/actions/maven-tool-window-actions";
+import {
+  canRunMavenTest,
+  runMavenTestAction,
+} from "@/features/maven/services/maven-test-actions";
+import {
+  discoverJavaTestMethods,
+  javaTestMethodAtLine,
+  type JavaTestMethod,
+} from "@/features/maven/utils/maven-test-selection";
 import { recordStartupMilestone } from "@/features/bootstrap/startup-performance";
 import { useVimStore } from "@/features/vim/stores/vim.store";
 import { formatRelativeTime } from "@/utils/date";
@@ -111,6 +121,7 @@ import {
   JAVA_IMPLEMENTATION_GLYPH_CLASS,
 } from "../engines/monaco/java-implementation-markers";
 import type { JavaImplementationMarker } from "../lsp/java-navigation-models";
+import { toast } from "sonner";
 
 registerMonacoLspProviders();
 registerMonacoCodeLensProvider();
@@ -245,6 +256,11 @@ export function MonacoEditor({
   );
   const languageId = documentTarget.languageId ?? getLanguageIdFromPath(filePath);
   const monacoLanguageId = toMonacoLanguageId(languageId);
+  const javaTestMethods = useMemo(
+    () => (/\.java$/i.test(filePath) ? discoverJavaTestMethods(content) : []),
+    [content, filePath],
+  );
+  const [mavenTestsAvailable, setMavenTestsAvailable] = useState(false);
   const {
     fontFamily,
     fontSize,
@@ -364,6 +380,23 @@ export function MonacoEditor({
       .sort((left, right) => right.length - left.length)[0];
     return getRelativePath(filePath, workspaceRoot);
   }, [filePath, rootFolderPath, workspaceFolders]);
+
+  useEffect(() => {
+    if (!rootFolderPath || !filePath || !/\.java$/i.test(filePath)) {
+      setMavenTestsAvailable(false);
+      return;
+    }
+
+    let cancelled = false;
+    setMavenTestsAvailable(false);
+    void canRunMavenTest(rootFolderPath, filePath).then((available) => {
+      if (!cancelled) setMavenTestsAvailable(available);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filePath, rootFolderPath]);
   const modelUri = useMemo(
     () => createModelUri(activeBufferId ?? undefined, filePath, modelDisplayPath),
     [activeBufferId, filePath, modelDisplayPath],
@@ -522,6 +555,7 @@ export function MonacoEditor({
     x: number;
     y: number;
   } | null>(null);
+  const [contextMenuTestMethod, setContextMenuTestMethod] = useState<JavaTestMethod | null>(null);
   const [implementationMarkers, setImplementationMarkers] = useState<JavaImplementationMarker[]>(
     [],
   );
@@ -529,6 +563,30 @@ export function MonacoEditor({
   const executeEditorCommand = useCallback((commandId: string) => {
     void keymapRegistry.executeCommand(commandId);
   }, []);
+
+  const runMavenTestFromEditor = useCallback(
+    (method?: string) => {
+      if (!filePath) return;
+      setContextMenuPosition(null);
+      setContextMenuTestMethod(null);
+      openMavenRunPane();
+      void runMavenTestAction(filePath, method, workspaceId).catch((error) => {
+        toast.error(error instanceof Error ? error.message : "Unable to run Maven test.");
+      });
+    },
+    [filePath, workspaceId],
+  );
+
+  const runTestClassFromEditor = useCallback(() => {
+    if (javaTestMethods.length === 0) return;
+    runMavenTestFromEditor();
+  }, [javaTestMethods.length, runMavenTestFromEditor]);
+
+  const runTestMethodFromEditor = useCallback(() => {
+    const method = contextMenuTestMethod?.name;
+    if (!method) return;
+    runMavenTestFromEditor(method);
+  }, [contextMenuTestMethod, runMavenTestFromEditor]);
 
   const triggerMonacoAction = useCallback(
     (actionId: string) => {
@@ -840,8 +898,14 @@ export function MonacoEditor({
       editor.onContextMenu((event) => {
         event.event.preventDefault();
         event.event.stopPropagation();
+        setContextMenuTestMethod(null);
 
         if (event.target.position) {
+          setContextMenuTestMethod(
+            /\.java$/i.test(filePath)
+              ? javaTestMethodAtLine(model.getValue(), event.target.position.lineNumber - 1)
+              : null,
+          );
           const currentSelection = editor.getSelection();
           if (!currentSelection?.containsPosition(event.target.position)) {
             editor.setPosition(event.target.position);
@@ -1865,7 +1929,10 @@ export function MonacoEditor({
           <EditorContextMenu
             isOpen
             position={contextMenuPosition}
-            onClose={() => setContextMenuPosition(null)}
+            onClose={() => {
+              setContextMenuPosition(null);
+              setContextMenuTestMethod(null);
+            }}
             onCopy={() => executeEditorCommand("editor.copy")}
             onCut={canEdit ? () => executeEditorCommand("editor.cut") : undefined}
             onPaste={canEdit ? () => executeEditorCommand("editor.paste") : undefined}
@@ -1905,6 +1972,14 @@ export function MonacoEditor({
             onShowHover={() => executeEditorCommand("editor.showHover")}
             onTriggerSuggest={
               canEdit ? () => executeEditorCommand("editor.triggerSuggest") : undefined
+            }
+            onRunTestClass={
+              mavenTestsAvailable && javaTestMethods.length > 0
+                ? runTestClassFromEditor
+                : undefined
+            }
+            onRunTestMethod={
+              mavenTestsAvailable && contextMenuTestMethod ? runTestMethodFromEditor : undefined
             }
           />,
           document.body,

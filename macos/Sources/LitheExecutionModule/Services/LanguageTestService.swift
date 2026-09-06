@@ -16,6 +16,7 @@ package final class LanguageTestService: ObservableObject {
     @Published package private(set) var itemsByProviderID: [String: [LanguageTestItem]] = [:]
     @Published package private(set) var state: LanguageTestRunState = .idle
     @Published package private(set) var activePlan: LanguageTestPlan?
+    @Published package private(set) var results: MavenTestResults?
     @Published package private(set) var output = ""
     @Published package private(set) var errorMessage: String?
 
@@ -24,10 +25,14 @@ package final class LanguageTestService: ObservableObject {
     private let executableResolver: any RunExecutableResolving
     private let processFactory: () -> any StreamingProcess
     private let extensionRequiredLanguageIDs: Set<String>
+    private let resultParser: ((String, URL) -> MavenTestResults?)?
     private var process: (any StreamingProcess)?
     private var extensionSession: (any LanguageExecutionSession)?
     private var languageTestExtensions: [String: RegisteredLanguageTestExtension] = [:]
     private var activeOperationID: String?
+    private var activeWorkspaceURL: URL?
+    private var outputCapture: LanguageTestOutputCapture?
+    private var lastRun: LastRun?
     private let maximumOutputCharacters = 400_000
 
     package init(
@@ -35,16 +40,19 @@ package final class LanguageTestService: ObservableObject {
         registry: LanguageTestProviderRegistry? = nil,
         executableResolver: any RunExecutableResolving,
         processFactory: @escaping () -> any StreamingProcess,
-        extensionRequiredLanguageIDs: Set<String> = []
+        extensionRequiredLanguageIDs: Set<String> = [],
+        resultParser: ((String, URL) -> MavenTestResults?)? = nil
     ) {
         self.catalog = catalog
         self.registry = registry ?? .standard(catalog: catalog)
         self.executableResolver = executableResolver
         self.processFactory = processFactory
         self.extensionRequiredLanguageIDs = extensionRequiredLanguageIDs
+        self.resultParser = resultParser
     }
 
     package var isRunning: Bool { state == .running }
+    package var canRerun: Bool { lastRun != nil && !isRunning }
 
     @discardableResult
     package func registerLanguageTestExtension(
@@ -122,6 +130,7 @@ package final class LanguageTestService: ObservableObject {
     ) -> Bool {
         stop(markCancelled: false)
         output = ""
+        results = nil
         errorMessage = nil
         let root = workspaceURL.standardizedFileURL
         do {
@@ -167,12 +176,26 @@ package final class LanguageTestService: ObservableObject {
             )
             let operationID = UUID().uuidString
             activeOperationID = operationID
+            activeWorkspaceURL = root
+            let outputCapture = LanguageTestOutputCapture(maximumCharacters: maximumOutputCharacters)
+            self.outputCapture = outputCapture
+            lastRun = LastRun(
+                providerID: providerID,
+                scope: scope,
+                workspaceURL: root,
+                projectFiles: projectFiles,
+                options: options
+            )
             activePlan = plan
             state = .running
             append("$ \(resolved.executableURL.lastPathComponent) \(plan.launchPlan.arguments.joined(separator: " "))\n\n")
             if let extensionProvider {
                 let session = extensionProvider.makeTestExecutionSession()
-                configureExtensionSession(session, operationID: operationID)
+                configureExtensionSession(
+                    session,
+                    operationID: operationID,
+                    outputCapture: outputCapture
+                )
                 extensionSession = session
                 try session.start(LanguageExecutionProcessRequest(
                     operationID: operationID,
@@ -183,7 +206,11 @@ package final class LanguageTestService: ObservableObject {
                 ))
             } else {
                 let process = processFactory()
-                configureProcess(process, operationID: operationID)
+                configureProcess(
+                    process,
+                    operationID: operationID,
+                    outputCapture: outputCapture
+                )
                 self.process = process
                 try process.start(ProcessRequest(
                     operationID: operationID,
@@ -200,6 +227,7 @@ package final class LanguageTestService: ObservableObject {
             extensionSession?.stop()
             extensionSession = nil
             activeOperationID = nil
+            outputCapture = nil
             activePlan = nil
             state = .failed(exitCode: -1)
             errorMessage = error.localizedDescription
@@ -214,16 +242,36 @@ package final class LanguageTestService: ObservableObject {
         stop(markCancelled: false)
         itemsByProviderID = [:]
         activePlan = nil
+        activeWorkspaceURL = nil
+        lastRun = nil
+        results = nil
         output = ""
         errorMessage = nil
         state = .idle
     }
 
-    package func clearOutput() { output = "" }
+    package func clearOutput() {
+        output = ""
+        results = nil
+    }
+
+    @discardableResult
+    package func rerun() -> Bool {
+        guard let lastRun else { return false }
+        return run(
+            providerID: lastRun.providerID,
+            scope: lastRun.scope,
+            workspaceURL: lastRun.workspaceURL,
+            projectFiles: lastRun.projectFiles,
+            options: lastRun.options
+        )
+    }
 
     private func stop(markCancelled: Bool) {
         let wasRunning = state == .running
         activeOperationID = nil
+        activeWorkspaceURL = nil
+        outputCapture = nil
         process?.stop()
         process = nil
         extensionSession?.stop()
@@ -257,8 +305,13 @@ package final class LanguageTestService: ObservableObject {
         }
     }
 
-    private func configureProcess(_ process: any StreamingProcess, operationID: String) {
-        process.onOutput = { [weak self] chunk in
+    private func configureProcess(
+        _ process: any StreamingProcess,
+        operationID: String,
+        outputCapture: LanguageTestOutputCapture
+    ) {
+        process.onOutput = { [weak self, outputCapture] chunk in
+            outputCapture.append(chunk)
             Task { @MainActor [weak self] in
                 guard self?.activeOperationID == operationID else { return }
                 self?.append(chunk)
@@ -266,6 +319,9 @@ package final class LanguageTestService: ObservableObject {
         }
         process.onTermination = { [weak self] exitCode in
             Task { @MainActor [weak self] in
+                // Let output callbacks already queued by the process drain
+                // before taking the final parser snapshot.
+                await Task.yield()
                 self?.finish(operationID: operationID, exitCode: exitCode)
             }
         }
@@ -273,9 +329,11 @@ package final class LanguageTestService: ObservableObject {
 
     private func configureExtensionSession(
         _ session: any LanguageExecutionSession,
-        operationID: String
+        operationID: String,
+        outputCapture: LanguageTestOutputCapture
     ) {
-        session.onOutput = { [weak self] chunk in
+        session.onOutput = { [weak self, outputCapture] chunk in
+            outputCapture.append(chunk)
             Task { @MainActor [weak self] in
                 guard self?.activeOperationID == operationID else { return }
                 self?.append(chunk)
@@ -283,6 +341,7 @@ package final class LanguageTestService: ObservableObject {
         }
         session.onTermination = { [weak self] exitCode in
             Task { @MainActor [weak self] in
+                await Task.yield()
                 self?.finish(operationID: operationID, exitCode: exitCode)
             }
         }
@@ -302,8 +361,16 @@ package final class LanguageTestService: ObservableObject {
 
     private func finish(operationID: String, exitCode: Int32) {
         guard activeOperationID == operationID else { return }
+        let capturedOutput = outputCapture?.snapshot() ?? output
+        if activePlan?.frameworkID == "maven",
+           let resultParser,
+           let activeWorkspaceURL {
+            results = resultParser(capturedOutput, activeWorkspaceURL)
+        }
         state = exitCode == 0 ? .passed : .failed(exitCode: exitCode)
         activeOperationID = nil
+        activeWorkspaceURL = nil
+        outputCapture = nil
         process = nil
         extensionSession = nil
     }
@@ -386,6 +453,40 @@ package final class LanguageTestService: ObservableObject {
             workingDirectory: plan.workingDirectory,
             environment: plan.environment
         )
+    }
+}
+
+@MainActor
+private struct LastRun {
+    let providerID: String
+    let scope: LanguageTestScope
+    let workspaceURL: URL
+    let projectFiles: [URL]
+    let options: RunOptions
+}
+
+private final class LanguageTestOutputCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private let maximumCharacters: Int
+    private var value = ""
+
+    init(maximumCharacters: Int) {
+        self.maximumCharacters = maximumCharacters
+    }
+
+    func append(_ chunk: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        value += chunk
+        if value.count > maximumCharacters {
+            value.removeFirst(value.count - maximumCharacters)
+        }
+    }
+
+    func snapshot() -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
     }
 }
 

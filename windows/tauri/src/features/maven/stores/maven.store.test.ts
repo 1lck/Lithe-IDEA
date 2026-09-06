@@ -5,6 +5,7 @@ import type {
   MavenLaunchPlan,
   MavenProject,
   MavenStoredConfiguration,
+  MavenTestResults,
 } from "../types/maven.types";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import {
@@ -43,6 +44,21 @@ const project: MavenProject = {
   modules: [],
 };
 
+const mavenTestProject: MavenProject = {
+  ...project,
+  modules: [
+    {
+      relativePath: "service",
+      groupId: "dev.lithe",
+      artifactId: "service",
+      version: "1.0.0",
+      packaging: "jar",
+      sourceRoots: [],
+      modules: [],
+    },
+  ],
+};
+
 const launchPlan: MavenLaunchPlan = {
   version: 1,
   executable: { toolchain: "project-maven" },
@@ -78,6 +94,17 @@ const parseMavenDependencies = mock(
 const parseMavenDiagnostics = mock(
   async (_root: string, _output: string): Promise<MavenDiagnostic[]> => [],
 );
+const parseMavenTestResults = mock(
+  async (_root: string, _output: string): Promise<MavenTestResults> => ({
+    testsRun: 0,
+    failures: 0,
+    errors: 0,
+    skipped: 0,
+    passed: 0,
+    success: true,
+    failureDetails: [],
+  }),
+);
 const loadMavenConfiguration = mock(async () => ({}));
 const writeMavenConfiguration = mock(
   async (
@@ -100,6 +127,7 @@ const dependencies = {
   createMavenLaunchPlan,
   loadMavenConfiguration,
   parseMavenDiagnostics,
+  parseMavenTestResults,
   parseMavenDependencies,
   resolveMavenLaunch,
   saveWorkspaceBeforeLaunch,
@@ -121,6 +149,16 @@ beforeEach(() => {
   createMavenDependencyPlan.mockResolvedValue(launchPlan);
   parseMavenDiagnostics.mockReset();
   parseMavenDiagnostics.mockResolvedValue([]);
+  parseMavenTestResults.mockReset();
+  parseMavenTestResults.mockResolvedValue({
+    testsRun: 0,
+    failures: 0,
+    errors: 0,
+    skipped: 0,
+    passed: 0,
+    success: true,
+    failureDetails: [],
+  });
   parseMavenDependencies.mockReset();
   parseMavenDependencies.mockResolvedValue(dependencyTree);
   resolveMavenLaunch.mockClear();
@@ -473,6 +511,106 @@ describe("Maven workspace state", () => {
 
     expect(store.getState().issues).toEqual([]);
     expect(store.getState().taskTitle).toBe("test");
+  });
+
+  test("runs a Java test class and method through the shared Maven launch plan", async () => {
+    scanMavenProject.mockResolvedValueOnce(mavenTestProject);
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+
+    await store
+      .getState()
+      .actions.runTestClass("D:/work/reactor/service/src/test/java/com/example/CalculatorTest.java");
+    expect(createMavenLaunchPlan).toHaveBeenLastCalledWith(
+      "D:/work",
+      expect.objectContaining({ reactorPath: "reactor" }),
+      ["test", "-Dtest=com.example.CalculatorTest"],
+      "service",
+    );
+    expect(store.getState().activeTestRun).toEqual({
+      module: "service",
+      selector: "com.example.CalculatorTest",
+      title: "com.example.CalculatorTest",
+    });
+
+    const classSession = store.getState().activeSessionId;
+    expect(classSession).not.toBeNull();
+    store.getState().actions.finishProcess(classSession!, 0);
+    await Promise.resolve();
+
+    await store
+      .getState()
+      .actions.runTestMethod(
+        "D:/work/reactor/service/src/test/java/com/example/CalculatorTest.java",
+        "additionIsCorrect()",
+      );
+    expect(createMavenLaunchPlan).toHaveBeenLastCalledWith(
+      "D:/work",
+      expect.objectContaining({ reactorPath: "reactor" }),
+      ["test", "-Dtest=com.example.CalculatorTest#additionIsCorrect"],
+      "service",
+    );
+    expect(store.getState().lastTestRun?.selector).toBe(
+      "com.example.CalculatorTest#additionIsCorrect",
+    );
+  });
+
+  test("parses test results after completion and drops a stale result after a newer run", async () => {
+    const pendingResults = deferred<MavenTestResults>();
+    parseMavenTestResults.mockImplementationOnce(() => pendingResults.promise);
+    const parsedResults: MavenTestResults = {
+      testsRun: 3,
+      failures: 1,
+      errors: 0,
+      skipped: 1,
+      passed: 1,
+      success: false,
+      failureDetails: [],
+    };
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+
+    await store.getState().actions.runGoals(
+      ["test", "-Dtest=com.example.CalculatorTest"],
+      null,
+      "com.example.CalculatorTest",
+      { module: null, selector: "com.example.CalculatorTest", title: "com.example.CalculatorTest" },
+    );
+    const completedSession = store.getState().activeSessionId;
+    expect(completedSession).not.toBeNull();
+    store.getState().actions.appendOutput(completedSession!, "Tests run: 3\n");
+    store.getState().actions.finishProcess(completedSession!, 1);
+
+    await store.getState().actions.runGoals(["compile"], null, "compile");
+    pendingResults.resolve(parsedResults);
+    await pendingResults.promise;
+    await Promise.resolve();
+
+    expect(parseMavenTestResults).toHaveBeenCalledWith("D:/work", expect.stringContaining("Tests run: 3"));
+    expect(store.getState().testResults).toBeNull();
+    expect(store.getState().taskTitle).toBe("compile");
+  });
+
+  test("keeps the last test available after clearing output", async () => {
+    scanMavenProject.mockResolvedValueOnce(mavenTestProject);
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/service/src/test/java/Test.java"]);
+
+    await store
+      .getState()
+      .actions.runTestClass("D:/work/reactor/service/src/test/java/com/example/CalculatorTest.java");
+    const testRun = store.getState().lastTestRun;
+    expect(testRun).toEqual({
+      module: "service",
+      selector: "com.example.CalculatorTest",
+      title: "com.example.CalculatorTest",
+    });
+
+    store.getState().actions.clearOutput();
+
+    expect(store.getState().output).toBe("");
+    expect(store.getState().testResults).toBeNull();
+    expect(store.getState().lastTestRun).toEqual(testRun);
   });
 });
 

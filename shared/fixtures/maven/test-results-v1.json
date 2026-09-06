@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "junit5-failure-and-error",
+      "sourceFiles": ["src/test/java/com/example/CalculatorTest.java"],
+      "output": "[ERROR] Failures:\n[ERROR]   additionIsCorrect(com.example.CalculatorTest): expected <4> but was <5>\n[ERROR]     at com.example.CalculatorTest.additionIsCorrect(CalculatorTest.java:42)\n[ERROR] Errors:\n[ERROR]   contextLoads(com.example.CalculatorTest): application context failed\n[ERROR]     at com.example.CalculatorTest.contextLoads(CalculatorTest.java:55)\n[ERROR] Tests run: 4, Failures: 1, Errors: 1, Skipped: 1\n",
+      "expected": {
+        "testsRun": 4,
+        "failures": 1,
+        "errors": 1,
+        "skipped": 1,
+        "passed": 1,
+        "success": false,
+        "failureDetails": [
+          {
+            "name": "additionIsCorrect(com.example.CalculatorTest)",
+            "kind": "failure",
+            "message": "expected <4> but was <5>",
+            "path": "src/test/java/com/example/CalculatorTest.java",
+            "line": 42,
+            "column": null
+          },
+          {
+            "name": "contextLoads(com.example.CalculatorTest)",
+            "kind": "error",
+            "message": "application context failed",
+            "path": "src/test/java/com/example/CalculatorTest.java",
+            "line": 55,
+            "column": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "junit4-pass",
+      "sourceFiles": [],
+      "output": "[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0\n",
+      "expected": {
+        "testsRun": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 2,
+        "success": true,
+        "failureDetails": []
+      }
+    },
+    {
+      "name": "junit5-parameterized-nested-module",
+      "sourceFiles": ["service/src/test/java/com/example/CalculatorTest.java"],
+      "output": "[ERROR] Failures:\n[ERROR]   additionIsCorrect(int)[1](com.example.CalculatorTest): expected <4> but was <5>\n[ERROR]     at com.example.CalculatorTest.additionIsCorrect(CalculatorTest.java:42)\n[ERROR] Tests run: 1, Failures: 1, Errors: 0, Skipped: 0\n",
+      "expected": {
+        "testsRun": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 0,
+        "success": false,
+        "failureDetails": [
+          {
+            "name": "additionIsCorrect(int)[1](com.example.CalculatorTest)",
+            "kind": "failure",
+            "message": "expected <4> but was <5>",
+            "path": "service/src/test/java/com/example/CalculatorTest.java",
+            "line": 42,
+            "column": null
+          }
+        ]
+      }
+    }
+  ]
+}

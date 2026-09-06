@@ -5,6 +5,7 @@ import type {
   MavenLaunchContext,
   MavenLaunchPlan,
   MavenProject,
+  MavenTestResults,
 } from "../types/maven.types";
 
 let requestSequence = 0;
@@ -75,4 +76,8 @@ export async function parseMavenDiagnostics(root: string, output: string) {
     output,
   });
   return result.issues ?? [];
+}
+
+export function parseMavenTestResults(root: string, output: string) {
+  return mavenCore<MavenTestResults>("maven.testResults", { root, output });
 }

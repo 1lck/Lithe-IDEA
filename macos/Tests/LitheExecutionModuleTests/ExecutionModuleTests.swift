@@ -391,6 +391,147 @@ struct ExecutionModuleTests {
     }
 
     @Test
+    func mavenTestsParseResultsAndRerunTheLastSelection() async throws {
+        let root = URL(fileURLWithPath: "/workspace/maven-tests", isDirectory: true)
+        let source = root.appendingPathComponent(
+            "src/test/java/com/example/CalculatorTest.java"
+        )
+        let pom = root.appendingPathComponent("pom.xml")
+        let firstProcess = TestStreamingProcess()
+        let secondProcess = TestStreamingProcess()
+        var factoryCall = 0
+        var parserCalls = 0
+        var parsedOutput = ""
+        let parsedResults = MavenTestResults(
+            testsRun: 3,
+            failures: 1,
+            errors: 0,
+            skipped: 1,
+            passed: 1,
+            success: false,
+            failureDetails: []
+        )
+        let service = LanguageTestService(
+            executableResolver: TestExecutableResolver(),
+            processFactory: {
+                factoryCall += 1
+                return factoryCall == 1 ? firstProcess : secondProcess
+            },
+            resultParser: { output, _ in
+                parserCalls += 1
+                parsedOutput = output
+                return parsedResults
+            }
+        )
+
+        #expect(service.run(
+            providerID: "java",
+            scope: .file(source),
+            workspaceURL: root,
+            projectFiles: [pom, source]
+        ))
+        #expect(firstProcess.startRequests.first?.arguments == ["-Dtest=CalculatorTest", "test"])
+
+        firstProcess.onOutput?("Tests run: 3, Failures: 1, Errors: 0, Skipped: 1\n")
+        firstProcess.onTermination?(1)
+        await Task.yield()
+        await Task.yield()
+
+        #expect(service.state == .failed(exitCode: 1))
+        #expect(service.results == parsedResults)
+        #expect(parserCalls == 1)
+        #expect(parsedOutput.contains("Tests run: 3"))
+        #expect(service.canRerun)
+
+        #expect(service.rerun())
+        #expect(secondProcess.startRequests.first?.arguments == ["-Dtest=CalculatorTest", "test"])
+    }
+
+    @Test
+    func nonMavenLanguageTestsDoNotParseMavenResults() async throws {
+        let root = URL(fileURLWithPath: "/workspace/gradle-tests", isDirectory: true)
+        let source = root.appendingPathComponent(
+            "src/test/java/com/example/CalculatorTest.java"
+        )
+        let buildFile = root.appendingPathComponent("build.gradle")
+        let process = TestStreamingProcess()
+        var parserCalls = 0
+        let service = LanguageTestService(
+            executableResolver: TestExecutableResolver(),
+            processFactory: { process },
+            resultParser: { _, _ in
+                parserCalls += 1
+                return MavenTestResults(
+                    testsRun: 1,
+                    failures: 0,
+                    errors: 0,
+                    skipped: 0,
+                    passed: 1,
+                    success: true,
+                    failureDetails: []
+                )
+            }
+        )
+
+        #expect(service.run(
+            providerID: "java",
+            scope: .file(source),
+            workspaceURL: root,
+            projectFiles: [buildFile, source]
+        ))
+        #expect(service.activePlan?.frameworkID == "gradle")
+
+        process.onTermination?(0)
+        await Task.yield()
+        await Task.yield()
+
+        #expect(service.state == .passed)
+        #expect(service.results == nil)
+        #expect(parserCalls == 0)
+    }
+
+    @Test
+    func stoppingMavenTestsIgnoresLateTerminationEvents() async throws {
+        let root = URL(fileURLWithPath: "/workspace/maven-cancel", isDirectory: true)
+        let source = root.appendingPathComponent(
+            "src/test/java/com/example/CalculatorTest.java"
+        )
+        let process = TestStreamingProcess()
+        let service = LanguageTestService(
+            executableResolver: TestExecutableResolver(),
+            processFactory: { process },
+            resultParser: { _, _ in
+                MavenTestResults(
+                    testsRun: 1,
+                    failures: 0,
+                    errors: 0,
+                    skipped: 0,
+                    passed: 1,
+                    success: true,
+                    failureDetails: []
+                )
+            }
+        )
+
+        #expect(service.run(
+            providerID: "java",
+            scope: .file(source),
+            workspaceURL: root,
+            projectFiles: [root.appendingPathComponent("pom.xml"), source]
+        ))
+        service.stop()
+        #expect(service.state == .cancelled)
+        #expect(!process.isRunning)
+
+        process.onTermination?(0)
+        await Task.yield()
+        await Task.yield()
+
+        #expect(service.state == .cancelled)
+        #expect(service.results == nil)
+    }
+
+    @Test
     func mavenServiceExecutesTheSharedLaunchPlanWithLocalRuntimeOverrides() async throws {
         let workspace = URL(fileURLWithPath: "/workspace", isDirectory: true)
         let reactor = workspace.appendingPathComponent("projects/demo", isDirectory: true)
