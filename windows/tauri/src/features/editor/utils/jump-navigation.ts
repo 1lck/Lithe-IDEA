@@ -6,7 +6,15 @@ import { getBufferById, getBufferByPath } from "@/features/editor/utils/buffer-i
 import { readFileContent } from "@/features/file-system/controllers/file-operations";
 import { logger } from "./logger";
 
-export async function navigateToJumpEntry(entry: JumpListEntry): Promise<boolean> {
+let navigationQueue = Promise.resolve();
+
+function waitForEditorActivation(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+}
+
+async function navigateToJumpEntryInternal(entry: JumpListEntry): Promise<boolean> {
   const bufferStore = useBufferStore.getState();
 
   // Try to find the buffer by ID first, then by path
@@ -31,19 +39,34 @@ export async function navigateToJumpEntry(entry: JumpListEntry): Promise<boolean
     bufferStore.actions.setActiveBuffer(targetBuffer.id);
   }
 
-  // Set cursor position and scroll after buffer is ready
-  setTimeout(() => {
-    editorAPI.setCursorPosition({
-      line: entry.line,
-      column: entry.column,
-      offset: entry.offset,
-    });
+  // Wait for the active Monaco surface to register after a buffer switch.
+  await waitForEditorActivation();
 
-    useEditorStateStore.getState().actions.setScroll(entry.scrollTop, entry.scrollLeft);
-    editorAPI.focus();
+  editorAPI.setSelection(null);
+  editorAPI.setCursorPosition({
+    line: entry.line,
+    column: entry.column,
+    offset: entry.offset,
+  });
 
-    logger.info("JumpList", `Jumped to ${entry.filePath}:${entry.line}:${entry.column}`);
-  }, 100);
+  useEditorStateStore.getState().actions.setScroll(entry.scrollTop, entry.scrollLeft);
+  editorAPI.focus();
+
+  // Cursor/state updates can trigger another render; focus again after it so
+  // repeated history shortcuts keep the editor as the active input target.
+  await waitForEditorActivation();
+  editorAPI.focus();
+
+  logger.info("JumpList", `Jumped to ${entry.filePath}:${entry.line}:${entry.column}`);
 
   return true;
+}
+
+export function navigateToJumpEntry(entry: JumpListEntry): Promise<boolean> {
+  const navigation = navigationQueue.then(() => navigateToJumpEntryInternal(entry));
+  navigationQueue = navigation.then(
+    () => undefined,
+    () => undefined,
+  );
+  return navigation;
 }
