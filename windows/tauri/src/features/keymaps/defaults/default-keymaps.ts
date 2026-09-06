@@ -4,6 +4,7 @@
  */
 
 import type { Keybinding } from "../types/keymaps.types";
+import { IS_MAC } from "@/utils/platform";
 
 export const defaultKeymaps: Keybinding[] = [
   // File Operations
@@ -395,8 +396,12 @@ export const defaultKeymaps: Keybinding[] = [
     source: "default",
     when: "editorFocus",
   },
-  { key: "cmd+alt+right", command: "workbench.nextTab", source: "default" },
-  { key: "cmd+alt+left", command: "workbench.previousTab", source: "default" },
+  ...(IS_MAC
+    ? [
+        { key: "cmd+alt+right", command: "workbench.nextTab", source: "default" as const },
+        { key: "cmd+alt+left", command: "workbench.previousTab", source: "default" as const },
+      ]
+    : []),
   { key: "ctrl+tab", command: "workbench.nextTabCtrlTab", source: "default" },
   {
     key: "ctrl+shift+tab",
