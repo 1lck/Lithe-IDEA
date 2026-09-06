@@ -40,6 +40,8 @@ import {
 const MAXIMUM_OUTPUT_CHARACTERS = 500_000;
 const MAXIMUM_DEPENDENCY_OUTPUT_CHARACTERS = 500_000;
 const MAVEN_DEPENDENCY_TIMEOUT_MILLISECONDS = 60_000;
+const MAVEN_TEST_TIMEOUT_MILLISECONDS = 120_000;
+const MAVEN_TEST_ALLOW_EMPTY_UPSTREAM_MODULES = "-Dsurefire.failIfNoSpecifiedTests=false";
 const mavenSessionWorkspaces = new Map<string, string>();
 
 interface MavenProjectLoad {
@@ -238,7 +240,7 @@ function cancelledOutput(output: string): string {
 function mavenTestGoals(selector: string): string[] {
   // Keep the lifecycle goal first so the existing Core launch-plan validator
   // can continue rejecting arbitrary option-only tool-window invocations.
-  return ["test", `-Dtest=${selector}`];
+  return ["test", `-Dtest=${selector}`, MAVEN_TEST_ALLOW_EMPTY_UPSTREAM_MODULES];
 }
 
 export const createMavenStore = (
@@ -252,6 +254,8 @@ export const createMavenStore = (
   let diagnosticsRevision = 0;
   let dependencyRevision = 0;
   let dependencyTimer: ReturnType<typeof setTimeout> | null = null;
+  let testTimer: ReturnType<typeof setTimeout> | null = null;
+  let testTimerSessionId: string | null = null;
   let configurationWriteTask = Promise.resolve();
 
   return createStore<MavenState>()((set, get) => {
@@ -259,6 +263,13 @@ export const createMavenStore = (
       if (dependencyTimer === null) return;
       dependencyScheduler.clearTimer(dependencyTimer);
       dependencyTimer = null;
+    };
+
+    const clearTestTimer = (sessionId?: string) => {
+      if (sessionId && testTimerSessionId !== sessionId) return;
+      if (testTimer !== null) dependencyScheduler.clearTimer(testTimer);
+      testTimer = null;
+      testTimerSessionId = null;
     };
 
     const setDependencyLoad = (modulePath: string, load: MavenDependencyLoad) => {
@@ -311,6 +322,37 @@ export const createMavenStore = (
       } catch {
         // The failure state remains actionable when the process exited while
         // the stop request was in flight.
+      } finally {
+        releaseMavenSessionWorkspace(sessionId);
+      }
+    };
+
+    const failTestSession = async (sessionId: string, revision: number) => {
+      const state = get();
+      if (
+        launchRevision !== revision ||
+        state.activeSessionId !== sessionId
+      ) {
+        return;
+      }
+      const message = `Maven test run timed out after ${MAVEN_TEST_TIMEOUT_MILLISECONDS / 1000} seconds.`;
+      launchRevision += 1;
+      diagnosticsRevision += 1;
+      clearTestTimer(sessionId);
+      set({
+        taskStatus: "failed",
+        taskError: message,
+        activeSessionId: null,
+        activeTestRun: null,
+        lastExitCode: null,
+        output: trimOutput(`${state.output}${state.output.endsWith("\n") ? "" : "\n"}${message}\n`),
+        issues: [{ path: "", line: 1, column: null, severity: "error", message }],
+      });
+      try {
+        await dependencies.stopMavenProcess(sessionId);
+      } catch {
+        // The timeout state is already visible when the native process exits
+        // concurrently or rejects a late stop request.
       } finally {
         releaseMavenSessionWorkspace(sessionId);
       }
@@ -403,6 +445,7 @@ export const createMavenStore = (
           const previous = get();
           if (previous.root && previous.root !== root && previous.activeSessionId) {
             launchRevision += 1;
+            clearTestTimer();
             diagnosticsRevision += 1;
             await dependencies.stopMavenProcess(previous.activeSessionId).catch(() => undefined);
             releaseMavenSessionWorkspace(previous.activeSessionId);
@@ -569,6 +612,7 @@ export const createMavenStore = (
           const launchContext = testRun ? { ...context, skipTests: false } : context;
           const revision = ++launchRevision;
           diagnosticsRevision += 1;
+          clearTestTimer();
           const previousSessionId = state.activeSessionId;
           if (previousSessionId) {
             await dependencies.stopMavenProcess(previousSessionId).catch(() => undefined);
@@ -588,6 +632,13 @@ export const createMavenStore = (
             activeTestRun: testRun ?? null,
             ...(testRun ? { lastTestRun: testRun } : {}),
           });
+          if (testRun) {
+            testTimerSessionId = sessionId;
+            testTimer = dependencyScheduler.setTimer(
+              () => failTestSession(sessionId, revision),
+              MAVEN_TEST_TIMEOUT_MILLISECONDS,
+            );
+          }
           try {
             await dependencies.saveWorkspaceBeforeLaunch(workspaceId);
             const plan = await dependencies.createMavenLaunchPlan(
@@ -602,6 +653,7 @@ export const createMavenStore = (
               plan,
             );
             if (launchRevision !== revision || get().activeSessionId !== sessionId) {
+              clearTestTimer(sessionId);
               releaseMavenSessionWorkspace(sessionId);
               return;
             }
@@ -615,14 +667,17 @@ export const createMavenStore = (
               environment: resolved.environment,
             });
             if (launchRevision !== revision || get().activeSessionId !== sessionId) {
+              clearTestTimer(sessionId);
               await dependencies.stopMavenProcess(sessionId).catch(() => undefined);
               releaseMavenSessionWorkspace(sessionId);
             }
           } catch (error) {
             if (launchRevision !== revision || get().activeSessionId !== sessionId) {
+              clearTestTimer(sessionId);
               releaseMavenSessionWorkspace(sessionId);
               return;
             }
+            clearTestTimer(sessionId);
             const message =
               error instanceof Error ? error.message : "Unable to start the Maven task.";
             set({
@@ -692,6 +747,7 @@ export const createMavenStore = (
         stop: async () => {
           launchRevision += 1;
           diagnosticsRevision += 1;
+          clearTestTimer();
           const sessionId = get().activeSessionId;
           if (!sessionId) return;
           set({ taskStatus: "stopping" });
@@ -745,6 +801,7 @@ export const createMavenStore = (
         finishProcess: (sessionId, exitCode) => {
           const state = get();
           if (state.activeSessionId !== sessionId || !state.root) return;
+          clearTestTimer(sessionId);
           const root = state.root;
           const output = state.output;
           const revision = ++diagnosticsRevision;
@@ -767,6 +824,7 @@ export const createMavenStore = (
             lastExitCode: exitCode,
             activeTestRun: null,
           });
+          releaseMavenSessionWorkspace(sessionId);
           void dependencies
             .parseMavenDiagnostics(root, output)
             .then((issues) => {
@@ -787,7 +845,18 @@ export const createMavenStore = (
               .parseMavenTestResults(root, output)
               .then((testResults) => {
                 if (diagnosticsRevision === revision && get().root === root) {
-                  set({ testResults });
+                  const noTestsMatched = exitCode === 0 && testResults.testsRun === 0;
+                  if (noTestsMatched && testRun) {
+                    const message = `No tests matched selector "${testRun.selector}".`;
+                    set({
+                      testResults: { ...testResults, success: false },
+                      taskStatus: "failed",
+                      taskError: message,
+                      output: trimOutput(`${get().output}${get().output.endsWith("\n") ? "" : "\n"}${message}\n`),
+                    });
+                  } else {
+                    set({ testResults });
+                  }
                 }
               })
               .catch((error) => {

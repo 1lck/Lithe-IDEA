@@ -8,6 +8,7 @@ package enum LanguageTestRunState: Equatable, Sendable {
     case running
     case passed
     case failed(exitCode: Int32)
+    case timedOut
     case cancelled
 }
 
@@ -30,10 +31,12 @@ package final class LanguageTestService: ObservableObject {
     private var extensionSession: (any LanguageExecutionSession)?
     private var languageTestExtensions: [String: RegisteredLanguageTestExtension] = [:]
     private var activeOperationID: String?
+    private var timedOutOperationID: String?
     private var activeWorkspaceURL: URL?
     private var outputCapture: LanguageTestOutputCapture?
     private var lastRun: LastRun?
     private let maximumOutputCharacters = 400_000
+    private static let mavenTestTimeoutMilliseconds = 120_000
 
     package init(
         catalog: LanguageProviderCatalog = .compatibilityFallback,
@@ -179,6 +182,7 @@ package final class LanguageTestService: ObservableObject {
             activeWorkspaceURL = root
             let outputCapture = LanguageTestOutputCapture(maximumCharacters: maximumOutputCharacters)
             self.outputCapture = outputCapture
+            let timeoutMarker = LanguageTestTimeoutMarker()
             lastRun = LastRun(
                 providerID: providerID,
                 scope: scope,
@@ -188,13 +192,16 @@ package final class LanguageTestService: ObservableObject {
             )
             activePlan = plan
             state = .running
+            timedOutOperationID = nil
             append("$ \(resolved.executableURL.lastPathComponent) \(plan.launchPlan.arguments.joined(separator: " "))\n\n")
+            let timeoutMilliseconds = Self.testTimeoutMilliseconds(for: plan.frameworkID)
             if let extensionProvider {
                 let session = extensionProvider.makeTestExecutionSession()
                 configureExtensionSession(
                     session,
                     operationID: operationID,
-                    outputCapture: outputCapture
+                    outputCapture: outputCapture,
+                    timeoutMarker: timeoutMarker
                 )
                 extensionSession = session
                 try session.start(LanguageExecutionProcessRequest(
@@ -202,14 +209,16 @@ package final class LanguageTestService: ObservableObject {
                     executablePath: resolved.executableURL.path,
                     arguments: plan.launchPlan.arguments,
                     workingDirectory: workingDirectory.path,
-                    environment: resolved.environment
+                    environment: resolved.environment,
+                    timeoutMilliseconds: timeoutMilliseconds
                 ))
             } else {
                 let process = processFactory()
                 configureProcess(
                     process,
                     operationID: operationID,
-                    outputCapture: outputCapture
+                    outputCapture: outputCapture,
+                    timeoutMarker: timeoutMarker
                 )
                 self.process = process
                 try process.start(ProcessRequest(
@@ -217,7 +226,8 @@ package final class LanguageTestService: ObservableObject {
                     executablePath: resolved.executableURL.path,
                     arguments: plan.launchPlan.arguments,
                     workingDirectory: workingDirectory.path,
-                    environment: resolved.environment
+                    environment: resolved.environment,
+                    timeoutMilliseconds: timeoutMilliseconds
                 ))
             }
             return true
@@ -227,6 +237,7 @@ package final class LanguageTestService: ObservableObject {
             extensionSession?.stop()
             extensionSession = nil
             activeOperationID = nil
+            timedOutOperationID = nil
             outputCapture = nil
             activePlan = nil
             state = .failed(exitCode: -1)
@@ -270,6 +281,7 @@ package final class LanguageTestService: ObservableObject {
     private func stop(markCancelled: Bool) {
         let wasRunning = state == .running
         activeOperationID = nil
+        timedOutOperationID = nil
         activeWorkspaceURL = nil
         outputCapture = nil
         process?.stop()
@@ -308,7 +320,8 @@ package final class LanguageTestService: ObservableObject {
     private func configureProcess(
         _ process: any StreamingProcess,
         operationID: String,
-        outputCapture: LanguageTestOutputCapture
+        outputCapture: LanguageTestOutputCapture,
+        timeoutMarker: LanguageTestTimeoutMarker
     ) {
         process.onOutput = { [weak self, outputCapture] chunk in
             outputCapture.append(chunk)
@@ -322,7 +335,20 @@ package final class LanguageTestService: ObservableObject {
                 // Let output callbacks already queued by the process drain
                 // before taking the final parser snapshot.
                 await Task.yield()
-                self?.finish(operationID: operationID, exitCode: exitCode)
+                self?.finish(
+                    operationID: operationID,
+                    exitCode: exitCode,
+                    processTimedOut: timeoutMarker.isTimedOut
+                )
+            }
+        }
+        process.onStateChange = { [weak self] event in
+            guard event.operationID == operationID,
+                  event.state == .stopping,
+                  event.message == "Process timed out" else { return }
+            timeoutMarker.mark()
+            Task { @MainActor [weak self] in
+                self?.markTimedOut(operationID: operationID)
             }
         }
     }
@@ -330,7 +356,8 @@ package final class LanguageTestService: ObservableObject {
     private func configureExtensionSession(
         _ session: any LanguageExecutionSession,
         operationID: String,
-        outputCapture: LanguageTestOutputCapture
+        outputCapture: LanguageTestOutputCapture,
+        timeoutMarker: LanguageTestTimeoutMarker
     ) {
         session.onOutput = { [weak self, outputCapture] chunk in
             outputCapture.append(chunk)
@@ -342,14 +369,24 @@ package final class LanguageTestService: ObservableObject {
         session.onTermination = { [weak self] exitCode in
             Task { @MainActor [weak self] in
                 await Task.yield()
-                self?.finish(operationID: operationID, exitCode: exitCode)
+                self?.finish(
+                    operationID: operationID,
+                    exitCode: exitCode,
+                    processTimedOut: timeoutMarker.isTimedOut
+                )
             }
         }
         session.onStateChange = { [weak self] event in
-            guard event.operationID == operationID,
-                  event.state == .failed else { return }
+            guard event.operationID == operationID else { return }
+            let timedOut = event.state == .stopping && event.message == "Process timed out"
+            if timedOut { timeoutMarker.mark() }
             Task { @MainActor [weak self] in
                 guard let self, self.activeOperationID == operationID else { return }
+                if timedOut {
+                    self.markTimedOut(operationID: operationID)
+                    return
+                }
+                guard event.state == .failed else { return }
                 if let message = event.message, !message.isEmpty {
                     self.errorMessage = message
                     self.append(message + "\n")
@@ -359,20 +396,51 @@ package final class LanguageTestService: ObservableObject {
         }
     }
 
-    private func finish(operationID: String, exitCode: Int32) {
+    private func markTimedOut(operationID: String) {
+        guard activeOperationID == operationID, timedOutOperationID != operationID else { return }
+        timedOutOperationID = operationID
+        let message = testTimeoutMessage()
+        errorMessage = message
+        append(message + "\n")
+    }
+
+    private func finish(
+        operationID: String,
+        exitCode: Int32,
+        processTimedOut: Bool = false
+    ) {
         guard activeOperationID == operationID else { return }
+        let timedOut = processTimedOut || timedOutOperationID == operationID
+        if timedOut, errorMessage == nil {
+            let message = testTimeoutMessage()
+            errorMessage = message
+            append(message + "\n")
+        }
         let capturedOutput = outputCapture?.snapshot() ?? output
         if activePlan?.frameworkID == "maven",
            let resultParser,
            let activeWorkspaceURL {
             results = resultParser(capturedOutput, activeWorkspaceURL)
         }
-        state = exitCode == 0 ? .passed : .failed(exitCode: exitCode)
+        state = timedOut ? .timedOut : (exitCode == 0 ? .passed : .failed(exitCode: exitCode))
         activeOperationID = nil
+        timedOutOperationID = nil
         activeWorkspaceURL = nil
         outputCapture = nil
         process = nil
         extensionSession = nil
+    }
+
+    private func testTimeoutMessage() -> String {
+        let framework = activePlan?.frameworkID == "junit" ? "JUnit" : "Maven"
+        return "\(framework) test run timed out after \(Self.mavenTestTimeoutMilliseconds / 1000) seconds."
+    }
+
+    private static func testTimeoutMilliseconds(for frameworkID: String?) -> Int? {
+        switch frameworkID {
+        case "maven", "junit": return mavenTestTimeoutMilliseconds
+        default: return nil
+        }
     }
 
     private func relativeProjectPaths(_ files: [URL], workspaceURL: URL) -> [String] {
@@ -484,6 +552,23 @@ private final class LanguageTestOutputCapture: @unchecked Sendable {
     }
 
     func snapshot() -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+}
+
+private final class LanguageTestTimeoutMarker: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    func mark() {
+        lock.lock()
+        value = true
+        lock.unlock()
+    }
+
+    var isTimedOut: Bool {
         lock.lock()
         defer { lock.unlock() }
         return value

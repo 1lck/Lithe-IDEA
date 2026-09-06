@@ -587,7 +587,7 @@ fn maven_test_results_aggregate_class_summaries_without_results_footer() {
             "command": "maven.testResults",
             "payload": {
                 "root": root,
-                "output": "[INFO] Tests run: 2, Failures: 1, Errors: 0, Skipped: 0 - in FirstTest\n[INFO] Tests run: 3, Failures: 0, Errors: 1, Skipped: 1 - in SecondTest\n"
+                "output": "[INFO] Tests run: 2, Failures: 1, Errors: 0, Skipped: 0, Time elapsed: 0.12 s - in FirstTest\n[INFO] Tests run: 3, Failures: 0, Errors: 1, Skipped: 1, Time elapsed: 0.08 s <<< FAILURE! -- in SecondTest\n"
             }
         })
         .to_string(),
@@ -602,6 +602,33 @@ fn maven_test_results_aggregate_class_summaries_without_results_footer() {
     assert_eq!(response["data"]["passed"], 2);
     assert_eq!(response["data"]["success"], false);
     fs::remove_dir_all(root).expect("Maven aggregate fixture should be removable");
+}
+
+#[test]
+fn maven_test_results_aggregate_all_module_footers_and_ignore_reactor_lines() {
+    let root = temporary_root("maven-test-results-footers");
+    fs::create_dir_all(&root).expect("Maven footer workspace should be creatable");
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "maven-test-results-footers",
+            "command": "maven.testResults",
+            "payload": {
+                "root": root,
+                "output": "[INFO] Tests run: 2, Failures: 1, Errors: 0, Skipped: 0\n[INFO] Tests run: 3, Failures: 0, Errors: 1, Skipped: 1\n[INFO] Reactor Summary for reactor 1.0-SNAPSHOT:\n[INFO] base ................................ SUCCESS\n[INFO] app ................................ FAILURE\n"
+            }
+        })
+        .to_string(),
+    ))
+    .expect("footer Maven test-results response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(response["data"]["testsRun"], 5);
+    assert_eq!(response["data"]["failures"], 1);
+    assert_eq!(response["data"]["errors"], 1);
+    assert_eq!(response["data"]["skipped"], 1);
+    assert_eq!(response["data"]["passed"], 2);
+    assert_eq!(response["data"]["failureDetails"], serde_json::json!([]));
+    fs::remove_dir_all(root).expect("Maven footer fixture should be removable");
 }
 
 #[test]

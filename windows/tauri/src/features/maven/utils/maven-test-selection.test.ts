@@ -65,6 +65,50 @@ describe("Maven test selection", () => {
     expect(javaTestMethodAtLine("@Test\nvoid fast() {}", 0)).toBeNull();
   });
 
+  test("only attributes lines inside a test method body", () => {
+    const source = `
+      class CalculatorTest {
+        @Test
+        void first() {
+          assertTrue(true);
+        }
+
+        void helper() {
+          return;
+        }
+
+        @Test
+        void second() {
+          assertTrue(true);
+        }
+      }
+    `;
+
+    expect(javaTestMethodAtLine(source, 7)).toBeNull();
+    expect(javaTestMethodAtLine(source, 8)).toBeNull();
+    expect(javaTestMethodAtLine(source, 12)?.name).toBe("second");
+  });
+
+  test("handles multiline test bodies and braces in comments and strings", () => {
+    const source = `
+      class CalculatorTest {
+        @Test
+        void first()
+            throws Exception {
+          String value = "}";
+          /* { this is not a body */
+          assertTrue(value != null);
+        }
+
+        void helper() {}
+      }
+    `;
+
+    expect(javaTestMethodAtLine(source, 5)?.name).toBe("first");
+    expect(javaTestMethodAtLine(source, 8)?.name).toBe("first");
+    expect(javaTestMethodAtLine(source, 9)).toBeNull();
+  });
+
   test("resolves a nested reactor module from a conventional test path", () => {
     expect(
       resolveMavenTestTarget(

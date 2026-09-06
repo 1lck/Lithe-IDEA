@@ -755,21 +755,25 @@ pub fn test_results(
     let ansi =
         Regex::new(r"\x1b\[[0-?]*[ -/]*[@-~]").expect("static ANSI escape expression is valid");
     let summary_expression = Regex::new(
-        r"(?i)^Tests\s+run:\s*(\d+)\s*,\s*Failures:\s*(\d+)\s*,\s*Errors:\s*(\d+)\s*,\s*(?:Skipped|Ignored):\s*(\d+)",
+        r"(?i)^Tests\s+run:\s*(\d+)\s*,\s*Failures:\s*(\d+)\s*,\s*Errors:\s*(\d+)\s*,\s*(?:Skipped|Ignored):\s*(\d+)(?:\s+-+\s+in\s+(.+)|,\s*Time elapsed:.*)?\s*$",
     )
     .expect("static Maven test summary expression is valid");
     let failure_expression =
-        Regex::new(r#"^(?:\d+\)\s*)?([A-Za-z_$][A-Za-z0-9_.$#<>$\[\]'\" ()-]*)(?:\s*:\s*(.*))?$"#)
+        Regex::new(r#"^(?:\d+\)\s*)?([A-Za-z_$][A-Za-z0-9_.$#<>$\[\]'\" ()-]*?)(?:\s*:\s*(.*))?$"#)
             .expect("static Maven test failure expression is valid");
+    let detailed_failure_expression = Regex::new(
+        r#"^([A-Za-z_$][A-Za-z0-9_.$#<>$\[\]'\" ()-]*?)\s+--\s+Time elapsed:.*<<<\s+(FAILURE|ERROR)!\s*$"#,
+    )
+    .expect("static Maven detailed failure expression is valid");
     let stack_expression = Regex::new(
         r"^at\s+([A-Za-z_$][A-Za-z0-9_.$]*)(?:\.[A-Za-z_$][A-Za-z0-9_$<>]*)?\((.*?\.java):(\d+)\)$",
     )
     .expect("static Maven test stack expression is valid");
 
-    let mut summary = None;
-    let mut aggregate_summary = (0_usize, 0_usize, 0_usize, 0_usize);
-    let mut saw_summary = false;
-    let mut in_results_section = false;
+    let mut footer_summary = (0_usize, 0_usize, 0_usize, 0_usize);
+    let mut class_summary = (0_usize, 0_usize, 0_usize, 0_usize);
+    let mut saw_footer_summary = false;
+    let mut saw_class_summary = false;
     let mut section = None;
     let mut current_failure = None;
     let mut failure_details: Vec<MavenTestFailureResponse> = Vec::new();
@@ -779,7 +783,6 @@ pub fn test_results(
         let line = strip_maven_log_prefix(clean_line.as_ref());
         let trimmed = line.trim();
         if trimmed.eq_ignore_ascii_case("Results:") {
-            in_results_section = true;
             section = None;
             current_failure = None;
             continue;
@@ -791,18 +794,44 @@ pub fn test_results(
                 captures[3].parse::<usize>().unwrap_or(0),
                 captures[4].parse::<usize>().unwrap_or(0),
             );
-            saw_summary = true;
-            if in_results_section {
-                // A final Results section is the authoritative aggregate for
-                // the current Maven invocation.
-                summary = Some(parsed);
+            let is_class_summary = captures.get(5).is_some() || trimmed.contains(", Time elapsed:");
+            if is_class_summary {
+                class_summary.0 = class_summary.0.saturating_add(parsed.0);
+                class_summary.1 = class_summary.1.saturating_add(parsed.1);
+                class_summary.2 = class_summary.2.saturating_add(parsed.2);
+                class_summary.3 = class_summary.3.saturating_add(parsed.3);
+                saw_class_summary = true;
             } else {
-                aggregate_summary.0 = aggregate_summary.0.saturating_add(parsed.0);
-                aggregate_summary.1 = aggregate_summary.1.saturating_add(parsed.1);
-                aggregate_summary.2 = aggregate_summary.2.saturating_add(parsed.2);
-                aggregate_summary.3 = aggregate_summary.3.saturating_add(parsed.3);
+                footer_summary.0 = footer_summary.0.saturating_add(parsed.0);
+                footer_summary.1 = footer_summary.1.saturating_add(parsed.1);
+                footer_summary.2 = footer_summary.2.saturating_add(parsed.2);
+                footer_summary.3 = footer_summary.3.saturating_add(parsed.3);
+                saw_footer_summary = true;
             }
+            // A summary terminates both the failure list and any preceding
+            // detailed failure. Do not let reactor diagnostics inherit it.
+            section = None;
             current_failure = None;
+            continue;
+        }
+
+        if let Some(captures) = detailed_failure_expression.captures(trimmed) {
+            let name = captures
+                .get(1)
+                .map(|value| value.as_str())
+                .unwrap_or_default();
+            if looks_like_test_name(name) {
+                let kind = match captures.get(2).map(|value| value.as_str()) {
+                    Some("ERROR") => MavenTestFailureKind::Error,
+                    _ => MavenTestFailureKind::Failure,
+                };
+                current_failure = Some(record_maven_failure(
+                    &mut failure_details,
+                    name,
+                    kind,
+                    None,
+                )?);
+            }
             continue;
         }
 
@@ -822,7 +851,7 @@ pub fn test_results(
             continue;
         }
 
-        if let (Some(_kind), Some(captures)) = (section, stack_expression.captures(trimmed)) {
+        if let Some(captures) = stack_expression.captures(trimmed) {
             if let Some(index) = current_failure {
                 let line_number = captures[3].parse::<usize>().ok();
                 let location = line_number.and_then(|line_number| {
@@ -861,42 +890,48 @@ pub fn test_results(
         if !looks_like_test_name(name) {
             continue;
         }
-        if failure_details.len() >= MAX_MAVEN_TEST_FAILURES {
-            return Err(CoreError::new(
-                ErrorCode::ParseFailed,
-                "Maven test failure count exceeds the supported limit",
-            )
-            .with_details(format!("maximumFailures={MAX_MAVEN_TEST_FAILURES}")));
-        }
-        let message = captures
+        let raw_message = captures
             .get(2)
             .map(|value| value.as_str().trim())
             .filter(|value| !value.is_empty())
             .map(str::to_string);
-        failure_details.push(MavenTestFailureResponse {
-            name: name.to_string(),
-            kind: kind.as_str().to_string(),
-            message,
-            path: None,
-            line: None,
-            column: None,
+        // Surefire's compact footer encodes the source line as
+        // `TestName:line message`. The detailed entry owns source locations;
+        // strip the line token here while merging the footer into it.
+        let message = raw_message.map(|value| {
+            let mut parts = value.splitn(2, char::is_whitespace);
+            match parts.next() {
+                Some(token) if token.parse::<usize>().is_ok() => parts
+                    .next()
+                    .map(str::trim)
+                    .filter(|rest| !rest.is_empty())
+                    .map(str::to_string),
+                _ => Some(value),
+            }
         });
-        current_failure = Some(failure_details.len() - 1);
+        current_failure = Some(record_maven_failure(
+            &mut failure_details,
+            name,
+            kind,
+            message.flatten(),
+        )?);
     }
 
-    let (tests_run, failures, errors, skipped) = summary
-        .or_else(|| saw_summary.then_some(aggregate_summary))
-        .unwrap_or_else(|| {
-            let failures = failure_details
-                .iter()
-                .filter(|detail| detail.kind == "failure")
-                .count();
-            let errors = failure_details
-                .iter()
-                .filter(|detail| detail.kind == "error")
-                .count();
-            (failures + errors, failures, errors, 0)
-        });
+    let (tests_run, failures, errors, skipped) = if saw_footer_summary {
+        footer_summary
+    } else if saw_class_summary {
+        class_summary
+    } else {
+        let failures = failure_details
+            .iter()
+            .filter(|detail| detail.kind == "failure")
+            .count();
+        let errors = failure_details
+            .iter()
+            .filter(|detail| detail.kind == "error")
+            .count();
+        (failures + errors, failures, errors, 0)
+    };
     let passed = tests_run.saturating_sub(failures + errors + skipped);
     Ok(MavenTestResultsResponse {
         tests_run,
@@ -934,6 +969,67 @@ fn looks_like_test_name(name: &str) -> bool {
             || name.ends_with("Tests"))
         && !name.ends_with("Exception")
         && !name.ends_with("Error")
+}
+
+fn same_maven_test_name(left: &str, right: &str) -> bool {
+    let left = normalized_maven_test_name(left);
+    let right = normalized_maven_test_name(right);
+    left == right
+        || left
+            .strip_suffix(&right)
+            .is_some_and(|prefix| prefix.ends_with('.'))
+        || right
+            .strip_suffix(&left)
+            .is_some_and(|prefix| prefix.ends_with('.'))
+}
+
+fn normalized_maven_test_name(name: &str) -> String {
+    let Some(opening) = name.rfind('(') else {
+        return name.to_string();
+    };
+    if !name.ends_with(')') {
+        return name.to_string();
+    }
+    let class_name = &name[(opening + 1)..name.len() - 1];
+    if !class_name.contains('.') || class_name.chars().any(char::is_whitespace) {
+        return name.to_string();
+    }
+    format!("{class_name}.{}", &name[..opening])
+}
+
+fn record_maven_failure(
+    details: &mut Vec<MavenTestFailureResponse>,
+    name: &str,
+    kind: MavenTestFailureKind,
+    message: Option<String>,
+) -> Result<usize, CoreError> {
+    if let Some(index) = details
+        .iter()
+        .position(|detail| same_maven_test_name(&detail.name, name))
+    {
+        if let Some(message) = message {
+            if details[index].message.is_none() {
+                details[index].message = Some(message);
+            }
+        }
+        return Ok(index);
+    }
+    if details.len() >= MAX_MAVEN_TEST_FAILURES {
+        return Err(CoreError::new(
+            ErrorCode::ParseFailed,
+            "Maven test failure count exceeds the supported limit",
+        )
+        .with_details(format!("maximumFailures={MAX_MAVEN_TEST_FAILURES}")));
+    }
+    details.push(MavenTestFailureResponse {
+        name: name.to_string(),
+        kind: kind.as_str().to_string(),
+        message,
+        path: None,
+        line: None,
+        column: None,
+    });
+    Ok(details.len() - 1)
 }
 
 fn resolve_test_source_path(root: &Path, class_name: &str, file_name: &str) -> Option<String> {

@@ -171,14 +171,120 @@ export function discoverJavaTestMethods(content: string): JavaTestMethod[] {
 }
 
 export function javaTestMethodAtLine(content: string, line: number): JavaTestMethod | null {
+  const lines = content.split(/\r?\n/);
   const methods = discoverJavaTestMethods(content);
-  let candidateIndex = -1;
-  for (let index = 0; index < methods.length; index += 1) {
-    if (methods[index]!.line > line) break;
-    candidateIndex = index;
+  for (let index = methods.length - 1; index >= 0; index -= 1) {
+    const method = methods[index]!;
+    if (method.line > line) continue;
+    const endLine = javaTestMethodEndLine(lines, method.line);
+    if (line <= endLine) return method;
   }
-  if (candidateIndex < 0) return null;
-  const nextMethod = methods[candidateIndex + 1];
-  if (nextMethod && line >= nextMethod.line) return null;
-  return methods[candidateIndex] ?? null;
+  return null;
+}
+
+type JavaQuote = "string" | "character" | "textBlock";
+
+function javaTestMethodEndLine(lines: readonly string[], startLine: number): number {
+  let blockComment = false;
+  let quote: JavaQuote | null = null;
+  let escaped = false;
+  let depth = 0;
+  let foundBody = false;
+
+  // Re-scan from the beginning to preserve lexical state across multi-line
+  // comments and text blocks while only counting braces in the method body.
+  blockComment = false;
+  quote = null;
+  escaped = false;
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const result = scanJavaBraces(lines[lineIndex] ?? "", {
+      blockComment,
+      quote,
+      escaped,
+    });
+    blockComment = result.blockComment;
+    quote = result.quote;
+    escaped = result.escaped;
+    if (lineIndex < startLine) continue;
+    if (result.openingBrace) foundBody = true;
+    if (foundBody) {
+      depth += result.delta;
+      if (depth <= 0) return lineIndex;
+    }
+  }
+  return startLine;
+}
+
+interface JavaBraceScanState {
+  blockComment: boolean;
+  quote: JavaQuote | null;
+  escaped: boolean;
+}
+
+interface JavaBraceScanResult {
+  blockComment: boolean;
+  quote: JavaQuote | null;
+  escaped: boolean;
+  delta: number;
+  openingBrace: boolean;
+}
+
+function scanJavaBraces(line: string, state: JavaBraceScanState): JavaBraceScanResult {
+  let { blockComment, quote, escaped } = state;
+  let delta = 0;
+  let openingBrace = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index]!;
+    const next = line[index + 1];
+    if (blockComment) {
+      if (character === "*" && next === "/") {
+        blockComment = false;
+        index += 1;
+      }
+      continue;
+    }
+    if (quote === "textBlock") {
+      if (line.slice(index, index + 3) === '"""') {
+        quote = null;
+        index += 2;
+      }
+      continue;
+    }
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if ((quote === "string" && character === '"') || (quote === "character" && character === "'")) {
+        quote = null;
+      }
+      continue;
+    }
+    if (character === "/" && next === "/") break;
+    if (character === "/" && next === "*") {
+      blockComment = true;
+      index += 1;
+      continue;
+    }
+    if (line.slice(index, index + 3) === '"""') {
+      quote = "textBlock";
+      index += 2;
+      continue;
+    }
+    if (character === '"') {
+      quote = "string";
+      continue;
+    }
+    if (character === "'") {
+      quote = "character";
+      continue;
+    }
+    if (character === "{") {
+      delta += 1;
+      openingBrace = true;
+    } else if (character === "}") {
+      delta -= 1;
+    }
+  }
+  return { blockComment, quote, escaped, delta, openingBrace };
 }

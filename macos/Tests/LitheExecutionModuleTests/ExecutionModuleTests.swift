@@ -431,6 +431,7 @@ struct ExecutionModuleTests {
             projectFiles: [pom, source]
         ))
         #expect(firstProcess.startRequests.first?.arguments == ["-Dtest=CalculatorTest", "test"])
+        #expect(firstProcess.startRequests.first?.timeoutMilliseconds == 120_000)
 
         firstProcess.onOutput?("Tests run: 3, Failures: 1, Errors: 0, Skipped: 1\n")
         firstProcess.onTermination?(1)
@@ -445,6 +446,45 @@ struct ExecutionModuleTests {
 
         #expect(service.rerun())
         #expect(secondProcess.startRequests.first?.arguments == ["-Dtest=CalculatorTest", "test"])
+    }
+
+    @Test
+    func mavenTestTimeoutIsPreservedWhenTerminationArrivesLate() async throws {
+        let root = URL(fileURLWithPath: "/workspace/maven-timeout", isDirectory: true)
+        let source = root.appendingPathComponent(
+            "src/test/java/com/example/CalculatorTest.java"
+        )
+        let process = TestStreamingProcess()
+        let service = LanguageTestService(
+            executableResolver: TestExecutableResolver(),
+            processFactory: { process },
+            resultParser: { _, _ in nil }
+        )
+
+        #expect(service.run(
+            providerID: "java",
+            scope: .file(source),
+            workspaceURL: root,
+            projectFiles: [root.appendingPathComponent("pom.xml"), source]
+        ))
+        let request = try #require(process.startRequests.first)
+        #expect(request.timeoutMilliseconds == 120_000)
+
+        process.onStateChange?(ProcessLifecycleEvent(
+            operationID: request.operationID,
+            state: .stopping,
+            exitCode: nil,
+            message: "Process timed out"
+        ))
+        await Task.yield()
+        #expect(service.state == .running)
+        #expect(service.errorMessage == "Maven test run timed out after 120 seconds.")
+
+        process.onTermination?(0)
+        await Task.yield()
+        await Task.yield()
+        #expect(service.state == .timedOut)
+        #expect(!service.isRunning)
     }
 
     @Test
