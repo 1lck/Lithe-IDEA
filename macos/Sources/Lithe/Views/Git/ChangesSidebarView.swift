@@ -2,8 +2,20 @@ import SwiftUI
 import LitheGitModule
 
 struct ChangesSidebarView: View {
-    @EnvironmentObject private var model: AppModel
+    @ObservedObject var feature: GitFeatureModel
+    @ObservedObject var draft: CommitDraftFeatureModel
+    let commitWorkflow: CommitWorkflowCoordinator
     @EnvironmentObject private var settings: AppSettings
+    let workbench: WorkbenchFeatureModel
+    let hasBackgroundImage: Bool
+    let selectChange: (GitChange) -> Void
+    let toggleStaging: (GitChange) -> Void
+    let setStaging: ([GitChange], Bool) -> Void
+    let openFile: (URL, String) -> Void
+    let showLocalHistory: (URL) -> Void
+    let revealInFinder: (URL) -> Void
+    let copyPath: (URL, Bool) -> Void
+    let showSettings: (SettingsCategory) -> Void
     @State private var selectedTab = CommitTab.commit
     @State private var trackedExpanded = true
     @State private var untrackedExpanded = true
@@ -21,14 +33,16 @@ struct ChangesSidebarView: View {
             tabHeader
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-            if let operation = model.gitOperationState {
-                GitOperationBanner(operation: operation)
+            if let operation = feature.gitOperationState {
+                GitOperationBanner(feature: feature, operation: operation)
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
             }
 
-            if let conflict = model.pendingStashRestoreConflict {
-                if model.isStashRestoreConflictNoticeVisible {
-                    GitStashRestoreConflictBanner(conflict: conflict)
+            if let conflict = feature.pendingStashRestoreConflict {
+                if feature.isStashRestoreConflictNoticeVisible {
+                    GitStashRestoreConflictBanner(
+                        feature: feature, workbench: workbench, conflict: conflict
+                    )
                 } else {
                     HStack(spacing: 7) {
                         Image(systemName: "exclamationmark.triangle.fill")
@@ -37,7 +51,7 @@ struct ChangesSidebarView: View {
                             .font(.system(size: 11.5, weight: .semibold))
                             .foregroundStyle(LitheTheme.primaryText)
                         Spacer(minLength: 0)
-                        Button("Review") { model.showStashRestoreConflictNotice() }
+                        Button("Review") { feature.showStashRestoreConflictNotice() }
                             .controlSize(.small)
                             .lithePointer()
                     }
@@ -48,7 +62,7 @@ struct ChangesSidebarView: View {
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
             }
 
-            if model.gitRepositoryRoot == nil {
+            if feature.gitRepositoryRoot == nil {
                 noRepository
             } else if selectedTab == .shelf {
                 shelfContent
@@ -56,9 +70,9 @@ struct ChangesSidebarView: View {
                 commitContent
             }
         }
-        .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.sidebar)
+        .background(hasBackgroundImage ? Color.clear : LitheTheme.sidebar)
         .onAppear { selectRequestedStashIfNeeded() }
-        .onChange(of: model.requestedStashReference) { _ in
+        .onChange(of: feature.requestedStashReference) { _ in
             selectRequestedStashIfNeeded()
         }
         .confirmationDialog(
@@ -72,7 +86,7 @@ struct ChangesSidebarView: View {
             Button("Drop Stash", role: .destructive) {
                 guard let pendingDropStash else { return }
                 self.pendingDropStash = nil
-                Task { await model.dropStash(pendingDropStash) }
+                Task { await feature.dropStash(pendingDropStash) }
             }
             .lithePointer()
             Button("Cancel", role: .cancel) {
@@ -93,7 +107,7 @@ struct ChangesSidebarView: View {
             Button("Drop Shelf", role: .destructive) {
                 guard let pendingDropShelf else { return }
                 self.pendingDropShelf = nil
-                Task { await model.dropShelf(pendingDropShelf) }
+                Task { await feature.dropShelf(pendingDropShelf) }
             }
             .lithePointer()
             Button("Cancel", role: .cancel) { pendingDropShelf = nil }
@@ -104,17 +118,17 @@ struct ChangesSidebarView: View {
         .confirmationDialog(
             "Replace current commit message?",
             isPresented: Binding(
-                get: { model.pendingGeneratedCommitMessage != nil },
-                set: { if !$0 { model.discardPendingGeneratedCommitMessage() } }
+                get: { draft.pendingGeneratedMessage != nil },
+                set: { if !$0 { draft.discardGeneratedMessage() } }
             ),
             titleVisibility: .visible
         ) {
             Button("Replace") {
-                model.applyPendingGeneratedCommitMessage()
+                commitWorkflow.applyGeneratedMessage()
             }
             .lithePointer()
             Button("Keep Current", role: .cancel) {
-                model.discardPendingGeneratedCommitMessage()
+                draft.discardGeneratedMessage()
             }
             .lithePointer()
         } message: {
@@ -143,7 +157,7 @@ struct ChangesSidebarView: View {
         }
         .padding(.horizontal, 10)
         .frame(height: 40)
-        .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.toolHeader)
+        .background(hasBackgroundImage ? Color.clear : LitheTheme.toolHeader)
     }
 
     private var commitContent: some View {
@@ -196,7 +210,7 @@ struct ChangesSidebarView: View {
 
                 Button {
                     Task {
-                        await model.stashWorkingTree(
+                        await feature.stashWorkingTree(
                             message: stashMessage,
                             includeUntracked: includeUntracked
                         )
@@ -204,7 +218,7 @@ struct ChangesSidebarView: View {
                     }
                 } label: {
                     HStack(spacing: 5) {
-                        if model.isPerformingStashOperation {
+                        if feature.isPerformingStashOperation {
                             ProgressView().controlSize(.mini)
                         }
                         Text("Stash")
@@ -218,12 +232,12 @@ struct ChangesSidebarView: View {
 
                 Button {
                     Task {
-                        await model.shelveWorkingTree(message: stashMessage)
+                        await feature.shelveWorkingTree(message: stashMessage)
                         selectedShelf = nil
                     }
                 } label: {
                     HStack(spacing: 5) {
-                        if model.isPerformingShelfOperation {
+                        if feature.isPerformingShelfOperation {
                             ProgressView().controlSize(.mini)
                         }
                         Text("Shelf")
@@ -235,11 +249,11 @@ struct ChangesSidebarView: View {
                 .disabled(!canShelf)
             }
             .padding(8)
-            .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.toolHeader)
+            .background(hasBackgroundImage ? Color.clear : LitheTheme.toolHeader)
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-            if model.gitStashes.isEmpty && model.gitShelves.isEmpty {
+            if feature.gitStashes.isEmpty && feature.gitShelves.isEmpty {
                 VStack(spacing: 9) {
                     Image(systemName: "archivebox")
                         .font(.system(size: 28, weight: .light))
@@ -255,15 +269,15 @@ struct ChangesSidebarView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 1) {
-                        if !model.gitShelves.isEmpty {
+                        if !feature.gitShelves.isEmpty {
                             savedChangesSectionHeader("Lithe Shelves")
-                            ForEach(model.gitShelves) { shelf in
+                            ForEach(feature.gitShelves) { shelf in
                                 shelfRow(shelf)
                             }
                         }
-                        if !model.gitStashes.isEmpty {
+                        if !feature.gitStashes.isEmpty {
                             savedChangesSectionHeader("Git Stashes")
-                            ForEach(model.gitStashes) { stash in
+                            ForEach(feature.gitStashes) { stash in
                                 stashRow(stash)
                             }
                         }
@@ -317,10 +331,10 @@ struct ChangesSidebarView: View {
         .litheContextMenu {
             [
                 .action("Apply", systemImage: "arrow.down.circle", action: {
-                    Task { await model.applyStash(stash) }
+                    Task { await feature.applyStash(stash) }
                 }),
                 .action("Pop", systemImage: "arrow.up.circle", action: {
-                    Task { await model.applyStash(stash, pop: true) }
+                    Task { await feature.applyStash(stash, pop: true) }
                 }),
                 .separator,
                 .action("Drop", role: .destructive, action: { pendingDropStash = stash })
@@ -375,7 +389,7 @@ struct ChangesSidebarView: View {
         .litheContextMenu {
             [
                 .action("Restore", systemImage: "arrow.uturn.backward", action: {
-                    Task { await model.applyShelf(shelf) }
+                    Task { await feature.applyShelf(shelf) }
                 }),
                 .action("Drop", role: .destructive, action: { pendingDropShelf = shelf })
             ]
@@ -385,7 +399,7 @@ struct ChangesSidebarView: View {
     private var commitToolbar: some View {
         HStack(spacing: 2) {
             Button {
-                Task { await model.refreshGit() }
+                Task { await feature.refreshGit() }
             } label: {
                 LitheSystemIcon(systemImage: "arrow.clockwise")
             }
@@ -393,39 +407,39 @@ struct ChangesSidebarView: View {
             .help("Refresh changes")
 
             Button {
-                model.requestDiscardSelectedChange()
+                feature.requestDiscardSelectedChange()
             } label: {
                 Image(systemName: "arrow.uturn.backward")
             }
             .litheIconButton()
-            .disabled(model.selectedChange == nil)
+            .disabled(feature.selectedChange == nil)
             .help("Discard selected change")
 
             Button {
-                Task { await model.stageAllChanges() }
+                Task { await feature.stageAllChanges() }
             } label: {
                 Image(systemName: "square.and.arrow.down")
             }
             .litheIconButton()
-            .disabled(model.gitChanges.isEmpty)
+            .disabled(feature.gitChanges.isEmpty)
             .help("Stage all changes")
 
             Button {
-                if let first = model.gitChanges.first {
-                    model.selectChange(first)
+                if let first = feature.gitChanges.first {
+                    selectChange(first)
                 }
             } label: {
                 Image(systemName: "eye")
             }
             .litheIconButton()
-            .disabled(model.gitChanges.isEmpty)
+            .disabled(feature.gitChanges.isEmpty)
             .help("Preview first change")
 
             Spacer()
 
-            if !model.gitConflictFilterPaths.isEmpty {
+            if !feature.gitConflictFilterPaths.isEmpty {
                 Button {
-                    model.clearGitConflictFilter()
+                    feature.clearGitConflictFilter()
                 } label: {
                     Label("Clear conflict filter", systemImage: "line.3.horizontal.decrease.circle")
                 }
@@ -435,7 +449,7 @@ struct ChangesSidebarView: View {
                 .lithePointer()
             }
 
-            Text(model.currentBranch)
+            Text(feature.currentBranch)
                 .font(.system(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .lineLimit(1)
@@ -446,7 +460,7 @@ struct ChangesSidebarView: View {
 
     private var changeList: some View {
         Group {
-            if model.gitChanges.isEmpty {
+            if feature.gitChanges.isEmpty {
                 VStack(spacing: 9) {
                     Image(systemName: "checkmark.circle")
                         .font(.system(size: 27, weight: .light))
@@ -462,7 +476,7 @@ struct ChangesSidebarView: View {
                         .font(.system(size: 27, weight: .light))
                         .foregroundStyle(LitheTheme.warning)
                     Text("No files match the conflict filter")
-                    Button("Show all changes") { model.clearGitConflictFilter() }
+                    Button("Show all changes") { feature.clearGitConflictFilter() }
                         .buttonStyle(.borderless)
                         .lithePointer()
                 }
@@ -518,7 +532,7 @@ struct ChangesSidebarView: View {
                 .help(LocalizedStringKey(expanded.wrappedValue ? "Collapse section" : "Expand section"))
 
                 Button {
-                    model.setStaging(changes, staged: !allChangesStaged(changes))
+                    setStaging(changes, !allChangesStaged(changes))
                 } label: {
                     Image(systemName: stagingSymbol(for: changes))
                         .font(.system(size: 16))
@@ -565,7 +579,7 @@ struct ChangesSidebarView: View {
     private func changeRow(_ change: GitChange, showsParentPath: Bool) -> some View {
         HStack(spacing: 6) {
             Button {
-                model.toggleStaging(change)
+                toggleStaging(change)
             } label: {
                 Image(systemName: isEffectivelyStaged(change) ? "checkmark.square.fill" : "square")
                     .font(.system(size: 16))
@@ -575,7 +589,7 @@ struct ChangesSidebarView: View {
             .help(LocalizedStringKey(isEffectivelyStaged(change) ? "Unstage file" : "Stage file"))
 
             Button {
-                model.selectChange(change)
+                selectChange(change)
             } label: {
                 HStack(spacing: 7) {
                     Image(systemName: change.kind.symbol)
@@ -611,7 +625,7 @@ struct ChangesSidebarView: View {
         .padding(.trailing, 6)
         .frame(maxWidth: .infinity)
         .frame(height: 30)
-        .background(model.selectedChange?.id == change.id ? LitheTheme.subtleSelection : .clear)
+        .background(feature.selectedChange?.id == change.id ? LitheTheme.subtleSelection : .clear)
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .litheContextMenu {
             changeContextMenuItems(for: change)
@@ -622,24 +636,24 @@ struct ChangesSidebarView: View {
         var items: [LitheContextMenuItem] = []
         if change.kind != .deleted {
             items.append(.action("Open", systemImage: "doc.text", action: {
-                model.openFile(change.url, displayPath: change.path)
+                openFile(change.url, change.path)
             }))
         }
         items.append(.action("Show Diff", systemImage: "doc.text.magnifyingglass", action: {
-            model.selectChange(change)
+            selectChange(change)
         }))
         items.append(.separator)
         items.append(.action(
             change.isStaged ? "Unstage" : "Stage File",
             systemImage: change.isStaged ? "arrow.uturn.backward" : "plus.square",
-            action: { model.toggleStaging(change) }
+            action: { toggleStaging(change) }
         ))
         if change.hasWorkingTreeChange {
             items.append(.action(
                 "Discard Changes",
                 systemImage: "trash",
                 role: .destructive,
-                action: { model.requestDiscardChange(change) }
+                action: { feature.requestDiscardChange(change) }
             ))
         }
         items += [
@@ -648,17 +662,17 @@ struct ChangesSidebarView: View {
                 "Local History…",
                 systemImage: "clock.arrow.circlepath",
                 isEnabled: change.kind != .deleted,
-                action: { model.showLocalHistory(for: change.url) }
+                action: { showLocalHistory(change.url) }
             ),
             .action("Show in Finder", systemImage: "folder", action: {
                 let url = change.kind == .deleted
                     ? change.url.deletingLastPathComponent()
                     : change.url
-                model.revealProjectItemInFinder(url)
+                revealInFinder(url)
             }),
             .submenu("Copy Path / Reference", items: [
-                .action("Copy Path", action: { model.copyProjectItemPath(change.url, relative: false) }),
-                .action("Copy Relative Path", action: { model.copyProjectItemPath(change.url, relative: true) })
+                .action("Copy Path", action: { copyPath(change.url, false) }),
+                .action("Copy Relative Path", action: { copyPath(change.url, true) })
             ])
         ]
         return items
@@ -667,7 +681,7 @@ struct ChangesSidebarView: View {
     private var commitArea: some View {
         VStack(spacing: 8) {
             HStack(spacing: 7) {
-                Toggle("Amend", isOn: $model.amendCommit)
+                Toggle("Amend", isOn: $draft.amend)
                     .toggleStyle(.checkbox)
                     .lithePointer()
                     .font(.system(size: 12))
@@ -675,10 +689,10 @@ struct ChangesSidebarView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
                 Spacer()
                 Button {
-                    Task { await model.generateCommitMessage() }
+                    Task { await commitWorkflow.generateMessage() }
                 } label: {
                     HStack(spacing: 4) {
-                        if model.isGeneratingCommitMessage {
+                        if draft.isGenerating {
                             ProgressView().controlSize(.mini)
                         } else {
                             Image(systemName: "wand.and.stars")
@@ -697,8 +711,8 @@ struct ChangesSidebarView: View {
                 .lithePointer()
                 .disabled(
                     stagedChanges.isEmpty ||
-                        model.isLoadingDiff ||
-                        model.isGeneratingCommitMessage
+                        feature.isLoadingDiff ||
+                        draft.isGenerating
                 )
                 .help("Generate a commit message from staged diffs")
                 Text("\(stagedChanges.count) staged")
@@ -707,12 +721,12 @@ struct ChangesSidebarView: View {
             }
 
             ZStack(alignment: .topLeading) {
-                TextEditor(text: $model.commitMessage)
+                TextEditor(text: $draft.message)
                     .font(.system(size: 12.5))
                     .scrollContentBackground(.hidden)
                     .padding(4)
 
-                if model.commitMessage.isEmpty {
+                if draft.message.isEmpty {
                     Text("Commit Message")
                         .font(.system(size: 12.5))
                         .foregroundStyle(LitheTheme.secondaryText)
@@ -730,10 +744,10 @@ struct ChangesSidebarView: View {
 
             HStack(spacing: 8) {
                 Button {
-                    Task { await model.commitStagedChanges() }
+                    Task { await commitWorkflow.commit() }
                 } label: {
                     HStack(spacing: 6) {
-                        if model.isCommitting {
+                        if feature.isCommitting {
                             ProgressView().controlSize(.mini)
                         }
                         Text("Commit")
@@ -745,7 +759,7 @@ struct ChangesSidebarView: View {
 
                 Spacer()
                 Button {
-                    model.showSettings(category: .ai)
+                    showSettings(.ai)
                 } label: {
                     LitheSystemIcon(systemImage: "gearshape")
                 }
@@ -756,7 +770,7 @@ struct ChangesSidebarView: View {
         }
         .padding([.top, .horizontal], 10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.toolHeader)
+            .background(hasBackgroundImage ? Color.clear : LitheTheme.toolHeader)
     }
 
     private var noRepository: some View {
@@ -779,8 +793,8 @@ struct ChangesSidebarView: View {
     /// `GitChangeSectionsCache`.
     private var changeSections: GitChangeSectionsCache.Sections {
         sectionsCache.sections(
-            changes: model.gitChanges,
-            conflictFilterPaths: model.gitConflictFilterPaths
+            changes: feature.gitChanges,
+            conflictFilterPaths: feature.gitConflictFilterPaths
         )
     }
 
@@ -797,7 +811,7 @@ struct ChangesSidebarView: View {
     }
 
     private func isEffectivelyStaged(_ change: GitChange) -> Bool {
-        model.effectiveStagingState(for: change)
+        feature.effectiveStagingState(for: change)
     }
 
     private func allChangesStaged(_ changes: [GitChange]) -> Bool {
@@ -815,16 +829,16 @@ struct ChangesSidebarView: View {
 
     private var canCommit: Bool {
         !stagedChanges.isEmpty &&
-            !model.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            !model.isCommitting
+            !draft.message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !feature.isCommitting
     }
 
     private var canStash: Bool {
-        !model.gitChanges.isEmpty && !model.isPerformingStashOperation
+        !feature.gitChanges.isEmpty && !feature.isPerformingStashOperation
     }
 
     private var canShelf: Bool {
-        !model.gitChanges.isEmpty && !model.isPerformingShelfOperation
+        !feature.gitChanges.isEmpty && !feature.isPerformingShelfOperation
     }
 
     private func statusColor(_ change: GitChange) -> Color {
@@ -843,9 +857,9 @@ struct ChangesSidebarView: View {
     }
 
     private func selectRequestedStashIfNeeded() {
-        guard let reference = model.requestedStashReference else { return }
+        guard let reference = feature.requestedStashReference else { return }
         selectedTab = .shelf
-        selectedStash = model.gitStashes.first(where: { $0.reference == reference })
+        selectedStash = feature.gitStashes.first(where: { $0.reference == reference })
     }
 
     private func changeDisplayName(_ change: GitChange) -> String {
@@ -871,7 +885,7 @@ struct ChangesSidebarView: View {
 /// partway through. Deliberately not a dialog: resolving conflicts means editing
 /// files, so the controls have to stay reachable rather than block the window.
 private struct GitOperationBanner: View {
-    @EnvironmentObject private var model: AppModel
+    @ObservedObject var feature: GitFeatureModel
     let operation: GitOperationState
 
     var body: some View {
@@ -906,25 +920,25 @@ private struct GitOperationBanner: View {
 
             HStack(spacing: 8) {
                 Button(LocalizedStringKey(operation.kind.continueTitle)) {
-                    Task { await model.continueGitOperation() }
+                    Task { await feature.continueGitOperation() }
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(LitheTheme.accent)
-                .disabled(model.isResolvingGitOperation || operation.hasConflicts)
+                .disabled(feature.isResolvingGitOperation || operation.hasConflicts)
                 .lithePointer()
 
                 if operation.kind.canSkip {
                     Button("Skip Commit") {
-                        Task { await model.skipGitOperationStep() }
+                        Task { await feature.skipGitOperationStep() }
                     }
-                    .disabled(model.isResolvingGitOperation)
+                    .disabled(feature.isResolvingGitOperation)
                     .lithePointer()
                 }
 
                 Button("Abort") {
-                    Task { await model.abortGitOperation() }
+                    Task { await feature.abortGitOperation() }
                 }
-                .disabled(model.isResolvingGitOperation)
+                .disabled(feature.isResolvingGitOperation)
                 .lithePointer()
 
                 Spacer(minLength: 0)
@@ -941,7 +955,8 @@ private struct GitOperationBanner: View {
 }
 
 private struct GitStashRestoreConflictBanner: View {
-    @EnvironmentObject private var model: AppModel
+    let feature: GitFeatureModel
+    let workbench: WorkbenchFeatureModel
     let conflict: GitStashRestoreConflictRequest
 
     var body: some View {
@@ -962,21 +977,23 @@ private struct GitStashRestoreConflictBanner: View {
 
             HStack(spacing: 7) {
                 Button("Show Conflict Files") {
-                    model.showStashRestoreConflictFiles()
+                    workbench.selectedSidebar = .changes
+                    feature.showStashRestoreConflictFiles()
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(LitheTheme.accent)
                 .lithePointer()
 
                 Button("View Saved Changes") {
-                    model.showStashRestoreConflictStash()
+                    workbench.selectedSidebar = .changes
+                    feature.showStashRestoreConflictStash()
                 }
                 .lithePointer()
 
                 Spacer(minLength: 0)
 
                 Button("Later") {
-                    model.dismissStashRestoreConflictNotice()
+                    feature.dismissStashRestoreConflictNotice()
                 }
                 .lithePointer()
             }

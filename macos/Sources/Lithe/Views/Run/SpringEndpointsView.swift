@@ -10,7 +10,7 @@ struct SpringEndpointsView: View {
                 title: "Spring Endpoints",
                 systemImage: "point.3.connected.trianglepath.dotted",
                 subtitle: "\(filteredEndpoints.count) routes",
-                onMinimize: { model.isSpringVisible = false }
+                onMinimize: { model.workbenchFeature.setVisibility(.spring, isVisible: false) }
             )
             HStack(spacing: 7) {
                 Image(systemName: "magnifyingglass")

@@ -79,6 +79,7 @@ package final class GitFeatureModel: ObservableObject {
     }
     @Published package private(set) var gitLogMatchedCommitHashes: Set<String>?
     @Published package private(set) var isFilteringGitLog = false
+    @Published package var gitLogSearchQuery = ""
     @Published package var selectedGitReference: GitReference?
     /// `nil` is the current checkout when this is false, and all references
     /// when this is true. Keeping the mode separate prevents the UI from
@@ -227,6 +228,7 @@ package final class GitFeatureModel: ObservableObject {
         recentlyDeletedBranch = nil
         gitConflictFilterPaths = []
         requestedStashReference = nil
+        gitLogSearchQuery = ""
         deferredSavedChanges = nil
         isPerformingStashOperation = false
         isPerformingShelfOperation = false

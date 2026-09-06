@@ -172,6 +172,8 @@ struct WorkbenchView: View {
             GitCheckoutConflictDialog(
                 request: request,
                 savePolicy: model.gitSaveChangesPolicy,
+                changes: model.gitChanges,
+                onShowDiff: { model.showGitConflictDiff(path: $0) },
                 onResolve: { strategy in
                     Task { await model.resolveCheckoutConflict(request, strategy: strategy) }
                 },
@@ -190,6 +192,8 @@ struct WorkbenchView: View {
             GitIntegrationConflictDialog(
                 request: request,
                 savePolicy: model.gitSaveChangesPolicy,
+                changes: model.gitChanges,
+                onShowDiff: { model.showGitConflictDiff(path: $0) },
                 onStash: { Task { await model.resolveIntegrationConflict(request) } },
                 onRollback: { path in
                     model.requestConflictRollback(
@@ -364,17 +368,58 @@ struct WorkbenchView: View {
             }
         }
         .overlay {
-            if model.isSearchEverywhereVisible {
-                SearchEverywhereView()
-                    .environmentObject(model)
+            if model.isSearchEverywhereVisible, let feature = model.searchFeatureIfActive {
+                SearchEverywhereView(
+                    feature: feature,
+                    session: model.searchSessionFeature,
+                    actionMatches: { model.searchEverywhereActionMatches(query: $0) },
+                    search: { await model.searchEverywhere(query: $0, options: $1) },
+                    dismiss: { model.dismissSearchEverywhere() },
+                    openResult: { model.openSearchEverywhereResult($0) },
+                    performAction: { model.performSearchEverywhereAction($0) },
+                    revealInFinder: { model.revealProjectItemInFinder($0) },
+                    copyPath: { model.copyProjectItemPath($0, relative: $1) },
+                    relativePath: { model.relativePath(for: $0) },
+                    moduleLabel: { url in
+                        let path = url.standardizedFileURL.path
+                        if let project = model.mavenFeatureIfActive?.project {
+                            let owning = project.allModules
+                                .filter { path.hasPrefix($0.url.standardizedFileURL.path + "/") }
+                                .max { $0.url.standardizedFileURL.path.count < $1.url.standardizedFileURL.path.count }
+                            if let owning { return owning.displayName }
+                            if path.hasPrefix(project.rootURL.standardizedFileURL.path + "/") {
+                                return project.displayName
+                            }
+                        }
+                        return model.relativePath(for: url).components(separatedBy: "/").first ?? ""
+                    }
+                )
                     .transition(.opacity)
             }
         }
         .animation(.easeOut(duration: 0.12), value: model.isSearchEverywhereVisible)
         // Replace in Files 挂在工作台层：搜索侧栏未打开时快捷键也能直接弹出。
         .sheet(isPresented: $model.isProjectReplaceVisible) {
-            ProjectReplaceView()
-                .environmentObject(model)
+            if let feature = model.searchFeatureIfActive {
+                ProjectReplaceView(
+                    feature: feature,
+                    session: model.searchSessionFeature,
+                    previewReplacement: { await model.previewProjectReplacement(query: $0, replacement: $1, options: $2) },
+                    applyReplacement: { await model.applyProjectReplacement(query: $0) },
+                    close: { model.isProjectReplaceVisible = false },
+                    openFile: { model.openFile($0, displayPath: $1) },
+                    revealInFinder: { model.revealProjectItemInFinder($0) },
+                    copyPath: { model.copyProjectItemPath($0, relative: $1) }
+                )
+            } else {
+                WorkbenchModuleUIRegistry.moduleLoadingView
+                    .frame(minWidth: 780, minHeight: 560)
+                    .task {
+                        if await model.activateSearchModule() == nil {
+                            model.isProjectReplaceVisible = false
+                        }
+                    }
+            }
         }
         .onAppear {
             restoreLayout()
@@ -538,9 +583,6 @@ struct WorkbenchView: View {
                     project: false,
                     branch: !isBranchSwitcherPresented
                 )
-                if isBranchSwitcherPresented {
-                    Task { await model.refreshGitHistory() }
-                }
             } label: {
                 HStack(spacing: 7) {
                     LitheIDEAIcon(
@@ -685,38 +727,51 @@ struct WorkbenchView: View {
                     .frame(width: chromeMetrics.arrowWidth, height: chromeMetrics.arrowHeight)
                     .offset(x: placement.arrowCenterX - (chromeMetrics.arrowWidth / 2))
 
-                BranchSwitcherPopover(
-                    isPresented: instantBranchSwitcherPresentation,
-                    onCommit: {
-                        updateSwitcherPresentation(branch: false)
-                        model.selectedSidebar = .changes
-                    },
-                    onPush: { reference in
-                        updateSwitcherPresentation(branch: false)
-                        pendingTopBarPushReference = reference
-                    },
-                    onDelete: { reference in
-                        updateSwitcherPresentation(branch: false)
-                        pendingTopBarDeleteReference = reference
-                    },
-                    onNewBranch: { reference in
-                        updateSwitcherPresentation(branch: false)
-                        newBranchReference = reference
-                    },
-                    onCheckoutRevision: {
-                        updateSwitcherPresentation(branch: false)
-                        isCheckoutRevisionPresented = true
-                    },
-                    onManageBranches: {
-                        updateSwitcherPresentation(branch: false)
-                        if !model.isGitLogVisible {
-                            model.selectedSidebar = .changes
-                            Task { await model.toggleGitLog() }
+                if let feature = model.gitFeatureIfActive {
+                    BranchSwitcherPopover(
+                        feature: feature,
+                        isPresented: instantBranchSwitcherPresentation,
+                        onCommit: {
+                            updateSwitcherPresentation(branch: false)
+                            model.workbenchFeature.selectedSidebar = .changes
+                        },
+                        onPush: { reference in
+                            updateSwitcherPresentation(branch: false)
+                            pendingTopBarPushReference = reference
+                        },
+                        onDelete: { reference in
+                            updateSwitcherPresentation(branch: false)
+                            pendingTopBarDeleteReference = reference
+                        },
+                        onNewBranch: { reference in
+                            updateSwitcherPresentation(branch: false)
+                            newBranchReference = reference
+                        },
+                        onCheckoutRevision: {
+                            updateSwitcherPresentation(branch: false)
+                            isCheckoutRevisionPresented = true
+                        },
+                        onManageBranches: {
+                            updateSwitcherPresentation(branch: false)
+                            if !model.workbenchFeature.isVisible(.gitLog) {
+                                model.workbenchFeature.selectedSidebar = .changes
+                                Task { await model.toggleGitLog() }
+                            }
+                        },
+                        onCompareWithWorkingTree: { [weak model] in
+                            await model?.showComparisonWithWorkingTree(for: $0)
+                        },
+                        onCompareReferences: { [weak model] in
+                            await model?.showComparison(from: $0, to: $1)
                         }
-                    }
-                )
-                .environmentObject(model)
-                .padding(.top, chromeMetrics.arrowHeight - 1)
+                    )
+                    .padding(.top, chromeMetrics.arrowHeight - 1)
+                } else {
+                    ProgressView()
+                        .frame(width: popupMetrics.popupWidth, height: popupMetrics.branchListHeight)
+                        .lithePopupChrome()
+                        .padding(.top, chromeMetrics.arrowHeight - 1)
+                }
             }
             .offset(x: placement.popupX, y: buttonFrame.maxY)
         }
@@ -725,6 +780,15 @@ struct WorkbenchView: View {
             transaction.disablesAnimations = true
         }
         .onExitCommand { updateSwitcherPresentation(branch: false) }
+        .task {
+            let feature = await model.activateGitModule()
+            guard !Task.isCancelled else { return }
+            guard let feature else {
+                updateSwitcherPresentation(branch: false)
+                return
+            }
+            await feature.refreshGitHistory()
+        }
     }
 
     private func workbenchPopoverPlacement(
@@ -946,7 +1010,7 @@ struct WorkbenchView: View {
                             if destination == .database {
                                 Task { await model.activateDatabaseModule() }
                             } else {
-                                model.selectedSidebar = destination
+                                model.workbenchFeature.selectedSidebar = destination
                             }
                         } label: {
                             Group {
@@ -966,7 +1030,7 @@ struct WorkbenchView: View {
                                     height: ActivityBarMetrics.buttonHeight
                                 )
                                 .litheRowHover(
-                                    isActive: model.selectedSidebar == destination,
+                                    isActive: model.workbenchFeature.selectedSidebar == destination,
                                     cornerRadius: 4,
                                     activeBackground: LitheTheme.subtleSelection
                                 )
@@ -974,7 +1038,7 @@ struct WorkbenchView: View {
                         .buttonStyle(.plain)
                         .lithePointer()
                         .disabled(!destination.isAvailable)
-                        .foregroundStyle(model.selectedSidebar == destination ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                        .foregroundStyle(model.workbenchFeature.selectedSidebar == destination ? LitheTheme.primaryText : LitheTheme.secondaryText)
                         .help(
                             destination.isAvailable
                                 ? LocalizedStringKey(destination.title)
@@ -1012,7 +1076,7 @@ struct WorkbenchView: View {
                             systemImage: "gearshape",
                             ideaAssetPath: "general/gear.svg",
                             help: "Settings",
-                            isSelected: model.isSettingsPresented
+                            isSelected: model.workbenchFeature.isSettingsPresented
                         ) {
                             model.showSettings()
                         }
@@ -1283,7 +1347,7 @@ struct WorkbenchView: View {
                     model.closeGitLog()
                 }
             ),
-            showsBottomToolMinimize: model.isGitLogVisible,
+            showsBottomToolMinimize: model.workbenchFeature.isVisible(.gitLog),
             hasWorkbenchBackground: model.workbenchBackgroundFeature.hasImage,
             sidebar: {
                 activeSidebar(projectTreeRowHeight: settings.projectTreeRowHeight)
@@ -1293,7 +1357,7 @@ struct WorkbenchView: View {
                     if isPluginPanelPresented {
                         PluginManagementView()
                             .environmentObject(model)
-                    } else if model.selectedSidebar == .pullRequests {
+                    } else if model.workbenchFeature.selectedSidebar == .pullRequests {
                         if LitheFeatureAvailability.githubPullRequests {
                             GitHubPullRequestDetailView()
                         } else {
@@ -1306,9 +1370,9 @@ struct WorkbenchView: View {
             },
             bottomTool: {
                 Group {
-                    if model.isReferencesVisible {
+                    if model.workbenchFeature.isVisible(.references) {
                         LanguageReferencesView()
-                    } else if model.isSpringVisible {
+                    } else if model.workbenchFeature.isVisible(.spring) {
                         SpringEndpointsView()
                     } else {
                         moduleUIRegistry.selectedToolContent(
@@ -1325,11 +1389,29 @@ struct WorkbenchView: View {
     @ViewBuilder
     private func activeSidebar(projectTreeRowHeight: CGFloat) -> some View {
         Group {
-            switch model.selectedSidebar {
+            switch model.workbenchFeature.selectedSidebar {
             case .project:
                 ProjectSidebarView(rowHeight: projectTreeRowHeight)
             case .changes:
-                ChangesSidebarView()
+                if let feature = model.gitFeatureIfActive {
+                    ChangesSidebarView(
+                        feature: feature, draft: model.commitDraftFeature,
+                        commitWorkflow: model.commitWorkflow,
+                        workbench: model.workbenchFeature,
+                        hasBackgroundImage: model.workbenchBackgroundFeature.hasImage,
+                        selectChange: { model.selectChange($0) },
+                        toggleStaging: { model.toggleStaging($0) },
+                        setStaging: { model.setStaging($0, staged: $1) },
+                        openFile: { model.openFile($0, displayPath: $1) },
+                        showLocalHistory: { model.showLocalHistory(for: $0) },
+                        revealInFinder: { model.revealProjectItemInFinder($0) },
+                        copyPath: { model.copyProjectItemPath($0, relative: $1) },
+                        showSettings: { model.showSettings(category: $0) }
+                    )
+                } else {
+                    WorkbenchModuleUIRegistry.moduleLoadingView
+                        .task { _ = await model.activateGitModule() }
+                }
             case .pullRequests:
                 if LitheFeatureAvailability.githubPullRequests {
                     GitHubPullRequestsSidebarView()
@@ -1337,7 +1419,20 @@ struct WorkbenchView: View {
                     GitHubFeatureUnavailableView()
                 }
             case .search:
-                SearchSidebarView()
+                if let feature = model.searchFeatureIfActive {
+                    SearchSidebarView(
+                        feature: feature,
+                        session: model.searchSessionFeature,
+                        openReplace: { model.openProjectReplace(inheriting: $0) },
+                        openResult: { model.openSearchResult($0) },
+                        revealInFinder: { model.revealProjectItemInFinder($0) },
+                        copyPath: { model.copyProjectItemPath($0, relative: $1) },
+                        searchProject: { await model.searchProject(options: $0) }
+                    )
+                } else {
+                    WorkbenchModuleUIRegistry.moduleLoadingView
+                        .task { _ = await model.activateSearchModule() }
+                }
             case .database:
                 if model.isDatabaseModuleActive {
                     DatabaseSidebarView()
@@ -1351,7 +1446,7 @@ struct WorkbenchView: View {
     }
 
     private var isBottomToolVisible: Bool {
-        model.isGitLogVisible || model.isTerminalVisible || model.isReferencesVisible || model.isProblemsVisible || model.isMavenVisible || model.isSpringVisible || model.isDebugVisible || model.isRunVisible || model.isTestsVisible
+        model.workbenchFeature.activeToolWindow != nil
     }
 
     private var statusBar: some View {
@@ -1484,7 +1579,7 @@ struct WorkbenchView: View {
 
     private var gitStatus: some View {
         HStack(spacing: 7) {
-            if model.isReferencesVisible {
+            if model.workbenchFeature.isVisible(.references) {
                 Label("\(model.languageNavigationResults.count) usages", systemImage: "scope")
             }
             Text(model.gitChanges.isEmpty ? "No changes" : "\(model.gitChanges.count) changes")

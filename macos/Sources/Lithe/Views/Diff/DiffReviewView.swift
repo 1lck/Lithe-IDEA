@@ -2,7 +2,7 @@ import SwiftUI
 import LitheGitModule
 
 struct DiffReviewView: View {
-    @EnvironmentObject private var model: AppModel
+    @ObservedObject var feature: GitFeatureModel
     let change: GitChange
 
     @State private var highlightsWords = true
@@ -25,9 +25,9 @@ struct DiffReviewView: View {
                 versionHeader
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-                if model.isLoadingDiff {
+                if feature.isLoadingDiff {
                     loadingState
-                } else if model.diffRows.isEmpty {
+                } else if feature.diffRows.isEmpty {
                     emptyState
                 } else {
                     diffContent(proxy: proxy)
@@ -35,7 +35,7 @@ struct DiffReviewView: View {
             }
         }
         .litheWorkbenchSurface(LitheTheme.editor)
-        .onChange(of: model.diffRows.count) { _ in
+        .onChange(of: feature.diffRows.count) { _ in
             selectedDifferenceIndex = 0
             selectedDiffSearchIndex = 0
             expandedCollapseRegionIDs.removeAll()
@@ -79,7 +79,7 @@ struct DiffReviewView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 4))
             Spacer()
             Button {
-                model.selectedChange = nil
+                feature.selectedChange = nil
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .semibold))
@@ -133,10 +133,10 @@ struct DiffReviewView: View {
                         Button {
                             Task {
                                 selectedDifferenceIndex = 0
-                                await model.reloadSelectedChangeDiff(whitespace: mode)
+                                await feature.reloadSelectedChangeDiff(whitespace: mode)
                             }
                         } label: {
-                            if model.gitDiffWhitespaceMode == mode {
+                            if feature.gitDiffWhitespaceMode == mode {
                                 Label(LocalizedStringKey(mode.title), systemImage: "checkmark")
                             } else {
                                 Text(LocalizedStringKey(mode.title))
@@ -144,7 +144,7 @@ struct DiffReviewView: View {
                         }
                     }
                 } label: {
-                    toolbarLabel(model.gitDiffWhitespaceMode.title, systemImage: "textformat")
+                    toolbarLabel(feature.gitDiffWhitespaceMode.title, systemImage: "textformat")
                 }
                 .menuStyle(.borderlessButton)
                 .lithePointer()
@@ -199,21 +199,21 @@ struct DiffReviewView: View {
 
                 if change.isStaged && !change.hasWorkingTreeChange {
                     Button("Unstage") {
-                        Task { await model.unstageSelectedChange() }
+                        Task { await feature.unstageSelectedChange() }
                     }
                     .buttonStyle(.bordered)
                     .lithePointer()
                     .controlSize(.small)
                 } else {
                     Button("Discard") {
-                        model.requestDiscardSelectedChange()
+                        feature.requestDiscardSelectedChange()
                     }
                     .buttonStyle(.bordered)
                     .lithePointer()
                     .controlSize(.small)
 
                     Button("Stage File") {
-                        Task { await model.stageSelectedChange() }
+                        Task { await feature.stageSelectedChange() }
                     }
                     .buttonStyle(.borderedProminent)
                     .lithePointer()
@@ -314,7 +314,7 @@ struct DiffReviewView: View {
         HStack(spacing: 0) {
             diffCanvas(proxy: proxy)
             Rectangle().fill(LitheTheme.divider).frame(width: 1)
-            DiffMapView(rows: model.diffRows) { rowID in
+            DiffMapView(rows: feature.diffRows) { rowID in
                 // The tick may sit inside a fold, so pin it open first.
                 mapTargetRowID = rowID
                 withAnimation(.easeInOut(duration: 0.18)) {
@@ -327,13 +327,13 @@ struct DiffReviewView: View {
     private func diffCanvas(proxy: ScrollViewProxy) -> some View {
         GeometryReader { geometry in
             let contentWidth = DiffLayoutMetrics.contentWidth(
-                rows: model.diffRows,
+                rows: feature.diffRows,
                 viewportWidth: geometry.size.width,
                 minimumWidth: usesSingleFileDiff ? 680 : 980,
                 paneCount: usesSingleFileDiff ? 1 : 2
             )
 
-            let kinds = model.diffRows.map(effectiveKind)
+            let kinds = feature.diffRows.map(effectiveKind)
             let indexByRow = differenceIndexByRow
             let displayRows = collapsePlan(kinds: kinds)
             let layoutRows = displayRows.map(\.layoutRow)
@@ -408,7 +408,7 @@ struct DiffReviewView: View {
     /// search hit or the selected difference so navigation targets stay rendered.
     private func collapsePlan(kinds: [DiffRowKind]) -> [DiffDisplayRow] {
         guard collapsesUnchangedRegions else {
-            return model.diffRows.enumerated().map { DiffDisplayRow.row($0.element, index: $0.offset) }
+            return feature.diffRows.enumerated().map { DiffDisplayRow.row($0.element, index: $0.offset) }
         }
 
         var pinned = Set(diffSearchMatches)
@@ -420,7 +420,7 @@ struct DiffReviewView: View {
         }
 
         return DiffCollapse.plan(
-            rows: model.diffRows,
+            rows: feature.diffRows,
             expandedRegionIDs: expandedCollapseRegionIDs,
             pinnedRowIDs: pinned
         )
@@ -448,7 +448,7 @@ struct DiffReviewView: View {
     private var differenceStarts: [DiffRowID] {
         var result: [DiffRowID] = []
         var insideDifference = false
-        for row in model.diffRows {
+        for row in feature.diffRows {
             let isDifference = effectiveKind(for: row).isDifference
             if isDifference && !insideDifference {
                 result.append(row.id)
@@ -511,7 +511,7 @@ struct DiffReviewView: View {
         let query = diffSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return [] }
         let foldedQuery = query.localizedLowercase
-        return model.diffRows.compactMap { row in
+        return feature.diffRows.compactMap { row in
             let texts = [row.left, row.rightText].compactMap { $0 }
             return texts.contains(where: { $0.localizedLowercase.contains(foldedQuery) }) ? row.id : nil
         }
@@ -544,11 +544,12 @@ struct DiffReviewView: View {
     private func hunkActions(for row: DiffRow) -> some View {
         if row.kind == .information,
            let hunkID = row.hunkID,
-           let hunk = model.diffHunks.first(where: { $0.id == hunkID }) {
+           let hunk = feature.diffHunks.first(where: { $0.id == hunkID }) {
             DiffHunkActionsView(
+                feature: feature,
                 hunk: hunk,
                 change: change,
-                        isMutationEnabled: model.gitDiffWhitespaceMode == .doNotIgnore
+                isMutationEnabled: feature.gitDiffWhitespaceMode == .doNotIgnore
             )
         }
     }
@@ -561,7 +562,7 @@ struct DiffReviewView: View {
         var result: [DiffRowID: Int] = [:]
         var currentIndex = -1
         var insideDifference = false
-        for row in model.diffRows {
+        for row in feature.diffRows {
             let isDifference = effectiveKind(for: row).isDifference
             if isDifference && !insideDifference {
                 currentIndex += 1
@@ -575,7 +576,7 @@ struct DiffReviewView: View {
     }
 
     private func effectiveKind(for row: DiffRow) -> DiffRowKind {
-        guard model.gitDiffWhitespaceMode == .ignoreAllWhitespace,
+        guard feature.gitDiffWhitespaceMode == .ignoreAllWhitespace,
               row.kind == .changed,
               let left = row.left,
               let right = row.rightText,
@@ -1328,7 +1329,7 @@ struct DiffConnectorOverlay: View {
 }
 
 private struct DiffHunkActionsView: View {
-    @EnvironmentObject private var model: AppModel
+    let feature: GitFeatureModel
     let hunk: DiffHunk
     let change: GitChange
     let isMutationEnabled: Bool
@@ -1337,7 +1338,7 @@ private struct DiffHunkActionsView: View {
         HStack(spacing: 2) {
             if change.hasWorkingTreeChange {
                 Button {
-                    Task { await model.stageDiffHunk(hunk, in: change) }
+                    Task { await feature.stageDiffHunk(hunk, in: change) }
                 } label: {
                     Image(systemName: "square.and.arrow.down")
                 }
@@ -1346,7 +1347,7 @@ private struct DiffHunkActionsView: View {
                 .help("Stage this change block")
 
                 Button {
-                    model.requestDiscardHunk(hunk, in: change)
+                    feature.requestDiscardHunk(hunk, in: change)
                 } label: {
                     Image(systemName: "arrow.uturn.backward")
                 }
@@ -1355,7 +1356,7 @@ private struct DiffHunkActionsView: View {
                 .help("Discard this change block")
             } else if change.isStaged {
                 Button {
-                    Task { await model.unstageDiffHunk(hunk, in: change) }
+                    Task { await feature.unstageDiffHunk(hunk, in: change) }
                 } label: {
                     Image(systemName: "square.and.arrow.up")
                 }

@@ -9,41 +9,11 @@ extension AppModel {
     }
 
     func activateHistoryModule() async -> ProjectHistoryFeatureModel? {
-        if let feature = projectHistoryFeatureIfActive { return feature }
-        do {
-            let value = try await services.moduleRuntime.activateCapability(.historyWorkspace)
-            guard let capability = value as? LitheLocalHistoryModule.HistoryModuleCapability else { return nil }
-            cacheModuleCapability(capability, id: .historyWorkspace, moduleID: .localHistory)
-            let feature = capability.feature
-            feature.configure(
-                workspaceURLProvider: { [weak self] in self?.workspaceURL },
-                projectFilesProvider: { [weak self] in self?.projectFiles ?? [] },
-                documentsProvider: { [weak self] in
-                    self?.openDocuments.map {
-                        LocalHistoryDocumentSnapshot(id: $0.id, url: $0.url, text: $0.text)
-                    } ?? []
-                }
-            )
-            if let workspaceURL {
-                feature.openWorkspace(
-                    at: workspaceURL,
-                    visibilityRules: settings.fileVisibilityRules.localHistoryRules
-                )
-            }
-            observeModuleFeature(.localHistory, observation: feature.objectWillChange.sink { [weak self] _ in
-                self?.scheduleObjectWillChangeRelay()
-            })
-            return feature
-        } catch {
-            return nil
-        }
+        await historyModuleCoordinator.activate()
     }
 
     func withHistoryModule(_ action: @escaping @MainActor (ProjectHistoryFeatureModel) async -> Void) {
-        Task { @MainActor [weak self] in
-            guard let self, let feature = await self.activateHistoryModule() else { return }
-            await action(feature)
-        }
+        historyModuleCoordinator.perform(action)
     }
 
     func loadExternalVersion(of document: EditorDocument) {

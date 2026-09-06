@@ -248,7 +248,7 @@ struct RunView: View {
             systemImage: "play.rectangle",
             ideaAssetPath: "toolwindows/toolWindowRun.svg",
             subtitle: selectedModuleSession?.title ?? feature.runningTitle,
-            onMinimize: { model.isRunVisible = false }
+            onMinimize: { model.workbenchFeature.setVisibility(.run, isVisible: false) }
         ) {
             if let session = selectedModuleSession {
                 sessionStatus(isRunning: session.isRunning, exitCode: session.exitCode)
@@ -513,7 +513,7 @@ struct RunView: View {
                         onToggle: nil
                     ) {
                         selectedSessionID = nil
-                        model.selectRunConfiguration(.currentFile)
+                        feature.select(.currentFile)
                     }
 
                     ForEach(RunConfigurationExecution.displayOrder, id: \.self) { execution in
@@ -583,14 +583,14 @@ struct RunView: View {
                 if let session, session.isRunning {
                     feature.stopModule(session)
                 } else {
-                    model.selectRunConfiguration(configuration)
+                    feature.select(configuration)
                     model.startRunConfiguration(configuration)
                     selectedSessionID = configuration.id
                 }
             }
         ) {
             selectedSessionID = configuration.id
-            model.selectRunConfiguration(configuration)
+            feature.select(configuration)
         }
     }
 

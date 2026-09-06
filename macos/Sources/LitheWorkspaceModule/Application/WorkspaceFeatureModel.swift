@@ -28,6 +28,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private let fileOperations: any WorkspaceFileOperations
     private let gitWatchContextProvider: any GitWatchContextProviding
     private let directoryWatcherFactory: any DirectoryWatcherFactory
+    private let observationDelay: @Sendable (Duration) async throws -> Void
     private let workspaceSessionStore: any WorkspaceSessionStoring
     private let directoryMarkStore: any WorkspaceDirectoryMarkStoring
     private let directoryMarkPersistence: WorkspaceDirectoryMarkPersistence
@@ -77,12 +78,14 @@ package final class WorkspaceFeatureModel: ObservableObject {
         gitWatchContextProvider: any GitWatchContextProviding,
         directoryWatcherFactory: any DirectoryWatcherFactory,
         workspaceSessionStore: any WorkspaceSessionStoring,
-        directoryMarkStore: any WorkspaceDirectoryMarkStoring = EmptyWorkspaceDirectoryMarkStore()
+        directoryMarkStore: any WorkspaceDirectoryMarkStoring = EmptyWorkspaceDirectoryMarkStore(),
+        observationDelay: (@Sendable (Duration) async throws -> Void)? = nil
     ) {
         self.operations = operations
         self.fileOperations = fileOperations
         self.gitWatchContextProvider = gitWatchContextProvider
         self.directoryWatcherFactory = directoryWatcherFactory
+        self.observationDelay = observationDelay ?? { try await Task.sleep(for: $0) }
         self.workspaceSessionStore = workspaceSessionStore
         self.directoryMarkStore = directoryMarkStore
         self.directoryMarkPersistence = WorkspaceDirectoryMarkPersistence(store: directoryMarkStore)
@@ -813,8 +816,9 @@ package final class WorkspaceFeatureModel: ObservableObject {
             return
         }
         recoveryTask?.cancel()
-        recoveryTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(350))
+        recoveryTask = Task { @MainActor [weak self, observationDelay] in
+            do { try await observationDelay(.milliseconds(350)) }
+            catch { return }
             guard !Task.isCancelled, let self, let workspaceURL = self.workspaceURL else { return }
             await self.applyPendingRecovery(at: workspaceURL)
         }
@@ -866,8 +870,9 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
         let generation = externalRefreshGeneration
         refreshTask?.cancel()
-        refreshTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(350))
+        refreshTask = Task { @MainActor [weak self, observationDelay] in
+            do { try await observationDelay(.milliseconds(350)) }
+            catch { return }
             guard !Task.isCancelled,
                   let self,
                   self.externalRefreshGeneration == generation,
@@ -884,8 +889,9 @@ package final class WorkspaceFeatureModel: ObservableObject {
         guard gitOperationFreezeDepth == 0, !isGitRefreshRunning else { return }
         let generation = gitRefreshGeneration
         gitRefreshTask?.cancel()
-        gitRefreshTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(350))
+        gitRefreshTask = Task { @MainActor [weak self, observationDelay] in
+            do { try await observationDelay(.milliseconds(350)) }
+            catch { return }
             guard !Task.isCancelled,
                   let self,
                   self.gitRefreshGeneration == generation else { return }

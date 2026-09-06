@@ -67,7 +67,7 @@ struct MavenView: View {
             systemImage: "shippingbox",
             ideaAssetPath: "maven/toolWindowMaven.svg",
             subtitle: feature.project?.displayName,
-            onMinimize: { model.isMavenVisible = false }
+            onMinimize: { model.workbenchFeature.setVisibility(.maven, isVisible: false) }
         ) {
             if let runningTitle = feature.runningTitle {
                 ProgressView()

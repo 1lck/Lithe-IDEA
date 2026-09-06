@@ -2,6 +2,7 @@ import SwiftUI
 import LitheTerminalModule
 
 struct TerminalView: View {
+    @ObservedObject var feature: TerminalFeatureModel
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
@@ -61,7 +62,7 @@ struct TerminalView: View {
             .help("New terminal session")
 
             Menu {
-                ForEach(model.availableTerminalShells, id: \.self) { shell in
+                ForEach(feature.availableShells, id: \.self) { shell in
                     Button("New \(shellLabel(for: shell))") {
                         _ = model.createTerminalSession(shellPath: shell)
                     }
@@ -109,7 +110,7 @@ struct TerminalView: View {
             .help("Terminal actions")
 
             Button {
-                model.isTerminalVisible = false
+                model.workbenchFeature.setVisibility(.terminal, isVisible: false)
             } label: {
                 Image(systemName: "minus")
             }
@@ -134,7 +135,7 @@ struct TerminalView: View {
                     .font(.system(size: 10, weight: .medium))
                 TerminalToolTabTitle(
                     session: session,
-                    fallbackTitle: model.terminalTitle(for: session),
+                    fallbackTitle: feature.terminalTitle(for: session),
                     isActive: isActive
                 )
             }
@@ -157,7 +158,7 @@ struct TerminalView: View {
                 terminalTabDragPreview(session)
             }
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(model.terminalTitle(for: session))
+            .accessibilityLabel(feature.terminalTitle(for: session))
             .accessibilityAddTraits(.isButton)
             .accessibilityAction {
                 model.selectTerminalSession(session)
@@ -173,7 +174,7 @@ struct TerminalView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Close \(model.terminalTitle(for: session))")
+            .help("Close \(feature.terminalTitle(for: session))")
         }
         .background(isActive ? LitheTheme.subtleSelection : .clear)
         .overlay {
@@ -241,7 +242,7 @@ struct TerminalView: View {
             Image(systemName: "terminal")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(LitheTheme.accent)
-            Text(model.terminalTitle(for: session))
+            Text(feature.terminalTitle(for: session))
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(1)
