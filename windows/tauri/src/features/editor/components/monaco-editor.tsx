@@ -1850,6 +1850,28 @@ export function MonacoEditor({
       editor.setPosition(toClampedMonacoPosition(model, cached.cursor));
       if (cached.selection) editor.setSelection(toMonacoRange(model, cached.selection));
     }
+
+    let focusFrame: number | null = null;
+    let confirmationFrame: number | null = null;
+    focusFrame = requestAnimationFrame(() => {
+      if (editorRef.current !== editor || !isActiveSurfaceRef.current) return;
+
+      // A previously hidden Monaco surface may not accept focus until its new
+      // layout has been applied. Focus after that layout, then confirm it once
+      // more on the following frame for reliable keyboard shortcut handling.
+      editor.layout();
+      editor.focus();
+      confirmationFrame = requestAnimationFrame(() => {
+        if (editorRef.current === editor && isActiveSurfaceRef.current) {
+          editor.focus();
+        }
+      });
+    });
+
+    return () => {
+      if (focusFrame !== null) cancelAnimationFrame(focusFrame);
+      if (confirmationFrame !== null) cancelAnimationFrame(confirmationFrame);
+    };
   }, [activeBufferId, isActiveSurface, viewStateKey]);
 
   const shellStyle = {
