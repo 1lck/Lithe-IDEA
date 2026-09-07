@@ -384,7 +384,11 @@ mod tests {
         let directory = temporary_directory("preview-size");
         let manager = logging::test_manager(&directory);
         let planted_name = "lithe.2024-01-01T00-00-00.000+0000.deadbeef.000.log";
-        let raw = "password=hunter2 followed by more text to inflate size\n";
+        // The secret must be longer than the `<redacted>` placeholder so
+        // redaction provably shrinks the content; that keeps the raw-size vs
+        // redacted-size distinction below meaningful. (A short secret like
+        // `hunter2` would grow into `<redacted>` and invert the comparison.)
+        let raw = "token=0123456789abcdef0123456789abcdef0123 trailing text to keep the line long\n";
         fs::write(directory.join(planted_name), raw).unwrap();
         let planted_relative_path = format!("logs/{planted_name}");
 
