@@ -817,9 +817,15 @@ only the current workspace/fingerprint directory; they do not clear sibling
 workspaces or older structural states.
 
 `java.workspacePolicy` accepts `workspacePaths` and `changedPaths` as
-workspace-relative paths. It starts Java tooling when any non-ignored `.java`
-source exists, regardless of Maven or Gradle metadata, chooses one deterministic
-representative source, and classifies changes as `ignored`, `source`,
+workspace-relative paths. It starts Java tooling when a non-ignored `.java`
+source exists and the workspace shows evidence of being a Java project: a build
+descriptor (`pom.xml`, `build.gradle[.kts]`, `settings.gradle[.kts]`, a Maven or
+Gradle wrapper) no more than two directories below the root, or a `.java` source
+no more than two directories below the root for projects that have no build
+system. A Java sample or fixture checked into a repository of another ecosystem
+therefore does not activate Java tooling; hosts still start a language server on
+demand when the user opens a `.java` file. The command chooses one deterministic
+representative source and classifies changes as `ignored`, `source`,
 `buildConfiguration`, or `other`. The compatibility examples are in
 `shared/fixtures/lsp/java-workspace-policy-v1.json`.
 
