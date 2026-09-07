@@ -14,6 +14,12 @@ struct PendingProjectOpen: Identifiable, Equatable {
     var projectName: String { url.lastPathComponent }
 }
 
+/// Identifies which top-level window hosts a project session.
+enum ProjectWindowScope: Equatable, Sendable {
+    case primary
+    case dedicated(UUID)
+}
+
 @MainActor
 final class ProjectSessionManager: ObservableObject {
     @Published private(set) var sessions: [AppModel]
@@ -22,7 +28,9 @@ final class ProjectSessionManager: ObservableObject {
 
     private let settings: AppSettings
     private let modelFactory: () -> AppModel
-    private let newWindowOpener: (URL) -> Void
+    /// Presents or focuses the dedicated SwiftUI window for a session ID.
+    private let projectWindowPresenter: (UUID) -> Void
+    private var dedicatedWindowSessionIDs: Set<UUID> = []
     private var modelObservations: [UUID: AnyCancellable] = [:]
     // A closed model can disappear from `sessions` before its asynchronous
     // module teardown finishes. Keep the task here so the manager remains the
@@ -32,11 +40,11 @@ final class ProjectSessionManager: ObservableObject {
     init(
         settings: AppSettings,
         modelFactory: @escaping () -> AppModel,
-        newWindowOpener: @escaping (URL) -> Void
+        projectWindowPresenter: @escaping (UUID) -> Void = { _ in }
     ) {
         self.settings = settings
         self.modelFactory = modelFactory
-        self.newWindowOpener = newWindowOpener
+        self.projectWindowPresenter = projectWindowPresenter
 
         let initialModel = modelFactory()
         sessions = [initialModel]
@@ -52,6 +60,14 @@ final class ProjectSessionManager: ObservableObject {
         sessions.filter { $0.workspaceURL != nil }
     }
 
+    var primarySessions: [AppModel] {
+        sessions.filter { !dedicatedWindowSessionIDs.contains($0.id) }
+    }
+
+    var primaryOpenProjects: [AppModel] {
+        primarySessions.filter { $0.workspaceURL != nil }
+    }
+
     var hasUnsavedDocuments: Bool {
         sessions.contains(where: \.hasUnsavedDocuments)
     }
@@ -61,6 +77,32 @@ final class ProjectSessionManager: ObservableObject {
             model.openDocuments
                 .filter(\.isDirty)
                 .map { "\(model.projectName)/\($0.displayName)" }
+        }
+    }
+
+    @discardableResult
+    func saveAllDocuments() -> Bool {
+        var savedAll = true
+        for model in sessions where !model.saveAllDocuments() {
+            savedAll = false
+        }
+        return savedAll
+    }
+
+    func isDedicatedWindowSession(_ id: UUID) -> Bool {
+        dedicatedWindowSessionIDs.contains(id)
+    }
+
+    func session(for id: UUID) -> AppModel? {
+        sessions.first(where: { $0.id == id })
+    }
+
+    func openProjects(in scope: ProjectWindowScope) -> [AppModel] {
+        switch scope {
+        case .primary:
+            return primaryOpenProjects
+        case .dedicated(let sessionID):
+            return openProjects.filter { $0.id == sessionID }
         }
     }
 
@@ -93,8 +135,7 @@ final class ProjectSessionManager: ObservableObject {
         }
 
         if openProjects.isEmpty {
-            activeModel.openProjectDirectly(normalizedURL)
-            refreshRecentProjects()
+            openInThisWindow(normalizedURL)
             return
         }
 
@@ -107,7 +148,7 @@ final class ProjectSessionManager: ObservableObject {
         case .thisWindow:
             openInThisWindow(normalizedURL)
         case .newWindow:
-            newWindowOpener(normalizedURL)
+            openInNewWindow(normalizedURL)
         }
     }
 
@@ -127,7 +168,7 @@ final class ProjectSessionManager: ObservableObject {
         case .thisWindow:
             openInThisWindow(request.url)
         case .newWindow:
-            newWindowOpener(request.url)
+            openInNewWindow(request.url)
         }
     }
 
@@ -136,12 +177,16 @@ final class ProjectSessionManager: ObservableObject {
     }
 
     func activateSession(_ id: UUID) {
-        guard id != activeSessionID,
-              let nextModel = sessions.first(where: { $0.id == id }) else { return }
-        activeModel.setProjectSessionActive(false)
-        activeSessionID = id
-        nextModel.setProjectSessionActive(true)
-        nextModel.refreshRecentProjects()
+        guard let nextModel = sessions.first(where: { $0.id == id }) else { return }
+        if id != activeSessionID {
+            activeModel.setProjectSessionActive(false)
+            activeSessionID = id
+            nextModel.setProjectSessionActive(true)
+            nextModel.refreshRecentProjects()
+        }
+        if dedicatedWindowSessionIDs.contains(id) {
+            projectWindowPresenter(id)
+        }
     }
 
     func closeActiveProject() {
@@ -168,10 +213,19 @@ final class ProjectSessionManager: ObservableObject {
         return true
     }
 
+    /// Primary window: dismiss instead of showing welcome when other project
+    /// windows still hold open workspaces.
+    var shouldDismissPrimaryWindowWhenClosingActiveSession: Bool {
+        primaryOpenProjects.count <= 1 && openProjects.contains(where: {
+            dedicatedWindowSessionIDs.contains($0.id)
+        })
+    }
+
     func resetForProjectWindowClose() async {
         let previousSessions = sessions
 
         pendingProjectOpen = nil
+        dedicatedWindowSessionIDs.removeAll()
         modelObservations.removeAll()
         for model in previousSessions {
             await scheduleSessionShutdown(for: model).value
@@ -184,21 +238,69 @@ final class ProjectSessionManager: ObservableObject {
         activeSessionID = replacement.id
     }
 
+    /// Tears down only the primary-window sessions so dedicated project windows
+    /// can keep running after the welcome/host window is dismissed.
+    func resetPrimaryWindowSessions() async {
+        let primary = primarySessions
+        pendingProjectOpen = nil
+        for model in primary {
+            modelObservations[model.id] = nil
+            await scheduleSessionShutdown(for: model).value
+            sessions.removeAll { $0.id == model.id }
+        }
+        await waitForPendingSessionShutdowns()
+
+        if let next = sessions.first(where: { $0.workspaceURL != nil })
+            ?? sessions.first {
+            activeSessionID = next.id
+            next.setProjectSessionActive(true)
+        } else {
+            let replacement = modelFactory()
+            configure(replacement)
+            sessions = [replacement]
+            activeSessionID = replacement.id
+        }
+    }
+
+    /// Tears down one dedicated project window without creating a welcome shell
+    /// in that window. Restores a primary welcome session only when nothing remains.
+    func resetDedicatedWindowSession(_ id: UUID) async {
+        guard let model = sessions.first(where: { $0.id == id }) else { return }
+        dedicatedWindowSessionIDs.remove(id)
+        modelObservations[id] = nil
+        let wasActive = activeSessionID == id
+        await scheduleSessionShutdown(for: model).value
+        sessions.removeAll { $0.id == id }
+        await waitForPendingSessionShutdowns()
+
+        if sessions.isEmpty {
+            let replacement = modelFactory()
+            configure(replacement)
+            sessions = [replacement]
+            activeSessionID = replacement.id
+            return
+        }
+
+        if wasActive {
+            if let primaryProject = primaryOpenProjects.first {
+                activeSessionID = primaryProject.id
+                primaryProject.setProjectSessionActive(true)
+            } else if let primary = primarySessions.first {
+                activeSessionID = primary.id
+                primary.setProjectSessionActive(true)
+            } else if let next = sessions.first {
+                activeSessionID = next.id
+                next.setProjectSessionActive(true)
+            }
+        }
+    }
+
     func closeProject(_ id: UUID) {
         guard sessions.contains(where: { $0.id == id }) else { return }
         if id != activeSessionID {
             activateSession(id)
         }
         activeModel.closeProject()
-    }
-
-    @discardableResult
-    func saveAllDocuments() -> Bool {
-        var savedAll = true
-        for model in sessions where !model.saveAllDocuments() {
-            savedAll = false
-        }
-        return savedAll
     }
 
     func stopAllSessions() async {
@@ -216,7 +318,16 @@ final class ProjectSessionManager: ObservableObject {
 
     private func openInThisWindow(_ url: URL) {
         let model: AppModel
-        if activeModel.workspaceURL == nil {
+        if let emptyPrimary = primarySessions.first(where: {
+            $0.workspaceURL == nil && $0.standaloneFileURL == nil
+        }) {
+            model = emptyPrimary
+            if model.id != activeSessionID {
+                activeModel.setProjectSessionActive(false)
+                activeSessionID = model.id
+                model.setProjectSessionActive(true)
+            }
+        } else if activeModel.workspaceURL == nil && !isDedicatedWindowSession(activeModel.id) {
             model = activeModel
         } else {
             activeModel.setProjectSessionActive(false)
@@ -227,6 +338,19 @@ final class ProjectSessionManager: ObservableObject {
         }
         model.openProjectDirectly(url)
         refreshRecentProjects()
+    }
+
+    private func openInNewWindow(_ url: URL) {
+        activeModel.setProjectSessionActive(false)
+        let model = modelFactory()
+        sessions.append(model)
+        dedicatedWindowSessionIDs.insert(model.id)
+        configure(model)
+        activeSessionID = model.id
+        model.setProjectSessionActive(true)
+        model.openProjectDirectly(url)
+        refreshRecentProjects()
+        projectWindowPresenter(model.id)
     }
 
     private func configure(_ model: AppModel) {
@@ -254,6 +378,7 @@ final class ProjectSessionManager: ObservableObject {
         guard model.workspaceURL == nil,
               let removedIndex = sessions.firstIndex(where: { $0.id == model.id }) else { return }
 
+        let wasDedicated = dedicatedWindowSessionIDs.remove(model.id) != nil
         let wasActive = model.id == activeSessionID
         _ = scheduleSessionShutdown(for: model)
         modelObservations[model.id] = nil
@@ -268,9 +393,23 @@ final class ProjectSessionManager: ObservableObject {
         }
 
         if wasActive {
-            let nextIndex = min(removedIndex, sessions.count - 1)
-            activeSessionID = sessions[nextIndex].id
-            sessions[nextIndex].setProjectSessionActive(true)
+            let preferred: AppModel?
+            if wasDedicated {
+                preferred = primaryOpenProjects.first ?? primarySessions.first ?? sessions.first
+            } else {
+                let primary = primarySessions
+                if let nextPrimaryProject = primary.first(where: { $0.workspaceURL != nil }) {
+                    preferred = nextPrimaryProject
+                } else if let nextPrimary = primary.first {
+                    preferred = nextPrimary
+                } else {
+                    preferred = sessions.first
+                }
+            }
+            if let preferred {
+                activeSessionID = preferred.id
+                preferred.setProjectSessionActive(true)
+            }
         }
     }
 
@@ -301,5 +440,16 @@ final class ProjectSessionManager: ObservableObject {
                 await task.value
             }
         }
+    }
+}
+
+extension ProjectSessionManager: UnsavedDocumentHandling {}
+
+@MainActor
+final class ProjectWindowLauncher: ObservableObject {
+    var presentProjectWindow: ((UUID) -> Void)?
+
+    func present(_ sessionID: UUID) {
+        presentProjectWindow?(sessionID)
     }
 }

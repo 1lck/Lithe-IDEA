@@ -211,6 +211,102 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
+    func dismissingADedicatedProjectWindowResetsThatWindowSession() async {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        sessions.shouldDismissWindowWhenClosingActiveSession = true
+        let coordinator = LitheWindowCoordinator(
+            projectSessions: sessions,
+            confirmUnsavedDocuments: { _ in true }
+        )
+        let window = CloseCommandTestWindow()
+        coordinator.attach(to: window, layout: .workspace)
+
+        #expect(!coordinator.windowShouldClose(window))
+        #expect(await window.waitUntilNativeCloseAllowed())
+        #expect(sessions.resetForProjectWindowCloseCallCount == 1)
+        #expect(sessions.requestCloseActiveSessionCallCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func openingAProjectInANewWindowCreatesADedicatedSession() throws {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        settings.projectOpenBehavior = .newWindow
+        var presentedSessionIDs: [UUID] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode
+                    ).services
+                )
+            },
+            projectWindowPresenter: { presentedSessionIDs.append($0) }
+        )
+
+        let firstURL = URL(fileURLWithPath: "/tmp/lithe-primary-project")
+        let secondURL = URL(fileURLWithPath: "/tmp/lithe-dedicated-project")
+        manager.openStartupProject(firstURL)
+        let primaryID = manager.activeSessionID
+
+        manager.requestOpenProject(secondURL, from: primaryID)
+
+        #expect(manager.openProjects.count == 2)
+        #expect(manager.primaryOpenProjects.count == 1)
+        #expect(manager.primaryOpenProjects.first?.id == primaryID)
+        #expect(presentedSessionIDs.count == 1)
+        let dedicatedID = try #require(presentedSessionIDs.first)
+        #expect(manager.isDedicatedWindowSession(dedicatedID))
+        #expect(manager.session(for: dedicatedID)?.workspaceURL?.standardizedFileURL == secondURL)
+        #expect(manager.shouldDismissPrimaryWindowWhenClosingActiveSession)
+    }
+
+    @Test
+    @MainActor
+    func resettingADedicatedWindowKeepsOtherProjectsOpen() async throws {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        settings.projectOpenBehavior = .newWindow
+        var presentedSessionIDs: [UUID] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode
+                    ).services
+                )
+            },
+            projectWindowPresenter: { presentedSessionIDs.append($0) }
+        )
+
+        manager.openStartupProject(URL(fileURLWithPath: "/tmp/lithe-keep-primary"))
+        let primaryID = manager.activeSessionID
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-close-dedicated"),
+            from: primaryID
+        )
+        let dedicatedID = try #require(presentedSessionIDs.first)
+
+        await manager.resetDedicatedWindowSession(dedicatedID)
+
+        #expect(!manager.isDedicatedWindowSession(dedicatedID))
+        #expect(manager.session(for: dedicatedID) == nil)
+        #expect(manager.openProjects.count == 1)
+        #expect(manager.activeSessionID == primaryID)
+        #expect(manager.activeModel.workspaceURL != nil)
+    }
+
+    @Test
+    @MainActor
     func closingAProjectWindowReplacesAllSessionsWithAnEmptyActiveSession() async {
         let store = MutableKeyValueStore()
         let settings = AppSettings(store: store)
@@ -229,7 +325,7 @@ struct LitheCoreLogicTests {
                 createdModels.append(model)
                 return model
             },
-            newWindowOpener: { _ in }
+            projectWindowPresenter: { _ in }
         )
 
         manager.openStandaloneFile(URL(fileURLWithPath: "/tmp/lithe-close-first.swift"))
@@ -265,7 +361,7 @@ struct LitheCoreLogicTests {
                     services: MacServiceContainer(store: store, settings: settings).services
                 )
             },
-            newWindowOpener: { _ in }
+            projectWindowPresenter: { _ in }
         )
         let previousModel = manager.activeModel
         let runtime = previousModel.services.moduleRuntime
@@ -3080,6 +3176,7 @@ private final class ProjectWindowShutdownTestModule: LitheModule {
 private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
     var hasActiveProject: Bool
     var hasActiveStandaloneFile = false
+    var shouldDismissWindowWhenClosingActiveSession = false
     var consumesWorkbenchCloseCommand = false
     var hasUnsavedDocuments = false
     var unsavedDocumentNames: [String] = []

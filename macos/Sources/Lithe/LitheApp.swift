@@ -263,6 +263,7 @@ struct LitheApp: App {
     @NSApplicationDelegateAdaptor(LitheAppDelegate.self) private var appDelegate
     @StateObject private var settings: AppSettings
     @StateObject private var projectSessions: ProjectSessionManager
+    @StateObject private var projectWindowLauncher: ProjectWindowLauncher
     @StateObject private var memoryUsageMonitor: MemoryUsageMonitor
     @StateObject private var frameRateMonitor = FrameRateMonitor()
     @StateObject private var updateChecker: UpdateChecker
@@ -301,6 +302,8 @@ struct LitheApp: App {
         let authorizationCallbackRouter = MacExternalAuthorizationCallbackRouter()
         pluginRuntimeRecovery.recoverPreviousSession(using: moduleStore)
         _settings = StateObject(wrappedValue: settings)
+        let projectWindowLauncher = ProjectWindowLauncher()
+        _projectWindowLauncher = StateObject(wrappedValue: projectWindowLauncher)
         let projectSessions = ProjectSessionManager(
             settings: settings,
             modelFactory: {
@@ -320,7 +323,9 @@ struct LitheApp: App {
                     ).services
                 )
             },
-            newWindowOpener: Self.openProjectInNewWindow
+            projectWindowPresenter: { [weak projectWindowLauncher] sessionID in
+                projectWindowLauncher?.present(sessionID)
+            }
         )
         if let startupProjectURL = Self.startupProjectURL {
             projectSessions.openStartupProject(startupProjectURL)
@@ -394,9 +399,10 @@ struct LitheApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            RootView(scope: .primary)
                 .environmentObject(model)
                 .environmentObject(projectSessions)
+                .environmentObject(projectWindowLauncher)
                 .environmentObject(settings)
                 .environmentObject(memoryUsageMonitor)
                 .environmentObject(frameRateMonitor)
@@ -572,6 +578,27 @@ struct LitheApp: App {
             }
         }
 
+        WindowGroup(id: LitheWindowID.project, for: UUID.self) { $sessionID in
+            if let sessionID {
+                RootView(scope: .dedicated(sessionID))
+                    .environmentObject(projectSessions.session(for: sessionID) ?? model)
+                    .environmentObject(projectSessions)
+                    .environmentObject(projectWindowLauncher)
+                    .environmentObject(settings)
+                    .environmentObject(memoryUsageMonitor)
+                    .environmentObject(frameRateMonitor)
+                    .environmentObject(updateChecker)
+                    .environment(\.locale, settings.language.locale)
+                    .id("\(sessionID.uuidString)-\(settings.language)")
+                    .preferredColorScheme(settings.themePreference.preferredColorScheme)
+            }
+        }
+        .defaultSize(
+            width: LitheWindowLayout.workspaceContentSize.width,
+            height: LitheWindowLayout.workspaceContentSize.height
+        )
+        .windowStyle(.hiddenTitleBar)
+
         Window(settingsWindowTitle(for: settings.language), id: LitheWindowID.settings) {
             SettingsWindow(
                 model: model,
@@ -593,16 +620,6 @@ struct LitheApp: App {
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
               isDirectory.boolValue else { return nil }
         return url
-    }
-
-    private static func openProjectInNewWindow(_ url: URL) {
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.createsNewApplicationInstance = true
-        configuration.arguments = ["--open-project", url.path]
-        NSWorkspace.shared.openApplication(
-            at: Bundle.main.bundleURL,
-            configuration: configuration
-        )
     }
 }
 

@@ -68,6 +68,7 @@ struct WorkbenchView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var projectSessions: ProjectSessionManager
     @EnvironmentObject private var settings: AppSettings
+    @Environment(\.projectWindowScope) private var projectWindowScope
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var linuxDoWebSession = LinuxDoAnonymousWebSession()
     @State private var sidebarWidth: CGFloat = 320
@@ -94,7 +95,7 @@ struct WorkbenchView: View {
         VStack(spacing: 0) {
             topBar
 
-            if projectSessions.openProjects.count > 1 {
+            if projectSessions.openProjects(in: projectWindowScope).count > 1 {
                 projectTabBar
             }
 
@@ -430,12 +431,16 @@ struct WorkbenchView: View {
         }
     }
 
+    private var scopedOpenProjects: [AppModel] {
+        projectSessions.openProjects(in: projectWindowScope)
+    }
+
     private var projectTabBar: some View {
         GeometryReader { geometry in
             let horizontalPadding: CGFloat = 6
             let tabSpacing: CGFloat = 6
             let minimumTabWidth: CGFloat = 180
-            let projectCount = CGFloat(max(projectSessions.openProjects.count, 1))
+            let projectCount = CGFloat(max(scopedOpenProjects.count, 1))
             let availableWidth = geometry.size.width
                 - horizontalPadding * 2
                 - tabSpacing * (projectCount - 1)
@@ -444,7 +449,7 @@ struct WorkbenchView: View {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: tabSpacing) {
-                        ForEach(projectSessions.openProjects) { projectModel in
+                        ForEach(scopedOpenProjects) { projectModel in
                             projectTab(projectModel, width: tabWidth)
                                 .id(projectModel.id)
                         }
