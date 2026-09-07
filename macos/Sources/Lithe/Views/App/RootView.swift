@@ -3,6 +3,7 @@ import LitheLocalHistoryModule
 import SwiftUI
 
 enum LitheWindowID {
+    static let welcome = "welcome"
     static let settings = "settings"
     static let project = "project"
 }
@@ -15,6 +16,41 @@ extension EnvironmentValues {
     var projectWindowScope: ProjectWindowScope {
         get { self[ProjectWindowScopeKey.self] }
         set { self[ProjectWindowScopeKey.self] = newValue }
+    }
+}
+
+/// Installs window present callbacks from a live SwiftUI scene environment so
+/// they are not tied to the primary window's lifetime alone.
+private struct ProjectWindowSceneBridge: View {
+    @EnvironmentObject private var projectWindowLauncher: ProjectWindowLauncher
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .onAppear(perform: installCallbacks)
+    }
+
+    private func installCallbacks() {
+        projectWindowLauncher.presentProjectWindow = { windowID in
+            openWindow(id: LitheWindowID.project, value: windowID)
+        }
+        projectWindowLauncher.dismissProjectWindow = { windowID in
+            ProjectWindowAppKitDismisser.dismiss(windowID: windowID)
+        }
+        projectWindowLauncher.presentPrimaryWindow = {
+            openWindow(id: LitheWindowID.welcome)
+        }
+    }
+}
+
+enum ProjectWindowAppKitDismisser {
+    static func dismiss(windowID: UUID) {
+        let identifier = NSUserInterfaceItemIdentifier(windowID.uuidString)
+        for window in NSApplication.shared.windows where window.identifier == identifier {
+            window.close()
+        }
     }
 }
 
@@ -38,9 +74,12 @@ struct RootView: View {
                     isActive: isSessionActive(session)
                 )
             }
-            ActiveSessionChrome(scope: scope, session: scopedModel)
+            if let scopedModel {
+                ActiveSessionChrome(scope: scope, session: scopedModel)
+            }
         }
         .environment(\.projectWindowScope, scope)
+        .background(ProjectWindowSceneBridge())
         .frame(
             minWidth: windowLayout.minimumContentSize.width,
             minHeight: windowLayout.minimumContentSize.height
@@ -104,12 +143,6 @@ struct RootView: View {
                 Text(LocalizedStringKey(prompt.message))
             }
         }
-        .onAppear {
-            guard scope == .primary else { return }
-            projectWindowLauncher.presentProjectWindow = { sessionID in
-                openWindow(id: LitheWindowID.project, value: sessionID)
-            }
-        }
         .task {
             guard scope == .primary else { return }
             guard !didStartAutomaticUpdateCheck else { return }
@@ -120,43 +153,21 @@ struct RootView: View {
     }
 
     private var visibleSessions: [AppModel] {
-        switch scope {
-        case .primary:
-            return projectSessions.primarySessions
-        case .dedicated(let sessionID):
-            if let session = projectSessions.session(for: sessionID) {
-                return [session]
-            }
-            return []
-        }
+        projectSessions.sessions(in: scope)
     }
 
     private func isSessionActive(_ session: AppModel) -> Bool {
-        switch scope {
-        case .primary:
-            return session.id == projectSessions.activeSessionID
-                || (projectSessions.isDedicatedWindowSession(projectSessions.activeSessionID)
-                    && session.id == projectSessions.primarySessions.first?.id)
-        case .dedicated:
-            return true
-        }
+        session.id == projectSessions.activeSessionID(in: scope)
     }
 
-    private var scopedModel: AppModel {
-        switch scope {
-        case .primary:
-            if projectSessions.isDedicatedWindowSession(projectSessions.activeSessionID),
-               let primary = projectSessions.primarySessions.first {
-                return primary
-            }
-            return projectSessions.activeModel
-        case .dedicated(let sessionID):
-            return projectSessions.session(for: sessionID) ?? projectSessions.activeModel
-        }
+    private var scopedModel: AppModel? {
+        let sessions = visibleSessions
+        guard !sessions.isEmpty else { return nil }
+        return projectSessions.activeModel(in: scope)
     }
 
     private var windowLayout: LitheWindowLayout {
-        let model = scopedModel
+        guard let model = scopedModel else { return .welcome }
         if model.standaloneFileURL != nil { return .standalone }
         return model.workspaceURL == nil ? .welcome : .workspace
     }
@@ -255,8 +266,8 @@ private struct ActiveSessionChrome: View {
         switch scope {
         case .primary:
             return PrimaryProjectWindowSessions(manager: projectSessions)
-        case .dedicated(let sessionID):
-            return DedicatedProjectWindowSessions(manager: projectSessions, sessionID: sessionID)
+        case .dedicated(let windowID):
+            return DedicatedProjectWindowSessions(manager: projectSessions, windowID: windowID)
         }
     }
 
@@ -398,149 +409,12 @@ protocol ProjectWindowSessionHandling: UnsavedDocumentHandling {
     /// When true, closing the active project dismisses the window instead of
     /// converting it into a welcome shell.
     var shouldDismissWindowWhenClosingActiveSession: Bool { get }
+    var windowScope: ProjectWindowScope { get }
     func closeActiveProject()
     func requestCloseActiveWorkbenchItem() -> Bool
     func requestCloseActiveSession() -> Bool
     func resetForProjectWindowClose() async
-}
-
-@MainActor
-final class PrimaryProjectWindowSessions: ProjectWindowSessionHandling {
-    private let manager: ProjectSessionManager
-
-    init(manager: ProjectSessionManager) {
-        self.manager = manager
-    }
-
-    var hasUnsavedDocuments: Bool {
-        manager.primarySessions.contains(where: \.hasUnsavedDocuments)
-    }
-
-    var unsavedDocumentNames: [String] {
-        manager.primarySessions.flatMap { model in
-            model.openDocuments
-                .filter(\.isDirty)
-                .map { "\(model.projectName)/\($0.displayName)" }
-        }
-    }
-
-    var hasActiveProject: Bool {
-        scopedActiveModel.workspaceURL != nil
-    }
-
-    var hasActiveStandaloneFile: Bool {
-        scopedActiveModel.standaloneFileURL != nil
-            && !manager.isDedicatedWindowSession(scopedActiveModel.id)
-    }
-
-    var shouldDismissWindowWhenClosingActiveSession: Bool {
-        manager.shouldDismissPrimaryWindowWhenClosingActiveSession
-    }
-
-    func closeActiveProject() {
-        scopedActiveModel.closeProject()
-    }
-
-    func requestCloseActiveWorkbenchItem() -> Bool {
-        scopedActiveModel.requestCloseActiveWorkbenchItem()
-    }
-
-    func requestCloseActiveSession() -> Bool {
-        let model = scopedActiveModel
-        if model.workspaceURL != nil {
-            model.closeProject()
-            return false
-        }
-        if model.standaloneFileURL != nil {
-            if model.hasUnsavedDocuments {
-                model.closeStandaloneFile()
-                return false
-            }
-            return true
-        }
-        return true
-    }
-
-    func saveAllDocuments() -> Bool {
-        var savedAll = true
-        for model in manager.primarySessions where !model.saveAllDocuments() {
-            savedAll = false
-        }
-        return savedAll
-    }
-
-    func resetForProjectWindowClose() async {
-        if manager.shouldDismissPrimaryWindowWhenClosingActiveSession {
-            await manager.resetPrimaryWindowSessions()
-        } else {
-            await manager.resetForProjectWindowClose()
-        }
-    }
-
-    private var scopedActiveModel: AppModel {
-        if manager.isDedicatedWindowSession(manager.activeSessionID),
-           let primary = manager.primarySessions.first {
-            return primary
-        }
-        return manager.activeModel
-    }
-}
-
-@MainActor
-final class DedicatedProjectWindowSessions: ProjectWindowSessionHandling {
-    private let manager: ProjectSessionManager
-    private let sessionID: UUID
-
-    init(manager: ProjectSessionManager, sessionID: UUID) {
-        self.manager = manager
-        self.sessionID = sessionID
-    }
-
-    private var session: AppModel? {
-        manager.session(for: sessionID)
-    }
-
-    var hasUnsavedDocuments: Bool {
-        session?.hasUnsavedDocuments == true
-    }
-
-    var unsavedDocumentNames: [String] {
-        guard let session else { return [] }
-        return session.openDocuments
-            .filter(\.isDirty)
-            .map { "\(session.projectName)/\($0.displayName)" }
-    }
-
-    var hasActiveProject: Bool {
-        session?.workspaceURL != nil
-    }
-
-    var hasActiveStandaloneFile: Bool {
-        session?.standaloneFileURL != nil
-    }
-
-    var shouldDismissWindowWhenClosingActiveSession: Bool { true }
-
-    func closeActiveProject() {
-        session?.closeProject()
-    }
-
-    func requestCloseActiveWorkbenchItem() -> Bool {
-        session?.requestCloseActiveWorkbenchItem() ?? false
-    }
-
-    func requestCloseActiveSession() -> Bool {
-        // Dedicated windows always dismiss instead of becoming welcome.
-        false
-    }
-
-    func saveAllDocuments() -> Bool {
-        session?.saveAllDocuments() ?? true
-    }
-
-    func resetForProjectWindowClose() async {
-        await manager.resetDedicatedWindowSession(sessionID)
-    }
+    func noteWindowBecameKey()
 }
 
 @MainActor
@@ -584,7 +458,13 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
             restoredWorkspaceFrame = nil
             startMonitoringCloseCommand()
         }
+        if case .dedicated(let windowID) = projectSessions.windowScope {
+            window.identifier = NSUserInterfaceItemIdentifier(windowID.uuidString)
+        }
         apply(layout, title: title, to: window)
+        if window.isKeyWindow {
+            projectSessions.noteWindowBecameKey()
+        }
     }
 
     func toggleWorkspaceZoom() {
@@ -608,6 +488,11 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
         window.setFrame(targetFrame, display: true, animate: window.isVisible)
     }
 
+    func windowDidBecomeKey(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
+        projectSessions.noteWindowBecameKey()
+    }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if case .projectCleanupCompleted? = pendingNativeWindowCloseIntent {
             pendingNativeWindowCloseIntent = nil
@@ -617,6 +502,9 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
         if case .commandW? = pendingNativeWindowCloseIntent {
             pendingNativeWindowCloseIntent = nil
             guard confirmUnsavedDocuments(projectSessions) else { return false }
+            // Cmd+W closes this window's sessions only. Dedicated windows always
+            // dismiss; primary windows either dismiss or tear down primary scope
+            // without touching other project windows.
             closeWindowAfterProjectCleanup(sender)
             return false
         }

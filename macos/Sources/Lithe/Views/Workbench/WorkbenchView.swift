@@ -458,11 +458,14 @@ struct WorkbenchView: View {
                     .frame(minWidth: geometry.size.width, alignment: .leading)
                 }
                 .onAppear {
-                    proxy.scrollTo(projectSessions.activeSessionID, anchor: .center)
+                    proxy.scrollTo(projectSessions.activeSessionID(in: projectWindowScope), anchor: .center)
                 }
-                .onChange(of: projectSessions.activeSessionID) { id in
+                .onChange(of: projectSessions.activeSessionIDs) { _ in
                     withAnimation(.easeOut(duration: 0.12)) {
-                        proxy.scrollTo(id, anchor: .center)
+                        proxy.scrollTo(
+                            projectSessions.activeSessionID(in: projectWindowScope),
+                            anchor: .center
+                        )
                     }
                 }
             }
@@ -472,7 +475,7 @@ struct WorkbenchView: View {
     }
 
     private func projectTab(_ projectModel: AppModel, width: CGFloat) -> some View {
-        let isActive = projectModel.id == projectSessions.activeSessionID
+        let isActive = projectModel.id == projectSessions.activeSessionID(in: projectWindowScope)
         let isHovered = projectModel.id == hoveredProjectTabID
 
         return ZStack(alignment: .trailing) {

@@ -323,8 +323,11 @@ struct LitheApp: App {
                     ).services
                 )
             },
-            projectWindowPresenter: { [weak projectWindowLauncher] sessionID in
-                projectWindowLauncher?.present(sessionID)
+            projectWindowPresenter: { [weak projectWindowLauncher] windowID in
+                projectWindowLauncher?.present(windowID)
+            },
+            projectWindowDismisser: { [weak projectWindowLauncher] windowID in
+                projectWindowLauncher?.dismiss(windowID)
             }
         )
         if let startupProjectURL = Self.startupProjectURL {
@@ -398,7 +401,7 @@ struct LitheApp: App {
     private var model: AppModel { projectSessions.activeModel }
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: LitheWindowID.welcome) {
             RootView(scope: .primary)
                 .environmentObject(model)
                 .environmentObject(projectSessions)
@@ -432,6 +435,11 @@ struct LitheApp: App {
                     model.chooseProject()
                 }
                 .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "open-project"))
+
+                Button("New Window") {
+                    projectSessions.ensurePrimaryWindowAvailable()
+                    projectWindowLauncher.presentPrimary()
+                }
             }
 
             CommandGroup(after: .saveItem) {
@@ -578,19 +586,25 @@ struct LitheApp: App {
             }
         }
 
-        WindowGroup(id: LitheWindowID.project, for: UUID.self) { $sessionID in
-            if let sessionID {
-                RootView(scope: .dedicated(sessionID))
-                    .environmentObject(projectSessions.session(for: sessionID) ?? model)
-                    .environmentObject(projectSessions)
-                    .environmentObject(projectWindowLauncher)
-                    .environmentObject(settings)
-                    .environmentObject(memoryUsageMonitor)
-                    .environmentObject(frameRateMonitor)
-                    .environmentObject(updateChecker)
-                    .environment(\.locale, settings.language.locale)
-                    .id("\(sessionID.uuidString)-\(settings.language)")
-                    .preferredColorScheme(settings.themePreference.preferredColorScheme)
+        WindowGroup(id: LitheWindowID.project, for: UUID.self) { $windowID in
+            if let windowID {
+                let scopedSessions = projectSessions.sessions(in: .dedicated(windowID))
+                if scopedSessions.isEmpty {
+                    ProjectWindowMissingSessionView(windowID: windowID)
+                        .environmentObject(projectWindowLauncher)
+                } else {
+                    RootView(scope: .dedicated(windowID))
+                        .environmentObject(projectSessions.activeModel(in: .dedicated(windowID)))
+                        .environmentObject(projectSessions)
+                        .environmentObject(projectWindowLauncher)
+                        .environmentObject(settings)
+                        .environmentObject(memoryUsageMonitor)
+                        .environmentObject(frameRateMonitor)
+                        .environmentObject(updateChecker)
+                        .environment(\.locale, settings.language.locale)
+                        .id("\(windowID.uuidString)-\(settings.language)")
+                        .preferredColorScheme(settings.themePreference.preferredColorScheme)
+                }
             }
         }
         .defaultSize(
@@ -620,6 +634,33 @@ struct LitheApp: App {
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
               isDirectory.boolValue else { return nil }
         return url
+    }
+}
+
+private struct ProjectWindowMissingSessionView: View {
+    let windowID: UUID
+    @EnvironmentObject private var projectWindowLauncher: ProjectWindowLauncher
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text("This project window is no longer available.")
+                .font(.system(size: 15, weight: .medium))
+            Text("Its session was closed or could not be restored.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+            Button("Close Window") {
+                ProjectWindowAppKitDismisser.dismiss(windowID: windowID)
+                projectWindowLauncher.dismiss(windowID)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
+        .onAppear {
+            let message = "Lithe project window \(windowID.uuidString) has no matching session.\n"
+            if let data = message.data(using: .utf8) {
+                FileHandle.standardError.write(data)
+            }
+        }
     }
 }
 
