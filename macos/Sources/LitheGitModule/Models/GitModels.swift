@@ -278,37 +278,34 @@ package struct GitCommitFileTreeNode: Identifiable, Equatable, Sendable {
     package let name: String
     package let directories: [GitCommitFileTreeNode]
     package let files: [GitCommitFile]
+    package let fileCount: Int
 
     package var id: String { path.isEmpty ? "." : path }
-
-    package var fileCount: Int {
-        files.count + directories.reduce(0) { $0 + $1.fileCount }
-    }
 
     package static func build(from files: [GitCommitFile], rootName: String) -> GitCommitFileTreeNode {
         let root = MutableGitCommitFileTreeNode(name: rootName, path: "")
 
         for file in files {
-            let components = file.path
-                .split(separator: "/", omittingEmptySubsequences: true)
-                .map(String.init)
+            let components = file.path.split(separator: "/", omittingEmptySubsequences: true)
             guard !components.isEmpty else {
                 root.files.append(file)
                 continue
             }
 
             var node = root
-            var pathComponents: [String] = []
+            var currentPath = ""
             for component in components.dropLast() {
-                pathComponents.append(component)
-                let path = pathComponents.joined(separator: "/")
-                if node.directories[component] == nil {
-                    node.directories[component] = MutableGitCommitFileTreeNode(
-                        name: component,
-                        path: path
-                    )
+                let name = String(component)
+                if currentPath.isEmpty {
+                    currentPath = name
+                } else {
+                    currentPath += "/"
+                    currentPath += name
                 }
-                node = node.directories[component]!
+                if node.directories[name] == nil {
+                    node.directories[name] = MutableGitCommitFileTreeNode(name: name, path: currentPath)
+                }
+                node = node.directories[name]!
             }
             node.files.append(file)
         }
@@ -320,13 +317,16 @@ package struct GitCommitFileTreeNode: Identifiable, Equatable, Sendable {
         from node: MutableGitCommitFileTreeNode,
         isRoot: Bool = false
     ) -> GitCommitFileTreeNode {
+        let directories = node.directories.values
+            .map { makeNode(from: $0) }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        let files = node.files.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
         let result = GitCommitFileTreeNode(
             path: node.path,
             name: node.name,
-            directories: node.directories.values
-                .map { makeNode(from: $0) }
-                .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
-            files: node.files.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+            directories: directories,
+            files: files,
+            fileCount: files.count + directories.reduce(0) { $0 + $1.fileCount }
         )
 
         guard !isRoot, result.files.isEmpty, result.directories.count == 1,
@@ -338,7 +338,8 @@ package struct GitCommitFileTreeNode: Identifiable, Equatable, Sendable {
             path: child.path,
             name: "\(result.name)/\(child.name)",
             directories: child.directories,
-            files: child.files
+            files: child.files,
+            fileCount: child.fileCount
         )
     }
 }
