@@ -2573,6 +2573,33 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func highlightedRangeCacheShiftsUnchangedRangesAfterAnEdit() {
+        var cache = HighlightedRangeCache()
+        cache.insert(NSRange(location: 0, length: 10))
+        cache.insert(NSRange(location: 20, length: 10))
+        cache.insert(NSRange(location: 40, length: 10))
+
+        cache.applyEdit(
+            replacedRange: NSRange(location: 12, length: 4),
+            replacementLength: 8
+        )
+        #expect(cache.ranges == [
+            NSRange(location: 0, length: 10),
+            NSRange(location: 24, length: 10),
+            NSRange(location: 44, length: 10)
+        ])
+
+        cache.applyEdit(
+            replacedRange: NSRange(location: 24, length: 10),
+            replacementLength: 0
+        )
+        #expect(cache.ranges == [
+            NSRange(location: 0, length: 10),
+            NSRange(location: 34, length: 10)
+        ])
+    }
+
+    @Test
     @MainActor
     func codeEditorShiftsFindMatchesAcrossASingleLineEdit() {
         let textView = CodeTextView(frame: .zero)
@@ -3235,6 +3262,55 @@ struct EditorDocumentTests {
         document.applyLiveEditorText("before")
         #expect(!document.isDirty)
         #expect(publishCount == 2)
+    }
+
+    @Test
+    @MainActor
+    func liveEditorEditsProduceOrderedLanguageServerChanges() {
+        let document = EditorDocument(
+            url: URL(fileURLWithPath: "/tmp/live-editor-lsp.txt"),
+            text: "one\ntwo",
+            modificationDate: nil
+        )
+
+        document.applyLiveEditorEdit(
+            replacedRange: NSRange(location: 4, length: 3),
+            replacement: "second"
+        )
+        document.applyLiveEditorEdit(
+            replacedRange: NSRange(location: 0, length: 0),
+            replacement: "A"
+        )
+
+        let changes = document.takePendingLanguageServerChanges()
+        #expect(changes.map(\.text) == ["second", "A"])
+        #expect(changes[0].start == LanguageServerDocumentPosition(line: 1, utf16Column: 0))
+        #expect(changes[0].end == LanguageServerDocumentPosition(line: 1, utf16Column: 3))
+        #expect(document.takePendingLanguageServerChanges().isEmpty)
+    }
+
+    @Test
+    @MainActor
+    func liveEditorEditAppliesUTF16ReplacementWithoutFullEditorSnapshot() {
+        let document = EditorDocument(
+            url: URL(fileURLWithPath: "/tmp/live-editor-edit.txt"),
+            text: "before\nvalue",
+            modificationDate: nil
+        )
+
+        document.applyLiveEditorEdit(
+            replacedRange: NSRange(location: 7, length: 5),
+            replacement: "updated"
+        )
+
+        #expect(document.text == "before\nupdated")
+        #expect(document.isDirty)
+
+        document.applyLiveEditorEdit(
+            replacedRange: NSRange(location: 0, length: 0),
+            replacement: "A"
+        )
+        #expect(document.text == "Abefore\nupdated")
     }
 
     @Test
@@ -4218,6 +4294,9 @@ struct EditorDocumentTests {
         let source = workspace.appendingPathComponent("src/Main.java")
         let build = workspace.appendingPathComponent("pom.xml")
         let watcherFactory = TestDirectoryWatcherFactory()
+        let delayStarted = TestGate()
+        let releaseDelay = TestGate()
+        let refreshFinished = TestGate()
         var projectedChanges: [WorkspaceFileChange] = []
         var projectReloadCount = 0
         let model = makeWorkspaceObservationUnitModel(
@@ -4228,26 +4307,79 @@ struct EditorDocumentTests {
             fileOperations: ExistingWorkspaceFileOperations(paths: [source.path, build.path]),
             provider: SequencedGitWatchContextProvider([nil]),
             watcherFactory: watcherFactory,
-            refreshGit: {},
+            refreshGit: {
+                if projectReloadCount > 0 { refreshFinished.open() }
+            },
             notifyWorkspaceFileChanges: { projectedChanges.append(contentsOf: $0) },
-            reloadProjectServices: { projectReloadCount += 1 }
+            reloadProjectServices: { projectReloadCount += 1 },
+            observationDelay: { duration in
+                #expect(duration == .milliseconds(350))
+                delayStarted.open()
+                guard await releaseDelay.waitUntilOpen() else { throw CancellationError() }
+                try Task.checkCancellation()
+            }
         )
-        defer { model.reset() }
+        defer {
+            model.reset()
+            releaseDelay.open()
+        }
         model.beginWorkspace(at: workspace, visibilityRules: .default)
         _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
         let watcher = try #require(watcherFactory.source)
 
         watcher.emit([source.path, build.path])
-        let refreshed = await waitForWorkspaceObservation {
-            projectedChanges.count == 2 && projectReloadCount == 1
-        }
-
-        #expect(refreshed)
+        #expect(await delayStarted.waitUntilOpen(), "The event did not reach the refresh scheduler")
+        #expect(projectedChanges.isEmpty)
+        #expect(projectReloadCount == 0)
+        releaseDelay.open()
+        #expect(await refreshFinished.waitUntilOpen(), "Released refresh did not finish")
         #expect(projectedChanges == [
             WorkspaceFileChange(fileURL: build, kind: .changed),
             WorkspaceFileChange(fileURL: source, kind: .changed),
         ])
         #expect(projectReloadCount == 1)
+    }
+
+    @Test
+    @MainActor
+    func resettingWorkspaceCancelsAnEventWaitingForItsRefreshDelay() async throws {
+        let started = TestGate()
+        let release = TestGate()
+        let finished = TestGate()
+        let watcherFactory = TestDirectoryWatcherFactory()
+        var externalChanges = 0
+        var gitRefreshes = 0
+        let model = makeWorkspaceObservationUnitModel(
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: { gitRefreshes += 1 },
+            processExternalChanges: { _ in externalChanges += 1; return false },
+            observationDelay: { _ in
+                started.open()
+                defer { finished.open() }
+                guard await release.waitUntilOpen() else { throw CancellationError() }
+                try Task.checkCancellation()
+            }
+        )
+        defer {
+            model.reset()
+            release.open()
+        }
+        let workspace = URL(fileURLWithPath: "/in-memory/cancelled-observation")
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        let watcher = try #require(watcherFactory.source)
+        watcher.emit(DirectoryChangeBatch(
+            workspacePaths: [workspace.appendingPathComponent("Main.java").path],
+            gitStateMayHaveChanged: true
+        ))
+        #expect(await started.waitUntilOpen(), "The event did not reach the refresh scheduler")
+
+        model.reset()
+
+        #expect(await finished.waitUntilOpen(), "Reset did not cancel the pending delay")
+        #expect(externalChanges == 0)
+        #expect(gitRefreshes == 0)
+        #expect(model.projectFiles.isEmpty)
     }
 
     @Test
@@ -4675,7 +4807,8 @@ private func makeWorkspaceObservationUnitModel(
     notifyWorkspaceFileChanges: @escaping @MainActor ([WorkspaceFileChange]) -> Void = { _ in },
     reloadProjectServices: @escaping @MainActor () async -> Void = {},
     recordHistory: @escaping @MainActor (URL, LocalHistoryReason) async -> Void = { _, _ in },
-    directoryMarkStore: any WorkspaceDirectoryMarkStoring = EmptyWorkspaceDirectoryMarkStore()
+    directoryMarkStore: any WorkspaceDirectoryMarkStoring = EmptyWorkspaceDirectoryMarkStore(),
+    observationDelay: (@Sendable (Duration) async throws -> Void)? = nil
 ) -> WorkspaceFeatureModel {
     let model = WorkspaceFeatureModel(
         operations: operations,
@@ -4684,7 +4817,8 @@ private func makeWorkspaceObservationUnitModel(
         gitWatchContextProvider: provider,
         directoryWatcherFactory: watcherFactory,
         workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore()),
-        directoryMarkStore: directoryMarkStore
+        directoryMarkStore: directoryMarkStore,
+        observationDelay: observationDelay
     )
     model.configure(
         documentsProvider: { [] },
@@ -5022,6 +5156,132 @@ private let dbxPlainConnectionExport = #"""
 private let dbxEncryptedConnectionExport = #"""
 {"format":"dbx-encrypted","version":1,"salt":"AAECAwQFBgcICQoLDA0ODw==","iv":"EBESExQVFhcYGRob","data":"fdwV5NDM/8LXPJqMyQgoQVkuOwMe+0VDPFR8HsEWD1AMIhPz1sHRRkmzd6ZLcBqnfcA57xCJz3Jtnbf+djnYI83EiNkr6iukZq1Ahd8aGy/r61/JdThx/NTaUgzn0mwAIcpxDl9uyBDwI0PO8WAaXbZyWbFumsLn3SJSEb8d"}
 """#
+
+@Suite("Editor session coordination")
+@MainActor
+struct EditorSessionCoordinatorTests {
+    @Test(arguments: [true, false])
+    func restorationPreservesSavedOrderAndSelectsAvailableDocument(activePathExists: Bool) async throws {
+        let document = DocumentFeatureModel(
+            operations: EmptyWorkspaceOperations(readFileValue: "restored"),
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+        document.configure(
+            workspaceURLProvider: { URL(fileURLWithPath: "/in-memory") },
+            autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 },
+            notify: { Issue.record("Unexpected restoration notification: \($0)") },
+            onDocumentOpened: { _ in },
+            onDocumentChanged: { _ in },
+            onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in },
+            onRecordDiscard: { _ in },
+            onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {},
+            onProjectCloseReady: {}
+        )
+        defer { document.reset() }
+        let order = EditorTabOrderFeatureModel()
+        let coordinator = EditorSessionCoordinator(
+            document: document,
+            media: MediaDocumentFeatureModel(),
+            terminalPlacement: TerminalPlacementFeatureModel(),
+            tabOrder: order
+        )
+        let first = URL(fileURLWithPath: "/in-memory/first.txt")
+        let second = URL(fileURLWithPath: "/in-memory/second.txt")
+        let missing = URL(fileURLWithPath: "/in-memory/missing.txt")
+        await coordinator.restoreDocuments(
+            orderedPaths: [second.path, missing.path, first.path],
+            activePath: activePathExists ? second.path : missing.path,
+            availableFiles: [first, second]
+        )
+
+        #expect(document.openDocuments.map(\.url) == [second, first])
+        #expect(document.activeDocument?.url == (activePathExists ? second : first))
+        #expect(order.items == document.openDocuments.map { .document($0.id) })
+    }
+
+    @Test
+    func documentActivationSynchronizesTabsAndDeactivatesOtherEditors() throws {
+        let document = makeDocumentFeature()
+        let media = MediaDocumentFeatureModel()
+        let terminal = TerminalPlacementFeatureModel()
+        let order = EditorTabOrderFeatureModel()
+        let coordinator = EditorSessionCoordinator(
+            document: document, media: media, terminalPlacement: terminal, tabOrder: order
+        )
+        defer {
+            withExtendedLifetime(coordinator) {}
+            document.reset()
+        }
+        let image = media.open(url: URL(fileURLWithPath: "/in-memory/image.png"), kind: .image)
+        let terminalID = UUID()
+        terminal.registerSession(terminalID)
+        terminal.moveToEditor(terminalID)
+        terminal.activateEditorSession(terminalID)
+        order.move(.terminal(terminalID), before: .media(image.id))
+        #expect(media.activeMediaDocumentID == image.id)
+        #expect(terminal.activeEditorSessionID == terminalID)
+
+        document.openVirtualDocument(
+            try #require(URL(string: "lithe-test://document/one")),
+            text: "one",
+            displayPath: nil
+        )
+        let opened = try #require(document.openDocuments.first)
+        #expect(order.items == [.terminal(terminalID), .media(image.id), .document(opened.id)])
+        #expect(media.activeMediaDocumentID == nil)
+        #expect(terminal.activeEditorSessionID == nil)
+        #expect(document.activeDocumentID == opened.id)
+
+        media.close(image)
+        #expect(order.items == [.terminal(terminalID), .document(opened.id)])
+    }
+
+    @Test
+    func releasingCoordinatorCancelsCollectionAndSelectionSubscriptions() throws {
+        let document = makeDocumentFeature()
+        defer { document.reset() }
+        let media = MediaDocumentFeatureModel()
+        let terminal = TerminalPlacementFeatureModel()
+        let order = EditorTabOrderFeatureModel()
+        var coordinator: EditorSessionCoordinator? = EditorSessionCoordinator(
+            document: document, media: media, terminalPlacement: terminal, tabOrder: order
+        )
+        weak var released = coordinator
+        #expect(coordinator != nil)
+        coordinator = nil
+        #expect(released == nil)
+
+        let image = media.open(url: URL(fileURLWithPath: "/in-memory/image.png"), kind: .image)
+        let terminalID = UUID()
+        terminal.registerSession(terminalID)
+        terminal.moveToEditor(terminalID)
+        terminal.activateEditorSession(terminalID)
+        document.openVirtualDocument(
+            try #require(URL(string: "lithe-test://document/unobserved")),
+            text: "unobserved",
+            displayPath: nil
+        )
+        #expect(order.items.isEmpty)
+        #expect(media.activeMediaDocumentID == image.id)
+        #expect(terminal.activeEditorSessionID == terminalID)
+    }
+
+    private func makeDocumentFeature() -> DocumentFeatureModel {
+        DocumentFeatureModel(
+            operations: EmptyWorkspaceOperations(),
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+    }
+}
 
 private struct EmptyWorkspaceOperations: WorkspaceOperations {
     let readFileValue: String?

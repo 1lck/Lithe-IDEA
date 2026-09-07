@@ -47,13 +47,13 @@ struct BranchSwitcherPopoverBehaviorTests {
         let source = try Self.popoverSource()
 
         // The single permitted checkout call site is the menu's Checkout entry.
-        let checkoutCallSites = source.components(separatedBy: "model.checkoutReference(").count - 1
+        let checkoutCallSites = source.components(separatedBy: "feature.checkoutReference(").count - 1
         #expect(
             checkoutCallSites == 1,
             "Checkout must have exactly one call site, the explicit Checkout menu entry."
         )
 
-        guard let checkoutRange = source.range(of: "model.checkoutReference(") else {
+        guard let checkoutRange = source.range(of: "feature.checkoutReference(") else {
             Issue.record("Expected a checkout call site in the branch popup.")
             return
         }
@@ -109,10 +109,20 @@ struct BranchSwitcherPopoverBehaviorTests {
 
         #expect(popover.contains("dismissAndRun { onDelete(reference) }"))
         #expect(
-            !popover.contains("model.deleteBranch(reference)"),
+            !popover.contains("model.deleteBranch(reference)")
+                && !popover.contains("feature.deleteBranch(reference)"),
             "The popover must not delete a branch before the user confirms."
         )
         #expect(workbench.contains("Button(\"Delete\", role: .destructive)"))
         #expect(workbench.contains("Task { await model.deleteBranch(reference) }"))
+    }
+
+    @Test
+    func popupUsesScopedGitStateAndExplicitComparisonNavigation() throws {
+        let source = try Self.popoverSource()
+        #expect(!source.contains("AppModel"))
+        #expect(source.contains("@ObservedObject var feature: GitFeatureModel"))
+        #expect(source.contains("await onCompareWithWorkingTree(reference)"))
+        #expect(source.contains("await onCompareReferences(reference, current)"))
     }
 }

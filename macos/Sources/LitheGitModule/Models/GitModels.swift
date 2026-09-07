@@ -134,6 +134,67 @@ package struct GitWorktree: Identifiable, Hashable, Sendable {
     }
 }
 
+/// Stable, renderer-neutral status used by the Worktrees list projection.
+package enum GitWorktreeStatusKind: String, Equatable, Sendable {
+    case pathMissing
+    case locked
+    case modified
+    case current
+    case available
+}
+
+/// Worktree row data prepared outside the SwiftUI render path.
+package struct GitWorktreeListItem: Identifiable, Equatable, Sendable {
+    package let worktree: GitWorktree
+    package let status: GitWorktreeStatusKind
+
+    package var id: String { worktree.id }
+
+    package init(worktree: GitWorktree, status: GitWorktreeStatusKind) {
+        self.worktree = worktree
+        self.status = status
+    }
+}
+
+package enum GitWorktreeListProjection {
+    /// Filters and classifies rows with one linear pass. The inspection is
+    /// passed as a value so unrelated Git model publications cannot trigger
+    /// repeated status lookups for every row.
+    package static func items(
+        worktrees: [GitWorktree],
+        query rawQuery: String,
+        inspection: GitWorktreeInspection?,
+        currentChangeCount: Int
+    ) -> [GitWorktreeListItem] {
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        return worktrees.compactMap { worktree in
+            if !query.isEmpty,
+               !worktree.displayName.localizedCaseInsensitiveContains(query),
+               !worktree.path.localizedCaseInsensitiveContains(query),
+               !(worktree.branchName?.localizedCaseInsensitiveContains(query) ?? false)
+            {
+                return nil
+            }
+
+            let status: GitWorktreeStatusKind
+            if worktree.isPrunable {
+                status = .pathMissing
+            } else if worktree.isLocked {
+                status = .locked
+            } else if inspection?.worktreeID == worktree.id, let inspection, !inspection.changes.isEmpty {
+                status = .modified
+            } else if worktree.isCurrent, currentChangeCount > 0 {
+                status = .modified
+            } else if worktree.isCurrent {
+                status = .current
+            } else {
+                status = .available
+            }
+            return GitWorktreeListItem(worktree: worktree, status: status)
+        }
+    }
+}
+
 package enum GitReferenceKind: String, Sendable {
     case local
     case remote
@@ -212,42 +273,39 @@ package struct GitCommitFile: Identifiable, Hashable, Sendable {
     package var id: String { "\(status):\(path)" }
 }
 
-package struct GitCommitFileTreeNode: Identifiable, Sendable {
+package struct GitCommitFileTreeNode: Identifiable, Equatable, Sendable {
     package let path: String
     package let name: String
     package let directories: [GitCommitFileTreeNode]
     package let files: [GitCommitFile]
+    package let fileCount: Int
 
     package var id: String { path.isEmpty ? "." : path }
-
-    package var fileCount: Int {
-        files.count + directories.reduce(0) { $0 + $1.fileCount }
-    }
 
     package static func build(from files: [GitCommitFile], rootName: String) -> GitCommitFileTreeNode {
         let root = MutableGitCommitFileTreeNode(name: rootName, path: "")
 
         for file in files {
-            let components = file.path
-                .split(separator: "/", omittingEmptySubsequences: true)
-                .map(String.init)
+            let components = file.path.split(separator: "/", omittingEmptySubsequences: true)
             guard !components.isEmpty else {
                 root.files.append(file)
                 continue
             }
 
             var node = root
-            var pathComponents: [String] = []
+            var currentPath = ""
             for component in components.dropLast() {
-                pathComponents.append(component)
-                let path = pathComponents.joined(separator: "/")
-                if node.directories[component] == nil {
-                    node.directories[component] = MutableGitCommitFileTreeNode(
-                        name: component,
-                        path: path
-                    )
+                let name = String(component)
+                if currentPath.isEmpty {
+                    currentPath = name
+                } else {
+                    currentPath += "/"
+                    currentPath += name
                 }
-                node = node.directories[component]!
+                if node.directories[name] == nil {
+                    node.directories[name] = MutableGitCommitFileTreeNode(name: name, path: currentPath)
+                }
+                node = node.directories[name]!
             }
             node.files.append(file)
         }
@@ -259,13 +317,16 @@ package struct GitCommitFileTreeNode: Identifiable, Sendable {
         from node: MutableGitCommitFileTreeNode,
         isRoot: Bool = false
     ) -> GitCommitFileTreeNode {
+        let directories = node.directories.values
+            .map { makeNode(from: $0) }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        let files = node.files.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
         let result = GitCommitFileTreeNode(
             path: node.path,
             name: node.name,
-            directories: node.directories.values
-                .map { makeNode(from: $0) }
-                .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
-            files: node.files.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+            directories: directories,
+            files: files,
+            fileCount: files.count + directories.reduce(0) { $0 + $1.fileCount }
         )
 
         guard !isRoot, result.files.isEmpty, result.directories.count == 1,
@@ -277,7 +338,8 @@ package struct GitCommitFileTreeNode: Identifiable, Sendable {
             path: child.path,
             name: "\(result.name)/\(child.name)",
             directories: child.directories,
-            files: child.files
+            files: child.files,
+            fileCount: child.fileCount
         )
     }
 }

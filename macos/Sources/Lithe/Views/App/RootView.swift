@@ -86,6 +86,7 @@ struct RootView: View {
         .task {
             guard !didStartAutomaticUpdateCheck else { return }
             didStartAutomaticUpdateCheck = true
+            guard !LithePerformanceBaseline.isEnabled else { return }
             await updateChecker.checkForUpdates()
         }
     }
@@ -150,7 +151,7 @@ private struct ActiveSessionChrome: View {
                     title: windowTitle
                 )
             )
-            .onReceive(model.$isSettingsPresented) { isPresented in
+            .onReceive(model.workbenchFeature.$isSettingsPresented) { isPresented in
                 guard isPresented else { return }
                 openWindow(id: LitheWindowID.settings)
             }

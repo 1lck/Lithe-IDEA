@@ -26,7 +26,10 @@ use crate::project::{
     HistoryContentRequest, HistoryDeleteRequest, HistoryEntriesRequest, HistoryRecordRequest,
     HistoryRelocateRequest, HistoryRenameRequest,
 };
-use crate::project::{MarkdownRenderRequest, MavenDiagnosticsRequest, MavenScanRequest};
+use crate::project::{
+    MarkdownRenderRequest, MavenDependenciesRequest, MavenDependencyPlanRequest,
+    MavenDiagnosticsRequest, MavenScanRequest,
+};
 use crate::protocol::CoreResponse;
 use crate::protocol::{CoreCommand, CoreRequest};
 use crate::protocol::{CoreError, ErrorCode};
@@ -466,6 +469,42 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Maven launch plan should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::MavenDependencyPlan => {
+            match serde_json::from_value::<MavenDependencyPlanRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Maven dependency-plan request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::project::dependency_plan)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Maven dependency plan should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::MavenDependencies => {
+            match serde_json::from_value::<MavenDependenciesRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Maven dependencies request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::project::dependencies)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Maven dependencies should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

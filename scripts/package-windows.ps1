@@ -166,8 +166,8 @@ if (-not $profileRoot.StartsWith($targetPrefix, [System.StringComparison]::Ordin
     throw "Windows Cargo target profile must stay inside $cargoTargetRoot"
 }
 $bundleDirectory = Join-Path $profileRoot "bundle/nsis"
-$bundle = Get-ChildItem -LiteralPath $bundleDirectory -Filter "*.exe" -File |
-    Select-Object -First 1
+$bundleName = "Lithe_${Version}_x64-setup.exe"
+$bundle = Get-Item -LiteralPath (Join-Path $bundleDirectory $bundleName) -ErrorAction SilentlyContinue
 if ($null -eq $bundle) { throw "Tauri NSIS installer was not found in $bundleDirectory" }
 
 New-Item -ItemType Directory -Force -Path $output | Out-Null

@@ -3,12 +3,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isBackendCapabilityAvailable } from "@/config/backend-capabilities";
 import DebuggerView from "@/features/debugger/components/debugger-view";
 import DiagnosticsBuffer from "@/features/diagnostics/components/diagnostics-buffer";
+import MavenRunPane from "@/features/maven/components/maven-run-pane";
 import RunPane from "@/features/run/components/run-pane";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { GitLogToolWindow } from "@/features/git/components/log/git-log-tool-window";
-import MavenPane from "@/features/maven/components/maven-pane";
-import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { BOTTOM_PANE_ID } from "@/features/panes/constants/pane";
 import { usePaneStore } from "@/features/panes/stores/pane.store";
 import { activateBufferInPaneAndSync } from "@/features/panes/utils/pane-activation";
@@ -30,8 +29,6 @@ const BottomPane = () => {
   const { t } = useTranslation();
   const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible);
   const bottomPaneActiveTab = useUIState((state) => state.bottomPaneActiveTab);
-  const mavenProjectStatus = useMavenStore((state) => state.projectStatus);
-  const mavenProject = useMavenStore((state) => state.project);
   const rootFolderPath = useProjectStore((state) => state.rootFolderPath);
   const terminalEnabled = useSettingsStore((state) => state.settings.coreFeatures.terminal);
   const debuggerEnabled = useSettingsStore((state) => state.settings.coreFeatures.debugger);
@@ -67,17 +64,6 @@ const BottomPane = () => {
       useUIState.getState().setIsBottomPaneVisible(false);
     }
   }, [bottomPaneActiveTab, isBottomPaneVisible]);
-
-  useEffect(() => {
-    if (
-      isBottomPaneVisible &&
-      bottomPaneActiveTab === "maven" &&
-      mavenProjectStatus === "ready" &&
-      !mavenProject
-    ) {
-      useUIState.getState().setIsBottomPaneVisible(false);
-    }
-  }, [bottomPaneActiveTab, isBottomPaneVisible, mavenProject, mavenProjectStatus]);
 
   useEffect(() => {
     if (
@@ -293,7 +279,7 @@ const BottomPane = () => {
 
         {bottomPaneActiveTab === "maven" && (
           <div className="h-full">
-            <MavenPane />
+            <MavenRunPane />
           </div>
         )}
 

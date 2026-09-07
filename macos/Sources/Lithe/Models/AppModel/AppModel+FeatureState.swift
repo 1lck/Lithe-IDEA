@@ -167,38 +167,17 @@ extension AppModel {
     }
     var gitStashes: [GitStash] { gitFeatureIfActive?.gitStashes ?? [] }
     var gitShelves: [GitShelfEntry] { gitFeatureIfActive?.gitShelves ?? [] }
-    var gitWorktrees: [GitWorktree] { gitFeatureIfActive?.gitWorktrees ?? [] }
-    var gitWorktreeLoadState: GitWorktreeLoadState {
-        gitFeatureIfActive?.gitWorktreeLoadState ?? .idle
-    }
-    var gitWorktreeInspection: GitWorktreeInspection? {
-        gitFeatureIfActive?.gitWorktreeInspection
-    }
-    var gitWorktreeInspectionLoadState: GitWorktreeInspectionLoadState {
-        gitFeatureIfActive?.gitWorktreeInspectionLoadState ?? .idle
-    }
-    var isPerformingWorktreeOperation: Bool {
-        gitFeatureIfActive?.isPerformingWorktreeOperation ?? false
-    }
     var gitSaveChangesPolicy: GitSaveChangesPolicy { settings.gitSaveChangesPolicy }
     var isPerformingStashOperation: Bool { gitFeatureIfActive?.isPerformingStashOperation ?? false }
     var isPerformingShelfOperation: Bool { gitFeatureIfActive?.isPerformingShelfOperation ?? false }
     var gitOperationState: GitOperationState? { gitFeatureIfActive?.gitOperationState }
     var gitConsoleEntries: [GitConsoleEntry] { gitFeatureIfActive?.gitConsoleEntries ?? [] }
     var isResolvingGitOperation: Bool { gitFeatureIfActive?.isResolvingGitOperation ?? false }
-    func clearGitConsole() { gitFeatureIfActive?.clearGitConsole() }
-    func loadGitConsoleIfNeeded() async { await gitFeatureIfActive?.loadGitConsoleIfNeeded() }
     var gitRepositoryRoot: URL? { gitFeatureIfActive?.gitRepositoryRoot }
     var currentBranch: String { gitFeatureIfActive?.currentBranch ?? "No Git" }
     var selectedChange: GitChange? {
         get { gitFeatureIfActive?.selectedChange }
         set { gitFeatureIfActive?.selectedChange = newValue }
-    }
-    var diffRows: [DiffRow] { gitFeatureIfActive?.diffRows ?? [] }
-    var diffHunks: [DiffHunk] { gitFeatureIfActive?.diffHunks ?? [] }
-    var gitDiffWhitespaceMode: GitDiffWhitespaceMode {
-        get { gitFeatureIfActive?.gitDiffWhitespaceMode ?? .doNotIgnore }
-        set { gitFeatureIfActive?.gitDiffWhitespaceMode = newValue }
     }
     var isLoadingDiff: Bool { gitFeatureIfActive?.isLoadingDiff ?? false }
     var isRefreshingGit: Bool { gitFeatureIfActive?.isRefreshingGit ?? false }
@@ -249,14 +228,7 @@ extension AppModel {
     var isCommitting: Bool { gitFeatureIfActive?.isCommitting ?? false }
     var gitBlameLines: [URL: [GitBlameLine]] { gitFeatureIfActive?.gitBlameLines ?? [:] }
     var gitReferences: [GitReference] { gitFeatureIfActive?.gitReferences ?? [] }
-    var recentGitReferences: [GitReference] { gitFeatureIfActive?.recentGitReferences ?? [] }
     var gitCommits: [GitCommit] { gitFeatureIfActive?.gitCommits ?? [] }
-    /// Cheap stand-in for `gitCommits` as a change key. Comparing the array
-    /// itself made every `.task(id:)` evaluation walk the whole commit list.
-    var gitCommitsVersion: Int { gitFeatureIfActive?.gitCommitsVersion ?? 0 }
-    var gitLogMatchedCommitHashes: Set<String>? {
-        gitFeatureIfActive?.gitLogMatchedCommitHashes
-    }
     var isFilteringGitLog: Bool { gitFeatureIfActive?.isFilteringGitLog ?? false }
     var selectedGitReference: GitReference? {
         get { gitFeatureIfActive?.selectedGitReference }
@@ -281,16 +253,9 @@ extension AppModel {
         get { gitFeatureIfActive?.selectedGitCommitDiffContext }
         set { gitFeatureIfActive?.selectedGitCommitDiffContext = newValue }
     }
-    var isLoadingGitHistory: Bool { gitFeatureIfActive?.isLoadingGitHistory ?? false }
     var isLoadingMoreGitHistory: Bool { gitFeatureIfActive?.isLoadingMoreGitHistory ?? false }
     var canLoadMoreGitHistory: Bool { gitFeatureIfActive?.canLoadMoreGitHistory ?? false }
     var branchComparison: GitBranchComparison? { gitFeatureIfActive?.branchComparison }
-    var selectedBranchComparisonFile: GitBranchComparisonFile? {
-        get { gitFeatureIfActive?.selectedBranchComparisonFile }
-        set { gitFeatureIfActive?.selectedBranchComparisonFile = newValue }
-    }
-    var branchComparisonRows: [DiffRow] { gitFeatureIfActive?.branchComparisonRows ?? [] }
-    var isLoadingBranchComparison: Bool { gitFeatureIfActive?.isLoadingBranchComparison ?? false }
     var isPerformingBranchOperation: Bool { gitFeatureIfActive?.isPerformingBranchOperation ?? false }
     var isCloningRepository: Bool { gitFeatureIfActive?.isCloningRepository ?? false }
     var languageNavigationResults: [LanguageNavigationLocation] {
@@ -305,20 +270,8 @@ extension AppModel {
     var isLoadingWorkspace: Bool { workspaceFeature.isLoadingWorkspace }
     var isRefreshingWorkspace: Bool { workspaceFeature.isRefreshingWorkspace }
     var workspaceLoadErrorMessage: String? { workspaceFeature.loadErrorMessage }
-    var searchResults: [FileSearchResult] { searchFeatureIfActive?.searchResults ?? [] }
-    var isSearching: Bool { searchFeatureIfActive?.isSearching ?? false }
-    var searchEverywhereResults: SearchEverywhereResults {
-        searchFeatureIfActive?.searchEverywhereResults ?? SearchEverywhereResults()
-    }
-    var searchEverywhereActionMatches: [LitheAction] {
-        LitheActionRegistry.actions(for: self).filter { $0.matches(searchEverywhereQuery) }
-    }
-    var isSearchingEverywhere: Bool { searchFeatureIfActive?.isSearchingEverywhere ?? false }
-    var projectReplacementFiles: [ProjectReplacementFile] {
-        searchFeatureIfActive?.projectReplacementFiles ?? []
-    }
-    var isLoadingProjectReplacement: Bool {
-        searchFeatureIfActive?.isLoadingProjectReplacement ?? false
+    func searchEverywhereActionMatches(query: String) -> [LitheAction] {
+        LitheActionRegistry.actions(for: self).filter { $0.matches(query) }
     }
 
     var localHistoryRequest: LocalHistoryRequest? {

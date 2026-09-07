@@ -36,10 +36,16 @@ final class KeyboardShortcutFeatureModel: ObservableObject {
     }
 
     var registrations: [KeyboardShortcutRegistration] {
+        registrations(for: settings.keyboardShortcutOverrides)
+    }
+
+    // Use the emitted overrides when observing @Published, whose stored value
+    // still contains the previous settings during the publication callback.
+    func registrations(for overrides: [String: [KeyboardShortcutBinding]]) -> [KeyboardShortcutRegistration] {
         commands.map { command in
             KeyboardShortcutRegistration(
                 commandID: command.id,
-                bindings: effectiveBindings(for: command.id)
+                bindings: overrides[command.id] ?? command.defaultBindings
             )
         }
     }

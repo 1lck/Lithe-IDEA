@@ -418,6 +418,7 @@ enum LitheTheme {
         static let statusBarHeight: CGFloat = 24
         static let cornerRadius: CGFloat = 5
         static let popupCornerRadius: CGFloat = 10
+        static let contextMenuCornerRadius: CGFloat = 9
         static let controlCornerRadius: CGFloat = 6
     }
 }
@@ -630,6 +631,20 @@ extension View {
             RoundedRectangle(cornerRadius: cornerRadius)
                 .fill(color)
         }
+    }
+
+    func litheContextMenuSurface(
+        cornerRadius: CGFloat = LitheTheme.Metrics.contextMenuCornerRadius
+    ) -> some View {
+        self
+            .litheRoundedControlBackground(
+                LitheTheme.contextMenuBackground,
+                cornerRadius: cornerRadius
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .stroke(LitheTheme.panelBorder, lineWidth: 1)
+            }
     }
 
     /// 浮层统一外观：圆角、背景、1pt 边框和投影。

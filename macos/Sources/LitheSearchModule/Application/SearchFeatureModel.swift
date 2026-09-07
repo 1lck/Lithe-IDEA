@@ -23,6 +23,8 @@ public final class SearchFeatureModel: ObservableObject {
     private let operations: any SearchOperations
     private var indexTask: Task<Void, Never>?
     private var indexTaskGeneration = 0
+    private var everywhereSearchGeneration = 0
+    private var replacementPreviewGeneration = 0
 
     public var hasActiveModuleWork: Bool {
         isSearching || isSearchingEverywhere || isLoadingProjectReplacement || indexTask != nil
@@ -140,6 +142,7 @@ public final class SearchFeatureModel: ObservableObject {
     }
 
     public func clearSearchEverywhere() {
+        everywhereSearchGeneration += 1
         searchEverywhereResults = SearchEverywhereResults(fileMatches: [], contentMatches: [])
         isSearchingEverywhere = false
     }
@@ -151,6 +154,8 @@ public final class SearchFeatureModel: ObservableObject {
         visibilityRules: SearchVisibilityRules,
         isCurrent: @escaping @MainActor () -> Bool
     ) async {
+        everywhereSearchGeneration += 1
+        let generation = everywhereSearchGeneration
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             clearSearchEverywhere()
             return
@@ -167,7 +172,7 @@ public final class SearchFeatureModel: ObservableObject {
             ) ?? SearchEverywhereResults()
         }.value
 
-        guard isCurrent() else {
+        guard generation == everywhereSearchGeneration, isCurrent() else {
             isSearchingEverywhere = false
             return
         }
@@ -181,6 +186,7 @@ public final class SearchFeatureModel: ObservableObject {
     }
 
     public func clearProjectReplacementPreview() {
+        replacementPreviewGeneration += 1
         projectReplacementFiles = []
         isLoadingProjectReplacement = false
     }
@@ -247,6 +253,8 @@ public final class SearchFeatureModel: ObservableObject {
         visibilityRules: SearchVisibilityRules,
         isCurrent: @escaping @MainActor () -> Bool
     ) async {
+        replacementPreviewGeneration += 1
+        let generation = replacementPreviewGeneration
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             clearProjectReplacementPreview()
             return
@@ -266,7 +274,7 @@ public final class SearchFeatureModel: ObservableObject {
             ) ?? []
         }.value
 
-        guard isCurrent() else {
+        guard generation == replacementPreviewGeneration, isCurrent() else {
             isLoadingProjectReplacement = false
             return
         }

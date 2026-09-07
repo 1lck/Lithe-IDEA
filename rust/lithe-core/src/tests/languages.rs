@@ -432,6 +432,116 @@ fn maven_launch_plan_matches_the_shared_compatibility_fixture() {
 }
 
 #[test]
+fn maven_dependency_plan_is_fixed_and_module_scoped() {
+    let root = temporary_root("maven-dependency-plan");
+    fs::create_dir_all(root.join("service")).expect("Maven module should be creatable");
+    fs::write(
+        root.join("pom.xml"),
+        r#"<project><artifactId>demo</artifactId><packaging>pom</packaging><modules><module>service</module></modules></project>"#,
+    )
+    .expect("reactor pom should be writable");
+    fs::write(
+        root.join("service/pom.xml"),
+        r#"<project><artifactId>service</artifactId></project>"#,
+    )
+    .expect("module pom should be writable");
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "maven-dependency-plan",
+            "command": "maven.dependencyPlan",
+            "payload": {
+                "root": root,
+                "context": {
+                    "version": 1,
+                    "reactorPath": ".",
+                    "profiles": ["dev"]
+                },
+                "module": "service"
+            }
+        })
+        .to_string(),
+    ))
+    .expect("Maven dependency-plan response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["data"]["arguments"],
+        serde_json::json!([
+            "-B",
+            "-ntp",
+            "-P",
+            "dev",
+            "-pl",
+            "service",
+            "org.apache.maven.plugins:maven-dependency-plugin:3.8.1:tree",
+            "-Dverbose=true",
+            "-DoutputType=text",
+            "-Dstyle.color=never",
+            "-Duser.language=en",
+            "-Duser.country=US"
+        ])
+    );
+    assert!(!response["data"]["arguments"]
+        .as_array()
+        .expect("arguments should be an array")
+        .iter()
+        .any(|argument| argument == "-am"));
+    fs::remove_dir_all(root).expect("Maven dependency-plan fixture should be removable");
+}
+
+#[test]
+fn maven_dependencies_match_the_shared_compatibility_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/maven/dependency-tree-v1.json"
+    ))
+    .expect("Maven dependency-tree fixture should be valid JSON");
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "maven-dependencies",
+            "command": "maven.dependencies",
+            "payload": {
+                "modulePath": fixture["modulePath"],
+                "output": fixture["output"]
+            }
+        })
+        .to_string(),
+    ))
+    .expect("Maven dependency response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(response["data"], fixture["expected"]);
+}
+
+#[test]
+fn maven_dependencies_reject_bounded_output_node_and_depth_overflow() {
+    let oversized_output = "x".repeat(500_001);
+    let too_many_nodes = (0..10_001)
+        .map(|index| format!("[INFO] +- example:dependency-{index}:jar:1:compile"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let too_deep = format!("[INFO] {}\\- example:deep:jar:1:compile", "|  ".repeat(64));
+
+    for (name, output) in [
+        ("output", oversized_output),
+        ("nodes", too_many_nodes),
+        ("depth", too_deep),
+    ] {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": name,
+                "command": "maven.dependencies",
+                "payload": {"modulePath": ".", "output": output}
+            })
+            .to_string(),
+        ))
+        .expect("bounded Maven dependency response should be JSON");
+        assert_eq!(response["ok"], false, "case {name}: {response}");
+        assert_eq!(response["error"]["code"], "parse_failed", "case {name}");
+    }
+}
+
+#[test]
 fn maven_launch_plan_rejects_unknown_modules_and_invalid_invocation_tokens() {
     let root = temporary_root("maven-launch-invalid");
     fs::create_dir_all(&root).expect("invalid Maven fixture should be creatable");

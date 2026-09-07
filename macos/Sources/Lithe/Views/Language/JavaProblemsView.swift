@@ -34,7 +34,7 @@ struct ProblemsView: View {
             systemImage: "exclamationmark.triangle",
             ideaAssetPath: "toolwindows/toolWindowProblems.svg",
             subtitle: allDiagnostics.isEmpty ? nil : String(diagnostics.count),
-            onMinimize: { model.isProblemsVisible = false }
+            onMinimize: { model.workbenchFeature.setVisibility(.problems, isVisible: false) }
         ) {
             if errorCount > 0 {
                 Label(String(errorCount), systemImage: "xmark.octagon.fill")

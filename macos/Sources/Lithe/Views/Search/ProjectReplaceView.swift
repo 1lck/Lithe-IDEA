@@ -2,12 +2,22 @@ import SwiftUI
 import LitheSearchModule
 
 struct ProjectReplaceView: View {
-    @EnvironmentObject private var model: AppModel
+    @ObservedObject var feature: SearchFeatureModel
+    @ObservedObject var session: SearchSessionFeatureModel
+    let previewReplacement: (String, String, ProjectSearchOptions) async -> Void
+    let applyReplacement: (String) async -> Void
+    let close: () -> Void
+    let openFile: (URL, String) -> Void
+    let revealInFinder: (URL) -> Void
+    let copyPath: (URL, Bool) -> Void
     @State private var expandedPaths: Set<String> = []
+    @State private var query = ""
+    @State private var replacement = ""
+    @State private var options = ProjectSearchOptions.default
 
     private var selectedFiles: [ProjectReplacementFile] {
-        model.projectReplacementFiles.filter {
-            model.selectedProjectReplacementPaths.contains($0.relativePath)
+        feature.projectReplacementFiles.filter {
+            session.selectedReplacementPaths.contains($0.relativePath)
         }
     }
 
@@ -25,13 +35,18 @@ struct ProjectReplaceView: View {
         }
         .frame(minWidth: 780, minHeight: 560)
         .background(LitheTheme.window)
-        .onChange(of: model.projectReplaceQuery) { _ in
+        .onAppear {
+            query = session.replacementQuery
+            replacement = session.replacementText
+            options = session.replacementOptions
+        }
+        .onChange(of: query) { _ in
             clearPreview()
         }
-        .onChange(of: model.projectReplaceText) { _ in
+        .onChange(of: replacement) { _ in
             clearPreview()
         }
-        .onChange(of: model.projectReplaceOptions) { _ in
+        .onChange(of: options) { _ in
             clearPreview()
         }
     }
@@ -45,7 +60,7 @@ struct ProjectReplaceView: View {
                 .foregroundStyle(LitheTheme.primaryText)
             Spacer()
             Button {
-                model.isProjectReplaceVisible = false
+                close()
             } label: {
                 Image(systemName: "xmark")
             }
@@ -60,29 +75,29 @@ struct ProjectReplaceView: View {
     private var controls: some View {
         VStack(spacing: 9) {
             HStack(spacing: 9) {
-                TextField("Find", text: $model.projectReplaceQuery)
+                TextField("Find", text: $query)
                     .textFieldStyle(.plain)
                     .litheSearchField()
                 Image(systemName: "arrow.right")
                     .foregroundStyle(LitheTheme.secondaryText)
-                TextField("Replace with", text: $model.projectReplaceText)
+                TextField("Replace with", text: $replacement)
                     .textFieldStyle(.plain)
                     .litheSearchField()
             }
 
             HStack(spacing: 14) {
-                Toggle("Match Case", isOn: $model.projectReplaceOptions.caseSensitive)
+                Toggle("Match Case", isOn: $options.caseSensitive)
                     .lithePointer()
-                Toggle("Whole Words", isOn: $model.projectReplaceOptions.wholeWords)
+                Toggle("Whole Words", isOn: $options.wholeWords)
                     .lithePointer()
-                Toggle("Regex", isOn: $model.projectReplaceOptions.regularExpression)
+                Toggle("Regex", isOn: $options.regularExpression)
                     .lithePointer()
-                Toggle("Preserve Case", isOn: $model.projectReplaceOptions.preserveCase)
+                Toggle("Preserve Case", isOn: $options.preserveCase)
                     .lithePointer()
-                    .disabled(model.projectReplaceOptions.caseSensitive)
+                    .disabled(options.caseSensitive)
                     .help("Match the original casing of each hit: fooBar → bazQux, FooBar → BazQux, FOOBAR → BAZQUX.")
 
-                TextField("File mask", text: $model.projectReplaceOptions.fileMask)
+                TextField("File mask", text: $options.fileMask)
                     .textFieldStyle(.plain)
                     .litheSearchField()
                     .frame(maxWidth: 190)
@@ -93,32 +108,34 @@ struct ProjectReplaceView: View {
 
             HStack(spacing: 8) {
                 Button {
-                    Task { await model.previewProjectReplacement() }
+                    Task {
+                        await previewReplacement(query, replacement, options)
+                    }
                 } label: {
                     Label("Preview", systemImage: "eye")
                 }
                 .buttonStyle(.borderedProminent)
                 .lithePointer()
                 .tint(LitheTheme.accent)
-                .disabled(model.projectReplaceQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isLoadingProjectReplacement)
+                .disabled(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || feature.isLoadingProjectReplacement)
 
                 Button {
-                    let allSelected = model.selectedProjectReplacementPaths.count == model.projectReplacementFiles.count
-                    model.selectedProjectReplacementPaths = allSelected
+                    let allSelected = session.selectedReplacementPaths.count == feature.projectReplacementFiles.count
+                    session.selectedReplacementPaths = allSelected
                         ? []
-                        : Set(model.projectReplacementFiles.map(\.relativePath))
+                        : Set(feature.projectReplacementFiles.map(\.relativePath))
                 } label: {
-                    Text(model.selectedProjectReplacementPaths.count == model.projectReplacementFiles.count
+                    Text(session.selectedReplacementPaths.count == feature.projectReplacementFiles.count
                         ? "Clear Selection"
                         : "Select All")
                 }
                 .buttonStyle(.bordered)
                 .lithePointer()
-                .disabled(model.projectReplacementFiles.isEmpty)
+                .disabled(feature.projectReplacementFiles.isEmpty)
 
                 Spacer()
 
-                if model.isLoadingProjectReplacement {
+                if feature.isLoadingProjectReplacement {
                     ProgressView()
                         .controlSize(.small)
                 }
@@ -126,12 +143,12 @@ struct ProjectReplaceView: View {
                     .font(.system(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                 Button("Apply") {
-                    Task { await model.applyProjectReplacement() }
+                    Task { await applyReplacement(query) }
                 }
                 .buttonStyle(.borderedProminent)
                 .lithePointer()
                 .tint(LitheTheme.accent)
-                .disabled(selectedFiles.isEmpty || model.isLoadingProjectReplacement)
+                .disabled(selectedFiles.isEmpty || feature.isLoadingProjectReplacement)
             }
         }
         .padding(12)
@@ -140,11 +157,11 @@ struct ProjectReplaceView: View {
 
     @ViewBuilder
     private var results: some View {
-        if model.projectReplacementFiles.isEmpty {
+        if feature.projectReplacementFiles.isEmpty {
             VStack(spacing: 8) {
                 Image(systemName: "doc.text.magnifyingglass")
                     .font(.system(size: 28, weight: .light))
-                Text(model.projectReplaceQuery.isEmpty
+                Text(query.isEmpty
                     ? "Enter text to preview project changes"
                     : "No replacement matches")
             }
@@ -154,7 +171,7 @@ struct ProjectReplaceView: View {
         } else {
             ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(model.projectReplacementFiles) { file in
+                    ForEach(feature.projectReplacementFiles) { file in
                         fileRow(file)
                         Rectangle().fill(LitheTheme.divider).frame(height: 1)
                     }
@@ -194,10 +211,10 @@ struct ProjectReplaceView: View {
                 Toggle(
                     "",
                     isOn: Binding(
-                        get: { model.selectedProjectReplacementPaths.contains(file.relativePath) },
+                        get: { session.selectedReplacementPaths.contains(file.relativePath) },
                         set: { selected in
-                            if selected { model.selectedProjectReplacementPaths.insert(file.relativePath) }
-                            else { model.selectedProjectReplacementPaths.remove(file.relativePath) }
+                            if selected { session.selectedReplacementPaths.insert(file.relativePath) }
+                            else { session.selectedReplacementPaths.remove(file.relativePath) }
                         }
                     )
                 )
@@ -226,17 +243,17 @@ struct ProjectReplaceView: View {
         .litheContextMenu {
             [
                 .action("Open", systemImage: "doc.text", action: {
-                    model.openFile(file.url, displayPath: file.relativePath)
+                    openFile(file.url, file.relativePath)
                 }),
                 .action("Show in Finder", systemImage: "folder", action: {
-                    model.revealProjectItemInFinder(file.url)
+                    revealInFinder(file.url)
                 }),
                 .submenu("Copy Path / Reference", items: [
                     .action("Copy Path", action: {
-                        model.copyProjectItemPath(file.url, relative: false)
+                        copyPath(file.url, false)
                     }),
                     .action("Copy Relative Path", action: {
-                        model.copyProjectItemPath(file.url, relative: true)
+                        copyPath(file.url, true)
                     })
                 ])
             ]
@@ -244,7 +261,7 @@ struct ProjectReplaceView: View {
     }
 
     private func clearPreview() {
-        guard !model.projectReplacementFiles.isEmpty else { return }
-        model.clearProjectReplacementPreview()
+        guard !feature.projectReplacementFiles.isEmpty else { return }
+        feature.clearProjectReplacementPreview()
     }
 }

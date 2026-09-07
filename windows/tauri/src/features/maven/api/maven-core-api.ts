@@ -1,5 +1,6 @@
 import { executeCore } from "@/core/lithe-core-client";
 import type {
+  MavenDependenciesResponse,
   MavenDiagnostic,
   MavenLaunchContext,
   MavenLaunchPlan,
@@ -50,6 +51,22 @@ export function createMavenLaunchPlan(
     module: module ?? null,
     goals,
   });
+}
+
+export function createMavenDependencyPlan(
+  root: string,
+  context: MavenLaunchContext,
+  module?: string | null,
+) {
+  return mavenCore<MavenLaunchPlan>("maven.dependencyPlan", {
+    root,
+    context,
+    module: module ?? null,
+  });
+}
+
+export function parseMavenDependencies(modulePath: string, output: string) {
+  return mavenCore<MavenDependenciesResponse>("maven.dependencies", { modulePath, output });
 }
 
 export async function parseMavenDiagnostics(root: string, output: string) {

@@ -235,7 +235,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
     package func synchronizeLanguageServer(
         for fileURL: URL,
         text: String,
-        rootURL: URL
+        rootURL: URL,
+        changes: [LanguageServerDocumentChange] = []
     ) throws {
         guard let descriptor = catalog.provider(for: fileURL) else {
             throw LanguageToolingSessionError.noProvider(fileExtension: fileURL.pathExtension.lowercased())
@@ -249,12 +250,22 @@ package final class LanguageToolingSessionManager: ObservableObject,
             rootURL: normalizedRoot,
             operationID: nil
         )
-        try session.synchronize(
-            fileURL: fileURL,
-            text: text,
-            languageID: extensionLanguageIdentifiers[descriptor.id]
-                ?? descriptor.languageIdentifier(for: fileURL)
-        )
+        if let incremental = session as? LanguageServerRuntimeSession {
+            try incremental.synchronize(
+                fileURL: fileURL,
+                text: text,
+                languageID: extensionLanguageIdentifiers[descriptor.id]
+                    ?? descriptor.languageIdentifier(for: fileURL),
+                changes: changes
+            )
+        } else {
+            try session.synchronize(
+                fileURL: fileURL,
+                text: text,
+                languageID: extensionLanguageIdentifiers[descriptor.id]
+                    ?? descriptor.languageIdentifier(for: fileURL)
+            )
+        }
     }
 
     /// Starts one workspace-owned session without opening a document.

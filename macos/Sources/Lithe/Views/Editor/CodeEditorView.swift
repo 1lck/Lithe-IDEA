@@ -967,6 +967,14 @@ struct CodeEditorView: NSViewRepresentable {
         var colorTheme: AppColorTheme = .lithe
         var shouldFocus = true
         var markdownScrollPosition: Binding<MarkdownScrollPosition>?
+        private struct CodeVisionInputKey: Equatable {
+            let textHash: Int
+            let hintCount: Int
+            let foldCount: Int
+            let collapsedIDs: Set<String>
+            let enabled: Bool
+        }
+
         var appliedNavigationTargetID: UUID?
         var foldRegions: [JavaFoldRegion] = []
         var collapsedFoldIDs: Set<String> = []
@@ -989,6 +997,7 @@ struct CodeEditorView: NSViewRepresentable {
         private var appliedLanguageFeatures: LanguageServerFeatureSet?
         private var appliedReadOnly: Bool?
         private var appliedCodeVisionHints: [JavaCodeVisionHint]?
+        private var codeVisionInputKey: CodeVisionInputKey?
         private var appliedInlineDebugLine: Int?
         private var appliedInlineDebugValues: [EditorInlineDebugValue] = []
         private var requestedAutomaticDebugFrameID: Int?
@@ -1287,6 +1296,8 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         func textDidChange(_ notification: Notification) {
+            let signpost = LitheSignpost.begin("editor.input")
+            defer { LitheSignpost.end("editor.input", signpost) }
             guard let textView else { return }
             guard document?.isReadOnly != true else { return }
             let codeTextView = textView as? CodeTextView
@@ -1298,7 +1309,18 @@ struct CodeEditorView: NSViewRepresentable {
             }
             gutter?.refreshLineNumberLayout()
             isApplyingEditorChange = true
-            document?.applyLiveEditorText(textView.string)
+            if let document,
+               let replacedRange = pendingReplacedRange,
+               let replacement = pendingReplacement {
+                document.applyLiveEditorEdit(
+                    replacedRange: replacedRange,
+                    replacement: replacement
+                )
+            } else {
+                // Programmatic edits may not provide shouldChangeTextIn
+                // metadata. Keep this recovery path for those edits only.
+                document?.applyLiveEditorText(textView.string)
+            }
             if let document,
                let previousSource,
                let replacedRange = pendingReplacedRange,
@@ -1313,9 +1335,12 @@ struct CodeEditorView: NSViewRepresentable {
             if let document {
                 scheduleDocumentChange(document)
             }
-            highlight(in: pendingHighlightRange)
             let findReplacedRange = pendingReplacedRange
             let findInsertedLength = pendingHighlightRange?.length ?? 0
+            highlight(
+                in: pendingHighlightRange,
+                replacedLength: pendingReplacedRange?.length
+            )
             pendingHighlightRange = nil
             pendingReplacedRange = nil
             pendingReplacement = nil
@@ -1432,12 +1457,18 @@ struct CodeEditorView: NSViewRepresentable {
             return changed
         }
 
-        func highlight(in editedRange: NSRange? = nil) {
+        func highlight(in editedRange: NSRange? = nil, replacedLength: Int? = nil) {
             guard let textView, let textStorage = textView.textStorage else { return }
             let fullRange = NSRange(location: 0, length: textStorage.length)
             let font = textView.font ?? LitheTheme.editorFont(size: 13)
             if let editedRange {
-                highlightedRanges.removeAll()
+                highlightedRanges.applyEdit(
+                    replacedRange: NSRange(
+                        location: editedRange.location,
+                        length: replacedLength ?? editedRange.length
+                    ),
+                    replacementLength: editedRange.length
+                )
                 let target = SyntaxHighlighter.targetRange(
                     for: editedRange,
                     in: textStorage.string as NSString,
@@ -1616,15 +1647,24 @@ struct CodeEditorView: NSViewRepresentable {
             guard let document, let model else { return }
             let url = document.url.standardizedFileURL
             let hints = model.settings.showCodeVision ? model.javaCodeVisionHints[url] ?? [] : []
-            let visibleCodeVisionHints = EditorFoldVisibility.visibleCodeVisionHints(
-                hints,
-                in: (textView?.string ?? "") as NSString,
-                regions: foldRegions,
-                collapsedIDs: collapsedFoldIDs
-            )
             let overlayLayoutChanged = appliedEditorOverlayLayoutRevision != editorOverlayLayoutRevision
-
-            if appliedCodeVisionHints != visibleCodeVisionHints || overlayLayoutChanged {
+            // Further resize optimization can move this representable behind a stable
+            // layout boundary and skip all geometry-only updates before reaching here.
+            let inputKey = CodeVisionInputKey(
+                textHash: textView?.string.hashValue ?? 0,
+                hintCount: hints.count,
+                foldCount: foldRegions.count,
+                collapsedIDs: collapsedFoldIDs,
+                enabled: model.settings.showCodeVision
+            )
+            if codeVisionInputKey != inputKey || overlayLayoutChanged {
+                let visibleCodeVisionHints = EditorFoldVisibility.visibleCodeVisionHints(
+                    hints,
+                    in: (textView?.string ?? "") as NSString,
+                    regions: foldRegions,
+                    collapsedIDs: collapsedFoldIDs
+                )
+                codeVisionInputKey = inputKey
                 appliedCodeVisionHints = visibleCodeVisionHints
                 codeVisionOverlay?.update(
                     hints: visibleCodeVisionHints,
@@ -5715,5 +5755,30 @@ struct HighlightedRangeCache {
 
     mutating func removeAll() {
         ranges.removeAll(keepingCapacity: true)
+    }
+
+    /// Keeps cached ranges valid after NSTextStorage applies an edit. Ranges
+    /// crossing the edit are discarded; ranges after it are shifted by the
+    /// UTF-16 length delta.
+    mutating func applyEdit(replacedRange: NSRange, replacementLength: Int) {
+        guard replacedRange.location != NSNotFound,
+              replacedRange.location >= 0,
+              replacedRange.length >= 0,
+              replacementLength >= 0 else {
+            removeAll()
+            return
+        }
+
+        let editEnd = NSMaxRange(replacedRange)
+        let delta = replacementLength - replacedRange.length
+        ranges = ranges.compactMap { range in
+            if NSMaxRange(range) > replacedRange.location && range.location < editEnd {
+                return nil
+            }
+            if range.location >= editEnd {
+                return NSRange(location: range.location + delta, length: range.length)
+            }
+            return range
+        }
     }
 }
