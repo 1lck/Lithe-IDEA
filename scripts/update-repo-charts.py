@@ -29,7 +29,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", required=True, help="Repository name, for example 1lck/Lithe-IDEA")
     parser.add_argument("--stargazers", type=Path, required=True)
-    parser.add_argument("--contributors", type=Path, required=True)
+    parser.add_argument("--merged-pull-requests", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
 
@@ -47,6 +47,44 @@ def flatten_pages(payload: object) -> list[dict]:
 def load_entries(path: Path) -> list[dict]:
     with path.open(encoding="utf-8") as stream:
         return flatten_pages(json.load(stream))
+
+
+def load_merged_pull_request_authors(path: Path) -> list[dict]:
+    """Aggregate merged PR search results into contributors ranked by merged PR count."""
+    with path.open(encoding="utf-8") as stream:
+        pages = json.load(stream)
+
+    pull_requests = [
+        item
+        for page in pages
+        if isinstance(page, dict)
+        for item in page.get("items", [])
+        if isinstance(item, dict)
+    ]
+
+    authors: dict[str, dict] = {}
+    for pull_request in pull_requests:
+        user = pull_request.get("user")
+        if not isinstance(user, dict) or user.get("type") != "User":
+            continue
+
+        login = user.get("login")
+        if not isinstance(login, str):
+            continue
+
+        author = authors.setdefault(
+            login,
+            {
+                "login": login,
+                "avatar_url": user.get("avatar_url"),
+                "html_url": user.get("html_url"),
+                "contributions": 0,
+            },
+        )
+        author["contributions"] += 1
+
+    return sorted(authors.values(), key=lambda author: author["contributions"], reverse=True)
+
 
 
 def parse_starred_date(entry: dict) -> date | None:
@@ -300,7 +338,7 @@ def contributor_svg(repo: str, entries: list[dict]) -> str:
         y = margin + (index // columns) * (avatar_size + gap)
         clip_id = f"avatar-{index}"
         contributions = contributor.get("contributions", 0)
-        label = f"{login} ({contributions} contributions)"
+        label = f"{login} ({contributions} merged pull requests)"
         elements.append(f'<clipPath id="{clip_id}"><circle cx="{x + avatar_size / 2}" cy="{y + avatar_size / 2}" r="{avatar_size / 2 - 2}"/></clipPath>')
         elements.append(f'<a href="{html.escape(str(profile_url), quote=True)}">')
         avatar_href = None
@@ -334,7 +372,7 @@ def main() -> None:
     arguments = parse_args()
     arguments.output.mkdir(parents=True, exist_ok=True)
     stargazers = load_entries(arguments.stargazers)
-    contributors = load_entries(arguments.contributors)
+    contributors = load_merged_pull_request_authors(arguments.merged_pull_requests)
     (arguments.output / "star-history-light.svg").write_text(star_history_svg(arguments.repo, stargazers, dark=False), encoding="utf-8")
     (arguments.output / "star-history-dark.svg").write_text(star_history_svg(arguments.repo, stargazers, dark=True), encoding="utf-8")
     (arguments.output / "contributors.svg").write_text(contributor_svg(arguments.repo, contributors), encoding="utf-8")

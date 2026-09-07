@@ -33,7 +33,7 @@
     <a href="./LICENSE"><img src="https://img.shields.io/github/license/1lck/Lithe-IDEA?style=flat&label=license" alt="Apache License 2.0"></a>
   </p>
   <p>
-    <img src="https://img.shields.io/badge/Java-JDK%2017%2B-E76F00?style=flat&logo=openjdk&logoColor=white" alt="JDK 17+">
+    <img src="https://img.shields.io/badge/Java-Development-E76F00?style=flat&logo=openjdk&logoColor=white" alt="Java development">
     <img src="https://img.shields.io/badge/Spring%20Boot-Projects-6DB33F?style=flat&logo=springboot&logoColor=white" alt="Spring Boot projects">
     <img src="https://img.shields.io/badge/Maven-Management-C71A36?style=flat&logo=apachemaven&logoColor=white" alt="Maven management">
     <img src="https://img.shields.io/badge/Debugger-Breakpoints-D32F2F?style=flat" alt="Breakpoint debugging">
@@ -221,7 +221,19 @@ See [Repository layout and shared boundaries](./docs/architecture/repository-lay
 
 ## Project support
 
-### ❤️ Sponsors <sup><a href="mailto:2188718831@qq.com">Become a sponsor</a></sup>
+### ❤️ Sponsors
+
+<p align="center">
+  <a href="https://www.fastaitoken.com/">
+    <img src="./docs/assets/sponsors/fastai-qrcode.png" width="480" alt="FastAI Token community chat group QR code">
+  </a>
+</p>
+<p align="center">
+  <a href="https://www.fastaitoken.com/"><strong>FastAI</strong></a><br>
+  FastAI provides convenient relay access to a range of leading large language models, making it easier to connect AI capabilities to everyday development workflows. Its support helps Lithe continue improving its AI-assisted experience. Thank you to FastAI for supporting this project! Scan the QR code above to join the FastAI Token community chat group #2 (group ID: 1073874006).
+</p>
+
+<a href="mailto:2188718831@qq.com">Want to be featured below?</a>
 
 <table>
   <tr>
@@ -236,12 +248,12 @@ See [Repository layout and shared boundaries](./docs/architecture/repository-lay
   </tr>
   <tr>
     <td width="112" align="center">
-      <a href="https://codezsy.com">
-        <img src="https://raw.githubusercontent.com/zwenooo/z/main/logo/codez-logo-bq.png" width="64" alt="CodeZ relay service">
+      <a href="https://torchai.ai">
+        <img src="./docs/assets/sponsors/torchai.jpg" width="64" alt="TorchAI">
       </a>
     </td>
     <td>
-      <a href="https://codezsy.com"><strong>CodeZ</strong></a> focuses on stable relay access to GPT-family models, offering developers a straightforward way to integrate model APIs into their tools and projects. Its sponsorship contributes to the ongoing development and maintenance of Lithe. Thank you to CodeZ for supporting this project!
+      <a href="https://torchai.ai"><strong>TorchAI</strong></a> provides large language model relay services for developers who need convenient API access across coding, content, and automation scenarios. Its support helps sustain Lithe's development and exploration of practical AI-powered tools. Thank you to TorchAI for supporting this project!
     </td>
   </tr>
   <tr>
@@ -256,12 +268,12 @@ See [Repository layout and shared boundaries](./docs/architecture/repository-lay
   </tr>
   <tr>
     <td width="112" align="center">
-      <a href="https://torchai.ai">
-        <img src="./docs/assets/sponsors/torchai.jpg" width="64" alt="TorchAI">
+      <a href="https://codezsy.com/register?aff=fDyA">
+        <img src="https://raw.githubusercontent.com/zwenooo/z/main/logo/codez-logo-bq.png" width="64" alt="CodeZ relay service">
       </a>
     </td>
     <td>
-      <a href="https://torchai.ai"><strong>TorchAI</strong></a> provides large language model relay services for developers who need convenient API access across coding, content, and automation scenarios. Its support helps sustain Lithe's development and exploration of practical AI-powered tools. Thank you to TorchAI for supporting this project!
+      <a href="https://codezsy.com/register?aff=fDyA"><strong>CodeZ</strong></a> focuses on stable relay access to GPT-family models, offering developers a straightforward way to integrate model APIs into their tools and projects. Its sponsorship contributes to the ongoing development and maintenance of Lithe. Thank you to CodeZ for supporting this project!
     </td>
   </tr>
 </table>

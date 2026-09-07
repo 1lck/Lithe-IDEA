@@ -36,8 +36,8 @@ jobs:
             "repos/${GITHUB_REPOSITORY}/stargazers?per_page=100" \
             > "$RUNNER_TEMP/repo-charts/stargazers.json"
           gh api --paginate --slurp \
-            "repos/${GITHUB_REPOSITORY}/contributors?per_page=100" \
-            > "$RUNNER_TEMP/repo-charts/contributors.json"
+            "search/issues?q=repo:${GITHUB_REPOSITORY}+type:pr+is:merged&per_page=100" \
+            > "$RUNNER_TEMP/repo-charts/merged-pull-requests.json"
 
       - name: Generate SVG charts
         run: |
@@ -45,7 +45,7 @@ jobs:
           python3 scripts/update-repo-charts.py \
             --repo "$GITHUB_REPOSITORY" \
             --stargazers "$RUNNER_TEMP/repo-charts/stargazers.json" \
-            --contributors "$RUNNER_TEMP/repo-charts/contributors.json" \
+            --merged-pull-requests "$RUNNER_TEMP/repo-charts/merged-pull-requests.json" \
             --output "$RUNNER_TEMP/repo-charts/assets"
           test -s "$RUNNER_TEMP/repo-charts/assets/star-history-light.svg"
           test -s "$RUNNER_TEMP/repo-charts/assets/star-history-dark.svg"
