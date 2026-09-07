@@ -129,6 +129,13 @@ final class ProjectSessionManager: ObservableObject {
         sessions(in: scope).filter { $0.workspaceURL != nil }
     }
 
+    /// Returns the pending open prompt only when it originated in `scope`.
+    /// Multi-window RootViews must use this so Ask sheets do not present twice.
+    func pendingProjectOpen(in scope: ProjectWindowScope) -> PendingProjectOpen? {
+        guard let pending = pendingProjectOpen else { return nil }
+        return self.scope(for: pending.sourceSessionID) == scope ? pending : nil
+    }
+
     func activeSessionID(in scope: ProjectWindowScope) -> UUID {
         if let id = activeSessionIDs[scope], sessions.contains(where: { $0.id == id }) {
             return id

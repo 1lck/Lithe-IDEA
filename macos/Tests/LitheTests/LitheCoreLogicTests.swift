@@ -493,6 +493,54 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
+    func askPromptIsScopedToTheSourceWindowOnly() throws {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        settings.projectOpenBehavior = .newWindow
+        var presentedWindowIDs: [UUID] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode
+                    ).services
+                )
+            },
+            projectWindowPresenter: { presentedWindowIDs.append($0) }
+        )
+
+        manager.openStartupProject(URL(fileURLWithPath: "/tmp/lithe-ask-primary"))
+        let primaryID = manager.activeSessionID(in: .primary)
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-ask-dedicated"),
+            from: primaryID
+        )
+        let dedicatedWindowID = try #require(presentedWindowIDs.first)
+        let dedicatedSessionID = manager.activeSessionID(in: .dedicated(dedicatedWindowID))
+
+        settings.projectOpenBehavior = .ask
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-ask-next"),
+            from: dedicatedSessionID
+        )
+
+        let pending = try #require(manager.pendingProjectOpen)
+        #expect(manager.scope(for: pending.sourceSessionID) == .dedicated(dedicatedWindowID))
+        #expect(manager.pendingProjectOpen(in: .dedicated(dedicatedWindowID))?.id == pending.id)
+        #expect(manager.pendingProjectOpen(in: .primary) == nil)
+
+        manager.resolvePendingOpen(pending, placement: .thisWindow, doNotAskAgain: false)
+        #expect(manager.pendingProjectOpen == nil)
+        #expect(manager.openProjects(in: .dedicated(dedicatedWindowID)).count == 2)
+        #expect(manager.primaryOpenProjects.count == 1)
+    }
+
+    @Test
+    @MainActor
     func windowFocusUpdatesMenuCommandTargetSession() throws {
         let store = MutableKeyValueStore()
         let settings = AppSettings(store: store)

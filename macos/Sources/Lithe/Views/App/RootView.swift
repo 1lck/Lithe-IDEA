@@ -85,7 +85,7 @@ struct RootView: View {
             minHeight: windowLayout.minimumContentSize.height
         )
         .background(LitheTheme.window)
-        .sheet(item: $projectSessions.pendingProjectOpen) { request in
+        .sheet(item: scopedPendingProjectOpen) { request in
             OpenProjectLocationDialog(request: request) { placement, doNotAskAgain in
                 projectSessions.resolvePendingOpen(
                     request,
@@ -170,6 +170,20 @@ struct RootView: View {
         guard let model = scopedModel else { return .welcome }
         if model.standaloneFileURL != nil { return .standalone }
         return model.workspaceURL == nil ? .welcome : .workspace
+    }
+
+    private var scopedPendingProjectOpen: Binding<PendingProjectOpen?> {
+        Binding(
+            get: { projectSessions.pendingProjectOpen(in: scope) },
+            set: { newValue in
+                guard newValue == nil,
+                      let pending = projectSessions.pendingProjectOpen,
+                      projectSessions.scope(for: pending.sourceSessionID) == scope else {
+                    return
+                }
+                projectSessions.cancelPendingOpen()
+            }
+        )
     }
 
     private var updatePromptPresented: Binding<Bool> {
