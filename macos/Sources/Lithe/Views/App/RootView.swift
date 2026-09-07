@@ -159,6 +159,12 @@ private struct ActiveSessionChrome: View {
                 CloneRepositoryView()
                     .environmentObject(model)
             }
+            .sheet(isPresented: Binding(
+                get: { model.diagnosticsFeature.isPresented },
+                set: { model.diagnosticsFeature.isPresented = $0 }
+            )) {
+                DiagnosticsExportSheet(feature: model.diagnosticsFeature)
+            }
             .sheet(item: $model.localHistoryRequest) { request in
                 LocalHistoryView(request: request)
                     .environmentObject(model)

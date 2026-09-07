@@ -1410,3 +1410,18 @@
 "Unlock the worktree before removing it." = "请先解锁工作树再删除。";
 "Prune the stale record instead." = "请改用清理陈旧记录。";
 "Loading…" = "正在加载…";
+
+/* Diagnostics bundle export (Issue #420). */
+"Diagnostics" = "诊断";
+"Diagnostic bundle" = "诊断包";
+"Diagnostics bundle" = "诊断包";
+"Export logs" = "导出日志";
+"Bug report" = "错误报告";
+"Export Diagnostics Bundle" = "导出诊断包";
+"Export Diagnostics Bundle…" = "导出诊断包…";
+"Export…" = "导出…";
+"Gathering diagnostics…" = "正在收集诊断信息…";
+"Creating archive…" = "正在创建压缩包…";
+"Saved to %@" = "已保存到 %@";
+"Only the files below are collected. Credentials, tokens, and home-directory paths are redacted automatically; workspace source, editor buffers, and terminal history are never included." = "仅收集下列文件。凭据、令牌和用户目录路径会被自动脱敏；工作区源代码、编辑器缓冲区内容和终端历史绝不会被包含。";
+"Package the redacted application log with an environment and performance snapshot into a zip you can attach to a bug report. Credentials, tokens, and home-directory paths are removed automatically, and you can review the file list before anything is written." = "将脱敏后的应用日志与环境和性能快照打包成一个 zip 压缩包，可附在错误报告中。凭据、令牌和用户目录路径会被自动移除，你也可以在写入任何内容之前先查看文件清单。";
