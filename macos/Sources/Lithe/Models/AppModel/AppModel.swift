@@ -14,47 +14,46 @@ import LitheCoreContracts
 @MainActor
 final class AppModel: ObservableObject, Identifiable {
     let id = UUID()
-    @Published private(set) var workspaceURL: URL?
-    @Published private(set) var standaloneFileURL: URL?
-    @Published var selectedSidebar: SidebarDestination = .project {
-        didSet {
-            guard oldValue != selectedSidebar else { return }
-            sidebarRefreshTask?.cancel()
-            sidebarRefreshTask = nil
-            // Sidebar changes can happen faster than Git or GitHub can respond.
-            // Keep only the refresh associated with the currently visible pane.
-            sidebarRefreshTask = Task { @MainActor [weak self] in
-                guard let self else { return }
-                guard !Task.isCancelled else { return }
-                switch self.selectedSidebar {
-                case .changes:
-                    await self.refreshGit()
-                case .pullRequests:
-                    guard LitheFeatureAvailability.githubPullRequests else { return }
-                    await self.githubFeature.refresh(workspaceURL: self.workspaceURL)
-                default:
-                    break
-                }
-            }
-        }
+    var workspaceURL: URL? { workspaceSessionCoordinator.workspaceURL }
+    var standaloneFileURL: URL? { workspaceSessionCoordinator.standaloneFileURL }
+    var searchSessionFeature: SearchSessionFeatureModel { featureGraph.searchSession }
+    lazy var searchWorkflow = SearchWorkflowComposition.make(model: self)
+    lazy var projectReplacement = ProjectReplacementComposition.make(model: self)
+    var searchQuery: String {
+        get { searchSessionFeature.query }
+        set { searchSessionFeature.query = newValue }
     }
-    @Published var isRunVisible = false
-    @Published var isTestsVisible = false
-    @Published var isSettingsPresented = false
-    @Published private(set) var requestedSettingsCategory: SettingsCategory = .general
-    @Published var isCloneRepositoryPresented = false
-    @Published private(set) var recentProjects: [RecentProject]
-    @Published var searchQuery = ""
-    @Published var isSearchEverywhereVisible = false
+    var isSearchEverywhereVisible: Bool {
+        get { searchSessionFeature.isSearchEverywhereVisible }
+        set { searchSessionFeature.isSearchEverywhereVisible = newValue }
+    }
     // Search Everywhere owns its transient query so typing does not publish a
     // change through the whole workbench.
-    var searchEverywhereQuery = ""
-    @Published var isProjectReplaceVisible = false
-    @Published var projectReplaceQuery = ""
-    @Published var projectReplaceText = ""
+    var searchEverywhereQuery: String {
+        get { searchSessionFeature.everywhereQuery }
+        set { searchSessionFeature.everywhereQuery = newValue }
+    }
+    var isProjectReplaceVisible: Bool {
+        get { searchSessionFeature.isProjectReplaceVisible }
+        set { searchSessionFeature.isProjectReplaceVisible = newValue }
+    }
+    var projectReplaceQuery: String {
+        get { searchSessionFeature.replacementQuery }
+        set { searchSessionFeature.replacementQuery = newValue }
+    }
+    var projectReplaceText: String {
+        get { searchSessionFeature.replacementText }
+        set { searchSessionFeature.replacementText = newValue }
+    }
     /// Replace in Project 面板的搜索选项（Preserve Case、文件掩码等）。
-    @Published var projectReplaceOptions = ProjectSearchOptions.default
-    @Published var selectedProjectReplacementPaths: Set<String> = []
+    var projectReplaceOptions: ProjectSearchOptions {
+        get { searchSessionFeature.replacementOptions }
+        set { searchSessionFeature.replacementOptions = newValue }
+    }
+    var selectedProjectReplacementPaths: Set<String> {
+        get { searchSessionFeature.selectedReplacementPaths }
+        set { searchSessionFeature.selectedReplacementPaths = newValue }
+    }
     let editorChrome = EditorChromeModel()
     let editorDiagnosticsStore = EditorDiagnosticsStore()
     /// 编辑器当前选中的单行文本，供 Find/Replace in Files 预填查询词。
@@ -63,7 +62,10 @@ final class AppModel: ObservableObject, Identifiable {
         set { editorChrome.update(selectedText: newValue) }
     }
     /// 递增令牌：搜索侧栏观察它来把焦点移回输入框。
-    @Published var searchSidebarFocusRequest = 0
+    var searchSidebarFocusRequest: Int {
+        get { searchSessionFeature.sidebarFocusRequest }
+        set { searchSessionFeature.sidebarFocusRequest = newValue }
+    }
     var projectItemEditRequest: ProjectItemEditRequest? {
         get { workspaceFeature.projectItemEditRequest }
         set { workspaceFeature.projectItemEditRequest = newValue }
@@ -75,83 +77,172 @@ final class AppModel: ObservableObject, Identifiable {
     var isPerformingProjectItemOperation: Bool {
         workspaceFeature.isPerformingProjectItemOperation
     }
-    @Published var activeNotifications: [WorkbenchNotification] = []
-    @Published var notifications: [WorkbenchNotification] = []
-    var notificationDismissalTasks: [UUID: Task<Void, Never>] = [:]
-    var notificationDismissalDeadlines: [UUID: ContinuousClock.Instant] = [:]
-    var notificationRemainingDurations: [UUID: Duration] = [:]
-    var areNotificationsHovered = false
     @Published var detectedAIConfigurations: [AIConfigurationSnapshot] = []
-    @Published var commitMessage = ""
-    @Published var amendCommit = false
-    @Published private(set) var isGeneratingCommitMessage = false
-    @Published private(set) var pendingGeneratedCommitMessage: String?
-    @Published var isGitLogVisible = false
-    @Published var isTerminalVisible = false
+    var commitDraftFeature: CommitDraftFeatureModel { featureGraph.commitDraft }
+    lazy var commitWorkflow = CommitWorkflowComposition.make(model: self)
+    var commitMessage: String {
+        get { commitDraftFeature.message }
+        set { commitDraftFeature.message = newValue }
+    }
+    var amendCommit: Bool {
+        get { commitDraftFeature.amend }
+        set { commitDraftFeature.amend = newValue }
+    }
+    var isGeneratingCommitMessage: Bool { commitDraftFeature.isGenerating }
+    var pendingGeneratedCommitMessage: String? { commitDraftFeature.pendingGeneratedMessage }
     @Published var pendingTerminalCloseSessionID: UUID?
-    var pendingRunAction: PendingRunAction?
-    @Published var isReferencesVisible = false
-    @Published var isProblemsVisible = false
-    @Published var isMavenVisible = false
-    @Published var isSpringVisible = false
-    @Published var isDebugVisible = false
+    var pendingRunAction: PendingRunAction? { runWorkflowCoordinator.pendingAction }
     @Published var debugBreakpointPresentation = DebugBreakpointPresentationState()
     @Published var isDiscourseCommunityVisible = false
     @Published var isImplementationChooserVisible = false
     var languageProviderCatalog: LanguageProviderCatalog { languageToolingFeature.catalog }
     var languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot { languageToolingFeature.catalogSnapshot }
-    @Published var languageNavigationState: LanguageNavigationState = .idle
+    var languageNavigationState: LanguageNavigationState {
+        languageNavigationCoordinator.state
+    }
     var editorCaret: EditorCaret? {
         get { editorChrome.caret }
         set { editorChrome.update(caret: newValue) }
     }
     @Published var editorNavigationTarget: EditorNavigationTarget?
-    let navigationHistoryFeature: NavigationHistoryFeatureModel
+    var navigationHistoryFeature: NavigationHistoryFeatureModel {
+        featureGraph.navigationHistory
+    }
     var virtualDocumentProviderIDs: [URL: String] = [:]
     var javaCodeVisionHints: [URL: [JavaCodeVisionHint]] {
         javaFeature.javaCodeVisionHints
     }
     @Published var blameVisibleURL: URL?
-    @Published var gitLogSearchQuery = ""
-    private var shortcutDetector: (any ShortcutDetector)?
+    private var shortcutSessionCoordinator: ShortcutSessionCoordinator?
+    private var documentLanguageCoordinator: DocumentLanguageCoordinator?
     private var sidebarRefreshTask: Task<Void, Never>?
-    // Keep the runtime shutdown operation alive and coalesce close paths that
-    // can race (for example, project close followed by window teardown).
-    private var moduleRuntimeShutdownTask: Task<Void, Never>?
-    private var shortcutSettingsObservation: AnyCancellable?
-    private var shortcutRecordingObservation: AnyCancellable?
-    private var workbenchBackgroundFeatureObservation: AnyCancellable?
-    private var isProjectSessionActive = true
+    private var moduleSessionCoordinator: ModuleSessionCoordinator?
+    private var featureObservationBinder: AppModelObservationBinder?
     private var fileVisibilityRulesObserverID: UUID?
     private var requestProjectOpen: ((URL) -> Void)?
     private var didCloseProject: (() -> Void)?
-    private var securityScopedWorkspaceURL: URL?
-    let javaTestWorkflowState = JavaTestWorkflowState()
+    var javaTestWorkflowState: JavaTestWorkflowState {
+        featureGraph.javaTestWorkflow
+    }
+    var languageNavigationCoordinator: LanguageNavigationCoordinator {
+        featureGraph.languageNavigation
+    }
     let services: AppServices
     let platformUI: any PlatformUI
     let settings: AppSettings
-    let keyboardShortcutFeature: KeyboardShortcutFeatureModel
-    let workbenchBackgroundFeature: WorkbenchBackgroundFeatureModel
-    let runtimeFeature: RuntimeSettingsFeatureModel
-    let languageToolingFeature: LanguageToolingFeatureModel
+    let featureGraph: AppModelFeatureGraph
+    var workbenchFeature: WorkbenchFeatureModel { featureGraph.workbench }
+    var workspaceSessionCoordinator: WorkspaceSessionCoordinator {
+        featureGraph.workspaceSession
+    }
+    var recentProjects: [RecentProject] {
+        workspaceSessionCoordinator.recentProjects
+    }
+    var isSettingsPresented: Bool {
+        get { workbenchFeature.isSettingsPresented }
+        set { workbenchFeature.isSettingsPresented = newValue }
+    }
+    var requestedSettingsCategory: SettingsCategory {
+        workbenchFeature.requestedSettingsCategory
+    }
+    var isCloneRepositoryPresented: Bool {
+        get { workbenchFeature.isCloneRepositoryPresented }
+        set { workbenchFeature.isCloneRepositoryPresented = newValue }
+    }
+    var keyboardShortcutFeature: KeyboardShortcutFeatureModel { featureGraph.keyboardShortcut }
+    var notificationFeature: WorkbenchNotificationFeatureModel { featureGraph.notification }
+    var workbenchBackgroundFeature: WorkbenchBackgroundFeatureModel { featureGraph.workbenchBackground }
+    var runtimeFeature: RuntimeSettingsFeatureModel { featureGraph.runtime }
+    var languageToolingFeature: LanguageToolingFeatureModel { featureGraph.languageTooling }
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
     let debugPortAvailabilityChecker: any DebugPortAvailabilityChecking
-    let workspaceFeature: WorkspaceFeatureModel
-    let githubFeature: GitHubFeatureModel
-    let discourseCommunityFeature: DiscourseCommunityFeatureModel
-    let editorTabOrderFeature = EditorTabOrderFeatureModel()
-    let mediaFeature = MediaDocumentFeatureModel()
-    let terminalPlacementFeature: TerminalPlacementFeatureModel
+    var workspaceFeature: WorkspaceFeatureModel { featureGraph.workspace }
+    var githubFeature: GitHubFeatureModel { featureGraph.github }
+    var discourseCommunityFeature: DiscourseCommunityFeatureModel {
+        featureGraph.discourseCommunity
+    }
+    var editorTabOrderFeature: EditorTabOrderFeatureModel { featureGraph.editorTabOrder }
+    var mediaFeature: MediaDocumentFeatureModel { featureGraph.media }
+    var terminalPlacementFeature: TerminalPlacementFeatureModel {
+        featureGraph.terminalPlacement
+    }
     var debugTerminalSessionIDs: Set<UUID> = []
     var activeDebugTerminalSessionID: UUID?
     var debugTerminalSessionIDsByDebugSession: [DebugSessionID: Set<UUID>] = [:]
     var activeDebugTerminalSessionIDsByDebugSession: [DebugSessionID: UUID] = [:]
-    private struct CachedModuleCapability {
-        let moduleID: ModuleID
-        let value: AnyObject
-    }
-    private var moduleCapabilities: [ModuleCapabilityID: CachedModuleCapability] = [:]
-    private var moduleFeatureObservations: [ModuleID: [AnyCancellable]] = [:]
+    let moduleCapabilityStore: ModuleCapabilityStore
+    lazy var executionModuleCoordinator = ExecutionModuleCoordinator(
+        runtime: services.moduleRuntime,
+        store: moduleCapabilityStore,
+        awaitShutdown: { [weak self] in await self?.awaitModuleRuntimeShutdown() },
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay() },
+        onError: { [weak self] in self?.showNotification($0) }
+    )
+    lazy var debugModuleCoordinator = DebugModuleCoordinator(
+        runtime: services.moduleRuntime,
+        store: moduleCapabilityStore,
+        awaitShutdown: { [weak self] in await self?.awaitModuleRuntimeShutdown() },
+        configure: { [weak self] in self?.configureDebugHostHandlers($0) },
+        openWorkspace: { feature, url in feature.openWorkspace(at: url) },
+        onStateChange: { [weak self] in self?.handleDebugSessionStateChange($0) },
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay() },
+        onError: { [weak self] in self?.showNotification($0) }
+    )
+    lazy var languageIntelligenceModuleCoordinator = LanguageIntelligenceModuleCoordinator(
+        runtime: services.moduleRuntime,
+        store: moduleCapabilityStore,
+        bind: { [weak self] in self?.bindLanguageIntelligenceCapability($0) },
+        notify: { [weak self] in self?.showNotification($0) }
+    )
+    lazy var terminalModuleCoordinator = TerminalModuleCoordinator(
+        runtime: services.moduleRuntime,
+        store: moduleCapabilityStore,
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay() }
+    )
+    lazy var gitModuleCoordinator = GitModuleCoordinator(
+        runtime: services.moduleRuntime,
+        store: moduleCapabilityStore,
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay() },
+        onError: { [weak self] in self?.showNotification($0) }
+    )
+    let javaLanguageServerPreparationCoordinator = JavaLanguageServerPreparationCoordinator()
+    lazy var historyModuleCoordinator = HistoryModuleCoordinator(
+        runtime: services.moduleRuntime,
+        store: moduleCapabilityStore,
+        workspace: { [weak self] in self?.workspaceURL },
+        settings: { [weak self] in
+            self?.settings.fileVisibilityRules.localHistoryRules
+                ?? LocalHistoryVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [])
+        },
+        files: { [weak self] in self?.projectFiles ?? [] },
+        documents: { [weak self] in
+            self?.openDocuments.map {
+                LocalHistoryDocumentSnapshot(id: $0.id, url: $0.url, text: $0.text)
+            } ?? []
+        },
+        notify: { [weak self] in self?.showNotification($0) },
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay() }
+    )
+    lazy var databaseModuleCoordinator = DatabaseModuleCoordinator(
+        runtime: services.moduleRuntime,
+        store: moduleCapabilityStore,
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay() },
+        onError: { [weak self] in self?.showNotification($0) }
+    )
+    lazy var searchModuleCoordinator = SearchModuleCoordinator(
+        runtime: services.moduleRuntime,
+        store: moduleCapabilityStore,
+        workspace: { [weak self] in self?.workspaceURL },
+        visibilityRules: { [weak self] in self?.settings.fileVisibilityRules ?? .default },
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay() },
+        onError: { [weak self] in self?.showNotification($0) }
+    )
+    lazy var runWorkflowCoordinator = RunWorkflowCoordinator(
+        pluginCatalog: services.pluginCatalog,
+        moduleRuntime: services.moduleRuntime,
+        notify: { [weak self] in self?.showNotification($0) },
+        onPendingActionChange: { [weak self] in self?.scheduleObjectWillChangeRelay() }
+    )
     var languageCapability: LitheLanguageIntelligenceModule.LanguageIntelligenceCapability? {
         cachedModuleCapability(.languageIntelligence)
     }
@@ -170,9 +261,9 @@ final class AppModel: ObservableObject, Identifiable {
     var gitCapability: LitheGitModule.GitModuleCapability? {
         cachedModuleCapability(.gitWorkspace)
     }
-    let documentFeature: DocumentFeatureModel
-    let javaFeature: JavaFeatureModel
-    let springFeature: SpringFeatureModel
+    var documentFeature: DocumentFeatureModel { featureGraph.document }
+    var javaFeature: JavaFeatureModel { featureGraph.java }
+    var springFeature: SpringFeatureModel { featureGraph.spring }
     private var activeDatabaseFeature: DatabaseFeatureModel? {
         let capability: LitheDatabaseModule.DatabaseModuleCapability? = cachedModuleCapability(.databaseWorkspace)
         return capability?.feature
@@ -233,15 +324,6 @@ final class AppModel: ObservableObject, Identifiable {
         editorDiagnosticsStore.diagnosticsByURL
     }
     var languageSessionChromeSignature: LanguageSessionChromeSignature?
-    private var workspaceFeatureObservation: AnyCancellable?
-    private var githubFeatureObservation: AnyCancellable?
-    private var runtimeFeatureObservation: AnyCancellable?
-    private var editorTabOrderFeatureObservation: AnyCancellable?
-    private var terminalPlacementObservation: AnyCancellable?
-    private var mediaFeatureObservation: AnyCancellable?, mediaTabCollectionObservation: AnyCancellable?
-    private var documentTabCollectionObservation: AnyCancellable?
-    private var activeDocumentSelectionObservation: AnyCancellable?
-    private var moduleRuntimeObservationID: UUID?
 
     var detectedCodexConfiguration: CodexConfigurationSnapshot? {
         detectedAIConfigurations.first { $0.source == .codex }
@@ -252,24 +334,31 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     func showSettings(category: SettingsCategory = .general) {
-        requestedSettingsCategory = category
-        isSettingsPresented = true
+        workbenchFeature.presentSettings(category: category)
     }
 
-    private var documentFeatureObservation: AnyCancellable?
-    private var javaFeatureObservation: AnyCancellable?
     private var springFeatureObservation: AnyCancellable?
-    private var navigationHistoryFeatureObservation: AnyCancellable?
     private var isObjectWillChangeRelayScheduled = false
     private var languageToolingObservation: AnyCancellable?
-    private var recentProjectsStore: RecentProjectsStore { services.recentProjectsStore }
-    private var workbenchLayoutStore: WorkbenchLayoutStore { services.workbenchLayoutStore }
 
     func cachedModuleCapability<Capability: AnyObject>(
         _ id: ModuleCapabilityID,
         as type: Capability.Type = Capability.self
     ) -> Capability? {
-        moduleCapabilities[id]?.value as? Capability
+        moduleCapabilityStore.capability(id, as: type)
+    }
+
+    func activateModuleCapability<Capability: AnyObject>(
+        _ id: ModuleCapabilityID,
+        as type: Capability.Type = Capability.self,
+        moduleID: ModuleID
+    ) async throws -> Capability {
+        try await moduleCapabilityStore.activate(
+            id,
+            as: type,
+            moduleID: moduleID,
+            using: services.moduleRuntime.activateCapability
+        )
     }
 
     func cacheModuleCapability(
@@ -277,12 +366,14 @@ final class AppModel: ObservableObject, Identifiable {
         id: ModuleCapabilityID,
         moduleID: ModuleID
     ) {
-        moduleCapabilities[id] = CachedModuleCapability(moduleID: moduleID, value: capability)
+        moduleCapabilityStore.cache(capability, id: id, moduleID: moduleID)
     }
 
     func clearModuleBindings(for moduleID: ModuleID) {
-        moduleFeatureObservations[moduleID] = nil
-        moduleCapabilities = moduleCapabilities.filter { $0.value.moduleID != moduleID }
+        moduleSessionCoordinator?.clearBindings(for: moduleID)
+    }
+
+    private func unregisterModuleLanguageExtensions(for moduleID: ModuleID) {
         for ownership in services.pluginCatalog.languageSupports.values {
             let support = ownership.declaration
             if support.languageServerModuleID == moduleID {
@@ -303,7 +394,7 @@ final class AppModel: ObservableObject, Identifiable {
         _ moduleID: ModuleID,
         observation: AnyCancellable
     ) {
-        moduleFeatureObservations[moduleID, default: []].append(observation)
+        moduleCapabilityStore.observe(moduleID, observation: observation)
     }
 
     func scheduleObjectWillChangeRelay() {
@@ -318,269 +409,80 @@ final class AppModel: ObservableObject, Identifiable {
         }
     }
 
-    init(settings: AppSettings, services: AppServices) {
+    init(
+        settings: AppSettings,
+        services: AppServices,
+        featureGraph: AppModelFeatureGraph
+    ) {
         self.settings = settings
         self.services = services
         platformUI = services.platformUI
-        keyboardShortcutFeature = KeyboardShortcutFeatureModel(settings: settings)
-        workbenchBackgroundFeature = WorkbenchBackgroundFeatureModel(settings: settings, platform: services.workbenchBackgroundPlatform)
-        discourseCommunityFeature = DiscourseCommunityFeatureModel(service: services.discourseCommunityService)
-        terminalPlacementFeature = TerminalPlacementFeatureModel()
-        workspaceFeature = WorkspaceFeatureModel(
-            operations: services.workspaceOperations,
-            fileOperations: services.fileOperations,
-            gitWatchContextProvider: services.gitWatchContextProvider,
-            directoryWatcherFactory: services.directoryWatcherFactory,
-            workspaceSessionStore: services.workspaceSessionStore,
-            directoryMarkStore: services.directoryMarkStore
-        )
-        githubFeature = GitHubFeatureModel(service: services.githubService)
-        Task { @MainActor [workspaceFeature, moduleRuntime = services.moduleRuntime] in
+        self.featureGraph = featureGraph
+        moduleCapabilityStore = ModuleCapabilityStore()
+        Task { @MainActor [workspaceFeature = featureGraph.workspace, moduleRuntime = services.moduleRuntime] in
             guard let capability = try? await moduleRuntime.activateCapability(.workspaceFoundation),
                   let capability = capability as? LitheWorkspaceModule.WorkspaceFoundationCapability else { return }
             capability.attach(workspaceProjection: workspaceFeature)
         }
-        runtimeFeature = RuntimeSettingsFeatureModel(service: services.projectRuntimeService)
-        languageToolingFeature = LanguageToolingFeatureModel(
-            catalogSource: services.languageProviderCatalogSource,
-            catalogSnapshot: services.languageProviderCatalogSnapshot,
-            sessionsProvider: { nil }
-        )
         debugLaunchConfigurationResolver = services.debugLaunchConfigurationResolver
         debugPortAvailabilityChecker = services.debugPortAvailabilityChecker
-        documentFeature = DocumentFeatureModel(
-            operations: services.workspaceOperations,
-            documentLifecycleDecider: services.documentLifecycleDecider,
-            fileOperations: services.fileOperations,
-            fileStorage: services.fileStorage,
-            binaryFileViewerRegistry: services.binaryFileViewerRegistry
+        workbenchFeature.configure { [weak self] destination in
+            self?.handleSidebarSelectionChanged(destination)
+        }
+        workspaceSessionCoordinator.configureLifecycle(
+            with: WorkspaceSessionCoordinator.LifecycleHandlers(
+                prepareForWorkspaceOpen: { [weak self] url in
+                    self?.prepareForWorkspaceOpen(at: url)
+                },
+                prepareForWorkspaceClose: { [weak self] url in
+                    self?.finishWorkspaceClose(for: url)
+                },
+                prepareForStandaloneOpen: { [weak self] url in
+                    self?.prepareForStandaloneOpen(at: url)
+                },
+                finishStandaloneClose: { [weak self] in
+                    self?.finishStandaloneClose()
+                },
+                beginDocumentClose: { [weak self] in
+                    self?.documentFeature.beginProjectClose() ?? false
+                },
+                restoreDebugBreakpoints: { [weak self] url in
+                    await self?.restoreDebugBreakpoints(for: url)
+                },
+                visibilityRules: { [weak self] in
+                    self?.settings.fileVisibilityRules ?? .default
+                }
+            )
         )
-        navigationHistoryFeature = NavigationHistoryFeatureModel()
-        javaFeature = JavaFeatureModel(operations: services.javaMavenOperations)
-        springFeature = SpringFeatureModel(operations: services.javaMavenOperations)
-        recentProjects = services.recentProjectsStore.load()
         languageToolingFeature.configureSessions { [weak self] in
             self?.languageToolingSessionsIfActive
         }
-        workbenchBackgroundFeatureObservation = workbenchBackgroundFeature.objectWillChange.sink { [weak self] _ in self?.scheduleObjectWillChangeRelay() }
-        moduleRuntimeObservationID = services.moduleRuntime.observeEvents { [weak self] event in
-            guard let self else { return }
-            if event.name == "module.sleeping" || event.name == "module.shutdown" {
-                if event.source == .database, selectedSidebar == .database {
-                    selectedSidebar = .project
-                }
-                clearModuleBindings(for: event.source)
+        featureObservationBinder = AppModelObservationBinder(graph: featureGraph) { [weak self] in
+            self?.scheduleObjectWillChangeRelay()
+        }
+        runWorkflowCoordinator.connect(actions: self)
+        featureGraph.debugLaunchPreparation.connect(actions: self)
+        featureGraph.javaTestDebugWorkflow.connect(actions: self)
+        featureGraph.debugSessionCleanup.connect(actions: self)
+        moduleSessionCoordinator = ModuleSessionCoordinator(
+            runtime: services.moduleRuntime,
+            capabilities: moduleCapabilityStore,
+            workbench: workbenchFeature,
+            onModuleReleased: { [weak self] moduleID in
+                self?.unregisterModuleLanguageExtensions(for: moduleID)
+            },
+            onChange: { [weak self] in
+                self?.scheduleObjectWillChangeRelay()
             }
-            if event.name == ModuleEvent.stateChangedName
-                || event.name == "module.sleeping"
-                || event.name == "module.shutdown" {
-                scheduleObjectWillChangeRelay()
-            }
-        }
-        workspaceFeatureObservation = workspaceFeature.objectWillChange.sink { [weak self] _ in
-            self?.scheduleObjectWillChangeRelay()
-        }
-        githubFeatureObservation = githubFeature.objectWillChange.sink { [weak self] _ in
-            self?.scheduleObjectWillChangeRelay()
-        }
-        runtimeFeatureObservation = runtimeFeature.objectWillChange.sink { [weak self] _ in
-            self?.scheduleObjectWillChangeRelay()
-        }
-        navigationHistoryFeatureObservation = navigationHistoryFeature.objectWillChange.sink { [weak self] _ in
-            self?.scheduleObjectWillChangeRelay()
-        }
-        editorTabOrderFeatureObservation = editorTabOrderFeature.objectWillChange
-            .sink { [weak self] _ in self?.scheduleObjectWillChangeRelay() }
-        terminalPlacementObservation = terminalPlacementFeature.objectWillChange.sink { [weak self] _ in
-            self?.scheduleObjectWillChangeRelay()
-        }
-        activeDocumentSelectionObservation = documentFeature.$activeDocumentID
-            .dropFirst()
-            .sink { [weak self] documentID in
-                guard let self, documentID != nil else { return }
-                terminalPlacementFeature.activateDocument()
-                mediaFeature.deactivate()
-            }
+        )
         if LitheFeatureAvailability.githubPullRequests {
             Task { [weak self] in
                 guard let self else { return }
                 await self.githubFeature.restore(workspaceURL: self.workspaceURL)
             }
         }
-        workspaceFeature.configureProjection(
-            documentsProvider: { [weak self] in
-                self?.openDocuments.map { WorkspaceDocumentState(url: $0.url, isDirty: $0.isDirty) } ?? []
-            },
-            activeDocumentProvider: { [weak self] in
-                self?.activeDocument.map { WorkspaceDocumentState(url: $0.url, isDirty: $0.isDirty) }
-            },
-            selectedSidebarProvider: { [weak self] in self?.selectedSidebar.rawValue ?? SidebarDestination.project.rawValue },
-            setSelectedSidebar: { [weak self] rawValue in
-                self?.selectedSidebar = SidebarDestination(rawValue: rawValue) ?? .project
-            },
-            restoreSession: { [weak self] session, availableFiles in
-                guard let self else { return }
-                let availablePaths = Set(availableFiles.map { $0.standardizedFileURL.path })
-                let restoredSidebar = SidebarDestination(rawValue: session.selectedSidebar) ?? .project
-                self.selectedSidebar = restoredSidebar.isAvailable ? restoredSidebar : .project
-                let paths = session.openPaths.filter { availablePaths.contains($0) }
-                await withTaskGroup(of: Void.self) { group in
-                    for path in paths {
-                        group.addTask { [weak self] in
-                            await self?.documentFeature.openFileAsync(
-                                URL(fileURLWithPath: path),
-                                isReadOnly: false,
-                                displayPath: nil,
-                                activateWhenReady: false
-                            )
-                        }
-                    }
-                }
-                self.documentFeature.reorderDocuments(orderedPaths: paths)
-                if let activePath = session.activePath,
-                   let document = self.openDocuments.first(where: {
-                       $0.url.standardizedFileURL.path == activePath
-                   }) {
-                    self.activeDocumentID = document.id
-                } else {
-                    self.activeDocumentID = self.openDocuments.last?.id
-                }
-            },
-            openFile: { [weak self] url in self?.openFile(url) },
-            notify: { [weak self] message in self?.showNotification(message) },
-            recordHistory: { [weak self] url, reason in
-                guard let feature = await self?.activateHistoryModule() else { return }
-                await feature.recordHistory(containedIn: url, reason: reason)
-            },
-            relocateHistory: { [weak self] source, destination in
-                guard let feature = await self?.activateHistoryModule() else { return }
-                await feature.relocateHistory(from: source, to: destination)
-            },
-            relocateOpenDocuments: { [weak self] source, destination in
-                self?.documentFeature.relocateOpenDocuments(from: source, to: destination)
-            },
-            closeDocuments: { [weak self] url in
-                self?.documentFeature.closeDocuments(containedIn: url)
-            },
-            processExternalChanges: { [weak self] paths in
-                guard let self else { return false }
-                let conflict = self.documentFeature.processExternalChanges(paths)
-                self.withHistoryModule { $0.recordExternalChanges(paths) }
-                return conflict
-            },
-            notifyWorkspaceFileChanges: { [weak self] changes in
-                self?.handleJavaWorkspaceFileChanges(changes)
-            },
-            reloadProjectServices: { [weak self] in
-                guard let self, let workspaceURL = self.workspaceURL else { return }
-                await self.loadProjectServicesForAppliedSnapshot(at: workspaceURL)
-            },
-            refreshGit: { [weak self] in
-                guard let feature = self?.gitFeatureIfActive else { return }
-                await feature.refreshGit()
-            },
-            updateHistoryVisibilityRules: { [weak self] rules in
-                guard let feature = await self?.activateHistoryModule() else { return }
-                await feature.updateVisibilityRules(rules.localHistoryRules)
-            },
-            onSnapshotLoaded: { [weak self] snapshot, isInitialLoad in
-                guard let self else { return }
-                // The snapshot callback owns the transition from a provisional
-                // inventory to a ready run project and resumes any deferred action.
-                await self.loadProjectServices(
-                    at: snapshot.root.url,
-                    files: snapshot.files,
-                    snapshotID: snapshot.id,
-                    resumesDeferredRunAction: true
-                )
-                if isInitialLoad {
-                    self.projectHistoryFeatureIfActive?.seed(files: snapshot.files)
-                }
-            },
-            warmSearchIndex: { [weak self] workspaceURL, rules in
-                self?.searchFeatureIfActive?.warmIndex(at: workspaceURL, visibilityRules: rules.searchRules)
-            },
-            updateSearchIndex: { [weak self] workspaceURL, paths, rules in
-                await self?.searchFeatureIfActive?.updateIndex(
-                    at: workspaceURL,
-                    changedPaths: paths,
-                    visibilityRules: rules.searchRules
-                )
-            },
-            invalidateSearchIndex: { [weak self] workspaceURL, rules in
-                self?.searchFeatureIfActive?.invalidateIndex(at: workspaceURL, visibilityRules: rules.searchRules)
-            }
-        )
-        languageToolingFeature.configure(
-            documentsProvider: { [weak self] in self?.openDocuments ?? [] },
-            workspaceProvider: { [weak self] in self?.workspaceURL },
-            activateDocument: { [weak self] document in
-                self?.activateLanguageServerIfAvailable(for: document) ?? false
-            },
-            notify: { [weak self] message in self?.showNotification(message) }
-        )
-        documentFeature.configure(
-            workspaceURLProvider: { [weak self] in self?.workspaceURL },
-            autoSaveEnabledProvider: { [weak self] in self?.settings.autoSave ?? false },
-            autoSaveDelayProvider: { [weak self] in self?.settings.autoSaveDelay ?? 0 },
-            notify: { [weak self] message in self?.showNotification(message) },
-            onDocumentOpened: { [weak self] document in
-                guard let self else { return }
-                self.activateLanguageServerIfAvailable(for: document)
-                guard self.javaFeature.handles(fileURL: document.url) else { return }
-                Task { await self.refreshCodeVision(for: document.url) }
-            },
-            onDocumentChanged: { [weak self] document in
-                self?.handleDocumentChanged(document)
-            },
-            onDocumentClosed: { [weak self] document in
-                self?.handleDocumentClosed(document)
-            },
-            onRecordSave: { [weak self] document, previousText in
-                self?.recordSave(document, previousText: previousText)
-            },
-            onRecordDiscard: { [weak self] document in
-                self?.recordDiscardedEditorText(document)
-            },
-            onRecordExternalChanges: { [weak self] paths in
-                self?.withHistoryModule { $0.recordExternalChanges(paths) }
-            },
-            onDocumentCollectionChanged: { [weak self] in
-                guard let self, self.workspaceURL != nil else { return }
-                self.workspaceFeature.scheduleWorkspaceSessionPersistence()
-            },
-            onProjectCloseReady: { [weak self] in
-                guard let self else { return }
-                if self.workspaceURL != nil {
-                    self.performCloseProject()
-                } else if self.standaloneFileURL != nil {
-                    self.performCloseStandaloneFile()
-                }
-            }
-        )
-        documentFeatureObservation = documentFeature.objectWillChange.sink { [weak self] _ in
-            self?.scheduleObjectWillChangeRelay()
-        }
-        documentTabCollectionObservation = documentFeature.$openDocuments
-            .map { $0.map(\.id) }.removeDuplicates()
-            .sink { [weak self] ids in self?.editorTabOrderFeature.reconcileDocuments(orderedIDs: ids) }
-        mediaFeatureObservation = mediaFeature.objectWillChange.sink { [weak self] _ in
-            self?.scheduleObjectWillChangeRelay()
-        }
-        mediaTabCollectionObservation = mediaFeature.$openMediaDocuments
-            .map { $0.map(\.id) }.removeDuplicates()
-            .sink { [weak self] ids in self?.editorTabOrderFeature.reconcileMedia(orderedIDs: ids) }
-        javaFeature.configure(
-            documentProvider: { [weak self] in self?.activeDocument },
-            loadBlame: { [weak self] fileURL in
-                guard let self else { return [] }
-                guard let feature = await self.activateGitModule() else { return [] }
-                return await feature.loadBlame(for: fileURL)
-            }
-        )
-        javaFeatureObservation = javaFeature.objectWillChange.sink { [weak self] _ in
-            self?.scheduleObjectWillChangeRelay()
-        }
+        WorkspaceProjectionComposition.configure(model: self)
+        documentLanguageCoordinator = DocumentFeatureComposition.configure(model: self)
         springFeatureObservation = springFeature.objectWillChange.sink { [weak self] _ in
             self?.refreshEditorDiagnosticsStore()
             self?.scheduleObjectWillChangeRelay()
@@ -617,62 +519,59 @@ final class AppModel: ObservableObject, Identifiable {
             }
             _ = self.activateLanguageServerIfAvailable(for: document)
         }
-        shortcutDetector = services.shortcutDetectorFactory.make { [weak self] commandID in
-            self?.performShortcutCommand(id: commandID)
-        }
-        refreshShortcutDetector()
-        shortcutSettingsObservation = settings.$keyboardShortcutOverrides
-            .dropFirst()
-            .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.refreshShortcutDetector()
-                    self?.scheduleObjectWillChangeRelay()
-                }
+        shortcutSessionCoordinator = ShortcutSessionCoordinator(
+            settings: settings,
+            feature: keyboardShortcutFeature,
+            factory: services.shortcutDetectorFactory,
+            onRegistrationsChanged: { [weak self] in
+                self?.scheduleObjectWillChangeRelay()
+            },
+            onCommand: { [weak self] commandID in
+                self?.performShortcutCommand(id: commandID)
             }
-        shortcutRecordingObservation = keyboardShortcutFeature.$recordingCommandID
-            .sink { [weak self] commandID in
-                self?.shortcutDetector?.setSuspended(commandID != nil)
-            }
+        )
         configureMediaViewerRegistry()
-        shortcutDetector?.start()
+        shortcutSessionCoordinator?.setActive(true)
     }
 
-    private func refreshShortcutDetector() {
-        shortcutDetector?.update(registrations: keyboardShortcutFeature.registrations)
+    convenience init(settings: AppSettings, services: AppServices) {
+        self.init(
+            settings: settings,
+            services: services,
+            featureGraph: AppModelFeatureGraph(settings: settings, services: services)
+        )
+    }
+
+    private func handleSidebarSelectionChanged(_ destination: SidebarDestination) {
+        sidebarRefreshTask?.cancel()
+        sidebarRefreshTask = nil
+        // Sidebar changes can happen faster than Git or GitHub can respond.
+        // Keep only the refresh associated with the currently visible pane.
+        sidebarRefreshTask = Task { @MainActor [weak self] in
+            guard let self, !Task.isCancelled else { return }
+            switch destination {
+            case .changes:
+                await self.refreshGit()
+            case .pullRequests:
+                guard LitheFeatureAvailability.githubPullRequests else { return }
+                await self.githubFeature.refresh(workspaceURL: self.workspaceURL)
+            default:
+                break
+            }
+        }
     }
 
     func activateDatabaseModule() async {
-        do {
-            let value = try await services.moduleRuntime.activateCapability(.databaseWorkspace)
-            guard let capability = value as? LitheDatabaseModule.DatabaseModuleCapability else {
-                throw ModuleRuntimeError.missingCapabilityDependency(
-                    module: .database,
-                    capability: .databaseWorkspace
-                )
-            }
-            let feature = capability.feature
-            cacheModuleCapability(capability, id: .databaseWorkspace, moduleID: .database)
-            observeModuleFeature(.database, observation: feature.objectWillChange.sink { [weak self] _ in
-                self?.scheduleObjectWillChangeRelay()
-            })
-            selectedSidebar = .database
-        } catch {
-            showNotification(error.localizedDescription)
-        }
+        guard await databaseModuleCoordinator.activate() != nil else { return }
+        selectedSidebar = .database
     }
 
     func sleepDatabaseModule() async {
-        do {
-            try await services.moduleRuntime.sleep(.database)
-            clearModuleBindings(for: .database)
-            if selectedSidebar == .database { selectedSidebar = .project }
-        } catch {
-            showNotification(error.localizedDescription)
-        }
+        await databaseModuleCoordinator.sleep()
+        if selectedSidebar == .database { selectedSidebar = .project }
     }
 
     deinit {
-        shortcutDetector?.stop()
         sidebarRefreshTask?.cancel()
     }
 
@@ -685,49 +584,41 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     func setProjectSessionActive(_ isActive: Bool) {
-        guard isProjectSessionActive != isActive else { return }
-        isProjectSessionActive = isActive
-        if isActive {
-            shortcutDetector?.start()
-        } else {
-            shortcutDetector?.stop()
-            isSearchEverywhereVisible = false
+        guard workspaceSessionCoordinator.setActive(isActive) else { return }
+        shortcutSessionCoordinator?.setActive(isActive)
+        if !isActive {
+            searchSessionFeature.isSearchEverywhereVisible = false
+            cancelJavaLanguageServerPreparation()
         }
     }
 
     func shutdownProjectSession() async {
-        shortcutDetector?.stop()
+        shortcutSessionCoordinator?.shutdown()
+        documentLanguageCoordinator?.stop()
         cancelJavaTestWorkflows()
         languageToolingSessionsIfActive?.stopAll()
-        languageTestServiceIfActive?.stop()
+        executionModuleCoordinator.stopTests(languageTestServiceIfActive)
         stopTerminalSessions()
-        stopAccessingWorkspace()
+        workspaceSessionCoordinator.stopSessionResources()
         if let fileVisibilityRulesObserverID {
             settings.removeFileVisibilityRulesObserver(fileVisibilityRulesObserverID)
             self.fileVisibilityRulesObserverID = nil
         }
         await shutdownModuleRuntime()
+        moduleSessionCoordinator?.stopObserving()
     }
 
     /// Records this session's module-graph teardown before it can yield, so an
     /// on-demand activation that follows a project switch can join the same
     /// operation instead of racing a capability release.
     private func beginModuleRuntimeShutdown() {
-        guard moduleRuntimeShutdownTask == nil else { return }
-        let moduleRuntime = services.moduleRuntime
-        moduleRuntimeShutdownTask = Task { @MainActor [weak self] in
-            await moduleRuntime.shutdownAll()
-            guard let self else { return }
-            self.moduleRuntimeShutdownTask = nil
-            self.clearModuleBindings(for: .database)
-        }
+        moduleSessionCoordinator?.beginShutdown()
     }
 
     /// Shuts down this session's module graph once, even when multiple
     /// lifecycle paths request cleanup at the same time.
     private func shutdownModuleRuntime() async {
-        beginModuleRuntimeShutdown()
-        await moduleRuntimeShutdownTask?.value
+        await moduleSessionCoordinator?.shutdown()
     }
 
     /// Lets an on-demand activation resume after a session teardown finishes.
@@ -735,15 +626,16 @@ final class AppModel: ObservableObject, Identifiable {
     /// A shutdown that starts while this wait is suspended is joined as well, so
     /// activation never returns a capability the runtime is about to release.
     func awaitModuleRuntimeShutdown() async {
-        while let shutdownTask = moduleRuntimeShutdownTask {
-            await shutdownTask.value
-        }
+        await moduleSessionCoordinator?.awaitShutdown()
     }
 
     private func reloadJavaRuntimeServices() {
         cancelJavaTestWorkflows()
-        genericDebugFeatureIfActive?.stop()
-        mavenFeatureIfActive?.stop()
+        debugModuleCoordinator.stopFeature(genericDebugFeatureIfActive)
+        executionModuleCoordinator.stopFeatures(
+            maven: mavenFeatureIfActive,
+            run: runFeatureIfActive
+        )
         languageToolingSessionsIfActive?.stopLanguageServer(providerID: "java")
         javaFeature.stop()
         springFeature.reset()
@@ -808,8 +700,10 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     func restartLanguageServers() {
-        languageToolingSessionsIfActive?.stopAllLanguageServers()
-        languageToolingFeature.resetWorkspaceState()
+        languageIntelligenceModuleCoordinator.prepareForRestart(
+            feature: languageToolingFeature,
+            sessions: languageToolingSessionsIfActive
+        )
         cancelJavaLanguageServerPreparation()
         let didStart = activateCurrentDocumentLanguageServerIfAvailable()
         showNotification(
@@ -820,7 +714,7 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     func clearLanguageServerDiagnostics() {
-        languageToolingSessionsIfActive?.clearDiagnostics()
+        languageIntelligenceModuleCoordinator.clearDiagnostics(languageToolingSessionsIfActive)
         showNotification(settings.language == .simplifiedChinese ? "语言服务器诊断已清空" : "Language server diagnostics cleared")
     }
 
@@ -900,11 +794,12 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     func openProjectDirectly(_ url: URL) {
-        let normalizedURL = url.standardizedFileURL
+        workspaceSessionCoordinator.openWorkspace(at: url)
+    }
+
+    private func prepareForWorkspaceOpen(at normalizedURL: URL) {
+        documentLanguageCoordinator?.stop()
         beginModuleRuntimeShutdown()
-        if let previousWorkspaceURL = workspaceURL {
-            workspaceFeature.persistWorkspaceSession(for: previousWorkspaceURL)
-        }
         // A workspace root is a hard language-server ownership boundary. Stop
         // every provider session before replacing the catalog or clearing the
         // document projection so no old-root documents, diagnostics, or
@@ -913,65 +808,35 @@ final class AppModel: ObservableObject, Identifiable {
         languageToolingSessionsIfActive?.stopAll()
         reloadLanguageProviderCatalog(for: normalizedURL)
         stopTerminalSessions()
-        languageTestServiceIfActive?.reset()
-        languageToolingFeature.resetWorkspaceState()
+        executionModuleCoordinator.resetTests(languageTestServiceIfActive)
+        languageIntelligenceModuleCoordinator.resetWorkspaceState(languageToolingFeature)
         runtimeFeature.openProject(at: normalizedURL)
-        mavenFeatureIfActive?.reset()
-        runFeatureIfActive?.reset()
-        pendingRunAction = nil
-        scheduleObjectWillChangeRelay()
-        genericDebugFeatureIfActive?.reset()
+        executionModuleCoordinator.resetFeatures(
+            maven: mavenFeatureIfActive,
+            run: runFeatureIfActive,
+            tests: languageTestServiceIfActive
+        )
+        runWorkflowCoordinator.resetPendingAction()
+        debugModuleCoordinator.resetFeature(genericDebugFeatureIfActive)
         debugBreakpointPresentation.reset()
         clearLanguageNavigationProjection()
         javaFeature.stop()
         springFeature.reset()
-        workspaceFeature.reset()
-        searchFeatureIfActive?.reset()
-        isTerminalVisible = false
-        isReferencesVisible = false
-        isProblemsVisible = false
-        isMavenVisible = false
-        isSpringVisible = false
-        isRunVisible = false
-        isTestsVisible = false
-        isDebugVisible = false
+        workspaceSessionCoordinator.resetWorkspaceFeature()
+        searchModuleCoordinator.resetFeature(searchFeatureIfActive)
+        workbenchFeature.hideAllToolWindows()
         editorChrome.reset()
         editorDiagnosticsStore.reset()
         editorNavigationTarget = nil
         navigationHistoryFeature.reset()
         virtualDocumentProviderIDs.removeAll()
         blameVisibleURL = nil
-        gitFeatureIfActive?.reset()
-        documentFeature.reset()
-        mediaFeature.reset()
-        gitLogSearchQuery = ""
-        projectHistoryFeatureIfActive?.reset()
-        workspaceURL = normalizedURL
-        standaloneFileURL = nil
-        let visibilityRules = settings.fileVisibilityRules
-        workspaceFeature.beginWorkspace(at: normalizedURL, visibilityRules: visibilityRules)
+        gitModuleCoordinator.resetFeature(gitFeatureIfActive)
+        featureGraph.editorSession.resetContent()
+        historyModuleCoordinator.resetFeature(projectHistoryFeatureIfActive)
         selectedSidebar = .project
         projectItemEditRequest = nil
         pendingProjectItemDeletion = nil
-        recentProjects = recentProjectsStore.record(normalizedURL, in: recentProjects)
-
-        // The rebuild belongs to this opening. Reopening the same path advances
-        // the generation, so a rebuild left over from the previous opening
-        // cannot publish its snapshot into this one.
-        let generation = workspaceFeature.workspaceGeneration
-        Task {
-            await restoreDebugBreakpoints(for: normalizedURL)
-            guard workspaceURL == normalizedURL,
-                  workspaceFeature.workspaceGeneration == generation else { return }
-            _ = await workspaceFeature.rebuild(
-                at: normalizedURL,
-                rules: visibilityRules,
-                isCurrent: { [weak self] in
-                    self?.workspaceURL == normalizedURL
-                        && self?.workspaceFeature.workspaceGeneration == generation
-                }
-            )
-        }
     }
 
     func resumeGitObservationAfterActivation() async {
@@ -979,67 +844,41 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     func closeProject() {
-        guard workspaceURL != nil else { return }
-        guard documentFeature.beginProjectClose() else {
-            performCloseProject()
-            return
-        }
+        workspaceSessionCoordinator.requestCloseWorkspace()
     }
 
     func closeStandaloneFile() {
-        guard standaloneFileURL != nil else { return }
-        guard documentFeature.beginProjectClose() else {
-            performCloseStandaloneFile()
-            return
-        }
+        workspaceSessionCoordinator.requestCloseStandaloneFile()
     }
 
-    private func performCloseProject() {
+    private func finishWorkspaceClose(for workspaceURL: URL) {
+        documentLanguageCoordinator?.stop()
         cancelJavaLanguageServerPreparation()
         beginModuleRuntimeShutdown()
-        if let workspaceURL {
-            workspaceFeature.persistWorkspaceSession(for: workspaceURL)
-        }
-        stopAccessingWorkspace()
-        workspaceURL = nil
-        standaloneFileURL = nil
         reloadLanguageProviderCatalog(for: nil)
         selectedSidebar = .project
-        workspaceFeature.reset()
-        documentFeature.reset()
-        mediaFeature.reset()
-        searchFeatureIfActive?.reset()
-        searchQuery = ""
-        isSearchEverywhereVisible = false
-        searchEverywhereQuery = ""
-        isProjectReplaceVisible = false
-        projectReplaceQuery = ""
-        projectReplaceText = ""
-        selectedProjectReplacementPaths = []
+        workspaceSessionCoordinator.resetWorkspaceFeature()
+        featureGraph.editorSession.resetContent()
+        searchModuleCoordinator.resetFeature(searchFeatureIfActive)
+        searchSessionFeature.reset()
         editorChrome.resetFindBar()
         editorDiagnosticsStore.reset()
-        projectHistoryFeatureIfActive?.reset()
-        workspaceFeature.reset()
-        gitFeatureIfActive?.reset()
-        isGitLogVisible = false
-        isTerminalVisible = false
-        isReferencesVisible = false
-        isProblemsVisible = false
-        isMavenVisible = false
-        isSpringVisible = false
-        isRunVisible = false
-        isTestsVisible = false
-        isDebugVisible = false
+        historyModuleCoordinator.resetFeature(projectHistoryFeatureIfActive)
+        workspaceSessionCoordinator.resetWorkspaceFeature()
+        gitModuleCoordinator.resetFeature(gitFeatureIfActive)
+        workbenchFeature.hideAllToolWindows()
         stopTerminalSessions()
         cancelJavaWorkspaceWorkflows()
         languageToolingSessionsIfActive?.stopAll()
-        languageTestServiceIfActive?.reset()
+        executionModuleCoordinator.resetTests(languageTestServiceIfActive)
         runtimeFeature.closeProject()
-        mavenFeatureIfActive?.reset()
-        runFeatureIfActive?.reset()
-        pendingRunAction = nil
-        scheduleObjectWillChangeRelay()
-        genericDebugFeatureIfActive?.reset()
+        executionModuleCoordinator.resetFeatures(
+            maven: mavenFeatureIfActive,
+            run: runFeatureIfActive,
+            tests: languageTestServiceIfActive
+        )
+        runWorkflowCoordinator.resetPendingAction()
+        debugModuleCoordinator.resetFeature(genericDebugFeatureIfActive)
         debugBreakpointPresentation.reset()
         javaFeature.stop()
         springFeature.reset()
@@ -1048,42 +887,46 @@ final class AppModel: ObservableObject, Identifiable {
         navigationHistoryFeature.reset()
         virtualDocumentProviderIDs.removeAll()
         blameVisibleURL = nil
-        gitLogSearchQuery = ""
         projectItemEditRequest = nil
         pendingProjectItemDeletion = nil
         refreshRecentProjects()
         didCloseProject?()
     }
 
-    private func performCloseStandaloneFile() {
-        standaloneFileURL = nil
-        documentFeature.reset()
-        mediaFeature.reset()
+    private func prepareForStandaloneOpen(at normalizedURL: URL) {
+        documentLanguageCoordinator?.stop()
+        featureGraph.editorSession.resetContent()
+        isFindBarVisible = false
+        findBarQuery = ""
+        if let mediaKind = MediaDocumentKind.from(url: normalizedURL) {
+            openMediaFile(normalizedURL, kind: mediaKind)
+        } else {
+            documentFeature.openStandaloneFile(normalizedURL)
+        }
+    }
+
+    private func finishStandaloneClose() {
+        documentLanguageCoordinator?.stop()
+        featureGraph.editorSession.resetContent()
         editorChrome.resetFindBar()
         editorChrome.setGoToLineVisible(false)
         didCloseProject?()
     }
 
-    private func stopAccessingWorkspace() {
-        guard let securityScopedWorkspaceURL else { return }
-        platformUI.stopAccessingProject(securityScopedWorkspaceURL)
-        self.securityScopedWorkspaceURL = nil
-    }
-
     func removeRecentProject(_ project: RecentProject) {
-        recentProjects = recentProjectsStore.remove(project, from: recentProjects)
+        workspaceSessionCoordinator.removeRecentProject(project)
     }
 
     func refreshRecentProjects() {
-        recentProjects = recentProjectsStore.load()
+        workspaceSessionCoordinator.refreshRecentProjects()
     }
 
     func loadWorkbenchLayout(for workspaceURL: URL) -> WorkbenchLayout {
-        workbenchLayoutStore.load(for: workspaceURL)
+        workbenchFeature.loadLayout(for: workspaceURL)
     }
 
     func saveWorkbenchLayout(_ layout: WorkbenchLayout, for workspaceURL: URL) {
-        workbenchLayoutStore.save(layout, for: workspaceURL)
+        workbenchFeature.saveLayout(layout, for: workspaceURL)
     }
 
     private func reloadLanguageProviderCatalog(for workspaceURL: URL?) {
@@ -1102,18 +945,7 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     func openStandaloneFile(_ url: URL) {
-        let normalizedURL = url.standardizedFileURL
-        workspaceURL = nil
-        standaloneFileURL = normalizedURL
-        documentFeature.reset()
-        mediaFeature.reset()
-        isFindBarVisible = false
-        findBarQuery = ""
-        if let mediaKind = MediaDocumentKind.from(url: normalizedURL) {
-            openMediaFile(normalizedURL, kind: mediaKind)
-        } else {
-            documentFeature.openStandaloneFile(normalizedURL)
-        }
+        workspaceSessionCoordinator.openStandaloneFile(at: url)
     }
 
     func javaIconKind(for url: URL) async -> LitheIconKind? {
@@ -1251,6 +1083,7 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     func cancelPendingClose() {
+        workspaceSessionCoordinator.cancelPendingClose()
         documentFeature.cancelPendingClose()
     }
 
@@ -1280,31 +1113,6 @@ final class AppModel: ObservableObject, Identifiable {
 
     func documentDidChange(_ document: EditorDocument) {
         documentFeature.documentDidChange(document)
-    }
-
-    private func handleDocumentChanged(_ document: EditorDocument) {
-        activateLanguageServerIfAvailable(for: document)
-        if let workspaceURL {
-            springFeature.scheduleReload(
-                changedDocument: document,
-                workspaceURL: workspaceURL,
-                files: projectFiles,
-                openDocuments: openDocuments
-            )
-        }
-        Task { @MainActor [weak self, weak document] in
-            try? await Task.sleep(for: .milliseconds(450))
-            guard !Task.isCancelled, let self, let document else { return }
-            guard self.javaFeature.handles(fileURL: document.url) else { return }
-            await self.refreshCodeVision(for: document.url)
-        }
-    }
-
-    private func handleDocumentClosed(_ document: EditorDocument) {
-        languageToolingSessionsIfActive?.closeDocument(document.url)
-        if javaFeature.handles(fileURL: document.url) {
-            javaFeature.close(document)
-        }
     }
 
     @discardableResult
@@ -1416,69 +1224,15 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     func commitStagedChanges() async {
-        guard let gitFeature = await activateGitModule() else { return }
-        if await gitFeature.commitStagedChanges(message: commitMessage, amend: amendCommit) {
-            commitMessage = ""
-            amendCommit = false
-        }
+        await commitWorkflow.commit()
     }
 
     func commitAndPushStagedChanges() async {
-        guard let gitFeature = await activateGitModule() else { return }
-        if await gitFeature.commitAndPushStagedChanges(message: commitMessage, amend: amendCommit) {
-            commitMessage = ""
-            amendCommit = false
-        }
+        await commitWorkflow.commit(push: true)
     }
 
     func generateCommitMessage() async {
-        guard !isGeneratingCommitMessage else { return }
-        guard let gitFeature = await activateGitModule() else { return }
-        let stagedChanges = gitFeature.gitChanges.filter(\.isStaged)
-        guard !stagedChanges.isEmpty else {
-            showNotification("Stage at least one file first")
-            return
-        }
-
-        let stagedChangeIDs = Set(stagedChanges.map(\.id))
-        isGeneratingCommitMessage = true
-        pendingGeneratedCommitMessage = nil
-        defer { isGeneratingCommitMessage = false }
-
-        do {
-            refreshAIConfigurations()
-            guard let input = await gitFeature.stagedCommitMessageInput() else {
-                throw CommitMessageGenerationError.emptyDiff
-            }
-            let value = try await services.moduleRuntime.activateCapability(.aiCommitMessage)
-            guard let capability = value as? any AICommitMessageGenerating else {
-                throw ModuleRuntimeError.missingCapabilityDependency(
-                    module: .aiAssistance,
-                    capability: .aiCommitMessage
-                )
-            }
-            defer { try? services.moduleRuntime.markIdle(.aiAssistance) }
-            let generated = try await capability.generateCommitMessage(
-                input: input,
-                settings: settings.commitMessageAI
-            )
-            let currentStagedChangeIDs = Set(
-                gitFeature.gitChanges.filter(\.isStaged).map(\.id)
-            )
-            guard currentStagedChangeIDs == stagedChangeIDs else {
-                showNotification("Staged files changed before generation finished")
-                return
-            }
-
-            if commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                commitMessage = generated
-                showNotification("Commit message generated")
-            } else {
-                pendingGeneratedCommitMessage = generated
-            }
-        } catch {
-            showNotification(error.localizedDescription)
-        }
+        await commitWorkflow.generateMessage()
     }
 
     func generatePullRequestDescription(
@@ -1505,14 +1259,11 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     func applyPendingGeneratedCommitMessage() {
-        guard let pendingGeneratedCommitMessage else { return }
-        commitMessage = pendingGeneratedCommitMessage
-        self.pendingGeneratedCommitMessage = nil
-        showNotification("Commit message replaced")
+        commitWorkflow.applyGeneratedMessage()
     }
 
     func discardPendingGeneratedCommitMessage() {
-        pendingGeneratedCommitMessage = nil
+        commitDraftFeature.discardGeneratedMessage()
     }
 
     func toggleStaging(_ change: GitChange) {
@@ -1535,13 +1286,7 @@ final class AppModel: ObservableObject, Identifiable {
     func toggleGitLog() async {
         isGitLogVisible.toggle()
         if isGitLogVisible {
-            isTestsVisible = false
-            isTerminalVisible = false
-            isReferencesVisible = false
-            isProblemsVisible = false
-            isMavenVisible = false
-            isRunVisible = false
-            isDebugVisible = false
+            workbenchFeature.setVisibility(.gitLog, isVisible: true)
         }
         if isGitLogVisible && gitCommits.isEmpty {
             await refreshGitHistory()
@@ -1551,7 +1296,7 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     func closeGitLog() {
-        isGitLogVisible = false
+        workbenchFeature.setVisibility(.gitLog, isVisible: false)
         gitFeatureIfActive?.cancelGitHistoryLoading()
     }
 
@@ -1570,23 +1315,9 @@ final class AppModel: ObservableObject, Identifiable {
         await gitFeature.refreshGitHistory()
     }
 
-    func loadMoreGitHistory() async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.loadMoreGitHistory()
-    }
-
     func selectGitCommit(_ commit: GitCommit) async {
         guard let gitFeature = await activateGitModule() else { return }
         await gitFeature.selectGitCommit(commit)
-    }
-
-    func applyGitLogFilter(_ query: String) async {
-        await applyGitLogFilter(GitLogQuery.parse(query))
-    }
-
-    func applyGitLogFilter(_ query: GitLogQuery) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.applyGitLogFilter(query)
     }
 
     func showGitCommitDiff(for file: GitCommitFile) {
@@ -1605,14 +1336,7 @@ final class AppModel: ObservableObject, Identifiable {
         guard let gitFeature = await activateGitModule(),
               gitFeature.gitRepositoryRoot != nil,
               !hash.allSatisfy({ $0 == "0" }) else { return }
-        isTerminalVisible = false
-        isReferencesVisible = false
-        isProblemsVisible = false
-        isMavenVisible = false
-        isRunVisible = false
-        isDebugVisible = false
-        isTestsVisible = false
-        isGitLogVisible = true
+        workbenchFeature.setVisibility(.gitLog, isVisible: true)
         await gitFeature.showGitCommit(hash)
     }
 
@@ -1628,11 +1352,6 @@ final class AppModel: ObservableObject, Identifiable {
         await gitFeature.showComparison(from: reference, to: target)
     }
 
-    func selectBranchComparisonFile(_ file: GitBranchComparisonFile) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.selectBranchComparisonFile(file)
-    }
-
     func closeBranchComparison() {
         gitFeatureIfActive?.closeBranchComparison()
     }
@@ -1646,50 +1365,9 @@ final class AppModel: ObservableObject, Identifiable {
         await gitFeature.createBranch(named: rawName, from: reference, checkout: checkout)
     }
 
-    func renameBranch(_ reference: GitReference, to rawName: String) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.renameBranch(reference, to: rawName)
-    }
-
     func deleteBranch(_ reference: GitReference) async {
         guard let gitFeature = await activateGitModule() else { return }
         await gitFeature.deleteBranch(reference)
-    }
-
-    func restoreRecentlyDeletedBranch() async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.restoreRecentlyDeletedBranch()
-    }
-
-    func dismissDeletedBranchBanner() {
-        gitFeatureIfActive?.dismissDeletedBranchBanner()
-    }
-
-    /// Returns nil on success, otherwise the error message a tag dialog
-    /// should show where the user typed.
-    @discardableResult
-    func createTag(at commit: GitCommit, name: String, message: String) async -> String? {
-        guard let gitFeature = await activateGitModule() else { return "No Git repository is open" }
-        return await gitFeature.createTag(at: commit, name: name, message: message)
-    }
-
-    func deleteTag(_ reference: GitReference) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.deleteTag(reference)
-    }
-
-    func restoreRecentlyDeletedTag() async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.restoreRecentlyDeletedTag()
-    }
-
-    func dismissDeletedTagBanner() {
-        gitFeatureIfActive?.dismissDeletedTagBanner()
-    }
-
-    func mergeBranch(_ reference: GitReference) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.mergeBranch(reference)
     }
 
     func continueGitOperation() async {
@@ -1725,34 +1403,9 @@ final class AppModel: ObservableObject, Identifiable {
         await gitFeature.skipGitOperationStep()
     }
 
-    func rebaseCurrentBranch(onto reference: GitReference) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.rebaseCurrentBranch(onto: reference)
-    }
-
-    func checkoutAndRebase(_ reference: GitReference) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.checkoutAndRebase(reference)
-    }
-
-    func pullRemoteReference(_ reference: GitReference, strategy: GitPullStrategy) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.pullRemoteReference(reference, strategy: strategy)
-    }
-
-    func updateCurrentBranch(_ reference: GitReference) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.updateCurrentBranch(reference)
-    }
-
     func fetchGit() async {
         guard let gitFeature = await activateGitModule() else { return }
         await gitFeature.fetchGit()
-    }
-
-    func checkoutReference(_ reference: GitReference) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.checkoutReference(reference)
     }
 
     func resolveCheckoutConflict(
@@ -1766,21 +1419,6 @@ final class AppModel: ObservableObject, Identifiable {
     func checkoutRevision(_ rawRevision: String) async {
         guard let gitFeature = await activateGitModule() else { return }
         await gitFeature.checkoutRevision(rawRevision)
-    }
-
-    func cherryPick(_ commit: GitCommit) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.cherryPick(commit)
-    }
-
-    func revert(_ commit: GitCommit) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.revert(commit)
-    }
-
-    func resetCurrentBranch(to commit: GitCommit) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.resetCurrentBranch(to: commit)
     }
 
     func pushBranch(_ reference: GitReference) async {

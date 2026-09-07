@@ -11,7 +11,7 @@ struct BranchSwitcherPopover: View {
         static let branchListHeight: CGFloat = 240
     }
 
-    @EnvironmentObject private var model: AppModel
+    @ObservedObject var feature: GitFeatureModel
     @Binding var isPresented: Bool
     let onCommit: () -> Void
     let onPush: (GitReference) -> Void
@@ -19,6 +19,8 @@ struct BranchSwitcherPopover: View {
     let onNewBranch: (GitReference) -> Void
     let onCheckoutRevision: () -> Void
     let onManageBranches: () -> Void
+    let onCompareWithWorkingTree: (GitReference) async -> Void
+    let onCompareReferences: (GitReference, GitReference) async -> Void
 
     @State private var searchQuery = ""
     @State private var expandedLocalGroups: Set<String> = []
@@ -109,18 +111,18 @@ struct BranchSwitcherPopover: View {
             if !normalizedQuery.isEmpty && actionMatches("Fetch") {
                 actionRow("Fetch", icon: "arrow.down.to.line", shortcut: nil) {
                     isPresented = false
-                    Task { await model.fetchGit() }
+                    Task { await feature.fetchGit() }
                 }
-                .disabled(model.gitRepositoryRoot == nil || model.isPerformingBranchOperation)
+                .disabled(feature.gitRepositoryRoot == nil || feature.isPerformingBranchOperation)
             }
 
             if actionMatches("Update Project") {
                 actionRow("Update Project…", icon: "arrow.down.left", shortcut: "⌘T") {
-                    guard let current = model.currentGitReference else { return }
+                    guard let current = feature.currentGitReference else { return }
                     isPresented = false
-                    Task { await model.updateCurrentBranch(current) }
+                    Task { await feature.updateCurrentBranch(current) }
                 }
-                .disabled(model.currentGitReference == nil || model.isPerformingBranchOperation)
+                .disabled(feature.currentGitReference == nil || feature.isPerformingBranchOperation)
             }
 
             if actionMatches("Commit") {
@@ -129,10 +131,10 @@ struct BranchSwitcherPopover: View {
 
             if actionMatches("Push") {
                 actionRow("Push…", icon: "arrow.up.right", shortcut: "⇧⌘K") {
-                    guard let current = model.currentGitReference else { return }
+                    guard let current = feature.currentGitReference else { return }
                     onPush(current)
                 }
-                .disabled(model.currentGitReference == nil || model.isPerformingBranchOperation)
+                .disabled(feature.currentGitReference == nil || feature.isPerformingBranchOperation)
             }
 
             if searchQuery.isEmpty || actionMatches("New Branch") || actionMatches("Checkout Tag or Revision") {
@@ -141,10 +143,10 @@ struct BranchSwitcherPopover: View {
 
             if actionMatches("New Branch") {
                 actionRow("New Branch…", icon: "plus", shortcut: "⌥⌘N") {
-                    guard let current = model.currentGitReference else { return }
+                    guard let current = feature.currentGitReference else { return }
                     onNewBranch(current)
                 }
-                .disabled(model.currentGitReference == nil || model.isPerformingBranchOperation)
+                .disabled(feature.currentGitReference == nil || feature.isPerformingBranchOperation)
             }
 
             if actionMatches("Checkout Tag or Revision") {
@@ -164,7 +166,7 @@ struct BranchSwitcherPopover: View {
                 Text(searchQuery.isEmpty ? "Recent" : "Branches")
                     .font(.system(size: 12.5, weight: .semibold))
                 Spacer()
-                if model.isLoadingGitHistory || model.isPerformingBranchOperation {
+                if feature.isLoadingGitHistory || feature.isPerformingBranchOperation {
                     ProgressView().controlSize(.mini)
                 }
             }
@@ -174,7 +176,7 @@ struct BranchSwitcherPopover: View {
 
             Group {
                 if filteredReferences.isEmpty {
-                    Text(model.isLoadingGitHistory ? "Loading branches…" : "No matching branches")
+                    Text(feature.isLoadingGitHistory ? "Loading branches…" : "No matching branches")
                         .font(LitheTheme.uiFont)
                         .foregroundStyle(LitheTheme.secondaryText)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -412,7 +414,7 @@ struct BranchSwitcherPopover: View {
             },
             menuContent: { branchActionMenu(for: reference) }
         )
-        .disabled(model.isPerformingBranchOperation)
+        .disabled(feature.isPerformingBranchOperation)
     }
 
     /// The full branch name, plus its upstream when tracked, for rows whose text
@@ -432,12 +434,12 @@ struct BranchSwitcherPopover: View {
         }
 
         Button("Show Diff with Working Tree") {
-            dismissAndRun { Task { await model.showComparisonWithWorkingTree(for: reference) } }
+            dismissAndRun { Task { await onCompareWithWorkingTree(reference) } }
         }
 
-        if let current = model.currentGitReference, current.id != reference.id {
+        if let current = feature.currentGitReference, current.id != reference.id {
             Button("Compare with Current Branch") {
-                dismissAndRun { Task { await model.showComparison(from: reference, to: current) } }
+                dismissAndRun { Task { await onCompareReferences(reference, current) } }
             }
         }
 
@@ -445,7 +447,7 @@ struct BranchSwitcherPopover: View {
             Divider()
 
             Button("Checkout") {
-                dismissAndRun { Task { await model.checkoutReference(reference) } }
+                dismissAndRun { Task { await feature.checkoutReference(reference) } }
             }
         }
 
@@ -453,7 +455,7 @@ struct BranchSwitcherPopover: View {
             Divider()
 
             Button("Update") {
-                dismissAndRun { Task { await model.updateCurrentBranch(reference) } }
+                dismissAndRun { Task { await feature.updateCurrentBranch(reference) } }
             }
             .disabled(!reference.isCurrent)
 
@@ -480,7 +482,7 @@ struct BranchSwitcherPopover: View {
 
     private var recentReferences: [GitReference] {
         guard normalizedQuery.isEmpty else { return [] }
-        return model.recentGitReferences
+        return feature.recentGitReferences
     }
 
     private var recentReferenceRows: [BranchPopupRow] {
@@ -494,8 +496,8 @@ struct BranchSwitcherPopover: View {
 
     private var filteredReferences: [GitReference] {
         let query = normalizedQuery
-        guard !query.isEmpty else { return model.gitReferences }
-        return model.gitReferences.filter { reference in
+        guard !query.isEmpty else { return feature.gitReferences }
+        return feature.gitReferences.filter { reference in
             reference.shortName.localizedCaseInsensitiveContains(query) ||
                 reference.upstreamShortName?.localizedCaseInsensitiveContains(query) == true
         }

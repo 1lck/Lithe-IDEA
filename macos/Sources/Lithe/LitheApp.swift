@@ -304,7 +304,7 @@ struct LitheApp: App {
         let projectSessions = ProjectSessionManager(
             settings: settings,
             modelFactory: {
-                AppModel(
+                AppCompositionBuilder.makeModel(
                     settings: settings,
                     services: MacServiceContainer(
                         store: store,

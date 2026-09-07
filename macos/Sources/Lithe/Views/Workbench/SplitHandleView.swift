@@ -72,7 +72,14 @@ struct SplitHandleView: View {
                     // newest translation for the next run-loop turn and applies
                     // the sub-point deadband, so no per-event @State is written.
                     dragScheduler.submit(currentTranslation) { translation in
-                        onDragChanged(translation)
+                        // Resizing is direct manipulation. Do not let an
+                        // inherited animation transaction turn each
+                        // coalesced geometry update into a trailing animation.
+                        var transaction = Transaction()
+                        transaction.animation = nil
+                        withTransaction(transaction) {
+                            onDragChanged(translation)
+                        }
                     }
                 }
                 .onEnded { value in
@@ -128,7 +135,7 @@ struct SplitHandleView: View {
     @ViewBuilder
     private var dividerLine: some View {
         let isHighlighted = isHovering || isDragging
-        if showsIdleDivider || isHighlighted {
+        if showsIdleDivider {
             let color = isHighlighted ? LitheTheme.accent : LitheTheme.divider
 
             if axis == .horizontal {
