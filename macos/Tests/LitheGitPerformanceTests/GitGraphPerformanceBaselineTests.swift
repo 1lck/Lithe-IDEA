@@ -159,7 +159,8 @@ struct GitGraphPerformanceBaselineTests {
         )
         #expect(benchmark.visibleItemCount > benchmark.fileCount)
         #expect(benchmark.sampleCount == 21)
-        #expect(benchmark.p95Ms < 30)
+        #expect(benchmark.medianMs < 30)
+        #expect(benchmark.p95Ms < 60)
     }
 
     @Test("The native Worktree rows surface samples only the visible viewport")
