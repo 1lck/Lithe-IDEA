@@ -473,6 +473,10 @@ struct LitheApp: App {
                     Task { await updateChecker.checkForUpdates(manual: true) }
                 }
                 .disabled(updateChecker.isChecking)
+
+                Button("Export Diagnostics Bundle…") {
+                    model.diagnosticsFeature.presentExport()
+                }
             }
 
             CommandMenu("Navigate") {

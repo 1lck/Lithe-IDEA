@@ -161,6 +161,7 @@ final class AppModel: ObservableObject, Identifiable {
     var discourseCommunityFeature: DiscourseCommunityFeatureModel {
         featureGraph.discourseCommunity
     }
+    var diagnosticsFeature: DiagnosticsFeatureModel { featureGraph.diagnostics }
     var editorTabOrderFeature: EditorTabOrderFeatureModel { featureGraph.editorTabOrder }
     var mediaFeature: MediaDocumentFeatureModel { featureGraph.media }
     var terminalPlacementFeature: TerminalPlacementFeatureModel {
