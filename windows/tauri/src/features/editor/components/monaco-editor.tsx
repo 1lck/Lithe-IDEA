@@ -1583,11 +1583,12 @@ export function MonacoEditor({
     vimRelativeLineNumbers,
   ]);
 
+  // Theme application is isolated from option updates so that tab switches
+  // (which flip `enableExpensiveServices`) do not redefine the theme and
+  // invalidate every model's tokenization cache via `TokenizationRegistry`.
   useEffect(() => {
     const editor = editorRef.current;
-    const container = containerRef.current;
     if (!editor) return;
-    const fontOptions = { fontFamily, fontSize, lineHeight };
 
     const applyTheme = (nextThemeId?: string) => {
       monacoEditor.setTheme(
@@ -1598,6 +1599,24 @@ export function MonacoEditor({
     };
 
     applyTheme();
+
+    const unsubscribeRegistry = themeRegistry.onRegistryChange(applyTheme);
+    const unsubscribeTheme = themeRegistry.onThemeChange(applyTheme);
+    const unsubscribeReady = themeRegistry.onReady(applyTheme);
+
+    return () => {
+      unsubscribeRegistry();
+      unsubscribeTheme();
+      unsubscribeReady();
+    };
+  }, [editorItalicComments, themeId]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    const container = containerRef.current;
+    if (!editor) return;
+    const fontOptions = { fontFamily, fontSize, lineHeight };
+
     editor.updateOptions({
       ...fontOptions,
       tabSize,
@@ -1639,15 +1658,7 @@ export function MonacoEditor({
     });
     if (container) syncContainedEditorFontOptions(container, fontOptions);
 
-    const unsubscribeRegistry = themeRegistry.onRegistryChange(applyTheme);
-    const unsubscribeTheme = themeRegistry.onThemeChange(applyTheme);
-    const unsubscribeReady = themeRegistry.onReady(applyTheme);
-
-    return () => {
-      unsubscribeRegistry();
-      unsubscribeTheme();
-      unsubscribeReady();
-    };
+    return undefined;
   }, [
     autoCompletion,
     codeLens,
@@ -1655,7 +1666,6 @@ export function MonacoEditor({
     editorCursorBlinking,
     editorCursorStyle,
     editorFontLigatures,
-    editorItalicComments,
     editorScrollBeyondLastLine,
     editorSmoothScrolling,
     editorStickyScroll,
@@ -1678,7 +1688,6 @@ export function MonacoEditor({
     alwaysConsumeMouseWheel,
     semanticTokens,
     tabSize,
-    themeId,
     vimCurrentMode,
     vimModeEnabled,
     wordWrap,
