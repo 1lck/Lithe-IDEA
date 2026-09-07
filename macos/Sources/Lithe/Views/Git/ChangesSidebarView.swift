@@ -189,6 +189,10 @@ struct ChangesSidebarView: View {
                 )
             }
         }
+        .transaction { transaction in
+            transaction.animation = nil
+            transaction.disablesAnimations = true
+        }
     }
 
     private static let defaultCommitAreaHeight: CGFloat = 124

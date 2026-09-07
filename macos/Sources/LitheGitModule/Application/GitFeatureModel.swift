@@ -14,9 +14,31 @@ package final class GitFeatureModel: ObservableObject {
     @Published private var pendingStagingStates: [GitChange.ID: Bool] = [:]
     @Published package private(set) var gitStashes: [GitStash] = []
     @Published package private(set) var gitShelves: [GitShelfEntry] = []
-    @Published package private(set) var gitWorktrees: [GitWorktree] = []
+    @Published package private(set) var gitWorktrees: [GitWorktree] = [] {
+        didSet { gitWorktreesVersion = Self.nextGitWorktreesVersion() }
+    }
+    /// Constant-time key for the worktree list projection task.
+    package private(set) var gitWorktreesVersion = 0
+
+    private static var gitWorktreesVersionCounter = 0
+
+    private static func nextGitWorktreesVersion() -> Int {
+        gitWorktreesVersionCounter &+= 1
+        return gitWorktreesVersionCounter
+    }
     @Published package private(set) var gitWorktreeLoadState = GitWorktreeLoadState.idle
-    @Published package private(set) var gitWorktreeInspection: GitWorktreeInspection?
+    @Published package private(set) var gitWorktreeInspection: GitWorktreeInspection? {
+        didSet { gitWorktreeInspectionVersion = Self.nextGitWorktreeInspectionVersion() }
+    }
+    /// Constant-time key for completed worktree detail publications.
+    package private(set) var gitWorktreeInspectionVersion = 0
+
+    private static var gitWorktreeInspectionVersionCounter = 0
+
+    private static func nextGitWorktreeInspectionVersion() -> Int {
+        gitWorktreeInspectionVersionCounter &+= 1
+        return gitWorktreeInspectionVersionCounter
+    }
     @Published package private(set) var gitWorktreeInspectionLoadState = GitWorktreeInspectionLoadState.idle
     @Published package private(set) var isPerformingStashOperation = false
     @Published package private(set) var isPerformingShelfOperation = false
@@ -77,7 +99,23 @@ package final class GitFeatureModel: ObservableObject {
         gitCommitsVersionCounter &+= 1
         return gitCommitsVersionCounter
     }
-    @Published package private(set) var gitLogMatchedCommitHashes: Set<String>?
+    @Published package private(set) var gitLogMatchedCommitHashes: Set<String>? {
+        didSet { gitLogFilterVersion = Self.nextGitLogFilterVersion() }
+    }
+    /// Monotonic token for completed Git Log filter results. Rendering uses the
+    /// token as a task key instead of comparing a potentially large hash set on
+    /// every SwiftUI body evaluation.
+    ///
+    /// Like `gitCommitsVersion`, this changes with the published source value
+    /// and therefore does not need a second publication of its own.
+    package private(set) var gitLogFilterVersion = 0
+
+    private static var gitLogFilterVersionCounter = 0
+
+    private static func nextGitLogFilterVersion() -> Int {
+        gitLogFilterVersionCounter &+= 1
+        return gitLogFilterVersionCounter
+    }
     @Published package private(set) var isFilteringGitLog = false
     @Published package var gitLogSearchQuery = ""
     @Published package var selectedGitReference: GitReference?
@@ -86,7 +124,12 @@ package final class GitFeatureModel: ObservableObject {
     /// highlighting HEAD while the core is actually queried with `--all`.
     @Published package private(set) var isShowingAllGitReferences = false
     @Published package var selectedGitCommit: GitCommit?
-    @Published package private(set) var selectedGitCommitFiles: [GitCommitFile] = []
+    @Published package private(set) var selectedGitCommitFiles: [GitCommitFile] = [] {
+        didSet { selectedGitCommitFilesVersion &+= 1 }
+    }
+    /// Constant-time change key for the commit file tree projection.
+    package private(set) var selectedGitCommitFilesVersion = 0
+
     @Published package private(set) var selectedGitCommitFilesLoadState =
         GitCommitFilesLoadState.idle
     @Published package var selectedGitCommitFile: GitCommitFile?

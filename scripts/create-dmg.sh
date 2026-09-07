@@ -68,8 +68,22 @@ if [[ -n "${LITHE_DMG_DIAGNOSTICS:-}" ]]; then
     hdiutil_options+=(-debug)
 fi
 
+create_log="$STAGING_DIR/hdiutil-create.log"
 hdiutil_status=0
-hdiutil create "${hdiutil_options[@]}" "$DMG_PATH" || hdiutil_status=$?
+for attempt in 1 2 3; do
+    rm -f -- "$DMG_PATH" "$create_log"
+    hdiutil create "${hdiutil_options[@]}" "$DMG_PATH" > "$create_log" 2>&1 || hdiutil_status=$?
+    if (( hdiutil_status == 0 )); then
+        break
+    fi
+    cat "$create_log" >&2
+    if ! grep -Eiq 'resource busy|0x0000C010|49168' "$create_log" || (( attempt == 3 )); then
+        break
+    fi
+    print -u2 -- "hdiutil create reported a transient busy resource; retrying ($attempt/3)."
+    sleep $(( attempt * 2 ))
+    hdiutil_status=0
+done
 if (( hdiutil_status != 0 )); then
     if [[ -n "${LITHE_DMG_DIAGNOSTICS:-}" ]]; then
         report_disk_image_state "after failed create"

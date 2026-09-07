@@ -223,6 +223,14 @@
 "The checkout path does not exist" = "The checkout path does not exist";
 "Could not inspect this worktree" = "Could not inspect this worktree";
 "Loading worktree details" = "Loading worktree details";
+"Load more commits" = "Load more commits";
+"Loading commits…" = "Loading commits…";
+"Copy Commit Hash" = "Copy Commit Hash";
+"Copy Short Hash" = "Copy Short Hash";
+"New Tag…" = "New Tag…";
+"Cherry-pick Commit…" = "Cherry-pick Commit…";
+"Revert Commit…" = "Revert Commit…";
+"Reset Current Branch to Here…" = "Reset Current Branch to Here…";
 "Reading changes and recent commits." = "Reading changes and recent commits.";
 "No local changes" = "No local changes";
 "This worktree has no uncommitted changes." = "This worktree has no uncommitted changes.";

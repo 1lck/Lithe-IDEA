@@ -2,6 +2,11 @@
   overscroll-behavior: contain;
 }
 
+/* Command lists use direct wheel-driven scrollTop updates for responsive navigation. */
+.command-list-viewport {
+  scroll-behavior: auto !important;
+}
+
 [data-tauri-drag-region] {
   -webkit-app-region: drag;
   app-region: drag;

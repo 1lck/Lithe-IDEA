@@ -1,13 +1,6 @@
 import SwiftUI
 import LitheGitModule
 
-struct GitWorktreeActions {
-    let openProject: (URL) -> Void
-    let reveal: (URL) -> Void
-    let copyPath: (URL) -> Void
-    let chooseParentDirectory: () -> URL?
-}
-
 struct GitWorktreesView: View {
     private enum WorktreeSection: String, CaseIterable, Identifiable {
         case overview = "Overview"
@@ -28,6 +21,43 @@ struct GitWorktreesView: View {
         static let listWidth: CGFloat = 360
         static let quickInfoWidth: CGFloat = 282
         static let quickInfoThreshold: CGFloat = 1_080
+    }
+
+    fileprivate enum WorktreeStatusKind: Equatable {
+        case pathMissing
+        case locked
+        case modified
+        case current
+        case available
+
+        var title: LocalizedStringKey {
+            switch self {
+            case .pathMissing: return "Path Missing"
+            case .locked: return "Locked"
+            case .modified: return "Modified"
+            case .current: return "Current"
+            case .available: return "Available"
+            }
+        }
+
+        var color: Color {
+            switch self {
+            case .pathMissing: return LitheTheme.error
+            case .locked: return LitheTheme.warning
+            case .modified: return LitheTheme.warning
+            case .current, .available: return LitheTheme.success
+            }
+        }
+
+        init(_ status: GitWorktreeStatusKind) {
+            switch status {
+            case .pathMissing: self = .pathMissing
+            case .locked: self = .locked
+            case .modified: self = .modified
+            case .current: self = .current
+            case .available: self = .available
+            }
+        }
     }
 
     private enum WorktreeConfirmation: Identifiable {
@@ -60,6 +90,15 @@ struct GitWorktreesView: View {
     @State private var isLoadingMoreHistory = false
     @State private var selectedWorktreeID: String?
     @State private var activeSection = WorktreeSection.overview
+    @State private var projectedWorktrees: [GitWorktreeListItem] = []
+    @State private var projectedChangesSnapshot = GitWorktreeRowsSnapshot(
+        identity: .changes(inspectionVersion: 0),
+        rows: []
+    )
+    @State private var projectedHistorySnapshot = GitWorktreeRowsSnapshot(
+        identity: .history(inspectionVersion: 0, query: ""),
+        rows: []
+    )
 
     var body: some View {
         GeometryReader { geometry in
@@ -104,6 +143,16 @@ struct GitWorktreesView: View {
                 }
             )
         }
+        // Window resizing continuously proposes new sizes. Keep those layout
+        // passes transactional so SwiftUI does not animate pane bounds or
+        // replay content transitions while the pointer is moving.
+        .transaction { transaction in
+            transaction.animation = nil
+            transaction.disablesAnimations = true
+        }
+        // Avoid a page-wide offscreen texture while the window is resized.
+        // Native list/detail surfaces remain in the live hierarchy, and the
+        // split pane still coalesces direct-manipulation updates above.
         .background(background.hasImage ? Color.clear : LitheTheme.editor)
         .task(id: feature.gitRepositoryRoot) {
             await feature.refreshWorktrees()
@@ -112,6 +161,85 @@ struct GitWorktreesView: View {
         .task(id: selectedWorktree?.id) {
             guard let worktree = selectedWorktree, !worktree.isPrunable else { return }
             await feature.inspectWorktree(worktree)
+        }
+        .task(id: worktreeListProjectionIdentity) {
+            let taskIdentity = worktreeListProjectionIdentity
+            let worktrees = feature.gitWorktrees
+            let query = searchText
+            let inspection = feature.gitWorktreeInspection
+            let currentChangeCount = feature.gitChanges.count
+            let projection = await Task.detached(priority: .userInitiated) {
+                GitWorktreeListProjection.items(
+                    worktrees: worktrees,
+                    query: query,
+                    inspection: inspection,
+                    currentChangeCount: currentChangeCount
+                )
+            }.value
+            guard taskIdentity == worktreeListProjectionIdentity else { return }
+            projectedWorktrees = projection
+        }
+        .task(id: worktreeChangesProjectionIdentity) {
+            let taskIdentity = worktreeChangesProjectionIdentity
+            let changes: [GitChange]
+            if let selectedWorktree,
+               let inspection = matchingInspection(for: selectedWorktree) {
+                changes = inspection.changes
+            } else {
+                changes = []
+            }
+            let rows = await Task.detached(priority: .userInitiated) {
+                changes.map { change in
+                    GitWorktreeRowsSnapshot.Row.change(
+                        status: change.displayStatus,
+                        path: change.path,
+                        isStaged: change.isStaged,
+                        color: Self.nativeStatusColor(for: change.kind)
+                    )
+                }
+            }.value
+            guard taskIdentity == worktreeChangesProjectionIdentity else { return }
+            projectedChangesSnapshot = GitWorktreeRowsSnapshot(
+                identity: .changes(inspectionVersion: taskIdentity.inspectionVersion),
+                rows: rows
+            )
+        }
+        .task(id: worktreeHistoryProjectionIdentity) {
+            let taskIdentity = worktreeHistoryProjectionIdentity
+            guard let inspection = feature.gitWorktreeInspection else {
+                projectedHistorySnapshot = GitWorktreeRowsSnapshot(
+                    identity: .history(
+                        inspectionVersion: taskIdentity.inspectionVersion,
+                        query: taskIdentity.query
+                    ),
+                    rows: []
+                )
+                return
+            }
+            let query = historySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let commits = inspection.commits
+            let rows = await Task.detached(priority: .userInitiated) {
+                let projection = query.isEmpty ? commits : commits.filter {
+                    $0.subject.localizedCaseInsensitiveContains(query)
+                        || $0.authorName.localizedCaseInsensitiveContains(query)
+                        || $0.hash.localizedCaseInsensitiveContains(query)
+                }
+                return projection.map { commit in
+                    GitWorktreeRowsSnapshot.Row.commit(
+                        subject: commit.subject,
+                        author: commit.authorName,
+                        date: commit.date
+                    )
+                }
+            }.value
+            guard taskIdentity == currentWorktreeHistoryProjectionIdentity else { return }
+            projectedHistorySnapshot = GitWorktreeRowsSnapshot(
+                identity: .history(
+                    inspectionVersion: taskIdentity.inspectionVersion,
+                    query: taskIdentity.query
+                ),
+                rows: rows
+            )
         }
         .onChange(of: feature.gitWorktrees.map(\.id)) { _ in
             selectAvailableWorktree()
@@ -122,7 +250,7 @@ struct GitWorktreesView: View {
                     repositoryRoot: repositoryRoot,
                     references: feature.gitReferences,
                     currentReference: feature.gitReferences.first(where: \.isCurrent),
-                    chooseParentDirectory: actions.chooseParentDirectory
+                    actions: actions
                 ) { name, reference, revision, destination in
                     Task {
                         await feature.createWorktree(
@@ -262,71 +390,26 @@ struct GitWorktreesView: View {
             if filteredWorktrees.isEmpty {
                 listEmptyState
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 7) {
-                        ForEach(filteredWorktrees) { worktree in
-                            worktreeListRow(worktree)
-                        }
+                GitWorktreeListScrollView(
+                    items: projectedWorktrees,
+                    selectedWorktreeID: selectedWorktreeID,
+                    onSelect: { worktreeID in
+                        selectedWorktreeID = worktreeID
+                        activeSection = .overview
                     }
-                    .padding(10)
-                }
-                .litheScrollViewChrome()
+                )
             }
         }
         .background(background.hasImage ? Color.clear : LitheTheme.sidebar)
     }
 
-    private func worktreeListRow(_ worktree: GitWorktree) -> some View {
-        let isSelected = selectedWorktree?.id == worktree.id
-        return Button {
-            selectedWorktreeID = worktree.id
-            activeSection = .overview
-        } label: {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 7) {
-                    Text(worktree.isPrimary ? String(localized: "Main Worktree") : worktree.displayName)
-                        .font(Visual.bodyMedium)
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .lineLimit(1)
-                    if worktree.isPrimary {
-                        Image(systemName: "crown.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(LitheTheme.warning)
-                    }
-                    if worktree.isCurrent {
-                        worktreeBadge("Current", color: LitheTheme.accent)
-                    }
-                    Spacer(minLength: 6)
-                    worktreeStatusLabel(worktree)
-                    Image(systemName: "ellipsis")
-                        .foregroundStyle(LitheTheme.secondaryText)
-                }
-                Text(worktree.path)
-                    .font(Visual.metadata)
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(String(
-                    format: String(localized: "Branch: %@"),
-                    worktree.branchName ?? String(localized: "Detached HEAD")
-                ))
-                    .font(Visual.metadata)
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .background(isSelected ? LitheTheme.subtleSelection : LitheTheme.raised)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay {
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(isSelected ? LitheTheme.inputFocusBorder : LitheTheme.panelBorder, lineWidth: 1)
-        }
-        .lithePointer()
+    private func worktreeStatusKind(_ worktree: GitWorktree) -> WorktreeStatusKind {
+        if worktree.isPrunable { return .pathMissing }
+        if worktree.isLocked { return .locked }
+        if let inspection = matchingInspection(for: worktree), !inspection.changes.isEmpty { return .modified }
+        if worktree.isCurrent && !feature.gitChanges.isEmpty { return .modified }
+        if worktree.isCurrent { return .current }
+        return .available
     }
 
     @ViewBuilder
@@ -420,9 +503,9 @@ struct GitWorktreesView: View {
 
     @ViewBuilder
     private func sectionContent(_ worktree: GitWorktree) -> some View {
-        ScrollView {
-            switch activeSection {
-            case .overview:
+        switch activeSection {
+        case .overview:
+            ScrollView {
                 VStack(spacing: 12) {
                     HStack(alignment: .top, spacing: 12) {
                         basicInformationCard(worktree)
@@ -430,16 +513,27 @@ struct GitWorktreesView: View {
                     }
                     actionCard(worktree)
                 }
-            case .changes:
-                changesSection(worktree)
-            case .history:
-                historySection(worktree)
-            case .settings:
+                // Keep every overview card on the same content width. Without
+                // an explicit width, the adaptive action grid can make its
+                // card hug its intrinsic button width after a pane resize,
+                // leaving a blank strip beside it until another layout pass.
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(14)
+            .litheScrollViewChrome()
+        case .changes:
+            changesSection(worktree)
+                .padding(14)
+        case .history:
+            historySection(worktree)
+                .padding(14)
+        case .settings:
+            ScrollView {
                 settingsSection(worktree)
             }
+            .padding(14)
+            .litheScrollViewChrome()
         }
-        .padding(14)
-        .litheScrollViewChrome()
     }
 
     private func basicInformationCard(_ worktree: GitWorktree) -> some View {
@@ -527,27 +621,8 @@ struct GitWorktreesView: View {
             } else if inspection.changes.isEmpty {
                 worktreeMessage(icon: "checkmark.circle", title: "No local changes", detail: "This worktree has no uncommitted changes.")
             } else {
-                worktreeCard(title: "Changes") {
-                    VStack(spacing: 0) {
-                        ForEach(inspection.changes) { change in
-                            HStack(spacing: 10) {
-                                Text(change.displayStatus)
-                                    .font(Visual.mono)
-                                    .foregroundStyle(changeColor(change))
-                                    .frame(width: 22)
-                                Text(change.path)
-                                    .font(Visual.body)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                Spacer()
-                                Text(LocalizedStringKey(change.isStaged ? "Staged" : "Unstaged"))
-                                    .font(Visual.metadata)
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                            }
-                            .padding(.vertical, 9)
-                            if change.id != inspection.changes.last?.id { Divider() }
-                        }
-                    }
+                worktreeScrollableCard(title: "Changes") {
+                    GitWorktreeRowsScrollView(snapshot: projectedChangesSnapshot)
                 }
             }
         } else {
@@ -563,47 +638,21 @@ struct GitWorktreesView: View {
             if inspection.commits.isEmpty {
                 worktreeMessage(icon: "clock.arrow.circlepath", title: "No commits", detail: "No commits were found for this branch.")
             } else {
-                worktreeCard(title: "Commit History") {
+                worktreeScrollableCard(title: "Commit History") {
                     let query = historySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let commits = query.isEmpty ? inspection.commits : inspection.commits.filter {
-                        $0.subject.localizedCaseInsensitiveContains(query)
-                            || $0.authorName.localizedCaseInsensitiveContains(query)
-                            || $0.hash.localizedCaseInsensitiveContains(query)
-                    }
+                    let snapshot = projectedHistorySnapshot
                     VStack(alignment: .leading, spacing: 10) {
                         TextField("Search commits", text: $historySearchText)
                             .textFieldStyle(.roundedBorder)
                             .font(Visual.body)
-                        if commits.isEmpty {
+                        if snapshot.rows.isEmpty {
                             Text("No matching commits in the loaded history.")
                                 .font(Visual.metadata)
                                 .foregroundStyle(LitheTheme.secondaryText)
                                 .padding(.vertical, 8)
-                        }
-                        VStack(spacing: 0) {
-                        ForEach(commits) { commit in
-                            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                                Image(systemName: "circle.fill")
-                                    .font(.system(size: 7))
-                                    .foregroundStyle(LitheTheme.accent)
-                                Text(commit.subject)
-                                    .font(Visual.bodyMedium)
-                                    .foregroundStyle(LitheTheme.primaryText)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                Spacer()
-                                Text(commit.authorName)
-                                    .font(Visual.metadata)
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                                    .lineLimit(1)
-                                Text(commit.date)
-                                    .font(Visual.metadata)
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                                    .lineLimit(1)
-                            }
-                            .padding(.vertical, 8)
-                            if commit.id != commits.last?.id { Divider() }
-                        }
+                        } else {
+                            GitWorktreeRowsScrollView(snapshot: snapshot)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
                         if query.isEmpty && inspection.hasMoreCommits {
                             Button {
@@ -679,6 +728,32 @@ struct GitWorktreesView: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(LitheTheme.raised)
         .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay {
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(LitheTheme.panelBorder, lineWidth: 1)
+        }
+    }
+
+    private func worktreeScrollableCard<Content: View>(
+        title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 11) {
+            Text(LocalizedStringKey(title))
+                .font(Visual.section)
+                .foregroundStyle(LitheTheme.primaryText)
+            content()
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // Keep the native scrolling surface out of a SwiftUI mask. A rounded
+        // clip on a card containing NSScrollView can force an offscreen
+        // compositing pass for every wheel frame; the scroll view already
+        // clips its document content to the viewport.
+        .background {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(LitheTheme.raised)
+        }
         .overlay {
             RoundedRectangle(cornerRadius: 6)
                 .stroke(LitheTheme.panelBorder, lineWidth: 1)
@@ -841,13 +916,35 @@ struct GitWorktreesView: View {
     }
 
     private var filteredWorktrees: [GitWorktree] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return feature.gitWorktrees }
-        return feature.gitWorktrees.filter {
-            $0.displayName.localizedCaseInsensitiveContains(query)
-                || $0.path.localizedCaseInsensitiveContains(query)
-                || ($0.branchName?.localizedCaseInsensitiveContains(query) ?? false)
-        }
+        projectedWorktrees.map(\.worktree)
+    }
+
+    private var worktreeListProjectionIdentity: WorktreeListProjectionIdentity {
+        WorktreeListProjectionIdentity(
+            worktreesVersion: feature.gitWorktreesVersion,
+            inspectionVersion: feature.gitWorktreeInspectionVersion,
+            currentChangeCount: feature.gitChanges.count,
+            query: searchText
+        )
+    }
+
+    private var worktreeHistoryProjectionIdentity: WorktreeHistoryProjectionIdentity {
+        WorktreeHistoryProjectionIdentity(
+            worktreeID: selectedWorktree?.id,
+            inspectionVersion: feature.gitWorktreeInspectionVersion,
+            query: historySearchText
+        )
+    }
+
+    private var worktreeChangesProjectionIdentity: WorktreeChangesProjectionIdentity {
+        WorktreeChangesProjectionIdentity(
+            worktreeID: selectedWorktree?.id,
+            inspectionVersion: feature.gitWorktreeInspectionVersion
+        )
+    }
+
+    private var currentWorktreeHistoryProjectionIdentity: WorktreeHistoryProjectionIdentity {
+        worktreeHistoryProjectionIdentity
     }
 
     private var selectedWorktree: GitWorktree? {
@@ -992,6 +1089,16 @@ struct GitWorktreesView: View {
         }
     }
 
+    nonisolated private static func nativeStatusColor(
+        for kind: GitChangeKind
+    ) -> GitWorktreeRowsSnapshot.StatusColor {
+        switch kind {
+        case .added: .success
+        case .deleted, .conflicted: .error
+        case .modified, .moved, .copied: .warning
+        }
+    }
+
     @ViewBuilder
     private var listEmptyState: some View {
         switch feature.gitWorktreeLoadState {
@@ -1028,12 +1135,30 @@ struct GitWorktreesView: View {
     }
 }
 
+private struct WorktreeListProjectionIdentity: Hashable {
+    let worktreesVersion: Int
+    let inspectionVersion: Int
+    let currentChangeCount: Int
+    let query: String
+}
+
+private struct WorktreeHistoryProjectionIdentity: Hashable {
+    let worktreeID: String?
+    let inspectionVersion: Int
+    let query: String
+}
+
+private struct WorktreeChangesProjectionIdentity: Hashable {
+    let worktreeID: String?
+    let inspectionVersion: Int
+}
+
 private struct GitWorktreeCreateView: View {
     @Environment(\.dismiss) private var dismiss
     let repositoryRoot: URL
     let references: [GitReference]
     let currentReference: GitReference?
-    let chooseParentDirectory: () -> URL?
+    let actions: GitWorktreeActions
     let onSubmit: (String, GitReference, String?, URL) -> Void
 
     @State private var branchName = ""
@@ -1085,7 +1210,7 @@ private struct GitWorktreeCreateView: View {
                     TextField("Worktree destination", text: destinationBinding)
                         .textFieldStyle(.roundedBorder)
                     Button("Choose Parent…") {
-                        guard let parent = chooseParentDirectory() else { return }
+                        guard let parent = actions.chooseParentDirectory() else { return }
                         destinationWasEdited = true
                         destinationPath = parent.appendingPathComponent(suggestedDirectoryName).path
                     }

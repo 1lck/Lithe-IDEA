@@ -1153,8 +1153,7 @@ struct GitLogView: View {
                     ScrollView {
                         VStack(spacing: 0) {
                             GitGraphView(
-                                layout: graphLayout,
-                                visibleHashes: visibleCommitHashes,
+                                presentation: graphPresentation,
                                 selectedHash: feature.selectedGitCommit?.hash,
                                 showCommitDecorations: showCommitDecorations,
                                 actions: graphRowActions
@@ -1278,22 +1277,22 @@ struct GitLogView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .ready:
-                GeometryReader { geometry in
-                    ScrollView(.vertical) {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(visibleCommitFileTreeItems) { item in
-                                commitFileTreeItemRow(item)
-                            }
+                GitCommitFileTreeScrollView(
+                    items: visibleCommitFileTreeItems,
+                    selectedFileID: feature.selectedGitCommitFile?.id,
+                    rootSubtitle: commitFileRootSubtitle,
+                    collapsedFolderIDs: collapsedFileGroups,
+                    onToggleFolder: { folderID in
+                        if collapsedFileGroups.contains(folderID) {
+                            collapsedFileGroups.remove(folderID)
+                        } else {
+                            collapsedFileGroups.insert(folderID)
                         }
-                        .padding(.vertical, 5)
-                        .frame(
-                            minWidth: geometry.size.width,
-                            minHeight: geometry.size.height,
-                            alignment: .topLeading
-                        )
+                    },
+                    onSelectFile: { file in
+                        navigation.openCommitDiff(file)
                     }
-                    .litheScrollViewChrome(hideHorizontal: true)
-                }
+                )
             }
         }
     }
@@ -1413,6 +1412,29 @@ struct GitLogView: View {
     private var visibleCommitHashes: Set<String>? {
         guard hasActiveGitLogFilter else { return nil }
         return feature.gitLogMatchedCommitHashes
+    }
+
+    private var graphPresentation: GitGraphPresentation {
+        let layout = graphLayout
+        guard let hashes = visibleCommitHashes else {
+            return GitGraphPresentation(
+                rows: layout.rows,
+                routingSnapshot: GitGraphLayoutService.routingSnapshot(for: layout),
+                hasMissingParents: layout.hasMissingParents
+            )
+        }
+
+        let filteredRows = layout.rows.filter { hashes.contains($0.commit.hash) }
+        let filteredLayout = GitGraphLayout(
+            rows: filteredRows,
+            laneCount: layout.laneCount,
+            hasMissingParents: layout.hasMissingParents
+        )
+        return GitGraphPresentation(
+            rows: filteredRows,
+            routingSnapshot: GitGraphLayoutService.routingSnapshot(for: filteredLayout),
+            hasMissingParents: filteredLayout.hasMissingParents
+        )
     }
 
     /// True when any filter is active, without calling `Date()`. Used to decide
@@ -1704,55 +1726,6 @@ struct GitLogView: View {
         }
     }
 
-    @ViewBuilder
-    private func commitFileTreeItemRow(_ item: GitCommitFileTreeItem) -> some View {
-        switch item {
-        case let .folder(node, depth):
-            let isCollapsed = collapsedFileGroups.contains(node.id)
-            Button {
-                if isCollapsed {
-                    collapsedFileGroups.remove(node.id)
-                } else {
-                    collapsedFileGroups.insert(node.id)
-                }
-            } label: {
-                HStack(spacing: 7) {
-                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                        .font(.system(size: 8, weight: .bold))
-                        .frame(width: 10)
-                        .foregroundStyle(LitheTheme.secondaryText)
-                    LitheSystemIcon(systemImage: "folder")
-                        .frame(width: 14, height: 14)
-                        .foregroundStyle(LitheTheme.secondaryText)
-                    Text(node.name)
-                        .font(GitVisual.bodyMedium)
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .lineLimit(1)
-                    Text(node.fileCount == 1 ? "1 file" : "\(node.fileCount) files")
-                        .font(GitVisual.meta)
-                        .foregroundStyle(LitheTheme.secondaryText)
-                    if depth == 0, let rootPath = commitFileRootSubtitle {
-                        Text(rootPath)
-                            .font(GitVisual.meta)
-                            .foregroundStyle(LitheTheme.secondaryText.opacity(0.76))
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: 8)
-                }
-                .padding(.leading, 8 + CGFloat(depth * 16))
-                .padding(.trailing, 8)
-                .frame(maxWidth: .infinity, minHeight: GitVisual.treeRowHeight, alignment: .leading)
-                .contentShape(Rectangle())
-                .litheRowHover(cornerRadius: 4)
-            }
-            .buttonStyle(.plain)
-            .lithePointer()
-
-        case let .file(file, depth):
-            commitFileRow(file, depth: depth)
-        }
-    }
-
     private var commitFileRootSubtitle: String? {
         guard let root = feature.gitRepositoryRoot else { return nil }
         let components = root.pathComponents.filter { $0 != "/" }
@@ -1803,13 +1776,6 @@ struct GitLogView: View {
         }
     }
 
-    private func fileStatusColor(_ status: String) -> Color {
-        if status.hasPrefix("A") { return LitheTheme.success }
-        if status.hasPrefix("D") { return .red.opacity(0.85) }
-        if status.hasPrefix("R") { return LitheTheme.accent }
-        return LitheTheme.warning
-    }
-
     private func gitToolbarIcon(systemImage: String, help: String) -> some View {
         LitheSystemIcon(systemImage: systemImage, size: 15)
             .foregroundStyle(LitheTheme.secondaryText)
@@ -1832,37 +1798,6 @@ struct GitLogView: View {
 
     private func constrained(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {
         min(max(value, minimum), maximum)
-    }
-
-    private func commitFileRow(_ file: GitCommitFile, depth: Int) -> some View {
-        Button {
-            navigation.openCommitDiff(file)
-        } label: {
-            HStack(spacing: 7) {
-                Text(file.status)
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundStyle(fileStatusColor(file.status))
-                    .frame(width: 18)
-                LitheIcon(kind: LitheIcons.kind(forFilePath: file.path), size: 14)
-                    .frame(width: 14, height: 14)
-                Text((file.path as NSString).lastPathComponent)
-                    .font(GitVisual.body)
-                    .foregroundStyle(LitheTheme.primaryText)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-            }
-            .padding(.leading, 30 + CGFloat(max(depth - 1, 0) * 16))
-            .padding(.trailing, 8)
-            .frame(maxWidth: .infinity, minHeight: GitVisual.treeRowHeight, alignment: .leading)
-            .litheRowHover(
-                isActive: feature.selectedGitCommitFile?.id == file.id,
-                cornerRadius: 4,
-                activeBackground: LitheTheme.subtleSelection
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .lithePointer()
     }
 }
 
@@ -1946,18 +1881,6 @@ enum GitLogDatePreset: String, CaseIterable, Identifiable, Hashable {
             guard let firstDay = calendar.date(byAdding: .day, value: -29, to: today),
                   let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) else { return query }
             return query.addingStructuredFilters(afterDate: firstDay, beforeDate: tomorrow)
-        }
-    }
-}
-
-private enum GitCommitFileTreeItem: Identifiable {
-    case folder(GitCommitFileTreeNode, depth: Int)
-    case file(GitCommitFile, depth: Int)
-
-    var id: String {
-        switch self {
-        case let .folder(node, _): "folder:\(node.id)"
-        case let .file(file, _): "file:\(file.id)"
         }
     }
 }
