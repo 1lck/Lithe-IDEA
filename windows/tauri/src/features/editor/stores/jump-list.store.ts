@@ -16,6 +16,7 @@ export interface JumpListEntry {
 
 interface JumpListActions {
   pushEntry: (entry: Omit<JumpListEntry, "timestamp">) => void;
+  recordCursorEntry: (entry: Omit<JumpListEntry, "timestamp">) => void;
   goBack: (currentPosition?: Omit<JumpListEntry, "timestamp">) => JumpListEntry | null;
   goForward: () => JumpListEntry | null;
   canGoBack: () => boolean;
@@ -33,6 +34,10 @@ interface JumpListState {
 const DEFAULT_MAX_ENTRIES = 100;
 const DUPLICATE_LINE_THRESHOLD = 5;
 
+function withTimestamp(entry: Omit<JumpListEntry, "timestamp">): JumpListEntry {
+  return { ...entry, timestamp: Date.now() };
+}
+
 export const useJumpListStore = createSelectors(
   createWithEqualityFn<JumpListState>()(
     immer((set, get) => ({
@@ -43,10 +48,7 @@ export const useJumpListStore = createSelectors(
       actions: {
         pushEntry: (entry) => {
           set((state) => {
-            const newEntry: JumpListEntry = {
-              ...entry,
-              timestamp: Date.now(),
-            };
+            const newEntry = withTimestamp(entry);
 
             // If we're in the middle of history, truncate future entries
             if (state.currentIndex >= 0 && state.currentIndex < state.entries.length - 1) {
@@ -81,6 +83,38 @@ export const useJumpListStore = createSelectors(
           });
         },
 
+        recordCursorEntry: (entry) => {
+          set((state) => {
+            const newEntry = withTimestamp(entry);
+
+            // A new cursor movement after going back starts a new history branch.
+            if (state.currentIndex >= 0 && state.currentIndex < state.entries.length - 1) {
+              state.entries = state.entries.slice(0, state.currentIndex + 1);
+            }
+
+            const lastEntry = state.entries[state.entries.length - 1];
+            const isSamePosition =
+              lastEntry &&
+              lastEntry.bufferId === newEntry.bufferId &&
+              lastEntry.filePath === newEntry.filePath &&
+              lastEntry.line === newEntry.line &&
+              lastEntry.column === newEntry.column &&
+              lastEntry.offset === newEntry.offset;
+
+            if (isSamePosition) {
+              state.entries[state.entries.length - 1] = newEntry;
+              state.currentIndex = -1;
+              return;
+            }
+
+            state.entries.push(newEntry);
+            if (state.entries.length > state.maxEntries) {
+              state.entries.shift();
+            }
+            state.currentIndex = -1;
+          });
+        },
+
         goBack: (currentPosition) => {
           const state = get();
 
@@ -93,10 +127,7 @@ export const useJumpListStore = createSelectors(
             // Currently at present - save current position so we can go forward to it
             if (currentPosition) {
               set((s) => {
-                s.entries.push({
-                  ...currentPosition,
-                  timestamp: Date.now(),
-                });
+                s.entries.push(withTimestamp(currentPosition));
                 // Enforce max size
                 if (s.entries.length > s.maxEntries) {
                   s.entries.shift();

@@ -46,6 +46,7 @@ import { getRelativePath, pathStartsWithRoot } from "@/utils/path-helpers";
 import EditorContextMenu from "../context-menu/context-menu";
 import { useBufferStore } from "../stores/buffer.store";
 import { editorBufferSurfacesEqual, selectEditorBufferSurface } from "../stores/buffer-metadata";
+import { type JumpListEntry, useJumpListStore } from "../stores/jump-list.store";
 import { useEditorStateStore } from "../stores/state.store";
 import type {
   EditorContentChangeOptions,
@@ -192,6 +193,7 @@ export function MonacoEditor({
   const renderedGitBlameKeyRef = useRef<string | null>(null);
   const renderInlineGitBlameRef = useRef<() => void>(() => {});
   const mouseSelectingRef = useRef(false);
+  const previousCursorEntryRef = useRef<Omit<JumpListEntry, "timestamp"> | null>(null);
   const latestContentChangeRef = useRef(onContentChange);
   const isActiveSurfaceRef = useRef(isActiveSurface);
   const activeBufferId = useBufferStore((state) => propBufferId ?? state.activeBufferId);
@@ -803,6 +805,19 @@ export function MonacoEditor({
       enabled: enableExpensiveServices,
     });
     let definitionClickIntent = 0;
+    const cursorEntryFromEditor = (): Omit<JumpListEntry, "timestamp"> | null => {
+      const position = editor.getPosition();
+      if (!position || !editorBufferId || !filePath) return null;
+
+      return {
+        bufferId: editorBufferId,
+        filePath,
+        ...toEditorPosition(model, position),
+        scrollTop: editor.getScrollTop(),
+        scrollLeft: editor.getScrollLeft(),
+      };
+    };
+    previousCursorEntryRef.current = cursorEntryFromEditor();
 
     const handleWindowSelectAllShortcut = (event: KeyboardEvent) => {
       const isSelectAllShortcut =
@@ -975,7 +990,22 @@ export function MonacoEditor({
         mouseSelectingRef.current = false;
         scheduleInlineGitBlameRender();
       }),
-      editor.onDidChangeCursorSelection(() => {
+      editor.onDidChangeCursorSelection((event) => {
+        const currentCursorEntry = cursorEntryFromEditor();
+        const previousCursorEntry = previousCursorEntryRef.current;
+        if (
+          event.source === "mouse" &&
+          previousCursorEntry &&
+          currentCursorEntry &&
+          (previousCursorEntry.bufferId !== currentCursorEntry.bufferId ||
+            previousCursorEntry.filePath !== currentCursorEntry.filePath ||
+            previousCursorEntry.line !== currentCursorEntry.line ||
+            previousCursorEntry.column !== currentCursorEntry.column ||
+            previousCursorEntry.offset !== currentCursorEntry.offset)
+        ) {
+          useJumpListStore.getState().actions.recordCursorEntry(previousCursorEntry);
+        }
+        previousCursorEntryRef.current = currentCursorEntry;
         syncCursorAndSelection();
         scheduleInlineGitBlameRender();
       }),
@@ -1071,6 +1101,7 @@ export function MonacoEditor({
       gitBlameWidgetRef.current = null;
       renderedGitBlameKeyRef.current = null;
       mouseSelectingRef.current = false;
+      previousCursorEntryRef.current = null;
       createdEditorDisposable.dispose();
       try {
         vimAdapterRef.current?.dispose();
