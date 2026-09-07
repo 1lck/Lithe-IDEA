@@ -21,6 +21,32 @@ export interface ClearLogResult {
   freed_bytes: number;
 }
 
+export interface DiagnosticBundlePreview {
+  manifest: {
+    schemaVersion: number;
+    generatedAtEpochMilliseconds: number;
+    environment: {
+      appVersion: string;
+      osName: string;
+      osVersion: string;
+      cpuCoreCount: number;
+      memoryRssBytes: number;
+      diskFreeBytes: number;
+    };
+    files: Array<{
+      relativePath: string;
+      sizeBytes: number;
+      description: string;
+    }>;
+  };
+}
+
+export interface DiagnosticBundleResult {
+  destination_path: string;
+  included_relative_paths: string[];
+  total_size_bytes: number;
+}
+
 export function getLogSettings() {
   return invoke<LogSettingsSnapshot>("get_log_settings");
 }
@@ -47,4 +73,14 @@ export function resolvePreviousLogCleanup(deleteLogs: boolean) {
 
 export function openLogDirectory() {
   return invoke<void>("open_log_directory");
+}
+
+export function previewDiagnosticBundle() {
+  return invoke<DiagnosticBundlePreview>("preview_diagnostic_bundle");
+}
+
+export function exportDiagnosticBundle(destinationPath: string) {
+  return invoke<DiagnosticBundleResult>("export_diagnostic_bundle", {
+    destinationPath,
+  });
 }

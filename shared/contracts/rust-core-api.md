@@ -165,6 +165,8 @@ stable error code and a user-facing message:
 | `github.parseRemote` | Parse a canonical GitHub HTTPS or SSH remote into owner/name |
 | `github.requestPlan` | Validate one GitHub operation and produce a trusted platform HTTP request plan |
 | `github.normalizeResponse` | Normalize raw GitHub JSON and HTTP status into deterministic data or a stable error |
+| `diagnostics.redactText` | Redact credentials, tokens, and home-directory paths from diagnostic-bundle text |
+| `diagnostics.buildManifest` | Shape a deterministic diagnostic bundle manifest from host-gathered environment and file facts |
 
 Workspace paths in responses are relative and use `/` separators. Line numbers
 are one-based. `git.status.repositoryRoot` may be an absolute path when the
@@ -1141,3 +1143,21 @@ Dependency metadata is cached in the Rust process. Project-open indexing sets
 it `false`, so editing Java or configuration files does not repeatedly traverse
 and open the local dependency repository. The repository path is selected by
 the platform composition layer and is never persisted in shared results.
+
+`diagnostics.redactText` accepts `text` and returns `redacted` with
+credentials, tokens, and home-directory paths replaced by stable placeholders
+(`<redacted>` for secrets, `<HOME>` for a macOS/Linux `Users`/`home` path or a
+Windows drive-letter `Users` path). Hosts run every diagnostic-bundle log
+line, panic report, and other free-form text through this command before it
+is staged for export; the command never reads the filesystem itself.
+Re-running it over already-redacted text is a no-op.
+
+`diagnostics.buildManifest` accepts an `environment` object
+(`appVersion`, `osName`, `osVersion`, `cpuCoreCount`, `memoryRssBytes`,
+`diskFreeBytes`), a `files` array of already-staged, already-redacted entries
+(`relativePath`, `sizeBytes`, `description`), and
+`generatedAtEpochMilliseconds`. It returns a `schemaVersion`ed manifest with
+`files` sorted by `relativePath` so the listing shown to the user before they
+confirm a diagnostic export — and the zip's contents — are deterministic
+across runs and across platforms. Hosts gather the environment and file facts
+natively; this command only shapes and sorts them.

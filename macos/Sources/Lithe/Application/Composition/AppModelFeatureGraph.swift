@@ -20,6 +20,7 @@ final class AppModelFeatureGraph {
     let workspace: WorkspaceFeatureModel
     let github: GitHubFeatureModel
     let discourseCommunity: DiscourseCommunityFeatureModel
+    let diagnostics: DiagnosticsFeatureModel
     let editorTabOrder: EditorTabOrderFeatureModel
     let media: MediaDocumentFeatureModel
     let terminalPlacement: TerminalPlacementFeatureModel
@@ -77,6 +78,7 @@ final class AppModelFeatureGraph {
         discourseCommunity = DiscourseCommunityFeatureModel(
             service: services.discourseCommunityService
         )
+        diagnostics = DiagnosticsFeatureModel(service: services.diagnosticsExportService)
         editorTabOrder = EditorTabOrderFeatureModel()
         media = MediaDocumentFeatureModel()
         terminalPlacement = TerminalPlacementFeatureModel()

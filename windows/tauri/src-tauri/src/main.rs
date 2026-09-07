@@ -2,6 +2,7 @@
 
 mod core;
 mod debug;
+mod diagnostics;
 mod file_events;
 mod host;
 mod logging;
@@ -74,6 +75,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             core::core_execute,
             core::core_cancel,
+            diagnostics::preview_diagnostic_bundle,
+            diagnostics::export_diagnostic_bundle,
             debug::debug_start_session,
             debug::debug_session_ready,
             debug::debug_send_request,
