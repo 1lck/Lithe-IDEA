@@ -8,14 +8,19 @@ enum ProjectSwitcherLayoutMetrics {
 struct ProjectSwitcherPopover: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var projectSessions: ProjectSessionManager
+    @Environment(\.projectWindowScope) private var projectWindowScope
     @Binding var isPresented: Bool
     let onNewProject: () -> Void
     let onOpenProject: () -> Void
     let onCloneRepository: () -> Void
     let onOpenRecentProject: (RecentProject) -> Void
 
+    private var scopedOpenProjects: [AppModel] {
+        projectSessions.openProjects(in: projectWindowScope)
+    }
+
     private var openProjectPaths: Set<String> {
-        Set(projectSessions.openProjects.compactMap { $0.workspaceURL?.standardizedFileURL.path })
+        Set(scopedOpenProjects.compactMap { $0.workspaceURL?.standardizedFileURL.path })
     }
 
     private var recentProjects: [RecentProject] {
@@ -38,7 +43,7 @@ struct ProjectSwitcherPopover: View {
                 divider
 
                 sectionTitle("Open Projects")
-                ForEach(projectSessions.openProjects) { projectModel in
+                ForEach(scopedOpenProjects) { projectModel in
                     openProjectRow(projectModel)
                 }
 
@@ -100,7 +105,7 @@ struct ProjectSwitcherPopover: View {
     }
 
     private func openProjectRow(_ projectModel: AppModel) -> some View {
-        let isCurrent = projectModel.id == projectSessions.activeSessionID
+        let isCurrent = projectModel.id == projectSessions.activeSessionID(in: projectWindowScope)
         return Button {
             isPresented = false
             projectSessions.activateSession(projectModel.id)
