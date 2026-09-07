@@ -2,6 +2,13 @@ import Combine
 import Foundation
 import LitheCoreContracts
 
+private enum MavenReloadError: LocalizedError {
+    case projectUnavailable
+    var errorDescription: String? {
+        String(localized: "The Maven project could not be reloaded. The previous model is still available.")
+    }
+}
+
 @MainActor
 package final class MavenService: ObservableObject {
     @Published package private(set) var project: MavenProject?
@@ -20,6 +27,11 @@ package final class MavenService: ObservableObject {
     @Published package private(set) var javaHomePath: String?
     @Published package private(set) var configurationSaveError: String?
     @Published package private(set) var isReloadRequired = false
+    @Published package private(set) var isProjectReloadRequired = false
+    @Published package private(set) var isReloading = false
+    @Published package private(set) var reloadError: String?
+    private var reloadRevision = 0
+    private var reloadTask: Task<Void, Never>?
     @Published package private(set) var dependencyStates: [String: MavenDependencyLoadState] = [:]
 
     package var isLoadingProject: Bool {
@@ -135,6 +147,12 @@ package final class MavenService: ObservableObject {
     }
 
     package func loadProject(at workspaceURL: URL, files: [URL]) async {
+        if let currentRoot = self.workspaceURL, currentRoot != workspaceURL.standardizedFileURL {
+            reset()
+        }
+        // Inventory refreshes must not accept a changed POM before explicit Reload.
+        if self.workspaceURL == workspaceURL.standardizedFileURL, project != nil,
+           isProjectReloadRequired || isReloading { return }
         invalidateDependencies()
         let loadID = UUID()
         projectLoadID = loadID
@@ -193,7 +211,7 @@ package final class MavenService: ObservableObject {
             }
             projectState = .ready
             configurationSaveError = nil
-            isReloadRequired = false
+            isReloadRequired = isProjectReloadRequired
             return
         }
         project = nil
@@ -267,8 +285,86 @@ package final class MavenService: ObservableObject {
     }
 
     package func acknowledgeReload() {
+        guard !isProjectReloadRequired else { return }
         isReloadRequired = false
         refreshConfigurationFingerprint(establishBaseline: true)
+    }
+
+    /// Marks only descriptors owned by this workspace; deletion is a change too.
+    package func markPomChanged(_ fileURL: URL) {
+        guard let workspaceURL else { return }
+        let file = fileURL.standardizedFileURL
+        guard file.lastPathComponent.lowercased() == "pom.xml",
+              file.path.hasPrefix(workspaceURL.path + "/") else { return }
+        reloadRevision += 1
+        isProjectReloadRequired = true
+        isReloadRequired = true
+    }
+
+    /// Keeps the accepted model visible until both scan and Java import succeed.
+    /// One owned task coalesces repeated clicks and is cancelled on workspace reset.
+    package func reloadProject(
+        files: [URL],
+        rescan: Bool,
+        synchronizeJava: @escaping @MainActor () async throws -> Void
+    ) async {
+        if let reloadTask { await reloadTask.value; return }
+        guard let root = workspaceURL, let context = launchContext else { return }
+        let revision = reloadRevision
+        let loadID = projectLoadID
+        let previousProject = project
+        let operations = mavenOperations
+        isReloading = true
+        reloadError = nil
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if self.projectLoadID == loadID {
+                    self.isReloading = false
+                    self.reloadTask = nil
+                }
+            }
+            do {
+                let candidate = try await Task.detached(priority: .utility) {
+                    let project = rescan
+                        ? try operations.scanMavenProject(at: root, files: files)
+                        : previousProject
+                    guard let project, project.rootURL.standardizedFileURL == previousProject?.rootURL.standardizedFileURL else {
+                        throw MavenReloadError.projectUnavailable
+                    }
+                    let fingerprint = try operations.mavenLaunchPlan(
+                        at: root, context: context, module: nil, goals: ["validate"]
+                    ).configurationFingerprint
+                    return (project, fingerprint)
+                }.value
+                try Task.checkCancellation()
+                guard self.projectLoadID == loadID, self.reloadRevision == revision else { return }
+                try await synchronizeJava()
+                try Task.checkCancellation()
+                guard self.projectLoadID == loadID, self.reloadRevision == revision else { return }
+                self.project = candidate.0
+                self.configurationFingerprint = candidate.1
+                self.fingerprintRevision += 1
+                self.invalidateDependencies()
+                self.isProjectReloadRequired = false
+                self.isReloadRequired = false
+                self.projectState = .ready
+            } catch {
+                guard self.projectLoadID == loadID, self.reloadRevision == revision else { return }
+                self.reloadError = error is CancellationError
+                    ? String(localized: "Maven reload was cancelled or timed out.")
+                    : error.localizedDescription
+                self.isReloadRequired = true
+            }
+        }
+        reloadTask = task
+        // Cancellation resumes the Java readiness waiter; no polling or second JVM.
+        let deadline = Task {
+            do { try await Task.sleep(for: .seconds(60)) } catch { return }
+            task.cancel()
+        }
+        defer { deadline.cancel() }
+        await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
     }
 
     package func dependencyState(for modulePath: String) -> MavenDependencyLoadState {
@@ -338,6 +434,7 @@ package final class MavenService: ObservableObject {
     }
 
     package func stop() {
+        reloadTask?.cancel()
         launchPlanID = UUID()
         cancelActiveDependency(markCancelled: true)
         guard isRunning else { return }
@@ -356,6 +453,12 @@ package final class MavenService: ObservableObject {
     }
 
     package func reset() {
+        reloadTask?.cancel()
+        reloadTask = nil
+        isReloading = false
+        reloadError = nil
+        reloadRevision += 1
+        isProjectReloadRequired = false
         stop()
         invalidateDependencies()
         projectLoadID = UUID()
@@ -700,8 +803,9 @@ package final class MavenService: ObservableObject {
     }
 
     private func configurationDidChange() {
+        reloadRevision += 1
         invalidateDependencies()
-        isReloadRequired = configurationFingerprint != nil
+        isReloadRequired = isProjectReloadRequired || configurationFingerprint != nil
         configurationSaveError = nil
         persistConfiguration()
         refreshConfigurationFingerprint()
@@ -724,19 +828,19 @@ package final class MavenService: ObservableObject {
             guard let self, self.fingerprintRevision == revision, let fingerprint else { return }
             if establishBaseline || self.configurationFingerprint == nil {
                 self.configurationFingerprint = fingerprint
-                self.isReloadRequired = false
+                self.isReloadRequired = self.isProjectReloadRequired
             } else {
-                self.isReloadRequired = self.configurationFingerprint != fingerprint
+                self.isReloadRequired = self.isProjectReloadRequired || self.configurationFingerprint != fingerprint
             }
         }
     }
 
     private func recordConfigurationFingerprint(_ fingerprint: String) {
         if let configurationFingerprint {
-            isReloadRequired = configurationFingerprint != fingerprint
+            isReloadRequired = isProjectReloadRequired || configurationFingerprint != fingerprint
         } else {
             configurationFingerprint = fingerprint
-            isReloadRequired = false
+            isReloadRequired = isProjectReloadRequired
         }
     }
 

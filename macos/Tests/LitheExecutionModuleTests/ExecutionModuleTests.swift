@@ -9,6 +9,131 @@ import Testing
 @MainActor
 struct ExecutionModuleTests {
     @Test
+    func mavenReloadCoalescesConcurrentRequests() async throws {
+        let (service, root) = await makeReloadService()
+        let entered = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let release = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        var javaCalls = 0
+        let first = Task {
+            await service.reloadProject(files: [root.appendingPathComponent("new")], rescan: true) {
+                javaCalls += 1
+                entered.continuation.yield(())
+                for await _ in release.stream { break }
+            }
+        }
+        let watchdog = Task {
+            // test-stability: allow(swift-real-sleep) reason: watchdog bounds both event-driven gates if reload never reaches or leaves Java import.
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            Issue.record("Maven reload did not reach its synchronization boundary")
+            entered.continuation.finish()
+            release.continuation.finish()
+            first.cancel()
+        }
+        defer {
+            watchdog.cancel()
+            entered.continuation.finish()
+            release.continuation.finish()
+            first.cancel()
+            service.reset()
+        }
+        for await _ in entered.stream { break }
+        // The first task cannot resume on MainActor until the second call reaches
+        // its await, so it must observe and join the in-flight operation.
+        release.continuation.yield(())
+        await service.reloadProject(files: [root.appendingPathComponent("invalid")], rescan: true) {
+            javaCalls += 1
+        }
+        await first.value
+        #expect(javaCalls == 1)
+        #expect(service.project?.artifactID == "new")
+        #expect(service.reloadError == nil)
+    }
+
+    @Test
+    func mavenReloadCommitsOnlyAfterJavaImportAndPreservesConfiguration() async throws {
+        let (service, root) = await makeReloadService()
+        defer { service.reset() }
+        service.setSkipTests(true)
+        service.markPomChanged(root.appendingPathComponent("module/pom.xml"))
+        await service.reloadProject(files: [root.appendingPathComponent("new")], rescan: true) {
+            #expect(service.project?.artifactID == "old")
+            #expect(service.isReloading)
+            #expect(service.isProjectReloadRequired)
+        }
+        #expect(service.project?.artifactID == "new")
+        #expect(service.skipTests)
+        #expect(!service.isReloadRequired)
+        #expect(!service.isReloading)
+        #expect(service.reloadError == nil)
+    }
+
+    @Test(arguments: [true, false])
+    func mavenReloadFailureKeepsAcceptedModel(scanFailure: Bool) async throws {
+        let (service, root) = await makeReloadService()
+        defer { service.reset() }
+        service.markPomChanged(root.appendingPathComponent("pom.xml"))
+        var javaCalls = 0
+        await service.reloadProject(files: [root.appendingPathComponent(scanFailure ? "invalid" : "new")], rescan: true) {
+            javaCalls += 1
+            throw ReloadTestError.failed
+        }
+        #expect(javaCalls == (scanFailure ? 0 : 1))
+        #expect(service.project?.artifactID == "old")
+        #expect(service.projectState == .ready)
+        #expect(service.isReloadRequired)
+        #expect(service.reloadError != nil)
+    }
+
+    @Test(arguments: ["pom", "configuration", "reset", "workspace"])
+    func mavenReloadRejectsChangesDuringJavaImport(change: String) async throws {
+        let (service, root) = await makeReloadService()
+        defer { service.reset() }
+        service.markPomChanged(root.appendingPathComponent("pom.xml"))
+        await service.reloadProject(files: [root.appendingPathComponent("new")], rescan: true) {
+            switch change {
+            case "pom": service.markPomChanged(root.appendingPathComponent("module/pom.xml"))
+            case "configuration": service.setSkipTests(true)
+            case "workspace":
+                let next = URL(fileURLWithPath: "/next-workspace")
+                await Task { @MainActor in
+                    await service.loadProject(at: next, files: [next.appendingPathComponent("other")])
+                }.value
+            default: service.reset()
+            }
+        }
+        #expect(service.project?.artifactID == (change == "reset" ? nil : change == "workspace" ? "other" : "old"))
+        #expect(service.isReloadRequired == (change == "pom" || change == "configuration"))
+        #expect(service.reloadError == nil)
+        #expect(!service.isReloading)
+    }
+
+    @Test
+    func mavenPomChangeSurvivesInventoryRefreshAndAcknowledgement() async throws {
+        let (service, root) = await makeReloadService()
+        defer { service.reset() }
+        service.markPomChanged(URL(fileURLWithPath: "/workspace-copy/pom.xml"))
+        service.markPomChanged(root.appendingPathComponent("README.md"))
+        #expect(!service.isReloadRequired)
+        service.markPomChanged(root.appendingPathComponent("pom.xml"))
+        service.acknowledgeReload()
+        await service.loadProject(at: root, files: [root.appendingPathComponent("new")])
+        #expect(service.project?.artifactID == "old")
+        #expect(service.isProjectReloadRequired)
+    }
+
+    @Test
+    func mavenConfigurationOnlyReloadDoesNotScanPom() async throws {
+        let (service, root) = await makeReloadService()
+        defer { service.reset() }
+        service.setSkipTests(true)
+        await service.reloadProject(files: [root.appendingPathComponent("invalid")], rescan: false) {}
+        #expect(service.project?.artifactID == "old")
+        #expect(service.reloadError == nil)
+        #expect(!service.isReloadRequired)
+    }
+
+    @Test
     func configuredServerPortUsesArgumentsEnvironmentResourcesAndFrameworkDefault() async throws {
         let root = URL(fileURLWithPath: "/workspace/service-port", isDirectory: true)
         let properties = root.appendingPathComponent("src/main/resources/application.properties")
@@ -857,6 +982,36 @@ private final class TestStreamingProcess: StreamingProcess, @unchecked Sendable 
     }
     func send(_ input: Data) throws {}
     func stop() { isRunning = false }
+}
+
+private enum ReloadTestError: Error { case failed }
+
+@MainActor
+private func makeReloadService() async -> (MavenService, URL) {
+    let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+    let service = MavenService(
+        runtimeService: TestRuntime(), process: TestStreamingProcess(),
+        dependencyProcess: TestStreamingProcess(), mavenOperations: ReloadMavenOperations()
+    )
+    await service.loadProject(at: root, files: [root.appendingPathComponent("old")])
+    return (service, root)
+}
+
+private struct ReloadMavenOperations: MavenProjectOperations {
+    func scanMavenProject(at rootURL: URL, files: [URL]) throws -> MavenProject? {
+        let name = files.first?.lastPathComponent ?? "old"
+        if name == "invalid" { throw ReloadTestError.failed }
+        return MavenProject(
+            rootURL: rootURL, pomURL: rootURL.appendingPathComponent("pom.xml"),
+            groupID: "example", artifactID: name, version: "1", packaging: "jar",
+            modules: [], profiles: [], hasWrapper: false
+        )
+    }
+    func mavenLaunchPlan(at rootURL: URL, context: MavenLaunchContext, module: String?, goals: [String]) throws -> MavenLaunchPlan {
+        MavenLaunchPlan(version: 1, toolchain: "project-maven", arguments: goals,
+                        workingDirectory: ".", configurationFingerprint: context.skipTests ? "skip" : "run")
+    }
+    func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue] { [] }
 }
 
 private struct TestMavenOperations: MavenProjectOperations {
