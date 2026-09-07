@@ -65,7 +65,7 @@ struct LanguageTestsView: View {
             title: "Tests",
             systemImage: "checkmark.seal",
             subtitle: testCount > 0 ? String(testCount) : nil,
-            onMinimize: { model.isTestsVisible = false }
+            onMinimize: { model.workbenchFeature.setVisibility(.tests, isVisible: false) }
         ) {
             statusView
 

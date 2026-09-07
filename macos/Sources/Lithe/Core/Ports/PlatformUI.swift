@@ -11,6 +11,8 @@ protocol PlatformUI: AnyObject {
     func open(_ url: URL)
     func copyToClipboard(_ value: String)
     func markdownImageFromClipboard() -> MarkdownImageSource?
+    func startAccessingProject(_ url: URL) -> Bool
+    func stopAccessingProject(_ url: URL)
 }
 
 extension PlatformUI {
@@ -28,5 +30,5 @@ protocol ShortcutDetector: AnyObject {
 
 @MainActor
 protocol ShortcutDetectorFactory {
-    func make(onCommand: @escaping @MainActor (String) -> Void) -> any ShortcutDetector
+    func make(onCommand: @escaping @MainActor @Sendable (String) -> Void) -> any ShortcutDetector
 }

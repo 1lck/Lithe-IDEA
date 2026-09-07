@@ -148,7 +148,7 @@ struct GenericDebugView: View {
             }
             Spacer(minLength: 8)
             debugOptionsMenu
-            Button { model.isDebugVisible = false } label: {
+            Button { model.workbenchFeature.setVisibility(.debug, isVisible: false) } label: {
                 Image(systemName: "minus")
             }
             .litheIconButton()
@@ -1165,7 +1165,7 @@ struct GenericDebugView: View {
                                         .accessibilityIdentifier("debug-error-retry")
                                     }
 
-                                    if !model.isRunVisible {
+                                    if !model.workbenchFeature.isVisible(.run) {
                                         Button {
                                             model.toggleRun()
                                         } label: {
