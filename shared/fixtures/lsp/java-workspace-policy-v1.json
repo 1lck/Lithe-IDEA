@@ -46,6 +46,34 @@
           { "path": "settings.gradle", "kind": "buildConfiguration" }
         ]
       }
+    },
+    {
+      "name": "maven-project-with-conventional-layout",
+      "workspacePaths": [
+        "pom.xml",
+        "src/main/java/com/example/demo/DemoApplication.java"
+      ],
+      "changedPaths": [],
+      "expected": {
+        "shouldStart": true,
+        "representativeJavaPath": "src/main/java/com/example/demo/DemoApplication.java",
+        "changes": []
+      }
+    },
+    {
+      "name": "java-fixture-inside-another-ecosystem",
+      "workspacePaths": [
+        "Cargo.toml",
+        "Package.swift",
+        "shared/fixtures/projects/demo/pom.xml",
+        "shared/fixtures/projects/demo/src/main/java/com/example/demo/DemoApplication.java"
+      ],
+      "changedPaths": [],
+      "expected": {
+        "shouldStart": false,
+        "representativeJavaPath": "shared/fixtures/projects/demo/src/main/java/com/example/demo/DemoApplication.java",
+        "changes": []
+      }
     }
   ]
 }
