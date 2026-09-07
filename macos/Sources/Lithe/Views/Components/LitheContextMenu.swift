@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 private enum LitheContextMenuMetrics {
-    static let minimumRootWidth: CGFloat = 272
+    static let minimumRootWidth: CGFloat = 230
     static let minimumSubmenuWidth: CGFloat = 220
     static let maximumWidth: CGFloat = 360
     static let itemFont = NSFont.menuFont(ofSize: 12)
@@ -210,10 +210,7 @@ private struct LitheContextMenuContent: View {
         }
         .padding(.vertical, 6)
         .frame(width: width)
-        .background {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(LitheTheme.contextMenuBackground)
-        }
+        .litheContextMenuSurface()
     }
 
     private static func menuHeight(for items: [LitheContextMenuItem]) -> CGFloat {
@@ -500,7 +497,8 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
             }
             if event.type != .keyDown, event.window !== self.panel {
                 self.dismiss()
-                return nil
+                // Let the same click reach another menu trigger or the underlying control.
+                return event
             }
             return event
         }
@@ -557,8 +555,18 @@ private final class LitheRightClickCaptureView: NSView {
     var onRightClick: (@MainActor (NSPoint, NSAppearance?) -> Void)?
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard NSApp.currentEvent?.type == .rightMouseDown else { return nil }
+        guard let event = NSApp.currentEvent,
+              event.type == .rightMouseDown
+                || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)) else { return nil }
         return super.hitTest(point)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard event.modifierFlags.contains(.control) else {
+            super.mouseDown(with: event)
+            return
+        }
+        rightMouseDown(with: event)
     }
 
     override func rightMouseDown(with event: NSEvent) {

@@ -952,129 +952,119 @@ struct GitLogView: View {
         }
         .buttonStyle(.plain)
         .lithePointer()
-        .contextMenu {
-            Button("New Branch from '\(reference.shortName)'…") {
+        .litheContextMenu {
+            var items: [LitheContextMenuItem] = []
+            items.append(.action("New Branch from '\(reference.shortName)'…", action: {
                 branchDialogRequest = GitBranchDialogRequest(kind: .create, reference: reference)
-            }
+            }))
 
-            Button("Show Diff with Working Tree") {
+            items.append(.action("Show Diff with Working Tree", action: {
                 Task { await navigation.compareWithWorkingTree(reference) }
-            }
+            }))
 
             if let currentReference, currentReference.id != reference.id {
-                Button("Compare with Current Branch") {
+                items.append(.action("Compare with Current Branch", action: {
                     Task { await navigation.compareReferences(reference, currentReference) }
-                }
+                }))
             }
 
             if let source = comparisonSourceReference, source.id != reference.id {
-                Button("Compare '\(source.shortName)' with '\(reference.shortName)'") {
+                items.append(.action("Compare '\(source.shortName)' with '\(reference.shortName)'", action: {
                     comparisonSourceReference = nil
                     Task { await navigation.compareReferences(source, reference) }
-                }
+                }))
             } else {
-                Button("Select for Compare") {
+                items.append(.action("Select for Compare", action: {
                     comparisonSourceReference = reference
-                }
+                }))
             }
 
             if !reference.isCurrent {
-                Divider()
+                items.append(.separator)
 
-                Button("Checkout") {
+                items.append(.action("Checkout", isEnabled: !(feature.isPerformingBranchOperation), action: {
                     Task { await feature.checkoutReference(reference) }
-                }
-                .disabled(feature.isPerformingBranchOperation)
+                }))
 
                 if reference.kind != .tag {
-                    Button("Checkout and Rebase onto Current Branch") {
+                    items.append(.action("Checkout and Rebase onto Current Branch", isEnabled: !(feature.isPerformingBranchOperation), action: {
                         pendingBranchOperation = GitBranchOperationRequest(
                             kind: .checkoutAndRebase,
                             reference: reference
                         )
-                    }
-                    .disabled(feature.isPerformingBranchOperation)
+                    }))
 
-                    Button("Merge into Current Branch") {
+                    items.append(.action("Merge into Current Branch", isEnabled: !(feature.isPerformingBranchOperation), action: {
                         pendingBranchOperation = GitBranchOperationRequest(
                             kind: .merge,
                             reference: reference
                         )
-                    }
-                    .disabled(feature.isPerformingBranchOperation)
-                    Button("Rebase Current Branch onto…") {
+                    }))
+                    items.append(.action("Rebase Current Branch onto…", isEnabled: !(feature.isPerformingBranchOperation), action: {
                         pendingBranchOperation = GitBranchOperationRequest(
                             kind: .rebase,
                             reference: reference
                         )
-                    }
-                    .disabled(feature.isPerformingBranchOperation)
+                    }))
                 }
             }
 
             if reference.kind == .remote {
-                Divider()
+                items.append(.separator)
 
-                Button("Pull with Rebase") {
+                items.append(.action("Pull with Rebase", isEnabled: !(feature.isPerformingBranchOperation), action: {
                     pendingBranchOperation = GitBranchOperationRequest(
                         kind: .pullRebase,
                         reference: reference
                     )
-                }
-                .disabled(feature.isPerformingBranchOperation)
-                Button("Pull with Merge") {
+                }))
+                items.append(.action("Pull with Merge", isEnabled: !(feature.isPerformingBranchOperation), action: {
                     pendingBranchOperation = GitBranchOperationRequest(
                         kind: .pullMerge,
                         reference: reference
                     )
-                }
-                .disabled(feature.isPerformingBranchOperation)
+                }))
             }
 
             if reference.kind == .local {
-                Divider()
+                items.append(.separator)
 
-                Button("Update") {
+                items.append(.action("Update", isEnabled: !(!reference.isCurrent || feature.isPerformingBranchOperation), action: {
                     Task { await feature.updateCurrentBranch(reference) }
-                }
-                .disabled(!reference.isCurrent || feature.isPerformingBranchOperation)
+                }))
 
-                Button("Push…") {
+                items.append(.action("Push…", isEnabled: !(feature.isPerformingBranchOperation), action: {
                     pendingPushReference = reference
-                }
-                .disabled(feature.isPerformingBranchOperation)
+                }))
 
                 if !reference.isCurrent {
-                    Button("Delete Branch", role: .destructive) {
+                    items.append(.action("Delete Branch", role: .destructive, isEnabled: !(feature.isPerformingBranchOperation), action: {
                         pendingBranchOperation = GitBranchOperationRequest(
                             kind: .delete,
                             reference: reference
                         )
-                    }
-                    .disabled(feature.isPerformingBranchOperation)
+                    }))
                 }
 
-                Divider()
+                items.append(.separator)
 
-                Button("Rename…") {
+                items.append(.action("Rename…", isEnabled: !(feature.isPerformingBranchOperation), action: {
                     branchDialogRequest = GitBranchDialogRequest(kind: .rename, reference: reference)
-                }
-                .disabled(feature.isPerformingBranchOperation)
+                }))
             }
 
             if reference.kind == .tag {
-                Divider()
+                items.append(.separator)
 
                 if reference.supportsTagDeletion {
-                    Button("Delete Tag…", role: .destructive) {
+                    items.append(.action("Delete Tag…", role: .destructive, isEnabled: !(feature.isPerformingBranchOperation), action: {
                         pendingTagDeletion = reference
-                    }
-                    .disabled(feature.isPerformingBranchOperation)
+                    }))
                 } else {
-                    Button("Delete Tag… (target is not a commit)") {}
-                        .disabled(true)
+                    items.append(.action("Delete Tag… (target is not a commit)", isEnabled: !(true), action: {}))
                 }
             }
+            return items
         }
     }
 
@@ -2732,99 +2722,91 @@ private struct GitReferenceRowView: View, Equatable {
         }
         .buttonStyle(.plain)
         .lithePointer()
-        .contextMenu {
-            Button("New Branch from '\(reference.shortName)'…") {
+        .litheContextMenu {
+            var items: [LitheContextMenuItem] = []
+            items.append(.action("New Branch from '\(reference.shortName)'…", action: {
                 actions.newBranch(reference)
-            }
+            }))
 
-            Button("Show Diff with Working Tree") {
+            items.append(.action("Show Diff with Working Tree", action: {
                 actions.showDiffWithWorkingTree(reference)
-            }
+            }))
 
             if let currentReferenceID, currentReferenceID != reference.id {
-                Button("Compare with Current Branch") {
+                items.append(.action("Compare with Current Branch", action: {
                     actions.compareWithCurrent(reference)
-                }
+                }))
             }
 
             if let comparisonSourceID, comparisonSourceID != reference.id,
                let sourceName = actions.comparisonSourceName {
-                Button("Compare '\(sourceName)' with '\(reference.shortName)'") {
+                items.append(.action("Compare '\(sourceName)' with '\(reference.shortName)'", action: {
                     actions.compareWithSelectedSource(reference)
-                }
+                }))
             } else {
-                Button("Select for Compare") {
+                items.append(.action("Select for Compare", action: {
                     actions.selectForCompare(reference)
-                }
+                }))
             }
 
             if !reference.isCurrent {
-                Divider()
+                items.append(.separator)
 
-                Button("Checkout") {
+                items.append(.action("Checkout", isEnabled: !(isPerformingBranchOperation), action: {
                     actions.checkout(reference)
-                }
-                .disabled(isPerformingBranchOperation)
+                }))
 
                 if reference.kind != .tag {
-                    Button("Checkout and Rebase onto Current Branch") {
+                    items.append(.action("Checkout and Rebase onto Current Branch", isEnabled: !(isPerformingBranchOperation), action: {
                         actions.branchOperation(.checkoutAndRebase, reference)
-                    }
-                    .disabled(isPerformingBranchOperation)
+                    }))
 
-                    Button("Merge into Current Branch") {
+                    items.append(.action("Merge into Current Branch", isEnabled: !(isPerformingBranchOperation), action: {
                         actions.branchOperation(.merge, reference)
-                    }
-                    .disabled(isPerformingBranchOperation)
+                    }))
 
-                    Button("Rebase Current Branch onto…") {
+                    items.append(.action("Rebase Current Branch onto…", isEnabled: !(isPerformingBranchOperation), action: {
                         actions.branchOperation(.rebase, reference)
-                    }
-                    .disabled(isPerformingBranchOperation)
+                    }))
                 }
             }
 
             if reference.kind == .remote {
-                Divider()
+                items.append(.separator)
 
-                Button("Pull with Rebase") {
+                items.append(.action("Pull with Rebase", isEnabled: !(isPerformingBranchOperation), action: {
                     actions.branchOperation(.pullRebase, reference)
-                }
-                .disabled(isPerformingBranchOperation)
+                }))
 
-                Button("Pull with Merge") {
+                items.append(.action("Pull with Merge", isEnabled: !(isPerformingBranchOperation), action: {
                     actions.branchOperation(.pullMerge, reference)
-                }
-                .disabled(isPerformingBranchOperation)
+                }))
             }
 
             if reference.kind == .local {
-                Divider()
+                items.append(.separator)
 
-                Button("Update") {
+                items.append(.action("Update", isEnabled: !(!reference.isCurrent || isPerformingBranchOperation), action: {
                     actions.updateCurrentBranch(reference)
-                }
-                .disabled(!reference.isCurrent || isPerformingBranchOperation)
+                }))
 
-                Button("Push…") {
+                items.append(.action("Push…", isEnabled: !(isPerformingBranchOperation), action: {
                     actions.push(reference)
-                }
-                .disabled(isPerformingBranchOperation)
+                }))
 
                 if !reference.isCurrent {
-                    Button("Delete Branch", role: .destructive) {
+                    items.append(.action("Delete Branch", role: .destructive, isEnabled: !(isPerformingBranchOperation), action: {
                         actions.branchOperation(.delete, reference)
-                    }
-                    .disabled(isPerformingBranchOperation)
+                    }))
                 }
 
-                Divider()
+                items.append(.separator)
 
-                Button("Rename…") {
+                items.append(.action("Rename…", isEnabled: !(isPerformingBranchOperation), action: {
                     actions.renameBranch(reference)
-                }
-                .disabled(isPerformingBranchOperation)
+                }))
             }
+            return items
         }
     }
 

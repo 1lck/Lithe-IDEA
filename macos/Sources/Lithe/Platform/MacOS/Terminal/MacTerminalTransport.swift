@@ -50,34 +50,18 @@ final class LitheTerminalView: LocalProcessTerminalView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        let menu = NSMenu()
-        menu.autoenablesItems = true
-
-        let paste = NSMenuItem(
-            title: "Paste",
-            action: #selector(paste(_:)),
-            keyEquivalent: ""
+        guard let window else { return nil }
+        LitheContextMenuPresenter.shared.show(
+            items: [
+                .action("Paste") { [weak self] in if let self { self.paste(self) } },
+                .action("Copy") { [weak self] in if let self { self.copy(self) } },
+                .action("Select All") { [weak self] in if let self { self.selectAll(self) } }
+            ],
+            at: window.convertPoint(toScreen: event.locationInWindow),
+            appearance: effectiveAppearance,
+            locale: .current
         )
-        paste.target = self
-        menu.addItem(paste)
-
-        let copy = NSMenuItem(
-            title: "Copy",
-            action: #selector(copy(_:)),
-            keyEquivalent: ""
-        )
-        copy.target = self
-        menu.addItem(copy)
-
-        let selectAll = NSMenuItem(
-            title: "Select All",
-            action: #selector(selectAll(_:)),
-            keyEquivalent: ""
-        )
-        selectAll.target = self
-        menu.addItem(selectAll)
-
-        return menu
+        return nil
     }
 
     override func viewDidChangeEffectiveAppearance() {
