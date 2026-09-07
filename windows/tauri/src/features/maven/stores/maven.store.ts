@@ -98,6 +98,8 @@ export interface MavenState {
   javaHomePath: string;
   configurationSaveError: string | null;
   reloadRequired: boolean;
+  projectReloadRequired: boolean;
+  reloadRevision: number;
   taskStatus: MavenTaskStatus;
   taskError: string | null;
   activeSessionId: string | null;
@@ -111,12 +113,18 @@ export interface MavenState {
   dependencyOutput: string;
   actions: {
     loadProject: (root: string, visiblePaths?: string[]) => Promise<void>;
+    markPomReloadRequired: (changedPath: string) => void;
+    restoreReloadSnapshot: (
+      snapshot: MavenReloadSnapshot,
+      revision: number,
+      message: string,
+    ) => void;
     setSelectedProfiles: (profiles: string[]) => void;
     addCustomProfile: (profile: string) => boolean;
     restoreDefaultProfiles: () => void;
     setSkipTests: (enabled: boolean) => void;
     updateLocalConfiguration: (settings: MavenSettings) => void;
-    acknowledgeReload: () => void;
+    acknowledgeReload: (revision?: number) => void;
     runGoals: (goals: string[], module: string | null, title: string) => Promise<void>;
     stop: () => Promise<void>;
     clearOutput: () => void;
@@ -127,6 +135,19 @@ export interface MavenState {
     appendDependencyOutput: (sessionId: string, chunk: string) => void;
     finishDependencyProcess: (sessionId: string, exitCode: number) => Promise<void>;
   };
+}
+
+export interface MavenReloadSnapshot {
+  projectStatus: MavenProjectStatus;
+  projectError: string | null;
+  project: MavenProject | null;
+  selectedProfiles: string[];
+  customProfiles: string[];
+  skipTests: boolean;
+  settingsPath: string;
+  localRepositoryPath: string;
+  mavenExecutablePath: string;
+  javaHomePath: string;
 }
 
 function normalizedProfile(value: string): string | null {
@@ -309,9 +330,23 @@ export const createMavenStore = (
         });
     };
 
-    const configurationDidChange = () => {
+    const markReloadRequired = (changedPath?: string, reloadProject = false) => {
       invalidateDependencies();
-      set({ reloadRequired: true, configurationSaveError: null });
+      set((state) => ({
+        visiblePaths:
+          changedPath && !state.visiblePaths.includes(changedPath)
+            ? [...state.visiblePaths, changedPath].sort()
+            : state.visiblePaths,
+        reloadRequired: true,
+        projectReloadRequired: state.projectReloadRequired || reloadProject,
+        reloadRevision: state.reloadRevision + 1,
+        projectError: reloadProject ? null : state.projectError,
+      }));
+    };
+
+    const configurationDidChange = () => {
+      markReloadRequired();
+      set({ configurationSaveError: null });
       persistConfiguration();
     };
 
@@ -330,6 +365,8 @@ export const createMavenStore = (
       javaHomePath: "",
       configurationSaveError: null,
       reloadRequired: false,
+      projectReloadRequired: false,
+      reloadRevision: 0,
       taskStatus: "idle",
       taskError: null,
       activeSessionId: null,
@@ -358,7 +395,11 @@ export const createMavenStore = (
             visiblePaths: [...visiblePaths],
             projectStatus: "loading",
             projectError: null,
-            configurationSaveError: null,
+            configurationSaveError:
+              previous.root === root ? previous.configurationSaveError : null,
+            ...(previous.root !== root
+              ? { reloadRequired: false, projectReloadRequired: false }
+              : {}),
             ...(previous.root && previous.root !== root
               ? {
                   project: null,
@@ -386,13 +427,32 @@ export const createMavenStore = (
                 localRepositoryPath: "",
                 mavenExecutablePath: "",
                 javaHomePath: "",
-                reloadRequired: false,
               });
               return;
             }
-            await configurationWriteTask.catch(() => undefined);
+            let configurationWriteSucceeded = true;
+            let configurationWriteError: unknown;
+            try {
+              await configurationWriteTask;
+            } catch (error) {
+              configurationWriteSucceeded = false;
+              configurationWriteError = error;
+            }
             if (projectLoadRevision !== revision || get().root !== root) return;
-            const stored = await dependencies.loadMavenConfiguration(root, project.relativePath);
+            const preserveInMemoryConfiguration =
+              previous.root === root && !configurationWriteSucceeded;
+            if (preserveInMemoryConfiguration) {
+              set({
+                configurationSaveError:
+                  configurationWriteError instanceof Error
+                    ? configurationWriteError.message
+                    : "Unable to save Maven configuration.",
+              });
+            }
+            const stored =
+              preserveInMemoryConfiguration
+                ? storedConfiguration(previous)
+                : await dependencies.loadMavenConfiguration(root, project.relativePath);
             if (projectLoadRevision !== revision || get().root !== root) return;
             const customProfiles = normalizedProfiles(stored.portable?.customProfiles ?? []);
             const knownProfiles = new Set([
@@ -416,14 +476,24 @@ export const createMavenStore = (
               localRepositoryPath: normalizedPath(stored.local?.localRepositoryPath),
               mavenExecutablePath: normalizedPath(stored.local?.mavenExecutablePath),
               javaHomePath: normalizedPath(stored.local?.javaHomePath),
-              reloadRequired: false,
             });
           } catch (error) {
             if (projectLoadRevision !== revision || get().root !== root) return;
+            const message =
+              error instanceof Error ? error.message : "Unable to scan the Maven project.";
+            if (previous.root === root && previous.project) {
+              set((state) => ({
+                projectStatus: "failed",
+                projectError: message,
+                reloadRequired: true,
+                projectReloadRequired: true,
+                reloadRevision: state.reloadRevision + 1,
+              }));
+              return;
+            }
             set({
               projectStatus: "failed",
-              projectError:
-                error instanceof Error ? error.message : "Unable to scan the Maven project.",
+              projectError: message,
               project: null,
               selectedProfiles: [],
               customProfiles: [],
@@ -434,6 +504,27 @@ export const createMavenStore = (
               javaHomePath: "",
             });
           }
+        },
+
+        markPomReloadRequired: (changedPath) => markReloadRequired(changedPath, true),
+
+        restoreReloadSnapshot: (snapshot, revision, message) => {
+          if (get().reloadRevision !== revision) return;
+          set((state) => ({
+            projectStatus: snapshot.project ? "failed" : snapshot.projectStatus,
+            projectError: message,
+            project: snapshot.project,
+            selectedProfiles: [...snapshot.selectedProfiles],
+            customProfiles: [...snapshot.customProfiles],
+            skipTests: snapshot.skipTests,
+            settingsPath: snapshot.settingsPath,
+            localRepositoryPath: snapshot.localRepositoryPath,
+            mavenExecutablePath: snapshot.mavenExecutablePath,
+            javaHomePath: snapshot.javaHomePath,
+            reloadRequired: true,
+            projectReloadRequired: true,
+            reloadRevision: state.reloadRevision + 1,
+          }));
         },
 
         setSelectedProfiles: (profiles) => {
@@ -495,7 +586,10 @@ export const createMavenStore = (
           configurationDidChange();
         },
 
-        acknowledgeReload: () => set({ reloadRequired: false }),
+        acknowledgeReload: (revision) => {
+          if (revision !== undefined && get().reloadRevision !== revision) return;
+          set({ reloadRequired: false, projectReloadRequired: false, projectError: null });
+        },
 
         runGoals: async (goals, module, title) => {
           const state = get();
@@ -800,7 +894,10 @@ export const createMavenStore = (
 
         appendDependencyOutput: (sessionId, chunk) => {
           const state = get();
-          if (state.activeDependencySessionId !== sessionId || !state.activeDependencyModulePath) {
+          if (
+            state.activeDependencySessionId !== sessionId ||
+            !state.activeDependencyModulePath
+          ) {
             return;
           }
           const output = (state.dependencyOutput + chunk).replace(/\r/g, "");
@@ -817,10 +914,7 @@ export const createMavenStore = (
 
         finishDependencyProcess: async (sessionId, exitCode) => {
           const state = get();
-          if (
-            state.activeDependencySessionId !== sessionId ||
-            !state.activeDependencyModulePath
-          ) {
+          if (state.activeDependencySessionId !== sessionId || !state.activeDependencyModulePath) {
             return;
           }
           const revision = dependencyRevision;

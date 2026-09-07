@@ -12,6 +12,7 @@ import {
   mavenLaunchContext,
   mavenLaunchContextForWorkspace,
   useMavenStore,
+  type MavenReloadSnapshot,
   type MavenStoreDependencies,
 } from "./maven.store";
 
@@ -73,7 +74,8 @@ const scanMavenProject = mock(async (_root: string, _paths?: string[]) => projec
 const createMavenLaunchPlan = mock(async () => launchPlan);
 const createMavenDependencyPlan = mock(async () => launchPlan);
 const parseMavenDependencies = mock(
-  async (_modulePath: string, _output: string): Promise<MavenDependenciesResponse> => dependencyTree,
+  async (_modulePath: string, _output: string): Promise<MavenDependenciesResponse> =>
+    dependencyTree,
 );
 const parseMavenDiagnostics = mock(
   async (_root: string, _output: string): Promise<MavenDiagnostic[]> => [],
@@ -356,6 +358,185 @@ describe("Maven workspace state", () => {
 
     expect(store.getState().root).toBe("D:/second");
     expect(store.getState().project?.artifactId).toBe("second");
+  });
+
+  test("does not carry a pending reload into a different root when its scan fails", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/first", ["pom.xml"]);
+    store.getState().actions.markPomReloadRequired("pom.xml");
+    scanMavenProject.mockRejectedValueOnce(new Error("Unreadable new project"));
+
+    await store.getState().actions.loadProject("D:/second", ["pom.xml"]);
+
+    expect(store.getState().root).toBe("D:/second");
+    expect(store.getState().reloadRequired).toBe(false);
+    expect(store.getState().projectReloadRequired).toBe(false);
+    expect(store.getState().projectError).toBe("Unreadable new project");
+  });
+
+  test("keeps the last usable project when a same-workspace reload fails", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    store.getState().actions.markPomReloadRequired("reactor/pom.xml");
+    scanMavenProject.mockRejectedValueOnce(new Error("Malformed pom.xml"));
+
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+
+    expect(store.getState().project).toEqual(project);
+    expect(store.getState().projectStatus).toBe("failed");
+    expect(store.getState().projectError).toBe("Malformed pom.xml");
+    expect(store.getState().reloadRequired).toBe(true);
+    expect(mavenLaunchContext(store.getState())?.reactorPath).toBe("reactor");
+  });
+
+  test("marks repeated POM changes as one pending reload", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+
+    store.getState().actions.markPomReloadRequired("reactor/pom.xml");
+    store.getState().actions.markPomReloadRequired("reactor/pom.xml");
+
+    expect(store.getState().reloadRequired).toBe(true);
+    expect(store.getState().projectReloadRequired).toBe(true);
+    expect(store.getState().projectError).toBeNull();
+  });
+
+  test("keeps configuration-only reloads Java-only and preserves a failed write", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    writeMavenConfiguration.mockRejectedValueOnce(new Error("Unable to save settings"));
+
+    store.getState().actions.setSkipTests(true);
+
+    expect(store.getState().reloadRequired).toBe(true);
+    expect(store.getState().projectReloadRequired).toBe(false);
+    await store
+      .getState()
+      .actions.loadProject("D:/work", [...store.getState().visiblePaths]);
+    expect(store.getState().skipTests).toBe(true);
+    expect(store.getState().configurationSaveError).toBe("Unable to save settings");
+
+    store.getState().actions.markPomReloadRequired("module/pom.xml");
+    expect(store.getState().projectReloadRequired).toBe(true);
+  });
+
+  test("includes a newly observed nested POM in the next Maven scan", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+
+    store.getState().actions.markPomReloadRequired("module/pom.xml");
+    store.getState().actions.markPomReloadRequired("module/pom.xml");
+    const visiblePaths = store.getState().visiblePaths;
+    await store.getState().actions.loadProject("D:/work", visiblePaths);
+
+    expect(visiblePaths).toEqual(["module/pom.xml", "reactor/pom.xml"]);
+    expect(scanMavenProject).toHaveBeenLastCalledWith("D:/work", visiblePaths);
+  });
+
+  test("restores the prior Maven model when Java synchronization fails", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    const previous = store.getState();
+    const snapshot: MavenReloadSnapshot = {
+      projectStatus: previous.projectStatus,
+      projectError: previous.projectError,
+      project: previous.project,
+      selectedProfiles: [...previous.selectedProfiles],
+      customProfiles: [...previous.customProfiles],
+      skipTests: previous.skipTests,
+      settingsPath: previous.settingsPath,
+      localRepositoryPath: previous.localRepositoryPath,
+      mavenExecutablePath: previous.mavenExecutablePath,
+      javaHomePath: previous.javaHomePath,
+    };
+    store.getState().actions.markPomReloadRequired("reactor/pom.xml");
+    const reloadRevision = store.getState().reloadRevision;
+    scanMavenProject.mockResolvedValueOnce({ ...project, artifactId: "reloaded" });
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+
+    store
+      .getState()
+      .actions.restoreReloadSnapshot(snapshot, reloadRevision, "JDT LS did not restart");
+
+    expect(store.getState().project?.artifactId).toBe("demo");
+    expect(store.getState().projectStatus).toBe("failed");
+    expect(store.getState().projectError).toBe("JDT LS did not restart");
+    expect(store.getState().reloadRequired).toBe(true);
+    expect(store.getState().reloadRevision).toBe(reloadRevision + 1);
+  });
+
+  test("does not restore an old Maven snapshot over a newer POM revision", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    const previous = store.getState();
+    const snapshot: MavenReloadSnapshot = {
+      projectStatus: previous.projectStatus,
+      projectError: previous.projectError,
+      project: previous.project,
+      selectedProfiles: [...previous.selectedProfiles],
+      customProfiles: [...previous.customProfiles],
+      skipTests: previous.skipTests,
+      settingsPath: previous.settingsPath,
+      localRepositoryPath: previous.localRepositoryPath,
+      mavenExecutablePath: previous.mavenExecutablePath,
+      javaHomePath: previous.javaHomePath,
+    };
+    store.getState().actions.markPomReloadRequired("reactor/pom.xml");
+    const olderRevision = store.getState().reloadRevision;
+    scanMavenProject.mockResolvedValueOnce({ ...project, artifactId: "reloaded" });
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    store.getState().actions.markPomReloadRequired("newer/pom.xml");
+
+    store.getState().actions.restoreReloadSnapshot(snapshot, olderRevision, "Older reload failed");
+
+    expect(store.getState().project?.artifactId).toBe("reloaded");
+    expect(store.getState().projectStatus).toBe("ready");
+    expect(store.getState().projectError).toBeNull();
+    expect(store.getState().reloadRequired).toBe(true);
+  });
+
+  test("keeps a newer POM change pending when an older scan completes", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    store.getState().actions.markPomReloadRequired("reactor/pom.xml");
+    const scan = deferred<typeof project>();
+    scanMavenProject.mockImplementationOnce(() => scan.promise);
+
+    const reload = store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    store.getState().actions.markPomReloadRequired("reactor/pom.xml");
+    scan.resolve({ ...project, artifactId: "reloaded" });
+    await reload;
+
+    expect(store.getState().project?.artifactId).toBe("reloaded");
+    expect(store.getState().reloadRequired).toBe(true);
+  });
+
+  test("keeps the current POM reload pending until Java synchronization is acknowledged", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    store.getState().actions.markPomReloadRequired("reactor/pom.xml");
+    const reloadRevision = store.getState().reloadRevision;
+
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+
+    expect(store.getState().reloadRequired).toBe(true);
+    store.getState().actions.acknowledgeReload(reloadRevision);
+    expect(store.getState().reloadRequired).toBe(false);
+    expect(store.getState().projectReloadRequired).toBe(false);
+  });
+
+  test("does not acknowledge a newer POM revision from an older reload", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    store.getState().actions.markPomReloadRequired("reactor/pom.xml");
+    const olderRevision = store.getState().reloadRevision;
+    store.getState().actions.markPomReloadRequired("reactor/pom.xml");
+
+    store.getState().actions.acknowledgeReload(olderRevision);
+    expect(store.getState().reloadRequired).toBe(true);
+
+    store.getState().actions.acknowledgeReload(store.getState().reloadRevision);
+    expect(store.getState().reloadRequired).toBe(false);
   });
 
   test("cancels a pending launch without starting a stale process", async () => {
