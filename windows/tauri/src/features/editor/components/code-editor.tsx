@@ -258,9 +258,10 @@ const CodeEditor = ({
     setActiveEditorViewKey(editorViewKey ?? null);
   }, [editorViewKey, isActiveSurface, setActiveEditorViewKey]);
 
-  // Focus editor when active buffer changes
+  // Focus editor when the active surface or buffer changes
   useEffect(() => {
     if (!enableInteractiveServices) return;
+    if (!isActiveSurface) return;
     if (!activeBufferId || !editorRef.current) return;
 
     const focusEditor = () => {
@@ -284,7 +285,7 @@ const CodeEditor = ({
       cancelAnimationFrame(animationFrame);
       clearTimeout(focusTimer);
     };
-  }, [activeBufferId, enableInteractiveServices]);
+  }, [activeBufferId, enableInteractiveServices, isActiveSurface]);
 
   // Sync content and file info with editor instance store
   useEffect(() => {

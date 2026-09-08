@@ -378,6 +378,16 @@ export function MonacoEditor({
   latestContentChangeRef.current = onContentChange;
   isActiveSurfaceRef.current = isActiveSurface;
 
+  const isCurrentEditorSurface = useCallback(() => {
+    if (!isActiveSurfaceRef.current) return false;
+    if (editorBufferId && useBufferStore.getState().activeBufferId !== editorBufferId) {
+      return false;
+    }
+
+    const activeViewKey = useEditorStateStore.getState().activeEditorViewKey;
+    return !viewStateKey || !activeViewKey || activeViewKey === viewStateKey;
+  }, [editorBufferId, viewStateKey]);
+
   const lineNumberFormatter = useCallback(
     (lineNumber: number) => {
       const mappedLine = lineNumberMap?.[lineNumber - 1];
@@ -395,7 +405,7 @@ export function MonacoEditor({
   const syncCursorAndSelection = useCallback(() => {
     const editor = editorRef.current;
     const model = modelRef.current;
-    if (!editor || !model) return;
+    if (!editor || !model || !isCurrentEditorSurface()) return;
 
     const position = editor.getPosition();
     if (!position) return;
@@ -404,7 +414,7 @@ export function MonacoEditor({
       toEditorPosition(model, position),
       selection ? toEditorRange(model, selection) : undefined,
     );
-  }, [setCursorAndSelection]);
+  }, [isCurrentEditorSurface, setCursorAndSelection]);
 
   const getMonacoCursorOffset = useCallback(() => {
     const editor = editorRef.current;
@@ -924,6 +934,7 @@ export function MonacoEditor({
         syncCursorAndSelection();
       }),
       editor.onMouseDown((event) => {
+        if (!isCurrentEditorSurface()) return;
         const mouseEvent = event.event;
         const markerElement = event.target.element;
         if (
@@ -994,6 +1005,10 @@ export function MonacoEditor({
       editor.onMouseUp(() => {
         if (!mouseSelectingRef.current) return;
         mouseSelectingRef.current = false;
+        if (!isCurrentEditorSurface()) {
+          mouseGestureStartRef.current = null;
+          return;
+        }
         const entry = cursorEntryToRecordAfterMouseGesture(
           mouseGestureStartRef.current,
           cursorEntryFromEditor(),
@@ -1003,6 +1018,7 @@ export function MonacoEditor({
         scheduleInlineGitBlameRender();
       }),
       editor.onDidChangeCursorSelection(() => {
+        if (!isCurrentEditorSurface()) return;
         syncCursorAndSelection();
         scheduleInlineGitBlameRender();
       }),
@@ -1022,6 +1038,10 @@ export function MonacoEditor({
     const handleWindowMouseUp = () => {
       if (!mouseSelectingRef.current) return;
       mouseSelectingRef.current = false;
+      if (!isCurrentEditorSurface()) {
+        mouseGestureStartRef.current = null;
+        return;
+      }
       const entry = cursorEntryToRecordAfterMouseGesture(
         mouseGestureStartRef.current,
         cursorEntryFromEditor(),
@@ -1034,7 +1054,7 @@ export function MonacoEditor({
 
     const unsubscribeCursor = editorAPI.on("cursorChange", (position) => {
       if (!modelRef.current || editorRef.current !== editor) return;
-      if (!isActiveSurfaceRef.current || mouseSelectingRef.current) return;
+      if (!isCurrentEditorSurface() || mouseSelectingRef.current) return;
       const monacoPosition = toClampedMonacoPosition(model, position);
       const currentPosition = editor.getPosition();
       if (
@@ -1054,7 +1074,7 @@ export function MonacoEditor({
     });
     const unsubscribeSelection = editorAPI.on("selectionChange", (selection) => {
       if (!modelRef.current || editorRef.current !== editor) return;
-      if (!isActiveSurfaceRef.current || mouseSelectingRef.current) return;
+      if (!isCurrentEditorSurface() || mouseSelectingRef.current) return;
       if (selection) {
         editor.setSelection(toMonacoRange(model, selection));
       } else {
@@ -1179,6 +1199,7 @@ export function MonacoEditor({
     viewStateKey,
     wordWrap,
     editorBufferId,
+    isCurrentEditorSurface,
   ]);
 
   useLayoutEffect(() => {
