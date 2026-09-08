@@ -1,6 +1,12 @@
 export interface GitFile {
   path: string;
   originalPath?: string;
+  /** Repository root that owns this file when a workspace aggregates multiple Git repositories. */
+  repositoryPath?: string;
+  /** File path relative to repositoryPath when path is decorated for workspace display. */
+  repositoryRelativePath?: string;
+  /** Original path relative to repositoryPath for renamed files in aggregated workspaces. */
+  repositoryOriginalRelativePath?: string;
   status: "modified" | "added" | "deleted" | "untracked" | "renamed";
   staged: boolean;
   /** Raw porcelain XY status retained for whole-path commit review semantics. */
