@@ -887,8 +887,8 @@ package final class GitFeatureModel: ObservableObject {
         pendingDiscardHunk = DiffHunkRequest(change: change, hunk: hunk)
     }
 
-    package func confirmDiscardHunk() async {
-        guard let request = pendingDiscardHunk else { return }
+    // Receive the confirmed value before SwiftUI dismisses and clears the dialog binding.
+    package func confirmDiscardHunk(_ request: DiffHunkRequest) async {
         pendingDiscardHunk = nil
         let result = await withGitOperation {
             await service.discard(hunk: request.hunk, of: request.change)
@@ -914,8 +914,8 @@ package final class GitFeatureModel: ObservableObject {
         pendingDiscardChange = change
     }
 
-    package func confirmDiscardChange() async {
-        guard let change = pendingDiscardChange else { return }
+    // Receive the confirmed value before SwiftUI dismisses and clears the dialog binding.
+    package func confirmDiscardChange(_ change: GitChange) async {
         pendingDiscardChange = nil
         let result = await withGitOperation { await service.discard(change) }
         showResult(result, success: "Discarded \(change.path)")
