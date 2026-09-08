@@ -300,6 +300,44 @@ pub struct MavenDiagnosticsResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// One failed or errored JUnit test reported by Maven Surefire/Failsafe.
+pub struct MavenTestFailureResponse {
+    /// Provider-reported test name, usually `method(Class)` or `Class.method`.
+    pub name: String,
+    /// Either `failure` or `error`, matching the Surefire result section.
+    pub kind: String,
+    /// Short assertion or exception message when Maven printed one.
+    pub message: Option<String>,
+    /// Workspace-relative source path when a stack frame resolves to a file.
+    pub path: Option<String>,
+    /// One-based source line from the first matching stack frame.
+    pub line: Option<usize>,
+    /// UTF-16 column is not emitted by Surefire's text reporter.
+    pub column: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Bounded, deterministic JUnit result summary parsed from Maven output.
+pub struct MavenTestResultsResponse {
+    /// Total tests from the final Results summary or aggregated class summaries.
+    pub tests_run: usize,
+    /// Tests that failed an assertion.
+    pub failures: usize,
+    /// Tests that terminated with an error or exception.
+    pub errors: usize,
+    /// Tests skipped by assumptions, tags, or configuration.
+    pub skipped: usize,
+    /// Derived number of tests that completed successfully.
+    pub passed: usize,
+    /// True when the parsed summary contains no failures or errors.
+    pub success: bool,
+    /// Individual failures and errors in the order Maven reported them.
+    pub failure_details: Vec<MavenTestFailureResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 /// Java class containing a runnable main method.
 pub struct JavaMainClassResponse {
     pub path: String,

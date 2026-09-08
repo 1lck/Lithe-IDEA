@@ -1425,3 +1425,12 @@
 "Saved to %@" = "已保存到 %@";
 "Only the files below are collected. Credentials, tokens, and home-directory paths are redacted automatically; workspace source, editor buffers, and terminal history are never included." = "仅收集下列文件。凭据、令牌和用户目录路径会被自动脱敏；工作区源代码、编辑器缓冲区内容和终端历史绝不会被包含。";
 "Package the redacted application log with an environment and performance snapshot into a zip you can attach to a bug report. Credentials, tokens, and home-directory paths are removed automatically, and you can review the file list before anything is written." = "将脱敏后的应用日志与环境和性能快照打包成一个 zip 压缩包，可附在错误报告中。凭据、令牌和用户目录路径会被自动移除，你也可以在写入任何内容之前先查看文件清单。";
+"Passed" = "通过";
+"Skipped" = "跳过";
+"Cancelled" = "已取消";
+"Results" = "测试结果";
+"Failures" = "失败详情";
+"Timed Out" = "已超时";
+"Rerun last test" = "重新运行上次测试";
+"%@ %lld" = "%@ %lld";
+"%@ test run timed out after %@ seconds." = "%@ 测试运行在 %@ 秒后超时。";
