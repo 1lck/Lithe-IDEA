@@ -144,6 +144,13 @@ impl TerminalConnection {
    pub fn warm_user_environment() {}
 
    fn build_command(config: &TerminalConfig) -> Result<CommandBuilder> {
+      Self::build_command_with_shell_resolver(config, Self::resolve_shell_path)
+   }
+
+   fn build_command_with_shell_resolver(
+      config: &TerminalConfig,
+      resolve_shell: impl FnOnce(Option<&str>, &str) -> Result<String>,
+   ) -> Result<CommandBuilder> {
       let default_shell = || {
          if cfg!(target_os = "windows") {
             "cmd.exe".to_string()
@@ -170,7 +177,7 @@ impl TerminalConnection {
             (builder, None)
          } else {
             let default_shell = default_shell();
-            let shell_path = Self::resolve_shell_path(selected_shell_id, &default_shell);
+            let shell_path = resolve_shell(selected_shell_id, &default_shell)?;
             let mut builder = CommandBuilder::new(&shell_path);
             Self::configure_shell_startup(&mut builder, selected_shell_id, &shell_path);
 
@@ -253,29 +260,39 @@ impl TerminalConnection {
       }
    }
 
-   fn resolve_shell_path(shell_id: Option<&str>, default_shell: &str) -> String {
+   fn resolve_shell_path(shell_id: Option<&str>, default_shell: &str) -> Result<String> {
       let Some(shell_id) = shell_id else {
-         return default_shell.to_string();
+         return Ok(default_shell.to_string());
       };
 
       if let Some(shell) = get_shell_by_id(shell_id) {
-         if cfg!(target_os = "windows") {
-            return shell
-               .exec_win
-               .or_else(|| Self::windows_builtin_shell_executable(shell_id).map(str::to_string))
-               .unwrap_or_else(|| default_shell.to_string());
+         let path = if cfg!(target_os = "windows") {
+            shell.exec_win
+         } else {
+            shell.exec_unix
+         };
+         if let Some(path) = path {
+            return Ok(path);
          }
-
-         return shell.exec_unix.unwrap_or_else(|| default_shell.to_string());
       }
 
-      if cfg!(target_os = "windows")
-         && let Some(executable) = Self::windows_builtin_shell_executable(shell_id)
-      {
-         return executable.to_string();
+      Self::missing_shell_path(shell_id, default_shell)
+   }
+
+   fn missing_shell_path(shell_id: &str, default_shell: &str) -> Result<String> {
+      if cfg!(target_os = "windows") {
+         if shell_id.eq_ignore_ascii_case("bash") {
+            // Never fall back to bare bash.exe: Windows may resolve it to WSL.
+            return Err(anyhow!(
+               "Git Bash was not found. Install Git for Windows, restart Lithe, then select Git Bash in Settings > Terminal."
+            ));
+         }
+         if let Some(executable) = Self::windows_builtin_shell_executable(shell_id) {
+            return Ok(executable.to_string());
+         }
       }
 
-      default_shell.to_string()
+      Ok(default_shell.to_string())
    }
 
    fn configure_shell_startup(cmd: &mut CommandBuilder, shell_id: Option<&str>, shell_path: &str) {
@@ -327,8 +344,6 @@ impl TerminalConnection {
          Some("pwsh.exe")
       } else if shell_id.eq_ignore_ascii_case("nu") {
          Some("nu.exe")
-      } else if shell_id.eq_ignore_ascii_case("bash") {
-         Some("bash.exe")
       } else {
          None
       }
@@ -626,18 +641,42 @@ mod tests {
    #[cfg(target_os = "windows")]
    #[test]
    fn git_bash_preserves_requested_working_directory() {
+      let working_directory = crate::test_support::TestDirectory::new();
       let mut config = config_with_env(HashMap::new());
       config.command = None;
       config.shell = Some("bash".to_string());
-      let working_directory = std::env::temp_dir().join("lithe-git-bash-terminal-test");
-      std::fs::create_dir_all(&working_directory).unwrap();
-      config.working_directory = Some(working_directory.to_string_lossy().into_owned());
-
-      let cmd = TerminalConnection::build_command(&config).unwrap();
+      config.working_directory = Some(working_directory.path().to_string_lossy().into_owned());
+      let shell_path = r"C:\test-fixtures\Git\bin\bash.exe";
+      let cmd = TerminalConnection::build_command_with_shell_resolver(&config, |id, _| {
+         assert_eq!(id, Some("bash"));
+         Ok(shell_path.to_string())
+      })
+      .unwrap();
 
       assert_eq!(cmd.get_env("CHERE_INVOKING"), Some(OsStr::new("1")));
+      assert_eq!(
+         cmd.get_cwd().map(|path| path.as_os_str()),
+         Some(working_directory.path().as_os_str())
+      );
+      assert_eq!(
+         cmd.get_argv()
+            .iter()
+            .map(|arg| arg.as_os_str())
+            .collect::<Vec<_>>(),
+         vec![
+            OsStr::new(shell_path),
+            OsStr::new("--login"),
+            OsStr::new("-i")
+         ]
+      );
+   }
 
-      std::fs::remove_dir_all(working_directory).unwrap();
+   #[cfg(target_os = "windows")]
+   #[test]
+   fn missing_git_bash_reports_installation_instead_of_launching_wsl() {
+      let error = TerminalConnection::missing_shell_path("bash", "cmd.exe").unwrap_err();
+      assert!(error.to_string().contains("Install Git for Windows"));
+      assert!(TerminalConnection::windows_builtin_shell_executable("bash").is_none());
    }
 
    #[test]
