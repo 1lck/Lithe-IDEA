@@ -28,6 +28,7 @@ final class AppModelFeatureGraph {
     let navigationHistory: NavigationHistoryFeatureModel
     let java: JavaFeatureModel
     let spring: SpringFeatureModel
+    let mybatis: MybatisFeatureModel
     let editorSession: EditorSessionCoordinator
     let javaTestWorkflow: JavaTestWorkflowState
     let languageNavigation: LanguageNavigationCoordinator
@@ -92,6 +93,7 @@ final class AppModelFeatureGraph {
         navigationHistory = NavigationHistoryFeatureModel()
         java = JavaFeatureModel(operations: services.javaMavenOperations)
         spring = SpringFeatureModel(operations: services.javaMavenOperations)
+        mybatis = MybatisFeatureModel(operations: services.javaMavenOperations)
         javaTestWorkflow = JavaTestWorkflowState(notify: notify)
         languageNavigation = LanguageNavigationCoordinator(notify: notify)
         languageEditing = LanguageEditingCoordinator(notify: notify)

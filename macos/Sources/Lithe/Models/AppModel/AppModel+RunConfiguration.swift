@@ -200,6 +200,13 @@ extension AppModel {
                 ($0.url.standardizedFileURL, $0.text)
             })
         )
+        mybatisFeature.scheduleLoad(
+            workspaceURL: target,
+            files: files,
+            textOverrides: Dictionary(uniqueKeysWithValues: openDocuments.map {
+                ($0.url.standardizedFileURL, $0.text)
+            })
+        )
         guard let execution = await activateExecutionModule() else { return }
         // Module activation suspends; a project switch or a reopen must not let
         // this load write the captured inventory into the new opening's run
