@@ -1737,6 +1737,20 @@ const catalogs = {
       "The log directory {path} is unavailable; this session is using the default location.",
     "settings.logs.unavailableNotification":
       "Application file logging is unavailable; Lithe will continue without writing log files.",
+    "settings.logs.diagnosticBundle": "Diagnostic Bundle",
+    "settings.logs.diagnosticBundleDescription":
+      "Export a zip with redacted application logs and an environment snapshot for troubleshooting.",
+    "settings.logs.exportBundle": "Export Diagnostic Bundle…",
+    "settings.logs.exportBundlePreviewFailed":
+      "Unable to prepare the diagnostic bundle: {error}",
+    "settings.logs.exportBundleTitle": "Export Diagnostic Bundle?",
+    "settings.logs.exportBundleIntro":
+      "Lithe will include the following files, with credentials, tokens, and home-directory paths already redacted:",
+    "settings.logs.exportBundleConfirm": "Export",
+    "settings.logs.exportBundleChooseDestination": "Choose Where to Save the Diagnostic Bundle",
+    "settings.logs.exportBundleFilter": "Zip Archives",
+    "settings.logs.exportBundleFailed": "Unable to export the diagnostic bundle: {error}",
+    "settings.logs.exportBundleSuccess": "Diagnostic bundle saved to {path}.",
     "settings.git.integration": "Integration",
     "settings.git.gitIntegration": "Git Integration",
     "settings.git.gitIntegrationDescription":
@@ -5724,6 +5738,19 @@ const catalogs = {
     "settings.logs.fallbackNotification": "日志目录 {path} 当前不可用，本次运行将写入默认位置。",
     "settings.logs.unavailableNotification":
       "应用文件日志当前不可用，Lithe 将继续运行但不会写入日志文件。",
+    "settings.logs.diagnosticBundle": "诊断包",
+    "settings.logs.diagnosticBundleDescription":
+      "导出包含脱敏应用日志和环境快照的压缩包，用于排查问题。",
+    "settings.logs.exportBundle": "导出诊断包…",
+    "settings.logs.exportBundlePreviewFailed": "无法准备诊断包：{error}",
+    "settings.logs.exportBundleTitle": "导出诊断包？",
+    "settings.logs.exportBundleIntro":
+      "Lithe 将包含以下文件，其中的凭据、令牌和用户目录路径均已脱敏：",
+    "settings.logs.exportBundleConfirm": "导出",
+    "settings.logs.exportBundleChooseDestination": "选择诊断包的保存位置",
+    "settings.logs.exportBundleFilter": "Zip 压缩包",
+    "settings.logs.exportBundleFailed": "无法导出诊断包：{error}",
+    "settings.logs.exportBundleSuccess": "诊断包已保存到 {path}。",
     "settings.git.integration": "集成",
     "settings.git.gitIntegration": "Git 集成",
     "settings.git.gitIntegrationDescription": "启用 Git 仓库的源代码管理功能",

@@ -204,6 +204,51 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let html: String
     }
 
+    struct DiagnosticsRedactTextPayload: Decodable, Sendable {
+        let redacted: String
+    }
+
+    struct DiagnosticsManifestPayload: Decodable, Sendable {
+        struct Environment: Decodable, Sendable {
+            let appVersion: String
+            let osName: String
+            let osVersion: String
+            let cpuCoreCount: Int
+            let memoryRssBytes: Int64
+            let diskFreeBytes: Int64
+        }
+
+        struct FileEntry: Decodable, Sendable {
+            let relativePath: String
+            let sizeBytes: Int64
+            let description: String
+        }
+
+        let schemaVersion: Int
+        let generatedAtEpochMilliseconds: Int64
+        let environment: Environment
+        let files: [FileEntry]
+    }
+
+    /// Environment facts a caller gathers natively and passes to
+    /// `buildDiagnosticsManifest`; the Rust Core never reads the filesystem
+    /// or process table itself.
+    struct DiagnosticsEnvironmentInfo: Sendable {
+        let appVersion: String
+        let osName: String
+        let osVersion: String
+        let cpuCoreCount: Int
+        let memoryRssBytes: Int64
+        let diskFreeBytes: Int64
+    }
+
+    /// One file a caller has already redacted and staged for a diagnostic bundle.
+    struct DiagnosticsFileEntryInput: Sendable {
+        let relativePath: String
+        let sizeBytes: Int64
+        let description: String
+    }
+
     struct MavenScanPayload: Decodable, Sendable {
         struct SourceRoot: Decodable, Sendable {
             let path: String
@@ -1433,6 +1478,31 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     private struct MarkdownRenderRequest: Encodable {
         let source: String
+    }
+
+    private struct DiagnosticsRedactTextRequest: Encodable {
+        let text: String
+    }
+
+    private struct DiagnosticsManifestRequest: Encodable {
+        struct Environment: Encodable {
+            let appVersion: String
+            let osName: String
+            let osVersion: String
+            let cpuCoreCount: Int
+            let memoryRssBytes: Int64
+            let diskFreeBytes: Int64
+        }
+
+        struct FileEntry: Encodable {
+            let relativePath: String
+            let sizeBytes: Int64
+            let description: String
+        }
+
+        let environment: Environment
+        let files: [FileEntry]
+        let generatedAtEpochMilliseconds: Int64
     }
 
     private struct LspTextEditsRequest: Encodable {
@@ -3236,6 +3306,45 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         executeResult(
             command: "markdown.render",
             payload: MarkdownRenderRequest(source: source)
+        )
+    }
+
+    /// Redacts credentials, tokens, and home-directory paths from diagnostic
+    /// text before it is staged for a diagnostic bundle export.
+    func redactDiagnosticText(_ text: String) -> Result<DiagnosticsRedactTextPayload, CoreCallError> {
+        executeResult(
+            command: "diagnostics.redactText",
+            payload: DiagnosticsRedactTextRequest(text: text)
+        )
+    }
+
+    /// Shapes a deterministic diagnostic bundle manifest from environment and
+    /// file facts the caller already gathered and redacted natively.
+    func buildDiagnosticsManifest(
+        environment: DiagnosticsEnvironmentInfo,
+        files: [DiagnosticsFileEntryInput],
+        generatedAtEpochMilliseconds: Int64
+    ) -> Result<DiagnosticsManifestPayload, CoreCallError> {
+        executeResult(
+            command: "diagnostics.buildManifest",
+            payload: DiagnosticsManifestRequest(
+                environment: DiagnosticsManifestRequest.Environment(
+                    appVersion: environment.appVersion,
+                    osName: environment.osName,
+                    osVersion: environment.osVersion,
+                    cpuCoreCount: environment.cpuCoreCount,
+                    memoryRssBytes: environment.memoryRssBytes,
+                    diskFreeBytes: environment.diskFreeBytes
+                ),
+                files: files.map {
+                    DiagnosticsManifestRequest.FileEntry(
+                        relativePath: $0.relativePath,
+                        sizeBytes: $0.sizeBytes,
+                        description: $0.description
+                    )
+                },
+                generatedAtEpochMilliseconds: generatedAtEpochMilliseconds
+            )
         )
     }
 

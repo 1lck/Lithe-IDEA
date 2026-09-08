@@ -46,6 +46,20 @@ final class MacServiceContainer {
         MacApplicationLogWriter()
     }
 
+    static func makeDiagnosticsExportService(
+        fileStorage: any FileStorage,
+        processRunner: any ProcessRunner,
+        core: RustCoreBridge
+    ) -> DiagnosticsExportService {
+        DiagnosticsExportService(
+            logDirectoryProviding: makeLogDirectoryProvider(),
+            fileStorage: fileStorage,
+            systemDiagnostics: MacSystemDiagnosticsProvider(),
+            archiver: MacDittoArchiver(processRunner: processRunner),
+            core: core
+        )
+    }
+
     init(
         store: any KeyValueStore,
         settings: AppSettings,
@@ -102,6 +116,11 @@ final class MacServiceContainer {
             credentialStore: MacKeychainSecureStore(service: "app.lithe.desktop.linux-do"),
             platformUI: platformUI,
             callbackRouter: authorizationCallbackRouter
+        )
+        let diagnosticsExportService = Self.makeDiagnosticsExportService(
+            fileStorage: fileStorage,
+            processRunner: processRunner,
+            core: rustCore
         )
         let codexConfigurationSource = MacCodexConfigurationSource()
         let claudeConfigurationSource = MacClaudeConfigurationSource()
@@ -544,6 +563,7 @@ final class MacServiceContainer {
             secureStore: secureStore,
             databaseSecureStore: databaseSecureStore,
             discourseCommunityService: discourseCommunityService,
+            diagnosticsExportService: diagnosticsExportService,
             credentialResolver: credentialResolver,
             aiConfigurationSources: aiConfigurationSources,
             recentProjectsStore: RecentProjectsStore(store: store),
