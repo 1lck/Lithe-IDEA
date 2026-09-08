@@ -196,6 +196,11 @@ marker 结果。新版本会取消旧批次并使缓存失效，因此频繁输�
 CodeLens、implementation 或 `java/findLinks` 请求。没有语义目标的声明不显示
 图标；一个目标直接跳转，多个目标由平台 UI 显示选择列表。
 
+MyBatis Mapper 到 XML 的跳转不经过 JDT LS。`mybatis.index` 用 Java 接口方法名
+与 XML `<mapper namespace>` 中的 statement `id` 配对；Go to Definition 和
+Cmd/Ctrl-click 在调用语言服务器之前使用该索引。没有配对 XML 的方法继续走
+普通 LSP 定义跳转。
+
 Java 测试类与方法同样不能由 UI 猜测。Tests 面板打开或刷新时，
 `LanguageToolingSessionManager` 直接调用 JDT LS 已注册的 Java Test 扩展命令
 `vscode.java.test.findTestTypesAndMethods`，将 JDT 返回的类、方法、框架和

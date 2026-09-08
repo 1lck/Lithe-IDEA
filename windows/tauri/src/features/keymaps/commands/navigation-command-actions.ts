@@ -33,6 +33,8 @@ import {
   resolveSpringDefinitions,
   resolveSpringReferences,
 } from "@/features/spring/utils/spring-navigation";
+import { useMybatisStore } from "@/features/mybatis/stores/mybatis.store";
+import { resolveMybatisDefinitions } from "@/features/mybatis/utils/mybatis-navigation";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useProjectStore } from "@/features/window/stores/project.store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
@@ -190,6 +192,18 @@ async function ensureNavigationLanguageServer(
       logger.warn("LSPNavigation", "Background document attachment failed", error);
     });
   return "deferred";
+}
+
+function mybatisLocationsForActiveFile(): SpringNavigationLocation[] {
+  const context = activeEditorNavigationContext();
+  const mybatisState = useMybatisStore.getState();
+  if (!context || !mybatisState.root) return [];
+  return resolveMybatisDefinitions(
+    mybatisState.index,
+    mybatisState.root,
+    context.activeBuffer.path,
+    context.editorState.cursorPosition.line,
+  );
 }
 
 function springLocationsForActiveFile(
@@ -514,6 +528,15 @@ export function openOutlineSidebar(): void {
 }
 
 export async function goToDefinition(args?: unknown): Promise<void> {
+  const mybatisLocations = mybatisLocationsForActiveFile();
+  if (mybatisLocations.length === 1) {
+    await navigateToSpringLocation(mybatisLocations[0]);
+    return;
+  }
+  if (mybatisLocations.length > 1) {
+    await presentSpringReferences(mybatisLocations, mybatisLocations[0]?.symbol || "MyBatis");
+    return;
+  }
   const springLocations = springLocationsForActiveFile("definition");
   if (springLocations.length === 1) {
     await navigateToSpringLocation(springLocations[0]);

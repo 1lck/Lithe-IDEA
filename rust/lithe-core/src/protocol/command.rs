@@ -195,6 +195,8 @@ pub enum CoreCommand {
     JavaStructure,
     /// Builds Spring configuration, bean, injection, and endpoint indexes (`spring.index`).
     SpringIndex,
+    /// Builds MyBatis mapper-interface and XML statement indexes (`mybatis.index`).
+    MybatisIndex,
     /// Reads normalized repository and working-tree state (`git.status`).
     GitStatus,
     /// Resolves paths a Git-aware watcher must observe (`git.watchContext`).
@@ -341,6 +343,7 @@ impl CoreCommand {
             "java.structure" => Some(Self::JavaStructure),
             "java.navigationMarkers" => Some(Self::JavaNavigationMarkers),
             "spring.index" => Some(Self::SpringIndex),
+            "mybatis.index" => Some(Self::MybatisIndex),
             "git.status" => Some(Self::GitStatus),
             "git.watchContext" => Some(Self::GitWatchContext),
             "git.worktrees" => Some(Self::GitWorktrees),

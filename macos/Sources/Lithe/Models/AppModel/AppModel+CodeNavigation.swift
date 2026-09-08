@@ -14,13 +14,10 @@ import LitheModuleAPI
 extension AppModel {
     func goToDefinition() {
         if let document = activeDocument, let caret = editorCaret {
-            let springLocations = springFeature.navigationLocations(
-                for: document.url,
-                line: caret.line
-            )
-            if !springLocations.isEmpty {
+            let productLocations = productNavigationLocations(for: document.url, line: caret.line)
+            if !productLocations.isEmpty {
                 presentGenericNavigationValues(
-                    springLocations,
+                    productLocations,
                     kind: .definitions,
                     navigateToSingleResult: true,
                     providerID: nil
@@ -57,13 +54,23 @@ extension AppModel {
 
     func navigateToSymbol(line: Int, utf16Column: Int, in fileURL: URL) {
         let normalizedURL = fileURL.standardizedFileURL
-        guard languageProviderCatalog.provider(for: normalizedURL)?.capabilities.contains(.languageServer) == true
-        else { return }
         editorCaret = EditorCaret(
             url: normalizedURL,
             line: max(0, line),
             utf16Column: max(0, utf16Column)
         )
+        let productLocations = productNavigationLocations(for: normalizedURL, line: line)
+        if !productLocations.isEmpty {
+            presentGenericNavigationValues(
+                productLocations,
+                kind: .definitions,
+                navigateToSingleResult: true,
+                providerID: nil
+            )
+            return
+        }
+        guard languageProviderCatalog.provider(for: normalizedURL)?.capabilities.contains(.languageServer) == true
+        else { return }
         if featureGraph.languageCapabilityPolicy.supports(
             .definition,
             documentURL: normalizedURL,
@@ -434,6 +441,14 @@ extension AppModel {
                 providerID: providerID
             )
         }
+    }
+
+    /// Resolves mapper XML and Spring configuration jumps before LSP so a
+    /// Mapper method does not stop on its own Java declaration.
+    private func productNavigationLocations(for url: URL, line: Int) -> [LanguageServerLocation] {
+        let mybatisLocations = mybatisFeature.navigationLocations(for: url, line: line)
+        if !mybatisLocations.isEmpty { return mybatisLocations }
+        return springFeature.navigationLocations(for: url, line: line)
     }
 
     private func presentGenericNavigationValues(

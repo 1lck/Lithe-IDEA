@@ -132,6 +132,7 @@ stable error code and a user-facing message:
 | `java.serverPort` | Parse Spring server port settings from properties or YAML text |
 | `java.structure` | Parse Java editor folds, inlay hints, and portable syntax roles |
 | `spring.index` | Build a deterministic Spring configuration, bean, injection, and endpoint index |
+| `mybatis.index` | Build a deterministic MyBatis mapper-interface and XML statement index |
 | `runConfig.inspect` | Inspect `.lithe` run documents, versions, and staleness without writing files |
 | `runConfig.generate` | Generate deterministic Java/Maven configurations and toolchain requirements |
 | `runConfig.resolve` | Merge generated, project, and local layers and return diagnostics |
@@ -1143,6 +1144,18 @@ Dependency metadata is cached in the Rust process. Project-open indexing sets
 it `false`, so editing Java or configuration files does not repeatedly traverse
 and open the local dependency repository. The repository path is selected by
 the platform composition layer and is never persisted in shared results.
+
+`mybatis.index` accepts `root`, workspace-relative `paths`, and optional
+`textOverrides` keyed by relative path. It pairs Java mapper types with XML
+`<mapper namespace>` documents and returns only statements that have both a
+Java method and a matching XML `select`/`insert`/`update`/`delete` `id`.
+Results are deterministically ordered by namespace, statement id, XML path,
+and line. Locations use relative paths and one-based lines and columns.
+`javaLine`/`javaColumn` point at the method name; `javaEndLine` covers a
+multi-line signature so a caret anywhere in that range can jump to XML.
+`xmlLine`/`xmlColumn` point at the statement `id` value. XML comments are
+ignored. Methods with a method body, including `default` methods, are omitted
+from the Java side of the index.
 
 `diagnostics.redactText` accepts `text` and returns `redacted` with
 credentials, tokens, and home-directory paths replaced by stable placeholders

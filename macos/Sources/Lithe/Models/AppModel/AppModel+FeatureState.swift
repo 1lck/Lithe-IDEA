@@ -336,7 +336,7 @@ extension AppModel {
         case "navigate-forward":
             canNavigateForward
         case "go-to-definition":
-            activeDocument.map { springFeature.handles($0.url) } == true
+            activeDocument.map { springFeature.handles($0.url) || mybatisFeature.handles($0.url) } == true
                 || supportsLanguageServerFeature(.definition)
         case "find-usages":
             supportsLanguageServerFeature(.references)
