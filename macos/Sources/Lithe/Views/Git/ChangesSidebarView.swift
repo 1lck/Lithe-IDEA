@@ -453,6 +453,21 @@ struct ChangesSidebarView: View {
                 .lithePointer()
             }
 
+            if feature.availableRepositoryRoots.count > 1 {
+                Menu {
+                    ForEach(feature.availableRepositoryRoots, id: \.self) { root in
+                        Button(root.path) {
+                            Task { await feature.selectRepository(root) }
+                        }
+                    }
+                } label: {
+                    Label(feature.gitRepositoryRoot?.lastPathComponent ?? "Repository", systemImage: "externaldrive")
+                        .lineLimit(1)
+                }
+                .menuStyle(.borderlessButton)
+                .help("Select repository for commits and branch operations")
+            }
+
             Text(feature.currentBranch)
                 .font(.system(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
@@ -828,7 +843,7 @@ struct ChangesSidebarView: View {
     }
 
     private var stagedChanges: [GitChange] {
-        changeSections.staged
+        feature.activeRepositoryChanges.filter(\.isStaged)
     }
 
     private var canCommit: Bool {
@@ -838,11 +853,11 @@ struct ChangesSidebarView: View {
     }
 
     private var canStash: Bool {
-        !feature.gitChanges.isEmpty && !feature.isPerformingStashOperation
+        !feature.activeRepositoryChanges.isEmpty && !feature.isPerformingStashOperation
     }
 
     private var canShelf: Bool {
-        !feature.gitChanges.isEmpty && !feature.isPerformingShelfOperation
+        !feature.activeRepositoryChanges.isEmpty && !feature.isPerformingShelfOperation
     }
 
     private func statusColor(_ change: GitChange) -> Color {
@@ -874,10 +889,12 @@ struct ChangesSidebarView: View {
 
     private func parentPathText(_ change: GitChange) -> String {
         let parent = (change.path as NSString).deletingLastPathComponent
-        guard let originalPath = change.originalPath else { return parent }
+        let prefix = feature.availableRepositoryRoots.count > 1
+            ? change.repositoryRoot.path + "/" : ""
+        guard let originalPath = change.originalPath else { return prefix + parent }
         let originalParent = (originalPath as NSString).deletingLastPathComponent
-        guard originalParent != parent else { return parent }
-        return "\(originalParent) → \(parent)"
+        guard originalParent != parent else { return prefix + parent }
+        return "\(prefix)\(originalParent) → \(parent)"
     }
 
     private func constrained(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {

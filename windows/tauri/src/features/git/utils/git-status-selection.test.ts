@@ -23,6 +23,22 @@ describe("Git status row selection", () => {
     ).toEqual(["src/new-name.ts", "src/old-name.ts", "src/other.ts"]);
   });
 
+  test("uses repository-relative paths for aggregated workspace mutations", () => {
+    expect(
+      resolveGitFileMutationPaths([
+        {
+          path: "service-a/src/new-name.ts",
+          originalPath: "service-a/src/old-name.ts",
+          repositoryPath: "C:/workspace/service-a",
+          repositoryRelativePath: "src/new-name.ts",
+          repositoryOriginalRelativePath: "src/old-name.ts",
+          status: "renamed",
+          staged: true,
+        },
+      ]),
+    ).toEqual(["src/new-name.ts", "src/old-name.ts"]);
+  });
+
   test("keeps row selection independent from commit checkboxes", () => {
     const initial = new Set(["file:src/first.ts"]);
 

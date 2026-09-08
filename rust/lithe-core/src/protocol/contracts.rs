@@ -76,6 +76,21 @@ pub struct WorkspaceSnapshotResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// One Git repository discovered for an opened workspace.
+pub struct WorkspaceRepositoryResponse {
+    /// Absolute native repository root path reported by the host filesystem.
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Deterministically ordered Git repositories discovered below a workspace root.
+pub struct WorkspaceRepositoriesResponse {
+    pub repositories: Vec<WorkspaceRepositoryResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 /// File, content, or symbol match with optional source location.
 pub struct SearchMatch {
     /// Result category: file path, file content, or symbol.
@@ -876,4 +891,44 @@ pub struct SpringIndexResponse {
     pub beans: Vec<SpringBeanResponse>,
     pub injections: Vec<SpringInjectionResponse>,
     pub endpoints: Vec<SpringEndpointResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One MyBatis statement that has both a Java mapper method and an XML `id`.
+pub struct MybatisStatementResponse {
+    /// Stable identity: namespace, statement id, XML path, and XML line.
+    pub id: String,
+    /// Fully qualified mapper type from the XML `namespace`.
+    pub namespace: String,
+    /// XML statement `id`, which matches the Java method name.
+    pub statement_id: String,
+    /// MyBatis statement kind: `select`, `insert`, `update`, or `delete`.
+    pub kind: String,
+    /// Workspace-relative Java mapper path.
+    pub java_path: String,
+    /// One-based line of the Java method name.
+    pub java_line: usize,
+    /// One-based UTF-16 column of the Java method name.
+    pub java_column: usize,
+    /// One-based line of the Java method signature terminator.
+    pub java_end_line: usize,
+    /// Exclusive one-based UTF-16 column after the Java method name.
+    pub java_end_column: usize,
+    /// Workspace-relative mapper XML path.
+    pub xml_path: String,
+    /// One-based line of the XML statement `id` value.
+    pub xml_line: usize,
+    /// One-based UTF-16 column of the XML statement `id` value.
+    pub xml_column: usize,
+    /// Exclusive one-based UTF-16 column after the XML statement `id` value.
+    pub xml_end_column: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Complete deterministic MyBatis mapper/XML index for one workspace snapshot.
+pub struct MybatisIndexResponse {
+    /// Paired Java methods and XML statements, ordered by namespace and id.
+    pub statements: Vec<MybatisStatementResponse>,
 }
