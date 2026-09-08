@@ -249,6 +249,10 @@ pub enum CoreCommand {
     GitHubRequestPlan,
     /// Normalizes a GitHub HTTP response into the shared contract (`github.normalizeResponse`).
     GitHubNormalizeResponse,
+    /// Redacts credentials, tokens, and home-directory paths from diagnostic text (`diagnostics.redactText`).
+    DiagnosticsRedactText,
+    /// Shapes a deterministic diagnostic bundle manifest from host-gathered facts (`diagnostics.buildManifest`).
+    DiagnosticsBuildManifest,
 }
 
 impl CoreCommand {
@@ -366,6 +370,8 @@ impl CoreCommand {
             "github.parseRemote" => Some(Self::GitHubParseRemote),
             "github.requestPlan" => Some(Self::GitHubRequestPlan),
             "github.normalizeResponse" => Some(Self::GitHubNormalizeResponse),
+            "diagnostics.redactText" => Some(Self::DiagnosticsRedactText),
+            "diagnostics.buildManifest" => Some(Self::DiagnosticsBuildManifest),
             _ => None,
         }
     }
