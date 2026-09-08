@@ -20,6 +20,19 @@ struct TerminalSurfaceView: View {
             }
         }
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.editor)
+        .overlay {
+            if let error = session.launchError {
+                VStack(spacing: 8) {
+                    Text("Unable to start terminal").font(.headline)
+                    Text(error).font(LitheTheme.smallFont).textSelection(.enabled)
+                    Text("Detect installed shells and choose a shell from the New Terminal menu.")
+                        .font(LitheTheme.smallFont)
+                }
+                .foregroundStyle(LitheTheme.secondaryText)
+                .multilineTextAlignment(.center)
+                .padding(20)
+            }
+        }
         .litheContextMenu {
             [
                 .action("Copy", systemImage: "doc.on.doc", action: {

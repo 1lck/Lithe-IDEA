@@ -12,3 +12,6 @@ portable-pty = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 uuid = { version = "1.0", features = ["v4", "serde"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.10"

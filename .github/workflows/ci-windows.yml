@@ -240,6 +240,11 @@ jobs:
           bun test src/features/run
           bun test src/features/file-explorer/lib/java-clipboard-class.test.ts src/features/file-explorer/lib/paste-java-class-from-clipboard.test.ts
 
+      - name: Test terminal discovery and profile selection
+        if: needs.changes.outputs.windows == 'true'
+        shell: pwsh
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/terminal/stores/shells.store.test.ts,src/features/terminal/utils/terminal-profiles.test.ts
+
       - name: Test shared Rust Core
         if: needs.changes.outputs.rust_core == 'true'
         shell: pwsh

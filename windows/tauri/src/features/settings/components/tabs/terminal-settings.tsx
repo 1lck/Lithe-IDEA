@@ -31,6 +31,8 @@ export const TerminalSettings = () => {
   const profiles = useTerminalProfilesStore.use.profiles();
   const profileActions = useTerminalProfilesStore.use.actions();
   const shells = useTerminalShellsStore.use.shells();
+  const isDetectingShells = useTerminalShellsStore.use.isLoading();
+  const shellDetectionError = useTerminalShellsStore.use.error();
 
   useEffect(() => {
     loadMonospaceFonts();
@@ -71,40 +73,32 @@ export const TerminalSettings = () => {
       label: shell.name,
     })),
   ];
-  const selectedDefaultShellId = shellOptions.some(
-    (option) => option.value === settings.terminalDefaultShellId,
-  )
-    ? settings.terminalDefaultShellId || DEFAULT_SHELL_OPTION_VALUE
-    : DEFAULT_SHELL_OPTION_VALUE;
+  if (
+    settings.terminalDefaultShellId &&
+    !shellOptions.some((option) => option.value === settings.terminalDefaultShellId)
+  ) {
+    shellOptions.push({
+      value: settings.terminalDefaultShellId,
+      label: `${settings.terminalDefaultShellId} (${t("terminal.shellUnavailable")})`,
+    });
+  }
+  const selectedDefaultShellId = settings.terminalDefaultShellId || DEFAULT_SHELL_OPTION_VALUE;
 
   const allProfiles = getAllTerminalProfiles(shells, profiles);
   const profileOptions = allProfiles.map((profile) => ({
     value: profile.id,
     label: profile.name,
   }));
-  const selectedDefaultProfileId = profileOptions.some(
-    (option) => option.value === settings.terminalDefaultProfileId,
-  )
-    ? settings.terminalDefaultProfileId || SYSTEM_DEFAULT_PROFILE_ID
-    : SYSTEM_DEFAULT_PROFILE_ID;
-
-  useEffect(() => {
-    if (
-      settings.terminalDefaultShellId &&
-      !shells.some((shell) => shell.id === settings.terminalDefaultShellId)
-    ) {
-      void updateSetting("terminalDefaultShellId", "");
-    }
-  }, [settings.terminalDefaultShellId, shells, updateSetting]);
-
-  useEffect(() => {
-    if (
-      settings.terminalDefaultProfileId &&
-      !allProfiles.some((profile) => profile.id === settings.terminalDefaultProfileId)
-    ) {
-      void updateSetting("terminalDefaultProfileId", "");
-    }
-  }, [allProfiles, settings.terminalDefaultProfileId, updateSetting]);
+  if (
+    settings.terminalDefaultProfileId &&
+    !profileOptions.some((option) => option.value === settings.terminalDefaultProfileId)
+  ) {
+    profileOptions.push({
+      value: settings.terminalDefaultProfileId,
+      label: `${settings.terminalDefaultProfileId} (${t("terminal.shellUnavailable")})`,
+    });
+  }
+  const selectedDefaultProfileId = settings.terminalDefaultProfileId || SYSTEM_DEFAULT_PROFILE_ID;
 
   return (
     <SettingsView>
@@ -112,6 +106,19 @@ export const TerminalSettings = () => {
         title={t("settings.terminal.launch")}
         description={t("settings.terminal.launchDescription")}
       >
+        <Button
+          variant="default"
+          size="sm"
+          disabled={isDetectingShells}
+          onClick={() => void useTerminalShellsStore.getState().actions.loadShells({ force: true })}
+        >
+          {t(isDetectingShells ? "terminal.detectingShells" : "terminal.detectShells")}
+        </Button>
+        {shellDetectionError && (
+          <p role="alert" className="text-sm text-destructive">
+            {t("terminal.detectShellsFailed")}
+          </p>
+        )}
         <SettingRow
           label={t("settings.terminal.defaultShell")}
           description={t("settings.terminal.defaultShellDescription")}
@@ -299,7 +306,9 @@ export const TerminalSettings = () => {
                     rows={3}
                     size="md"
                   />
-                  <FieldDescription>{t("settings.terminal.startupCommandsDescription")}</FieldDescription>
+                  <FieldDescription>
+                    {t("settings.terminal.startupCommandsDescription")}
+                  </FieldDescription>
                 </Field>
               </div>
             ))
