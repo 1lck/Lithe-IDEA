@@ -402,6 +402,12 @@ struct RustGitOperations: GitOperations, Sendable {
         core.gitStatus(at: rootURL)?.makeSnapshot(at: rootURL)
     }
 
+    func repositories(in workspaceURL: URL) -> [URL] {
+        core.workspaceRepositories(at: workspaceURL)?.repositories.map {
+            URL(fileURLWithPath: $0.path).standardizedFileURL
+        } ?? []
+    }
+
     func watchContext(at rootURL: URL) -> GitWatchContext? {
         core.gitWatchContext(at: rootURL)?.makeContext()
     }

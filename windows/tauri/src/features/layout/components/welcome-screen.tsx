@@ -131,7 +131,7 @@ export function WelcomeScreen() {
               variant="default"
               size="sm"
               className="min-w-17"
-              onClick={() => setIsProjectPickerVisible(true)}
+              onClick={() => setIsProjectPickerVisible(true, "clone-repository")}
             >
               <GitBranchIcon className="size-4" />
               {t("welcome.clone")}

@@ -17,6 +17,7 @@ final class AppSettings: ObservableObject {
         static let autoSave = "settings.autoSave"
         static let autoSaveDelay = "settings.autoSaveDelay"
         static let terminalShell = "settings.terminalShell"
+        static let terminalShellPathOverride = "settings.terminalShellPathOverride"
         static let hiddenDirectories = "settings.hiddenDirectories"
         static let hiddenFilePatterns = "settings.hiddenFilePatterns"
         static let gitSaveChangesPolicy = "settings.gitSaveChangesPolicy"
@@ -58,6 +59,7 @@ final class AppSettings: ObservableObject {
     @Published var showCodeVision: Bool { didSet { defaults.set(showCodeVision, forKey: Key.showCodeVision) } }
     @Published var autoSave: Bool { didSet { defaults.set(autoSave, forKey: Key.autoSave) } }
     @Published var autoSaveDelay: Double { didSet { defaults.set(autoSaveDelay, forKey: Key.autoSaveDelay) } }
+    @Published var terminalShellPathOverride: String { didSet { defaults.set(terminalShellPathOverride, forKey: Key.terminalShellPathOverride) } }
     @Published var terminalShell: TerminalShell { didSet { defaults.set(terminalShell.rawValue, forKey: Key.terminalShell) } }
     @Published var hiddenDirectoryNames: [String] {
         didSet {
@@ -121,6 +123,7 @@ final class AppSettings: ObservableObject {
         showCodeVision = defaults.object(forKey: Key.showCodeVision) as? Bool ?? true
         autoSave = defaults.object(forKey: Key.autoSave) as? Bool ?? true
         autoSaveDelay = defaults.object(forKey: Key.autoSaveDelay) as? Double ?? 1.5
+        terminalShellPathOverride = defaults.string(forKey: Key.terminalShellPathOverride) ?? ""
         terminalShell = TerminalShell(rawValue: defaults.string(forKey: Key.terminalShell) ?? "") ?? .system
         hiddenDirectoryNames = defaults.stringArray(forKey: Key.hiddenDirectories)
             ?? FileVisibilityRules.default.hiddenDirectoryNames
@@ -149,7 +152,14 @@ final class AppSettings: ObservableObject {
         AppThemeRuntime.shared.activate(colorTheme)
     }
 
-    var terminalShellPath: String? { terminalShell.path }
+    var terminalShellPath: String? {
+        terminalShellPathOverride.isEmpty ? terminalShell.path : terminalShellPathOverride
+    }
+
+    func selectTerminalShell(path: String) {
+        terminalShell = .system
+        terminalShellPathOverride = path
+    }
 
     var defaultLogDirectory: URL {
         logDirectoryProvider.defaultLogDirectory
@@ -235,6 +245,7 @@ final class AppSettings: ObservableObject {
         autoSave = true
         autoSaveDelay = 1.5
         terminalShell = .system
+        terminalShellPathOverride = ""
         hiddenDirectoryNames = FileVisibilityRules.default.hiddenDirectoryNames
         hiddenFilePatterns = FileVisibilityRules.default.hiddenFilePatterns
         gitSaveChangesPolicy = .stash

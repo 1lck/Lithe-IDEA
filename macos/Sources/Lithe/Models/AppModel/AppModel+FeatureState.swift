@@ -146,16 +146,12 @@ extension AppModel {
         gitFeatureIfActive?.gitTreeStatus ?? GitTreeStatusProjection(changes: [])
     }
     func gitChange(for url: URL) -> GitChange? {
-        guard let root = gitRepositoryRoot,
-              let relativePath = workspaceRelativePath(for: url, root: root) else { return nil }
-        return gitFeatureIfActive?.gitTreeStatus.change(relativePath: relativePath)
+        return gitFeatureIfActive?.gitTreeStatus.change(relativePath: url.standardizedFileURL.path)
     }
 
     func gitTreeStatus(for url: URL, isDirectory: Bool) -> GitChangeKind? {
-        guard let root = gitRepositoryRoot,
-              let relativePath = workspaceRelativePath(for: url, root: root) else { return nil }
         return gitFeatureIfActive?.gitTreeStatus.kind(
-            relativePath: relativePath,
+            relativePath: url.standardizedFileURL.path,
             isDirectory: isDirectory
         )
     }
@@ -336,7 +332,7 @@ extension AppModel {
         case "navigate-forward":
             canNavigateForward
         case "go-to-definition":
-            activeDocument.map { springFeature.handles($0.url) } == true
+            activeDocument.map { springFeature.handles($0.url) || mybatisFeature.handles($0.url) } == true
                 || supportsLanguageServerFeature(.definition)
         case "find-usages":
             supportsLanguageServerFeature(.references)

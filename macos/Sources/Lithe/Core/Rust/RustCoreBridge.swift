@@ -77,6 +77,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         }
     }
 
+    struct WorkspaceRepositoryPayload: Decodable, Sendable {
+        let path: String
+    }
+
+    struct WorkspaceRepositoriesPayload: Decodable, Sendable {
+        let repositories: [WorkspaceRepositoryPayload]
+    }
+
     private struct SearchIndexStatusPayload: Decodable {
         let fileCount: Int
         let symbolCount: Int
@@ -548,6 +556,26 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let beans: [Bean]
         let injections: [Injection]
         let endpoints: [Endpoint]
+    }
+
+    struct MybatisIndexPayload: Decodable, Sendable {
+        struct Statement: Decodable, Sendable {
+            let id: String
+            let namespace: String
+            let statementId: String
+            let kind: String
+            let javaPath: String
+            let javaLine: Int
+            let javaColumn: Int
+            let javaEndLine: Int
+            let javaEndColumn: Int
+            let xmlPath: String
+            let xmlLine: Int
+            let xmlColumn: Int
+            let xmlEndColumn: Int
+        }
+
+        let statements: [Statement]
     }
 
     struct RunConfigurationPayload: Codable, Sendable {
@@ -1984,6 +2012,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let textOverrides: [String: String]
     }
 
+    private struct MybatisIndexRequest: Encodable {
+        let root: String
+        let paths: [String]
+        let textOverrides: [String: String]
+    }
+
     private struct JavaCodeVisionRequest: Encodable {
         let root: String
         let targetPath: String
@@ -2007,6 +2041,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     }
 
     private struct GitStatusRequest: Encodable {
+        let root: String
+    }
+
+    private struct WorkspaceRepositoriesRequest: Encodable {
         let root: String
     }
 
@@ -2934,10 +2972,32 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
+    func mybatisIndex(
+        at rootURL: URL,
+        paths: [String],
+        textOverrides: [String: String] = [:]
+    ) -> MybatisIndexPayload? {
+        execute(
+            command: "mybatis.index",
+            payload: MybatisIndexRequest(
+                root: rootURL.standardizedFileURL.path,
+                paths: paths,
+                textOverrides: textOverrides
+            )
+        )
+    }
+
     func gitStatus(at rootURL: URL) -> GitStatusPayload? {
         execute(
             command: "git.status",
             payload: GitStatusRequest(root: rootURL.standardizedFileURL.path)
+        )
+    }
+
+    func workspaceRepositories(at rootURL: URL) -> WorkspaceRepositoriesPayload? {
+        execute(
+            command: "workspace.repositories",
+            payload: WorkspaceRepositoriesRequest(root: rootURL.standardizedFileURL.path)
         )
     }
 

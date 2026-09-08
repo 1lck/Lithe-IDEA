@@ -207,15 +207,11 @@ private struct ProjectGitStatusSnapshot: Equatable {
     let projection: GitTreeStatusProjection
 
     func kind(for url: URL, isDirectory: Bool) -> GitChangeKind? {
-        guard let repositoryRoot,
-              let relative = Self.relativePath(for: url, root: repositoryRoot) else { return nil }
-        return projection.kind(relativePath: relative, isDirectory: isDirectory)
+        return projection.kind(relativePath: url.standardizedFileURL.path, isDirectory: isDirectory)
     }
 
     func change(for url: URL) -> GitChange? {
-        guard let repositoryRoot,
-              let relative = Self.relativePath(for: url, root: repositoryRoot) else { return nil }
-        return projection.change(relativePath: relative)
+        return projection.change(relativePath: url.standardizedFileURL.path)
     }
 
     private static func relativePath(for url: URL, root: URL) -> String? {
