@@ -20,6 +20,7 @@ final class AppModelFeatureGraph {
     let workspace: WorkspaceFeatureModel
     let github: GitHubFeatureModel
     let discourseCommunity: DiscourseCommunityFeatureModel
+    let diagnostics: DiagnosticsFeatureModel
     let editorTabOrder: EditorTabOrderFeatureModel
     let media: MediaDocumentFeatureModel
     let terminalPlacement: TerminalPlacementFeatureModel
@@ -27,6 +28,7 @@ final class AppModelFeatureGraph {
     let navigationHistory: NavigationHistoryFeatureModel
     let java: JavaFeatureModel
     let spring: SpringFeatureModel
+    let mybatis: MybatisFeatureModel
     let editorSession: EditorSessionCoordinator
     let javaTestWorkflow: JavaTestWorkflowState
     let languageNavigation: LanguageNavigationCoordinator
@@ -77,6 +79,7 @@ final class AppModelFeatureGraph {
         discourseCommunity = DiscourseCommunityFeatureModel(
             service: services.discourseCommunityService
         )
+        diagnostics = DiagnosticsFeatureModel(service: services.diagnosticsExportService)
         editorTabOrder = EditorTabOrderFeatureModel()
         media = MediaDocumentFeatureModel()
         terminalPlacement = TerminalPlacementFeatureModel()
@@ -90,6 +93,7 @@ final class AppModelFeatureGraph {
         navigationHistory = NavigationHistoryFeatureModel()
         java = JavaFeatureModel(operations: services.javaMavenOperations)
         spring = SpringFeatureModel(operations: services.javaMavenOperations)
+        mybatis = MybatisFeatureModel(operations: services.javaMavenOperations)
         javaTestWorkflow = JavaTestWorkflowState(notify: notify)
         languageNavigation = LanguageNavigationCoordinator(notify: notify)
         languageEditing = LanguageEditingCoordinator(notify: notify)

@@ -1,7 +1,7 @@
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
 import { emitGitChanged } from "../events/git-events";
 import { registerGitCacheInvalidator } from "../runtime/git-cache-registry";
-import type { GitHunk, GitStatus } from "../types/git.types";
+import type { GitFile, GitHunk, GitStatus } from "../types/git.types";
 import {
   isNotGitRepositoryError,
   resolveRepositoryPath,
@@ -70,6 +70,75 @@ export const getGitStatus = async (repoPath: string): Promise<GitStatus | null> 
 
   inFlightGitStatusRequests.set(resolvedRepoPath, request);
   return request;
+};
+
+function normalizeStatusRepoPaths(repoPaths: readonly string[]): string[] {
+  return [
+    ...new Set(
+      repoPaths
+        .map((repoPath) => repoPath.trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+function getRepoLabel(repoPath: string): string {
+  const normalized = repoPath.replace(/\\/g, "/").replace(/\/+$/, "");
+  return normalized.split("/").pop() || normalized || "repository";
+}
+
+function decorateWorkspaceFile(file: GitFile, repoPath: string, prefix: string): GitFile {
+  return {
+    ...file,
+    path: `${prefix}/${file.path}`,
+    originalPath: file.originalPath ? `${prefix}/${file.originalPath}` : undefined,
+    repositoryPath: repoPath,
+    repositoryRelativePath: file.path,
+    repositoryOriginalRelativePath: file.originalPath,
+  };
+}
+
+export const getWorkspaceGitStatus = async (
+  repoPaths: readonly string[],
+  activeRepoPath?: string,
+): Promise<GitStatus | null> => {
+  const normalizedRepoPaths = normalizeStatusRepoPaths(repoPaths);
+  if (normalizedRepoPaths.length === 0) return null;
+  if (normalizedRepoPaths.length === 1) return getGitStatus(normalizedRepoPaths[0] ?? "");
+
+  const statuses = await Promise.all(
+    normalizedRepoPaths.map(async (repoPath) => ({
+      repoPath,
+      status: await getGitStatus(repoPath),
+    })),
+  );
+  const availableStatuses = statuses.filter(
+    (entry): entry is { repoPath: string; status: GitStatus } => entry.status !== null,
+  );
+  if (availableStatuses.length === 0) return null;
+
+  const duplicateLabels = new Set<string>();
+  const seenLabels = new Set<string>();
+  for (const repoPath of normalizedRepoPaths) {
+    const label = getRepoLabel(repoPath);
+    if (seenLabels.has(label)) duplicateLabels.add(label);
+    seenLabels.add(label);
+  }
+
+  const files = availableStatuses.flatMap(({ repoPath, status }) => {
+    const label = getRepoLabel(repoPath);
+    const prefix = duplicateLabels.has(label) ? repoPath.replace(/\\/g, "/") : label;
+    return status.files.map((file) => decorateWorkspaceFile(file, repoPath, prefix));
+  });
+
+  const activeStatus = availableStatuses.find((entry) => entry.repoPath === activeRepoPath)?.status
+    ?? availableStatuses[0]!.status;
+  return {
+    branch: activeStatus.branch,
+    ahead: activeStatus.ahead,
+    behind: activeStatus.behind,
+    files,
+  };
 };
 
 export const stageFile = async (repoPath: string, filePath: string): Promise<boolean> => {

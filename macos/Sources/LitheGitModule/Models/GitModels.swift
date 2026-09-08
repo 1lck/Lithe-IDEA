@@ -719,7 +719,9 @@ package struct GitChange: Identifiable, Hashable, Sendable {
     package let workTreeStatus: Character
     package init(repositoryRoot: URL, path: String, originalPath: String?, indexStatus: Character, workTreeStatus: Character) { self.repositoryRoot = repositoryRoot; self.path = path; self.originalPath = originalPath; self.indexStatus = indexStatus; self.workTreeStatus = workTreeStatus }
 
-    package var id: String { "\(originalPath ?? "")->\(path)" }
+    package var id: String {
+        "\(repositoryRoot.standardizedFileURL.path):\(originalPath ?? "")->\(path)"
+    }
     package var url: URL { repositoryRoot.appendingPathComponent(path) }
     package var isStaged: Bool { indexStatus != " " && indexStatus != "?" }
     package var hasWorkingTreeChange: Bool { workTreeStatus != " " }
@@ -796,11 +798,12 @@ package struct GitTreeStatusProjection: Equatable, Sendable {
     private let changesByPath: [String: GitChange]
     private let directoryKinds: [String: GitChangeKind]
 
-    package init(changes: [GitChange]) {
+    package init(changes: [GitChange], absolutePaths: Bool = false) {
         var changesByPath: [String: GitChange] = [:]
         var directoryKinds: [String: GitChangeKind] = [:]
         for change in changes {
-            let path = Self.normalized(change.path)
+            // Do not mix relative and absolute keys in one namespace.
+            let path = Self.normalized(absolutePaths ? change.url.standardizedFileURL.path : change.path)
             if changesByPath[path] == nil {
                 changesByPath[path] = change
             }

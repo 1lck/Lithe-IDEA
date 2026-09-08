@@ -161,6 +161,7 @@ final class AppModel: ObservableObject, Identifiable {
     var discourseCommunityFeature: DiscourseCommunityFeatureModel {
         featureGraph.discourseCommunity
     }
+    var diagnosticsFeature: DiagnosticsFeatureModel { featureGraph.diagnostics }
     var editorTabOrderFeature: EditorTabOrderFeatureModel { featureGraph.editorTabOrder }
     var mediaFeature: MediaDocumentFeatureModel { featureGraph.media }
     var terminalPlacementFeature: TerminalPlacementFeatureModel {
@@ -264,6 +265,7 @@ final class AppModel: ObservableObject, Identifiable {
     var documentFeature: DocumentFeatureModel { featureGraph.document }
     var javaFeature: JavaFeatureModel { featureGraph.java }
     var springFeature: SpringFeatureModel { featureGraph.spring }
+    var mybatisFeature: MybatisFeatureModel { featureGraph.mybatis }
     private var activeDatabaseFeature: DatabaseFeatureModel? {
         let capability: LitheDatabaseModule.DatabaseModuleCapability? = cachedModuleCapability(.databaseWorkspace)
         return capability?.feature
@@ -338,6 +340,7 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     private var springFeatureObservation: AnyCancellable?
+    private var mybatisFeatureObservation: AnyCancellable?
     private var isObjectWillChangeRelayScheduled = false
     private var languageToolingObservation: AnyCancellable?
 
@@ -485,6 +488,9 @@ final class AppModel: ObservableObject, Identifiable {
         documentLanguageCoordinator = DocumentFeatureComposition.configure(model: self)
         springFeatureObservation = springFeature.objectWillChange.sink { [weak self] _ in
             self?.refreshEditorDiagnosticsStore()
+            self?.scheduleObjectWillChangeRelay()
+        }
+        mybatisFeatureObservation = mybatisFeature.objectWillChange.sink { [weak self] _ in
             self?.scheduleObjectWillChangeRelay()
         }
         fileVisibilityRulesObserverID = settings.addFileVisibilityRulesObserver { [weak self] in
@@ -639,6 +645,7 @@ final class AppModel: ObservableObject, Identifiable {
         languageToolingSessionsIfActive?.stopLanguageServer(providerID: "java")
         javaFeature.stop()
         springFeature.reset()
+        mybatisFeature.reset()
         if let workspaceURL {
             if let document = activeDocument,
                document.url.pathExtension.lowercased() == "java" {
@@ -822,6 +829,7 @@ final class AppModel: ObservableObject, Identifiable {
         clearLanguageNavigationProjection()
         javaFeature.stop()
         springFeature.reset()
+        mybatisFeature.reset()
         workspaceSessionCoordinator.resetWorkspaceFeature()
         searchModuleCoordinator.resetFeature(searchFeatureIfActive)
         workbenchFeature.hideAllToolWindows()
@@ -882,6 +890,7 @@ final class AppModel: ObservableObject, Identifiable {
         debugBreakpointPresentation.reset()
         javaFeature.stop()
         springFeature.reset()
+        mybatisFeature.reset()
         editorChrome.reset()
         editorNavigationTarget = nil
         navigationHistoryFeature.reset()

@@ -22,6 +22,7 @@ const MAX_LOG_FILES_PER_DAY: usize = 5;
 const MAX_LOG_LINE_BYTES: usize = 4 * 1024;
 const MAX_LOG_READ_BYTES: u64 = 2 * 1024 * 1024;
 const LOG_RETENTION_HOURS: i64 = 30 * 24;
+const MAX_EXPORTED_LOG_FILES: usize = 5;
 const LOG_QUEUE_CAPACITY: usize = 8_000;
 const LOG_QUEUE_NORMAL_CAPACITY: usize = 6_000;
 const DIRECTORY_OPERATION_TIMEOUT: StdDuration = StdDuration::from_secs(2);
@@ -759,6 +760,25 @@ impl LogManager {
             target_line,
             truncated,
         })
+    }
+
+    /// Returns the directory a diagnostic bundle export should treat as the
+    /// source of log and panic-sidecar files.
+    pub(crate) fn export_log_directory(&self) -> PathBuf {
+        self.effective_path()
+    }
+
+    /// Returns the log and panic-sidecar files eligible for a diagnostic
+    /// bundle export, newest first and bounded to a small cap so the bundle
+    /// cannot grow unbounded on a machine with a long-lived log directory.
+    pub(crate) fn files_available_for_export(&self) -> Vec<PathBuf> {
+        let mut files = managed_log_files(&self.effective_path());
+        files.sort_by(|left, right| right.1.timestamp.cmp(&left.1.timestamp));
+        files
+            .into_iter()
+            .take(MAX_EXPORTED_LOG_FILES)
+            .map(|(path, _)| path)
+            .collect()
     }
 
     fn flush(&self) {
@@ -2095,50 +2115,56 @@ pub fn record_startup_milestone(milestone: String, manager: State<'_, Arc<LogMan
     manager.emit(LogLevel::Info, "startup", milestone, BTreeMap::new());
 }
 
+// Shared by this module's own tests and by other Windows modules (such as
+// `diagnostics`) that need a real `LogManager` backed by a temporary
+// directory without going through `LogManager::initialize`'s `AppHandle`
+// requirement.
+#[cfg(test)]
+pub(crate) fn temporary_directory(name: &str) -> PathBuf {
+    let path = std::env::temp_dir().join(format!(
+        "lithe-log-tests-{name}-{}-{}",
+        std::process::id(),
+        SESSION_ID.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir_all(&path).unwrap();
+    path
+}
+
+#[cfg(test)]
+pub(crate) fn test_manager(directory: &Path) -> Arc<LogManager> {
+    let session_id = "deadbeef".to_string();
+    let writer = ActiveWriter::open(directory.to_path_buf(), session_id.clone()).unwrap();
+    let active_file_path = writer.path().to_path_buf();
+    let shared = Arc::new(SharedState {
+        app: None,
+        queue: Mutex::new(QueueState::default()),
+        queue_ready: Condvar::new(),
+        writer: Mutex::new(writer),
+        runtime: RwLock::new(RuntimeState {
+            default_path: directory.to_path_buf(),
+            configured_path: None,
+            effective_path: directory.to_path_buf(),
+            fallback_reason: None,
+            diagnostic_enabled: false,
+            active_file_path,
+        }),
+        panic_path: RwLock::new(panic_sidecar_path(directory, &session_id)),
+        writer_alive: AtomicBool::new(true),
+        sanitizer: LogSanitizer::new(),
+    });
+    Arc::new(LogManager {
+        shared,
+        config_path: directory.join(LOG_CONFIG_FILE),
+        session_id,
+        config_update: Mutex::new(()),
+        pending_previous_custom: Mutex::new(None),
+        degraded_reason: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn temporary_directory(name: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "lithe-log-tests-{name}-{}-{}",
-            std::process::id(),
-            SESSION_ID.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir_all(&path).unwrap();
-        path
-    }
-
-    fn test_manager(directory: &Path) -> Arc<LogManager> {
-        let session_id = "deadbeef".to_string();
-        let writer = ActiveWriter::open(directory.to_path_buf(), session_id.clone()).unwrap();
-        let active_file_path = writer.path().to_path_buf();
-        let shared = Arc::new(SharedState {
-            app: None,
-            queue: Mutex::new(QueueState::default()),
-            queue_ready: Condvar::new(),
-            writer: Mutex::new(writer),
-            runtime: RwLock::new(RuntimeState {
-                default_path: directory.to_path_buf(),
-                configured_path: None,
-                effective_path: directory.to_path_buf(),
-                fallback_reason: None,
-                diagnostic_enabled: false,
-                active_file_path,
-            }),
-            panic_path: RwLock::new(panic_sidecar_path(directory, &session_id)),
-            writer_alive: AtomicBool::new(true),
-            sanitizer: LogSanitizer::new(),
-        });
-        Arc::new(LogManager {
-            shared,
-            config_path: directory.join(LOG_CONFIG_FILE),
-            session_id,
-            config_update: Mutex::new(()),
-            pending_previous_custom: Mutex::new(None),
-            degraded_reason: None,
-        })
-    }
 
     #[test]
     fn formats_single_line_and_redacts_sensitive_values() {

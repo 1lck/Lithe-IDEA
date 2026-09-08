@@ -50,34 +50,18 @@ final class LitheTerminalView: LocalProcessTerminalView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        let menu = NSMenu()
-        menu.autoenablesItems = true
-
-        let paste = NSMenuItem(
-            title: "Paste",
-            action: #selector(paste(_:)),
-            keyEquivalent: ""
+        guard let window else { return nil }
+        LitheContextMenuPresenter.shared.show(
+            items: [
+                .action("Paste") { [weak self] in if let self { self.paste(self) } },
+                .action("Copy") { [weak self] in if let self { self.copy(self) } },
+                .action("Select All") { [weak self] in if let self { self.selectAll(self) } }
+            ],
+            at: window.convertPoint(toScreen: event.locationInWindow),
+            appearance: effectiveAppearance,
+            locale: .current
         )
-        paste.target = self
-        menu.addItem(paste)
-
-        let copy = NSMenuItem(
-            title: "Copy",
-            action: #selector(copy(_:)),
-            keyEquivalent: ""
-        )
-        copy.target = self
-        menu.addItem(copy)
-
-        let selectAll = NSMenuItem(
-            title: "Select All",
-            action: #selector(selectAll(_:)),
-            keyEquivalent: ""
-        )
-        selectAll.target = self
-        menu.addItem(selectAll)
-
-        return menu
+        return nil
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -125,19 +109,7 @@ extension LitheTerminalView: WorkbenchBackgroundRendering {}
 @MainActor
 final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency LocalProcessTerminalViewDelegate {
     static func availableShells(fileManager: FileManager = .default) -> [String] {
-        let environment = ProcessInfo.processInfo.environment
-        var candidates: [String] = []
-        if let shell = environment["SHELL"], !shell.isEmpty { candidates.append(shell) }
-        candidates.append(contentsOf: [
-            "/bin/zsh",
-            "/bin/bash",
-            "/opt/homebrew/bin/bash",
-            "/opt/homebrew/bin/pwsh"
-        ])
-        return candidates.reduce(into: [String]()) { result, path in
-            guard fileManager.isExecutableFile(atPath: path), !result.contains(path) else { return }
-            result.append(path)
-        }
+        MacTerminalShellDiscovery.availableShells(fileManager: fileManager)
     }
     let view: LitheTerminalView
 
@@ -227,7 +199,7 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
             TerminalProcessLaunch(
                 title: nil,
                 executablePath: shellPath,
-                arguments: ["-l"],
+                arguments: MacTerminalShellDiscovery.startupArguments(for: shellPath),
                 workingDirectory: workingDirectory
             ),
             environment: environment

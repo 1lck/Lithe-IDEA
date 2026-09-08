@@ -241,10 +241,11 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     onBranchDiffOpened: handleBranchDiffOpened,
   });
   const handleOpenGitPath = useCallback(
-    (path: string, isDirectory: boolean) => {
+    (path: string, isDirectory: boolean, repositoryPath?: string) => {
       if (isDirectory) {
-        if (!activeRepoPath || !onFileSelect) return;
-        onFileSelect(joinPath(activeRepoPath, path), true);
+        const root = repositoryPath ?? activeRepoPath;
+        if (!root || !onFileSelect) return;
+        onFileSelect(joinPath(root, path), true);
         return;
       }
       void handleOpenOriginalFile(path);
