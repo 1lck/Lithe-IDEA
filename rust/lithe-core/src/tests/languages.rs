@@ -948,3 +948,45 @@ fn java_core_commands_return_shared_runtime_and_structure_data() {
     assert_eq!(port_response["data"]["port"], 8080);
     fs::remove_dir_all(root).expect("Java fixture should be removable");
 }
+
+#[test]
+fn java_test_methods_handle_inline_annotations_and_ignore_non_code_text() {
+    let source = r#"class CalculatorTest {
+    String example = "@Test void stringMethod() {}";
+    String textBlock = """
+        @Test void textBlockMethod() {}
+        """;
+    /* @Test void commentMethod() {} */
+    @example.Test void customAnnotation() {}
+    @org.junit.Test public void inlineJUnit4() { helper(); }
+
+    @org.junit.jupiter.params.ParameterizedTest(name = "case {0}")
+    @ValueSource(ints = {1, 2})
+    void parameterized(int value) {
+        String braces = "}";
+        helper();
+    }
+
+    @Test
+    int field = 1;
+    void helper() {}
+}"#;
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "java-test-methods",
+            "command": "java.testMethods",
+            "payload": {"source": source}
+        })
+        .to_string(),
+    ))
+    .expect("Java test methods response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["data"]["methods"],
+        serde_json::json!([
+            {"name": "inlineJUnit4", "line": 7, "endLine": 7},
+            {"name": "parameterized", "line": 11, "endLine": 14}
+        ])
+    );
+}

@@ -785,7 +785,10 @@ export const createMavenStore = (
             taskError: null,
             taskTitle: null,
             testResults: null,
-            activeTestRun: null,
+            activeTestRun:
+              state.taskStatus === "running" || state.taskStatus === "stopping"
+                ? state.activeTestRun
+                : null,
             taskStatus:
               state.taskStatus === "cancelled" || state.taskStatus === "failed"
                 ? "idle"

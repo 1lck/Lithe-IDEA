@@ -130,6 +130,7 @@ stable error code and a user-facing message:
 | `java.codeVision` | Return Java declaration usage counts for editor code vision |
 | `java.className` | Resolve a Java source package and simple name into a runtime class name |
 | `java.sourceDefinition` | Locate a Java type, method, or field declaration in source text |
+| `java.testMethods` | Discover JUnit 4/5 test methods and their source ranges |
 | `java.serverPort` | Parse Spring server port settings from properties or YAML text |
 | `java.structure` | Parse Java editor folds, inlay hints, and portable syntax roles |
 | `spring.index` | Build a deterministic Spring configuration, bean, injection, and endpoint index |
@@ -1148,6 +1149,12 @@ name.
 `java.sourceDefinition` accepts `source`, `declarationName`, and an optional
 `memberName`, returning zero-based `line` and UTF-16 `utf16Column` or `null`
 when no declaration is found.
+
+`java.testMethods` accepts Java `source` and returns `methods` in source order.
+Each method contains its `name` plus zero-based `line` and `endLine` values for
+the complete method body. The lightweight parser recognizes JUnit 4 and JUnit 5
+test annotations, ignores annotations and braces inside comments, strings,
+characters, and text blocks, and does not start a Java process or contact JDT.
 
 `java.structure` accepts Java `source` and optional `declarationSources`. It
 returns `foldRegions`, `inlayHints`, and

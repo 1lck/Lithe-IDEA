@@ -681,6 +681,44 @@ describe("Maven workspace state", () => {
     expect(store.getState().testResults).toBeNull();
     expect(store.getState().lastTestRun).toEqual(testRun);
   });
+
+  test("parses output received after clearing an active test run", async () => {
+    const parsedResults: MavenTestResults = {
+      testsRun: 1,
+      failures: 0,
+      errors: 0,
+      skipped: 0,
+      passed: 1,
+      success: true,
+      failureDetails: [],
+    };
+    parseMavenTestResults.mockResolvedValueOnce(parsedResults);
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    const testRun = {
+      module: null,
+      selector: "com.example.CalculatorTest",
+      title: "com.example.CalculatorTest",
+    } as const;
+    await store
+      .getState()
+      .actions.runGoals(["test", "-Dtest=com.example.CalculatorTest"], null, testRun.title, testRun);
+    const sessionId = store.getState().activeSessionId;
+
+    store.getState().actions.clearOutput();
+    expect(store.getState().activeTestRun).toEqual(testRun);
+    store.getState().actions.appendOutput(sessionId!, "Tests run: 1, Failures: 0\n");
+    store.getState().actions.finishProcess(sessionId!, 0);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(parseMavenTestResults).toHaveBeenCalledWith(
+      "D:/work",
+      expect.stringContaining("Tests run: 1"),
+    );
+    expect(store.getState().testResults).toEqual(parsedResults);
+    expect(store.getState().activeTestRun).toBeNull();
+  });
 });
 
 describe("Maven dependency state", () => {

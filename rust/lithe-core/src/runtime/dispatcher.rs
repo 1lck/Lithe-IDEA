@@ -17,7 +17,8 @@ use crate::git::{
 use crate::github::{NormalizeResponseRequest, ParseRemoteRequest, RequestPlanRequest};
 use crate::languages::{
     JavaClassNameRequest, JavaCodeVisionRequest, JavaRunConfigurationsRequest,
-    JavaServerPortRequest, JavaSourceDefinitionRequest, JavaStructureRequest, SpringIndexRequest,
+    JavaServerPortRequest, JavaSourceDefinitionRequest, JavaStructureRequest,
+    JavaTestMethodsRequest, SpringIndexRequest,
 };
 use crate::project::{
     self, DocumentLifecycleRequest, FileReadRequest, FileWriteRequest, ReplacementPreviewRequest,
@@ -1404,6 +1405,24 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Java source definition should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::JavaTestMethods => {
+            match serde_json::from_value::<JavaTestMethodsRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Java test methods request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::languages::test_methods)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Java test methods should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

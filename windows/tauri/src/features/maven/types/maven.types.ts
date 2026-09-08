@@ -117,6 +117,12 @@ export interface MavenTestResults {
   failureDetails: MavenTestFailureDetail[];
 }
 
+export interface JavaTestMethod {
+  name: string;
+  line: number;
+  endLine: number;
+}
+
 export interface MavenTestRun {
   module: string | null;
   selector: string;

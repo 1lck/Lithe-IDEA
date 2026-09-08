@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getBufferByPath } from "@/features/editor/utils/buffer-index";
 import { canRunMavenTest } from "@/features/maven/services/maven-test-actions";
+import { useJavaTestMethods } from "@/features/maven/hooks/use-java-test-methods";
 import { useCodeLens } from "@/features/editor/lsp/use-code-lens";
 import type { RunActionItem } from "../types/run-action.types";
 import {
@@ -26,6 +27,11 @@ export function useRunActionDiscovery(
     const buffer = getBufferByPath(state.buffers, activeFilePath);
     return buffer?.type === "editor" ? buffer.content ?? "" : "";
   });
+  const javaTestMethods = useJavaTestMethods(
+    activeFilePath ?? "",
+    activeFileContent,
+    enabled && mavenTestsAvailable,
+  );
 
   useEffect(() => {
     if (!enabled || !workspacePath) {
@@ -78,12 +84,12 @@ export function useRunActionDiscovery(
       activeFilePath
         ? [
             ...(mavenTestsAvailable
-              ? javaTestActionsForFile(activeFilePath, activeFileContent)
+              ? javaTestActionsForFile(activeFilePath, javaTestMethods)
               : []),
             ...codeLensesToRunActions(codeLenses, activeFilePath),
           ]
         : [],
-    [activeFileContent, activeFilePath, codeLenses, mavenTestsAvailable],
+    [activeFilePath, codeLenses, javaTestMethods, mavenTestsAvailable],
   );
   const refresh = useCallback(() => setRevision((current) => current + 1), []);
 

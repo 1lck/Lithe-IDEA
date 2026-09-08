@@ -416,6 +416,24 @@ pub struct JavaSourceDefinitionResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// One JUnit test method and its complete source range.
+pub struct JavaTestMethodResponse {
+    pub name: String,
+    /// Zero-based line containing the method name.
+    pub line: usize,
+    /// Zero-based line containing the method body's closing brace.
+    pub end_line: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// JUnit test methods in deterministic source order.
+pub struct JavaTestMethodsResponse {
+    pub methods: Vec<JavaTestMethodResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 /// Server port declared by Spring configuration, when one is present.
 pub struct JavaServerPortResponse {
     pub port: Option<usize>,

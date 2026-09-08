@@ -191,6 +191,8 @@ pub enum CoreCommand {
     JavaClassName,
     /// Finds a Java type or member declaration (`java.sourceDefinition`).
     JavaSourceDefinition,
+    /// Discovers JUnit test methods and source ranges (`java.testMethods`).
+    JavaTestMethods,
     /// Reads a Spring server port from configuration (`java.serverPort`).
     JavaServerPort,
     /// Computes lightweight Java structure features (`java.structure`).
@@ -340,6 +342,7 @@ impl CoreCommand {
             "java.codeVision" => Some(Self::JavaCodeVision),
             "java.className" => Some(Self::JavaClassName),
             "java.sourceDefinition" => Some(Self::JavaSourceDefinition),
+            "java.testMethods" => Some(Self::JavaTestMethods),
             "java.serverPort" => Some(Self::JavaServerPort),
             "java.structure" => Some(Self::JavaStructure),
             "java.navigationMarkers" => Some(Self::JavaNavigationMarkers),
@@ -424,6 +427,14 @@ mod tests {
         assert!(matches!(
             CoreCommand::parse("maven.testResults"),
             Some(CoreCommand::MavenTestResults)
+        ));
+    }
+
+    #[test]
+    fn parses_java_test_methods_command() {
+        assert!(matches!(
+            CoreCommand::parse("java.testMethods"),
+            Some(CoreCommand::JavaTestMethods)
         ));
     }
 

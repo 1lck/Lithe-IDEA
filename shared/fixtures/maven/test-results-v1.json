@@ -93,6 +93,81 @@
       }
     },
     {
+      "name": "surefire-2-detailed-failure",
+      "sourceFiles": ["src/test/java/review/AppTest.java"],
+      "output": "[ERROR] fails(review.AppTest) Time elapsed: 0.01 s <<< FAILURE!\njava.lang.AssertionError: expected review failure\n    at review.AppTest.fails(AppTest.java:9)\n[INFO] Results:\n[ERROR] Failures:\n[ERROR]   fails(review.AppTest): expected review failure\n[INFO] Tests run: 1, Failures: 1, Errors: 0, Skipped: 0\n",
+      "expected": {
+        "testsRun": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 0,
+        "success": false,
+        "failureDetails": [
+          {
+            "name": "fails(review.AppTest)",
+            "kind": "failure",
+            "message": "expected review failure",
+            "path": "src/test/java/review/AppTest.java",
+            "line": 9,
+            "column": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "qualified-source-wins-over-simple-name",
+      "sourceFiles": [
+        "module-a/src/test/java/other/AppTest.java",
+        "module-b/src/test/java/review/AppTest.java"
+      ],
+      "output": "[ERROR] review.AppTest.fails -- Time elapsed: 0.01 s <<< FAILURE!\njava.lang.AssertionError: expected review failure\n    at review.AppTest.fails(AppTest.java:12)\n[INFO] Results:\n[ERROR] Failures:\n[ERROR]   AppTest.fails:12 expected review failure\n[INFO] Tests run: 1, Failures: 1, Errors: 0, Skipped: 0\n",
+      "expected": {
+        "testsRun": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 0,
+        "success": false,
+        "failureDetails": [
+          {
+            "name": "review.AppTest.fails",
+            "kind": "failure",
+            "message": "expected review failure",
+            "path": "module-b/src/test/java/review/AppTest.java",
+            "line": 12,
+            "column": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "ambiguous-qualified-source-has-no-location",
+      "sourceFiles": [
+        "module-a/src/test/java/review/AppTest.java",
+        "module-b/src/test/java/review/AppTest.java"
+      ],
+      "output": "[ERROR] review.AppTest.fails -- Time elapsed: 0.01 s <<< FAILURE!\njava.lang.AssertionError: expected review failure\n    at review.AppTest.fails(AppTest.java:12)\n[INFO] Results:\n[ERROR] Failures:\n[ERROR]   AppTest.fails:12 expected review failure\n[INFO] Tests run: 1, Failures: 1, Errors: 0, Skipped: 0\n",
+      "expected": {
+        "testsRun": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 0,
+        "success": false,
+        "failureDetails": [
+          {
+            "name": "review.AppTest.fails",
+            "kind": "failure",
+            "message": "expected review failure",
+            "path": null,
+            "line": null,
+            "column": null
+          }
+        ]
+      }
+    },
+    {
       "name": "junit5-parameterized-nested-module",
       "sourceFiles": ["service/src/test/java/com/example/CalculatorTest.java"],
       "output": "[ERROR] Failures:\n[ERROR]   additionIsCorrect(int)[1](com.example.CalculatorTest): expected <4> but was <5>\n[ERROR]     at com.example.CalculatorTest.additionIsCorrect(CalculatorTest.java:42)\n[ERROR] Tests run: 1, Failures: 1, Errors: 0, Skipped: 0\n",
