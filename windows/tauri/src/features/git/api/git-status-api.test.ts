@@ -1,8 +1,27 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-const invoke = mock(async (command: string): Promise<unknown> =>
-  command === "git_discover_repo" ? "C:/repo" : null,
-);
+const invoke = mock(async (command: string, args?: Record<string, unknown>): Promise<unknown> => {
+  if (command === "git_discover_repo") {
+    const path = String(args?.path ?? "");
+    return path.startsWith("C:/workspace/") ? path : "C:/repo";
+  }
+  if (command === "git_status") {
+    const repoPath = String(args?.repoPath ?? "");
+    return {
+      branch: repoPath.endsWith("service-a") ? "main" : "develop",
+      ahead: repoPath.endsWith("service-a") ? 1 : 0,
+      behind: repoPath.endsWith("service-b") ? 2 : 0,
+      files: [
+        {
+          path: "src/App.tsx",
+          status: "modified",
+          staged: repoPath.endsWith("service-b"),
+        },
+      ],
+    };
+  }
+  return null;
+});
 
 mock.module("@/platform/tauri-core", () => ({ invoke }));
 
@@ -11,6 +30,7 @@ const {
   addPathsToLocalGitExclude,
   rollbackFilesChanges,
   setFilesStaged,
+  getWorkspaceGitStatus,
 } = await import("./git-status-api");
 const { getWorkingTreePathDiff } = await import("./git-diff-api");
 
@@ -91,6 +111,36 @@ describe("Git status batch mutations", () => {
       repoPath: "C:/repo",
       operation: "exclude",
       paths: ["generated/"],
+    });
+  });
+});
+
+describe("Workspace Git status", () => {
+  test("aggregates changed files from every discovered repository", async () => {
+    await expect(
+      getWorkspaceGitStatus(["C:/workspace/service-a", "C:/workspace/service-b"], "C:/workspace/service-b"),
+    ).resolves.toEqual({
+      branch: "develop",
+      ahead: 0,
+      behind: 2,
+      files: [
+        {
+          path: "service-a/src/App.tsx",
+          status: "modified",
+          staged: false,
+          repositoryPath: "C:/workspace/service-a",
+          repositoryRelativePath: "src/App.tsx",
+          repositoryOriginalRelativePath: undefined,
+        },
+        {
+          path: "service-b/src/App.tsx",
+          status: "modified",
+          staged: true,
+          repositoryPath: "C:/workspace/service-b",
+          repositoryRelativePath: "src/App.tsx",
+          repositoryOriginalRelativePath: undefined,
+        },
+      ],
     });
   });
 });

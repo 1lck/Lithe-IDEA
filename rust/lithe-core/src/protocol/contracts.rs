@@ -76,6 +76,21 @@ pub struct WorkspaceSnapshotResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// One Git repository discovered for an opened workspace.
+pub struct WorkspaceRepositoryResponse {
+    /// Absolute native repository root path reported by the host filesystem.
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Deterministically ordered Git repositories discovered below a workspace root.
+pub struct WorkspaceRepositoriesResponse {
+    pub repositories: Vec<WorkspaceRepositoryResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 /// File, content, or symbol match with optional source location.
 pub struct SearchMatch {
     /// Result category: file path, file content, or symbol.

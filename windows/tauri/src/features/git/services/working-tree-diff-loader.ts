@@ -3,6 +3,7 @@ import { getBufferById } from "@/features/editor/utils/buffer-index";
 import type { MultiFileDiff } from "../types/git-diff.types";
 import type { GitDiff, GitFile } from "../types/git.types";
 import { countDiffStats } from "../utils/git-diff-helpers";
+import { getGitFileRepositoryPath } from "../utils/git-status-selection";
 import { loadWorkingTreeFileDiff } from "./working-tree-file-diff";
 
 export type WorkingTreeDiffScope = "all" | "unstaged" | "staged";
@@ -123,8 +124,9 @@ export async function loadWorkingTreeDiffsProgressively({
         batch.map(async ([fileKey, entry]) => {
           let diff: GitDiff | null;
           try {
+            const entryRepoPath = getGitFileRepositoryPath(entry, repoPath) ?? repoPath;
             diff = await loadWorkingTreeFileDiff(
-              repoPath,
+              entryRepoPath,
               entry,
               wholePathSnapshot,
             );

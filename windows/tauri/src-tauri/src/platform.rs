@@ -318,6 +318,10 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             payload.insert("arguments".into(), json!(["rev-parse", "--show-toplevel"]));
             "git.command"
         }
+        "git_discover_workspace_repos" => {
+            move_field(&mut payload, "workspacePath", "root");
+            "workspace.repositories"
+        }
         "git_fetch" | "git_pull" | "git_push" => {
             payload.insert(
                 "operation".into(),
@@ -674,6 +678,16 @@ mod tests {
         let (command, payload) = translate("git_status", json!({ "repoPath": "C:/work" })).unwrap();
 
         assert_eq!(command, "git.status");
+        assert_eq!(payload, json!({ "root": "C:/work" }));
+    }
+
+    #[test]
+    fn translates_workspace_repository_discovery() {
+        let (command, payload) =
+            translate("git_discover_workspace_repos", json!({ "workspacePath": "C:/work" }))
+                .unwrap();
+
+        assert_eq!(command, "workspace.repositories");
         assert_eq!(payload, json!({ "root": "C:/work" }));
     }
 
