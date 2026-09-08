@@ -125,6 +125,7 @@ const INACTIVE_CURSOR_POSITION: Position = { line: 0, column: 0, offset: 0 };
 
 interface MonacoEditorProps {
   bufferId?: string;
+  paneId?: string;
   viewStateKey?: string;
   isActiveSurface?: boolean;
   isPreviewMode?: boolean;
@@ -156,6 +157,7 @@ interface MonacoEditorProps {
 
 export function MonacoEditor({
   bufferId: propBufferId,
+  paneId,
   viewStateKey,
   isActiveSurface = true,
   isPreviewMode = false,
@@ -827,6 +829,7 @@ export function MonacoEditor({
       return {
         bufferId: editorBufferId,
         filePath,
+        paneId,
         ...toEditorPosition(model, position),
         scrollTop: editor.getScrollTop(),
         scrollLeft: editor.getScrollLeft(),
@@ -1189,6 +1192,7 @@ export function MonacoEditor({
     inlayHints,
     setContextMenuPosition,
     filePath,
+    paneId,
     fontFamily,
     fontSize,
     highlightOccurrences,

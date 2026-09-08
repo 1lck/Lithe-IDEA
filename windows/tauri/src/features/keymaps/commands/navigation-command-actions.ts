@@ -2,6 +2,7 @@ import { editorAPI } from "@/features/editor/extensions/api";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useEditorStateStore } from "@/features/editor/stores/state.store";
 import { useJumpListStore } from "@/features/editor/stores/jump-list.store";
+import { usePaneStore } from "@/features/panes/stores/pane.store";
 import { navigateToJumpEntry } from "@/features/editor/utils/jump-navigation";
 import { getLineTextFromContent, getLineTextsFromContent } from "@/features/editor/utils/position";
 import { useReferencesStore } from "@/features/references/stores/references.store";
@@ -453,6 +454,7 @@ async function goToActiveLspLocation(
   useJumpListStore.getState().actions.pushEntry({
     bufferId: activeBuffer.id,
     filePath: activeBuffer.path,
+    paneId: usePaneStore.getState().activePaneId,
     line: cursorPosition.line,
     column: cursorPosition.column,
     offset: cursorPosition.offset,
@@ -747,11 +749,13 @@ export async function goBack(): Promise<void> {
   const activeBufferId = bufferStore.activeBufferId;
   const activeBuffer = bufferStore.buffers.find((b) => b.id === activeBufferId);
 
+  const paneId = usePaneStore.getState().activePaneId;
   const currentPosition =
     activeBufferId && activeBuffer?.path
       ? {
           bufferId: activeBufferId,
           filePath: activeBuffer.path,
+          paneId,
           line: editorState.cursorPosition.line,
           column: editorState.cursorPosition.column,
           offset: editorState.cursorPosition.offset,
@@ -760,15 +764,16 @@ export async function goBack(): Promise<void> {
         }
       : undefined;
 
-  const entry = useJumpListStore.getState().actions.goBack(currentPosition);
+  const entry = useJumpListStore.getState().actions.goBack(currentPosition, paneId);
   if (entry) {
-    await navigateToJumpEntry(entry);
+    await navigateToJumpEntry(entry, paneId);
   }
 }
 
 export async function goForward(): Promise<void> {
-  const entry = useJumpListStore.getState().actions.goForward();
+  const paneId = usePaneStore.getState().activePaneId;
+  const entry = useJumpListStore.getState().actions.goForward(paneId);
   if (entry) {
-    await navigateToJumpEntry(entry);
+    await navigateToJumpEntry(entry, paneId);
   }
 }

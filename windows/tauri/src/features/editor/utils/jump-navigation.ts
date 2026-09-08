@@ -4,6 +4,8 @@ import type { JumpListEntry } from "@/features/editor/stores/jump-list.store";
 import { useEditorStateStore } from "@/features/editor/stores/state.store";
 import { getBufferById, getBufferByPath } from "@/features/editor/utils/buffer-index";
 import { readFileContent } from "@/features/file-system/controllers/file-operations";
+import { usePaneStore } from "@/features/panes/stores/pane.store";
+import { activateBufferInPaneAndSync } from "@/features/panes/utils/pane-activation";
 import { logger } from "./logger";
 
 let navigationQueue = Promise.resolve();
@@ -14,30 +16,39 @@ function waitForEditorActivation(): Promise<void> {
   });
 }
 
-async function navigateToJumpEntryInternal(entry: JumpListEntry): Promise<boolean> {
+async function navigateToJumpEntryInternal(
+  entry: JumpListEntry,
+  requestedPaneId?: string,
+): Promise<boolean> {
   const bufferStore = useBufferStore.getState();
+  const paneId = requestedPaneId ?? entry.paneId ?? usePaneStore.getState().activePaneId;
 
-  // Try to find the buffer by ID first, then by path
+  // Try to find the buffer by ID first, then by path.
   let targetBuffer = getBufferById(bufferStore.buffers, entry.bufferId);
 
   if (!targetBuffer) {
     targetBuffer = getBufferByPath(bufferStore.buffers, entry.filePath);
   }
 
+  let targetBufferId: string;
   if (!targetBuffer) {
-    // Buffer is closed, try to reopen the file
+    // Buffer is closed, try to reopen the file.
     try {
       const content = await readFileContent(entry.filePath);
       const fileName = entry.filePath.split("/").pop() || "untitled";
-      const bufferId = bufferStore.actions.openBuffer(entry.filePath, fileName, content);
-      bufferStore.actions.setActiveBuffer(bufferId);
+      targetBufferId = bufferStore.actions.openBuffer(entry.filePath, fileName, content);
     } catch (error) {
       logger.error("JumpList", "Failed to reopen file:", entry.filePath, error);
       return false;
     }
   } else {
-    bufferStore.actions.setActiveBuffer(targetBuffer.id);
+    targetBufferId = targetBuffer.id;
   }
+
+  // Keep the navigation in the triggering pane even when another pane contains
+  // the same buffer. The global active-buffer sync otherwise selects the first
+  // matching pane and can move a right-pane navigation back to the left pane.
+  activateBufferInPaneAndSync(paneId, targetBufferId);
 
   // The active editor adapter is replaced during a buffer switch. Preserve the
   // focus request until the target Monaco surface registers its adapter.
@@ -66,8 +77,8 @@ async function navigateToJumpEntryInternal(entry: JumpListEntry): Promise<boolea
   return true;
 }
 
-export function navigateToJumpEntry(entry: JumpListEntry): Promise<boolean> {
-  const navigation = navigationQueue.then(() => navigateToJumpEntryInternal(entry));
+export function navigateToJumpEntry(entry: JumpListEntry, paneId?: string): Promise<boolean> {
+  const navigation = navigationQueue.then(() => navigateToJumpEntryInternal(entry, paneId));
   navigationQueue = navigation.then(
     () => undefined,
     () => undefined,

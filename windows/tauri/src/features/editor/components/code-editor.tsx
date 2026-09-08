@@ -680,6 +680,7 @@ const CodeEditor = ({
             ) : (
               <MonacoEditor
                 bufferId={activeBufferId ?? undefined}
+                paneId={paneId}
                 viewStateKey={editorViewKey ?? undefined}
                 isActiveSurface={isActiveSurface}
                 isPreviewMode={isPreviewBuffer}

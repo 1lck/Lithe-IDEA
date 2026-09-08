@@ -122,10 +122,10 @@ const TabBar = ({
   const usesWebViewerNavigation = activeBuffer?.type === "webViewer";
   const canGoBack = usesWebViewerNavigation
     ? Boolean(activeWebViewerNavigation?.canGoBack)
-    : jumpListActions.canGoBack();
+    : jumpListActions.canGoBack(paneId);
   const canGoForward = usesWebViewerNavigation
     ? Boolean(activeWebViewerNavigation?.canGoForward)
-    : jumpListActions.canGoForward();
+    : jumpListActions.canGoForward(paneId);
   const isPaneFullscreen = paneId ? fullscreenPaneId === paneId : false;
   const isPaneLocked = Boolean(pane?.locked);
   const isInSplit = paneRoot.type === "split";
@@ -191,6 +191,7 @@ const TabBar = ({
         ? {
             bufferId: currentActiveBufferId,
             filePath: currentActiveBuffer.path,
+            paneId,
             line: editorState.cursorPosition.line,
             column: editorState.cursorPosition.column,
             offset: editorState.cursorPosition.offset,
@@ -199,11 +200,11 @@ const TabBar = ({
           }
         : undefined;
 
-    const entry = jumpListActions.goBack(currentPosition);
+    const entry = jumpListActions.goBack(currentPosition, paneId);
     if (entry) {
-      await navigateToJumpEntry(entry);
+      await navigateToJumpEntry(entry, paneId);
     }
-  }, [activeWebViewerNavigation, jumpListActions, usesWebViewerNavigation]);
+  }, [activeWebViewerNavigation, jumpListActions, paneId, usesWebViewerNavigation]);
 
   const handleJumpForward = useCallback(async () => {
     if (usesWebViewerNavigation) {
@@ -211,11 +212,11 @@ const TabBar = ({
       return;
     }
 
-    const entry = jumpListActions.goForward();
+    const entry = jumpListActions.goForward(paneId);
     if (entry) {
-      await navigateToJumpEntry(entry);
+      await navigateToJumpEntry(entry, paneId);
     }
-  }, [activeWebViewerNavigation, jumpListActions, usesWebViewerNavigation]);
+  }, [activeWebViewerNavigation, jumpListActions, paneId, usesWebViewerNavigation]);
 
   const handleShowNewTab = useCallback(() => {
     if (!paneId) return;

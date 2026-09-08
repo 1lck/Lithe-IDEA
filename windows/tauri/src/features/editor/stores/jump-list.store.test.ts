@@ -1,10 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { useJumpListStore, type JumpListEntry } from "./jump-list.store";
 
-function cursorEntry(line: number, column: number): Omit<JumpListEntry, "timestamp"> {
+function cursorEntry(
+  line: number,
+  column: number,
+  paneId?: string,
+): Omit<JumpListEntry, "timestamp"> {
   return {
     bufferId: "buffer-a",
     filePath: "C:/workspace/a.ts",
+    paneId,
     line,
     column,
     offset: line * 100 + column,
@@ -91,5 +96,31 @@ describe("jump list cursor history", () => {
     actions.recordCursorEntry(first);
 
     expect(actions.goForward()).toBeNull();
+  });
+
+  test("keeps cursor history isolated by pane", () => {
+    const actions = useJumpListStore.getState().actions;
+    const leftPaneId = "left-pane";
+    const rightPaneId = "right-pane";
+
+    actions.recordCursorEntry(cursorEntry(9, 1, leftPaneId));
+    actions.recordCursorEntry(cursorEntry(19, 1, leftPaneId));
+    actions.recordCursorEntry(cursorEntry(29, 1, rightPaneId));
+    actions.recordCursorEntry(cursorEntry(39, 1, rightPaneId));
+
+    expect(
+      actions.goBack(cursorEntry(49, 1, rightPaneId), rightPaneId),
+    ).toMatchObject({ line: 39, paneId: rightPaneId });
+    expect(actions.goBack(undefined, rightPaneId)).toMatchObject({
+      line: 29,
+      paneId: rightPaneId,
+    });
+    expect(actions.goForward(rightPaneId)).toMatchObject({
+      line: 39,
+      paneId: rightPaneId,
+    });
+    expect(
+      actions.goBack(cursorEntry(29, 1, leftPaneId), leftPaneId),
+    ).toMatchObject({ line: 19, paneId: leftPaneId });
   });
 });
