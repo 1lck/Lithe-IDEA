@@ -20,7 +20,6 @@ final class AppModelObservationBinder {
             graph.java.objectWillChange,
             graph.notification.objectWillChange,
             graph.workbench.objectWillChange,
-            graph.commitDraft.objectWillChange,
             graph.searchSession.objectWillChange,
             graph.workspaceSession.objectWillChange,
             graph.languageNavigation.objectWillChange

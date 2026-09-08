@@ -917,8 +917,20 @@ package final class GitFeatureModel: ObservableObject {
     package func confirmDiscardChange() async {
         guard let change = pendingDiscardChange else { return }
         pendingDiscardChange = nil
-        let result = await withGitOperation { await service.discard(change) }
-        showResult(result, success: "Discarded \(change.path)")
+        await discardChanges([change])
+    }
+
+    package func discardChanges(_ changes: [GitChange]) async {
+        guard !changes.isEmpty else { return }
+        await withGitOperation {
+            for change in changes {
+                guard !Task.isCancelled else { break }
+                let result = await recordingGitCommand { await service.discard(change) }
+                showResult(result, success: "Discarded \(change.path)")
+                // Stop on failure rather than silently discarding only part of the selection.
+                if !result.succeeded { break }
+            }
+        }
         await refreshGit()
     }
 

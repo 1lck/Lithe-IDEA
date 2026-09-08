@@ -1408,7 +1408,6 @@ struct WorkbenchView: View {
                         workbench: model.workbenchFeature,
                         hasBackgroundImage: model.workbenchBackgroundFeature.hasImage,
                         selectChange: { model.selectChange($0) },
-                        toggleStaging: { model.toggleStaging($0) },
                         setStaging: { model.setStaging($0, staged: $1) },
                         openFile: { model.openFile($0, displayPath: $1) },
                         showLocalHistory: { model.showLocalHistory(for: $0) },
