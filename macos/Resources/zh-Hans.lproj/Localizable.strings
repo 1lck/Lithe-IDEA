@@ -1434,3 +1434,10 @@
 "Rerun last test" = "重新运行上次测试";
 "%@ %lld" = "%@ %lld";
 "%@ test run timed out after %@ seconds." = "%@ 测试运行在 %@ 秒后超时。";
+"Maven POM changed" = "Maven POM 已变化";
+"Maven configuration changed" = "Maven 配置已变化";
+"Reloading Maven..." = "正在重新加载 Maven…";
+"Reload" = "重新加载";
+"Maven reload was cancelled or timed out." = "Maven 重新加载已取消或超时。";
+"The Maven project could not be reloaded. The previous model is still available." = "无法重新加载 Maven 项目，仍可使用之前的模型。";
+"Java runtime is not ready. Retry Maven reload." = "Java 运行时尚未就绪，请重试 Maven 重新加载。";
