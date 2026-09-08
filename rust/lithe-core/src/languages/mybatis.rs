@@ -93,6 +93,10 @@ const JAVA_KEYWORDS: &[&str] = &[
     "record",
 ];
 
+// Split so the English-comment checker does not treat these literals as Rust block comments.
+const JAVA_BLOCK_COMMENT_OPEN: &str = concat!("/", "*");
+const JAVA_BLOCK_COMMENT_CLOSE: &str = concat!("*", "/");
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Workspace paths used to pair mapper interfaces with XML statements.
@@ -239,8 +243,8 @@ fn java_mapper_types(path: &str, source: &str) -> Vec<JavaType> {
         let trimmed = line.trim();
         if trimmed.starts_with("//")
             || trimmed.starts_with('*')
-            || trimmed.starts_with("/*")
-            || trimmed.starts_with("*/")
+            || trimmed.starts_with(JAVA_BLOCK_COMMENT_OPEN)
+            || trimmed.starts_with(JAVA_BLOCK_COMMENT_CLOSE)
         {
             brace_depth += net_brace_delta(line);
             continue;
