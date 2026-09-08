@@ -250,3 +250,13 @@
 "Unlock the worktree before removing it." = "Unlock the worktree before removing it.";
 "Prune the stale record instead." = "Prune the stale record instead.";
 "Loading…" = "Loading…";
+"Passed" = "Passed";
+"Failed" = "Failed";
+"Skipped" = "Skipped";
+"Cancelled" = "Cancelled";
+"Results" = "Results";
+"Failures" = "Failures";
+"Timed Out" = "Timed Out";
+"Rerun last test" = "Rerun last test";
+"%@ %lld" = "%@ %lld";
+"%@ test run timed out after %@ seconds." = "%@ test run timed out after %@ seconds.";

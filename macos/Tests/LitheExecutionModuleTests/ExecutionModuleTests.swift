@@ -432,12 +432,11 @@ struct ExecutionModuleTests {
         ))
         #expect(firstProcess.startRequests.first?.arguments == ["-Dtest=CalculatorTest", "test"])
         #expect(firstProcess.startRequests.first?.timeoutMilliseconds == 120_000)
+        defer { service.reset() }
 
         firstProcess.onOutput?("Tests run: 3, Failures: 1, Errors: 0, Skipped: 1\n")
         firstProcess.onTermination?(1)
-        await Task.yield()
-        await Task.yield()
-
+        try await awaitTestValue(service.$state, matching: { $0 == .failed(exitCode: 1) })
         #expect(service.state == .failed(exitCode: 1))
         #expect(service.results == parsedResults)
         #expect(parserCalls == 1)
@@ -469,6 +468,7 @@ struct ExecutionModuleTests {
         ))
         let request = try #require(process.startRequests.first)
         #expect(request.timeoutMilliseconds == 120_000)
+        defer { service.reset() }
 
         process.onStateChange?(ProcessLifecycleEvent(
             operationID: request.operationID,
@@ -476,13 +476,12 @@ struct ExecutionModuleTests {
             exitCode: nil,
             message: "Process timed out"
         ))
-        await Task.yield()
+        try await awaitTestValue(service.$errorMessage, matching: { $0 != nil })
         #expect(service.state == .running)
         #expect(service.errorMessage == "Maven test run timed out after 120 seconds.")
 
         process.onTermination?(0)
-        await Task.yield()
-        await Task.yield()
+        try await awaitTestValue(service.$state, matching: { $0 == .timedOut })
         #expect(service.state == .timedOut)
         #expect(!service.isRunning)
     }
@@ -520,11 +519,10 @@ struct ExecutionModuleTests {
             projectFiles: [buildFile, source]
         ))
         #expect(service.activePlan?.frameworkID == "gradle")
+        defer { service.reset() }
 
         process.onTermination?(0)
-        await Task.yield()
-        await Task.yield()
-
+        try await awaitTestValue(service.$state, matching: { $0 == .passed })
         #expect(service.state == .passed)
         #expect(service.results == nil)
         #expect(parserCalls == 0)
@@ -1009,6 +1007,35 @@ private func dependencyState(
         stateTask.cancel()
         return result
     }
+}
+
+/// Subscribe synchronously so an event between setup and suspension is buffered.
+/// The watchdog fails a missing event; elapsed time never advances the happy path.
+@MainActor
+private func awaitTestValue<Value: Sendable>(
+    _ publisher: Published<Value>.Publisher,
+    matching: @escaping @Sendable (Value) -> Bool
+) async throws {
+    let events = AsyncStream<Value>.makeStream(bufferingPolicy: .unbounded)
+    let subscription = publisher.sink { events.continuation.yield($0) }
+    let watchdog = Task {
+        // test-stability: allow(swift-real-sleep) reason: deadline ends a missing publisher event, never synchronizes successful test completion.
+        do { try await Task.sleep(for: .seconds(2)) } catch { return }
+        events.continuation.finish()
+    }
+    defer {
+        subscription.cancel()
+        watchdog.cancel()
+        events.continuation.finish()
+    }
+    for await value in events.stream {
+        if matching(value) { return }
+    }
+    throw TestObservationError.deadlineExceeded
+}
+
+private enum TestObservationError: Error {
+    case deadlineExceeded
 }
 
 @MainActor

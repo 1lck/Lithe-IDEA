@@ -1410,3 +1410,12 @@
 "Unlock the worktree before removing it." = "请先解锁工作树再删除。";
 "Prune the stale record instead." = "请改用清理陈旧记录。";
 "Loading…" = "正在加载…";
+"Passed" = "通过";
+"Skipped" = "跳过";
+"Cancelled" = "已取消";
+"Results" = "测试结果";
+"Failures" = "失败详情";
+"Timed Out" = "已超时";
+"Rerun last test" = "重新运行上次测试";
+"%@ %lld" = "%@ %lld";
+"%@ test run timed out after %@ seconds." = "%@ 测试运行在 %@ 秒后超时。";
