@@ -9,6 +9,48 @@ import Testing
 @MainActor
 struct ExecutionModuleTests {
     @Test
+    func mavenReloadCancellationReleasesJavaWaitWithoutAcceptingTheCandidate() async throws {
+        let (service, root) = await makeReloadService()
+        let entered = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let waiting = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        var javaWaitEnded = false
+        service.markPomChanged(root.appendingPathComponent("pom.xml"))
+        let reload = Task {
+            await service.reloadProject(files: [root.appendingPathComponent("new")], rescan: true) {
+                entered.continuation.yield(())
+                for await _ in waiting.stream { }
+                javaWaitEnded = true
+                try Task.checkCancellation()
+            }
+        }
+        let watchdog = Task {
+            // test-stability: allow(swift-real-sleep) reason: bounds cancellation regression when the Java readiness stand-in fails to terminate.
+            do { try await Task.sleep(for: .seconds(2)) } catch { return }
+            Issue.record("Maven reload did not cancel its Java readiness wait")
+            entered.continuation.finish()
+            waiting.continuation.finish()
+            reload.cancel()
+            service.stop()
+        }
+        defer {
+            watchdog.cancel()
+            entered.continuation.finish()
+            waiting.continuation.finish()
+            reload.cancel()
+            service.reset()
+        }
+        for await _ in entered.stream { break }
+        // Cancel the caller, not the Java stand-in: the service must forward it.
+        reload.cancel()
+        await reload.value
+        #expect(javaWaitEnded)
+        #expect(service.project?.artifactID == "old")
+        #expect(service.isProjectReloadRequired)
+        #expect(service.reloadError != nil)
+        #expect(!service.isReloading)
+    }
+
+    @Test
     func mavenReloadCoalescesConcurrentRequests() async throws {
         let (service, root) = await makeReloadService()
         let entered = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))

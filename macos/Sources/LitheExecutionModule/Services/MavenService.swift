@@ -358,12 +358,10 @@ package final class MavenService: ObservableObject {
             }
         }
         reloadTask = task
-        // Cancellation resumes the Java readiness waiter; no polling or second JVM.
-        let deadline = Task {
-            do { try await Task.sleep(for: .seconds(60)) } catch { return }
-            task.cancel()
-        }
-        defer { deadline.cancel() }
+        // Java import owns its progress-aware and absolute deadlines in Core.
+        // An outer wall-clock timeout would abort a healthy import downloading
+        // dependencies. Explicit cancellation still resumes the readiness waiter
+        // and releases only the Java session owned by this reload.
         await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
     }
 
