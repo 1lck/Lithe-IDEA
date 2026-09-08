@@ -18,7 +18,8 @@ use crate::git::{
 use crate::github::{NormalizeResponseRequest, ParseRemoteRequest, RequestPlanRequest};
 use crate::languages::{
     JavaClassNameRequest, JavaCodeVisionRequest, JavaRunConfigurationsRequest,
-    JavaServerPortRequest, JavaSourceDefinitionRequest, JavaStructureRequest, SpringIndexRequest,
+    JavaServerPortRequest, JavaSourceDefinitionRequest, JavaStructureRequest, MybatisIndexRequest,
+    SpringIndexRequest,
 };
 use crate::project::{
     self, DocumentLifecycleRequest, FileReadRequest, FileWriteRequest, ReplacementPreviewRequest,
@@ -1453,6 +1454,21 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Spring index response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::MybatisIndex => {
+            match serde_json::from_value::<MybatisIndexRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid MyBatis index request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::languages::mybatis_index)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("MyBatis index response should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

@@ -599,18 +599,18 @@ struct DatabaseTableView: View {
             .buttonStyle(.plain)
             .background(LitheTheme.toolHeader)
             .disabled(deletedRows.contains(index))
+            .litheContextMenu { rowContextMenu(index: index) }
             ForEach(model.databaseFeature.columns, id: \.self) { column in
                 TextField("", text: binding(row: index, column: column, original: row[column]))
                     .textFieldStyle(.plain).font(.system(size: 12, design: .monospaced)).padding(.horizontal, 7)
                     .frame(width: columnWidth, height: 29).background(drafts[CellKey(row: index, column: column)] == nil ? Color.clear : LitheTheme.warning.opacity(0.12))
                     .overlay(alignment: .trailing) { Rectangle().fill(LitheTheme.divider).frame(width: 1) }
                     .onTapGesture { pasteAnchor = CellKey(row: index, column: column) }
-                    .contextMenu { cellContextMenu(row: index, column: column) }
+                    .litheContextMenu { cellContextMenu(row: index, column: column) }
             }
         }
         .background(selectedRows.contains(index) ? LitheTheme.selection.opacity(0.34) : Color.clear)
         .contentShape(Rectangle())
-        .contextMenu { rowContextMenu(index: index) }
         .overlay(alignment: .bottom) { Rectangle().fill(LitheTheme.divider).frame(height: 1) }
     }
 
@@ -622,33 +622,34 @@ struct DatabaseTableView: View {
                     .textFieldStyle(.plain).font(.system(size: 12, design: .monospaced)).padding(.horizontal, 7)
                     .frame(width: columnWidth, height: 29).background(LitheTheme.success.opacity(0.08))
                     .overlay(alignment: .trailing) { Rectangle().fill(LitheTheme.divider).frame(width: 1) }
-                    .contextMenu {
-                        Button("Set NULL") { insertedRows[index][column] = .null }
-                        Button("Use Column Default") { insertedRows[index].removeValue(forKey: column) }
+                    .litheContextMenu {
+                        var items: [LitheContextMenuItem] = []
+                        items.append(.action("Set NULL", action: { insertedRows[index][column] = .null }))
+                        items.append(.action("Use Column Default", action: { insertedRows[index].removeValue(forKey: column) }))
+                        return items
                     }
             }
         }.overlay(alignment: .bottom) { Rectangle().fill(LitheTheme.divider).frame(height: 1) }
     }
 
-    @ViewBuilder
-    private func rowContextMenu(index: Int) -> some View {
-        Button("Row Details") { rowDetailsIndex = index }
-        Divider()
-        Button("Delete Row", role: .destructive) {
+    private func rowContextMenu(index: Int) -> [LitheContextMenuItem] {
+        var items: [LitheContextMenuItem] = []
+        items.append(.action("Row Details", action: { rowDetailsIndex = index }))
+        items.append(.separator)
+        items.append(.action("Delete Row", role: .destructive, isEnabled: !(model.databaseFeature.selectedProfile?.readOnly == true), action: {
             deletedRows.insert(index)
             selectedRows.remove(index)
-        }
-        .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
+        }))
+        return items
     }
 
-    @ViewBuilder
-    private func cellContextMenu(row: Int, column: String) -> some View {
-        Button("Set NULL") { setNull(row: row, column: column) }
-            .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
-        Button("Set Empty String") { setEmptyString(row: row, column: column) }
-            .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
-        Divider()
-        rowContextMenu(index: row)
+    private func cellContextMenu(row: Int, column: String) -> [LitheContextMenuItem] {
+        var items: [LitheContextMenuItem] = []
+        items.append(.action("Set NULL", isEnabled: !(model.databaseFeature.selectedProfile?.readOnly == true), action: { setNull(row: row, column: column) }))
+        items.append(.action("Set Empty String", isEnabled: !(model.databaseFeature.selectedProfile?.readOnly == true), action: { setEmptyString(row: row, column: column) }))
+        items.append(.separator)
+        items.append(contentsOf: rowContextMenu(index: row))
+        return items
     }
 
     private func columnWidth(availableWidth: CGFloat) -> CGFloat {
