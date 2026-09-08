@@ -16,6 +16,11 @@ import {
   stopMavenProcess,
   writeMavenConfiguration,
 } from "../api/maven-host-api";
+import {
+  createMavenPomWatchOperations,
+  mavenPomPaths,
+  reconcileMavenPomWatches,
+} from "../services/maven-pom-watcher";
 import type {
   MavenDependencyLoad,
   MavenDiagnostic,
@@ -43,6 +48,7 @@ interface MavenProjectLoad {
 const mavenProjectLoads = new Map<string, MavenProjectLoad>();
 
 export interface MavenStoreDependencies {
+  createMavenPomWatchOperations: typeof createMavenPomWatchOperations;
   createMavenDependencyPlan: typeof createMavenDependencyPlan;
   createMavenLaunchPlan: typeof createMavenLaunchPlan;
   loadMavenConfiguration: typeof loadMavenConfiguration;
@@ -57,6 +63,7 @@ export interface MavenStoreDependencies {
 }
 
 const defaultMavenStoreDependencies: MavenStoreDependencies = {
+  createMavenPomWatchOperations,
   createMavenDependencyPlan,
   createMavenLaunchPlan,
   loadMavenConfiguration,
@@ -244,8 +251,23 @@ export const createMavenStore = (
   let dependencyRevision = 0;
   let dependencyTimer: ReturnType<typeof setTimeout> | null = null;
   let configurationWriteTask = Promise.resolve();
+  let pomWatchTask = Promise.resolve();
+  let watchedPomPaths = new Set<string>();
 
   return createStore<MavenState>()((set, get) => {
+    const pomWatchOperations = dependencies.createMavenPomWatchOperations(workspaceId);
+    const synchronizePomWatches = (desiredPaths: ReadonlySet<string>) => {
+      const task = pomWatchTask.then(async () => {
+        watchedPomPaths = await reconcileMavenPomWatches(
+          watchedPomPaths,
+          desiredPaths,
+          pomWatchOperations,
+        );
+      });
+      pomWatchTask = task;
+      return task;
+    };
+
     const clearDependencyTimer = () => {
       if (dependencyTimer === null) return;
       dependencyScheduler.clearTimer(dependencyTimer);
@@ -390,6 +412,10 @@ export const createMavenStore = (
             await dependencies.stopMavenProcess(previous.activeSessionId).catch(() => undefined);
             releaseMavenSessionWorkspace(previous.activeSessionId);
           }
+          if (previous.root && previous.root !== root) {
+            await synchronizePomWatches(new Set());
+            if (projectLoadRevision !== revision) return;
+          }
           set({
             root,
             visiblePaths: [...visiblePaths],
@@ -417,6 +443,8 @@ export const createMavenStore = (
             const project = await dependencies.scanMavenProject(root, visiblePaths);
             if (projectLoadRevision !== revision || get().root !== root) return;
             if (!project) {
+              await synchronizePomWatches(new Set());
+              if (projectLoadRevision !== revision || get().root !== root) return;
               set({
                 projectStatus: "ready",
                 project: null,
@@ -430,10 +458,12 @@ export const createMavenStore = (
               });
               return;
             }
+            const configurationRevisionBeforeWriteWait = configurationRevision;
+            const pendingConfigurationWriteTask = configurationWriteTask;
             let configurationWriteSucceeded = true;
             let configurationWriteError: unknown;
             try {
-              await configurationWriteTask;
+              await pendingConfigurationWriteTask;
             } catch (error) {
               configurationWriteSucceeded = false;
               configurationWriteError = error;
@@ -449,11 +479,19 @@ export const createMavenStore = (
                     : "Unable to save Maven configuration.",
               });
             }
-            const stored =
-              preserveInMemoryConfiguration
-                ? storedConfiguration(previous)
-                : await dependencies.loadMavenConfiguration(root, project.relativePath);
+            const loadedConfiguration = preserveInMemoryConfiguration
+              ? null
+              : await dependencies.loadMavenConfiguration(root, project.relativePath);
             if (projectLoadRevision !== revision || get().root !== root) return;
+            await synchronizePomWatches(mavenPomPaths(root, project));
+            if (projectLoadRevision !== revision || get().root !== root) return;
+            const preserveLatestInMemoryConfiguration =
+              previous.root === root &&
+              (!configurationWriteSucceeded ||
+                configurationRevision !== configurationRevisionBeforeWriteWait);
+            const stored = preserveLatestInMemoryConfiguration
+              ? storedConfiguration(get())
+              : (loadedConfiguration ?? {});
             const customProfiles = normalizedProfiles(stored.portable?.customProfiles ?? []);
             const knownProfiles = new Set([
               ...project.profiles.map((profile) => profile.id),

@@ -96,8 +96,15 @@ const resolveMavenLaunch = mock(async () => ({
 const saveWorkspaceBeforeLaunch = mock(async (_workspaceId: string): Promise<void> => undefined);
 const startMavenProcess = mock(async () => undefined);
 const stopMavenProcess = mock(async () => undefined);
+const startWatchingMavenPom = mock(async (_path: string) => true);
+const stopWatchingMavenPom = mock(async (_path: string) => true);
+const createMavenPomWatchOperations = mock((_workspaceId: string) => ({
+  startWatching: startWatchingMavenPom,
+  stopWatching: stopWatchingMavenPom,
+}));
 
 const dependencies = {
+  createMavenPomWatchOperations,
   createMavenDependencyPlan,
   createMavenLaunchPlan,
   loadMavenConfiguration,
@@ -130,6 +137,11 @@ beforeEach(() => {
   saveWorkspaceBeforeLaunch.mockResolvedValue(undefined);
   startMavenProcess.mockClear();
   stopMavenProcess.mockClear();
+  createMavenPomWatchOperations.mockClear();
+  startWatchingMavenPom.mockReset();
+  startWatchingMavenPom.mockResolvedValue(true);
+  stopWatchingMavenPom.mockReset();
+  stopWatchingMavenPom.mockResolvedValue(true);
 });
 
 class ManualTimer {
@@ -234,6 +246,89 @@ describe("Maven workspace state", () => {
       mavenExecutablePath: "D:/Tools/apache-maven",
       javaHomePath: "C:/Java/jdk-21",
     });
+  });
+
+  test("watches the reactor and every recursively discovered module POM", async () => {
+    scanMavenProject.mockResolvedValueOnce({
+      ...project,
+      relativePath: ".",
+      modules: [
+        {
+          relativePath: "module-a",
+          artifactId: "module-a",
+          packaging: "pom",
+          sourceRoots: [],
+          modules: [
+            {
+              relativePath: "module-a/module-b",
+              artifactId: "module-b",
+              packaging: "jar",
+              sourceRoots: [],
+              modules: [],
+            },
+          ],
+        },
+      ],
+    });
+    const store = createMavenStore("workspace", dependencies);
+
+    await store.getState().actions.loadProject("D:/work", ["pom.xml"]);
+
+    expect(createMavenPomWatchOperations).toHaveBeenCalledWith("workspace");
+    expect(startWatchingMavenPom.mock.calls.map(([path]) => path)).toEqual([
+      "D:/work\\module-a\\module-b\\pom.xml",
+      "D:/work\\module-a\\pom.xml",
+      "D:/work\\pom.xml",
+    ]);
+  });
+
+  test("updates POM watches when the scanned module set changes", async () => {
+    const module = (relativePath: string) => ({
+      relativePath,
+      artifactId: relativePath,
+      packaging: "jar",
+      sourceRoots: [],
+      modules: [],
+    });
+    scanMavenProject.mockResolvedValueOnce({
+      ...project,
+      relativePath: ".",
+      modules: [module("module-a"), module("module-b")],
+    });
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["pom.xml"]);
+    startWatchingMavenPom.mockClear();
+    stopWatchingMavenPom.mockClear();
+    scanMavenProject.mockResolvedValueOnce({
+      ...project,
+      relativePath: ".",
+      modules: [module("module-a"), module("module-c")],
+    });
+
+    await store.getState().actions.loadProject("D:/work", ["pom.xml"]);
+
+    expect(stopWatchingMavenPom).toHaveBeenCalledTimes(1);
+    expect(stopWatchingMavenPom).toHaveBeenCalledWith("D:/work\\module-b\\pom.xml");
+    expect(startWatchingMavenPom.mock.calls.map(([path]) => path)).toEqual([
+      "D:/work\\module-a\\pom.xml",
+      "D:/work\\module-c\\pom.xml",
+      "D:/work\\pom.xml",
+    ]);
+  });
+
+  test("releases the previous root POM watches before registering the next root", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/first", ["reactor/pom.xml"]);
+    startWatchingMavenPom.mockClear();
+    stopWatchingMavenPom.mockClear();
+
+    await store.getState().actions.loadProject("D:/second", ["reactor/pom.xml"]);
+
+    expect(stopWatchingMavenPom).toHaveBeenCalledWith("D:/first\\reactor\\pom.xml");
+    expect(startWatchingMavenPom).toHaveBeenCalledWith("D:/second\\reactor\\pom.xml");
+    expect(stopWatchingMavenPom.mock.invocationCallOrder[0]).toBeLessThan(
+      startWatchingMavenPom.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+    );
   });
 
   test("persists portable and local values in separate documents", async () => {
@@ -341,6 +436,72 @@ describe("Maven workspace state", () => {
     }
   });
 
+  test("preserves the newest in-memory configuration when reload writes fail", async () => {
+    const firstWriteStarted = deferred<void>();
+    const releaseFirstWrite = deferred<void>();
+    const reloadScan = deferred<typeof project>();
+    writeMavenConfiguration
+      .mockImplementationOnce(async () => {
+        firstWriteStarted.resolve(undefined);
+        await releaseFirstWrite.promise;
+        throw new Error("Unable to save settings");
+      })
+      .mockRejectedValueOnce(new Error("Unable to save settings"));
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    scanMavenProject.mockImplementationOnce(() => reloadScan.promise);
+    let reload: Promise<void> | undefined;
+
+    try {
+      store.getState().actions.setSkipTests(true);
+      await firstWriteStarted.promise;
+      reload = store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+      store.getState().actions.setSkipTests(false);
+      reloadScan.resolve(project);
+      releaseFirstWrite.resolve(undefined);
+      await reload;
+
+      expect(writeMavenConfiguration).toHaveBeenCalledTimes(2);
+      expect(store.getState().skipTests).toBe(false);
+      expect(store.getState().configurationSaveError).toBe("Unable to save settings");
+    } finally {
+      releaseFirstWrite.resolve(undefined);
+      reloadScan.resolve(project);
+      await reload;
+    }
+  });
+
+  test("does not overwrite a configuration edit made while stored settings load", async () => {
+    const configurationLoadStarted = deferred<void>();
+    const storedConfiguration = deferred<MavenStoredConfiguration>();
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    loadMavenConfiguration.mockImplementationOnce(async () => {
+      configurationLoadStarted.resolve(undefined);
+      return storedConfiguration.promise;
+    });
+    const reload = store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+
+    try {
+      await configurationLoadStarted.promise;
+      store.getState().actions.setSkipTests(true);
+      storedConfiguration.resolve({
+        portable: {
+          version: 1,
+          selectedProfiles: ["default"],
+          customProfiles: [],
+          skipTests: false,
+        },
+      });
+      await reload;
+
+      expect(store.getState().skipTests).toBe(true);
+    } finally {
+      storedConfiguration.resolve({});
+      await reload;
+    }
+  });
+
   test("does not let an older scan replace a newer workspace", async () => {
     const firstScan = deferred<typeof project>();
     const secondScan = deferred<typeof project>();
@@ -387,6 +548,7 @@ describe("Maven workspace state", () => {
     expect(store.getState().projectError).toBe("Malformed pom.xml");
     expect(store.getState().reloadRequired).toBe(true);
     expect(mavenLaunchContext(store.getState())?.reactorPath).toBe("reactor");
+    expect(stopWatchingMavenPom).not.toHaveBeenCalled();
   });
 
   test("marks repeated POM changes as one pending reload", async () => {
