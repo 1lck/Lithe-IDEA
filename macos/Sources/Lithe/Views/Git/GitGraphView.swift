@@ -12,9 +12,18 @@ struct GitGraphRowActions {
     let onRevert: (GitCommit) -> Void
     let onReset: (GitCommit) -> Void
     let onCreateTag: (GitCommit) -> Void
+    var onSelectWithModifiers: ((GitCommit, NSEvent.ModifierFlags) -> Void)? = nil
+    var onContextSelect: ((GitCommit) -> Void)? = nil
+    var additionalContextMenuItems: ((GitCommit) -> [LitheContextMenuItem])? = nil
+
+    func select(_ commit: GitCommit, modifiers: NSEvent.ModifierFlags) {
+        if let onSelectWithModifiers { onSelectWithModifiers(commit, modifiers) }
+        else { onSelect(commit) }
+    }
 
     func contextMenuItems(for commit: GitCommit) -> [LitheContextMenuItem] {
-        [
+        onContextSelect?(commit)
+        return [
             .action("Copy Commit Hash") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(commit.hash, forType: .string)
@@ -28,7 +37,7 @@ struct GitGraphRowActions {
             .action("Cherry-pick Commit…") { onCherryPick(commit) },
             .action("Revert Commit…") { onRevert(commit) },
             .action("Reset Current Branch to Here…") { onReset(commit) }
-        ]
+        ] + (additionalContextMenuItems?(commit) ?? [])
     }
 
 }
@@ -53,6 +62,7 @@ struct GitGraphView: View {
     let selectedHash: String?
     let showCommitDecorations: Bool
     let actions: GitGraphRowActions
+    var selectedHashes: Set<String>? = nil
 
     private let rowHeight: CGFloat = 30
 
@@ -64,7 +74,7 @@ struct GitGraphView: View {
                         row: row,
                         graphWidth: maximumGraphWidth,
                         rowHeight: rowHeight,
-                        isSelected: selectedHash == row.commit.hash,
+                        isSelected: selectedHashes?.contains(row.commit.hash) ?? (selectedHash == row.commit.hash),
                         showCommitDecorations: showCommitDecorations,
                         actions: actions
                     )
@@ -527,12 +537,12 @@ final class GitGraphCommitRowsNSView: NSView {
             return
         }
         let index = Int(floor(convert(event.locationInWindow, from: nil).y / rowHeight))
-        select(rowIndex: index)
+        select(rowIndex: index, modifiers: event.modifierFlags)
     }
 
-    func select(rowIndex index: Int) {
+    func select(rowIndex index: Int, modifiers: NSEvent.ModifierFlags = []) {
         guard rows.indices.contains(index), let actions else { return }
-        actions.onSelect(rows[index].commit)
+        actions.select(rows[index].commit, modifiers: modifiers)
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -633,7 +643,7 @@ private struct GitGraphRowView: View, Equatable {
     }
 
     var body: some View {
-        Button { actions.onSelect(row.commit) } label: {
+        Button { actions.select(row.commit, modifiers: NSApp.currentEvent?.modifierFlags ?? []) } label: {
             HStack(spacing: 0) {
                 Color.clear.frame(width: graphWidth, height: rowHeight)
 
@@ -674,6 +684,7 @@ private struct GitGraphRowView: View, Equatable {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .onHover { isHovered = $0 }
         .litheContextMenu { actions.contextMenuItems(for: row.commit) }
     }

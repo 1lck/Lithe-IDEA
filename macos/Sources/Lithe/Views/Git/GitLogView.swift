@@ -244,6 +244,9 @@ struct GitLogView: View {
             tagDialogRequest: $tagDialogRequest,
             pendingTagDeletion: $pendingTagDeletion
         ))
+        .modifier(GitHistoryEditingPresentation(editor: feature.historyEditing))
+        .modifier(GitInteractiveRebasePresentation(editor: feature.interactiveRebase))
+        .modifier(GitPatchPresentation(editor: feature.patchExchange, surface: .log))
     }
 
     /// The tab split lives outside `body` because the main expression is
@@ -263,6 +266,12 @@ struct GitLogView: View {
     private var logTabContent: some View {
         Group {
             primaryActionBar
+            GitInteractiveRebaseStatusView(editor: feature.interactiveRebase) { name, session in
+                await feature.createHistoryRecoveryBranch(named: name, from: session)
+            }
+            GitHistoryRewriteOutcomeView(editor: feature.historyEditing) { name, rewrite in
+                await feature.createHistoryRecoveryBranch(named: name, from: rewrite)
+            }
             if let deletedBranch = feature.recentlyDeletedBranch {
                 deletedReferenceBanner(
                     icon: "arrow.triangle.branch",
@@ -1143,9 +1152,10 @@ struct GitLogView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(spacing: 0) {
-                            GitGraphView(
+                            GitHistorySelectionGraphView(
+                                editor: feature.historyEditing,
                                 presentation: graphPresentation,
-                                selectedHash: feature.selectedGitCommit?.hash,
+                                focusedHash: feature.selectedGitCommit?.hash,
                                 showCommitDecorations: showCommitDecorations,
                                 actions: graphRowActions
                             )
@@ -1335,6 +1345,12 @@ struct GitLogView: View {
             selectedHash: feature.selectedGitCommit?.hash,
             offset: offset
         ) else { return }
+        feature.historyEditing.select(
+            commit.hash,
+            visibleHashes: filteredCommits.map(\.hash),
+            additive: false,
+            range: NSEvent.modifierFlags.contains(.shift)
+        )
         feature.previewGitCommitSelection(commit)
         scheduleGitCommitFileLoad(for: commit)
     }
@@ -1396,6 +1412,27 @@ struct GitLogView: View {
             },
             onCreateTag: { commit in
                 tagDialogRequest = GitTagDialogRequest(commit: commit)
+            },
+            onSelectWithModifiers: { commit, modifiers in
+                gitLogCommitListFocused = true
+                feature.historyEditing.select(
+                    commit.hash,
+                    visibleHashes: feature.gitCommits.filter {
+                        feature.gitLogMatchedCommitHashes?.contains($0.hash) ?? true
+                    }.map(\.hash),
+                    additive: modifiers.contains(.command),
+                    range: modifiers.contains(.shift)
+                )
+                feature.previewGitCommitSelection(commit)
+                scheduleGitCommitFileLoad(for: commit)
+            },
+            onContextSelect: { commit in
+                feature.historyEditing.selectForContextMenu(commit.hash)
+                feature.previewGitCommitSelection(commit)
+                scheduleGitCommitFileLoad(for: commit)
+            },
+            additionalContextMenuItems: { commit in
+                GitHistoryRewriteMenu.items(feature: feature, commit: commit)
             }
         )
     }

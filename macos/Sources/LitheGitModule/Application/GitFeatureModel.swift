@@ -7,6 +7,59 @@ import LitheModuleAPI
 /// in AppModel. Git command construction and parsing remain in GitService/Core.
 @MainActor
 package final class GitFeatureModel: ObservableObject {
+    package lazy var patchExchange = makePatchExchange()
+    package lazy var historyEditing = makeHistoryEditing()
+    package lazy var interactiveRebase = makeInteractiveRebase()
+
+    private func makeInteractiveRebase() -> GitInteractiveRebaseFeatureModel {
+        GitInteractiveRebaseFeatureModel(service: service) { [weak self] root, mutation in
+            guard let self, self.gitRepositoryRoot == root, !self.isPerformingBranchOperation,
+                  !self.isCommitting, !self.isResolvingGitOperation else { return nil }
+            self.isResolvingGitOperation = true
+            defer { self.isResolvingGitOperation = false }
+            let historyVersion = self.gitCommitsVersion
+            let result = await self.withGitOperation {
+                switch mutation {
+                case .start(let state, let steps):
+                    await self.service.startInteractiveRebase(at: root, expectedState: state, steps: steps)
+                case .control(let sessionID, let action, let message):
+                    await self.service.controlInteractiveRebase(at: root, sessionId: sessionID, action: action, amendMessage: message)
+                }
+            }
+            if self.gitRepositoryRoot == root { await self.refreshGitFromMetadataChange(since: historyVersion) }
+            return result
+        }
+    }
+
+    private func makePatchExchange() -> GitPatchFeatureModel {
+        GitPatchFeatureModel(service: service) { [weak self] root, patch, target, state in
+            guard let self, self.gitRepositoryRoot == root, !self.isPerformingBranchOperation,
+                  !self.isCommitting, !self.isResolvingGitOperation else { return nil }
+            self.isPerformingBranchOperation = true
+            defer { self.isPerformingBranchOperation = false }
+            let historyVersion = self.gitCommitsVersion
+            let result = await self.withGitOperation {
+                await self.service.applyExchangePatch(at: root, patch: patch, target: target, expectedState: state)
+            }
+            if self.gitRepositoryRoot == root { await self.refreshGitFromMetadataChange(since: historyVersion) }
+            return result
+        }
+    }
+
+    private func makeHistoryEditing() -> GitHistoryEditingFeatureModel {
+        GitHistoryEditingFeatureModel(service: service) { [weak self] root, state, message in
+            guard let self, self.gitRepositoryRoot == root, !self.isPerformingBranchOperation,
+                  !self.isCommitting, !self.isResolvingGitOperation else { return nil }
+            self.isPerformingBranchOperation = true
+            defer { self.isPerformingBranchOperation = false }
+            let historyVersion = self.gitCommitsVersion
+            let result = await self.withGitOperation {
+                await self.service.rewriteHistory(at: root, expectedState: state, message: message)
+            }
+            if self.gitRepositoryRoot == root { await self.refreshGitFromMetadataChange(since: historyVersion) }
+            return result
+        }
+    }
     @Published package private(set) var gitChanges: [GitChange] = [] {
         didSet { gitTreeStatus = GitTreeStatusProjection(changes: gitChanges, absolutePaths: true) }
     }
@@ -49,7 +102,15 @@ package final class GitFeatureModel: ObservableObject {
     @Published package private(set) var isPerformingStashOperation = false
     @Published package private(set) var isPerformingShelfOperation = false
     @Published package private(set) var isPerformingWorktreeOperation = false
-    @Published package private(set) var gitRepositoryRoot: URL?
+    @Published package private(set) var gitRepositoryRoot: URL? {
+        didSet {
+            if oldValue != gitRepositoryRoot {
+                historyEditing.reset()
+                patchExchange.reset()
+                interactiveRebase.reset()
+            }
+        }
+    }
     @Published package private(set) var currentBranch = "No Git"
     @Published package var selectedChange: GitChange?
     @Published package private(set) var selectedDiffPatch = ""
@@ -245,7 +306,10 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package var hasActiveModuleWork: Bool {
-        isPerformingStashOperation
+        historyEditing.isBusy
+            || patchExchange.isBusy
+            || interactiveRebase.isBusy
+            || isPerformingStashOperation
             || isPerformingShelfOperation
             || isPerformingWorktreeOperation
             || isLoadingDiff
@@ -261,6 +325,9 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func reset() {
+        historyEditing.reset()
+        patchExchange.reset()
+        interactiveRebase.reset()
         cancelGitHistoryLoading()
         gitChanges = []
         pendingStagingStates = [:]
@@ -466,6 +533,8 @@ package final class GitFeatureModel: ObservableObject {
                 gitOperationState = operationState
                 didChange = true
             }
+            await interactiveRebase.refreshSession(at: snapshot.repositoryRoot)
+            guard !Task.isCancelled else { return }
             if let gitOperationState, deferredSavedChanges == nil,
                let stash = gitStashes.first(where: { $0.message.contains("Lithe auto-stash before") }) {
                 deferredSavedChanges = GitDeferredSavedChanges(
@@ -717,6 +786,8 @@ package final class GitFeatureModel: ObservableObject {
         let result = await operation()
         if let commandResult = result as? GitService.CommandResult {
             recordGitConsoleEntry(commandResult)
+        } else if let rebaseResult = result as? GitRebaseMutationResult {
+            recordGitConsoleEntry(rebaseResult.command)
         }
         await onGitOperationEnded?()
         return result
@@ -1490,6 +1561,7 @@ package final class GitFeatureModel: ObservableObject {
 
         let nextCommit = historyPage.commits.first(where: { $0.hash == previousCommitHash })
             ?? historyPage.commits.first
+        historyEditing.retainSelection(in: historyPage.commits, fallback: nextCommit?.hash)
         if let nextCommit {
             if previousCommitHash == nextCommit.hash {
                 selectedGitCommit = nextCommit
@@ -1880,12 +1952,24 @@ package final class GitFeatureModel: ObservableObject {
               gitRepositoryRoot?.standardizedFileURL == repositoryRoot.standardizedFileURL,
               !Task.isCancelled else { return }
         if let worktrees {
-            gitWorktrees = worktrees
+            if gitWorktrees != worktrees { gitWorktrees = worktrees }
             gitWorktreeLoadState = .ready
         } else {
             gitWorktrees = []
             gitWorktreeLoadState = .failed("Could not load Git worktrees")
         }
+    }
+
+    /// Another checkout can move shared refs while this worktree's status stays unchanged.
+    package func refreshGitFromMetadataChange(since historyVersion: Int? = nil) async {
+        let root = gitRepositoryRoot
+        let previousHistoryVersion = historyVersion ?? gitCommitsVersion
+        await refreshGit()
+        guard gitRepositoryRoot == root, !Task.isCancelled else { return }
+        if isGitLogVisibleProvider?() == true, gitCommitsVersion == previousHistoryVersion {
+            await refreshGitHistory()
+        }
+        if gitWorktreeLoadState == .ready { await refreshWorktrees() }
     }
 
     private func worktreeHistoryReference(for worktree: GitWorktree) -> GitReference? {
@@ -2065,6 +2149,23 @@ package final class GitFeatureModel: ObservableObject {
         } else {
             notify?(trimmedMessage(result))
         }
+    }
+
+    package func createWorktree(_ request: GitWorktreeCreation) async -> String? {
+        guard let root = gitRepositoryRoot, !isPerformingWorktreeOperation else {
+            return "A worktree operation is already running, or the repository is unavailable."
+        }
+        isPerformingWorktreeOperation = true
+        defer { isPerformingWorktreeOperation = false }
+        let result = await withGitOperation { await service.createWorktree(request, at: root) }
+        guard gitRepositoryRoot == root else { return "The active repository changed. Inspect the original repository before retrying." }
+        if result.succeeded {
+            notify?("Created worktree at \(request.destination.lastPathComponent)")
+            await refreshWorktrees()
+            await refreshGitHistory()
+            return nil
+        }
+        return trimmedMessage(result)
     }
 
     package func removeWorktree(_ worktree: GitWorktree, force: Bool) async {
@@ -2958,6 +3059,40 @@ package final class GitFeatureModel: ObservableObject {
         isPerformingBranchOperation = false
         notify?(result.succeeded ? "Reset current branch to \(commit.shortHash)" : trimmedMessage(result))
         await refreshGit()
+    }
+
+    package func createHistoryRecoveryBranch(named rawName: String, from rewrite: GitHistoryRewriteResult) async -> String? {
+        guard let root = gitRepositoryRoot, historyEditing.outcome?.rewrite == rewrite else {
+            return "This recovery result is no longer active in the current repository."
+        }
+        return await createRecoveryBranch(named: rawName, reference: rewrite.recoveryReference, at: root)
+    }
+
+    package func createHistoryRecoveryBranch(named rawName: String, from session: GitRebaseSession) async -> String? {
+        guard let root = gitRepositoryRoot, interactiveRebase.session?.recoveryReference == session.recoveryReference else {
+            return "This rebase session is no longer active in the current repository."
+        }
+        return await createRecoveryBranch(named: rawName, reference: session.recoveryReference, at: root)
+    }
+
+    private func createRecoveryBranch(named rawName: String, reference: String, at root: URL) async -> String? {
+        guard !isPerformingBranchOperation, !isCommitting, !isResolvingGitOperation else {
+            return "Wait for the current Git operation to finish."
+        }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return "Enter a branch name." }
+        isPerformingBranchOperation = true
+        defer { isPerformingBranchOperation = false }
+        let historyVersion = gitCommitsVersion
+        let result = await withGitOperation {
+            await service.createHistoryRecoveryBranch(named: name, reference: reference, at: root)
+        }
+        if gitRepositoryRoot == root { await refreshGitFromMetadataChange(since: historyVersion) }
+        if result.succeeded {
+            notify?("Created recovery branch \(name)")
+            return nil
+        }
+        return trimmedMessage(result)
     }
 
     package func pushBranch(_ reference: GitReference) async {

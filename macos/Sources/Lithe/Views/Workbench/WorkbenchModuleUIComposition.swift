@@ -83,7 +83,10 @@ enum WorkbenchModuleUIComposition {
                                 model?.platformUI.chooseDirectory(
                                     title: "Choose Worktree Parent", prompt: "Choose"
                                 )
-                            }
+                            },
+                            openProjectInCurrentWindow: { [weak model] in model?.openProject($0, placement: .thisWindow) },
+                            openProjectInNewWindow: { [weak model] in model?.openProject($0, placement: .newWindow) },
+                            temporaryDirectory: { [storage = model.services.fileStorage] in storage.temporaryDirectory() }
                         )
                     ))
                 }

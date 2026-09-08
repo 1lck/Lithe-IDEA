@@ -4,6 +4,7 @@ import LitheGitModule
 
 enum GitWorktreeListAction: String {
     case open
+    case openInNewWindow
     case reveal
     case copyPath
     case toggleLock
@@ -225,7 +226,8 @@ final class GitWorktreeListNSView: NSView {
         let perform = onContextMenuAction
         let worktree = item.worktree
         return [
-            .action("Open in Lithe", isEnabled: !worktree.isPrunable) { perform?(.open, item) },
+            .action("Open in Current Window", isEnabled: !worktree.isPrunable) { perform?(.open, item) },
+            .action("Open in New Window", isEnabled: !worktree.isPrunable) { perform?(.openInNewWindow, item) },
             .action("Show in Finder", isEnabled: !worktree.isPrunable) { perform?(.reveal, item) },
             .action("Copy Path") { perform?(.copyPath, item) },
             .separator,

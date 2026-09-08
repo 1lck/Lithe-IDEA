@@ -33,10 +33,7 @@ struct ChangesSidebarView: View {
             tabHeader
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-            if let operation = feature.gitOperationState {
-                GitOperationBanner(feature: feature, operation: operation)
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            }
+            GitChangesOperationStatus(feature: feature, editor: feature.interactiveRebase)
 
             if let conflict = feature.pendingStashRestoreConflict {
                 if feature.isStashRestoreConflictNoticeVisible {
@@ -72,6 +69,8 @@ struct ChangesSidebarView: View {
         }
         .background(hasBackgroundImage ? Color.clear : LitheTheme.sidebar)
         .onAppear { selectRequestedStashIfNeeded() }
+        .onChange(of: draft.commitEditorRequestVersion) { _ in selectedTab = .commit }
+        .modifier(GitPatchPresentation(editor: feature.patchExchange, surface: .changes))
         .onChange(of: feature.requestedStashReference) { _ in
             selectRequestedStashIfNeeded()
         }
@@ -154,6 +153,7 @@ struct ChangesSidebarView: View {
                 .lithePointer()
             }
             Spacer()
+            GitPatchToolbar(feature: feature)
         }
         .padding(.horizontal, 10)
         .frame(height: 40)
@@ -905,6 +905,23 @@ struct ChangesSidebarView: View {
 /// Persistent banner for a merge, rebase, cherry-pick, or revert that Git stopped
 /// partway through. Deliberately not a dialog: resolving conflicts means editing
 /// files, so the controls have to stay reachable rather than block the window.
+private struct GitChangesOperationStatus: View {
+    @ObservedObject var feature: GitFeatureModel
+    @ObservedObject var editor: GitInteractiveRebaseFeatureModel
+
+    var body: some View {
+        if editor.session?.isActive == true || (editor.session != nil && feature.gitOperationState == nil) {
+            GitInteractiveRebaseStatusView(editor: editor) { name, session in
+                await feature.createHistoryRecoveryBranch(named: name, from: session)
+            }
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+        } else if let operation = feature.gitOperationState {
+            GitOperationBanner(feature: feature, operation: operation)
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+        }
+    }
+}
+
 private struct GitOperationBanner: View {
     @ObservedObject var feature: GitFeatureModel
     let operation: GitOperationState

@@ -158,7 +158,7 @@ struct GitWorktreesView: View {
             await feature.refreshWorktrees()
             selectAvailableWorktree()
         }
-        .task(id: selectedWorktree?.id) {
+        .task(id: selectedWorktree.map { WorktreeSelectionInspectionIdentity(id: $0.id, head: $0.head) }) {
             guard let worktree = selectedWorktree, !worktree.isPrunable else { return }
             await feature.inspectWorktree(worktree)
         }
@@ -250,16 +250,10 @@ struct GitWorktreesView: View {
                     repositoryRoot: repositoryRoot,
                     references: feature.gitReferences,
                     currentReference: feature.gitReferences.first(where: \.isCurrent),
+                    worktrees: feature.gitWorktrees,
                     actions: actions
-                ) { name, reference, revision, destination in
-                    Task {
-                        await feature.createWorktree(
-                            named: name,
-                            from: reference,
-                            revision: revision,
-                            at: destination
-                        )
-                    }
+                ) { request in
+                    await feature.createWorktree(request)
                 }
             }
         }
@@ -581,10 +575,15 @@ struct GitWorktreesView: View {
     private func actionCard(_ worktree: GitWorktree) -> some View {
         worktreeCard(title: "Actions") {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
-                worktreeAction("Open in Lithe", icon: "macwindow") {
-                    actions.openProject(worktree.url)
+                worktreeAction("Open in Current Window", icon: "macwindow") {
+                    (actions.openProjectInCurrentWindow ?? actions.openProject)(worktree.url)
                 }
                 .disabled(worktree.isPrunable)
+                .help(pathActionHelp(for: worktree))
+                worktreeAction("Open in New Window", icon: "macwindow.on.rectangle") {
+                    actions.openProjectInNewWindow?(worktree.url)
+                }
+                .disabled(worktree.isPrunable || actions.openProjectInNewWindow == nil)
                 .help(pathActionHelp(for: worktree))
                 worktreeAction("Show in Finder", icon: "folder") {
                     actions.reveal(worktree.url)
@@ -1074,7 +1073,9 @@ struct GitWorktreesView: View {
     ) {
         switch action {
         case .open:
-            actions.openProject(worktree.url)
+            (actions.openProjectInCurrentWindow ?? actions.openProject)(worktree.url)
+        case .openInNewWindow:
+            actions.openProjectInNewWindow?(worktree.url)
         case .reveal:
             actions.reveal(worktree.url)
         case .copyPath:
@@ -1166,6 +1167,11 @@ private struct WorktreeListProjectionIdentity: Hashable {
     let query: String
 }
 
+private struct WorktreeSelectionInspectionIdentity: Hashable {
+    let id: String
+    let head: String
+}
+
 private struct WorktreeHistoryProjectionIdentity: Hashable {
     let worktreeID: String?
     let inspectionVersion: Int
@@ -1175,160 +1181,4 @@ private struct WorktreeHistoryProjectionIdentity: Hashable {
 private struct WorktreeChangesProjectionIdentity: Hashable {
     let worktreeID: String?
     let inspectionVersion: Int
-}
-
-private struct GitWorktreeCreateView: View {
-    @Environment(\.dismiss) private var dismiss
-    let repositoryRoot: URL
-    let references: [GitReference]
-    let currentReference: GitReference?
-    let actions: GitWorktreeActions
-    let onSubmit: (String, GitReference, String?, URL) -> Void
-
-    @State private var branchName = ""
-    @State private var selectedReferenceID = ""
-    @State private var destinationPath = ""
-    @State private var destinationWasEdited = false
-    @State private var revision = ""
-    @State private var useAIWorktreeDirectory = false
-    @FocusState private var branchFieldFocused: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("New Worktree")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(LitheTheme.primaryText)
-                Text("Create an independent checkout and a new branch from the selected reference.")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(LitheTheme.secondaryText)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Start from")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                Picker("Start from", selection: $selectedReferenceID) {
-                    ForEach(references) { reference in
-                        Text(reference.shortName).tag(reference.id)
-                    }
-                }
-                .labelsHidden()
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("New branch")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                TextField("feature/my-task", text: $branchName)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($branchFieldFocused)
-                    .onChange(of: branchName) { _ in updateSuggestedDestination() }
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Checkout path")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                HStack(spacing: 8) {
-                    TextField("Worktree destination", text: destinationBinding)
-                        .textFieldStyle(.roundedBorder)
-                    Button("Choose Parent…") {
-                        guard let parent = actions.chooseParentDirectory() else { return }
-                        destinationWasEdited = true
-                        destinationPath = parent.appendingPathComponent(suggestedDirectoryName).path
-                    }
-                    .lithePointer()
-                }
-                Toggle("Use AI worktree directory (/private/tmp)", isOn: $useAIWorktreeDirectory)
-                    .toggleStyle(.checkbox)
-                    .onChange(of: useAIWorktreeDirectory) { _ in
-                        destinationWasEdited = false
-                        updateSuggestedDestination(force: true)
-                    }
-                Text("Recommended: keep worktrees in a persistent folder next to the repository. You can choose /private/tmp manually for disposable checkouts.")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(LitheTheme.tertiaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Starting commit (optional)")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                TextField("Use the selected branch tip", text: $revision)
-                    .textFieldStyle(.roundedBorder)
-                Text("Enter a commit hash to create the new branch from that exact point.")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(LitheTheme.tertiaryText)
-            }
-
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                    .lithePointer()
-                Button("Create") {
-                    guard let selectedReference else { return }
-                    onSubmit(trimmedBranchName, selectedReference, revision.isEmpty ? nil : revision, URL(fileURLWithPath: destinationPath))
-                    dismiss()
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(LitheTheme.accent)
-                .keyboardShortcut(.defaultAction)
-                .lithePointer()
-                .disabled(trimmedBranchName.isEmpty || destinationPath.isEmpty || selectedReference == nil)
-            }
-        }
-        .padding(20)
-        .frame(width: 520)
-        .background(LitheTheme.raised)
-        .onAppear {
-            selectedReferenceID = currentReference?.id ?? references.first?.id ?? ""
-            updateSuggestedDestination(force: true)
-            branchFieldFocused = true
-        }
-    }
-
-    private var selectedReference: GitReference? {
-        references.first(where: { $0.id == selectedReferenceID })
-    }
-
-    private var destinationBinding: Binding<String> {
-        Binding(
-            get: { destinationPath },
-            set: {
-                destinationPath = $0
-                destinationWasEdited = true
-            }
-        )
-    }
-
-    private var trimmedBranchName: String {
-        branchName.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var suggestedDirectoryName: String {
-        let leaf = trimmedBranchName
-            .split(separator: "/")
-            .last
-            .map(String.init) ?? "worktree"
-        let safeLeaf = leaf.map { character in
-            character.isLetter || character.isNumber || character == "-" || character == "_"
-                ? character
-                : "-"
-        }
-        return "\(repositoryRoot.lastPathComponent)-\(String(safeLeaf))"
-    }
-
-    private func updateSuggestedDestination(force: Bool = false) {
-        guard force || !destinationWasEdited else { return }
-        let parent = useAIWorktreeDirectory
-            ? URL(fileURLWithPath: "/private/tmp", isDirectory: true)
-            : repositoryRoot.deletingLastPathComponent()
-        destinationPath = parent
-            .appendingPathComponent(suggestedDirectoryName)
-            .path
-        destinationWasEdited = false
-    }
 }

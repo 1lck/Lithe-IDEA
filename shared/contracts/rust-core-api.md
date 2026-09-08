@@ -147,6 +147,11 @@ stable error code and a user-facing message:
 | `git.pullRequestContext` | Resolve worktree-aware PR branch defaults, publication state, and uncommitted-change state |
 | `git.command` | Execute one argument-based Git operation and return its arguments, streams, exit code, and ordered subprocess invocations |
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
+| `git.historyRewritePreview` | Review undo, message edit, squash, or drop with complete messages, eligibility, and an immutable checkout expectation |
+| `git.rebasePreview` | Resolve the complete local linear range strictly after a selected unchanged base |
+| `git.rebaseStart` | Start a reviewed native interactive rebase with persisted messages and recovery identity |
+| `git.rebaseSession` | Read the latest owned rebase session and distinguish edit/conflict pauses from completion |
+| `git.rebaseControl` | Continue, skip, or abort an identified session, optionally amending an edit pause |
 | `git.diff` | Produce a structured working-tree, index, reference, or commit patch |
 | `git.apply` | Apply or check a patch in `stage`, `unstage`, `discard`, or Shelf restore mode |
 | `git.history` | Return the legacy combined reference snapshot and first bounded commit page |
@@ -276,23 +281,37 @@ response retains the invocation trace and includes the failure as
 
 `git.write` accepts a typed mutation request. Its required `operation` values are
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `cherryPick`, `revert`,
-`reset`, `editCommitMessage`, `deleteCommit`, `squashCommits`, `createBranch`, `publishBranch`,
+`reset`, `undoCommit`, `editCommitMessage`, `deleteCommit`, `squashCommits`, `createBranch`, `publishBranch`,
 `renameBranch`, `setUpstream`, `unsetUpstream`, `deleteBranch`, `merge`, `rebase`, `createWorktree`,
 `removeWorktree`, `lockWorktree`, `unlockWorktree`, `repairWorktrees`, `pruneWorktrees`,
 `fetch`, `pull`, `push`, `checkout`, `checkoutAndRebase`, `checkoutRevision`, `clone`, `stashPush`,
 `stashApply`, `stashPop`, `stashDrop`, `deleteRemoteBranch`, `operationContinue`,
 `operationAbort`, `operationSkip`, `createTag`, and `deleteTag`. Optional fields are `paths`, `reference`, `referenceKind`,
 `gitReference`, `revision`, `revisions`, `name`, `message`, `remote`, `destination`, `mode`,
-`includeUntracked`, `checkout`, `amend`, `force`, `pushTags`, `expectedPush`, and `autoStash`.
+`includeUntracked`, `checkout`, `amend`, `force`, `pushTags`, `expectedPush`, `autoStash`,
+`worktreeMode`, `noCheckout`, and `expectedState`. The four history actions require the reviewed `expectedState`
+described below; earlier unreviewed history-write callers must migrate.
 
 The core validates pathspecs, revisions, branch names, references, reset modes,
 stash references, and operation-specific required fields before invoking Git.
 `setUpstream` requires a typed remote `gitReference` and passes its complete
 `refs/remotes/*` identity to Git, so a same-named local branch cannot make the
-upstream ambiguous. `createWorktree` likewise requires a typed reference; for a
-remote reference Core executes one `git worktree add --track -b` mutation using
-the complete remote ref, so branch creation, checkout, and tracking setup do not
-form separate platform-visible success states. Worktree mutations re-read Git's
+upstream ambiguous. `createWorktree` accepts `worktreeMode` values `newBranch`
+(the backward-compatible default), `existingBranch`, and `detached`.
+`newBranch` requires `name` and a typed `gitReference`, with an optional
+`revision` override. A remote base without a revision override uses one
+`git worktree add --track -b` mutation so creation and tracking have one Git
+outcome. Explicit revisions resolve to immutable OIDs and use `--no-track`;
+local and tag bases also use `--no-track`, independently of
+`branch.autoSetupMerge`. `existingBranch`
+requires a typed local branch and rejects `name` and `revision`; it passes the
+validated branch identity without `-b`, leaving Git to reject an already
+occupied branch. `detached` rejects `name` and requires a typed reference or
+`revision` (the latter takes precedence), resolves it to an immutable commit,
+and uses `--detach`. Independent `noCheckout: true` adds `--no-checkout` in
+every mode; its default is false, and legacy `checkout` does not control
+worktree file population. Examples are in
+`shared/fixtures/git/worktree-creation-v1.json`. Worktree mutations re-read Git's
 registered list and reject arbitrary paths. Removal rejects the current,
 primary, or locked worktree; dirty worktrees require an explicit `force` value.
 `repairWorktrees` refreshes administrative links after a repository or worktree
@@ -301,12 +320,13 @@ does not recursively delete an arbitrary directory.
 Successful process launch returns `{ "arguments": string[], "output": string,
 "stdout": string, "stderr": string, "exitCode": number, "invocations":
 GitCommandInvocation[], "operationError": CoreError?, "stashRestore":
-GitStashRestore?, "warnings": GitOperationWarning[] }` even when Git exits non-zero.
+GitStashRestore?, "historyRewrite": GitHistoryRewriteResult?, "warnings": GitOperationWarning[] }`
+even when Git exits non-zero.
 `GitOperationWarning` is `{ "code": string, "message": string, "details"?: string }`
 and reports a non-fatal follow-up failure after the requested mutation already
 succeeded. Platform clients must retain the successful operation outcome while
 presenting the warning. The top-level process fields
-always describe the final subprocess, and `output` is that subprocess's
+normally describe the final subprocess, and `output` is that subprocess's
 `stdout` followed by `stderr`. `invocations` records every Git subprocess for
 composite operations such as `discardAll` and Smart Checkout in execution
 order; each item contains the exact argument vector (excluding the executable
@@ -401,7 +421,76 @@ non-root commit and replays later commits; deleting HEAD resets to its parent.
 All three operations reject a dirty worktree, detached HEAD, an active Git
 operation, a target outside the current branch's first-parent chain, a rewrite
 range containing a merge commit, or any rewritten commit reachable from
-`refs/remotes`.
+`refs/remotes`. They also reject any signed commit in the affected range, so
+the existing unsigned `commit-tree` execution cannot silently strip a signature.
+Their complete messages must be UTF-8. Root-commit message edits and squash
+ranges that include the root remain supported; root deletion is rejected.
+
+`undoCommit` accepts one `revision` that must resolve to the checked-out local
+branch's HEAD with exactly one parent. It atomically moves that branch to the
+parent while preserving the index bytes and working files, including existing
+staged, unstaged, and untracked edits. It rejects root and merge commits,
+detached HEAD, unresolved conflicts, an active Git operation, and a HEAD known
+to be reachable from remote-tracking refs. Undo may preserve a signed HEAD
+because it moves a ref without reconstructing or modifying that commit object.
+
+Native interactive rebases use the dedicated preview/start/session/control
+contract in [git-rebase-session.md](git-rebase-session.md). The base selected
+for “Rebase from Here” remains unchanged; only its successors are rewritten.
+
+`git.historyRewritePreview` accepts `{ "root": string, "operation": string,
+"revisions": string[] }` for those four operations. It returns `operation`,
+`allowed`, `blockers` (`{ "code": string, "message": string }[]`), nullable
+`branch` and `head`, `selectedCommits`, `affectedCommits`, `suggestedMessage`,
+and nullable `expectedState`. Each commit has a full `hash`, `parents`, and its
+complete, untrimmed `message`; both commit lists are oldest first, independently
+of UI sorting, filtering, or pagination. Squash's suggested message combines
+all selected messages in that order. The preview permits at most 1000 affected
+commits; an out-of-range selection is explicitly blocked rather than truncated.
+`affectedCommits` covers later descendants whose OIDs change as well as the
+selection. Remote reachability uses local `refs/remotes`, including descendants;
+it is not a live server claim that a commit has never been published.
+
+An actionable preview contains `expectedState` as `{ "branch": string,
+"head": string, "stateToken": string, "operation": string, "revisions": string[] }`.
+Callers return this object unchanged in `git.write`, using its selected full
+OIDs in the normal `revision` or `revisions` fields. The optional edited
+`message` is separately validated without silently trimming its contents.
+Core normalizes subdirectory roots to the repository root. Its opaque token
+covers checkout identity and symbolic HEAD, local/remote/tag refs, exact index
+contents, working-file diffs, untracked-file contents, and active operation
+state. Core repeats eligibility and snapshot checks before preparation and
+again before the expected-OID ref update. Changed previews fail with
+`invalid_request` and a stale-preview message. Typed Git writers, including
+index patch operations, share a repository-wide in-process lease across linked
+worktrees; external Git writers remain subject to snapshot and OID checks.
+
+Before altering the branch, Core creates a persistent ref beneath
+`refs/lithe/history-recovery/` at the original HEAD. Its reflog records the
+operation, original branch and HEAD so the point remains attributable after a
+process restart. At most the newest 20 recovery refs are retained after
+successful cleanup; cleanup failure is explicit. These internal refs are
+excluded from ordinary reference lists and unfiltered Git history, including
+decorations. A host can use the recovery OID/ref with the existing `createBranch`
+operation to preserve or inspect the old history without resetting working files.
+
+After a recovery point exists, the response retains `historyRewrite` as
+`{ "operation": string, "branch": string, "originalHead": string, "newHead":
+string | null, "recoveryReference": string, "mutationApplied": boolean,
+"outcomeKnown": boolean, "worktreeRefresh": "notNeeded" | "ready" | "failed" }`.
+`newHead` is the prepared target when one exists, even if its installation failed.
+`mutationApplied` is true only after successful installation or observation;
+when interrupted outcome inspection also fails, `outcomeKnown` is false and
+the user must inspect recovery before retrying. Clients must not infer that
+nothing happened from a cancellation or generic error. Drop replays against an
+isolated index before moving the ref; replay failure leaves real checkout state
+unchanged. After a successful ref update, a guarded two-tree checkout refresh
+does not move HEAD again. Refresh failure yields `git_worktree_refresh_failed`
+while preserving `mutationApplied: true` and the recovery point. For these
+structured responses, compatibility process fields describe the authoritative
+mutation result instead of a later recovery-cleanup subprocess; diagnostics
+remain available in `invocations`, `operationError`, and `warnings`.
+The compatibility fixture is `shared/fixtures/git/history-rewrite-v1.json`.
 
 `createTag` uses `name` for the new tag, `revision` as its target commit or
 revision, and an optional `message`: when the field is present (including an

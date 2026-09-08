@@ -15,6 +15,7 @@ final class GitModuleCoordinator {
         let saveChangesPolicy: @MainActor () -> GitSaveChangesPolicy
         let operationBegan: @MainActor () -> Void
         let operationEnded: @MainActor () async -> Void
+        var commitUndone: (@MainActor (String) -> Void)? = nil
     }
 
     private let runtime: ModuleRuntime
@@ -58,6 +59,7 @@ final class GitModuleCoordinator {
 
     func configureIfNeeded(_ feature: GitFeatureModel, handlers: Handlers) {
         guard feature.gitRepositoryRoot == nil else { return }
+        feature.historyEditing.onCommitUndone = handlers.commitUndone
         feature.configure(
             workspaceURLProvider: handlers.workspaceURL,
             isGitLogVisibleProvider: handlers.gitLogVisible,

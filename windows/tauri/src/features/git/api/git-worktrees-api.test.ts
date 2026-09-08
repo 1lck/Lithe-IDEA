@@ -1,14 +1,15 @@
-import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import * as gitEvents from "../events/git-events";
 
-const invoke = mock(async (command: string): Promise<unknown> =>
-  command === "git_discover_repo" ? "C:/repo" : null,
+const invoke = mock(
+  async (command: string): Promise<unknown> => (command === "git_discover_repo" ? "C:/repo" : null),
 );
 const emitGitChanged = spyOn(gitEvents, "emitGitChanged");
 
 mock.module("@/platform/tauri-core", () => ({ invoke }));
 
-const { addWorktreeFromReference } = await import("./git-worktrees-api");
+const { addWorktreeFromReference, createWorktree, removeWorktree } =
+  await import("./git-worktrees-api");
 
 beforeEach(() => {
   invoke.mockReset();
@@ -17,6 +18,8 @@ beforeEach(() => {
   );
   emitGitChanged.mockClear();
 });
+
+afterAll(() => emitGitChanged.mockRestore());
 
 describe("Git reference worktrees", () => {
   const reference = {
@@ -73,5 +76,57 @@ describe("Git reference worktrees", () => {
       scopes: ["repository", "history", "refs"],
       source: "add-reference-worktree",
     });
+  });
+});
+
+test("existing and detached worktrees preserve independent noCheckout without synthesizing a branch", async () => {
+  await createWorktree("C:/repo", {
+    destination: "D:/linked",
+    worktreeMode: "existingBranch",
+    noCheckout: true,
+    reference: {
+      fullName: "refs/heads/topic",
+      shortName: "topic",
+      kind: "local",
+      isCurrent: false,
+      peelsToCommit: true,
+    },
+  });
+  expect(invoke).toHaveBeenLastCalledWith("git.write", {
+    root: "C:/repo",
+    operation: "createWorktree",
+    destination: "D:/linked",
+    worktreeMode: "existingBranch",
+    noCheckout: true,
+    gitReference: { fullName: "refs/heads/topic", shortName: "topic", kind: "local" },
+  });
+  await createWorktree("C:/repo", {
+    destination: "D:/detached",
+    worktreeMode: "detached",
+    noCheckout: false,
+    revision: "reviewed-commit",
+  });
+  expect(invoke).toHaveBeenLastCalledWith("git.write", {
+    root: "C:/repo",
+    operation: "createWorktree",
+    destination: "D:/detached",
+    worktreeMode: "detached",
+    noCheckout: false,
+    revision: "reviewed-commit",
+  });
+});
+
+test("worktree removal uses Core protections and propagates refusal", async () => {
+  invoke.mockImplementation(async (command: string) => {
+    if (command === "git_discover_repo") return "C:/repo";
+    if (command === "git.write") throw new Error("Worktree contains changes");
+    return null;
+  });
+  await expect(removeWorktree("C:/repo", "D:/linked")).rejects.toThrow("Worktree contains changes");
+  expect(invoke).toHaveBeenLastCalledWith("git.write", {
+    root: "C:/repo",
+    operation: "removeWorktree",
+    destination: "D:/linked",
+    force: false,
   });
 });
