@@ -7,9 +7,11 @@ export interface MybatisStatement {
   javaLine: number;
   javaColumn: number;
   javaEndLine: number;
+  javaEndColumn: number;
   xmlPath: string;
   xmlLine: number;
   xmlColumn: number;
+  xmlEndColumn: number;
 }
 
 export interface MybatisIndex {

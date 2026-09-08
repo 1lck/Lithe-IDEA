@@ -16,12 +16,17 @@ const index: MybatisIndex = {
       javaLine: 9,
       javaColumn: 10,
       javaEndLine: 12,
+      javaEndColumn: 20,
       xmlPath: "src/main/resources/mapper/UserMapper.xml",
       xmlLine: 5,
       xmlColumn: 17,
+      xmlEndColumn: 27,
     },
   ],
 };
+
+const javaFile = "C:/work/demo/src/main/java/demo/UserMapper.java";
+const xmlFile = "C:/work/demo/src/main/resources/mapper/UserMapper.xml";
 
 describe("MyBatis index path filters", () => {
   test("keeps Java and mapper XML files", () => {
@@ -46,13 +51,8 @@ describe("MyBatis index path filters", () => {
 });
 
 describe("MyBatis definition navigation", () => {
-  test("jumps from a mapper method to the XML statement", () => {
-    const locations = resolveMybatisDefinitions(
-      index,
-      ROOT,
-      "C:/work/demo/src/main/java/demo/UserMapper.java",
-      8,
-    );
+  test("jumps from a mapper method name to the XML statement", () => {
+    const locations = resolveMybatisDefinitions(index, ROOT, javaFile, 8, 9);
     expect(locations).toEqual([
       {
         filePath: "C:/work/demo/src/main/resources/mapper/UserMapper.xml",
@@ -63,25 +63,14 @@ describe("MyBatis definition navigation", () => {
     ]);
   });
 
-  test("jumps from a later line of a multi-line mapper signature", () => {
-    const locations = resolveMybatisDefinitions(
-      index,
-      ROOT,
-      "C:/work/demo/src/main/java/demo/UserMapper.java",
-      11,
-    );
-    expect(locations.map((location) => location.filePath)).toEqual([
-      "C:/work/demo/src/main/resources/mapper/UserMapper.xml",
-    ]);
+  test("keeps return-type and parameter symbols on the LSP path", () => {
+    expect(resolveMybatisDefinitions(index, ROOT, javaFile, 8, 4)).toEqual([]);
+    expect(resolveMybatisDefinitions(index, ROOT, javaFile, 8, 21)).toEqual([]);
+    expect(resolveMybatisDefinitions(index, ROOT, javaFile, 11, 9)).toEqual([]);
   });
 
-  test("jumps from an XML statement back to the mapper method", () => {
-    const locations = resolveMybatisDefinitions(
-      index,
-      ROOT,
-      "C:/work/demo/src/main/resources/mapper/UserMapper.xml",
-      4,
-    );
+  test("jumps from an XML statement id back to the mapper method", () => {
+    const locations = resolveMybatisDefinitions(index, ROOT, xmlFile, 4, 16);
     expect(locations).toEqual([
       {
         filePath: "C:/work/demo/src/main/java/demo/UserMapper.java",
@@ -90,5 +79,6 @@ describe("MyBatis definition navigation", () => {
         symbol: "selectById",
       },
     ]);
+    expect(resolveMybatisDefinitions(index, ROOT, xmlFile, 4, 4)).toEqual([]);
   });
 });

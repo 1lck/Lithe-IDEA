@@ -14,7 +14,11 @@ import LitheModuleAPI
 extension AppModel {
     func goToDefinition() {
         if let document = activeDocument, let caret = editorCaret {
-            let productLocations = productNavigationLocations(for: document.url, line: caret.line)
+            let productLocations = productNavigationLocations(
+                for: document.url,
+                line: caret.line,
+                utf16Column: caret.utf16Column
+            )
             if !productLocations.isEmpty {
                 presentGenericNavigationValues(
                     productLocations,
@@ -59,7 +63,11 @@ extension AppModel {
             line: max(0, line),
             utf16Column: max(0, utf16Column)
         )
-        let productLocations = productNavigationLocations(for: normalizedURL, line: line)
+        let productLocations = productNavigationLocations(
+            for: normalizedURL,
+            line: line,
+            utf16Column: utf16Column
+        )
         if !productLocations.isEmpty {
             presentGenericNavigationValues(
                 productLocations,
@@ -445,8 +453,16 @@ extension AppModel {
 
     /// Resolves mapper XML and Spring configuration jumps before LSP so a
     /// Mapper method does not stop on its own Java declaration.
-    private func productNavigationLocations(for url: URL, line: Int) -> [LanguageServerLocation] {
-        let mybatisLocations = mybatisFeature.navigationLocations(for: url, line: line)
+    private func productNavigationLocations(
+        for url: URL,
+        line: Int,
+        utf16Column: Int
+    ) -> [LanguageServerLocation] {
+        let mybatisLocations = mybatisFeature.navigationLocations(
+            for: url,
+            line: line,
+            utf16Column: utf16Column
+        )
         if !mybatisLocations.isEmpty { return mybatisLocations }
         return springFeature.navigationLocations(for: url, line: line)
     }

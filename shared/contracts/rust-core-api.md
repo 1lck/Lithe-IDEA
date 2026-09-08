@@ -1151,11 +1151,18 @@ the platform composition layer and is never persisted in shared results.
 Java method and a matching XML `select`/`insert`/`update`/`delete` `id`.
 Results are deterministically ordered by namespace, statement id, XML path,
 and line. Locations use relative paths and one-based lines and columns.
-`javaLine`/`javaColumn` point at the method name; `javaEndLine` covers a
-multi-line signature so a caret anywhere in that range can jump to XML.
-`xmlLine`/`xmlColumn` point at the statement `id` value. XML comments are
-ignored. Methods with a method body, including `default` methods, are omitted
-from the Java side of the index.
+`javaLine`/`javaColumn` point at the method name; `javaEndColumn` is the
+exclusive UTF-16 column after that name. `javaEndLine` is the signature
+terminator. `xmlLine`/`xmlColumn`/`xmlEndColumn` bound the statement `id`
+value the same way. Hosts intercept go-to-definition only when the caret
+is inside those name ranges; return types and parameters keep LSP
+navigation. Java methods are collected from `tree-sitter-java` syntax
+nodes, so nested generics, split signatures, and commented-out methods
+are not mistaken for declarations. XML comments are ignored. Methods with
+a method body, including `default` methods, are omitted from the Java
+side of the index. Paths are indexed only when they are regular `.java`
+or mapper `.xml` files no larger than 2 MiB; `pom.xml` and other
+extensions are skipped before content is read.
 
 `diagnostics.redactText` accepts `text` and returns `redacted` with
 credentials, tokens, and home-directory paths replaced by stable placeholders

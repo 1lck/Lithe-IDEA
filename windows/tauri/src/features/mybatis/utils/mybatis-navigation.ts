@@ -6,6 +6,22 @@ function matchesPath(indexPath: string, relativePath: string): boolean {
   return normalizePath(indexPath) === normalizePath(relativePath);
 }
 
+function containsSymbol(
+  caretLine: number,
+  caretColumn: number,
+  symbolLine: number,
+  symbolColumn: number,
+  symbolEndColumn: number,
+): boolean {
+  const oneBasedLine = caretLine + 1;
+  const oneBasedColumn = caretColumn + 1;
+  return (
+    oneBasedLine === symbolLine &&
+    oneBasedColumn >= symbolColumn &&
+    oneBasedColumn < symbolEndColumn
+  );
+}
+
 function toEditorLocation(
   root: string,
   relativePath: string,
@@ -38,17 +54,22 @@ export function resolveMybatisDefinitions(
   root: string,
   filePath: string,
   caretLine: number,
+  caretColumn: number,
 ): MybatisNavigationLocation[] {
   const relativePath = workspaceRelativeMybatisPath(filePath, root);
   if (!relativePath) return [];
-  const oneBasedLine = caretLine + 1;
 
   const fromJava = index.statements
     .filter(
       (statement) =>
         matchesPath(statement.javaPath, relativePath) &&
-        oneBasedLine >= statement.javaLine &&
-        oneBasedLine <= statement.javaEndLine,
+        containsSymbol(
+          caretLine,
+          caretColumn,
+          statement.javaLine,
+          statement.javaColumn,
+          statement.javaEndColumn,
+        ),
     )
     .map((statement) =>
       toEditorLocation(
@@ -65,7 +86,14 @@ export function resolveMybatisDefinitions(
     index.statements
       .filter(
         (statement) =>
-          matchesPath(statement.xmlPath, relativePath) && statement.xmlLine === oneBasedLine,
+          matchesPath(statement.xmlPath, relativePath) &&
+          containsSymbol(
+            caretLine,
+            caretColumn,
+            statement.xmlLine,
+            statement.xmlColumn,
+            statement.xmlEndColumn,
+          ),
       )
       .map((statement) =>
         toEditorLocation(

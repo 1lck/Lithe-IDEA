@@ -203,6 +203,7 @@ function mybatisLocationsForActiveFile(): SpringNavigationLocation[] {
     mybatisState.root,
     context.activeBuffer.path,
     context.editorState.cursorPosition.line,
+    context.editorState.cursorPosition.column,
   );
 }
 

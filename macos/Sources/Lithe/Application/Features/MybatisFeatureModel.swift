@@ -25,10 +25,11 @@ final class MybatisFeatureModel: ObservableObject {
         let currentGeneration = generation
         isIndexing = true
         let operations = self.operations
+        let indexedFiles = files.filter(MybatisIndexPaths.matches)
         let result = await Task.detached(priority: .utility) {
             operations.mybatisIndex(
                 at: workspaceURL,
-                files: files,
+                files: indexedFiles,
                 textOverrides: textOverrides
             )
         }.value ?? .empty
@@ -94,19 +95,17 @@ final class MybatisFeatureModel: ObservableObject {
         }
     }
 
-    func navigationLocations(for url: URL, line: Int) -> [LanguageServerLocation] {
+    func navigationLocations(for url: URL, line: Int, utf16Column: Int) -> [LanguageServerLocation] {
         let normalized = url.standardizedFileURL
-        let caretLine = line + 1
         let fromJava = statements.compactMap { statement -> LanguageServerLocation? in
             guard statement.javaURL.standardizedFileURL == normalized,
-                  caretLine >= statement.javaLine,
-                  caretLine <= statement.javaEndLine else { return nil }
+                  statement.matchesJavaName(line: line, utf16Column: utf16Column) else { return nil }
             return location(statement.xmlURL, line: statement.xmlLine, column: statement.xmlColumn)
         }
         if !fromJava.isEmpty { return unique(fromJava) }
         return unique(statements.compactMap { statement in
             guard statement.xmlURL.standardizedFileURL == normalized,
-                  statement.xmlLine == caretLine else { return nil }
+                  statement.matchesXmlId(line: line, utf16Column: utf16Column) else { return nil }
             return location(statement.javaURL, line: statement.javaLine, column: statement.javaColumn)
         })
     }

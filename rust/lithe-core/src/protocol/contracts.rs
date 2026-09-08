@@ -898,12 +898,16 @@ pub struct MybatisStatementResponse {
     pub java_column: usize,
     /// One-based line of the Java method signature terminator.
     pub java_end_line: usize,
+    /// Exclusive one-based UTF-16 column after the Java method name.
+    pub java_end_column: usize,
     /// Workspace-relative mapper XML path.
     pub xml_path: String,
     /// One-based line of the XML statement `id` value.
     pub xml_line: usize,
     /// One-based UTF-16 column of the XML statement `id` value.
     pub xml_column: usize,
+    /// Exclusive one-based UTF-16 column after the XML statement `id` value.
+    pub xml_end_column: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -7,20 +7,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::LazyLock;
+use tree_sitter::{Node, Parser};
 
-static PACKAGE_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?m)^\s*package\s+([A-Za-z_][\w.]*)\s*;").expect("literal pattern is valid")
-});
-static TYPE_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b(?:interface|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)")
-        .expect("literal pattern is valid")
-});
-static METHOD_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"(?:^|[\s>])(?:(?:public|protected|private|abstract|default|static|final|synchronized|native|strictfp)\s+)*(?:<[^<>]+>\s+)?(?:[\w.$]+(?:\s*<[^<>]+>)?(?:\s*\[\s*\])*)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(",
-    )
-    .expect("literal pattern is valid")
-});
 static XML_COMMENT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)<!--.*?-->").expect("literal pattern is valid"));
 static MAPPER_TAG: LazyLock<Regex> =
@@ -36,66 +24,23 @@ static ATTRIBUTE_ID: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"\bid\s*=\s*["']([^"']+)["']"#).expect("literal pattern is valid")
 });
 
-const JAVA_KEYWORDS: &[&str] = &[
-    "abstract",
-    "assert",
-    "boolean",
-    "break",
-    "byte",
-    "case",
-    "catch",
-    "char",
-    "class",
-    "const",
-    "continue",
-    "default",
-    "do",
-    "double",
-    "else",
-    "enum",
-    "extends",
-    "false",
-    "final",
-    "finally",
-    "float",
-    "for",
-    "goto",
-    "if",
-    "implements",
-    "import",
-    "instanceof",
-    "int",
-    "interface",
-    "long",
-    "native",
-    "new",
-    "null",
-    "package",
-    "private",
-    "protected",
-    "public",
-    "return",
-    "short",
-    "static",
-    "strictfp",
-    "super",
-    "switch",
-    "synchronized",
-    "this",
-    "throw",
-    "throws",
-    "transient",
-    "true",
-    "try",
-    "void",
-    "volatile",
-    "while",
-    "record",
-];
+/// Regular Java and mapper XML files stay well below this; larger dumps are skipped.
+const MAX_SOURCE_BYTES: u64 = 2 * 1024 * 1024;
 
-// Split so the English-comment checker does not treat these literals as Rust block comments.
-const JAVA_BLOCK_COMMENT_OPEN: &str = concat!("/", "*");
-const JAVA_BLOCK_COMMENT_CLOSE: &str = concat!("*", "/");
+#[cfg(test)]
+thread_local! {
+    static DISK_READS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[cfg(test)]
+pub(crate) fn take_mybatis_disk_reads() -> Vec<String> {
+    DISK_READS.with(|paths| paths.take())
+}
+
+#[cfg(test)]
+fn record_disk_read(path: &str) {
+    DISK_READS.with(|paths| paths.borrow_mut().push(path.to_string()));
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -116,13 +61,13 @@ struct JavaMethod {
     name: String,
     line: usize,
     column: usize,
+    end_column: usize,
     end_line: usize,
 }
 
 #[derive(Clone)]
 struct JavaType {
     qualified_name: String,
-    simple_name: String,
     path: String,
     methods: Vec<JavaMethod>,
 }
@@ -132,6 +77,7 @@ struct XmlStatement {
     kind: String,
     line: usize,
     column: usize,
+    end_column: usize,
 }
 
 struct XmlMapper {
@@ -149,9 +95,17 @@ pub fn mybatis_index(request: MybatisIndexRequest) -> Result<MybatisIndexRespons
         .filter_map(|path| normalize_relative(&path))
         .collect::<Vec<_>>();
 
+    let mut parser = Parser::new();
+    let java_parser = parser
+        .set_language(&tree_sitter_java::LANGUAGE.into())
+        .is_ok();
+
     let mut java_types = Vec::new();
     let mut xml_mappers = Vec::new();
     for path in &paths {
+        if !is_mybatis_source_path(path) {
+            continue;
+        }
         let Some(content) = source_content(&root, path, &request.text_overrides) else {
             continue;
         };
@@ -162,7 +116,9 @@ pub fn mybatis_index(request: MybatisIndexRequest) -> Result<MybatisIndexRespons
             .map(str::to_ascii_lowercase)
             .as_deref()
         {
-            Some("java") => java_types.extend(java_mapper_types(&relative, &content)),
+            Some("java") if java_parser => {
+                java_types.extend(java_mapper_types(&mut parser, &relative, &content));
+            }
             Some("xml") => {
                 if let Some(mapper) = xml_mapper(&relative, &content) {
                     xml_mappers.push(mapper);
@@ -211,9 +167,11 @@ pub fn mybatis_index(request: MybatisIndexRequest) -> Result<MybatisIndexRespons
                 java_line: method.line,
                 java_column: method.column,
                 java_end_line: method.end_line,
+                java_end_column: method.end_column,
                 xml_path: mapper.path.clone(),
                 xml_line: xml_statement.line,
                 xml_column: xml_statement.column,
+                xml_end_column: xml_statement.end_column,
             });
         }
     }
@@ -229,104 +187,130 @@ pub fn mybatis_index(request: MybatisIndexRequest) -> Result<MybatisIndexRespons
     Ok(MybatisIndexResponse { statements })
 }
 
-fn java_mapper_types(path: &str, source: &str) -> Vec<JavaType> {
-    let package = PACKAGE_DECLARATION
-        .captures(source)
-        .and_then(|capture| capture.get(1))
-        .map(|value| value.as_str().to_string())
-        .unwrap_or_default();
-    let lines = source.lines().collect::<Vec<_>>();
+fn java_mapper_types(parser: &mut Parser, path: &str, source: &str) -> Vec<JavaType> {
+    let Some(tree) = parser.parse(source, None) else {
+        return Vec::new();
+    };
+    let bytes = source.as_bytes();
+    let package = package_name(tree.root_node(), bytes);
     let mut types = Vec::new();
-    let mut current: Option<JavaType> = None;
-    let mut brace_depth = 0i32;
-    for (index, line) in lines.iter().enumerate() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("//")
-            || trimmed.starts_with('*')
-            || trimmed.starts_with(JAVA_BLOCK_COMMENT_OPEN)
-            || trimmed.starts_with(JAVA_BLOCK_COMMENT_CLOSE)
-        {
-            brace_depth += net_brace_delta(line);
-            continue;
-        }
-        if brace_depth == 0 {
-            if let Some(name) = TYPE_DECLARATION
-                .captures(line)
-                .and_then(|capture| capture.get(1))
-                .map(|value| value.as_str().to_string())
-            {
-                if let Some(completed) = current.take() {
-                    types.push(completed);
-                }
-                let qualified_name = if package.is_empty() {
-                    name.clone()
-                } else {
-                    format!("{package}.{name}")
-                };
-                current = Some(JavaType {
-                    qualified_name,
-                    simple_name: name,
-                    path: path.to_string(),
-                    methods: Vec::new(),
-                });
-            }
-        }
-        if brace_depth == 1 {
-            if let Some(method) = method_declaration(&lines, index) {
-                if let Some(java_type) = current.as_mut() {
-                    if method.name != java_type.simple_name
-                        && java_type
-                            .methods
-                            .iter()
-                            .all(|existing| existing.name != method.name)
-                    {
-                        java_type.methods.push(method);
-                    }
-                }
-            }
-        }
-        brace_depth = (brace_depth + net_brace_delta(line)).max(0);
-    }
-    if let Some(completed) = current.take() {
-        types.push(completed);
-    }
+    collect_types(tree.root_node(), path, &package, source, bytes, &mut types);
     types
 }
 
-fn method_declaration(lines: &[&str], start: usize) -> Option<JavaMethod> {
-    let line = lines.get(start).copied()?;
-    let capture = METHOD_DECLARATION.captures(line)?;
-    let name = capture.get(1)?.as_str();
-    if JAVA_KEYWORDS.contains(&name) {
-        return None;
+fn collect_types(
+    node: Node<'_>,
+    path: &str,
+    package: &str,
+    source: &str,
+    bytes: &[u8],
+    types: &mut Vec<JavaType>,
+) {
+    if matches!(node.kind(), "class_declaration" | "interface_declaration") {
+        if let Some(java_type) = java_type(node, path, package, source, bytes) {
+            types.push(java_type);
+        }
     }
-    let name_byte = capture.get(1)?.start();
-    let (end_line, terminator) = signature_end(lines, start)?;
-    if terminator != ';' {
-        return None;
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_types(child, path, package, source, bytes, types);
     }
-    Some(JavaMethod {
-        name: name.to_string(),
-        line: start + 1,
-        column: utf16_column(line, name_byte),
-        end_line,
+}
+
+fn java_type(
+    node: Node<'_>,
+    path: &str,
+    package: &str,
+    source: &str,
+    bytes: &[u8],
+) -> Option<JavaType> {
+    let qualified_name = qualified_type_name(node, package, bytes)?;
+    let mut methods = Vec::new();
+    if let Some(body) = node.child_by_field_name("body") {
+        collect_abstract_methods(body, source, bytes, &mut methods);
+    }
+    Some(JavaType {
+        qualified_name,
+        path: path.to_string(),
+        methods,
     })
 }
 
-fn signature_end(lines: &[&str], start: usize) -> Option<(usize, char)> {
-    let mut paren_depth = 0i32;
-    for (index, line) in lines.iter().enumerate().skip(start) {
-        for character in line.chars() {
-            match character {
-                '(' => paren_depth += 1,
-                ')' => paren_depth = (paren_depth - 1).max(0),
-                '{' if paren_depth == 0 => return Some((index + 1, '{')),
-                ';' if paren_depth == 0 => return Some((index + 1, ';')),
-                _ => {}
+fn collect_abstract_methods(
+    body: Node<'_>,
+    source: &str,
+    bytes: &[u8],
+    methods: &mut Vec<JavaMethod>,
+) {
+    let mut cursor = body.walk();
+    for child in body.children(&mut cursor) {
+        if child.kind() != "method_declaration" {
+            continue;
+        }
+        // Methods with a body, including default methods, are not XML-mapped.
+        if child.child_by_field_name("body").is_some() {
+            continue;
+        }
+        let Some(name_node) = child.child_by_field_name("name") else {
+            continue;
+        };
+        let Ok(name) = name_node.utf8_text(bytes) else {
+            continue;
+        };
+        if methods.iter().any(|existing| existing.name == name) {
+            continue;
+        }
+        let (line, column) = line_column(source, name_node.start_byte());
+        let (_, end_column) = line_column(source, name_node.end_byte());
+        let (end_line, _) = line_column(source, child.end_byte().saturating_sub(1));
+        methods.push(JavaMethod {
+            name: name.to_string(),
+            line,
+            column,
+            end_column,
+            end_line,
+        });
+    }
+}
+
+fn package_name(root: Node<'_>, bytes: &[u8]) -> String {
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        if child.kind() != "package_declaration" {
+            continue;
+        }
+        let mut inner = child.walk();
+        for part in child.children(&mut inner) {
+            if matches!(part.kind(), "identifier" | "scoped_identifier") {
+                return part.utf8_text(bytes).unwrap_or_default().to_string();
             }
         }
     }
-    None
+    String::new()
+}
+
+fn qualified_type_name(mut node: Node<'_>, package: &str, bytes: &[u8]) -> Option<String> {
+    let mut parts = Vec::new();
+    loop {
+        if matches!(node.kind(), "class_declaration" | "interface_declaration") {
+            let name = node.child_by_field_name("name")?.utf8_text(bytes).ok()?;
+            parts.push(name.to_string());
+        }
+        match node.parent() {
+            Some(parent) => node = parent,
+            None => break,
+        }
+    }
+    parts.reverse();
+    if parts.is_empty() {
+        return None;
+    }
+    let joined = parts.join(".");
+    Some(if package.is_empty() {
+        joined
+    } else {
+        format!("{package}.{joined}")
+    })
 }
 
 fn xml_mapper(path: &str, source: &str) -> Option<XmlMapper> {
@@ -371,12 +355,15 @@ fn xml_mapper(path: &str, source: &str) -> Option<XmlMapper> {
             .get(2)
             .map(|value| value.start())
             .unwrap_or(full.start());
-        let (line, column) = line_column(source, attribute_start + id_start_in_attributes);
+        let id_start = attribute_start + id_start_in_attributes;
+        let (line, column) = line_column(source, id_start);
+        let end_column = column + statement_id.encode_utf16().count();
         statements.push(XmlStatement {
             statement_id,
             kind,
             line,
             column,
+            end_column,
         });
     }
     statements.sort_by(|left, right| {
@@ -391,11 +378,35 @@ fn xml_mapper(path: &str, source: &str) -> Option<XmlMapper> {
     })
 }
 
+fn is_mybatis_source_path(path: &Path) -> bool {
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("java") => true,
+        Some("xml") => !path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .is_some_and(|name| name.eq_ignore_ascii_case("pom.xml")),
+        _ => false,
+    }
+}
+
 fn source_content(root: &Path, path: &Path, overrides: &HashMap<String, String>) -> Option<String> {
-    overrides
-        .get(&slash_path(path))
-        .cloned()
-        .or_else(|| fs::read_to_string(root.join(path)).ok())
+    let relative = slash_path(path);
+    if let Some(text) = overrides.get(&relative) {
+        return Some(text.clone());
+    }
+    let absolute = root.join(path);
+    let metadata = fs::metadata(&absolute).ok()?;
+    if !metadata.is_file() || metadata.len() > MAX_SOURCE_BYTES {
+        return None;
+    }
+    #[cfg(test)]
+    record_disk_read(&relative);
+    fs::read_to_string(absolute).ok()
 }
 
 fn existing_directory(value: &str) -> Result<PathBuf, CoreError> {
@@ -435,33 +446,6 @@ fn slash_path(path: &Path) -> String {
         .join("/")
 }
 
-fn net_brace_delta(line: &str) -> i32 {
-    let mut delta = 0i32;
-    let mut in_string = false;
-    let mut quote = '\0';
-    let mut previous = '\0';
-    for character in line.chars() {
-        if in_string {
-            if character == quote && previous != '\\' {
-                in_string = false;
-            }
-            previous = character;
-            continue;
-        }
-        match character {
-            '"' | '\'' => {
-                in_string = true;
-                quote = character;
-            }
-            '{' => delta += 1,
-            '}' => delta -= 1,
-            _ => {}
-        }
-        previous = character;
-    }
-    delta
-}
-
 fn in_ranges(ranges: &[std::ops::Range<usize>], offset: usize) -> bool {
     ranges.iter().any(|range| range.contains(&offset))
 }
@@ -475,10 +459,4 @@ fn line_column(source: &str, byte_offset: usize) -> (usize, usize) {
         .map(|value| value.encode_utf16().count() + 1)
         .unwrap_or(1);
     (line, column)
-}
-
-fn utf16_column(line: &str, byte_offset: usize) -> usize {
-    line.get(..byte_offset)
-        .map(|prefix| prefix.encode_utf16().count() + 1)
-        .unwrap_or(1)
 }

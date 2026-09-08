@@ -417,7 +417,10 @@ struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
         textOverrides: [URL: String] = [:]
     ) -> MybatisIndexResult? {
         let root = rootURL.standardizedFileURL
-        let paths = files.compactMap { workspaceRelativePath(for: $0, root: root) }
+        let paths = files.compactMap { url -> String? in
+            guard MybatisIndexPaths.matches(url) else { return nil }
+            return workspaceRelativePath(for: url, root: root)
+        }
         guard let payload = core.mybatisIndex(
             at: root,
             paths: paths,
@@ -439,9 +442,11 @@ struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
                     javaLine: value.javaLine,
                     javaColumn: value.javaColumn,
                     javaEndLine: value.javaEndLine,
+                    javaEndColumn: value.javaEndColumn,
                     xmlURL: url(value.xmlPath),
                     xmlLine: value.xmlLine,
-                    xmlColumn: value.xmlColumn
+                    xmlColumn: value.xmlColumn,
+                    xmlEndColumn: value.xmlEndColumn
                 )
             }
         )

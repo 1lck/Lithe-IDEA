@@ -541,9 +541,11 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let javaLine: Int
             let javaColumn: Int
             let javaEndLine: Int
+            let javaEndColumn: Int
             let xmlPath: String
             let xmlLine: Int
             let xmlColumn: Int
+            let xmlEndColumn: Int
         }
 
         let statements: [Statement]

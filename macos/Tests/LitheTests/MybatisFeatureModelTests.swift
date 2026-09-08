@@ -16,12 +16,40 @@ struct MybatisFeatureModelTests {
         )))
         await feature.load(workspaceURL: root, files: [javaURL, xmlURL])
 
-        let location = try #require(feature.navigationLocations(for: javaURL, line: 8).first)
+        let location = try #require(
+            feature.navigationLocations(for: javaURL, line: 8, utf16Column: 9).first
+        )
         #expect(location.url == xmlURL)
         #expect(location.range.start.line == 4)
         #expect(location.range.start.utf16Column == 16)
         #expect(feature.handles(javaURL))
         #expect(feature.handles(xmlURL))
+    }
+
+    @Test
+    func mapperReturnTypeAndParameterKeepLanguageServerNavigation() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let javaURL = root.appendingPathComponent("UserMapper.java")
+        let xmlURL = root.appendingPathComponent("UserMapper.xml")
+        let feature = MybatisFeatureModel(operations: MybatisTestOperations(result: index(
+            javaURL: javaURL,
+            xmlURL: xmlURL,
+            javaLine: 9,
+            javaColumn: 10,
+            javaEndColumn: 14,
+            xmlLine: 5,
+            xmlColumn: 17,
+            xmlEndColumn: 21
+        )))
+        await feature.load(workspaceURL: root, files: [javaURL, xmlURL])
+
+        #expect(feature.navigationLocations(for: javaURL, line: 8, utf16Column: 4).isEmpty)
+        #expect(feature.navigationLocations(for: javaURL, line: 8, utf16Column: 16).isEmpty)
+        #expect(feature.navigationLocations(for: javaURL, line: 11, utf16Column: 9).isEmpty)
+        let location = try #require(
+            feature.navigationLocations(for: javaURL, line: 8, utf16Column: 9).first
+        )
+        #expect(location.url == xmlURL)
     }
 
     @Test
@@ -35,36 +63,27 @@ struct MybatisFeatureModelTests {
         )))
         await feature.load(workspaceURL: root, files: [javaURL, xmlURL])
 
-        let location = try #require(feature.navigationLocations(for: xmlURL, line: 4).first)
+        let location = try #require(
+            feature.navigationLocations(for: xmlURL, line: 4, utf16Column: 16).first
+        )
         #expect(location.url == javaURL)
         #expect(location.range.start.line == 8)
         #expect(location.range.start.utf16Column == 9)
+        #expect(feature.navigationLocations(for: xmlURL, line: 4, utf16Column: 4).isEmpty)
     }
 
     @Test
-    func multilineMapperSignatureStillNavigatesFromLaterLines() async throws {
+    func loadDropsUnrelatedProjectFilesBeforeIndexing() async throws {
         let root = URL(fileURLWithPath: "/workspace")
         let javaURL = root.appendingPathComponent("UserMapper.java")
         let xmlURL = root.appendingPathComponent("UserMapper.xml")
-        let feature = MybatisFeatureModel(operations: MybatisTestOperations(result: MybatisIndexResult(
-            statements: [MybatisStatement(
-                id: "selectById",
-                namespace: "demo.UserMapper",
-                statementID: "selectById",
-                kind: "select",
-                javaURL: javaURL,
-                javaLine: 9,
-                javaColumn: 10,
-                javaEndLine: 12,
-                xmlURL: xmlURL,
-                xmlLine: 5,
-                xmlColumn: 17
-            )]
-        )))
-        await feature.load(workspaceURL: root, files: [javaURL, xmlURL])
+        let sqlURL = root.appendingPathComponent("dump.sql")
+        let pomURL = root.appendingPathComponent("pom.xml")
+        let operations = MybatisTestOperations(result: index(javaURL: javaURL, xmlURL: xmlURL))
+        let feature = MybatisFeatureModel(operations: operations)
+        await feature.load(workspaceURL: root, files: [sqlURL, pomURL, javaURL, xmlURL])
 
-        let location = try #require(feature.navigationLocations(for: javaURL, line: 11).first)
-        #expect(location.url == xmlURL)
+        #expect(operations.requestedFiles == [[javaURL, xmlURL]])
     }
 
     /// Opening a workspace must not wait for mapper indexing.
@@ -116,7 +135,16 @@ struct MybatisFeatureModelTests {
     }
 }
 
-private func index(javaURL: URL, xmlURL: URL) -> MybatisIndexResult {
+private func index(
+    javaURL: URL,
+    xmlURL: URL,
+    javaLine: Int = 9,
+    javaColumn: Int = 10,
+    javaEndColumn: Int = 20,
+    xmlLine: Int = 5,
+    xmlColumn: Int = 17,
+    xmlEndColumn: Int = 27
+) -> MybatisIndexResult {
     MybatisIndexResult(
         statements: [MybatisStatement(
             id: javaURL.lastPathComponent,
@@ -124,12 +152,14 @@ private func index(javaURL: URL, xmlURL: URL) -> MybatisIndexResult {
             statementID: "selectById",
             kind: "select",
             javaURL: javaURL,
-            javaLine: 9,
-            javaColumn: 10,
-            javaEndLine: 9,
+            javaLine: javaLine,
+            javaColumn: javaColumn,
+            javaEndLine: javaLine,
+            javaEndColumn: javaEndColumn,
             xmlURL: xmlURL,
-            xmlLine: 5,
-            xmlColumn: 17
+            xmlLine: xmlLine,
+            xmlColumn: xmlColumn,
+            xmlEndColumn: xmlEndColumn
         )]
     )
 }

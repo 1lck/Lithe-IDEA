@@ -97,12 +97,15 @@ public interface UserMapper {
     );
     assert_eq!(select["javaLine"], 9);
     assert_eq!(select["javaColumn"], 10);
+    assert_eq!(select["javaEndColumn"], 20);
     assert_eq!(select["javaEndLine"], 9);
     assert_eq!(
         select["xmlPath"],
         "src/main/resources/mapper/UserMapper.xml"
     );
     assert_eq!(select["xmlLine"], 5);
+    assert_eq!(select["xmlColumn"], 17);
+    assert_eq!(select["xmlEndColumn"], 27);
     let insert = statements
         .iter()
         .find(|value| value["statementId"] == "insert")
@@ -113,6 +116,7 @@ public interface UserMapper {
         .find(|value| value["statementId"] == "updateById")
         .expect("updateById should be indexed");
     assert_eq!(update["javaLine"], 21);
+    assert_eq!(update["javaEndColumn"], 20);
     assert_eq!(update["javaEndLine"], 24);
 
     fs::remove_dir_all(root).expect("MyBatis fixture should be removable");
@@ -152,6 +156,159 @@ fn mybatis_index_uses_text_overrides_before_disk() {
         .expect("statements should be an array");
     assert_eq!(statements.len(), 1, "{statements:?}");
     assert_eq!(statements[0]["statementId"], "find");
+
+    fs::remove_dir_all(root).expect("MyBatis fixture should be removable");
+}
+
+#[test]
+fn mybatis_index_pairs_nested_generic_and_split_signatures() {
+    let root = temporary_root("mybatis-nested-generic");
+    fs::create_dir_all(&root).expect("MyBatis fixture directory should be creatable");
+    fs::write(
+        root.join("UserMapper.java"),
+        r#"package demo;
+public interface UserMapper {
+    List<Map<String, Object>> find();
+
+    List<Map<String, Object>>
+    splitFind();
+}
+"#,
+    )
+    .expect("mapper interface fixture should be writable");
+    fs::write(
+        root.join("UserMapper.xml"),
+        r#"<mapper namespace="demo.UserMapper">
+    <select id="find">SELECT 1</select>
+    <select id="splitFind">SELECT 2</select>
+</mapper>
+"#,
+    )
+    .expect("mapper XML fixture should be writable");
+
+    let response = execute_mybatis(
+        &root,
+        &["UserMapper.java", "UserMapper.xml"],
+        serde_json::json!({}),
+    );
+    assert_eq!(response["ok"], true, "{response}");
+    let statements = response["data"]["statements"]
+        .as_array()
+        .expect("statements should be an array");
+    let find = statements
+        .iter()
+        .find(|value| value["statementId"] == "find")
+        .expect("nested generic find should be indexed");
+    assert_eq!(find["javaLine"], 3);
+    assert_eq!(find["javaColumn"], 31);
+    assert_eq!(find["javaEndColumn"], 35);
+    let split = statements
+        .iter()
+        .find(|value| value["statementId"] == "splitFind")
+        .expect("split signature should be indexed");
+    assert_eq!(split["javaLine"], 6);
+    assert_eq!(split["javaColumn"], 5);
+    assert_eq!(split["javaEndColumn"], 14);
+
+    fs::remove_dir_all(root).expect("MyBatis fixture should be removable");
+}
+
+/// Commented-out signatures must not steal the real method location, including
+/// when the comment contains braces that a line scanner would treat as scope.
+#[test]
+fn mybatis_index_ignores_methods_inside_comments() {
+    let root = temporary_root("mybatis-commented-method");
+    fs::create_dir_all(&root).expect("MyBatis fixture directory should be creatable");
+    fs::write(
+        root.join("UserMapper.java"),
+        [
+            "package demo;\npublic interface UserMapper {\n    ",
+            "/",
+            "*\n    User find();\n    *",
+            "/\n    User find();\n\n    // {\n    User listed();\n}\n",
+        ]
+        .concat(),
+    )
+    .expect("mapper interface fixture should be writable");
+    fs::write(
+        root.join("UserMapper.xml"),
+        r#"<mapper namespace="demo.UserMapper">
+    <select id="find">SELECT 1</select>
+    <select id="listed">SELECT 2</select>
+</mapper>
+"#,
+    )
+    .expect("mapper XML fixture should be writable");
+
+    let response = execute_mybatis(
+        &root,
+        &["UserMapper.java", "UserMapper.xml"],
+        serde_json::json!({}),
+    );
+    assert_eq!(response["ok"], true, "{response}");
+    let statements = response["data"]["statements"]
+        .as_array()
+        .expect("statements should be an array");
+    let find = statements
+        .iter()
+        .find(|value| value["statementId"] == "find")
+        .expect("real find should be indexed");
+    assert_eq!(find["javaLine"], 6);
+    let listed = statements
+        .iter()
+        .find(|value| value["statementId"] == "listed")
+        .expect("method after a brace comment should be indexed");
+    assert_eq!(listed["javaLine"], 9);
+
+    fs::remove_dir_all(root).expect("MyBatis fixture should be removable");
+}
+
+#[test]
+fn mybatis_index_skips_unrelated_and_oversized_files_before_reading() {
+    let _ = crate::languages::take_mybatis_disk_reads();
+    let root = temporary_root("mybatis-skip-reads");
+    fs::create_dir_all(&root).expect("MyBatis fixture directory should be creatable");
+    fs::write(
+        root.join("UserMapper.java"),
+        "package demo;\npublic interface UserMapper {\n    User find();\n}\n",
+    )
+    .expect("mapper interface fixture should be writable");
+    fs::write(
+        root.join("UserMapper.xml"),
+        r#"<mapper namespace="demo.UserMapper"><select id="find">SELECT 1</select></mapper>"#,
+    )
+    .expect("mapper XML fixture should be writable");
+    fs::write(root.join("dump.sql"), "SELECT 1;\n".repeat(8 * 1024))
+        .expect("unrelated SQL dump should be writable");
+    fs::write(root.join("pom.xml"), "<project></project>").expect("pom should be writable");
+    let oversized = vec![b'a'; 2 * 1024 * 1024 + 1];
+    fs::write(root.join("Huge.java"), oversized).expect("oversized Java file should be writable");
+
+    let response = execute_mybatis(
+        &root,
+        &[
+            "dump.sql",
+            "pom.xml",
+            "Huge.java",
+            "UserMapper.java",
+            "UserMapper.xml",
+        ],
+        serde_json::json!({}),
+    );
+    assert_eq!(response["ok"], true, "{response}");
+    let statements = response["data"]["statements"]
+        .as_array()
+        .expect("statements should be an array");
+    assert_eq!(statements.len(), 1, "{statements:?}");
+    assert_eq!(statements[0]["statementId"], "find");
+
+    let mut reads = crate::languages::take_mybatis_disk_reads();
+    reads.sort();
+    assert_eq!(
+        reads,
+        vec!["UserMapper.java".to_string(), "UserMapper.xml".to_string()],
+        "{reads:?}"
+    );
 
     fs::remove_dir_all(root).expect("MyBatis fixture should be removable");
 }
