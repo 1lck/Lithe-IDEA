@@ -22,6 +22,7 @@ describe("run configuration mapping", () => {
       provider: "spring-boot.maven",
       execution: "service",
       source: "generated",
+      debug: { adapter: "jdwp" },
       extensions: {
         maven: {
           module: ".",
@@ -34,6 +35,7 @@ describe("run configuration mapping", () => {
     expect(configuration.kindTitle).toBe("Spring Boot");
     expect(configuration.execution).toBe("service");
     expect(configuration.mainClass).toBe("com.example.demo.DemoApplication");
+    expect(configuration.debugAdapter).toBe("jdwp");
     expect(configuration.modulePath).toBeUndefined();
     expect(configuration.mavenSkipTests).toBe(false);
   });

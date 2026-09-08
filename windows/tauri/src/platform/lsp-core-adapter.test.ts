@@ -24,6 +24,7 @@ const TauriEvent = {
   DRAG_LEAVE: "tauri://drag-leave",
 } as const;
 const frontendTrace = mock(() => undefined);
+const cancelCoreOperation = mock(async () => false);
 const commands: string[] = [];
 let scenario:
   | "capabilities"
@@ -318,7 +319,7 @@ const executeCore = mock(
 );
 
 mock.module("@tauri-apps/api/event", () => ({ emit, emitTo, listen, once, TauriEvent }));
-mock.module("@/core/lithe-core-client", () => ({ executeCore }));
+mock.module("@/core/lithe-core-client", () => ({ cancelCoreOperation, executeCore }));
 mock.module("@/utils/frontend-trace", () => ({ frontendTrace }));
 
 const {
@@ -527,6 +528,47 @@ describe("Rust Core LSP adapter failures", () => {
     expect(
       getLspWorkspaceSessionSnapshot({ workspacePath: "C:/work", languageId: "java" }),
     ).toBeNull();
+  });
+
+  test("starts the Java Debug Server through the ready workspace session", async () => {
+    scenario = "semantic-request";
+    semanticRequestResult = { value: "5005" };
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    const port = await invokeLsp<number>("java_start_debug_session", {
+      workspacePath: "C:\\work",
+    });
+
+    expect(port).toBe(5005);
+    expect(requestPayload).toEqual({
+      sessionId: "java-session",
+      operation: "executeCommand",
+      command: {
+        title: "Start Java Debug Server",
+        command: "vscode.java.startDebugSession",
+        arguments: [],
+      },
+    });
+  });
+
+  test("rejects an invalid Java Debug Server port", async () => {
+    scenario = "semantic-request";
+    semanticRequestResult = { value: true };
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    await expect(
+      invokeLsp("java_start_debug_session", { workspacePath: "C:/work" }),
+    ).rejects.toThrow("invalid debug-server port");
   });
 
   test("projects readiness changes consumed by the long-lived event pump", async () => {

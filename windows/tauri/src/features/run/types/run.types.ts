@@ -35,6 +35,7 @@ export interface RunConfiguration {
   mavenExecutablePath: string;
   mavenJavaHomePath: string;
   toolchains: Record<string, string>;
+  debugAdapter?: string;
   source: RunConfigurationSource;
   disabled: boolean;
 }
@@ -137,6 +138,9 @@ export interface CoreResolvedConfiguration {
   toolchains?: Record<string, string>;
   source?: string;
   disabled?: boolean;
+  debug?: {
+    adapter?: string;
+  };
   extensions?: {
     maven?: {
       module?: string;

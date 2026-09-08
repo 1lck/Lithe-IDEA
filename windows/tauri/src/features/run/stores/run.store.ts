@@ -87,7 +87,11 @@ interface RunState {
     generate: (root: string) => Promise<void>;
     selectConfiguration: (id: string | null) => void;
     selectSession: (id: string | null) => void;
-    runConfiguration: (id: string, currentFile?: string) => Promise<void>;
+    runConfiguration: (
+      id: string,
+      currentFile?: string,
+      debugPort?: number,
+    ) => Promise<string | null>;
     stop: (sessionId?: string) => Promise<void>;
     clearOutput: (sessionId?: string) => void;
     saveEditorChanges: (
@@ -396,11 +400,11 @@ export const createRunStore = (
       selectConfiguration: (id) => set({ selectedConfigurationId: id, selectedSessionId: id }),
       selectSession: (id) => set({ selectedSessionId: id }),
 
-      runConfiguration: async (id, currentFile) => {
+      runConfiguration: async (id, currentFile, debugPort) => {
         const state = get();
         const root = state.root;
         const configuration = state.configurations.find((item) => item.id === id);
-        if (!root || !configuration) return;
+        if (!root || !configuration) return null;
         const blocking = blockingToolchainDiagnosticForConfiguration(
           state.diagnostics,
           configuration.id,
@@ -411,7 +415,7 @@ export const createRunStore = (
             primaryRunning: false,
             primaryExitCode: 1,
           });
-          return;
+          return null;
         }
         if (configuration.id === CURRENT_FILE_ID && !currentFile) {
           set({
@@ -421,7 +425,7 @@ export const createRunStore = (
             primaryRunning: false,
             primaryExitCode: 1,
           });
-          return;
+          return null;
         }
         const sessionId =
           configuration.execution === "service" ? configuration.id : PRIMARY_SESSION_ID;
@@ -438,6 +442,7 @@ export const createRunStore = (
             configuration.id,
             currentFile,
             mavenContext,
+            debugPort,
           );
           const resolved = await dependencies.resolveRunLaunch({
             root,
@@ -482,6 +487,7 @@ export const createRunStore = (
             workingDirectory: resolved.workingDirectory,
             environment: resolved.environment,
           });
+          return sessionId;
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "Unable to start the run configuration.";
@@ -514,6 +520,7 @@ export const createRunStore = (
               };
             });
           }
+          return null;
         }
       },
 
