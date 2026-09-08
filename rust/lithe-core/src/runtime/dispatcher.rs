@@ -5,6 +5,7 @@ use crate::community::{
     DiscourseCategoriesRequest, DiscourseRevokeRequest, DiscourseSearchRequest,
     DiscourseTopicRequest, DiscourseTopicsRequest,
 };
+use crate::diagnostics::{BuildManifestRequest, RedactTextRequest};
 use crate::git::{
     self, GitApplyRequest, GitBlameRequest, GitCheckoutPreflightRequest, GitCommandRequest,
     GitCommitFilesRequest, GitCommitRequest, GitComparisonRequest, GitConflictMarkerRequest,
@@ -12,6 +13,7 @@ use crate::git::{
     GitIntegrationPreflightRequest, GitOperationStateRequest, GitPullPreflightRequest,
     GitPullRequestContextRequest, GitPushPreviewRequest, GitReferencesRequest, GitStashesRequest,
     GitStatusRequest, GitWatchContextRequest, GitWorktreesRequest, GitWriteRequest,
+    WorkspaceRepositoriesRequest,
 };
 use crate::github::{NormalizeResponseRequest, ParseRemoteRequest, RequestPlanRequest};
 use crate::languages::{
@@ -217,6 +219,24 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("snapshot should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::WorkspaceRepositories => {
+            match serde_json::from_value::<WorkspaceRepositoriesRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid workspace repositories request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::workspace_repositories)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("workspace repositories should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }
@@ -1850,6 +1870,38 @@ fn execute(request: &str) -> CoreResponse {
                 .and_then(crate::github::normalize_response)
             {
                 Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DiagnosticsRedactText => {
+            match serde_json::from_value::<RedactTextRequest>(parsed.payload).map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid diagnostics redact request",
+                )
+                .with_details(error.to_string())
+            }) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::diagnostics::redact_text(request))
+                        .expect("Diagnostics redact response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DiagnosticsBuildManifest => {
+            match serde_json::from_value::<BuildManifestRequest>(parsed.payload).map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid diagnostics manifest request",
+                )
+                .with_details(error.to_string())
+            }) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::diagnostics::build_manifest(request))
+                        .expect("Diagnostics manifest response should encode"),
+                ),
                 Err(error) => CoreResponse::failure(id, error),
             }
         }

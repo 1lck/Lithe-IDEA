@@ -506,11 +506,18 @@ struct RunEntryPointTests {
             model.pendingRunAction == nil,
             "a discarded task must not record a pending action either"
         )
-        #expect(
+        // The discarded task completes on the run service's utility queue. Wait
+        // for its final publication before asserting the current inventory so a
+        // slow CI worker cannot observe the brief transition while that task is
+        // unwinding after its generation check.
+        let currentInventorySurvived = await awaitChange(on: model, timeout: .seconds(1)) {
             model.runFeatureIfActive?.isProjectReady(
                 for: workspace.root,
                 snapshotID: currentSnapshotID
-            ) == true,
+            ) == true
+        }
+        #expect(
+            currentInventorySurvived,
             "the current opening's inventory must survive the discarded task"
         )
     }

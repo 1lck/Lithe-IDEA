@@ -4,23 +4,29 @@ import {
   getWorkingTreePathDiff,
 } from "../api/git-diff-api";
 import type { GitDiff, GitFile } from "../types/git.types";
+import {
+  getGitFileOriginalRepositoryRelativePath,
+  getGitFileRepositoryRelativePath,
+} from "../utils/git-status-selection";
 
 export async function loadWorkingTreeFileDiff(
   repoPath: string,
   file: GitFile,
   wholePathSnapshot = false,
 ): Promise<GitDiff | null> {
+  const filePath = getGitFileRepositoryRelativePath(file);
+  const originalPath = getGitFileOriginalRepositoryRelativePath(file);
   if (wholePathSnapshot) {
     return getWorkingTreePathDiff(
       repoPath,
-      file.path,
+      filePath,
       file.status === "untracked",
-      file.originalPath,
+      originalPath,
     );
   }
   if (file.status !== "untracked" || file.staged) {
-    return getFileDiff(repoPath, file.path, file.staged);
+    return getFileDiff(repoPath, filePath, file.staged);
   }
 
-  return getUntrackedFileDiff(repoPath, file.path);
+  return getUntrackedFileDiff(repoPath, filePath);
 }

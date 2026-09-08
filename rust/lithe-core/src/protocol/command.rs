@@ -47,6 +47,8 @@ pub enum CoreCommand {
     CommunityDiscourseAuthRevoke,
     /// Builds the visible project tree (`workspace.snapshot`).
     WorkspaceSnapshot,
+    /// Finds Git repositories that belong to an opened workspace (`workspace.repositories`).
+    WorkspaceRepositories,
     /// Builds or reuses the workspace search index (`workspace.searchIndex.warm`).
     WorkspaceSearchIndexWarm,
     /// Applies changed paths to the search index (`workspace.searchIndex.update`).
@@ -247,6 +249,10 @@ pub enum CoreCommand {
     GitHubRequestPlan,
     /// Normalizes a GitHub HTTP response into the shared contract (`github.normalizeResponse`).
     GitHubNormalizeResponse,
+    /// Redacts credentials, tokens, and home-directory paths from diagnostic text (`diagnostics.redactText`).
+    DiagnosticsRedactText,
+    /// Shapes a deterministic diagnostic bundle manifest from host-gathered facts (`diagnostics.buildManifest`).
+    DiagnosticsBuildManifest,
 }
 
 impl CoreCommand {
@@ -263,6 +269,7 @@ impl CoreCommand {
             "community.discourse.search" => Some(Self::CommunityDiscourseSearch),
             "community.discourse.auth.revoke" => Some(Self::CommunityDiscourseAuthRevoke),
             "workspace.snapshot" => Some(Self::WorkspaceSnapshot),
+            "workspace.repositories" => Some(Self::WorkspaceRepositories),
             "workspace.searchIndex.warm" => Some(Self::WorkspaceSearchIndexWarm),
             "workspace.searchIndex.update" => Some(Self::WorkspaceSearchIndexUpdate),
             "workspace.searchIndex.invalidate" => Some(Self::WorkspaceSearchIndexInvalidate),
@@ -363,6 +370,8 @@ impl CoreCommand {
             "github.parseRemote" => Some(Self::GitHubParseRemote),
             "github.requestPlan" => Some(Self::GitHubRequestPlan),
             "github.normalizeResponse" => Some(Self::GitHubNormalizeResponse),
+            "diagnostics.redactText" => Some(Self::DiagnosticsRedactText),
+            "diagnostics.buildManifest" => Some(Self::DiagnosticsBuildManifest),
             _ => None,
         }
     }
@@ -441,6 +450,14 @@ mod tests {
         assert!(matches!(
             CoreCommand::parse("git.pushPreview"),
             Some(CoreCommand::GitPushPreview)
+        ));
+    }
+
+    #[test]
+    fn parses_workspace_repositories_command() {
+        assert!(matches!(
+            CoreCommand::parse("workspace.repositories"),
+            Some(CoreCommand::WorkspaceRepositories)
         ));
     }
 }

@@ -28,6 +28,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"
 sha2 = "0.10"
+sysinfo = "0.32"
+zip = { version = "2.4", default-features = false, features = ["deflate"] }
 tauri = { version = "2", features = ["common-controls-v6", "protocol-asset"] }
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-deep-link = "2"

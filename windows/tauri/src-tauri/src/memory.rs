@@ -30,6 +30,13 @@ pub async fn get_application_memory_usage(
     result
 }
 
+/// Returns the current process's private working set, the same RSS-equivalent
+/// figure `get_application_memory_usage` reports for the Lithe process alone,
+/// for reuse by diagnostic-bundle environment snapshots.
+pub(crate) fn current_process_bytes() -> Result<u64, String> {
+    platform::application_memory_usage().map(|usage| usage.lithe_bytes)
+}
+
 fn record_sampling_failure_once(log_manager: &LogManager, error: &str) {
     if !take_sampling_warning_slot(&MEMORY_SAMPLING_WARNING_RECORDED) {
         return;

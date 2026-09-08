@@ -67,6 +67,7 @@ stable error code and a user-facing message:
 | `community.discourse.categories` | List normalized visible categories |
 | `community.discourse.search` | Search normalized topics and sanitized posts |
 | `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths |
+| `workspace.repositories` | Discover deterministic Git repository roots for an opened workspace |
 | `workspace.search` | Search visible file names and UTF-8 text files |
 | `workspace.searchEverywhere` | Search visible file names, Java types/methods, and UTF-8 text files |
 | `workspace.replacePreview` | Return deterministic replacement lines and complete replacement text |
@@ -165,12 +166,26 @@ stable error code and a user-facing message:
 | `github.parseRemote` | Parse a canonical GitHub HTTPS or SSH remote into owner/name |
 | `github.requestPlan` | Validate one GitHub operation and produce a trusted platform HTTP request plan |
 | `github.normalizeResponse` | Normalize raw GitHub JSON and HTTP status into deterministic data or a stable error |
+| `diagnostics.redactText` | Redact credentials, tokens, and home-directory paths from diagnostic-bundle text |
+| `diagnostics.buildManifest` | Shape a deterministic diagnostic bundle manifest from host-gathered environment and file facts |
 
 Workspace paths in responses are relative and use `/` separators. Line numbers
 are one-based. `git.status.repositoryRoot` may be an absolute path when the
 opened workspace is a subdirectory of the repository; all Git change paths are
 relative to that repository root. `git.status.ahead` and `behind` report the
 current branch's tracking counts and are zero when no upstream is configured.
+`workspace.repositories.repositories` is ordered with the containing workspace
+repository first when present, then repositories under the opened workspace by
+workspace containment, depth, and path. Each entry contains an absolute native
+`path` because repository roots are platform boundary values and may be outside
+the opened folder when the folder is nested inside a checkout. Core treats both
+`.git` directories and `.git` files as repository markers. The default traversal
+visits the entire workspace tree, including build and dependency folders, and
+continues below discovered repositories. Git metadata itself is not traversed.
+Symbolic directory links are not followed, preventing cycles and traversal
+outside the workspace. Callers may explicitly supply `maxDirectories` and
+`maxDepth` to request a bounded scan; product consumers omit these limits.
+Traversal checks cancellation between directories and entries.
 `git.worktrees.worktrees` is ordered with the primary worktree first and then
 by path. Each entry contains `path`, `head`, nullable `branch`, `isCurrent`,
 `isPrimary`, `isBare`, `isDetached`, `isLocked`, nullable `lockReason`,
@@ -815,9 +830,15 @@ only the current workspace/fingerprint directory; they do not clear sibling
 workspaces or older structural states.
 
 `java.workspacePolicy` accepts `workspacePaths` and `changedPaths` as
-workspace-relative paths. It starts Java tooling when any non-ignored `.java`
-source exists, regardless of Maven or Gradle metadata, chooses one deterministic
-representative source, and classifies changes as `ignored`, `source`,
+workspace-relative paths. It starts Java tooling when a non-ignored `.java`
+source exists and the workspace shows evidence of being a Java project: a build
+descriptor (`pom.xml`, `build.gradle[.kts]`, `settings.gradle[.kts]`, a Maven or
+Gradle wrapper) no more than two directories below the root, or a `.java` source
+no more than two directories below the root for projects that have no build
+system. A Java sample or fixture checked into a repository of another ecosystem
+therefore does not activate Java tooling; hosts still start a language server on
+demand when the user opens a `.java` file. The command chooses one deterministic
+representative source and classifies changes as `ignored`, `source`,
 `buildConfiguration`, or `other`. The compatibility examples are in
 `shared/fixtures/lsp/java-workspace-policy-v1.json`.
 
@@ -1135,3 +1156,21 @@ Dependency metadata is cached in the Rust process. Project-open indexing sets
 it `false`, so editing Java or configuration files does not repeatedly traverse
 and open the local dependency repository. The repository path is selected by
 the platform composition layer and is never persisted in shared results.
+
+`diagnostics.redactText` accepts `text` and returns `redacted` with
+credentials, tokens, and home-directory paths replaced by stable placeholders
+(`<redacted>` for secrets, `<HOME>` for a macOS/Linux `Users`/`home` path or a
+Windows drive-letter `Users` path). Hosts run every diagnostic-bundle log
+line, panic report, and other free-form text through this command before it
+is staged for export; the command never reads the filesystem itself.
+Re-running it over already-redacted text is a no-op.
+
+`diagnostics.buildManifest` accepts an `environment` object
+(`appVersion`, `osName`, `osVersion`, `cpuCoreCount`, `memoryRssBytes`,
+`diskFreeBytes`), a `files` array of already-staged, already-redacted entries
+(`relativePath`, `sizeBytes`, `description`), and
+`generatedAtEpochMilliseconds`. It returns a `schemaVersion`ed manifest with
+`files` sorted by `relativePath` so the listing shown to the user before they
+confirm a diagnostic export — and the zip's contents — are deterministic
+across runs and across platforms. Hosts gather the environment and file facts
+natively; this command only shapes and sorts them.
