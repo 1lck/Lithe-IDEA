@@ -285,7 +285,7 @@ struct MavenView: View {
         return AnyView(
             treeNode(
                 id: nodeID,
-                title: "Source Roots",
+                title: dependencyLocalization.text("Source Roots"),
                 systemImage: "folder",
                 onLabelAction: { toggleNode(nodeID) }
             ) {
@@ -493,7 +493,7 @@ struct MavenView: View {
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(1)
             Spacer(minLength: 0)
-            Text(sourceRoot.kind.title)
+            Text(dependencyLocalization.text(sourceRoot.kind.title))
                 .font(.system(size: 10))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .lineLimit(1)

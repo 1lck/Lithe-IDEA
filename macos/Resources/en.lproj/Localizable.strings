@@ -268,3 +268,10 @@
 "Maven dependency output exceeded the supported limit." = "Maven dependency output exceeded the supported limit.";
 "Cancel" = "Cancel";
 "Retry" = "Retry";
+"Source Roots" = "Source Roots";
+"main Java" = "main Java";
+"main resources" = "main resources";
+"test Java" = "test Java";
+"test resources" = "test resources";
+"generated main" = "generated main";
+"generated test" = "generated test";

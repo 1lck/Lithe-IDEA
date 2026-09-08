@@ -1441,3 +1441,10 @@
 "Unable to parse Maven dependencies for this module." = "无法解析此模块的 Maven 依赖。";
 "Unable to resolve Maven dependencies." = "无法解析 Maven 依赖。";
 "Maven dependency output exceeded the supported limit." = "Maven 依赖输出超出支持的大小限制。";
+"Source Roots" = "源码目录";
+"main Java" = "主代码";
+"main resources" = "主资源";
+"test Java" = "测试代码";
+"test resources" = "测试资源";
+"generated main" = "生成的主代码";
+"generated test" = "生成的测试代码";
