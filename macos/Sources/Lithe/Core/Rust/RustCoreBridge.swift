@@ -539,6 +539,26 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let endpoints: [Endpoint]
     }
 
+    struct MybatisIndexPayload: Decodable, Sendable {
+        struct Statement: Decodable, Sendable {
+            let id: String
+            let namespace: String
+            let statementId: String
+            let kind: String
+            let javaPath: String
+            let javaLine: Int
+            let javaColumn: Int
+            let javaEndLine: Int
+            let javaEndColumn: Int
+            let xmlPath: String
+            let xmlLine: Int
+            let xmlColumn: Int
+            let xmlEndColumn: Int
+        }
+
+        let statements: [Statement]
+    }
+
     struct RunConfigurationPayload: Codable, Sendable {
         struct Toolchain: Codable, Sendable {
             struct Java: Codable, Sendable { let homePath: String? }
@@ -1968,6 +1988,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let textOverrides: [String: String]
     }
 
+    private struct MybatisIndexRequest: Encodable {
+        let root: String
+        let paths: [String]
+        let textOverrides: [String: String]
+    }
+
     private struct JavaCodeVisionRequest: Encodable {
         let root: String
         let targetPath: String
@@ -2904,6 +2930,21 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                     $0.standardizedFileURL.path
                 },
                 refreshDependencyMetadata: refreshDependencyMetadata,
+                textOverrides: textOverrides
+            )
+        )
+    }
+
+    func mybatisIndex(
+        at rootURL: URL,
+        paths: [String],
+        textOverrides: [String: String] = [:]
+    ) -> MybatisIndexPayload? {
+        execute(
+            command: "mybatis.index",
+            payload: MybatisIndexRequest(
+                root: rootURL.standardizedFileURL.path,
+                paths: paths,
                 textOverrides: textOverrides
             )
         )
