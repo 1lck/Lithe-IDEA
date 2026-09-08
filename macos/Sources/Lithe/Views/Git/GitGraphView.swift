@@ -12,6 +12,25 @@ struct GitGraphRowActions {
     let onRevert: (GitCommit) -> Void
     let onReset: (GitCommit) -> Void
     let onCreateTag: (GitCommit) -> Void
+
+    func contextMenuItems(for commit: GitCommit) -> [LitheContextMenuItem] {
+        [
+            .action("Copy Commit Hash") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(commit.hash, forType: .string)
+            },
+            .action("Copy Short Hash") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(commit.shortHash, forType: .string)
+            },
+            .separator,
+            .action("New Tag…") { onCreateTag(commit) },
+            .action("Cherry-pick Commit…") { onCherryPick(commit) },
+            .action("Revert Commit…") { onRevert(commit) },
+            .action("Reset Current Branch to Here…") { onReset(commit) }
+        ]
+    }
+
 }
 
 /// Immutable graph data prepared by the log's data-refresh task. Keeping the
@@ -338,6 +357,10 @@ final class GitGraphScrollDocumentView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.control) {
+            _ = menu(for: event)
+            return
+        }
         let point = convert(event.locationInWindow, from: nil)
         if point.x < graphWidth {
             commitRowsView.select(rowIndex: Int(floor(point.y / rowHeight)))
@@ -499,6 +522,10 @@ final class GitGraphCommitRowsNSView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.control) {
+            _ = menu(for: event)
+            return
+        }
         let index = Int(floor(convert(event.locationInWindow, from: nil).y / rowHeight))
         select(rowIndex: index)
     }
@@ -510,19 +537,14 @@ final class GitGraphCommitRowsNSView: NSView {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let index = Int(floor(convert(event.locationInWindow, from: nil).y / rowHeight))
-        guard rows.indices.contains(index), let actions else { return nil }
-        let commit = rows[index].commit
-        let target = GitGraphCommitMenuTarget(commit: commit, actions: actions)
-        let menu = NSMenu()
-        menu.addItem(withTitle: String(localized: "Copy Commit Hash"), action: #selector(GitGraphCommitMenuTarget.copyHash), keyEquivalent: "")
-        menu.addItem(withTitle: String(localized: "Copy Short Hash"), action: #selector(GitGraphCommitMenuTarget.copyShortHash), keyEquivalent: "")
-        menu.addItem(.separator())
-        menu.addItem(withTitle: String(localized: "New Tag…"), action: #selector(GitGraphCommitMenuTarget.createTag), keyEquivalent: "")
-        menu.addItem(withTitle: String(localized: "Cherry-pick Commit…"), action: #selector(GitGraphCommitMenuTarget.cherryPick), keyEquivalent: "")
-        menu.addItem(withTitle: String(localized: "Revert Commit…"), action: #selector(GitGraphCommitMenuTarget.revert), keyEquivalent: "")
-        menu.addItem(withTitle: String(localized: "Reset Current Branch to Here…"), action: #selector(GitGraphCommitMenuTarget.reset), keyEquivalent: "")
-        for item in menu.items { item.target = target }
-        return menu
+        guard rows.indices.contains(index), let actions, let window else { return nil }
+        LitheContextMenuPresenter.shared.show(
+            items: actions.contextMenuItems(for: rows[index].commit),
+            at: window.convertPoint(toScreen: event.locationInWindow),
+            appearance: effectiveAppearance,
+            locale: .current
+        )
+        return nil
     }
 
     private func drawLabels(_ labels: [GitGraphLabel], in rect: CGRect, style: DrawingStyle, context: CGContext?) {
@@ -592,31 +614,6 @@ final class GitGraphCommitRowsNSView: NSView {
     }
 }
 
-private final class GitGraphCommitMenuTarget: NSObject {
-    let commit: GitCommit
-    let actions: GitGraphRowActions
-
-    init(commit: GitCommit, actions: GitGraphRowActions) {
-        self.commit = commit
-        self.actions = actions
-    }
-
-    @objc func copyHash() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(commit.hash, forType: .string)
-    }
-
-    @objc func copyShortHash() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(commit.shortHash, forType: .string)
-    }
-
-    @objc func createTag() { actions.onCreateTag(commit) }
-    @objc func cherryPick() { actions.onCherryPick(commit) }
-    @objc func revert() { actions.onRevert(commit) }
-    @objc func reset() { actions.onReset(commit) }
-}
-
 private struct GitGraphRowView: View, Equatable {
     let row: GitGraphRow
     let graphWidth: CGFloat
@@ -678,21 +675,7 @@ private struct GitGraphRowView: View, Equatable {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .contextMenu {
-            Button("Copy Commit Hash") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(row.commit.hash, forType: .string)
-            }
-            Button("Copy Short Hash") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(row.commit.shortHash, forType: .string)
-            }
-            Divider()
-            Button("New Tag…") { actions.onCreateTag(row.commit) }
-            Button("Cherry-pick Commit…") { actions.onCherryPick(row.commit) }
-            Button("Revert Commit…") { actions.onRevert(row.commit) }
-            Button("Reset Current Branch to Here…") { actions.onReset(row.commit) }
-        }
+        .litheContextMenu { actions.contextMenuItems(for: row.commit) }
     }
 
     private var backgroundColor: Color {
