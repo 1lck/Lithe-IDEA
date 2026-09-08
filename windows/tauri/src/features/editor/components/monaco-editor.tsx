@@ -963,7 +963,12 @@ export function MonacoEditor({
             return;
           }
           void definitionLinkGesture.resolveForClick(clickedPosition).then((definitionHint) => {
-            if (clickIntent !== definitionClickIntent || !definitionHint || model.isDisposed()) {
+            if (
+              clickIntent !== definitionClickIntent ||
+              !definitionHint ||
+              model.isDisposed() ||
+              !isActiveSurfaceRef.current
+            ) {
               return;
             }
             const currentPosition = editor.getPosition();

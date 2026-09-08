@@ -18,12 +18,30 @@ mock.module("monaco-editor", () => ({
 }));
 
 // The LSP client and frontend trace transitively import the Tauri API, which
-// reads `window.__TAURI_INTERNALS__` at module scope. They are only touched
-// inside the scheduler's resolve callback, which these tests never trigger, so
-// stub them to keep the unit test free of the native host.
+// reads `window.__TAURI_INTERNALS__` at module scope. Deferred promises let
+// the async-interleaving regression test control when the LSP response lands.
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => { resolve = next; });
+  return { promise, resolve };
+}
+
+// The `resolve` function inside `registerMonacoDefinitionLinkGesture` calls
+// `lspClient.getDefinition`. Stub it to return a controllable promise so the
+// async-interleaving regression test can hold the response and observe the
+// surface-deactivation check.
+let getDefinitionDeferred: { promise: Promise<unknown>; resolve: (value: unknown) => void } | null = null;
 mock.module("@/features/editor/lsp/lsp-client", () => ({
-  isDocumentFeatureAvailable: () => false,
-  LspClient: { getInstance: () => ({}) },
+  isDocumentFeatureAvailable: () => true,
+  LspClient: {
+    getInstance: () => ({
+      getDocumentAvailability: () => ({ definition: "ready" }),
+      getDefinition: () => {
+        getDefinitionDeferred = deferred<unknown>();
+        return getDefinitionDeferred.promise;
+      },
+    }),
+  },
 }));
 mock.module("@/utils/frontend-trace", () => ({
   frontendTrace: () => undefined,
@@ -137,6 +155,42 @@ describe("definition link gesture", () => {
 
     expect(gesture.enabled).toBe(false);
     expect(editor.onMouseMove).not.toHaveBeenCalled();
+
+    gesture.dispose();
+  });
+
+  test("rejects an in-flight resolveForClick when the surface becomes inactive", async () => {
+    // Regression: before the fix, `resolveForClick` did not check
+    // `isGestureActive()` after the `await`. An async click issued on tab A
+    // could land its LSP response after the user switched to tab B, and the
+    // callback would dispatch a global `editor.goToDefinition` on B's editor.
+    // Now `resolveForClick` returns null when the surface is no longer active.
+    let active = true;
+    getDefinitionDeferred = null;
+    const gesture = registerMonacoDefinitionLinkGesture({
+      editor: createStubEditor().editor,
+      model: {
+        getLanguageId: () => "java",
+        isDisposed: () => false,
+        getVersionId: () => 1,
+        getWordAtPosition: () => ({ startColumn: 1, endColumn: 5 }),
+      } as unknown as Monaco.editor.ITextModel,
+      documentTarget: javaTarget,
+      isEnabled: () => active,
+    });
+
+    // Start a click resolution while the surface is active.
+    const clickPromise = gesture.resolveForClick({ lineNumber: 1, column: 3 } as Monaco.Position);
+
+    // Deactivate the surface while the LSP request is in flight.
+    active = false;
+
+    // Let the LSP response land.
+    (getDefinitionDeferred as unknown as { resolve: (value: unknown) => void }).resolve([{ uri: "file:///target", range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } } }]);
+
+    const hint = await clickPromise;
+    // The request should be rejected because the surface is no longer active.
+    expect(hint).toBeNull();
 
     gesture.dispose();
   });

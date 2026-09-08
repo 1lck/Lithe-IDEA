@@ -295,7 +295,12 @@ export function registerMonacoDefinitionLinkGesture({
       const request = requestAtPosition(position);
       if (!request) return null;
       const result = await scheduler.resolveNow(request);
-      if (!result || model.isDisposed() || request.modelVersion !== model.getVersionId()) {
+      if (
+        !result ||
+        model.isDisposed() ||
+        request.modelVersion !== model.getVersionId() ||
+        !isGestureActive()
+      ) {
         return null;
       }
       return {
