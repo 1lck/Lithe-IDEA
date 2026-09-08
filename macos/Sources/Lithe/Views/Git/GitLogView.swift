@@ -9,6 +9,7 @@ struct GitLogNavigation {
 }
 
 struct GitLogView: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var feature: GitFeatureModel
     @ObservedObject var workbench: WorkbenchFeatureModel
     @ObservedObject var background: WorkbenchBackgroundFeatureModel
@@ -954,7 +955,7 @@ struct GitLogView: View {
         .lithePointer()
         .litheContextMenu {
             var items: [LitheContextMenuItem] = []
-            items.append(.action("New Branch from '\(reference.shortName)'…", action: {
+            items.append(.action(gitNewBranchMenuTitle(reference.shortName, locale: locale), action: {
                 branchDialogRequest = GitBranchDialogRequest(kind: .create, reference: reference)
             }))
 
@@ -2639,6 +2640,7 @@ private struct GitReferenceRowActions {
 }
 
 private struct GitReferenceRowView: View, Equatable {
+    @Environment(\.locale) private var locale
     let row: GitReferenceRow
     let isSelected: Bool
     let isPerformingBranchOperation: Bool
@@ -2724,7 +2726,7 @@ private struct GitReferenceRowView: View, Equatable {
         .lithePointer()
         .litheContextMenu {
             var items: [LitheContextMenuItem] = []
-            items.append(.action("New Branch from '\(reference.shortName)'…", action: {
+            items.append(.action(gitNewBranchMenuTitle(reference.shortName, locale: locale), action: {
                 actions.newBranch(reference)
             }))
 
@@ -2893,4 +2895,11 @@ private struct GitLogThreePaneLayout<ReferencePane: View, CommitPane: View, Deta
             }
         )
     }
+}
+
+func gitNewBranchMenuTitle(_ name: String, locale: Locale, bundle: Bundle = .main) -> String {
+    let key = "New Branch from '%@'…"
+    let localizedBundle = bundle.url(forResource: locale.identifier, withExtension: "lproj")
+        .flatMap(Bundle.init(url:)) ?? bundle
+    return String(format: localizedBundle.localizedString(forKey: key, value: key, table: nil), name)
 }
