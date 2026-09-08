@@ -67,6 +67,7 @@ stable error code and a user-facing message:
 | `community.discourse.categories` | List normalized visible categories |
 | `community.discourse.search` | Search normalized topics and sanitized posts |
 | `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths |
+| `workspace.repositories` | Discover deterministic Git repository roots for an opened workspace |
 | `workspace.search` | Search visible file names and UTF-8 text files |
 | `workspace.searchEverywhere` | Search visible file names, Java types/methods, and UTF-8 text files |
 | `workspace.replacePreview` | Return deterministic replacement lines and complete replacement text |
@@ -174,6 +175,18 @@ are one-based. `git.status.repositoryRoot` may be an absolute path when the
 opened workspace is a subdirectory of the repository; all Git change paths are
 relative to that repository root. `git.status.ahead` and `behind` report the
 current branch's tracking counts and are zero when no upstream is configured.
+`workspace.repositories.repositories` is ordered with the containing workspace
+repository first when present, then repositories under the opened workspace by
+workspace containment, depth, and path. Each entry contains an absolute native
+`path` because repository roots are platform boundary values and may be outside
+the opened folder when the folder is nested inside a checkout. Core treats both
+`.git` directories and `.git` files as repository markers. The default traversal
+visits the entire workspace tree, including build and dependency folders, and
+continues below discovered repositories. Git metadata itself is not traversed.
+Symbolic directory links are not followed, preventing cycles and traversal
+outside the workspace. Callers may explicitly supply `maxDirectories` and
+`maxDepth` to request a bounded scan; product consumers omit these limits.
+Traversal checks cancellation between directories and entries.
 `git.worktrees.worktrees` is ordered with the primary worktree first and then
 by path. Each entry contains `path`, `head`, nullable `branch`, `isCurrent`,
 `isPrimary`, `isBare`, `isDetached`, `isLocked`, nullable `lockReason`,

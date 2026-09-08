@@ -146,16 +146,12 @@ extension AppModel {
         gitFeatureIfActive?.gitTreeStatus ?? GitTreeStatusProjection(changes: [])
     }
     func gitChange(for url: URL) -> GitChange? {
-        guard let root = gitRepositoryRoot,
-              let relativePath = workspaceRelativePath(for: url, root: root) else { return nil }
-        return gitFeatureIfActive?.gitTreeStatus.change(relativePath: relativePath)
+        return gitFeatureIfActive?.gitTreeStatus.change(relativePath: url.standardizedFileURL.path)
     }
 
     func gitTreeStatus(for url: URL, isDirectory: Bool) -> GitChangeKind? {
-        guard let root = gitRepositoryRoot,
-              let relativePath = workspaceRelativePath(for: url, root: root) else { return nil }
         return gitFeatureIfActive?.gitTreeStatus.kind(
-            relativePath: relativePath,
+            relativePath: url.standardizedFileURL.path,
             isDirectory: isDirectory
         )
     }
