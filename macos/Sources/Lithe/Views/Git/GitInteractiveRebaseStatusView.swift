@@ -88,11 +88,11 @@ private struct GitInteractiveRebaseSessionBanner: View {
             .controlSize(.small).font(.system(size: 10.5))
         }
         .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(LitheTheme.toolHeader)
-        .confirmationDialog(pendingControl == .abort ? "Abort this rebase and restore its original branch?" : "Skip the current commit and its unresolved changes?", isPresented: Binding(
+        .confirmationDialog(LocalizedStringKey(pendingControl == .abort ? "Abort this rebase and restore its original branch?" : "Skip the current commit and its unresolved changes?"), isPresented: Binding(
             get: { pendingControl != nil }, set: { if !$0 { pendingControl = nil } }
         ), titleVisibility: .visible) {
             if let action = pendingControl {
-                Button(action == .abort ? "Abort Rebase" : "Skip Commit", role: .destructive) {
+                Button(LocalizedStringKey(action == .abort ? "Abort Rebase" : "Skip Commit"), role: .destructive) {
                     pendingControl = nil
                     Task { await editor.control(action) }
                 }
@@ -104,7 +104,7 @@ private struct GitInteractiveRebaseSessionBanner: View {
         .sheet(isPresented: $showsRecoveryDialog) { recoveryDialog }
     }
 
-    private var statusTitle: String {
+    private var statusTitle: LocalizedStringKey {
         switch session.status {
         case .starting: "Starting Interactive Rebase"
         case .conflict: "Interactive Rebase: Conflicts"
@@ -117,7 +117,7 @@ private struct GitInteractiveRebaseSessionBanner: View {
         }
     }
 
-    private var statusDescription: String {
+    private var statusDescription: LocalizedStringKey {
         switch session.status {
         case .starting: "Git is preparing the sequencer."
         case .conflict: "Resolve \(session.conflictedPaths.count) conflicted file(s), stage the result, then continue."

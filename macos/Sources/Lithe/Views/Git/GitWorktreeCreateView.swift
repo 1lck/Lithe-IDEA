@@ -31,7 +31,7 @@ struct GitWorktreeCreateView: View {
             }
             .disabled(isSubmitting)
             if !availableReferences.isEmpty {
-                Picker(mode == .existingBranch ? "Branch" : "Start from", selection: $selectedReferenceID) {
+                Picker(LocalizedStringKey(mode == .existingBranch ? "Branch" : "Start from"), selection: $selectedReferenceID) {
                     ForEach(availableReferences) { Text($0.shortName).tag($0.id) }
                 }
                 .disabled(isSubmitting)

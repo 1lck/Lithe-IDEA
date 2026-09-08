@@ -45,13 +45,13 @@ private struct GitPatchDialog: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
-            Text(editor.mode == .export ? "Create Patch" : "Apply Patch")
+            Text(LocalizedStringKey(editor.mode == .export ? "Create Patch" : "Apply Patch"))
                 .font(.system(size: 17, weight: .semibold))
             if editor.mode == .export { exportControls } else { importControls }
             if !editor.files.isEmpty { fileList }
             if !editor.patchText.isEmpty { rawPreview }
             if let check = editor.applyPreview {
-                Label(check.applicable ? "Patch can be applied to the selected destination." : "Patch cannot be applied.",
+                Label(LocalizedStringKey(check.applicable ? "Patch can be applied to the selected destination." : "Patch cannot be applied."),
                       systemImage: check.applicable ? "checkmark.circle" : "exclamationmark.triangle")
                     .font(.system(size: 12))
                     .foregroundStyle(check.applicable ? LitheTheme.accent : LitheTheme.warning)
@@ -92,9 +92,9 @@ private struct GitPatchDialog: View {
                     Text("Unstaged changes").tag(GitPatchSource.unstaged)
                 }
                 .disabled(editor.isBusy)
-                Text(editor.source == .workingTree
+                Text(LocalizedStringKey(editor.source == .workingTree
                      ? "Exports the working tree's net changes against HEAD, including selected untracked files."
-                     : editor.source == .staged ? "Exports the index against HEAD." : "Exports working files against the index, including selected untracked files.")
+                     : editor.source == .staged ? "Exports the index against HEAD." : "Exports working files against the index, including selected untracked files."))
                     .font(.system(size: 11)).foregroundStyle(LitheTheme.secondaryText)
             }
         }

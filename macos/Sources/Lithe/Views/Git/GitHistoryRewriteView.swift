@@ -154,7 +154,7 @@ private struct GitHistoryRewriteDialog: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(editor.operation.menuTitle.replacingOccurrences(of: "…", with: ""))
+            Text(LocalizedStringKey(editor.operation.menuTitle.replacingOccurrences(of: "…", with: "")))
                 .font(.system(size: 17, weight: .semibold))
             if editor.isLoading {
                 HStack { ProgressView().controlSize(.small); Text("Checking selected commits and repository state…") }
@@ -177,7 +177,7 @@ private struct GitHistoryRewriteDialog: View {
                 Spacer()
                 Button("Cancel") { editor.dismiss() }
                     .keyboardShortcut(.cancelAction).disabled(editor.isExecuting).lithePointer()
-                Button(editor.operation.actionTitle, role: editor.operation == .deleteCommit ? .destructive : nil) {
+                Button(LocalizedStringKey(editor.operation.actionTitle), role: editor.operation == .deleteCommit ? .destructive : nil) {
                     Task { await editor.confirm() }
                 }
                 .buttonStyle(.borderedProminent)
@@ -250,7 +250,7 @@ private struct GitHistoryRewriteDialog: View {
         }
     }
 
-    private func impactDescription(_ preview: GitHistoryRewritePreview) -> String {
+    private func impactDescription(_ preview: GitHistoryRewritePreview) -> LocalizedStringKey {
         switch preview.operation {
         case .undoCommit:
             "HEAD will move to its parent. The index and working files stay as they are; staged differences will be compared with the parent commit."
@@ -263,7 +263,7 @@ private struct GitHistoryRewriteDialog: View {
         }
     }
 
-    private func actionLabel(_ commit: GitHistoryRewriteCommit, preview: GitHistoryRewritePreview) -> String {
+    private func actionLabel(_ commit: GitHistoryRewriteCommit, preview: GitHistoryRewritePreview) -> LocalizedStringKey {
         guard preview.selectedCommits.contains(where: { $0.hash == commit.hash }) else { return "Replay" }
         switch preview.operation {
         case .undoCommit: return "Undo"

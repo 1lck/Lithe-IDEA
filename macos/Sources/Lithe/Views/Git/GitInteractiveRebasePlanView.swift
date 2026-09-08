@@ -69,10 +69,10 @@ private struct GitInteractiveRebasePlanView: View {
                             get: { step.action }, set: { editor.setAction($0, for: step.hash) }
                         )) {
                             ForEach(GitRebaseAction.allCases, id: \.self) { action in
-                                Text(action.rawValue.capitalized).tag(action)
+                                Text(LocalizedStringKey(action.rawValue.capitalized)).tag(action)
                             }
                         }
-                        .labelsHidden().frame(width: 102)
+                        .labelsHidden().frame(width: 130)
                         Text(String(step.hash.prefix(9))).font(.system(size: 11, design: .monospaced))
                         Text(editor.subject(for: step.hash)).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                         Button { editor.move(step.hash, by: -1) } label: { Image(systemName: "arrow.up") }
@@ -95,7 +95,7 @@ private struct GitInteractiveRebasePlanView: View {
         if let step = editor.selectedStep, step.action == .reword || step.action == .squash {
             VStack(alignment: .leading, spacing: 5) {
                 HStack {
-                    Text(step.action == .squash ? "Combined commit message" : "Commit message")
+                    Text(LocalizedStringKey(step.action == .squash ? "Combined commit message" : "Commit message"))
                     if step.action == .squash {
                         Button("Use Default Messages") { editor.useDefaultSquashMessage(for: step.hash) }
                             .controlSize(.small).disabled(editor.isBusy).lithePointer()

@@ -1,4 +1,5 @@
 import Foundation
+import LitheGitModule
 import Testing
 @testable import Lithe
 
@@ -147,8 +148,20 @@ struct AppLocalizationTests {
         #expect(translations["Copy Short Hash"] == "复制短哈希")
         #expect(translations["New Tag…"] == "新建标签…")
         #expect(translations["Cherry-pick Commit…"] == "拣选提交…")
-        #expect(translations["Revert Commit…"] == "还原提交…")
+        #expect(translations["Revert Commit…"] == "反向提交（保留历史）…")
         #expect(translations["Reset Current Branch to Here…"] == "将当前分支重置到这里…")
+        #expect(translations["Undo Commit…"] == "撤销最近一次提交（保留更改）…")
+        #expect(translations["Edit Commit Message…"] == "编辑提交消息…")
+        #expect(translations["Squash Commits…"] == "合并所选提交…")
+        #expect(translations["Drop Commit…"] == "从历史中移除提交…")
+        #expect(translations["Interactively Rebase from Here…"] == "从此处交互式变基…")
+        #expect(translations["Create Patch Between Commits…"] == "导出两次提交间的补丁…")
+
+        // Dynamic dialog labels must resolve through the same language resources as the menu.
+        for operation in GitHistoryRewriteOperation.allCases {
+            #expect(translations[operation.menuTitle.replacingOccurrences(of: "…", with: "")] != nil)
+            #expect(translations[operation.actionTitle] != nil)
+        }
     }
 
     @Test
