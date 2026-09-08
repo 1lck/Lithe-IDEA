@@ -951,12 +951,14 @@ fn java_core_commands_return_shared_runtime_and_structure_data() {
 
 #[test]
 fn java_test_methods_handle_inline_annotations_and_ignore_non_code_text() {
+    // Build the Java block comment at runtime so repository lint does not parse fixture text as Rust.
+    let java_block_comment = ["/", "* @Test void commentMethod() {} *", "/"].concat();
     let source = r#"class CalculatorTest {
     String example = "@Test void stringMethod() {}";
     String textBlock = """
         @Test void textBlockMethod() {}
         """;
-    /* @Test void commentMethod() {} */
+    <java-block-comment>
     @example.Test void customAnnotation() {}
     @org.junit.Test public void inlineJUnit4() { helper(); }
 
@@ -970,7 +972,8 @@ fn java_test_methods_handle_inline_annotations_and_ignore_non_code_text() {
     @Test
     int field = 1;
     void helper() {}
-}"#;
+}"#
+    .replace("<java-block-comment>", &java_block_comment);
     let response: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
             "id": "java-test-methods",

@@ -26,7 +26,7 @@ package final class LanguageTestService: ObservableObject {
     private let executableResolver: any RunExecutableResolving
     private let processFactory: () -> any StreamingProcess
     private let extensionRequiredLanguageIDs: Set<String>
-    private let resultParser: ((String, URL) -> MavenTestResults?)?
+    private let resultParser: (@Sendable (String, URL) -> MavenTestResults?)?
     private var process: (any StreamingProcess)?
     private var extensionSession: (any LanguageExecutionSession)?
     private var languageTestExtensions: [String: RegisteredLanguageTestExtension] = [:]
@@ -44,7 +44,7 @@ package final class LanguageTestService: ObservableObject {
         executableResolver: any RunExecutableResolving,
         processFactory: @escaping () -> any StreamingProcess,
         extensionRequiredLanguageIDs: Set<String> = [],
-        resultParser: ((String, URL) -> MavenTestResults?)? = nil
+        resultParser: (@Sendable (String, URL) -> MavenTestResults?)? = nil
     ) {
         self.catalog = catalog
         self.registry = registry ?? .standard(catalog: catalog)
@@ -335,7 +335,7 @@ package final class LanguageTestService: ObservableObject {
                 // Let output callbacks already queued by the process drain
                 // before taking the final parser snapshot.
                 await Task.yield()
-                self?.finish(
+                await self?.finish(
                     operationID: operationID,
                     exitCode: exitCode,
                     processTimedOut: timeoutMarker.isTimedOut
@@ -369,7 +369,7 @@ package final class LanguageTestService: ObservableObject {
         session.onTermination = { [weak self] exitCode in
             Task { @MainActor [weak self] in
                 await Task.yield()
-                self?.finish(
+                await self?.finish(
                     operationID: operationID,
                     exitCode: exitCode,
                     processTimedOut: timeoutMarker.isTimedOut
@@ -391,7 +391,7 @@ package final class LanguageTestService: ObservableObject {
                     self.errorMessage = message
                     self.append(message + "\n")
                 }
-                self.finish(operationID: operationID, exitCode: event.exitCode ?? 1)
+                await self.finish(operationID: operationID, exitCode: event.exitCode ?? 1)
             }
         }
     }
@@ -408,7 +408,7 @@ package final class LanguageTestService: ObservableObject {
         operationID: String,
         exitCode: Int32,
         processTimedOut: Bool = false
-    ) {
+    ) async {
         guard activeOperationID == operationID else { return }
         let timedOut = processTimedOut || timedOutOperationID == operationID
         if timedOut, errorMessage == nil {
@@ -417,11 +417,22 @@ package final class LanguageTestService: ObservableObject {
             append(message + "\n")
         }
         let capturedOutput = outputCapture?.snapshot() ?? output
+        let parsedResults: MavenTestResults?
+        let parsingWorkspaceURL = activeWorkspaceURL
         if activePlan?.frameworkID == "maven",
            let resultParser,
-           let activeWorkspaceURL {
-            results = resultParser(capturedOutput, activeWorkspaceURL)
+           let parsingWorkspaceURL {
+            parsedResults = await Task.detached(priority: .utility) {
+                resultParser(capturedOutput, parsingWorkspaceURL)
+            }.value
+        } else {
+            parsedResults = nil
         }
+        // Parsing may outlive stop, reset, or a replacement run. Only the
+        // operation and workspace that produced the output may publish it.
+        guard activeOperationID == operationID,
+              activeWorkspaceURL == parsingWorkspaceURL else { return }
+        results = parsedResults
         state = timedOut ? .timedOut : (exitCode == 0 ? .passed : .failed(exitCode: exitCode))
         activeOperationID = nil
         timedOutOperationID = nil

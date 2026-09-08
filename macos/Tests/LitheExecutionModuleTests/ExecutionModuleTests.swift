@@ -400,8 +400,6 @@ struct ExecutionModuleTests {
         let firstProcess = TestStreamingProcess()
         let secondProcess = TestStreamingProcess()
         var factoryCall = 0
-        var parserCalls = 0
-        var parsedOutput = ""
         let parsedResults = MavenTestResults(
             testsRun: 3,
             failures: 1,
@@ -411,17 +409,14 @@ struct ExecutionModuleTests {
             success: false,
             failureDetails: []
         )
+        let parser = TestResultParserRecorder(result: parsedResults)
         let service = LanguageTestService(
             executableResolver: TestExecutableResolver(),
             processFactory: {
                 factoryCall += 1
                 return factoryCall == 1 ? firstProcess : secondProcess
             },
-            resultParser: { output, _ in
-                parserCalls += 1
-                parsedOutput = output
-                return parsedResults
-            }
+            resultParser: parser.parse
         )
 
         #expect(service.run(
@@ -432,16 +427,17 @@ struct ExecutionModuleTests {
         ))
         #expect(firstProcess.startRequests.first?.arguments == ["-Dtest=CalculatorTest", "test"])
         #expect(firstProcess.startRequests.first?.timeoutMilliseconds == 120_000)
+        defer { service.reset() }
 
         firstProcess.onOutput?("Tests run: 3, Failures: 1, Errors: 0, Skipped: 1\n")
         firstProcess.onTermination?(1)
-        await Task.yield()
-        await Task.yield()
+        try await awaitTestValue(service.$state, matching: { $0 == .failed(exitCode: 1) })
 
         #expect(service.state == .failed(exitCode: 1))
         #expect(service.results == parsedResults)
-        #expect(parserCalls == 1)
-        #expect(parsedOutput.contains("Tests run: 3"))
+        #expect(parser.calls == 1)
+        #expect(parser.output.contains("Tests run: 3"))
+        #expect(!parser.ranOnMainThread)
         #expect(service.canRerun)
 
         #expect(service.rerun())
@@ -469,6 +465,7 @@ struct ExecutionModuleTests {
         ))
         let request = try #require(process.startRequests.first)
         #expect(request.timeoutMilliseconds == 120_000)
+        defer { service.reset() }
 
         process.onStateChange?(ProcessLifecycleEvent(
             operationID: request.operationID,
@@ -476,13 +473,12 @@ struct ExecutionModuleTests {
             exitCode: nil,
             message: "Process timed out"
         ))
-        await Task.yield()
+        try await awaitTestValue(service.$errorMessage, matching: { $0 != nil })
         #expect(service.state == .running)
         #expect(service.errorMessage == "Maven test run timed out after 120 seconds.")
 
         process.onTermination?(0)
-        await Task.yield()
-        await Task.yield()
+        try await awaitTestValue(service.$state, matching: { $0 == .timedOut })
         #expect(service.state == .timedOut)
         #expect(!service.isRunning)
     }
@@ -495,22 +491,19 @@ struct ExecutionModuleTests {
         )
         let buildFile = root.appendingPathComponent("build.gradle")
         let process = TestStreamingProcess()
-        var parserCalls = 0
+        let parser = TestResultParserRecorder(result: MavenTestResults(
+            testsRun: 1,
+            failures: 0,
+            errors: 0,
+            skipped: 0,
+            passed: 1,
+            success: true,
+            failureDetails: []
+        ))
         let service = LanguageTestService(
             executableResolver: TestExecutableResolver(),
             processFactory: { process },
-            resultParser: { _, _ in
-                parserCalls += 1
-                return MavenTestResults(
-                    testsRun: 1,
-                    failures: 0,
-                    errors: 0,
-                    skipped: 0,
-                    passed: 1,
-                    success: true,
-                    failureDetails: []
-                )
-            }
+            resultParser: parser.parse
         )
 
         #expect(service.run(
@@ -520,14 +513,14 @@ struct ExecutionModuleTests {
             projectFiles: [buildFile, source]
         ))
         #expect(service.activePlan?.frameworkID == "gradle")
+        defer { service.reset() }
 
         process.onTermination?(0)
-        await Task.yield()
-        await Task.yield()
+        try await awaitTestValue(service.$state, matching: { $0 == .passed })
 
         #expect(service.state == .passed)
         #expect(service.results == nil)
-        #expect(parserCalls == 0)
+        #expect(parser.calls == 0)
     }
 
     @Test
@@ -1008,6 +1001,74 @@ private func dependencyState(
         group.cancelAll()
         stateTask.cancel()
         return result
+    }
+}
+
+/// Subscribe synchronously so an event between setup and suspension is buffered.
+/// The watchdog fails a missing event; elapsed time never advances the happy path.
+@MainActor
+private func awaitTestValue<Value: Sendable>(
+    _ publisher: Published<Value>.Publisher,
+    matching: @escaping @Sendable (Value) -> Bool
+) async throws {
+    let events = AsyncStream<Value>.makeStream(bufferingPolicy: .unbounded)
+    let subscription = publisher.sink { events.continuation.yield($0) }
+    let watchdog = Task {
+        // test-stability: allow(swift-real-sleep) reason: deadline ends a missing publisher event, never synchronizes successful test completion.
+        do { try await Task.sleep(for: .seconds(2)) } catch { return }
+        events.continuation.finish()
+    }
+    defer {
+        subscription.cancel()
+        watchdog.cancel()
+        events.continuation.finish()
+    }
+    for await value in events.stream {
+        if matching(value) { return }
+    }
+    throw TestObservationError.deadlineExceeded
+}
+
+private enum TestObservationError: Error {
+    case deadlineExceeded
+}
+
+private final class TestResultParserRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private let result: MavenTestResults?
+    private var recordedCalls = 0
+    private var recordedOutput = ""
+    private var recordedMainThread = false
+
+    init(result: MavenTestResults?) {
+        self.result = result
+    }
+
+    func parse(output: String, rootURL: URL) -> MavenTestResults? {
+        lock.lock()
+        recordedCalls += 1
+        recordedOutput = output
+        recordedMainThread = Thread.isMainThread
+        lock.unlock()
+        return result
+    }
+
+    var calls: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedCalls
+    }
+
+    var output: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedOutput
+    }
+
+    var ranOnMainThread: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedMainThread
     }
 }
 
