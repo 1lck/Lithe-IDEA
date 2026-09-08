@@ -38,6 +38,30 @@ describe("jump list cursor history", () => {
     ]);
   });
 
+  test("preserves an exact cursor entry before a nearby explicit navigation entry", () => {
+    const actions = useJumpListStore.getState().actions;
+    const cursorPosition = cursorEntry(10, 5);
+    const explicitNavigationPosition = cursorEntry(10, 20);
+    const destination = cursorEntry(30, 4);
+
+    actions.recordCursorEntry(cursorPosition);
+    actions.pushEntry(explicitNavigationPosition);
+
+    expect(
+      useJumpListStore
+        .getState()
+        .entries.map(({ line, column, offset }) => ({ line, column, offset })),
+    ).toEqual([
+      { line: 10, column: 5, offset: 1005 },
+      { line: 10, column: 20, offset: 1020 },
+    ]);
+
+    expect(actions.goBack(destination)).toMatchObject(explicitNavigationPosition);
+    expect(actions.goBack()).toMatchObject(cursorPosition);
+    expect(actions.goForward()).toMatchObject(explicitNavigationPosition);
+    expect(actions.goForward()).toMatchObject(destination);
+  });
+
   test("navigates back and forward across normal cursor positions", () => {
     const actions = useJumpListStore.getState().actions;
     const first = cursorEntry(9, 19);

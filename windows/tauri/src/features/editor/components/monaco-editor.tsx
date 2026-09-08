@@ -46,7 +46,7 @@ import { getRelativePath, pathStartsWithRoot } from "@/utils/path-helpers";
 import EditorContextMenu from "../context-menu/context-menu";
 import { useBufferStore } from "../stores/buffer.store";
 import { editorBufferSurfacesEqual, selectEditorBufferSurface } from "../stores/buffer-metadata";
-import { type JumpListEntry, useJumpListStore } from "../stores/jump-list.store";
+import { useJumpListStore } from "../stores/jump-list.store";
 import { useEditorStateStore } from "../stores/state.store";
 import type {
   EditorContentChangeOptions,
@@ -61,6 +61,10 @@ import { lspDocumentTargetForEditor } from "../lsp/lsp-document-target";
 import { fileOpenBenchmark } from "../utils/file-open-benchmark";
 import { isEditorGoToDefinitionModifierClick } from "../utils/go-to-definition-gesture";
 import { getLanguageIdFromPath } from "../utils/language-id";
+import {
+  cursorEntryToRecordAfterMouseGesture,
+  type CursorHistoryEntry,
+} from "../utils/mouse-cursor-history";
 import { toggleCaseText } from "../utils/text-operations";
 import { editorAPI } from "../extensions/api";
 import type { EditorModelPositionResolver } from "../view-model/view-layout";
@@ -193,7 +197,7 @@ export function MonacoEditor({
   const renderedGitBlameKeyRef = useRef<string | null>(null);
   const renderInlineGitBlameRef = useRef<() => void>(() => {});
   const mouseSelectingRef = useRef(false);
-  const previousCursorEntryRef = useRef<Omit<JumpListEntry, "timestamp"> | null>(null);
+  const mouseGestureStartRef = useRef<CursorHistoryEntry | null>(null);
   const latestContentChangeRef = useRef(onContentChange);
   const isActiveSurfaceRef = useRef(isActiveSurface);
   const activeBufferId = useBufferStore((state) => propBufferId ?? state.activeBufferId);
@@ -805,7 +809,7 @@ export function MonacoEditor({
       enabled: enableExpensiveServices,
     });
     let definitionClickIntent = 0;
-    const cursorEntryFromEditor = (): Omit<JumpListEntry, "timestamp"> | null => {
+    const cursorEntryFromEditor = (): CursorHistoryEntry | null => {
       const position = editor.getPosition();
       if (!position || !editorBufferId || !filePath) return null;
 
@@ -817,7 +821,6 @@ export function MonacoEditor({
         scrollLeft: editor.getScrollLeft(),
       };
     };
-    previousCursorEntryRef.current = cursorEntryFromEditor();
 
     const handleWindowSelectAllShortcut = (event: KeyboardEvent) => {
       const isSelectAllShortcut =
@@ -983,29 +986,23 @@ export function MonacoEditor({
           });
           return;
         }
-        if (mouseEvent.leftButton) mouseSelectingRef.current = true;
+        if (mouseEvent.leftButton) {
+          mouseSelectingRef.current = true;
+          mouseGestureStartRef.current = cursorEntryFromEditor();
+        }
       }),
       editor.onMouseUp(() => {
         if (!mouseSelectingRef.current) return;
         mouseSelectingRef.current = false;
+        const entry = cursorEntryToRecordAfterMouseGesture(
+          mouseGestureStartRef.current,
+          cursorEntryFromEditor(),
+        );
+        if (entry) useJumpListStore.getState().actions.recordCursorEntry(entry);
+        mouseGestureStartRef.current = null;
         scheduleInlineGitBlameRender();
       }),
-      editor.onDidChangeCursorSelection((event) => {
-        const currentCursorEntry = cursorEntryFromEditor();
-        const previousCursorEntry = previousCursorEntryRef.current;
-        if (
-          event.source === "mouse" &&
-          previousCursorEntry &&
-          currentCursorEntry &&
-          (previousCursorEntry.bufferId !== currentCursorEntry.bufferId ||
-            previousCursorEntry.filePath !== currentCursorEntry.filePath ||
-            previousCursorEntry.line !== currentCursorEntry.line ||
-            previousCursorEntry.column !== currentCursorEntry.column ||
-            previousCursorEntry.offset !== currentCursorEntry.offset)
-        ) {
-          useJumpListStore.getState().actions.recordCursorEntry(previousCursorEntry);
-        }
-        previousCursorEntryRef.current = currentCursorEntry;
+      editor.onDidChangeCursorSelection(() => {
         syncCursorAndSelection();
         scheduleInlineGitBlameRender();
       }),
@@ -1025,13 +1022,19 @@ export function MonacoEditor({
     const handleWindowMouseUp = () => {
       if (!mouseSelectingRef.current) return;
       mouseSelectingRef.current = false;
+      const entry = cursorEntryToRecordAfterMouseGesture(
+        mouseGestureStartRef.current,
+        cursorEntryFromEditor(),
+      );
+      if (entry) useJumpListStore.getState().actions.recordCursorEntry(entry);
+      mouseGestureStartRef.current = null;
       scheduleInlineGitBlameRender();
     };
     window.addEventListener("mouseup", handleWindowMouseUp);
 
     const unsubscribeCursor = editorAPI.on("cursorChange", (position) => {
       if (!modelRef.current || editorRef.current !== editor) return;
-      if (mouseSelectingRef.current) return;
+      if (!isActiveSurfaceRef.current || mouseSelectingRef.current) return;
       const monacoPosition = toClampedMonacoPosition(model, position);
       const currentPosition = editor.getPosition();
       if (
@@ -1051,7 +1054,7 @@ export function MonacoEditor({
     });
     const unsubscribeSelection = editorAPI.on("selectionChange", (selection) => {
       if (!modelRef.current || editorRef.current !== editor) return;
-      if (mouseSelectingRef.current) return;
+      if (!isActiveSurfaceRef.current || mouseSelectingRef.current) return;
       if (selection) {
         editor.setSelection(toMonacoRange(model, selection));
       } else {
@@ -1101,7 +1104,7 @@ export function MonacoEditor({
       gitBlameWidgetRef.current = null;
       renderedGitBlameKeyRef.current = null;
       mouseSelectingRef.current = false;
-      previousCursorEntryRef.current = null;
+      mouseGestureStartRef.current = null;
       createdEditorDisposable.dispose();
       try {
         vimAdapterRef.current?.dispose();

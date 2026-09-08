@@ -3,6 +3,13 @@ import { immer } from "zustand/middleware/immer";
 import { createWithEqualityFn } from "zustand/traditional";
 import { createSelectors } from "@/utils/zustand-selectors";
 
+type JumpListEntrySource = "cursor" | "explicit";
+type JumpListPosition = Omit<JumpListEntry, "timestamp">;
+
+interface StoredJumpListEntry extends JumpListEntry {
+  source: JumpListEntrySource;
+}
+
 export interface JumpListEntry {
   bufferId: string;
   filePath: string;
@@ -15,9 +22,9 @@ export interface JumpListEntry {
 }
 
 interface JumpListActions {
-  pushEntry: (entry: Omit<JumpListEntry, "timestamp">) => void;
-  recordCursorEntry: (entry: Omit<JumpListEntry, "timestamp">) => void;
-  goBack: (currentPosition?: Omit<JumpListEntry, "timestamp">) => JumpListEntry | null;
+  pushEntry: (entry: JumpListPosition) => void;
+  recordCursorEntry: (entry: JumpListPosition) => void;
+  goBack: (currentPosition?: JumpListPosition) => JumpListEntry | null;
   goForward: () => JumpListEntry | null;
   canGoBack: () => boolean;
   canGoForward: () => boolean;
@@ -25,7 +32,7 @@ interface JumpListActions {
 }
 
 interface JumpListState {
-  entries: JumpListEntry[];
+  entries: StoredJumpListEntry[];
   currentIndex: number;
   maxEntries: number;
   actions: JumpListActions;
@@ -34,8 +41,8 @@ interface JumpListState {
 const DEFAULT_MAX_ENTRIES = 100;
 const DUPLICATE_LINE_THRESHOLD = 5;
 
-function withTimestamp(entry: Omit<JumpListEntry, "timestamp">): JumpListEntry {
-  return { ...entry, timestamp: Date.now() };
+function withTimestamp(entry: JumpListPosition, source: JumpListEntrySource): StoredJumpListEntry {
+  return { ...entry, source, timestamp: Date.now() };
 }
 
 export const useJumpListStore = createSelectors(
@@ -48,7 +55,7 @@ export const useJumpListStore = createSelectors(
       actions: {
         pushEntry: (entry) => {
           set((state) => {
-            const newEntry = withTimestamp(entry);
+            const newEntry = withTimestamp(entry, "explicit");
 
             // If we're in the middle of history, truncate future entries
             if (state.currentIndex >= 0 && state.currentIndex < state.entries.length - 1) {
@@ -62,7 +69,7 @@ export const useJumpListStore = createSelectors(
               const isNearbyLine =
                 Math.abs(lastEntry.line - newEntry.line) <= DUPLICATE_LINE_THRESHOLD;
 
-              if (isSameFile && isNearbyLine) {
+              if (lastEntry.source !== "cursor" && isSameFile && isNearbyLine) {
                 // Update the existing entry instead of adding a duplicate
                 state.entries[state.entries.length - 1] = newEntry;
                 state.currentIndex = -1;
@@ -85,7 +92,7 @@ export const useJumpListStore = createSelectors(
 
         recordCursorEntry: (entry) => {
           set((state) => {
-            const newEntry = withTimestamp(entry);
+            const newEntry = withTimestamp(entry, "cursor");
 
             // A new cursor movement after going back starts a new history branch.
             if (state.currentIndex >= 0 && state.currentIndex < state.entries.length - 1) {
@@ -127,7 +134,7 @@ export const useJumpListStore = createSelectors(
             // Currently at present - save current position so we can go forward to it
             if (currentPosition) {
               set((s) => {
-                s.entries.push(withTimestamp(currentPosition));
+                s.entries.push(withTimestamp(currentPosition, "cursor"));
                 // Enforce max size
                 if (s.entries.length > s.maxEntries) {
                   s.entries.shift();
