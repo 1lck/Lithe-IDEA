@@ -11,17 +11,24 @@ enum DocumentFeatureComposition {
         let session = graph.workspaceSession
         let java = graph.java
         let spring = graph.spring
+        let mybatis = graph.mybatis
         let notification = graph.notification
         let settings = model.settings
         let coordinator = DocumentLanguageCoordinator(
             activate: { [weak model] document in
                 _ = model?.activateLanguageServerIfAvailable(for: document)
             },
-            reloadProject: { [weak spring, weak session, weak workspace, weak document] changed in
+            reloadProject: { [weak spring, weak mybatis, weak session, weak workspace, weak document] changed in
                 guard let root = session?.workspaceURL else { return }
+                let files = workspace?.projectFiles ?? []
+                let openDocuments = document?.openDocuments ?? []
                 spring?.scheduleReload(
                     changedDocument: changed, workspaceURL: root,
-                    files: workspace?.projectFiles ?? [], openDocuments: document?.openDocuments ?? []
+                    files: files, openDocuments: openDocuments
+                )
+                mybatis?.scheduleReload(
+                    changedDocument: changed, workspaceURL: root,
+                    files: files, openDocuments: openDocuments
                 )
             },
             close: { [weak model, weak java] document in

@@ -62,11 +62,15 @@ struct TerminalView: View {
             .help("New terminal session")
 
             Menu {
+                Button("New Default Terminal") { _ = model.createTerminalSession() }
+                Divider()
                 ForEach(feature.availableShells, id: \.self) { shell in
                     Button("New \(shellLabel(for: shell))") {
                         _ = model.createTerminalSession(shellPath: shell)
                     }
                 }
+                Divider()
+                Button("Detect Installed Shells") { feature.refreshAvailableShells() }
             } label: {
                 Image(systemName: "chevron.down")
             }
@@ -76,7 +80,8 @@ struct TerminalView: View {
             .frame(width: 26, height: 28)
             .contentShape(Rectangle())
             .foregroundStyle(LitheTheme.secondaryText)
-            .help("New terminal with shell")
+            .help("Detect shells and create a new terminal")
+            .accessibilityLabel("New terminal with shell")
 
             Menu {
                 if let session = model.activeToolTerminalSession {

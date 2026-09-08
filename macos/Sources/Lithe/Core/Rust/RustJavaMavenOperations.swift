@@ -41,6 +41,11 @@ protocol JavaMavenOperations: MavenProjectOperations, RunServerPortParsing, Send
         textOverrides: [URL: String],
         refreshDependencyMetadata: Bool
     ) -> SpringIndexResult?
+    func mybatisIndex(
+        at rootURL: URL,
+        files: [URL],
+        textOverrides: [URL: String]
+    ) -> MybatisIndexResult?
 }
 
 extension JavaMavenOperations {
@@ -68,6 +73,12 @@ extension JavaMavenOperations {
         textOverrides: [URL: String] = [:],
         refreshDependencyMetadata: Bool = false
     ) -> SpringIndexResult? { nil }
+
+    func mybatisIndex(
+        at rootURL: URL,
+        files: [URL],
+        textOverrides: [URL: String] = [:]
+    ) -> MybatisIndexResult? { nil }
 }
 
 enum JavaWorkspaceChangeKind: String, Sendable {
@@ -395,6 +406,47 @@ struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
                     id: value.id, httpMethods: value.httpMethods, route: value.route,
                     controller: value.controller, method: value.method,
                     url: url(value.path)!, line: value.line, column: value.column
+                )
+            }
+        )
+    }
+
+    func mybatisIndex(
+        at rootURL: URL,
+        files: [URL],
+        textOverrides: [URL: String] = [:]
+    ) -> MybatisIndexResult? {
+        let root = rootURL.standardizedFileURL
+        let paths = files.compactMap { url -> String? in
+            guard MybatisIndexPaths.matches(url) else { return nil }
+            return workspaceRelativePath(for: url, root: root)
+        }
+        guard let payload = core.mybatisIndex(
+            at: root,
+            paths: paths,
+            textOverrides: Dictionary(uniqueKeysWithValues: textOverrides.compactMap { url, text in
+                workspaceRelativePath(for: url, root: root).map { ($0, text) }
+            })
+        ) else { return nil }
+        func url(_ path: String) -> URL {
+            root.appendingPathComponent(path).standardizedFileURL
+        }
+        return MybatisIndexResult(
+            statements: payload.statements.map { value in
+                MybatisStatement(
+                    id: value.id,
+                    namespace: value.namespace,
+                    statementID: value.statementId,
+                    kind: value.kind,
+                    javaURL: url(value.javaPath),
+                    javaLine: value.javaLine,
+                    javaColumn: value.javaColumn,
+                    javaEndLine: value.javaEndLine,
+                    javaEndColumn: value.javaEndColumn,
+                    xmlURL: url(value.xmlPath),
+                    xmlLine: value.xmlLine,
+                    xmlColumn: value.xmlColumn,
+                    xmlEndColumn: value.xmlEndColumn
                 )
             }
         )
