@@ -12,6 +12,7 @@ import {
 import { useOnboardingStore } from "@/features/onboarding/stores/onboarding.store";
 import { useLspInitialization } from "@/features/editor/hooks/use-lsp-initialization";
 import { useSpringIndex } from "@/features/spring/hooks/use-spring-index";
+import { useMybatisIndex } from "@/features/mybatis/hooks/use-mybatis-index";
 import { useKeymapContext } from "@/features/keymaps/hooks/use-keymap-context";
 import { useKeymaps } from "@/features/keymaps/hooks/use-keymaps";
 import { useWhatsNewStore } from "@/features/settings/stores/whats-new.store";
@@ -41,6 +42,7 @@ export function useAppBootstrap() {
   useContextMenuPrevention();
   useLspInitialization();
   useSpringIndex();
+  useMybatisIndex();
 
   useEffect(() => {
     let timer: number | null = null;

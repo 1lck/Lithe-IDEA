@@ -393,9 +393,13 @@ struct GitWorktreesView: View {
                 GitWorktreeListScrollView(
                     items: projectedWorktrees,
                     selectedWorktreeID: selectedWorktreeID,
+                    isPerformingWorktreeOperation: feature.isPerformingWorktreeOperation,
                     onSelect: { worktreeID in
                         selectedWorktreeID = worktreeID
                         activeSection = .overview
+                    },
+                    onContextMenuAction: { action, item in
+                        handleWorktreeContextMenuAction(action, for: item.worktree)
                     }
                 )
             }
@@ -1061,6 +1065,26 @@ struct GitWorktreesView: View {
             worktreeActionNotice = WorktreeActionNotice(message: reason)
         } else {
             worktreeConfirmation = .removal(worktree, force: false)
+        }
+    }
+
+    private func handleWorktreeContextMenuAction(
+        _ action: GitWorktreeListAction,
+        for worktree: GitWorktree
+    ) {
+        switch action {
+        case .open:
+            actions.openProject(worktree.url)
+        case .reveal:
+            actions.reveal(worktree.url)
+        case .copyPath:
+            actions.copyPath(worktree.url)
+        case .toggleLock:
+            toggleLock(for: worktree)
+        case .remove:
+            requestRemoval(for: worktree)
+        case .prune:
+            worktreeConfirmation = .prune
         }
     }
 

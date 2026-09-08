@@ -1,5 +1,6 @@
 import type { StateCreator } from "zustand";
 import type { CommandPaletteViewId } from "@/features/command-palette/types/view.types";
+import type { ProjectPickerMode } from "@/features/window/utils/project-picker-mode";
 import type { SettingsTab } from "./types/ui-state.types";
 
 interface ModalState {
@@ -11,6 +12,7 @@ interface ModalState {
   isSettingsDialogVisible: boolean;
   isBranchManagerVisible: boolean;
   isProjectPickerVisible: boolean;
+  projectPickerMode: ProjectPickerMode;
   isDatabaseConnectionVisible: boolean;
   settingsInitialTab: SettingsTab | null;
   isReferencesPopoverVisible: boolean;
@@ -24,7 +26,7 @@ interface ModalActions {
   setIsGlobalSearchVisible: (v: boolean) => void;
   setIsSettingsDialogVisible: (v: boolean) => void;
   setIsBranchManagerVisible: (v: boolean) => void;
-  setIsProjectPickerVisible: (v: boolean) => void;
+  setIsProjectPickerVisible: (v: boolean, mode?: ProjectPickerMode) => void;
   setIsDatabaseConnectionVisible: (v: boolean) => void;
   setSettingsInitialTab: (tab: SettingsTab) => void;
   openSettingsDialog: (tab?: SettingsTab) => void;
@@ -45,6 +47,7 @@ export const createModalSlice: StateCreator<ModalSlice, [], [], ModalSlice> = (s
   isSettingsDialogVisible: false,
   isBranchManagerVisible: false,
   isProjectPickerVisible: false,
+  projectPickerMode: "picker",
   isDatabaseConnectionVisible: false,
   settingsInitialTab: null,
   isReferencesPopoverVisible: false,
@@ -89,7 +92,7 @@ export const createModalSlice: StateCreator<ModalSlice, [], [], ModalSlice> = (s
       return true;
     }
     if (state.isProjectPickerVisible) {
-      set({ isProjectPickerVisible: false });
+      state.setIsProjectPickerVisible(false);
       return true;
     }
     if (state.isSettingsDialogVisible) {
@@ -224,10 +227,11 @@ export const createModalSlice: StateCreator<ModalSlice, [], [], ModalSlice> = (s
     }
   },
 
-  setIsProjectPickerVisible: (v: boolean) => {
+  setIsProjectPickerVisible: (v: boolean, mode: ProjectPickerMode = "picker") => {
     if (v) {
       set({
         isProjectPickerVisible: true,
+        projectPickerMode: mode,
         isQuickOpenVisible: false,
         isCommandPaletteVisible: false,
         isGlobalSearchVisible: false,
@@ -236,7 +240,7 @@ export const createModalSlice: StateCreator<ModalSlice, [], [], ModalSlice> = (s
         isDatabaseConnectionVisible: false,
       });
     } else {
-      set({ isProjectPickerVisible: v });
+      set({ isProjectPickerVisible: false, projectPickerMode: "picker" });
     }
   },
 

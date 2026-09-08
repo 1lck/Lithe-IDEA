@@ -19,7 +19,7 @@ private enum ActivityBarMetrics {
 
 private enum WorkbenchWorkspaceMetrics {
     static let paneInset: CGFloat = 0
-    static let paneSpacing: CGFloat = 6
+    static let paneSpacing: CGFloat = SplitHandleView.thickness
     static let paneCornerRadius: CGFloat = 10
 }
 
@@ -1736,9 +1736,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
     let bottomTool: BottomTool
 
     @State private var liveSidebarWidth: CGFloat
-    @State private var sidebarDragStart: CGFloat
     @State private var liveTopPaneHeight: CGFloat?
-    @State private var topPaneDragStart: CGFloat = 0
 
     init(
         sidebarWidth: CGFloat,
@@ -1761,7 +1759,6 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
         self.editor = editor()
         self.bottomTool = bottomTool()
         _liveSidebarWidth = State(initialValue: sidebarWidth)
-        _sidebarDragStart = State(initialValue: sidebarWidth)
         _liveTopPaneHeight = State(initialValue: topPaneHeight)
     }
 
@@ -1885,87 +1882,6 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
             guard newHeight != liveTopPaneHeight else { return }
             liveTopPaneHeight = newHeight
         }
-    }
-
-    private func sidebarResizeHandle(
-        resolvedSidebarWidth: CGFloat,
-        minimumSidebarWidth: CGFloat,
-        maximumSidebarWidth: CGFloat,
-        bottomInset: CGFloat
-    ) -> some View {
-        SplitHandleView(
-            axis: .horizontal,
-            showsIdleDivider: false,
-            onDragStarted: {
-                sidebarDragStart = resolvedSidebarWidth
-            },
-            onDragChanged: { translation in
-                liveSidebarWidth = constrained(
-                    sidebarDragStart + translation,
-                    minimum: minimumSidebarWidth,
-                    maximum: maximumSidebarWidth
-                )
-            },
-            onDragEnded: { translation in
-                let finalWidth = constrained(
-                    sidebarDragStart + translation,
-                    minimum: minimumSidebarWidth,
-                    maximum: maximumSidebarWidth
-                )
-                liveSidebarWidth = finalWidth
-                actions.onSidebarWidthCommitted(finalWidth)
-            }
-        )
-        .frame(maxHeight: .infinity)
-        .padding(.top, WorkbenchWorkspaceMetrics.paneInset)
-        .padding(.bottom, bottomInset)
-        .contentShape(Rectangle())
-        .zIndex(1)
-        .offset(
-            x: WorkbenchWorkspaceMetrics.paneInset
-                + resolvedSidebarWidth
-                + WorkbenchWorkspaceMetrics.paneSpacing / 2
-                - SplitHandleView.thickness / 2
-        )
-    }
-
-    private func topPaneResizeHandle(
-        resolvedTopPaneHeight: CGFloat,
-        minimumTopPaneHeight: CGFloat,
-        maximumTopPaneHeight: CGFloat
-    ) -> some View {
-        SplitHandleView(
-            axis: .vertical,
-            showsIdleDivider: false,
-            onDragStarted: {
-                topPaneDragStart = resolvedTopPaneHeight
-            },
-            onDragChanged: { translation in
-                liveTopPaneHeight = constrained(
-                    topPaneDragStart + translation,
-                    minimum: minimumTopPaneHeight,
-                    maximum: maximumTopPaneHeight
-                )
-            },
-            onDragEnded: { translation in
-                let finalHeight = constrained(
-                    topPaneDragStart + translation,
-                    minimum: minimumTopPaneHeight,
-                    maximum: maximumTopPaneHeight
-                )
-                liveTopPaneHeight = finalHeight
-                actions.onTopPaneHeightCommitted(finalHeight)
-            }
-        )
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
-        .contentShape(Rectangle())
-        .zIndex(1)
-        .offset(
-            y: resolvedTopPaneHeight
-                + WorkbenchWorkspaceMetrics.paneSpacing / 2
-                - SplitHandleView.thickness / 2
-        )
     }
 
     private func constrained(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {
