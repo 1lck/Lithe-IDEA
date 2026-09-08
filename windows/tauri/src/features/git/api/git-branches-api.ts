@@ -21,6 +21,11 @@ interface CheckoutPreflightResult {
   blockingPaths: string[];
 }
 
+interface GitWriteResult {
+  output?: string;
+  exitCode?: number;
+}
+
 const checkoutErrorMessage = (error: unknown): string => {
   const message = error instanceof Error ? error.message : String(error);
   return message.trim() || "Failed to checkout branch";
@@ -221,11 +226,14 @@ export const updateBranch = async (
   reference: GitReference,
 ): Promise<void> => {
   const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-  await tauriInvoke("git.write", {
+  const result = await tauriInvoke<GitWriteResult>("git.write", {
     repoPath: resolvedRepoPath,
     operation: "updateBranch",
     ...referencePayload(reference),
   });
+  if (typeof result?.exitCode === "number" && result.exitCode !== 0) {
+    throw new Error(result.output?.trim() || "Git branch update failed");
+  }
   emitGitChanged({
     repoPath: resolvedRepoPath,
     scopes: ["history", "refs", "remotes"],

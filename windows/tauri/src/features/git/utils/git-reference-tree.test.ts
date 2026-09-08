@@ -4,6 +4,7 @@ import {
   buildGitReferenceTree,
   collectGitReferenceGroupIds,
   countGitReferencesByKind,
+  filterGitLogReferences,
 } from "./git-reference-tree";
 
 const reference = (shortName: string): GitReference => ({
@@ -66,5 +67,49 @@ describe("Git reference tree", () => {
     const tree = buildGitReferenceTree(references, "local", new Set(["refs/heads/main"]));
 
     expect(tree.map((node) => node.name)).toEqual(["main", "feature", "develop"]);
+  });
+
+  test("shows current, marked, and current-upstream references in my branches mode", () => {
+    const references: GitReference[] = [
+      {
+        fullName: "refs/heads/main",
+        shortName: "main",
+        kind: "local",
+        peelsToCommit: true,
+        isCurrent: true,
+        upstreamShortName: "origin/main",
+      },
+      {
+        fullName: "refs/heads/feature/orders",
+        shortName: "feature/orders",
+        kind: "local",
+        peelsToCommit: true,
+        isCurrent: false,
+      },
+      {
+        fullName: "refs/heads/other",
+        shortName: "other",
+        kind: "local",
+        peelsToCommit: true,
+        isCurrent: false,
+      },
+      reference("origin/main"),
+      reference("origin/other"),
+      {
+        fullName: "refs/tags/v1.0.0",
+        shortName: "v1.0.0",
+        kind: "tag",
+        peelsToCommit: true,
+        isCurrent: false,
+      },
+    ];
+
+    expect(
+      filterGitLogReferences(
+        references,
+        new Set(["refs/heads/feature/orders"]),
+        true,
+      ).map((item) => item.shortName),
+    ).toEqual(["main", "feature/orders", "origin/main"]);
   });
 });

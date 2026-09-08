@@ -4023,6 +4023,26 @@ fn git_write_updates_a_noncurrent_branch_without_switching_head() {
     assert_eq!(current["data"]["operationError"]["code"], "invalid_request");
     assert_eq!(git_text(&work, &["branch", "--show-current"]), "main");
 
+    // A detached HEAD still permits updating another local branch; only the
+    // selected branch itself is disallowed because it would be the current ref.
+    assert!(git(&work, &["switch", "--detach", "refs/heads/main"])
+        .status
+        .success());
+    let detached = git_write_request(
+        &work,
+        "updateBranch",
+        serde_json::json!({
+            "gitReference": {
+                "fullName": "refs/heads/feature/core",
+                "shortName": "feature/core",
+                "kind": "local"
+            }
+        }),
+    );
+    assert_eq!(detached["ok"], true, "{detached}");
+    assert_eq!(detached["data"]["exitCode"], 0, "{detached}");
+    assert_eq!(git_text(&work, &["branch", "--show-current"]), "");
+
     fs::remove_dir_all(root).expect("Git fixture should be removable");
 }
 

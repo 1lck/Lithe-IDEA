@@ -23,11 +23,19 @@ export interface GitPullWorkflowOptions {
 
 export interface GitPullWorkflowSnapshot {
   isPulling: boolean;
+  isPullLocked: boolean;
   pendingPreflight: GitPullPreflight | null;
 }
 
 const IDLE_SNAPSHOT: GitPullWorkflowSnapshot = {
   isPulling: false,
+  isPullLocked: false,
+  pendingPreflight: null,
+};
+
+const REFRESHING_SNAPSHOT: GitPullWorkflowSnapshot = {
+  isPulling: false,
+  isPullLocked: true,
   pendingPreflight: null,
 };
 
@@ -56,11 +64,11 @@ export class GitPullWorkflow {
   }
 
   async run(repoPath: string, options: GitPullWorkflowOptions): Promise<GitPullResult> {
-    if (this.snapshot.isPulling) {
+    if (this.snapshot.isPullLocked) {
       return { status: "duplicate" };
     }
 
-    this.update({ isPulling: true, pendingPreflight: null });
+    this.update({ isPulling: true, isPullLocked: true, pendingPreflight: null });
     try {
       const fetched = await this.dependencies.fetch(repoPath);
       if (!fetched.success) {
@@ -166,12 +174,17 @@ export class GitPullWorkflow {
       };
     } finally {
       this.resolveStrategy = null;
+
+      // Keep duplicate Pull attempts blocked while allowing unrelated Git
+      // actions after the command and conflict inspection have completed.
+      this.update(REFRESHING_SNAPSHOT);
       try {
         await options.refresh();
       } catch (refreshError) {
         console.error("Failed to refresh Git data after pull:", refreshError);
+      } finally {
+        this.update(IDLE_SNAPSHOT);
       }
-      this.update(IDLE_SNAPSHOT);
     }
   }
 
@@ -179,10 +192,10 @@ export class GitPullWorkflow {
     return new Promise((resolve) => {
       this.resolveStrategy = (strategy) => {
         this.resolveStrategy = null;
-        this.update({ isPulling: true, pendingPreflight: null });
+        this.update({ isPulling: true, isPullLocked: true, pendingPreflight: null });
         resolve(strategy === "merge" || strategy === "rebase" ? strategy : null);
       };
-      this.update({ isPulling: true, pendingPreflight: preflight });
+      this.update({ isPulling: true, isPullLocked: true, pendingPreflight: preflight });
     });
   }
 

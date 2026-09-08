@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { GitReference } from "../types/git.types";
 import {
-  loadGitHistoryWithReferenceFallback,
+  reconcileGitLogReference,
   selectedReferenceAfterRemoval,
   shouldRefreshGitLogForChange,
 } from "./git-log-refresh";
@@ -50,7 +50,29 @@ describe("Git Log refresh events", () => {
     );
   });
 
-  test("recovers a stale reference filter from the unfiltered history", async () => {
+  test("rebinds the selected reference to refreshed metadata", () => {
+    const selectedReference: GitReference = {
+      fullName: "refs/heads/main",
+      shortName: "main",
+      kind: "local",
+      peelsToCommit: true,
+      isCurrent: false,
+      upstreamShortName: "origin/main",
+      behind: 2,
+    };
+    const refreshedReference: GitReference = {
+      ...selectedReference,
+      isCurrent: true,
+      behind: 0,
+    };
+
+    const result = reconcileGitLogReference(selectedReference, [refreshedReference]);
+
+    expect(result).toEqual({ reference: refreshedReference, isMissing: false });
+    expect(result.reference).toBe(refreshedReference);
+  });
+
+  test("only treats a selected reference as missing after a fresh reference snapshot", () => {
     const selectedReference: GitReference = {
       fullName: "refs/remotes/origin/feature/deleted",
       shortName: "origin/feature/deleted",
@@ -58,20 +80,14 @@ describe("Git Log refresh events", () => {
       peelsToCommit: true,
       isCurrent: false,
     };
-    const fallbackHistory = {
-      references: [],
-      recentReferences: [],
-      commits: [],
-      hasMore: false,
-    };
-    const requestedReferences: Array<string | undefined> = [];
 
-    const result = await loadGitHistoryWithReferenceFallback(async (reference) => {
-      requestedReferences.push(reference);
-      return reference ? null : fallbackHistory;
-    }, selectedReference);
-
-    expect(requestedReferences).toEqual([selectedReference.fullName, undefined]);
-    expect(result).toEqual({ history: fallbackHistory, reference: null });
+    expect(reconcileGitLogReference(selectedReference, null)).toEqual({
+      reference: selectedReference,
+      isMissing: false,
+    });
+    expect(reconcileGitLogReference(selectedReference, [])).toEqual({
+      reference: null,
+      isMissing: true,
+    });
   });
 });

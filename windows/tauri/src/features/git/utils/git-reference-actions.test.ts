@@ -3,6 +3,7 @@ import type { GitReference } from "../types/git.types";
 import {
   getGitReferenceActions,
   getGitReferenceToolbarState,
+  isGitReferencePullAction,
   suggestWorktreeBranchName,
 } from "./git-reference-actions";
 
@@ -55,6 +56,19 @@ describe("Git reference actions", () => {
     expect(actions).toContain("pullMergeIntoCurrent");
     expect(actions).toContain("deleteRemote");
     expect(actions).not.toContain("rename");
+  });
+
+  test("identifies only reference actions that run a Pull operation", () => {
+    const current = reference("local", "main", true);
+    const other = reference("local", "feature/orders");
+    const remote = reference("remote", "origin/feature/orders");
+
+    expect(isGitReferencePullAction("update", current)).toBe(true);
+    expect(isGitReferencePullAction("update", other)).toBe(false);
+    expect(isGitReferencePullAction("checkoutAndUpdate", other)).toBe(true);
+    expect(isGitReferencePullAction("pullRebaseIntoCurrent", remote)).toBe(true);
+    expect(isGitReferencePullAction("pullMergeIntoCurrent", remote)).toBe(true);
+    expect(isGitReferencePullAction("mergeIntoCurrent", remote)).toBe(false);
   });
 
   test("suggests a safe display-derived worktree branch without parsing remote identity", () => {

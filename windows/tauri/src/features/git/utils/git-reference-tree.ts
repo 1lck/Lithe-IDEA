@@ -19,6 +19,47 @@ export function countGitReferencesByKind(
   return references.filter((reference) => reference.kind === kind).length;
 }
 
+/**
+ * Returns the references shown by the Git Log's "my branches" view.
+ *
+ * Marked local branches are the user's explicit branch set. The checked-out
+ * branch and its configured remote are also retained so the shortcut remains
+ * useful immediately after opening a repository, before anything is marked.
+ */
+export function filterGitLogReferences(
+  references: GitReference[],
+  markedReferenceFullNames: ReadonlySet<string>,
+  showMyBranchesOnly: boolean,
+  selectedReferenceFullName?: string,
+): GitReference[] {
+  if (!showMyBranchesOnly) return references;
+
+  const current = references.find((reference) => reference.isCurrent);
+  const selected = selectedReferenceFullName
+    ? references.find((reference) => reference.fullName === selectedReferenceFullName)
+    : undefined;
+  const visibleNames = new Set(
+    references
+      .filter(
+        (reference) =>
+          reference.kind === "local" &&
+          (markedReferenceFullNames.has(reference.fullName) || reference.isCurrent),
+      )
+      .map((reference) => reference.fullName),
+  );
+
+  if (current?.upstreamShortName) {
+    const upstream = references.find(
+      (reference) =>
+        reference.kind === "remote" && reference.shortName === current.upstreamShortName,
+    );
+    if (upstream) visibleNames.add(upstream.fullName);
+  }
+  if (selected) visibleNames.add(selected.fullName);
+
+  return references.filter((reference) => visibleNames.has(reference.fullName));
+}
+
 export function collectGitReferenceGroupIds(nodes: GitReferenceTreeNode[]): string[] {
   return nodes.flatMap((node) => [
     ...(node.children.length > 0 ? [node.id] : []),

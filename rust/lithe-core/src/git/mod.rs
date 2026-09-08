@@ -46,7 +46,7 @@ use crate::protocol::{
 };
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Read;
 use std::io::Write;
 #[cfg(target_os = "windows")]
@@ -54,6 +54,7 @@ use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::thread;
 use std::time::Duration;
 
@@ -63,6 +64,7 @@ const DEFAULT_REPOSITORY_SCAN_MAX_DIRECTORIES: usize = usize::MAX;
 const DEFAULT_REPOSITORY_SCAN_MAX_DEPTH: usize = usize::MAX;
 static TEMPORARY_INDEX_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static AUTO_STASH_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+static GIT_MUTATION_LOCKS: OnceLock<Mutex<HashMap<String, Weak<Mutex<()>>>>> = OnceLock::new();
 
 const REPOSITORY_SCAN_SKIP_DIRS: &[&str] = &[".git"];
 
@@ -821,10 +823,51 @@ pub fn workspace_repositories(
     })
 }
 
+fn git_mutation_lock(root: &str) -> Arc<Mutex<()>> {
+    let key = git_mutation_lock_key(root);
+    git_mutation_lock_for_key(key)
+}
+
+fn git_mutation_lock_for_key(key: String) -> Arc<Mutex<()>> {
+    let locks = GIT_MUTATION_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut locks = locks
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    // Weak entries keep the registry bounded after a repository is no longer
+    // active, while the strong Arc returned below keeps a lock alive for every
+    // current owner or waiter.
+    locks.retain(|_, lock| lock.strong_count() > 0);
+    if let Some(lock) = locks.get(&key).and_then(|lock| lock.upgrade()) {
+        return lock;
+    }
+
+    let lock = Arc::new(Mutex::new(()));
+    locks.insert(key, Arc::downgrade(&lock));
+    lock
+}
+
+fn git_mutation_lock_key(root: &str) -> String {
+    // Linked worktrees share refs and the common Git administration directory.
+    // Resolve that directory without the traced command path so lock discovery
+    // does not appear as an extra compatibility invocation.
+    run_git(
+        Path::new(root),
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    )
+    .ok()
+    .and_then(|output| canonical_git_output(output, "Git common directory").ok())
+    .unwrap_or_else(|| root.to_string())
+}
+
 /// Executes an argument-based Git command after validating the workspace root.
 pub fn command(request: GitCommandRequest) -> Result<GitCommandResponse, CoreError> {
     with_git_invocation_trace(|| {
         let root = validate_root(&request.root)?;
+        let mutation_lock = git_mutation_lock(&root);
+        let _mutation_guard = mutation_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         execute_git(&root, &request.arguments, request.input)
     })
 }
@@ -841,6 +884,10 @@ pub fn write(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> 
 
 fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> {
     let root = validate_root(&request.root)?;
+    let mutation_lock = git_mutation_lock(&root);
+    let _mutation_guard = mutation_lock
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     // Every typed writer shares the same repository lease, including linked
     // worktrees. Clone has no existing repository whose state it could race.
     let _lease = if request.operation == "clone" {
@@ -4567,9 +4614,6 @@ fn push(
             arguments.push(tag_argument.into());
         }
     }
-    if should_set_upstream && expected_push.is_none() {
-        arguments.push("--set-upstream".into());
-    }
     let source = expected_push
         .map(|expected| expected.local_head.clone())
         .unwrap_or_else(|| format!("refs/heads/{}", target.local_branch));
@@ -4589,7 +4633,7 @@ fn push(
         );
     }
     let pushed = execute_git(root, &arguments, None)?;
-    if pushed.exit_code != 0 || !should_set_upstream || expected_push.is_none() {
+    if pushed.exit_code != 0 || !should_set_upstream {
         return Ok(pushed);
     }
 
@@ -4896,7 +4940,9 @@ fn update_local_branch(
             "Branch update requires a local Git reference",
         ));
     }
-    if is_current_reference(root, &reference.full_name)? {
+    if optional_current_branch(root)?.is_some_and(|current| {
+        reference.full_name == current || reference.full_name == format!("refs/heads/{current}")
+    }) {
         return Err(CoreError::new(
             ErrorCode::InvalidRequest,
             "The current branch must be updated through pull",
@@ -6271,6 +6317,15 @@ mod tests {
         GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse, GitReferencesResponse,
     };
     use serde_json::Value;
+    #[test]
+    fn mutation_lock_registry_reuses_keys_and_isolates_repositories() {
+        let first = super::git_mutation_lock_for_key("test-repository-a".into());
+        let same_repository = super::git_mutation_lock_for_key("test-repository-a".into());
+        let other_repository = super::git_mutation_lock_for_key("test-repository-b".into());
+
+        assert!(std::sync::Arc::ptr_eq(&first, &same_repository));
+        assert!(!std::sync::Arc::ptr_eq(&first, &other_repository));
+    }
 
     #[test]
     fn tag_annotation_parser_preserves_crlf_and_trailing_blank_lines() {

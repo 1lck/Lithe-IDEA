@@ -74,6 +74,18 @@ export function getGitReferenceActions(reference: GitReference): GitReferenceAct
   return TAG_ACTIONS;
 }
 
+export function isGitReferencePullAction(
+  action: GitReferenceAction,
+  reference: GitReference,
+): boolean {
+  return (
+    (action === "update" && reference.isCurrent) ||
+    action === "checkoutAndUpdate" ||
+    action === "pullRebaseIntoCurrent" ||
+    action === "pullMergeIntoCurrent"
+  );
+}
+
 export interface GitReferenceToolbarState {
   canCreateBranch: boolean;
   canUpdateSelected: boolean;

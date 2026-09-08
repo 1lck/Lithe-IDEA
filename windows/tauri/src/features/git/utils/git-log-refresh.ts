@@ -1,5 +1,5 @@
 import { isGitChangeRelevant, type GitChange } from "../events/git-events";
-import type { GitHistorySnapshot, GitReference } from "../types/git.types";
+import type { GitReference } from "../types/git.types";
 
 const GIT_LOG_SCOPES = new Set(["history", "refs", "repository"]);
 
@@ -15,11 +15,18 @@ export function selectedReferenceAfterRemoval(
   return selectedReference?.fullName === removedFullName ? null : selectedReference;
 }
 
-export async function loadGitHistoryWithReferenceFallback(
-  loadHistory: (reference?: string) => Promise<GitHistorySnapshot | null>,
+export function reconcileGitLogReference(
   reference: GitReference | null,
-): Promise<{ history: GitHistorySnapshot | null; reference: GitReference | null }> {
-  const history = await loadHistory(reference?.fullName);
-  if (history || !reference) return { history, reference };
-  return { history: await loadHistory(), reference: null };
+  refreshedReferences: GitReference[] | null,
+): { reference: GitReference | null; isMissing: boolean } {
+  if (!reference || refreshedReferences === null) {
+    return { reference, isMissing: false };
+  }
+
+  const refreshedReference = refreshedReferences.find(
+    (candidate) => candidate.fullName === reference.fullName,
+  );
+  return refreshedReference
+    ? { reference: refreshedReference, isMissing: false }
+    : { reference: null, isMissing: true };
 }

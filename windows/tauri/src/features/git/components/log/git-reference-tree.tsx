@@ -5,9 +5,9 @@ import {
   CaretRightIcon,
   ChevronExpandYIcon,
   CheckIcon,
-  DownloadSimpleIcon,
   FolderIcon,
   FolderPlusIcon,
+  FunnelIcon as Filter,
   GitBranchIcon,
   GitDiffIcon,
   GitMergeIcon,
@@ -19,11 +19,13 @@ import {
   TrashIcon,
   UploadIcon,
 } from "@/ui/icons";
-import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/utils/cn";
 import { useTranslation } from "@/i18n/locale-provider";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/ui/hover-card";
 import { bindScrollContainerWheel } from "@/ui/scroll-container-wheel";
 import Tooltip from "@/ui/tooltip";
+import { normalizeRepositoryPath } from "../../api/git-repo-api";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -39,21 +41,26 @@ import type { GitReference, GitReferenceKind } from "../../types/git.types";
 import {
   getGitReferenceActions,
   getGitReferenceToolbarState,
+  isGitReferencePullAction,
   type GitReferenceAction,
 } from "../../utils/git-reference-actions";
 import {
   buildGitReferenceTree,
   collectGitReferenceGroupIds,
   countGitReferencesByKind,
+  filterGitLogReferences,
   type GitReferenceTreeNode,
 } from "../../utils/git-reference-tree";
+import { getVisibleGitReferenceToolbarActionCount } from "../../utils/git-reference-toolbar-layout";
 import { GitTrackingCounts } from "../git-tracking-counts";
+import { GitFetchIcon, GitUpdateIcon, LocateHeadIcon } from "./git-reference-toolbar-icons";
 
 const SECTION_KEYS: Array<{ kind: GitReferenceKind; titleKey: string }> = [
   { kind: "local", titleKey: "git.log.local" },
   { kind: "remote", titleKey: "git.log.remote" },
   { kind: "tag", titleKey: "git.log.tags" },
 ];
+const EMPTY_MARKED_REFERENCE_IDS: string[] = [];
 
 function ReferenceIcon({
   kind,
@@ -64,22 +71,26 @@ function ReferenceIcon({
   isCurrent?: boolean;
   isMarked?: boolean;
 }) {
-  if (isMarked) return <StarIcon className="size-3.5 fill-amber-400 text-amber-400" />;
   if (isCurrent) return <CheckIcon className="size-3.5 text-amber-400" />;
+  if (isMarked) return <StarIcon className="size-3.5 fill-amber-400 text-amber-400" />;
   if (kind === "tag") return <TagIcon className="size-3.5 text-amber-400" />;
   if (kind === "remote") return <NetworkIcon className="size-3.5 text-subtle-foreground" />;
   return <GitBranchIcon className="size-3.5 text-subtle-foreground" />;
 }
 
 interface GitReferenceTreeProps {
+  repoPath: string;
   references: GitReference[];
   selectedReference: GitReference | null;
   isMutating?: boolean;
+  isPullLocked?: boolean;
   onSelect: (reference: GitReference | null) => void;
   onReferenceAction: (action: GitReferenceAction, reference: GitReference) => void;
   onSetUpstream: (branch: GitReference, upstream: GitReference | null) => void;
   onManageRemotes: () => void;
   onFetch: () => void;
+  onNavigateToHead: () => void;
+  canNavigateToHead?: boolean;
 }
 
 function ActionIcon({ action }: { action: GitReferenceAction }) {
@@ -107,17 +118,23 @@ function ReferenceToolbarButton({
   label,
   disabled = false,
   active = false,
+  overflow = false,
   onClick,
   children,
 }: {
   label: string;
   disabled?: boolean;
   active?: boolean;
+  overflow?: boolean;
   onClick: () => void;
   children: ReactNode;
 }) {
   return (
-    <Tooltip content={label} side="right" triggerClassName="w-full justify-center">
+    <Tooltip
+      content={label}
+      side={overflow ? "top" : "right"}
+      triggerClassName={cn("shrink-0 justify-center", !overflow && "w-full")}
+    >
       <button
         type="button"
         aria-label={label}
@@ -125,7 +142,7 @@ function ReferenceToolbarButton({
         disabled={disabled}
         onClick={onClick}
         className={cn(
-          "flex size-8 items-center justify-center rounded-sm text-subtle-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-30 [&_svg]:size-4",
+          "flex size-8 shrink-0 items-center justify-center rounded-sm text-subtle-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-30 [&_svg]:size-4",
           active && "bg-accent/70 text-amber-400",
         )}
       >
@@ -135,10 +152,23 @@ function ReferenceToolbarButton({
   );
 }
 
+type ReferenceToolbarSection = "primary" | "secondary" | "footer";
+
+interface ReferenceToolbarAction {
+  id: string;
+  section: ReferenceToolbarSection;
+  label: string;
+  disabled: boolean;
+  active?: boolean;
+  onClick: () => void;
+  icon: ReactNode;
+}
+
 function GitReferenceToolbar({
   selectedReference,
   currentReference,
   isMutating,
+  isPullLocked,
   isMarked,
   hasReferences,
   onReferenceAction,
@@ -146,10 +176,16 @@ function GitReferenceToolbar({
   onToggleMark,
   onExpandAll,
   onCollapseAll,
+  showMyBranchesOnly,
+  hasMyBranches,
+  onToggleMyBranches,
+  onNavigateToHead,
+  canNavigateToHead,
 }: {
   selectedReference: GitReference | null;
   currentReference: GitReference | null;
   isMutating: boolean;
+  isPullLocked: boolean;
   isMarked: boolean;
   hasReferences: boolean;
   onReferenceAction: (action: GitReferenceAction, reference: GitReference) => void;
@@ -157,73 +193,204 @@ function GitReferenceToolbar({
   onToggleMark: () => void;
   onExpandAll: () => void;
   onCollapseAll: () => void;
+  showMyBranchesOnly: boolean;
+  hasMyBranches: boolean;
+  onToggleMyBranches: () => void;
+  onNavigateToHead: () => void;
+  canNavigateToHead: boolean;
 }) {
   const { t } = useTranslation();
   const state = getGitReferenceToolbarState(selectedReference, currentReference, isMutating);
   const branchSource = selectedReference ?? currentReference;
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const actions: ReferenceToolbarAction[] = [
+    {
+      id: "new-branch",
+      section: "primary",
+      label: t("git.log.toolbar.newBranch"),
+      disabled: !state.canCreateBranch,
+      onClick: () => branchSource && onReferenceAction("createBranch", branchSource),
+      icon: <PlusIcon />,
+    },
+    {
+      id: "update-selected",
+      section: "primary",
+      label: t("git.log.toolbar.updateSelected"),
+      disabled:
+        !state.canUpdateSelected ||
+        Boolean(
+          isPullLocked &&
+            selectedReference &&
+            isGitReferencePullAction("update", selectedReference),
+        ),
+      onClick: () => selectedReference && onReferenceAction("update", selectedReference),
+      icon: <GitUpdateIcon />,
+    },
+    {
+      id: "delete-branch",
+      section: "primary",
+      label: t("git.log.toolbar.deleteBranch"),
+      disabled: !state.canDeleteBranch,
+      onClick: () => selectedReference && onReferenceAction("deleteLocal", selectedReference),
+      icon: <TrashIcon />,
+    },
+    {
+      id: "compare-with-current",
+      section: "primary",
+      label: t("git.log.toolbar.compareWithCurrent"),
+      disabled: !state.canCompareWithCurrent,
+      onClick: () =>
+        selectedReference && onReferenceAction("compareWithCurrent", selectedReference),
+      icon: <GitDiffIcon />,
+    },
+    {
+      id: "fetch",
+      section: "secondary",
+      label: t("git.log.toolbar.fetch"),
+      disabled: !state.canFetch,
+      onClick: onFetch,
+      icon: <GitFetchIcon />,
+    },
+    {
+      id: "toggle-mark",
+      section: "secondary",
+      label: t(isMarked ? "git.log.toolbar.unmark" : "git.log.toolbar.mark"),
+      disabled: !state.canToggleMark,
+      active: isMarked,
+      onClick: onToggleMark,
+      icon: <StarIcon className={cn(isMarked && "fill-current")} />,
+    },
+    {
+      id: "go-to-head",
+      section: "secondary",
+      label: t("git.log.toolbar.goToHead"),
+      disabled: !canNavigateToHead,
+      onClick: onNavigateToHead,
+      icon: <LocateHeadIcon />,
+    },
+    {
+      id: "toggle-my-branches",
+      section: "secondary",
+      label: t(
+        showMyBranchesOnly
+          ? "git.log.toolbar.showAllBranches"
+          : "git.log.toolbar.showMyBranches",
+      ),
+      disabled: !hasMyBranches && !showMyBranchesOnly,
+      active: showMyBranchesOnly,
+      onClick: onToggleMyBranches,
+      icon: <Filter />,
+    },
+    {
+      id: "expand-all",
+      section: "footer",
+      label: t("git.expandAll"),
+      disabled: !hasReferences,
+      onClick: onExpandAll,
+      icon: <ChevronExpandYIcon />,
+    },
+    {
+      id: "collapse-all",
+      section: "footer",
+      label: t("git.collapseAll"),
+      disabled: !hasReferences,
+      onClick: onCollapseAll,
+      icon: <ArrowsInLineVerticalIcon />,
+    },
+  ];
+  const [visibleActionCount, setVisibleActionCount] = useState(actions.length);
+
+  useLayoutEffect(() => {
+    const element = toolbarRef.current;
+    if (!element) return;
+
+    const updateVisibleActionCount = () => {
+      const height = element.clientHeight;
+      if (height <= 0) return;
+      const nextCount = getVisibleGitReferenceToolbarActionCount(height, actions.length);
+      setVisibleActionCount((currentCount) =>
+        currentCount === nextCount ? currentCount : nextCount,
+      );
+    };
+
+    updateVisibleActionCount();
+    const observer = new ResizeObserver(updateVisibleActionCount);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [actions.length]);
+
+  const isOverflowing = visibleActionCount < actions.length;
+  const visibleActions = isOverflowing ? actions.slice(0, visibleActionCount) : actions;
+  const overflowActions = isOverflowing ? actions.slice(visibleActionCount) : [];
+  const renderAction = (action: ReferenceToolbarAction, overflow = false) => (
+    <ReferenceToolbarButton
+      key={action.id}
+      label={action.label}
+      disabled={action.disabled}
+      active={action.active}
+      overflow={overflow}
+      onClick={action.onClick}
+    >
+      {action.icon}
+    </ReferenceToolbarButton>
+  );
+
+  if (!isOverflowing) {
+    const primaryActions = visibleActions.filter((action) => action.section === "primary");
+    const secondaryActions = visibleActions.filter((action) => action.section === "secondary");
+    const footerActions = visibleActions.filter((action) => action.section === "footer");
+
+    return (
+      <div
+        ref={toolbarRef}
+        className="flex h-full min-h-0 w-9 shrink-0 flex-col items-center overflow-hidden border-border border-r bg-surface/60 py-1"
+      >
+        {primaryActions.map((action) => renderAction(action))}
+        <div className="my-1 h-px w-5 shrink-0 bg-border" />
+        {secondaryActions.map((action) => renderAction(action))}
+        <div className="mt-auto" />
+        {footerActions.map((action) => renderAction(action))}
+      </div>
+    );
+  }
+
   return (
-    <div className="flex w-9 shrink-0 flex-col items-center border-border border-r bg-surface/60 py-1">
-      <ReferenceToolbarButton
-        label={t("git.log.toolbar.newBranch")}
-        disabled={!state.canCreateBranch}
-        onClick={() => branchSource && onReferenceAction("createBranch", branchSource)}
-      >
-        <PlusIcon />
-      </ReferenceToolbarButton>
-      <ReferenceToolbarButton
-        label={t("git.log.toolbar.updateSelected")}
-        disabled={!state.canUpdateSelected}
-        onClick={() => selectedReference && onReferenceAction("update", selectedReference)}
-      >
-        <ArrowClockwiseIcon />
-      </ReferenceToolbarButton>
-      <ReferenceToolbarButton
-        label={t("git.log.toolbar.deleteBranch")}
-        disabled={!state.canDeleteBranch}
-        onClick={() => selectedReference && onReferenceAction("deleteLocal", selectedReference)}
-      >
-        <TrashIcon />
-      </ReferenceToolbarButton>
-      <ReferenceToolbarButton
-        label={t("git.log.toolbar.compareWithCurrent")}
-        disabled={!state.canCompareWithCurrent}
-        onClick={() => selectedReference && onReferenceAction("compareWithCurrent", selectedReference)}
-      >
-        <GitDiffIcon />
-      </ReferenceToolbarButton>
-
-      <div className="my-1 h-px w-5 bg-border" />
-      <ReferenceToolbarButton
-        label={t("git.log.toolbar.fetch")}
-        disabled={!state.canFetch}
-        onClick={onFetch}
-      >
-        <DownloadSimpleIcon />
-      </ReferenceToolbarButton>
-      <ReferenceToolbarButton
-        label={t(isMarked ? "git.log.toolbar.unmark" : "git.log.toolbar.mark")}
-        disabled={!state.canToggleMark}
-        active={isMarked}
-        onClick={onToggleMark}
-      >
-        <StarIcon className={cn(isMarked && "fill-current")} />
-      </ReferenceToolbarButton>
-
+    <div
+      ref={toolbarRef}
+      className="flex h-full min-h-0 w-9 shrink-0 flex-col items-center overflow-hidden border-border border-r bg-surface/60 py-1"
+    >
+      {visibleActions.map((action) => renderAction(action))}
       <div className="mt-auto" />
-      <ReferenceToolbarButton
-        label={t("git.expandAll")}
-        disabled={!hasReferences}
-        onClick={onExpandAll}
-      >
-        <ChevronExpandYIcon />
-      </ReferenceToolbarButton>
-      <ReferenceToolbarButton
-        label={t("git.collapseAll")}
-        disabled={!hasReferences}
-        onClick={onCollapseAll}
-      >
-        <ArrowsInLineVerticalIcon />
-      </ReferenceToolbarButton>
+      <HoverCard>
+        <HoverCardTrigger
+          delay={120}
+          closeDelay={160}
+          render={
+            <button
+              type="button"
+              aria-label={t("git.log.toolbar.moreActions")}
+              className="flex size-8 shrink-0 items-center justify-center rounded-sm text-subtle-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground focus-visible:outline-none [&_svg]:size-4"
+            >
+              <CaretRightIcon />
+            </button>
+          }
+        />
+        <HoverCardContent
+          side="right"
+          align="end"
+          sideOffset={2}
+          className="flex w-auto items-center gap-0.5 rounded-md p-0.5"
+        >
+          {overflowActions.map((action, index) => (
+            <div key={action.id} className="flex shrink-0 items-center">
+              {index > 0 && overflowActions[index - 1]?.section !== action.section ? (
+                <div className="mx-1 h-5 w-px shrink-0 bg-border" />
+              ) : null}
+              {renderAction(action, true)}
+            </div>
+          ))}
+        </HoverCardContent>
+      </HoverCard>
     </div>
   );
 }
@@ -233,6 +400,7 @@ function ReferenceActionMenu({
   currentReference,
   remoteReferences,
   isMutating,
+  isPullLocked,
   onAction,
   onSetUpstream,
 }: {
@@ -240,6 +408,7 @@ function ReferenceActionMenu({
   currentReference: GitReference | null;
   remoteReferences: GitReference[];
   isMutating: boolean;
+  isPullLocked: boolean;
   onAction: (action: GitReferenceAction, reference: GitReference) => void;
   onSetUpstream: (branch: GitReference, upstream: GitReference | null) => void;
 }) {
@@ -351,6 +520,7 @@ function ReferenceActionMenu({
               const destructive = action === "deleteLocal" || action === "deleteRemote";
               const disabled =
                 isMutating ||
+                (isPullLocked && isGitReferencePullAction(action, reference)) ||
                 (action === "checkoutAndUpdate" && !reference.upstreamShortName) ||
                 (action === "update" &&
                   !(
@@ -386,6 +556,7 @@ function ReferenceNode({
   remoteReferences,
   markedReferenceFullNames,
   isMutating,
+  isPullLocked,
   onToggleGroup,
   onSelect,
   onReferenceAction,
@@ -400,6 +571,7 @@ function ReferenceNode({
   remoteReferences: GitReference[];
   markedReferenceFullNames: Set<string>;
   isMutating: boolean;
+  isPullLocked: boolean;
   onToggleGroup: (id: string) => void;
   onSelect: (reference: GitReference) => void;
   onReferenceAction: (action: GitReferenceAction, reference: GitReference) => void;
@@ -487,6 +659,7 @@ function ReferenceNode({
             currentReference={currentReference}
             remoteReferences={remoteReferences}
             isMutating={isMutating}
+            isPullLocked={isPullLocked}
             onAction={onReferenceAction}
             onSetUpstream={onSetUpstream}
           />
@@ -509,6 +682,7 @@ function ReferenceNode({
             remoteReferences={remoteReferences}
             markedReferenceFullNames={markedReferenceFullNames}
             isMutating={isMutating}
+            isPullLocked={isPullLocked}
             onToggleGroup={onToggleGroup}
             onSelect={onSelect}
             onReferenceAction={onReferenceAction}
@@ -520,25 +694,35 @@ function ReferenceNode({
 }
 
 export function GitReferenceTree({
+  repoPath,
   references,
   selectedReference,
   isMutating = false,
+  isPullLocked = false,
   onSelect,
   onReferenceAction,
   onSetUpstream,
   onManageRemotes,
   onFetch,
+  onNavigateToHead,
+  canNavigateToHead = false,
 }: GitReferenceTreeProps) {
   const { t } = useTranslation();
   const collapsedSectionIds = useGitLogPreferencesStore.use.collapsedReferenceSections();
   const collapsedGroupIds = useGitLogPreferencesStore.use.collapsedReferenceGroups();
-  const markedReferenceIds = useGitLogPreferencesStore.use.markedReferenceFullNames();
+  const markedReferenceIdsByRepository =
+    useGitLogPreferencesStore.use.markedReferenceFullNamesByRepository();
+  const showMyBranchesOnly = useGitLogPreferencesStore.use.showMyBranchesOnly();
   const {
     toggleReferenceSection,
     toggleReferenceGroup,
     setReferenceExpansion,
     toggleMarkedReference,
+    setShowMyBranchesOnly,
   } = useGitLogPreferencesStore.use.actions();
+  const repositoryPreferenceKey = normalizeRepositoryPath(repoPath);
+  const markedReferenceIds =
+    markedReferenceIdsByRepository[repositoryPreferenceKey] ?? EMPTY_MARKED_REFERENCE_IDS;
   const scrollRef = useRef<HTMLDivElement>(null);
   const collapsedSections = useMemo(() => new Set(collapsedSectionIds), [collapsedSectionIds]);
   const collapsedGroups = useMemo(() => new Set(collapsedGroupIds), [collapsedGroupIds]);
@@ -555,6 +739,25 @@ export function GitReferenceTree({
     },
     [markedReferenceIds, references],
   );
+  const visibleReferences = useMemo(
+    () =>
+      filterGitLogReferences(
+        references,
+        markedLocalReferenceFullNames,
+        showMyBranchesOnly,
+        selectedReference?.fullName,
+      ),
+    [markedLocalReferenceFullNames, references, selectedReference?.fullName, showMyBranchesOnly],
+  );
+  const hasMyBranches = useMemo(
+    () =>
+      references.some(
+        (reference) =>
+          reference.kind === "local" &&
+          (reference.isCurrent || markedLocalReferenceFullNames.has(reference.fullName)),
+      ),
+    [markedLocalReferenceFullNames, references],
+  );
   const currentReference = references.find((reference) => reference.isCurrent) ?? null;
   const remoteReferences = useMemo(
     () => references.filter((reference) => reference.kind === "remote"),
@@ -566,13 +769,13 @@ export function GitReferenceTree({
         SECTION_KEYS.map(({ kind }) => [
           kind,
           buildGitReferenceTree(
-            references,
+            visibleReferences,
             kind,
             kind === "local" ? markedLocalReferenceFullNames : undefined,
           ),
         ]),
       ),
-    [markedLocalReferenceFullNames, references],
+    [markedLocalReferenceFullNames, visibleReferences],
   );
   const allReferenceGroupIds = useMemo(
     () => [...trees.values()].flatMap(collectGitReferenceGroupIds),
@@ -591,6 +794,7 @@ export function GitReferenceTree({
         selectedReference={selectedReference}
         currentReference={currentReference}
         isMutating={isMutating}
+        isPullLocked={isPullLocked}
         isMarked={
           selectedReference?.kind === "local" &&
           markedLocalReferenceFullNames.has(selectedReference.fullName)
@@ -600,9 +804,17 @@ export function GitReferenceTree({
         onFetch={onFetch}
         onToggleMark={() => {
           if (selectedReference?.kind === "local") {
-            toggleMarkedReference(selectedReference.fullName);
+            toggleMarkedReference(repoPath, selectedReference.fullName);
           }
         }}
+        showMyBranchesOnly={showMyBranchesOnly}
+        hasMyBranches={hasMyBranches}
+        onToggleMyBranches={() => setShowMyBranchesOnly(!showMyBranchesOnly)}
+        onNavigateToHead={onNavigateToHead}
+        canNavigateToHead={
+          Boolean(canNavigateToHead && (selectedReference ?? currentReference)) &&
+          (selectedReference ?? currentReference)?.kind !== "tag"
+        }
         onExpandAll={() => setReferenceExpansion([], [])}
         onCollapseAll={() =>
           setReferenceExpansion(
@@ -614,7 +826,7 @@ export function GitReferenceTree({
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex h-8 shrink-0 items-center border-border border-b px-2 text-subtle-foreground">
           {t("git.log.references")}
-          <span className="ml-auto tabular-nums">{references.length}</span>
+          <span className="ml-auto tabular-nums">{visibleReferences.length}</span>
         </div>
         <div
           ref={scrollRef}
@@ -655,10 +867,12 @@ export function GitReferenceTree({
                     ) : (
                       <CaretDownIcon className="size-3" />
                     )}
-                    <FolderIcon className="size-3.5 text-subtle-foreground" />
+                    {kind === "tag" ? (
+                      <FolderIcon className="size-3.5 text-subtle-foreground" />
+                    ) : null}
                     {t(titleKey)}
                     <span className="ml-auto text-subtle-foreground tabular-nums">
-                      {countGitReferencesByKind(references, kind)}
+                      {countGitReferencesByKind(visibleReferences, kind)}
                     </span>
                   </ContextMenuTrigger>
                   {kind === "remote" ? (
@@ -684,6 +898,7 @@ export function GitReferenceTree({
                         remoteReferences={remoteReferences}
                         markedReferenceFullNames={markedLocalReferenceFullNames}
                         isMutating={isMutating}
+                        isPullLocked={isPullLocked}
                         onToggleGroup={toggleReferenceGroup}
                         onSelect={onSelect}
                         onReferenceAction={onReferenceAction}

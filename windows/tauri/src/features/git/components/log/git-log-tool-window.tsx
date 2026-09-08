@@ -40,7 +40,10 @@ import {
   selectedCommitsInHistoryOrder,
   updateGitHistorySelection,
 } from "../../utils/git-history-selection";
-import { type GitReferenceAction } from "../../utils/git-reference-actions";
+import {
+  isGitReferencePullAction,
+  type GitReferenceAction,
+} from "../../utils/git-reference-actions";
 import { showGitPushDialog } from "../../services/git-push-dialog-service";
 import { showGitPatchDialog } from "../../services/git-patch-dialog-service";
 import type {
@@ -73,6 +76,7 @@ export function GitLogToolWindow() {
   const rootFolderPath = useProjectStore((state) => state.rootFolderPath);
   const repoPath = activeRepoPath ?? rootFolderPath ?? null;
   const setIsBottomPaneVisible = useUIState((state) => state.setIsBottomPaneVisible);
+  const openSettingsDialog = useUIState((state) => state.openSettingsDialog);
   const {
     history,
     loadState,
@@ -89,11 +93,10 @@ export function GitLogToolWindow() {
   const [selectedCommitHashes, setSelectedCommitHashes] = useState<Set<string>>(new Set());
   const [isReferenceOperating, setIsReferenceOperating] = useState(false);
   const [showRemoteManager, setShowRemoteManager] = useState(false);
-  const isReferenceMutationPending = isReferenceOperating || pullWorkflow.isPulling;
   const emptyContextMenu = useDropdownMenu();
   const selectionAnchorRef = useRef<string | null>(null);
   const mainPanelLayout = useGitLogPreferencesStore.use.mainPanelLayout();
-  const { setMainPanelLayout } = useGitLogPreferencesStore.use.actions();
+  const { setFilterQuery, setMainPanelLayout } = useGitLogPreferencesStore.use.actions();
   const currentReference = useMemo(
     () => history.references.find((reference) => reference.isCurrent) ?? null,
     [history.references],
@@ -102,10 +105,20 @@ export function GitLogToolWindow() {
     () => new Map(history.commits.map((commit) => [commit.hash, commit] as const)),
     [history.commits],
   );
+  const activeSelectedCommit = selectedCommit
+    ? (commitByHash.get(selectedCommit.hash) ?? null)
+    : null;
   const selectedCommits = useMemo(() => {
     const selected = selectedCommitsInHistoryOrder(history.commits, selectedCommitHashes);
-    return selected.length > 0 ? selected : selectedCommit ? [selectedCommit] : [];
-  }, [history.commits, selectedCommit, selectedCommitHashes]);
+    return selected.length > 0 ? selected : activeSelectedCommit ? [activeSelectedCommit] : [];
+  }, [activeSelectedCommit, history.commits, selectedCommitHashes]);
+
+  useEffect(() => {
+    setSelectedCommit(null);
+    setSelectedCommitHashes(new Set());
+    selectionAnchorRef.current = null;
+  }, [repoPath]);
+
   const clearHistorySelection = useCallback(async () => {
     setSelectedCommitHashes(new Set());
     selectionAnchorRef.current = null;
@@ -122,6 +135,17 @@ export function GitLogToolWindow() {
     resetBranchToCommit,
     cherryPickSelectedCommit,
   } = useGitHistoryMutations({ repoPath, onCompleted: clearHistorySelection });
+  const isReferenceMutationPending =
+    isReferenceOperating || pullWorkflow.isPulling || isMutatingHistory;
+  const navigateToSelectedBranchHead = useCallback(() => {
+    if (!selectedReference || selectedReference.kind === "tag") return;
+    const head = history.commits[0];
+    if (!head) return;
+    setFilterQuery("");
+    setSelectedCommitHashes(new Set([head.hash]));
+    selectionAnchorRef.current = head.hash;
+    setSelectedCommit(head);
+  }, [history.commits, selectedReference, setFilterQuery]);
   const emptyWorkingTreeEntries = useMemo<Record<WorkingTreeDiffScope, WorkingTreeDiffEntry[]>>(
     () => ({
       all: [],
@@ -133,7 +157,6 @@ export function GitLogToolWindow() {
   const emptyGitFileByPath = useMemo(() => new Map<string, GitFile>(), []);
   const {
     isLoadingCommitDiff,
-    isLoadingBranchDiff,
     viewCommitDiff,
     viewCommitRangeDiff,
     viewCommitSelectionDiff,
@@ -439,6 +462,7 @@ export function GitLogToolWindow() {
   };
 
   const handleReferenceAction = (action: GitReferenceAction, reference: GitReference) => {
+    if (pullWorkflow.isPullLocked && isGitReferencePullAction(action, reference)) return;
     switch (action) {
       case "checkout":
       case "createBranch":
@@ -506,11 +530,6 @@ export function GitLogToolWindow() {
     toast.error(t("git.log.copyFailed", { label: label.toLocaleLowerCase() }));
   };
 
-  const comparisonBaseRef =
-    selectedReference && !selectedReference.isCurrent
-      ? selectedReference.fullName
-      : selectedCommit?.hash;
-
   const handleEmptyContextMenu = (event: ReactMouseEvent) => {
     const target = event.target as HTMLElement | null;
     if (target?.closest('[data-slot="context-menu-trigger"]')) return;
@@ -526,24 +545,12 @@ export function GitLogToolWindow() {
       <GitLogTitleBar
         referenceName={selectedReference?.shortName ?? t("git.log.all")}
         isRefreshing={loadState === "loading"}
-        isOpeningDiff={isLoadingCommitDiff}
-        isComparing={isLoadingBranchDiff}
-        hasSelectedCommit={selectedCommit !== null}
-        canCompareWithHead={Boolean(comparisonBaseRef)}
         onShowAll={() => {
           setSelectedCommit(null);
           selectReference(null);
         }}
         onRefresh={() => void refresh()}
-        onOpenDiff={() => {
-          if (selectedCommit) openDiff(selectedCommit);
-        }}
-        onCompareWithHead={() => {
-          if (comparisonBaseRef) void viewBranchDiff(comparisonBaseRef);
-        }}
-        onCopyHash={() => {
-          if (selectedCommit) void copyCommitText(selectedCommit.hash, t("git.log.commitHash"));
-        }}
+        onOpenSettings={() => openSettingsDialog("git")}
         onClose={() => setIsBottomPaneVisible(false)}
       />
 
@@ -582,6 +589,7 @@ export function GitLogToolWindow() {
         >
           <ResizablePanel id="references" defaultSize="19" minSize={140}>
             <GitReferenceTree
+              repoPath={repoPath}
               references={history.references}
               selectedReference={selectedReference}
               onSelect={(reference) => {
@@ -589,10 +597,18 @@ export function GitLogToolWindow() {
                 selectReference(reference);
               }}
               isMutating={isReferenceMutationPending}
+              isPullLocked={pullWorkflow.isPullLocked}
               onReferenceAction={handleReferenceAction}
               onSetUpstream={(branch, upstream) => void setSelectedBranchUpstream(branch, upstream)}
               onManageRemotes={() => setShowRemoteManager(true)}
               onFetch={() => void fetchReferences()}
+              onNavigateToHead={navigateToSelectedBranchHead}
+              canNavigateToHead={
+                loadState === "ready" &&
+                history.commits.length > 0 &&
+                selectedReference !== null &&
+                selectedReference.kind !== "tag"
+              }
             />
           </ResizablePanel>
           <ResizableHandle />
@@ -600,7 +616,7 @@ export function GitLogToolWindow() {
             <GitCommitTable
               emptyState={<GitRepositoryEmptyState root={repoPath} onRefresh={refresh} />}
               commits={history.commits}
-              selectedCommit={selectedCommit}
+              selectedCommit={activeSelectedCommit}
               selectedCommitHashes={selectedCommitHashes}
               isMutatingHistory={isMutatingHistory}
               hasMore={history.hasMore}
@@ -635,7 +651,7 @@ export function GitLogToolWindow() {
           <ResizablePanel id="inspector" defaultSize="24" minSize={220}>
             <GitCommitInspector
               repoPath={repoPath}
-              commit={selectedCommit}
+              commit={activeSelectedCommit}
               commits={selectedCommits}
               onOpenDiff={openDiff}
               onOpenRangeDiff={(range, filePath) => {
