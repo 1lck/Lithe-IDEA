@@ -240,6 +240,21 @@ jobs:
           bun test src/features/run
           bun test src/features/file-explorer/lib/java-clipboard-class.test.ts src/features/file-explorer/lib/paste-java-class-from-clipboard.test.ts
 
+      - name: Test welcome clone and modal isolation
+        if: needs.changes.outputs.windows == 'true'
+        shell: pwsh
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          $welcomeTest = "src/features/layout/components/welcome-screen.integration.test.tsx"
+          $localeTest = "src/features/maven/components/maven-source-root-rows.test.tsx"
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-welcome-clone.json -- $welcomeTest src/features/window/stores/ui-state/modal-slice.test.ts src/features/window/utils/project-picker-mode.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Run both file orders so a leaked locale mock cannot hide behind test discovery order.
+          foreach ($seed in @(1, 3)) {
+            node $runner --suite-timeout-ms 60000 --report ".artifacts/test-stability/windows-welcome-isolation-$seed.json" -- --randomize "--seed=$seed" $welcomeTest $localeTest
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
       - name: Test terminal discovery and profile selection
         if: needs.changes.outputs.windows == 'true'
         shell: pwsh
