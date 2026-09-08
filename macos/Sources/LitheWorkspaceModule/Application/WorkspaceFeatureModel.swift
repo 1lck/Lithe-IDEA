@@ -18,6 +18,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     @Published package private(set) var isLoadingWorkspace = false
     @Published package private(set) var isRefreshingWorkspace = false
     @Published package private(set) var loadErrorMessage: String?
+    @Published package private(set) var directoryMarks: [String: WorkspaceDirectoryMark] = [:]
     @Published package var projectItemEditRequest: ProjectItemEditRequest?
     @Published package var pendingProjectItemDeletion: ProjectItemDeletionRequest?
     @Published package private(set) var isPerformingProjectItemOperation = false
@@ -27,9 +28,13 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private let fileOperations: any WorkspaceFileOperations
     private let gitWatchContextProvider: any GitWatchContextProviding
     private let directoryWatcherFactory: any DirectoryWatcherFactory
+    private let observationDelay: @Sendable (Duration) async throws -> Void
     private let workspaceSessionStore: any WorkspaceSessionStoring
+    private let directoryMarkStore: any WorkspaceDirectoryMarkStoring
+    private let directoryMarkPersistence: WorkspaceDirectoryMarkPersistence
     private var workspaceURL: URL?
     private var visibilityRules = FileVisibilityRules.default
+    private var directoryMarkRevision = 0
     private var watchConfiguration: DirectoryWatchConfiguration?
     private var directoryWatcher: (any DirectoryChangeSource)?
     private var refreshTask: Task<Void, Never>?
@@ -72,13 +77,18 @@ package final class WorkspaceFeatureModel: ObservableObject {
         fileOperations: any WorkspaceFileOperations,
         gitWatchContextProvider: any GitWatchContextProviding,
         directoryWatcherFactory: any DirectoryWatcherFactory,
-        workspaceSessionStore: any WorkspaceSessionStoring
+        workspaceSessionStore: any WorkspaceSessionStoring,
+        directoryMarkStore: any WorkspaceDirectoryMarkStoring = EmptyWorkspaceDirectoryMarkStore(),
+        observationDelay: (@Sendable (Duration) async throws -> Void)? = nil
     ) {
         self.operations = operations
         self.fileOperations = fileOperations
         self.gitWatchContextProvider = gitWatchContextProvider
         self.directoryWatcherFactory = directoryWatcherFactory
+        self.observationDelay = observationDelay ?? { try await Task.sleep(for: $0) }
         self.workspaceSessionStore = workspaceSessionStore
+        self.directoryMarkStore = directoryMarkStore
+        self.directoryMarkPersistence = WorkspaceDirectoryMarkPersistence(store: directoryMarkStore)
     }
 
     package func configureProjection(
@@ -164,6 +174,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
 
     package func reset() {
         workspaceGeneration &+= 1
+        directoryMarkRevision &+= 1
         if let workspaceURL {
             scheduleSearchIndexInvalidation(at: workspaceURL, rules: visibilityRules)
         }
@@ -186,6 +197,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         workspaceURL = nil
         hasRestoredWorkspaceSession = false
         rootNode = nil
+        directoryMarks = [:]
         projectFiles = []
         appliedSnapshot = nil
         isLoadingWorkspace = false
@@ -207,7 +219,14 @@ package final class WorkspaceFeatureModel: ObservableObject {
 
     package func beginWorkspace(at url: URL, visibilityRules: FileVisibilityRules) {
         workspaceGeneration &+= 1
+        directoryMarkRevision &+= 1
         workspaceURL = url.standardizedFileURL
+        do {
+            directoryMarks = try directoryMarkStore.loadDirectoryMarks(for: url)
+        } catch {
+            directoryMarks = [:]
+            notify?("Could not read directory marks: \(error.localizedDescription)")
+        }
         self.visibilityRules = visibilityRules
         hasRestoredWorkspaceSession = false
         pendingExternalPaths.removeAll()
@@ -344,6 +363,39 @@ package final class WorkspaceFeatureModel: ObservableObject {
         )
     }
 
+    package func markDirectory(_ url: URL, as mark: WorkspaceDirectoryMark) async {
+        guard !isPerformingProjectItemOperation,
+              let workspaceURL,
+              let relativePath = Self.relativePath(for: url, in: workspaceURL) else { return }
+        let workspaceGeneration = self.workspaceGeneration
+        let previousMarks = directoryMarks
+        var updatedMarks = directoryMarks
+        updatedMarks[relativePath] = mark
+        guard updatedMarks != previousMarks else { return }
+
+        directoryMarkRevision &+= 1
+        let revision = directoryMarkRevision
+        directoryMarks = updatedMarks
+
+        let saveError = await directoryMarkPersistence.save(updatedMarks, for: workspaceURL)
+        guard self.workspaceURL == workspaceURL,
+              self.workspaceGeneration == workspaceGeneration else { return }
+        if let saveError {
+            if directoryMarkRevision == revision {
+                directoryMarks = previousMarks
+            }
+            notify?("Could not update directory mark: \(saveError)")
+        }
+    }
+
+    private static func relativePath(for url: URL, in workspaceURL: URL) -> String? {
+        let rootPath = workspaceURL.standardizedFileURL.path
+        let targetPath = url.standardizedFileURL.path
+        if targetPath == rootPath { return "." }
+        guard targetPath.hasPrefix(rootPath + "/") else { return nil }
+        return String(targetPath.dropFirst(rootPath.count + 1))
+    }
+
     package func startWatchingCurrent() {
         guard let workspaceURL else { return }
         startWatching(
@@ -437,6 +489,9 @@ package final class WorkspaceFeatureModel: ObservableObject {
 
     package func performProjectItemEdit(named rawName: String) async {
         guard let request = projectItemEditRequest else { return }
+        guard let operationWorkspaceURL = workspaceURL else { return }
+        let operationWorkspaceGeneration = workspaceGeneration
+        let operationDirectoryMarks = directoryMarks
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard isValidProjectItemName(name) else {
             notify?("Use a valid file or directory name")
@@ -491,14 +546,39 @@ package final class WorkspaceFeatureModel: ObservableObject {
             return
         }
         if request.kind == .rename {
+            let marksToMigrate: [String: WorkspaceDirectoryMark]
+            if workspaceURL == operationWorkspaceURL,
+               workspaceGeneration == operationWorkspaceGeneration {
+                marksToMigrate = directoryMarks
+            } else {
+                marksToMigrate = operationDirectoryMarks
+            }
+            let migratedMarks = Self.directoryMarks(
+                marksToMigrate,
+                moving: request.targetURL,
+                to: destination,
+                in: operationWorkspaceURL
+            )
+            await persistDirectoryMarksAfterFileOperation(
+                migratedMarks,
+                previousMarks: marksToMigrate,
+                workspaceURL: operationWorkspaceURL,
+                workspaceGeneration: operationWorkspaceGeneration
+            )
+            guard workspaceURL == operationWorkspaceURL,
+                  workspaceGeneration == operationWorkspaceGeneration else { return }
             for (source, destination) in relocatedHistoryFiles {
                 await relocateHistory?(source, destination)
             }
             relocateOpenDocuments?(request.targetURL, destination)
             notify?("Renamed to \(name)")
         } else if request.kind == .createFile {
+            guard workspaceURL == operationWorkspaceURL,
+                  workspaceGeneration == operationWorkspaceGeneration else { return }
             notify?("Created \(name)")
         } else {
+            guard workspaceURL == operationWorkspaceURL,
+                  workspaceGeneration == operationWorkspaceGeneration else { return }
             notify?("Created directory \(name)")
         }
         await refreshCurrent()
@@ -551,6 +631,9 @@ package final class WorkspaceFeatureModel: ObservableObject {
         guard !isPerformingProjectItemOperation,
               isWorkspaceURL(request.url),
               request.url.standardizedFileURL != workspaceURL?.standardizedFileURL else { return }
+        guard let operationWorkspaceURL = workspaceURL else { return }
+        let operationWorkspaceGeneration = workspaceGeneration
+        let operationDirectoryMarks = directoryMarks
         isPerformingProjectItemOperation = true
         // Update the visible tree before waiting for the native Trash operation.
         // A failed operation reloads the disk snapshot below to restore the item.
@@ -576,6 +659,28 @@ package final class WorkspaceFeatureModel: ObservableObject {
             await refreshCurrent()
             return
         }
+        if request.isDirectory {
+            let marksToRemoveFrom: [String: WorkspaceDirectoryMark]
+            if workspaceURL == operationWorkspaceURL,
+               workspaceGeneration == operationWorkspaceGeneration {
+                marksToRemoveFrom = directoryMarks
+            } else {
+                marksToRemoveFrom = operationDirectoryMarks
+            }
+            let remainingMarks = Self.directoryMarks(
+                marksToRemoveFrom,
+                removing: request.url,
+                in: operationWorkspaceURL
+            )
+            await persistDirectoryMarksAfterFileOperation(
+                remainingMarks,
+                previousMarks: marksToRemoveFrom,
+                workspaceURL: operationWorkspaceURL,
+                workspaceGeneration: operationWorkspaceGeneration
+            )
+        }
+        guard workspaceURL == operationWorkspaceURL,
+              workspaceGeneration == operationWorkspaceGeneration else { return }
         closeDocuments?(request.url)
         notify?("Moved \(request.url.lastPathComponent) to Trash")
         await refreshCurrent()
@@ -586,6 +691,63 @@ package final class WorkspaceFeatureModel: ObservableObject {
         return await Task.detached(priority: .userInitiated) {
             operations.readFile(at: workspaceURL, relativePath: relativePath)
         }.value
+    }
+
+    private func persistDirectoryMarksAfterFileOperation(
+        _ updatedMarks: [String: WorkspaceDirectoryMark],
+        previousMarks: [String: WorkspaceDirectoryMark],
+        workspaceURL: URL,
+        workspaceGeneration: Int
+    ) async {
+        guard updatedMarks != previousMarks else { return }
+        let isCurrentWorkspace = self.workspaceURL == workspaceURL
+            && self.workspaceGeneration == workspaceGeneration
+        if isCurrentWorkspace {
+            directoryMarkRevision &+= 1
+            directoryMarks = updatedMarks
+        }
+
+        let saveError = await directoryMarkPersistence.save(updatedMarks, for: workspaceURL)
+        guard let saveError,
+              self.workspaceURL == workspaceURL,
+              self.workspaceGeneration == workspaceGeneration else { return }
+        // The filesystem operation has already succeeded, so rolling the UI back
+        // would restore paths that no longer exist. Keep the in-memory state and
+        // surface that only preference persistence failed.
+        notify?("Could not update directory marks after the file operation: \(saveError)")
+    }
+
+    private static func directoryMarks(
+        _ marks: [String: WorkspaceDirectoryMark],
+        moving sourceURL: URL,
+        to destinationURL: URL,
+        in workspaceURL: URL
+    ) -> [String: WorkspaceDirectoryMark] {
+        guard let sourcePath = relativePath(for: sourceURL, in: workspaceURL),
+              let destinationPath = relativePath(for: destinationURL, in: workspaceURL) else {
+            return marks
+        }
+        let sourcePrefix = sourcePath + "/"
+        var updatedMarks = marks.filter { key, _ in
+            key != sourcePath && !key.hasPrefix(sourcePrefix)
+        }
+        for (key, mark) in marks where key == sourcePath || key.hasPrefix(sourcePrefix) {
+            let suffix = String(key.dropFirst(sourcePath.count))
+            updatedMarks[destinationPath + suffix] = mark
+        }
+        return updatedMarks
+    }
+
+    private static func directoryMarks(
+        _ marks: [String: WorkspaceDirectoryMark],
+        removing targetURL: URL,
+        in workspaceURL: URL
+    ) -> [String: WorkspaceDirectoryMark] {
+        guard let targetPath = relativePath(for: targetURL, in: workspaceURL) else { return marks }
+        let targetPrefix = targetPath + "/"
+        return marks.filter { key, _ in
+            key != targetPath && !key.hasPrefix(targetPrefix)
+        }
     }
 
     private func startWatching(
@@ -654,8 +816,9 @@ package final class WorkspaceFeatureModel: ObservableObject {
             return
         }
         recoveryTask?.cancel()
-        recoveryTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(350))
+        recoveryTask = Task { @MainActor [weak self, observationDelay] in
+            do { try await observationDelay(.milliseconds(350)) }
+            catch { return }
             guard !Task.isCancelled, let self, let workspaceURL = self.workspaceURL else { return }
             await self.applyPendingRecovery(at: workspaceURL)
         }
@@ -707,8 +870,9 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
         let generation = externalRefreshGeneration
         refreshTask?.cancel()
-        refreshTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(350))
+        refreshTask = Task { @MainActor [weak self, observationDelay] in
+            do { try await observationDelay(.milliseconds(350)) }
+            catch { return }
             guard !Task.isCancelled,
                   let self,
                   self.externalRefreshGeneration == generation,
@@ -725,8 +889,9 @@ package final class WorkspaceFeatureModel: ObservableObject {
         guard gitOperationFreezeDepth == 0, !isGitRefreshRunning else { return }
         let generation = gitRefreshGeneration
         gitRefreshTask?.cancel()
-        gitRefreshTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(350))
+        gitRefreshTask = Task { @MainActor [weak self, observationDelay] in
+            do { try await observationDelay(.milliseconds(350)) }
+            catch { return }
             guard !Task.isCancelled,
                   let self,
                   self.gitRefreshGeneration == generation else { return }
@@ -878,5 +1043,31 @@ package final class WorkspaceFeatureModel: ObservableObject {
 
     private func isValidProjectItemName(_ name: String) -> Bool {
         !name.isEmpty && name != "." && name != ".." && !name.contains("/") && !name.contains(":")
+    }
+}
+
+/// Serializes preference writes without blocking the cooperative executor.
+private final class WorkspaceDirectoryMarkPersistence: @unchecked Sendable {
+    private let store: any WorkspaceDirectoryMarkStoring
+    private let queue = DispatchQueue(label: "dev.lithe.workspace-directory-marks")
+
+    init(store: any WorkspaceDirectoryMarkStoring) {
+        self.store = store
+    }
+
+    func save(
+        _ marks: [String: WorkspaceDirectoryMark],
+        for workspaceURL: URL
+    ) async -> String? {
+        await withCheckedContinuation { continuation in
+            queue.async { [store] in
+                do {
+                    try store.saveDirectoryMarks(marks, for: workspaceURL)
+                    continuation.resume(returning: nil)
+                } catch {
+                    continuation.resume(returning: error.localizedDescription)
+                }
+            }
+        }
     }
 }

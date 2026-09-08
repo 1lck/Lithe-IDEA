@@ -7,6 +7,7 @@ import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-w
 import { getFolderName } from "@/utils/path-helpers";
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
 import { createTranslator } from "@/i18n/locale";
+import { getProjectDisplayLabel } from "../utils/project-display-label";
 
 const getCurrentTranslator = () =>
   createTranslator(useSettingsStore.getState().settings.displayLanguage);
@@ -37,13 +38,13 @@ const createProjectStore = () =>
                     ? getCurrentTranslator()("projectPicker.remoteProjectName", {
                         name: connection.name,
                       })
-                    : activeTab.name;
+                    : getProjectDisplayLabel(activeTab);
                 } catch {
-                  return activeTab.name;
+                  return getProjectDisplayLabel(activeTab);
                 }
               }
 
-              return activeTab.name;
+              return getProjectDisplayLabel(activeTab);
             }
 
             const { rootFolderPath } = get();

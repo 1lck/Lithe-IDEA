@@ -3,6 +3,8 @@ import LitheCoreContracts
 
 typealias MavenProject = LitheCoreContracts.MavenProject
 typealias MavenModule = LitheCoreContracts.MavenModule
+typealias MavenSourceRoot = LitheCoreContracts.MavenSourceRoot
+typealias MavenSourceRootKind = LitheCoreContracts.MavenSourceRootKind
 typealias MavenProfile = LitheCoreContracts.MavenProfile
 typealias MavenLifecyclePhase = LitheCoreContracts.MavenLifecyclePhase
 typealias MavenIssueSeverity = LitheCoreContracts.MavenIssueSeverity

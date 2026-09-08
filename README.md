@@ -33,7 +33,7 @@
     <a href="./LICENSE"><img src="https://img.shields.io/github/license/1lck/Lithe-IDEA?style=flat&label=license" alt="Apache License 2.0"></a>
   </p>
   <p>
-    <img src="https://img.shields.io/badge/Java-JDK%2017%2B-E76F00?style=flat&logo=openjdk&logoColor=white" alt="JDK 17+">
+    <img src="https://img.shields.io/badge/Java-Development-E76F00?style=flat&logo=openjdk&logoColor=white" alt="Java development">
     <img src="https://img.shields.io/badge/Spring%20Boot-Projects-6DB33F?style=flat&logo=springboot&logoColor=white" alt="Spring Boot projects">
     <img src="https://img.shields.io/badge/Maven-Management-C71A36?style=flat&logo=apachemaven&logoColor=white" alt="Maven management">
     <img src="https://img.shields.io/badge/Debugger-Breakpoints-D32F2F?style=flat" alt="Breakpoint debugging">
@@ -136,17 +136,19 @@ brew upgrade --cask lithe
 
 If macOS says that Apple cannot verify whether `Lithe.app` contains malware, the manually downloaded package may not yet be notarized by Apple. First confirm that the app came from the trusted [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest), then use one of these methods:
 
+<p align="center">
+  <img src="./docs/assets/screenshots/macos-app-verification-warning.png" width="492" alt="macOS warning that Lithe.app cannot be opened">
+</p>
+
 1. In **Applications**, Control-click `Lithe.app`, choose **Open**, and choose **Open** again in the confirmation dialog.
 2. If macOS still blocks it, open **System Settings > Privacy & Security**, click **Open Anyway** next to the security warning, and launch the app again.
 3. You can also remove the quarantine attribute in Terminal:
 
    ```bash
-   xattr -dr com.apple.quarantine /Applications/Lithe.app
+   sudo xattr -dr com.apple.quarantine /Applications/Lithe.app
    ```
 
 Only use these steps for an app whose source you trust. Homebrew installations usually do not require manual quarantine removal.
-
-Java features require JDK 17 or newer. Release packages include Eclipse JDT Language Server, so JDTLS does not need to be installed separately.
 
 ## Architecture Overview
 
@@ -172,7 +174,9 @@ flowchart LR
     Tauri -->|"Rust crate"| Core
 ```
 
-## Develop Lithe
+<details>
+<summary><strong>Develop Lithe</strong></summary>
+
 
 Development requires Swift 6.2 or later. Running the complete test suite requires Xcode; basic SwiftPM builds only need Command Line Tools.
 
@@ -199,6 +203,7 @@ Before submitting a change, run:
 
 ```bash
 ./scripts/test-macos.sh
+./scripts/test-git-performance-baseline.sh
 ./scripts/verify-core.sh
 ./scripts/verify-git-graph.sh
 ./scripts/verify-service-boundaries.sh
@@ -207,11 +212,28 @@ Before submitting a change, run:
 ./scripts/verify-rust-core.sh
 ```
 
+`test-git-performance-baseline.sh` runs deterministic Git graph work gates and
+records an optimized multi-sample timing baseline under `.artifacts/`.
+
 See [Repository layout and shared boundaries](./docs/architecture/repository-layout.md) for directory ownership, cross-platform boundaries, sharing rules, and the required Rust Core comment standard. Include your verification steps and known limitations when submitting a change.
+
+</details>
 
 ## Project support
 
 ### ❤️ Sponsors
+
+<p align="center">
+  <a href="https://www.fastaitoken.com/">
+    <img src="./docs/assets/sponsors/fastai-qrcode.png" width="480" alt="FastAI Token community chat group QR code">
+  </a>
+</p>
+<p align="center">
+  <a href="https://www.fastaitoken.com/"><strong>FastAI</strong></a><br>
+  FastAI provides convenient relay access to a range of leading large language models, making it easier to connect AI capabilities to everyday development workflows. Its support helps Lithe continue improving its AI-assisted experience. Thank you to FastAI for supporting this project! Scan the QR code above to join the FastAI Token community chat group #2 (group ID: 1073874006).
+</p>
+
+<a href="mailto:2188718831@qq.com">Want to be featured below?</a>
 
 <table>
   <tr>
@@ -226,12 +248,12 @@ See [Repository layout and shared boundaries](./docs/architecture/repository-lay
   </tr>
   <tr>
     <td width="112" align="center">
-      <a href="https://codezsy.com">
-        <img src="./docs/assets/sponsors/codez.png" width="64" alt="CodeZ relay service">
+      <a href="https://torchai.ai">
+        <img src="./docs/assets/sponsors/torchai.jpg" width="64" alt="TorchAI">
       </a>
     </td>
     <td>
-      <a href="https://codezsy.com"><strong>CodeZ</strong></a> focuses on stable relay access to GPT-family models, offering developers a straightforward way to integrate model APIs into their tools and projects. Its sponsorship contributes to the ongoing development and maintenance of Lithe. Thank you to CodeZ for supporting this project!
+      <a href="https://torchai.ai"><strong>TorchAI</strong></a> provides large language model relay services for developers who need convenient API access across coding, content, and automation scenarios. Its support helps sustain Lithe's development and exploration of practical AI-powered tools. Thank you to TorchAI for supporting this project!
     </td>
   </tr>
   <tr>
@@ -246,12 +268,12 @@ See [Repository layout and shared boundaries](./docs/architecture/repository-lay
   </tr>
   <tr>
     <td width="112" align="center">
-      <a href="https://torchai.ai">
-        <img src="./docs/assets/sponsors/torchai.jpg" width="64" alt="TorchAI">
+      <a href="https://codezsy.com/register?aff=fDyA">
+        <img src="https://raw.githubusercontent.com/zwenooo/z/main/logo/codez-logo-bq.png" width="64" alt="CodeZ relay service">
       </a>
     </td>
     <td>
-      <a href="https://torchai.ai"><strong>TorchAI</strong></a> provides large language model relay services for developers who need convenient API access across coding, content, and automation scenarios. Its support helps sustain Lithe's development and exploration of practical AI-powered tools. Thank you to TorchAI for supporting this project!
+      <a href="https://codezsy.com/register?aff=fDyA"><strong>CodeZ</strong></a> focuses on stable relay access to GPT-family models, offering developers a straightforward way to integrate model APIs into their tools and projects. Its sponsorship contributes to the ongoing development and maintenance of Lithe. Thank you to CodeZ for supporting this project!
     </td>
   </tr>
 </table>
@@ -281,8 +303,6 @@ Thank you to everyone who contributes to and improves Lithe.
 Lithe is licensed under the [Apache License 2.0](./LICENSE).
 
 ## Star History
-
-Each point shows the repository's cumulative Star count at `00:00` Beijing time on that date. The chart starts at zero on August 2, 2026.
 
 <a href="https://www.star-history.com/#1lck/Lithe-IDEA&Date">
   <img alt="Star History Chart" src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-light.svg" />

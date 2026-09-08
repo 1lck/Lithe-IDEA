@@ -29,6 +29,7 @@ struct LitheContextMenuItem: Identifiable {
     let kind: Kind
     let title: String
     let systemImage: String?
+    let iconKind: LitheIconKind?
     let shortcut: String?
     let role: Role
     let isEnabled: Bool
@@ -37,6 +38,7 @@ struct LitheContextMenuItem: Identifiable {
     static func action(
         _ title: String,
         systemImage: String? = nil,
+        iconKind: LitheIconKind? = nil,
         shortcut: String? = nil,
         role: Role = .standard,
         isEnabled: Bool = true,
@@ -46,6 +48,7 @@ struct LitheContextMenuItem: Identifiable {
             kind: .action,
             title: title,
             systemImage: systemImage,
+            iconKind: iconKind,
             shortcut: shortcut,
             role: role,
             isEnabled: isEnabled,
@@ -58,6 +61,7 @@ struct LitheContextMenuItem: Identifiable {
             kind: .separator,
             title: "",
             systemImage: nil,
+            iconKind: nil,
             shortcut: nil,
             role: .standard,
             isEnabled: false,
@@ -74,6 +78,7 @@ struct LitheContextMenuItem: Identifiable {
             kind: .submenu(items),
             title: title,
             systemImage: systemImage,
+            iconKind: nil,
             shortcut: nil,
             role: .standard,
             isEnabled: true,
@@ -257,7 +262,9 @@ private struct LitheContextMenuRow: View {
         } label: {
             HStack(spacing: 9) {
                 Group {
-                    if let systemImage = item.systemImage {
+                    if let iconKind = item.iconKind {
+                        LitheIcon(kind: iconKind, size: 16)
+                    } else if let systemImage = item.systemImage {
                         Image(systemName: systemImage)
                             .font(.system(size: 13, weight: .regular))
                     } else {

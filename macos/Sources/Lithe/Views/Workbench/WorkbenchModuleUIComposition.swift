@@ -33,8 +33,13 @@ enum WorkbenchModuleUIComposition {
                 id: "terminal.sessions",
                 ideaAssetPath: nil,
                 isVisible: { _ in true },
-                isSelected: { $0.isTerminalVisible },
-                content: { _ in AnyView(TerminalView()) }
+                isSelected: { $0.workbenchFeature.isVisible(.terminal) },
+                content: { model in
+                    guard let feature = model.terminalFeature else {
+                        return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView)
+                    }
+                    return AnyView(TerminalView(feature: feature))
+                }
             )
         ]
     )
@@ -51,8 +56,37 @@ enum WorkbenchModuleUIComposition {
                 id: "git.log",
                 ideaAssetPath: "toolwindows/toolWindowVcs.svg",
                 isVisible: { _ in true },
-                isSelected: { $0.isGitLogVisible },
-                content: { _ in AnyView(GitLogView()) }
+                isSelected: { $0.workbenchFeature.isVisible(.gitLog) },
+                content: { model in
+                    guard let feature = model.gitFeatureIfActive else {
+                        return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView)
+                    }
+                    return AnyView(GitLogView(
+                        feature: feature,
+                        workbench: model.workbenchFeature,
+                        background: model.workbenchBackgroundFeature,
+                        projectName: model.projectName,
+                        navigation: GitLogNavigation(
+                            compareWithWorkingTree: { [weak model] in
+                                await model?.showComparisonWithWorkingTree(for: $0)
+                            },
+                            compareReferences: { [weak model] in
+                                await model?.showComparison(from: $0, to: $1)
+                            },
+                            openCommitDiff: { [weak model] in model?.showGitCommitDiff(for: $0) }
+                        ),
+                        worktreeActions: GitWorktreeActions(
+                            openProject: { [weak model] in model?.openProject($0) },
+                            reveal: { [weak model] in model?.revealProjectItemInFinder($0) },
+                            copyPath: { [weak model] in model?.copyProjectItemPath($0, relative: false) },
+                            chooseParentDirectory: { [weak model] in
+                                model?.platformUI.chooseDirectory(
+                                    title: "Choose Worktree Parent", prompt: "Choose"
+                                )
+                            }
+                        )
+                    ))
+                }
             )
         ]
     )
@@ -67,7 +101,7 @@ enum WorkbenchModuleUIComposition {
                 id: "language.problems",
                 ideaAssetPath: "toolwindows/toolWindowProblems.svg",
                 isVisible: { _ in true },
-                isSelected: { $0.isProblemsVisible },
+                isSelected: { $0.workbenchFeature.isVisible(.problems) },
                 content: { _ in AnyView(ProblemsView()) }
             )
         ]
@@ -85,7 +119,7 @@ enum WorkbenchModuleUIComposition {
                 id: "execution.maven",
                 ideaAssetPath: "maven/toolWindowMaven.svg",
                 isVisible: { $0.hasMavenProject },
-                isSelected: { $0.isMavenVisible },
+                isSelected: { $0.workbenchFeature.isVisible(.maven) },
                 content: { model in
                     guard let feature = model.mavenFeatureIfActive else {
                         return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView)
@@ -97,7 +131,7 @@ enum WorkbenchModuleUIComposition {
                 id: "execution.run",
                 ideaAssetPath: "toolwindows/toolWindowRun.svg",
                 isVisible: { _ in true },
-                isSelected: { $0.isRunVisible },
+                isSelected: { $0.workbenchFeature.isVisible(.run) },
                 content: { model in
                     guard let feature = model.runFeatureIfActive else {
                         return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView)
@@ -109,7 +143,7 @@ enum WorkbenchModuleUIComposition {
                 id: "execution.tests",
                 ideaAssetPath: nil,
                 isVisible: { _ in true },
-                isSelected: { $0.isTestsVisible },
+                isSelected: { $0.workbenchFeature.isVisible(.tests) },
                 content: { model in
                     guard let service = model.languageTestServiceIfActive else {
                         return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView)
@@ -130,7 +164,7 @@ enum WorkbenchModuleUIComposition {
                 id: "debug.session",
                 ideaAssetPath: "toolwindows/toolWindowDebugger.svg",
                 isVisible: { _ in true },
-                isSelected: { $0.isDebugVisible },
+                isSelected: { $0.workbenchFeature.isVisible(.debug) },
                 content: { model in
                     guard let feature = model.genericDebugFeatureIfActive else {
                         return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView)

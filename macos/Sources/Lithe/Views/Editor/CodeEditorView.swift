@@ -21,8 +21,9 @@ struct CodeEditorPalette {
     }
     var text: NSColor {
         guard theme == .lithe else { return themeColor(.primaryText) }
+        if !isDark { return themeColor(.primaryText) }
         return color(
-            light: (0, 0, 0, 0.82),
+            light: (0.122, 0.137, 0.161, 1),
             dark: (0.737, 0.745, 0.769, 1)
         )
     }
@@ -102,6 +103,210 @@ enum EditorLayoutMetrics {
         previousCommitHash: String?
     ) -> Bool {
         line == firstVisibleLine || previousCommitHash != commitHash
+    }
+}
+
+/// Container-local caret geometry for the custom `CodeTextView` insertion point.
+///
+/// AppKit's default insertion-point drawing is disabled so blink width stays
+/// stable; this helper must still match NSTextView's end-of-line and
+/// end-of-document placement, including the extra line fragment after a
+/// trailing newline.
+enum EditorCaretGeometry {
+    static func rect(
+        at location: Int,
+        sourceLength: Int,
+        layoutManager: NSLayoutManager,
+        textContainer: NSTextContainer,
+        caretWidth: CGFloat = EditorLayoutMetrics.caretWidth,
+        fallbackLineHeight: CGFloat
+    ) -> NSRect {
+        let safeLocation = min(max(0, location), max(0, sourceLength))
+
+        if layoutManager.numberOfGlyphs == 0 {
+            return emptyDocumentRect(
+                layoutManager: layoutManager,
+                textContainer: textContainer,
+                caretWidth: caretWidth,
+                fallbackLineHeight: fallbackLineHeight
+            )
+        }
+
+        layoutManager.ensureLayout(for: textContainer)
+
+        if safeLocation >= sourceLength {
+            return documentEndRect(
+                sourceLength: sourceLength,
+                layoutManager: layoutManager,
+                textContainer: textContainer,
+                caretWidth: caretWidth,
+                fallbackLineHeight: fallbackLineHeight
+            )
+        }
+
+        let source = (layoutManager.textStorage?.string as NSString?) ?? ("" as NSString)
+        if source.length > safeLocation {
+            let character = source.character(at: safeLocation)
+            if character == 10 || character == 13 {
+                return lineEndingRect(
+                    at: safeLocation,
+                    source: source,
+                    layoutManager: layoutManager,
+                    textContainer: textContainer,
+                    caretWidth: caretWidth,
+                    fallbackLineHeight: fallbackLineHeight
+                )
+            }
+        }
+
+        return leadingEdgeRect(
+            at: safeLocation,
+            layoutManager: layoutManager,
+            textContainer: textContainer,
+            caretWidth: caretWidth,
+            fallbackLineHeight: fallbackLineHeight
+        )
+    }
+
+    private static func emptyDocumentRect(
+        layoutManager: NSLayoutManager,
+        textContainer: NSTextContainer,
+        caretWidth: CGFloat,
+        fallbackLineHeight: CGFloat
+    ) -> NSRect {
+        if layoutManager.extraLineFragmentTextContainer === textContainer {
+            let extra = layoutManager.extraLineFragmentUsedRect
+            if extra.height > 0 {
+                return NSRect(
+                    x: extra.minX,
+                    y: extra.minY,
+                    width: caretWidth,
+                    height: max(extra.height, fallbackLineHeight)
+                )
+            }
+        }
+        return NSRect(x: 0, y: 0, width: caretWidth, height: fallbackLineHeight)
+    }
+
+    private static func documentEndRect(
+        sourceLength: Int,
+        layoutManager: NSLayoutManager,
+        textContainer: NSTextContainer,
+        caretWidth: CGFloat,
+        fallbackLineHeight: CGFloat
+    ) -> NSRect {
+        if layoutManager.extraLineFragmentTextContainer === textContainer {
+            let extra = layoutManager.extraLineFragmentUsedRect
+            if extra.height > 0 {
+                return NSRect(
+                    x: extra.minX,
+                    y: extra.minY,
+                    width: caretWidth,
+                    height: max(extra.height, fallbackLineHeight)
+                )
+            }
+        }
+
+        guard sourceLength > 0, layoutManager.numberOfGlyphs > 0 else {
+            return emptyDocumentRect(
+                layoutManager: layoutManager,
+                textContainer: textContainer,
+                caretWidth: caretWidth,
+                fallbackLineHeight: fallbackLineHeight
+            )
+        }
+
+        let lastCharacter = sourceLength - 1
+        let glyphIndex = layoutManager.glyphIndexForCharacter(at: lastCharacter)
+        let glyphRect = layoutManager.boundingRect(
+            forGlyphRange: NSRange(location: glyphIndex, length: 1),
+            in: textContainer
+        )
+        let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        return NSRect(
+            x: glyphRect.maxX,
+            y: lineRect.minY,
+            width: caretWidth,
+            height: max(lineRect.height, fallbackLineHeight)
+        )
+    }
+
+    private static func lineEndingRect(
+        at location: Int,
+        source: NSString,
+        layoutManager: NSLayoutManager,
+        textContainer: NSTextContainer,
+        caretWidth: CGFloat,
+        fallbackLineHeight: CGFloat
+    ) -> NSRect {
+        // Prefer the trailing edge of the last visible character on this line so
+        // the caret sits after the content rather than on the newline glyph.
+        if let contentIndex = lastVisibleCharacterIndexBeforeLineEnding(
+            at: location,
+            in: source
+        ) {
+            let glyphIndex = layoutManager.glyphIndexForCharacter(at: contentIndex)
+            let glyphRect = layoutManager.boundingRect(
+                forGlyphRange: NSRange(location: glyphIndex, length: 1),
+                in: textContainer
+            )
+            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+            return NSRect(
+                x: glyphRect.maxX,
+                y: lineRect.minY,
+                width: caretWidth,
+                height: max(lineRect.height, fallbackLineHeight)
+            )
+        }
+
+        let glyphIndex = layoutManager.glyphIndexForCharacter(at: location)
+        let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        let usedRect = layoutManager.lineFragmentUsedRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        let x = usedRect.height > 0 ? usedRect.minX : lineRect.minX
+        return NSRect(
+            x: x,
+            y: lineRect.minY,
+            width: caretWidth,
+            height: max(lineRect.height, fallbackLineHeight)
+        )
+    }
+
+    /// Walks back over CR/LF so CRLF line ends still anchor to the last glyph.
+    private static func lastVisibleCharacterIndexBeforeLineEnding(
+        at location: Int,
+        in source: NSString
+    ) -> Int? {
+        var index = location - 1
+        while index >= 0 {
+            let character = source.character(at: index)
+            if character == 10 || character == 13 {
+                index -= 1
+                continue
+            }
+            return index
+        }
+        return nil
+    }
+
+    private static func leadingEdgeRect(
+        at location: Int,
+        layoutManager: NSLayoutManager,
+        textContainer: NSTextContainer,
+        caretWidth: CGFloat,
+        fallbackLineHeight: CGFloat
+    ) -> NSRect {
+        let glyphIndex = layoutManager.glyphIndexForCharacter(at: location)
+        let glyphRect = layoutManager.boundingRect(
+            forGlyphRange: NSRange(location: glyphIndex, length: 1),
+            in: textContainer
+        )
+        let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        return NSRect(
+            x: glyphRect.minX,
+            y: lineRect.minY,
+            width: caretWidth,
+            height: max(lineRect.height, fallbackLineHeight)
+        )
     }
 }
 
@@ -680,6 +885,7 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.requestInitialFocusIfNeeded()
 
         if let codeTextView = textView as? CodeTextView {
+            codeTextView.refreshLanguageHoverAppearance()
             let debugFeature = model.genericDebugFeatureIfActive
             codeTextView.isRunToCursorEnabled = debugFeature?.state == .paused
                 && debugFeature?.capabilities.supportsGotoTargetsRequest == true
@@ -761,6 +967,14 @@ struct CodeEditorView: NSViewRepresentable {
         var colorTheme: AppColorTheme = .lithe
         var shouldFocus = true
         var markdownScrollPosition: Binding<MarkdownScrollPosition>?
+        private struct CodeVisionInputKey: Equatable {
+            let textHash: Int
+            let hintCount: Int
+            let foldCount: Int
+            let collapsedIDs: Set<String>
+            let enabled: Bool
+        }
+
         var appliedNavigationTargetID: UUID?
         var foldRegions: [JavaFoldRegion] = []
         var collapsedFoldIDs: Set<String> = []
@@ -783,6 +997,7 @@ struct CodeEditorView: NSViewRepresentable {
         private var appliedLanguageFeatures: LanguageServerFeatureSet?
         private var appliedReadOnly: Bool?
         private var appliedCodeVisionHints: [JavaCodeVisionHint]?
+        private var codeVisionInputKey: CodeVisionInputKey?
         private var appliedInlineDebugLine: Int?
         private var appliedInlineDebugValues: [EditorInlineDebugValue] = []
         private var requestedAutomaticDebugFrameID: Int?
@@ -1081,6 +1296,8 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         func textDidChange(_ notification: Notification) {
+            let signpost = LitheSignpost.begin("editor.input")
+            defer { LitheSignpost.end("editor.input", signpost) }
             guard let textView else { return }
             guard document?.isReadOnly != true else { return }
             let codeTextView = textView as? CodeTextView
@@ -1092,7 +1309,18 @@ struct CodeEditorView: NSViewRepresentable {
             }
             gutter?.refreshLineNumberLayout()
             isApplyingEditorChange = true
-            document?.applyLiveEditorText(textView.string)
+            if let document,
+               let replacedRange = pendingReplacedRange,
+               let replacement = pendingReplacement {
+                document.applyLiveEditorEdit(
+                    replacedRange: replacedRange,
+                    replacement: replacement
+                )
+            } else {
+                // Programmatic edits may not provide shouldChangeTextIn
+                // metadata. Keep this recovery path for those edits only.
+                document?.applyLiveEditorText(textView.string)
+            }
             if let document,
                let previousSource,
                let replacedRange = pendingReplacedRange,
@@ -1107,9 +1335,12 @@ struct CodeEditorView: NSViewRepresentable {
             if let document {
                 scheduleDocumentChange(document)
             }
-            highlight(in: pendingHighlightRange)
             let findReplacedRange = pendingReplacedRange
             let findInsertedLength = pendingHighlightRange?.length ?? 0
+            highlight(
+                in: pendingHighlightRange,
+                replacedLength: pendingReplacedRange?.length
+            )
             pendingHighlightRange = nil
             pendingReplacedRange = nil
             pendingReplacement = nil
@@ -1226,12 +1457,18 @@ struct CodeEditorView: NSViewRepresentable {
             return changed
         }
 
-        func highlight(in editedRange: NSRange? = nil) {
+        func highlight(in editedRange: NSRange? = nil, replacedLength: Int? = nil) {
             guard let textView, let textStorage = textView.textStorage else { return }
             let fullRange = NSRange(location: 0, length: textStorage.length)
             let font = textView.font ?? LitheTheme.editorFont(size: 13)
             if let editedRange {
-                highlightedRanges.removeAll()
+                highlightedRanges.applyEdit(
+                    replacedRange: NSRange(
+                        location: editedRange.location,
+                        length: replacedLength ?? editedRange.length
+                    ),
+                    replacementLength: editedRange.length
+                )
                 let target = SyntaxHighlighter.targetRange(
                     for: editedRange,
                     in: textStorage.string as NSString,
@@ -1410,15 +1647,24 @@ struct CodeEditorView: NSViewRepresentable {
             guard let document, let model else { return }
             let url = document.url.standardizedFileURL
             let hints = model.settings.showCodeVision ? model.javaCodeVisionHints[url] ?? [] : []
-            let visibleCodeVisionHints = EditorFoldVisibility.visibleCodeVisionHints(
-                hints,
-                in: (textView?.string ?? "") as NSString,
-                regions: foldRegions,
-                collapsedIDs: collapsedFoldIDs
-            )
             let overlayLayoutChanged = appliedEditorOverlayLayoutRevision != editorOverlayLayoutRevision
-
-            if appliedCodeVisionHints != visibleCodeVisionHints || overlayLayoutChanged {
+            // Further resize optimization can move this representable behind a stable
+            // layout boundary and skip all geometry-only updates before reaching here.
+            let inputKey = CodeVisionInputKey(
+                textHash: textView?.string.hashValue ?? 0,
+                hintCount: hints.count,
+                foldCount: foldRegions.count,
+                collapsedIDs: collapsedFoldIDs,
+                enabled: model.settings.showCodeVision
+            )
+            if codeVisionInputKey != inputKey || overlayLayoutChanged {
+                let visibleCodeVisionHints = EditorFoldVisibility.visibleCodeVisionHints(
+                    hints,
+                    in: (textView?.string ?? "") as NSString,
+                    regions: foldRegions,
+                    collapsedIDs: collapsedFoldIDs
+                )
+                codeVisionInputKey = inputKey
                 appliedCodeVisionHints = visibleCodeVisionHints
                 codeVisionOverlay?.update(
                     hints: visibleCodeVisionHints,
@@ -1868,6 +2114,8 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     private var lastCaretBackgroundRanges: [NSRange] = []
     private var completionItemsByID: [String: LanguageServerCompletionItem] = [:]
     private var languageHoverPopover: NSPopover?
+    private weak var languageHoverTextView: NSTextView?
+    private weak var languageHoverScrollView: NSScrollView?
     private var debugHoverPopover: NSPopover?
     private var debugHoverWorkItem: DispatchWorkItem?
     private var pendingDebugHover: (expression: String, range: NSRange)?
@@ -1895,6 +2143,11 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     nonisolated(unsafe) private var windowResignObserver: NSObjectProtocol?
     private var caretVisible = true
     private var caretPresentationGeneration = 0
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshLanguageHoverAppearance()
+    }
 
     override func setFrameSize(_ newSize: NSSize) {
         let previousWidth = frame.width
@@ -2830,37 +3083,26 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     private func drawCaret() {
         guard caretVisible,
               window?.firstResponder === self,
+              selectedRange().length == 0,
               let layoutManager,
               let textContainer else { return }
 
         let sourceLength = string.utf16.count
         let location = min(selectedRange().location, sourceLength)
-        let caretRect: NSRect
-        if layoutManager.numberOfGlyphs == 0 {
-            let lineHeight = layoutManager.defaultLineHeight(for: font ?? .systemFont(ofSize: 13))
-            caretRect = NSRect(
-                x: textContainerOrigin.x,
-                y: textContainerOrigin.y,
-                width: EditorLayoutMetrics.caretWidth,
-                height: lineHeight
-            )
-        } else {
-            let isAtDocumentEnd = location == sourceLength
-            let glyphIndex = layoutManager.glyphIndexForCharacter(
-                at: min(location, sourceLength - 1)
-            )
-            let glyphRect = layoutManager.boundingRect(
-                forGlyphRange: NSRange(location: glyphIndex, length: 1),
-                in: textContainer
-            )
-            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
-            caretRect = NSRect(
-                x: textContainerOrigin.x + (isAtDocumentEnd ? glyphRect.maxX : glyphRect.minX),
-                y: textContainerOrigin.y + lineRect.minY,
-                width: EditorLayoutMetrics.caretWidth,
-                height: lineRect.height
-            )
-        }
+        let fallbackLineHeight = layoutManager.defaultLineHeight(
+            for: font ?? .monospacedSystemFont(ofSize: 13, weight: .regular)
+        )
+        let containerRect = EditorCaretGeometry.rect(
+            at: location,
+            sourceLength: sourceLength,
+            layoutManager: layoutManager,
+            textContainer: textContainer,
+            fallbackLineHeight: fallbackLineHeight
+        )
+        let caretRect = containerRect.offsetBy(
+            dx: textContainerOrigin.x,
+            dy: textContainerOrigin.y
+        )
 
         insertionPointColor.setFill()
         caretRect.fill()
@@ -3583,14 +3825,15 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         textView.isEditable = false
         textView.isSelectable = true
         textView.drawsBackground = false
-        textView.textColor = NSColor(white: 0.88, alpha: 1)
         textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         textView.textContainerInset = NSSize(width: 10, height: 9)
         let scrollView = NSScrollView(frame: textView.frame)
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = true
-        scrollView.backgroundColor = NSColor(red: 0.105, green: 0.11, blue: 0.12, alpha: 1)
+        languageHoverTextView = textView
+        languageHoverScrollView = scrollView
+        refreshLanguageHoverAppearance()
         let controller = NSViewController()
         controller.view = scrollView
         controller.preferredContentSize = NSSize(width: 480, height: 220)
@@ -3600,6 +3843,16 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         popover.contentViewController = controller
         popover.show(relativeTo: caretAnchorRect(), of: self, preferredEdge: .maxY)
         languageHoverPopover = popover
+    }
+
+    fileprivate func refreshLanguageHoverAppearance() {
+        guard let textView = languageHoverTextView,
+              let scrollView = languageHoverScrollView else { return }
+        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        textView.textColor = LitheTheme.nsColor(.primaryText, isDark: isDark)
+        scrollView.backgroundColor = LitheTheme.nsColor(.editor, isDark: isDark)
+        textView.needsDisplay = true
+        scrollView.needsDisplay = true
     }
 
     @objc private func insertLanguageCompletion(_ sender: NSMenuItem) {
@@ -3631,15 +3884,21 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
             return NSRect(x: textContainerInset.width, y: textContainerInset.height, width: 1, height: 18)
         }
         let length = string.utf16.count
-        let location = length == 0 ? 0 : min(selectedRange().location, length - 1)
-        let glyph = length == 0 ? 0 : layoutManager.glyphIndexForCharacter(at: location)
-        var rect = layoutManager.boundingRect(
-            forGlyphRange: NSRange(location: glyph, length: 0),
-            in: textContainer
+        let location = min(selectedRange().location, length)
+        let fallbackLineHeight = layoutManager.defaultLineHeight(
+            for: font ?? .monospacedSystemFont(ofSize: 13, weight: .regular)
+        )
+        var rect = EditorCaretGeometry.rect(
+            at: location,
+            sourceLength: length,
+            layoutManager: layoutManager,
+            textContainer: textContainer,
+            caretWidth: max(1, EditorLayoutMetrics.caretWidth),
+            fallbackLineHeight: fallbackLineHeight
         )
         rect.origin.x += textContainerOrigin.x
         rect.origin.y += textContainerOrigin.y
-        rect.size = NSSize(width: max(1, rect.width), height: max(18, rect.height))
+        rect.size.height = max(18, rect.height)
         return rect
     }
 
@@ -5496,5 +5755,30 @@ struct HighlightedRangeCache {
 
     mutating func removeAll() {
         ranges.removeAll(keepingCapacity: true)
+    }
+
+    /// Keeps cached ranges valid after NSTextStorage applies an edit. Ranges
+    /// crossing the edit are discarded; ranges after it are shifted by the
+    /// UTF-16 length delta.
+    mutating func applyEdit(replacedRange: NSRange, replacementLength: Int) {
+        guard replacedRange.location != NSNotFound,
+              replacedRange.location >= 0,
+              replacedRange.length >= 0,
+              replacementLength >= 0 else {
+            removeAll()
+            return
+        }
+
+        let editEnd = NSMaxRange(replacedRange)
+        let delta = replacementLength - replacedRange.length
+        ranges = ranges.compactMap { range in
+            if NSMaxRange(range) > replacedRange.location && range.location < editEnd {
+                return nil
+            }
+            if range.location >= editEnd {
+                return NSRange(location: range.location + delta, length: range.length)
+            }
+            return range
+        }
     }
 }

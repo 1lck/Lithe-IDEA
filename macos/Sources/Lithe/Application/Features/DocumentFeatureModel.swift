@@ -42,7 +42,7 @@ enum StandaloneFileLoadState: Equatable {
 }
 
 /// Owns editor document lifecycle and persistence-facing state. Java services,
-/// local history, and UI notifications are supplied as callbacks by AppModel.
+/// local history, and UI notifications are supplied by application composition.
 @MainActor
 final class DocumentFeatureModel: ObservableObject {
     @Published private(set) var openDocuments: [EditorDocument] = []
@@ -320,10 +320,14 @@ final class DocumentFeatureModel: ObservableObject {
                     byteCount: BinaryFileViewerRegistry.headerByteCount
                 )
             }.value
+            guard workspaceURLProvider() == openingWorkspaceURL,
+                  pendingFileOpenRequests[filePath] == requestID else { return }
+            let shouldActivate = activateWhenReady && latestFileOpenRequestID == requestID
             if let header,
                await binaryFileViewerRegistry.openIfSupported(
                    url: normalizedURL,
-                   header: header
+                   header: header,
+                   activateWhenReady: shouldActivate
                ) {
                 return
             }

@@ -5,12 +5,14 @@ use crate::community::{
     DiscourseCategoriesRequest, DiscourseRevokeRequest, DiscourseSearchRequest,
     DiscourseTopicRequest, DiscourseTopicsRequest,
 };
+use crate::diagnostics::{BuildManifestRequest, RedactTextRequest};
 use crate::git::{
     self, GitApplyRequest, GitBlameRequest, GitCheckoutPreflightRequest, GitCommandRequest,
     GitCommitFilesRequest, GitCommitRequest, GitComparisonRequest, GitConflictMarkerRequest,
-    GitDiffRequest, GitHistoryRequest, GitIntegrationPreflightRequest, GitOperationStateRequest,
-    GitPullPreflightRequest, GitPullRequestContextRequest, GitPushPreviewRequest,
-    GitStashesRequest, GitStatusRequest, GitWatchContextRequest, GitWriteRequest,
+    GitDiffRequest, GitHistoryCursorCloseRequest, GitHistoryPageRequest, GitHistoryRequest,
+    GitIntegrationPreflightRequest, GitOperationStateRequest, GitPullPreflightRequest,
+    GitPullRequestContextRequest, GitPushPreviewRequest, GitReferencesRequest, GitStashesRequest,
+    GitStatusRequest, GitWatchContextRequest, GitWorktreesRequest, GitWriteRequest,
 };
 use crate::github::{NormalizeResponseRequest, ParseRemoteRequest, RequestPlanRequest};
 use crate::languages::{
@@ -25,7 +27,10 @@ use crate::project::{
     HistoryContentRequest, HistoryDeleteRequest, HistoryEntriesRequest, HistoryRecordRequest,
     HistoryRelocateRequest, HistoryRenameRequest,
 };
-use crate::project::{MarkdownRenderRequest, MavenDiagnosticsRequest, MavenScanRequest};
+use crate::project::{
+    MarkdownRenderRequest, MavenDependenciesRequest, MavenDependencyPlanRequest,
+    MavenDiagnosticsRequest, MavenScanRequest,
+};
 use crate::protocol::CoreResponse;
 use crate::protocol::{CoreCommand, CoreRequest};
 use crate::protocol::{CoreError, ErrorCode};
@@ -465,6 +470,42 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Maven launch plan should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::MavenDependencyPlan => {
+            match serde_json::from_value::<MavenDependencyPlanRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Maven dependency-plan request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::project::dependency_plan)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Maven dependency plan should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::MavenDependencies => {
+            match serde_json::from_value::<MavenDependenciesRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Maven dependencies request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::project::dependencies)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Maven dependencies should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }
@@ -1429,6 +1470,22 @@ fn execute(request: &str) -> CoreResponse {
             }
         }
 
+        CoreCommand::GitWorktrees => {
+            match serde_json::from_value::<GitWorktreesRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid Git worktrees request")
+                        .with_details(error.to_string())
+                })
+                .and_then(git::worktrees)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git worktrees should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+
         CoreCommand::GitPullRequestContext => {
             match serde_json::from_value::<GitPullRequestContextRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1515,6 +1572,58 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Git history response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitReferences => {
+            match serde_json::from_value::<GitReferencesRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid Git references request")
+                        .with_details(error.to_string())
+                })
+                .and_then(git::references)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git references response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitHistoryPage => {
+            match serde_json::from_value::<GitHistoryPageRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git history page request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::history_page)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git history page response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitHistoryCursorClose => {
+            match serde_json::from_value::<GitHistoryCursorCloseRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git history cursor close request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::close_history_cursor)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Git history cursor close response should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }
@@ -1742,6 +1851,38 @@ fn execute(request: &str) -> CoreResponse {
                 .and_then(crate::github::normalize_response)
             {
                 Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DiagnosticsRedactText => {
+            match serde_json::from_value::<RedactTextRequest>(parsed.payload).map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid diagnostics redact request",
+                )
+                .with_details(error.to_string())
+            }) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::diagnostics::redact_text(request))
+                        .expect("Diagnostics redact response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DiagnosticsBuildManifest => {
+            match serde_json::from_value::<BuildManifestRequest>(parsed.payload).map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid diagnostics manifest request",
+                )
+                .with_details(error.to_string())
+            }) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::diagnostics::build_manifest(request))
+                        .expect("Diagnostics manifest response should encode"),
+                ),
                 Err(error) => CoreResponse::failure(id, error),
             }
         }

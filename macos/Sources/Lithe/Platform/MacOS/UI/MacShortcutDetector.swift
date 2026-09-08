@@ -73,7 +73,7 @@ private struct MacReturnKeyMonitor: NSViewRepresentable {
 }
 
 final class MacShortcutDetectorFactory: ShortcutDetectorFactory {
-    func make(onCommand: @escaping @MainActor (String) -> Void) -> any ShortcutDetector {
+    func make(onCommand: @escaping @MainActor @Sendable (String) -> Void) -> any ShortcutDetector {
         MacShortcutDetector(onCommand: onCommand)
     }
 }
@@ -151,11 +151,11 @@ private final class MacShortcutDetector: ShortcutDetector, @unchecked Sendable {
     private var registrations: [KeyboardShortcutRegistration] = []
     private var isSuspended = false
     private var doubleShiftRecognizer: DoubleShiftGestureRecognizer
-    private let onCommand: @MainActor (String) -> Void
+    private let onCommand: @MainActor @Sendable (String) -> Void
     private var keyMonitor: Any?
     private var flagsMonitor: Any?
 
-    init(onCommand: @escaping @MainActor (String) -> Void) {
+    init(onCommand: @escaping @MainActor @Sendable (String) -> Void) {
         self.onCommand = onCommand
         doubleShiftRecognizer = DoubleShiftGestureRecognizer(
             threshold: Self.doubleTapThreshold

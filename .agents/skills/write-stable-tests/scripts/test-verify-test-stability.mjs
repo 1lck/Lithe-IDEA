@@ -566,10 +566,13 @@ try {
 if (process.platform !== "win32") {
   let rootPID = null;
   let descendantPID = null;
+  // swift-testing may detach its helper into a separate process group. The
+  // timeout owner must still discover and terminate that descendant.
   const descendantSource = "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);";
   const rootSource = `
     const { spawn } = require("node:child_process");
     const descendant = spawn(process.execPath, ["-e", ${JSON.stringify(descendantSource)}], {
+      detached: true,
       stdio: "ignore",
     });
     console.log(descendant.pid);

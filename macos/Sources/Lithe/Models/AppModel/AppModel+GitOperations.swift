@@ -33,21 +33,6 @@ extension AppModel {
         feature.requestDiscardLineChange(marker, for: fileURL)
     }
 
-    func stashWorkingTree(message: String, includeUntracked: Bool) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.stashWorkingTree(message: message, includeUntracked: includeUntracked)
-    }
-
-    func shelveWorkingTree(message: String) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.shelveWorkingTree(message: message)
-    }
-
-    func applyStash(_ stash: GitStash, pop: Bool = false) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.applyStash(stash, pop: pop)
-    }
-
     func requestConflictRollback(path: String, resume: GitConflictResume) {
         gitFeatureIfActive?.requestConflictRollback(path: path, resume: resume)
     }
@@ -85,39 +70,6 @@ extension AppModel {
         gitFeatureIfActive?.clearGitConflictFilter()
     }
 
-    func showStashRestoreConflictFiles() {
-        selectedSidebar = .changes
-        gitFeatureIfActive?.showStashRestoreConflictFiles()
-    }
-
-    func showStashRestoreConflictStash() {
-        selectedSidebar = .changes
-        gitFeatureIfActive?.showStashRestoreConflictStash()
-    }
-
-    func dismissStashRestoreConflictNotice() {
-        gitFeatureIfActive?.dismissStashRestoreConflictNotice()
-    }
-
-    func showStashRestoreConflictNotice() {
-        gitFeatureIfActive?.showStashRestoreConflictNotice()
-    }
-
-    func dropStash(_ stash: GitStash) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.dropStash(stash)
-    }
-
-    func applyShelf(_ shelf: GitShelfEntry) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.applyShelf(shelf)
-    }
-
-    func dropShelf(_ shelf: GitShelfEntry) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.dropShelf(shelf)
-    }
-
     func selectChange(_ change: GitChange) {
         activeDocumentID = nil
         Task { [weak self] in
@@ -126,38 +78,9 @@ extension AppModel {
         }
     }
 
-    func reloadSelectedChangeDiff(whitespace: GitDiffWhitespaceMode) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.reloadSelectedChangeDiff(whitespace: whitespace)
-    }
-
     func refreshGit() async {
         guard let gitFeature = await activateGitModule() else { return }
         await gitFeature.refreshGit()
-    }
-
-    func stageSelectedChange() async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.stageSelectedChange()
-    }
-
-    func unstageSelectedChange() async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.unstageSelectedChange()
-    }
-
-    func stageDiffHunk(_ hunk: DiffHunk, in change: GitChange) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.stageDiffHunk(hunk, in: change)
-    }
-
-    func unstageDiffHunk(_ hunk: DiffHunk, in change: GitChange) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.unstageDiffHunk(hunk, in: change)
-    }
-
-    func requestDiscardHunk(_ hunk: DiffHunk, in change: GitChange) {
-        gitFeatureIfActive?.requestDiscardHunk(hunk, in: change)
     }
 
     func confirmDiscardHunk() async {

@@ -13,7 +13,9 @@ extension LitheWorkspaceModule.WorkspaceFeatureModel {
         fileStorage: any FileStorage,
         gitWatchContextProvider: any GitWatchContextProviding,
         directoryWatcherFactory: any DirectoryWatcherFactory,
-        workspaceSessionStore: any WorkspaceSessionStoring
+        workspaceSessionStore: any WorkspaceSessionStoring,
+        directoryMarkStore: any WorkspaceDirectoryMarkStoring = EmptyWorkspaceDirectoryMarkStore(),
+        observationDelay: (@Sendable (Duration) async throws -> Void)? = nil
     ) {
         _ = fileStorage
         self.init(
@@ -21,7 +23,9 @@ extension LitheWorkspaceModule.WorkspaceFeatureModel {
             fileOperations: fileOperations,
             gitWatchContextProvider: gitWatchContextProvider,
             directoryWatcherFactory: directoryWatcherFactory,
-            workspaceSessionStore: workspaceSessionStore
+            workspaceSessionStore: workspaceSessionStore,
+            directoryMarkStore: directoryMarkStore,
+            observationDelay: observationDelay
         )
     }
 

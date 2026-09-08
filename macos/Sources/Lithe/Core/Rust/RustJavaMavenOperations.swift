@@ -184,6 +184,24 @@ struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
         .makeModel()
     }
 
+    func mavenDependencyPlan(
+        at rootURL: URL,
+        context: MavenLaunchContext,
+        module: String?
+    ) throws -> MavenLaunchPlan {
+        try core.mavenDependencyPlan(at: rootURL, context: context, module: module)
+            .mapError(MavenOperationError.init)
+            .get()
+            .makeModel()
+    }
+
+    func mavenDependencies(modulePath: String, output: String) throws -> MavenDependencyTree {
+        try core.mavenDependencies(modulePath: modulePath, output: output)
+            .mapError(MavenOperationError.init)
+            .get()
+            .makeModel()
+    }
+
     func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue] {
         guard let payload = core.mavenDiagnostics(at: projectRoot, output: output) else { return [] }
         return payload.issues.map { issue in

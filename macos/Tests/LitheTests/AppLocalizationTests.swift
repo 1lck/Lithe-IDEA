@@ -116,6 +116,42 @@ struct AppLocalizationTests {
     }
 
     @Test
+    func simplifiedChineseResourcesCoverGitWorktreeWorkbench() throws {
+        let translations = try simplifiedChineseTranslations()
+        let expected = [
+            "Worktrees": "工作树",
+            "New Worktree": "新建工作树",
+            "Commit History": "提交历史",
+            "Repair Worktree Records": "修复工作树记录",
+            "Prune Stale Records": "清理陈旧记录",
+            "No local changes": "没有本地更改",
+            "Worktree Settings": "工作树设置",
+            "Danger Zone": "危险操作",
+            "Checkout Path Missing": "检出路径不存在"
+            ,"Recommended: keep worktrees in a persistent folder next to the repository. You can choose /private/tmp manually for disposable checkouts.": "建议将工作树放在仓库旁的持久目录中。临时检出时可以手动选择 /private/tmp。"
+        ]
+
+        for (key, value) in expected {
+            #expect(translations[key] == value, "Missing or incorrect worktree translation: \(key)")
+        }
+    }
+
+    @Test
+    func simplifiedChineseResourcesCoverGitHistoryPagination() throws {
+        let translations = try simplifiedChineseTranslations()
+
+        #expect(translations["Load more commits"] == "加载更多提交")
+        #expect(translations["Loading commits…"] == "正在加载提交…")
+        #expect(translations["Older commits are outside the loaded history"] == "更早的提交不在当前加载的历史范围内")
+        #expect(translations["Copy Commit Hash"] == "复制提交哈希")
+        #expect(translations["Copy Short Hash"] == "复制短哈希")
+        #expect(translations["New Tag…"] == "新建标签…")
+        #expect(translations["Cherry-pick Commit…"] == "拣选提交…")
+        #expect(translations["Revert Commit…"] == "还原提交…")
+        #expect(translations["Reset Current Branch to Here…"] == "将当前分支重置到这里…")
+    }
+
+    @Test
     func simplifiedChineseResourcesCoverKeymapControls() throws {
         let translations = try simplifiedChineseTranslations()
 

@@ -211,6 +211,374 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
+    func dismissingADedicatedProjectWindowResetsThatWindowSession() async {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        sessions.shouldDismissWindowWhenClosingActiveSession = true
+        let coordinator = LitheWindowCoordinator(
+            projectSessions: sessions,
+            confirmUnsavedDocuments: { _ in true }
+        )
+        let window = CloseCommandTestWindow()
+        coordinator.attach(to: window, layout: .workspace)
+
+        #expect(!coordinator.windowShouldClose(window))
+        #expect(await window.waitUntilNativeCloseAllowed())
+        #expect(sessions.resetForProjectWindowCloseCallCount == 1)
+        #expect(sessions.requestCloseActiveSessionCallCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func openingAProjectInANewWindowCreatesADedicatedSession() throws {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        settings.projectOpenBehavior = .newWindow
+        var presentedWindowIDs: [UUID] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode
+                    ).services
+                )
+            },
+            projectWindowPresenter: { presentedWindowIDs.append($0) }
+        )
+
+        let firstURL = URL(fileURLWithPath: "/tmp/lithe-primary-project")
+        let secondURL = URL(fileURLWithPath: "/tmp/lithe-dedicated-project")
+        manager.openStartupProject(firstURL)
+        let primaryID = manager.activeSessionID(in: .primary)
+
+        manager.requestOpenProject(secondURL, from: primaryID)
+
+        #expect(manager.openProjects.count == 2)
+        #expect(manager.primaryOpenProjects.count == 1)
+        #expect(manager.primaryOpenProjects.first?.id == primaryID)
+        #expect(presentedWindowIDs.count == 1)
+        let dedicatedWindowID = try #require(presentedWindowIDs.first)
+        #expect(manager.activeSessionID(in: .primary) == primaryID)
+        #expect(manager.isDedicatedWindowSession(dedicatedWindowID))
+        #expect(
+            manager.activeModel(in: .dedicated(dedicatedWindowID))
+                .workspaceURL?.standardizedFileURL == secondURL
+        )
+        #expect(manager.shouldDismissPrimaryWindowWhenClosingActiveSession)
+    }
+
+    @Test
+    @MainActor
+    func openingInThisWindowFromDedicatedStaysInDedicatedScope() throws {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        settings.projectOpenBehavior = .newWindow
+        var presentedWindowIDs: [UUID] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode
+                    ).services
+                )
+            },
+            projectWindowPresenter: { presentedWindowIDs.append($0) }
+        )
+
+        manager.openStartupProject(URL(fileURLWithPath: "/tmp/lithe-primary-a"))
+        let primaryID = manager.activeSessionID(in: .primary)
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-dedicated-b"),
+            from: primaryID
+        )
+        let dedicatedWindowID = try #require(presentedWindowIDs.first)
+        let dedicatedSessionID = manager.activeSessionID(in: .dedicated(dedicatedWindowID))
+
+        settings.projectOpenBehavior = .thisWindow
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-dedicated-d"),
+            from: dedicatedSessionID
+        )
+
+        #expect(manager.primaryOpenProjects.count == 1)
+        #expect(manager.openProjects(in: .dedicated(dedicatedWindowID)).count == 2)
+        #expect(
+            manager.openProjects(in: .dedicated(dedicatedWindowID))
+                .contains { $0.workspaceURL?.path.hasSuffix("lithe-dedicated-d") == true }
+        )
+        #expect(manager.activeSessionID(in: .primary) == primaryID)
+    }
+
+    @Test
+    @MainActor
+    func removingADedicatedSessionDismissesItsWindow() throws {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        settings.projectOpenBehavior = .newWindow
+        var presentedWindowIDs: [UUID] = []
+        var dismissedWindowIDs: [UUID] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode
+                    ).services
+                )
+            },
+            projectWindowPresenter: { presentedWindowIDs.append($0) },
+            projectWindowDismisser: { dismissedWindowIDs.append($0) }
+        )
+
+        manager.openStartupProject(URL(fileURLWithPath: "/tmp/lithe-primary-keep"))
+        let primaryID = manager.activeSessionID(in: .primary)
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-dedicated-close"),
+            from: primaryID
+        )
+        let dedicatedWindowID = try #require(presentedWindowIDs.first)
+        let dedicatedSessionID = manager.activeSessionID(in: .dedicated(dedicatedWindowID))
+
+        manager.closeProject(dedicatedSessionID)
+
+        #expect(dismissedWindowIDs == [dedicatedWindowID])
+        #expect(manager.session(for: dedicatedSessionID) == nil)
+        #expect(manager.openProjects.count == 1)
+        #expect(manager.activeSessionID(in: .primary) == primaryID)
+    }
+
+    @Test
+    @MainActor
+    func resettingPrimaryWindowDoesNotDestroyDedicatedSessions() async throws {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        settings.projectOpenBehavior = .thisWindow
+        var presentedWindowIDs: [UUID] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode
+                    ).services
+                )
+            },
+            projectWindowPresenter: { presentedWindowIDs.append($0) }
+        )
+
+        manager.openStartupProject(URL(fileURLWithPath: "/tmp/lithe-primary-a"))
+        let primaryID = manager.activeSessionID(in: .primary)
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-primary-b"),
+            from: primaryID
+        )
+        settings.projectOpenBehavior = .newWindow
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-dedicated-c"),
+            from: manager.activeSessionID(in: .primary)
+        )
+        let dedicatedWindowID = try #require(presentedWindowIDs.first)
+        let dedicatedSessionID = manager.activeSessionID(in: .dedicated(dedicatedWindowID))
+
+        #expect(manager.primaryOpenProjects.count == 2)
+        await manager.resetForProjectWindowClose()
+
+        #expect(manager.primaryOpenProjects.isEmpty)
+        #expect(manager.session(for: dedicatedSessionID) != nil)
+        #expect(
+            manager.activeModel(in: .dedicated(dedicatedWindowID))
+                .workspaceURL?.path.hasSuffix("lithe-dedicated-c") == true
+        )
+    }
+
+    @Test
+    @MainActor
+    func activatingADedicatedSessionDoesNotChangePrimaryActiveTab() throws {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        settings.projectOpenBehavior = .thisWindow
+        var presentedWindowIDs: [UUID] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode
+                    ).services
+                )
+            },
+            projectWindowPresenter: { presentedWindowIDs.append($0) }
+        )
+
+        manager.openStartupProject(URL(fileURLWithPath: "/tmp/lithe-primary-a"))
+        let primaryA = manager.activeSessionID(in: .primary)
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-primary-b"),
+            from: primaryA
+        )
+        let primaryB = manager.activeSessionID(in: .primary)
+        #expect(primaryB != primaryA)
+
+        settings.projectOpenBehavior = .newWindow
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-dedicated-c"),
+            from: primaryB
+        )
+        let dedicatedWindowID = try #require(presentedWindowIDs.first)
+
+        #expect(manager.activeSessionID(in: .primary) == primaryB)
+        #expect(manager.activeSessionID(in: .dedicated(dedicatedWindowID)) != primaryB)
+
+        manager.noteWindowBecameKey(.primary)
+        #expect(manager.activeSessionID(in: .primary) == primaryB)
+        #expect(manager.focusedScope == .primary)
+    }
+
+    @Test
+    @MainActor
+    func resettingADedicatedWindowKeepsOtherProjectsOpen() async throws {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        settings.projectOpenBehavior = .newWindow
+        var presentedWindowIDs: [UUID] = []
+        var dismissedWindowIDs: [UUID] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode
+                    ).services
+                )
+            },
+            projectWindowPresenter: { presentedWindowIDs.append($0) },
+            projectWindowDismisser: { dismissedWindowIDs.append($0) }
+        )
+
+        manager.openStartupProject(URL(fileURLWithPath: "/tmp/lithe-keep-primary"))
+        let primaryID = manager.activeSessionID(in: .primary)
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-close-dedicated"),
+            from: primaryID
+        )
+        let dedicatedWindowID = try #require(presentedWindowIDs.first)
+
+        await manager.resetDedicatedWindowSession(windowID: dedicatedWindowID)
+
+        #expect(dismissedWindowIDs == [dedicatedWindowID])
+        #expect(manager.sessions(in: .dedicated(dedicatedWindowID)).isEmpty)
+        #expect(manager.openProjects.count == 1)
+        #expect(manager.activeSessionID(in: .primary) == primaryID)
+        #expect(manager.activeModel(in: .primary).workspaceURL != nil)
+    }
+
+    @Test
+    @MainActor
+    func askPromptIsScopedToTheSourceWindowOnly() throws {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        settings.projectOpenBehavior = .newWindow
+        var presentedWindowIDs: [UUID] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode
+                    ).services
+                )
+            },
+            projectWindowPresenter: { presentedWindowIDs.append($0) }
+        )
+
+        manager.openStartupProject(URL(fileURLWithPath: "/tmp/lithe-ask-primary"))
+        let primaryID = manager.activeSessionID(in: .primary)
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-ask-dedicated"),
+            from: primaryID
+        )
+        let dedicatedWindowID = try #require(presentedWindowIDs.first)
+        let dedicatedSessionID = manager.activeSessionID(in: .dedicated(dedicatedWindowID))
+
+        settings.projectOpenBehavior = .ask
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-ask-next"),
+            from: dedicatedSessionID
+        )
+
+        let pending = try #require(manager.pendingProjectOpen)
+        #expect(manager.scope(for: pending.sourceSessionID) == .dedicated(dedicatedWindowID))
+        #expect(manager.pendingProjectOpen(in: .dedicated(dedicatedWindowID))?.id == pending.id)
+        #expect(manager.pendingProjectOpen(in: .primary) == nil)
+
+        manager.resolvePendingOpen(pending, placement: .thisWindow, doNotAskAgain: false)
+        #expect(manager.pendingProjectOpen == nil)
+        #expect(manager.openProjects(in: .dedicated(dedicatedWindowID)).count == 2)
+        #expect(manager.primaryOpenProjects.count == 1)
+    }
+
+    @Test
+    @MainActor
+    func windowFocusUpdatesMenuCommandTargetSession() throws {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        settings.projectOpenBehavior = .newWindow
+        var presentedWindowIDs: [UUID] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode
+                    ).services
+                )
+            },
+            projectWindowPresenter: { presentedWindowIDs.append($0) }
+        )
+
+        manager.openStartupProject(URL(fileURLWithPath: "/tmp/lithe-focus-primary"))
+        let primaryID = manager.activeSessionID(in: .primary)
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-focus-dedicated"),
+            from: primaryID
+        )
+        let dedicatedWindowID = try #require(presentedWindowIDs.first)
+        let dedicatedID = manager.activeSessionID(in: .dedicated(dedicatedWindowID))
+
+        #expect(manager.activeSessionID == dedicatedID)
+        manager.noteWindowBecameKey(.primary)
+        #expect(manager.activeSessionID == primaryID)
+        manager.noteWindowBecameKey(.dedicated(dedicatedWindowID))
+        #expect(manager.activeSessionID == dedicatedID)
+    }
+
+    @Test
+    @MainActor
     func closingAProjectWindowReplacesAllSessionsWithAnEmptyActiveSession() async {
         let store = MutableKeyValueStore()
         let settings = AppSettings(store: store)
@@ -229,7 +597,7 @@ struct LitheCoreLogicTests {
                 createdModels.append(model)
                 return model
             },
-            newWindowOpener: { _ in }
+            projectWindowPresenter: { _ in }
         )
 
         manager.openStandaloneFile(URL(fileURLWithPath: "/tmp/lithe-close-first.swift"))
@@ -265,7 +633,7 @@ struct LitheCoreLogicTests {
                     services: MacServiceContainer(store: store, settings: settings).services
                 )
             },
-            newWindowOpener: { _ in }
+            projectWindowPresenter: { _ in }
         )
         let previousModel = manager.activeModel
         let runtime = previousModel.services.moduleRuntime
@@ -1703,6 +2071,66 @@ struct LitheCoreLogicTests {
         #expect(opened.count == 2)
     }
 
+    @Test @MainActor
+    func staleBinaryFileOpenDoesNotCrossWorkspaceBoundaries() async throws {
+        let firstWorkspace = URL(fileURLWithPath: "/workspace-a", isDirectory: true)
+        let secondWorkspace = URL(fileURLWithPath: "/workspace-b", isDirectory: true)
+        let imageURL = firstWorkspace.appendingPathComponent("preview.png")
+        let storage = InMemoryFileStorage()
+        storage.seed(Data([0x89, 0x50, 0x4E, 0x47]), at: imageURL)
+        let operations = BlockingBinaryWorkspaceOperations()
+        let registry = BinaryFileViewerRegistry()
+        var openedURLs: [URL] = []
+        registry.register(BinaryFileViewerRegistration(
+            identifier: "test.image-viewer",
+            fileExtensions: ["png"],
+            open: { openedURLs.append($0.url) }
+        ))
+        var workspaceURL: URL? = firstWorkspace
+        let feature = DocumentFeatureModel(
+            operations: operations,
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: storage,
+            binaryFileViewerRegistry: registry
+        )
+        feature.configure(
+            workspaceURLProvider: { workspaceURL },
+            autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 },
+            notify: { _ in },
+            onDocumentOpened: { _ in },
+            onDocumentChanged: { _ in },
+            onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in },
+            onRecordDiscard: { _ in },
+            onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {},
+            onProjectCloseReady: {}
+        )
+
+        let openTask = Task {
+            await feature.openFileAsync(
+                imageURL,
+                isReadOnly: false,
+                displayPath: nil,
+                activateWhenReady: true
+            )
+        }
+        defer {
+            openTask.cancel()
+            operations.releaseRead()
+        }
+        try #require(await operations.waitUntilReadingStarts())
+        workspaceURL = secondWorkspace
+        feature.reset()
+        operations.releaseRead()
+        await openTask.value
+
+        #expect(!operations.didTimeOut)
+        #expect(openedURLs.isEmpty)
+    }
+
     @Test
     func languageServerTextEditsUseUTF16AndApplyFromTheEnd() throws {
         let result = try LanguageServerTextEditApplicator.apply([
@@ -2513,6 +2941,33 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func highlightedRangeCacheShiftsUnchangedRangesAfterAnEdit() {
+        var cache = HighlightedRangeCache()
+        cache.insert(NSRange(location: 0, length: 10))
+        cache.insert(NSRange(location: 20, length: 10))
+        cache.insert(NSRange(location: 40, length: 10))
+
+        cache.applyEdit(
+            replacedRange: NSRange(location: 12, length: 4),
+            replacementLength: 8
+        )
+        #expect(cache.ranges == [
+            NSRange(location: 0, length: 10),
+            NSRange(location: 24, length: 10),
+            NSRange(location: 44, length: 10)
+        ])
+
+        cache.applyEdit(
+            replacedRange: NSRange(location: 24, length: 10),
+            replacementLength: 0
+        )
+        #expect(cache.ranges == [
+            NSRange(location: 0, length: 10),
+            NSRange(location: 34, length: 10)
+        ])
+    }
+
+    @Test
     @MainActor
     func codeEditorShiftsFindMatchesAcrossASingleLineEdit() {
         let textView = CodeTextView(frame: .zero)
@@ -2993,6 +3448,8 @@ private final class ProjectWindowShutdownTestModule: LitheModule {
 private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
     var hasActiveProject: Bool
     var hasActiveStandaloneFile = false
+    var shouldDismissWindowWhenClosingActiveSession = false
+    var windowScope: ProjectWindowScope = .primary
     var consumesWorkbenchCloseCommand = false
     var hasUnsavedDocuments = false
     var unsavedDocumentNames: [String] = []
@@ -3003,6 +3460,7 @@ private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
     private(set) var closeActiveWorkbenchItemCallCount = 0
     private(set) var requestCloseActiveSessionCallCount = 0
     private(set) var resetForProjectWindowCloseCallCount = 0
+    private(set) var noteWindowBecameKeyCallCount = 0
     private(set) var saveAllDocumentsCallCount = 0
 
     init(hasActiveProject: Bool) {
@@ -3035,6 +3493,10 @@ private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
         if let projectWindowCleanupRelease {
             _ = await projectWindowCleanupRelease.waitUntilOpen()
         }
+    }
+
+    func noteWindowBecameKey() {
+        noteWindowBecameKeyCallCount += 1
     }
 }
 
@@ -3175,6 +3637,55 @@ struct EditorDocumentTests {
         document.applyLiveEditorText("before")
         #expect(!document.isDirty)
         #expect(publishCount == 2)
+    }
+
+    @Test
+    @MainActor
+    func liveEditorEditsProduceOrderedLanguageServerChanges() {
+        let document = EditorDocument(
+            url: URL(fileURLWithPath: "/tmp/live-editor-lsp.txt"),
+            text: "one\ntwo",
+            modificationDate: nil
+        )
+
+        document.applyLiveEditorEdit(
+            replacedRange: NSRange(location: 4, length: 3),
+            replacement: "second"
+        )
+        document.applyLiveEditorEdit(
+            replacedRange: NSRange(location: 0, length: 0),
+            replacement: "A"
+        )
+
+        let changes = document.takePendingLanguageServerChanges()
+        #expect(changes.map(\.text) == ["second", "A"])
+        #expect(changes[0].start == LanguageServerDocumentPosition(line: 1, utf16Column: 0))
+        #expect(changes[0].end == LanguageServerDocumentPosition(line: 1, utf16Column: 3))
+        #expect(document.takePendingLanguageServerChanges().isEmpty)
+    }
+
+    @Test
+    @MainActor
+    func liveEditorEditAppliesUTF16ReplacementWithoutFullEditorSnapshot() {
+        let document = EditorDocument(
+            url: URL(fileURLWithPath: "/tmp/live-editor-edit.txt"),
+            text: "before\nvalue",
+            modificationDate: nil
+        )
+
+        document.applyLiveEditorEdit(
+            replacedRange: NSRange(location: 7, length: 5),
+            replacement: "updated"
+        )
+
+        #expect(document.text == "before\nupdated")
+        #expect(document.isDirty)
+
+        document.applyLiveEditorEdit(
+            replacedRange: NSRange(location: 0, length: 0),
+            replacement: "A"
+        )
+        #expect(document.text == "Abefore\nupdated")
     }
 
     @Test
@@ -3462,6 +3973,174 @@ struct EditorDocumentTests {
         #expect(session.lastExitCode == 7)
         #expect(!session.isRunning)
         #expect(session.elapsedDescription(at: Date().addingTimeInterval(1)) != nil)
+    }
+
+    @Test
+    @MainActor
+    func workspaceDirectoryMarksLoadAndPersistByRelativePath() async {
+        let workspace = URL(fileURLWithPath: "/tmp/directory-mark-workspace")
+        let markStore = RecordingWorkspaceDirectoryMarkStore(initial: ["Sources": .sources])
+        let model = WorkspaceFeatureModel(
+            operations: EmptyWorkspaceOperations(),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            gitWatchContextProvider: SequencedGitWatchContextProvider([nil]),
+            directoryWatcherFactory: TestDirectoryWatcherFactory(),
+            workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore()),
+            directoryMarkStore: markStore
+        )
+
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        #expect(model.directoryMarks == ["Sources": .sources])
+
+        await model.markDirectory(
+            workspace.appendingPathComponent("assets", isDirectory: true),
+            as: .resources
+        )
+
+        #expect(model.directoryMarks["assets"] == .resources)
+        #expect(markStore.savedMarks?["Sources"] == .sources)
+        #expect(markStore.savedMarks?["assets"] == .resources)
+    }
+
+    /// A preference write can outlive the workspace that initiated it. Releasing
+    /// the controlled store after switching projects must not publish old marks.
+    @Test
+    @MainActor
+    func directoryMarkSaveDoesNotPublishIntoAReplacementWorkspace() async {
+        let firstWorkspace = URL(fileURLWithPath: "/tmp/directory-mark-first")
+        let secondWorkspace = URL(fileURLWithPath: "/tmp/directory-mark-second")
+        let saveStarted = TestGate()
+        let releaseSave = TestGate()
+        defer { releaseSave.open() }
+        let markStore = BlockingWorkspaceDirectoryMarkStore(
+            initialByWorkspace: [secondWorkspace.standardizedFileURL.path: ["Sources": .sources]],
+            saveStarted: saveStarted,
+            releaseSave: releaseSave
+        )
+        let model = WorkspaceFeatureModel(
+            operations: EmptyWorkspaceOperations(),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            gitWatchContextProvider: SequencedGitWatchContextProvider([nil]),
+            directoryWatcherFactory: TestDirectoryWatcherFactory(),
+            workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore()),
+            directoryMarkStore: markStore
+        )
+
+        model.beginWorkspace(at: firstWorkspace, visibilityRules: .default)
+        let saveTask = Task {
+            await model.markDirectory(
+                firstWorkspace.appendingPathComponent("assets", isDirectory: true),
+                as: .resources
+            )
+        }
+
+        #expect(await saveStarted.waitUntilOpen(timeout: .seconds(5)))
+        model.beginWorkspace(at: secondWorkspace, visibilityRules: .default)
+        releaseSave.open()
+        await saveTask.value
+
+        #expect(model.directoryMarks == ["Sources": .sources])
+    }
+
+    @Test
+    @MainActor
+    func consecutiveDirectoryMarksPersistInInvocationOrder() async {
+        let workspace = URL(fileURLWithPath: "/tmp/directory-mark-consecutive")
+        let saveStarted = TestGate()
+        let releaseSave = TestGate()
+        defer { releaseSave.open() }
+        let markStore = BlockingWorkspaceDirectoryMarkStore(
+            initialByWorkspace: [:],
+            saveStarted: saveStarted,
+            releaseSave: releaseSave
+        )
+        let model = WorkspaceFeatureModel(
+            operations: EmptyWorkspaceOperations(),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            gitWatchContextProvider: SequencedGitWatchContextProvider([nil]),
+            directoryWatcherFactory: TestDirectoryWatcherFactory(),
+            workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore()),
+            directoryMarkStore: markStore
+        )
+
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        let firstSave = Task {
+            await model.markDirectory(
+                workspace.appendingPathComponent("Sources", isDirectory: true),
+                as: .sources
+            )
+        }
+        #expect(await saveStarted.waitUntilOpen(timeout: .seconds(5)))
+        let secondSave = Task {
+            await model.markDirectory(
+                workspace.appendingPathComponent("assets", isDirectory: true),
+                as: .resources
+            )
+        }
+
+        releaseSave.open()
+        await firstSave.value
+        await secondSave.value
+
+        #expect(markStore.savedMarks == ["Sources": .sources, "assets": .resources])
+        #expect(model.directoryMarks == markStore.savedMarks)
+    }
+
+    @Test
+    @MainActor
+    func renamingDirectoryMigratesItsMarkAndDescendantMarks() async {
+        let workspace = URL(fileURLWithPath: "/tmp/directory-mark-rename")
+        let source = workspace.appendingPathComponent("Sources", isDirectory: true)
+        let markStore = RecordingWorkspaceDirectoryMarkStore(
+            initial: ["Sources": .sources, "Sources/generated": .excluded, "assets": .resources]
+        )
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: EmptyWorkspaceFileOperations(),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(),
+            refreshGit: {},
+            directoryMarkStore: markStore
+        )
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+
+        model.requestRenameProjectItem(at: source)
+        await model.performProjectItemEdit(named: "SourceCode")
+
+        let expected: [String: WorkspaceDirectoryMark] = [
+            "SourceCode": .sources,
+            "SourceCode/generated": .excluded,
+            "assets": .resources
+        ]
+        #expect(model.directoryMarks == expected)
+        #expect(markStore.savedMarks == expected)
+    }
+
+    @Test
+    @MainActor
+    func deletingDirectoryRemovesItsMarkAndDescendantMarks() async throws {
+        let workspace = URL(fileURLWithPath: "/tmp/directory-mark-delete")
+        let target = workspace.appendingPathComponent("generated", isDirectory: true)
+        let markStore = RecordingWorkspaceDirectoryMarkStore(
+            initial: ["generated": .excluded, "generated/cache": .plain, "Sources": .sources]
+        )
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: EmptyWorkspaceFileOperations(),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(),
+            refreshGit: {},
+            directoryMarkStore: markStore
+        )
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        model.requestDeleteProjectItem(at: target, isDirectory: true)
+        let request = try #require(model.pendingProjectItemDeletion)
+
+        await model.confirmProjectItemDeletion(request)
+
+        #expect(model.directoryMarks == ["Sources": .sources])
+        #expect(markStore.savedMarks == ["Sources": .sources])
     }
 
     @Test
@@ -3990,6 +4669,9 @@ struct EditorDocumentTests {
         let source = workspace.appendingPathComponent("src/Main.java")
         let build = workspace.appendingPathComponent("pom.xml")
         let watcherFactory = TestDirectoryWatcherFactory()
+        let delayStarted = TestGate()
+        let releaseDelay = TestGate()
+        let refreshFinished = TestGate()
         var projectedChanges: [WorkspaceFileChange] = []
         var projectReloadCount = 0
         let model = makeWorkspaceObservationUnitModel(
@@ -4000,26 +4682,79 @@ struct EditorDocumentTests {
             fileOperations: ExistingWorkspaceFileOperations(paths: [source.path, build.path]),
             provider: SequencedGitWatchContextProvider([nil]),
             watcherFactory: watcherFactory,
-            refreshGit: {},
+            refreshGit: {
+                if projectReloadCount > 0 { refreshFinished.open() }
+            },
             notifyWorkspaceFileChanges: { projectedChanges.append(contentsOf: $0) },
-            reloadProjectServices: { projectReloadCount += 1 }
+            reloadProjectServices: { projectReloadCount += 1 },
+            observationDelay: { duration in
+                #expect(duration == .milliseconds(350))
+                delayStarted.open()
+                guard await releaseDelay.waitUntilOpen() else { throw CancellationError() }
+                try Task.checkCancellation()
+            }
         )
-        defer { model.reset() }
+        defer {
+            model.reset()
+            releaseDelay.open()
+        }
         model.beginWorkspace(at: workspace, visibilityRules: .default)
         _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
         let watcher = try #require(watcherFactory.source)
 
         watcher.emit([source.path, build.path])
-        let refreshed = await waitForWorkspaceObservation {
-            projectedChanges.count == 2 && projectReloadCount == 1
-        }
-
-        #expect(refreshed)
+        #expect(await delayStarted.waitUntilOpen(), "The event did not reach the refresh scheduler")
+        #expect(projectedChanges.isEmpty)
+        #expect(projectReloadCount == 0)
+        releaseDelay.open()
+        #expect(await refreshFinished.waitUntilOpen(), "Released refresh did not finish")
         #expect(projectedChanges == [
             WorkspaceFileChange(fileURL: build, kind: .changed),
             WorkspaceFileChange(fileURL: source, kind: .changed),
         ])
         #expect(projectReloadCount == 1)
+    }
+
+    @Test
+    @MainActor
+    func resettingWorkspaceCancelsAnEventWaitingForItsRefreshDelay() async throws {
+        let started = TestGate()
+        let release = TestGate()
+        let finished = TestGate()
+        let watcherFactory = TestDirectoryWatcherFactory()
+        var externalChanges = 0
+        var gitRefreshes = 0
+        let model = makeWorkspaceObservationUnitModel(
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: { gitRefreshes += 1 },
+            processExternalChanges: { _ in externalChanges += 1; return false },
+            observationDelay: { _ in
+                started.open()
+                defer { finished.open() }
+                guard await release.waitUntilOpen() else { throw CancellationError() }
+                try Task.checkCancellation()
+            }
+        )
+        defer {
+            model.reset()
+            release.open()
+        }
+        let workspace = URL(fileURLWithPath: "/in-memory/cancelled-observation")
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        let watcher = try #require(watcherFactory.source)
+        watcher.emit(DirectoryChangeBatch(
+            workspacePaths: [workspace.appendingPathComponent("Main.java").path],
+            gitStateMayHaveChanged: true
+        ))
+        #expect(await started.waitUntilOpen(), "The event did not reach the refresh scheduler")
+
+        model.reset()
+
+        #expect(await finished.waitUntilOpen(), "Reset did not cancel the pending delay")
+        #expect(externalChanges == 0)
+        #expect(gitRefreshes == 0)
+        #expect(model.projectFiles.isEmpty)
     }
 
     @Test
@@ -4446,7 +5181,9 @@ private func makeWorkspaceObservationUnitModel(
     processExternalChanges: @escaping @MainActor ([URL]) -> Bool = { _ in false },
     notifyWorkspaceFileChanges: @escaping @MainActor ([WorkspaceFileChange]) -> Void = { _ in },
     reloadProjectServices: @escaping @MainActor () async -> Void = {},
-    recordHistory: @escaping @MainActor (URL, LocalHistoryReason) async -> Void = { _, _ in }
+    recordHistory: @escaping @MainActor (URL, LocalHistoryReason) async -> Void = { _, _ in },
+    directoryMarkStore: any WorkspaceDirectoryMarkStoring = EmptyWorkspaceDirectoryMarkStore(),
+    observationDelay: (@Sendable (Duration) async throws -> Void)? = nil
 ) -> WorkspaceFeatureModel {
     let model = WorkspaceFeatureModel(
         operations: operations,
@@ -4454,7 +5191,9 @@ private func makeWorkspaceObservationUnitModel(
         fileStorage: InMemoryFileStorage(),
         gitWatchContextProvider: provider,
         directoryWatcherFactory: watcherFactory,
-        workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore())
+        workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore()),
+        directoryMarkStore: directoryMarkStore,
+        observationDelay: observationDelay
     )
     model.configure(
         documentsProvider: { [] },
@@ -4476,6 +5215,78 @@ private func makeWorkspaceObservationUnitModel(
         onSnapshotLoaded: { _, _, _ in }
     )
     return model
+}
+
+private final class RecordingWorkspaceDirectoryMarkStore: WorkspaceDirectoryMarkStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private let initial: [String: WorkspaceDirectoryMark]
+    private var storedSavedMarks: [String: WorkspaceDirectoryMark]?
+
+    init(initial: [String: WorkspaceDirectoryMark]) {
+        self.initial = initial
+    }
+
+    var savedMarks: [String: WorkspaceDirectoryMark]? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedSavedMarks
+    }
+
+    func loadDirectoryMarks(
+        for workspaceURL: URL
+    ) throws -> [String: WorkspaceDirectoryMark] {
+        initial
+    }
+
+    func saveDirectoryMarks(
+        _ marks: [String: WorkspaceDirectoryMark],
+        for workspaceURL: URL
+    ) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        storedSavedMarks = marks
+    }
+}
+
+private final class BlockingWorkspaceDirectoryMarkStore: WorkspaceDirectoryMarkStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private let initialByWorkspace: [String: [String: WorkspaceDirectoryMark]]
+    private let saveStarted: TestGate
+    private let releaseSave: TestGate
+    private var storedSavedMarks: [String: WorkspaceDirectoryMark]?
+
+    init(
+        initialByWorkspace: [String: [String: WorkspaceDirectoryMark]],
+        saveStarted: TestGate,
+        releaseSave: TestGate
+    ) {
+        self.initialByWorkspace = initialByWorkspace
+        self.saveStarted = saveStarted
+        self.releaseSave = releaseSave
+    }
+
+    var savedMarks: [String: WorkspaceDirectoryMark]? {
+        lock.withLock { storedSavedMarks }
+    }
+
+    func loadDirectoryMarks(
+        for workspaceURL: URL
+    ) throws -> [String: WorkspaceDirectoryMark] {
+        initialByWorkspace[workspaceURL.standardizedFileURL.path] ?? [:]
+    }
+
+    func saveDirectoryMarks(
+        _ marks: [String: WorkspaceDirectoryMark],
+        for workspaceURL: URL
+    ) throws {
+        saveStarted.open()
+        guard releaseSave.waitSynchronously(timeout: 5) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        lock.withLock {
+            storedSavedMarks = marks
+        }
+    }
 }
 
 @MainActor
@@ -4721,6 +5532,132 @@ private let dbxEncryptedConnectionExport = #"""
 {"format":"dbx-encrypted","version":1,"salt":"AAECAwQFBgcICQoLDA0ODw==","iv":"EBESExQVFhcYGRob","data":"fdwV5NDM/8LXPJqMyQgoQVkuOwMe+0VDPFR8HsEWD1AMIhPz1sHRRkmzd6ZLcBqnfcA57xCJz3Jtnbf+djnYI83EiNkr6iukZq1Ahd8aGy/r61/JdThx/NTaUgzn0mwAIcpxDl9uyBDwI0PO8WAaXbZyWbFumsLn3SJSEb8d"}
 """#
 
+@Suite("Editor session coordination")
+@MainActor
+struct EditorSessionCoordinatorTests {
+    @Test(arguments: [true, false])
+    func restorationPreservesSavedOrderAndSelectsAvailableDocument(activePathExists: Bool) async throws {
+        let document = DocumentFeatureModel(
+            operations: EmptyWorkspaceOperations(readFileValue: "restored"),
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+        document.configure(
+            workspaceURLProvider: { URL(fileURLWithPath: "/in-memory") },
+            autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 },
+            notify: { Issue.record("Unexpected restoration notification: \($0)") },
+            onDocumentOpened: { _ in },
+            onDocumentChanged: { _ in },
+            onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in },
+            onRecordDiscard: { _ in },
+            onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {},
+            onProjectCloseReady: {}
+        )
+        defer { document.reset() }
+        let order = EditorTabOrderFeatureModel()
+        let coordinator = EditorSessionCoordinator(
+            document: document,
+            media: MediaDocumentFeatureModel(),
+            terminalPlacement: TerminalPlacementFeatureModel(),
+            tabOrder: order
+        )
+        let first = URL(fileURLWithPath: "/in-memory/first.txt")
+        let second = URL(fileURLWithPath: "/in-memory/second.txt")
+        let missing = URL(fileURLWithPath: "/in-memory/missing.txt")
+        await coordinator.restoreDocuments(
+            orderedPaths: [second.path, missing.path, first.path],
+            activePath: activePathExists ? second.path : missing.path,
+            availableFiles: [first, second]
+        )
+
+        #expect(document.openDocuments.map(\.url) == [second, first])
+        #expect(document.activeDocument?.url == (activePathExists ? second : first))
+        #expect(order.items == document.openDocuments.map { .document($0.id) })
+    }
+
+    @Test
+    func documentActivationSynchronizesTabsAndDeactivatesOtherEditors() throws {
+        let document = makeDocumentFeature()
+        let media = MediaDocumentFeatureModel()
+        let terminal = TerminalPlacementFeatureModel()
+        let order = EditorTabOrderFeatureModel()
+        let coordinator = EditorSessionCoordinator(
+            document: document, media: media, terminalPlacement: terminal, tabOrder: order
+        )
+        defer {
+            withExtendedLifetime(coordinator) {}
+            document.reset()
+        }
+        let image = media.open(url: URL(fileURLWithPath: "/in-memory/image.png"), kind: .image)
+        let terminalID = UUID()
+        terminal.registerSession(terminalID)
+        terminal.moveToEditor(terminalID)
+        terminal.activateEditorSession(terminalID)
+        order.move(.terminal(terminalID), before: .media(image.id))
+        #expect(media.activeMediaDocumentID == image.id)
+        #expect(terminal.activeEditorSessionID == terminalID)
+
+        document.openVirtualDocument(
+            try #require(URL(string: "lithe-test://document/one")),
+            text: "one",
+            displayPath: nil
+        )
+        let opened = try #require(document.openDocuments.first)
+        #expect(order.items == [.terminal(terminalID), .media(image.id), .document(opened.id)])
+        #expect(media.activeMediaDocumentID == nil)
+        #expect(terminal.activeEditorSessionID == nil)
+        #expect(document.activeDocumentID == opened.id)
+
+        media.close(image)
+        #expect(order.items == [.terminal(terminalID), .document(opened.id)])
+    }
+
+    @Test
+    func releasingCoordinatorCancelsCollectionAndSelectionSubscriptions() throws {
+        let document = makeDocumentFeature()
+        defer { document.reset() }
+        let media = MediaDocumentFeatureModel()
+        let terminal = TerminalPlacementFeatureModel()
+        let order = EditorTabOrderFeatureModel()
+        var coordinator: EditorSessionCoordinator? = EditorSessionCoordinator(
+            document: document, media: media, terminalPlacement: terminal, tabOrder: order
+        )
+        weak var released = coordinator
+        #expect(coordinator != nil)
+        coordinator = nil
+        #expect(released == nil)
+
+        let image = media.open(url: URL(fileURLWithPath: "/in-memory/image.png"), kind: .image)
+        let terminalID = UUID()
+        terminal.registerSession(terminalID)
+        terminal.moveToEditor(terminalID)
+        terminal.activateEditorSession(terminalID)
+        document.openVirtualDocument(
+            try #require(URL(string: "lithe-test://document/unobserved")),
+            text: "unobserved",
+            displayPath: nil
+        )
+        #expect(order.items.isEmpty)
+        #expect(media.activeMediaDocumentID == image.id)
+        #expect(terminal.activeEditorSessionID == terminalID)
+    }
+
+    private func makeDocumentFeature() -> DocumentFeatureModel {
+        DocumentFeatureModel(
+            operations: EmptyWorkspaceOperations(),
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+    }
+}
+
 private struct EmptyWorkspaceOperations: WorkspaceOperations {
     let readFileValue: String?
 
@@ -4807,6 +5744,65 @@ private final class BlockingWorkspaceOperations: WorkspaceOperations, @unchecked
             return "A"
         }
         return "B"
+    }
+
+    func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
+}
+
+private final class BlockingBinaryWorkspaceOperations: WorkspaceOperations, @unchecked Sendable {
+    private let lock = NSLock()
+    private let readStarted = TestGate()
+    private let releaseReadGate = TestGate()
+    private var timedOut = false
+
+    var didTimeOut: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return timedOut
+    }
+
+    func waitUntilReadingStarts() async -> Bool {
+        await readStarted.waitUntilOpen()
+    }
+
+    func releaseRead() {
+        releaseReadGate.open()
+    }
+
+    func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? { nil }
+
+    func search(
+        at rootURL: URL,
+        query: String,
+        options: ProjectSearchOptions,
+        visibilityRules: FileVisibilityRules
+    ) -> [FileSearchResult]? { nil }
+
+    func searchEverywhere(
+        at rootURL: URL,
+        query: String,
+        options: ProjectSearchOptions,
+        visibilityRules: FileVisibilityRules
+    ) -> SearchEverywhereResults? { nil }
+
+    func previewReplacement(
+        at rootURL: URL,
+        query: String,
+        replacement: String,
+        options: ProjectSearchOptions,
+        paths: [String],
+        textOverrides: [String: String],
+        visibilityRules: FileVisibilityRules
+    ) -> [ProjectReplacementFile]? { nil }
+
+    func readFile(at rootURL: URL, relativePath: String) -> String? {
+        readStarted.open()
+        if !releaseReadGate.waitSynchronously() {
+            lock.lock()
+            timedOut = true
+            lock.unlock()
+        }
+        return nil
     }
 
     func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }

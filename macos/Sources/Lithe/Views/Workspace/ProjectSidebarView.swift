@@ -1,4 +1,6 @@
+import LitheCoreContracts
 import LitheGitModule
+import AppKit
 import SwiftUI
 
 struct ProjectSidebarView: View {
@@ -39,6 +41,7 @@ struct ProjectSidebarView: View {
                                         repositoryRoot: model.gitRepositoryRoot,
                                         projection: model.gitTreeStatusProjection
                                     ),
+                                    directoryMarks: model.projectDirectoryMarks,
                                     actions: ProjectTreeActions(model: model),
                                     expandedDirectoryPathsSnapshot: expandedDirectoryPaths,
                                     expandedDirectoryPaths: $expandedDirectoryPaths,
@@ -117,12 +120,17 @@ struct ProjectSidebarView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .sheet(item: $model.projectItemEditRequest) { request in
+        .sheet(item: renameRequest) { request in
             ProjectItemNameDialog(request: request) { name in
                 Task { await model.performProjectItemEdit(named: name) }
             } onCancel: {
                 model.cancelProjectItemEdit()
             }
+        }
+        .overlay {
+            ProjectItemNameDialogPresenter()
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
         }
         .confirmationDialog(
             "Move '\(model.pendingProjectItemDeletion?.url.lastPathComponent ?? "")' to Trash?",
@@ -172,6 +180,20 @@ struct ProjectSidebarView: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 39)
+    }
+
+    private var renameRequest: Binding<ProjectItemEditRequest?> {
+        Binding(
+            get: {
+                guard let request = model.projectItemEditRequest,
+                      request.kind == .rename else { return nil }
+                return request
+            },
+            set: { request in
+                guard request == nil, model.projectItemEditRequest?.kind == .rename else { return }
+                model.cancelProjectItemEdit()
+            }
+        )
     }
 }
 
@@ -242,6 +264,9 @@ private final class ProjectTreeActions: @unchecked Sendable {
     nonisolated func refreshWorkspace() {
         Task { await self.model.refreshWorkspace() }
     }
+    nonisolated func markDirectory(_ url: URL, as mark: WorkspaceDirectoryMark) {
+        Task { await self.model.markProjectDirectory(url, as: mark) }
+    }
     nonisolated func showGitDirectoryDiff(_ url: URL) {
         Task { await self.model.showGitDirectoryDiff(for: url) }
     }
@@ -265,6 +290,7 @@ private struct ProjectFileTreeContent: View, Equatable {
     let rowHeight: CGFloat
     let activeDocumentURL: URL?
     let gitStatus: ProjectGitStatusSnapshot
+    let directoryMarks: [String: WorkspaceDirectoryMark]
     let actions: ProjectTreeActions
     let expandedDirectoryPathsSnapshot: Set<String>
     @Binding var expandedDirectoryPaths: Set<String>
@@ -276,6 +302,7 @@ private struct ProjectFileTreeContent: View, Equatable {
             && lhs.rowHeight == rhs.rowHeight
             && lhs.activeDocumentURL == rhs.activeDocumentURL
             && lhs.gitStatus == rhs.gitStatus
+            && lhs.directoryMarks == rhs.directoryMarks
             && lhs.expandedDirectoryPathsSnapshot == rhs.expandedDirectoryPathsSnapshot
             && lhs.contextMenuPath == rhs.contextMenuPath
     }
@@ -288,6 +315,8 @@ private struct ProjectFileTreeContent: View, Equatable {
             rowHeight: rowHeight,
             activeDocumentURL: activeDocumentURL,
             gitStatus: gitStatus,
+            projectRootURL: root.url,
+            directoryMarks: directoryMarks,
             actions: actions,
             expandedDirectoryPaths: $expandedDirectoryPaths,
             contextMenuPath: $contextMenuPath
@@ -303,6 +332,8 @@ private struct FileNodeRow: View {
     let rowHeight: CGFloat
     let activeDocumentURL: URL?
     let gitStatus: ProjectGitStatusSnapshot
+    let projectRootURL: URL
+    let directoryMarks: [String: WorkspaceDirectoryMark]
     let actions: ProjectTreeActions
     @Binding var expandedDirectoryPaths: Set<String>
     @Binding var contextMenuPath: String?
@@ -335,6 +366,8 @@ private struct FileNodeRow: View {
                             rowHeight: rowHeight,
                             activeDocumentURL: activeDocumentURL,
                             gitStatus: gitStatus,
+                            projectRootURL: projectRootURL,
+                            directoryMarks: directoryMarks,
                             actions: actions,
                             expandedDirectoryPaths: $expandedDirectoryPaths,
                             contextMenuPath: $contextMenuPath
@@ -365,7 +398,7 @@ private struct FileNodeRow: View {
                     .font(.system(size: 8, weight: .bold))
                     .frame(width: 10)
                     .foregroundStyle(LitheTheme.secondaryText)
-                LitheIcon(kind: node.iconKind, size: LitheTheme.Metrics.treeIconSize)
+                LitheIcon(kind: directoryIconKind, size: LitheTheme.Metrics.treeIconSize)
                     .frame(width: LitheTheme.Metrics.treeIconSize, height: LitheTheme.Metrics.treeIconSize)
                 Text(node.name)
                     .font(.system(size: LitheTheme.Metrics.treeFontSize, weight: depth == 0 ? .semibold : .regular))
@@ -470,6 +503,11 @@ private struct FileNodeRow: View {
             ]
         }
 
+        items += [
+            .submenu("Mark Target As", items: directoryMarkMenuItems),
+            .separator
+        ]
+
         if depth == 0 {
             items += [
                 .action("Show Project in Finder", systemImage: "folder") {
@@ -516,6 +554,59 @@ private struct FileNodeRow: View {
             }
         ]
         return items
+    }
+
+    private var directoryMarkMenuItems: [LitheContextMenuItem] {
+        WorkspaceDirectoryMark.allCases.map { mark in
+            .action(
+                directoryMarkTitle(mark),
+                iconKind: LitheIcons.kind(for: mark),
+                shortcut: currentDirectoryMark == mark ? "✓" : nil
+            ) {
+                actions.markDirectory(node.url, as: mark)
+            }
+        }
+    }
+
+    private func directoryMarkTitle(_ mark: WorkspaceDirectoryMark) -> String {
+        switch mark {
+        case .plain: "Normal Folder"
+        case .sources: "Sources Root"
+        case .resources: "Resources Root"
+        case .excluded: "Excluded"
+        case .module: "Module Root"
+        case .package: "Package"
+        }
+    }
+
+    private var currentDirectoryMark: WorkspaceDirectoryMark? {
+        directoryMarks[relativeDirectoryPath(for: node.url)]
+    }
+
+    private var directoryIconKind: LitheIconKind {
+        if let currentDirectoryMark {
+            return LitheIcons.kind(for: currentDirectoryMark)
+        }
+        var ancestor = node.url.deletingLastPathComponent()
+        let rootPath = projectRootURL.standardizedFileURL.path
+        while ancestor.standardizedFileURL.path.hasPrefix(rootPath) {
+            if let mark = directoryMarks[relativeDirectoryPath(for: ancestor)] {
+                if mark == .sources, LitheIcons.isValidPackageName(node.url.lastPathComponent) {
+                    return .packageFolder
+                }
+                break
+            }
+            guard ancestor.standardizedFileURL.path != rootPath else { break }
+            ancestor.deleteLastPathComponent()
+        }
+        return node.iconKind
+    }
+
+    private func relativeDirectoryPath(for url: URL) -> String {
+        let rootPath = projectRootURL.standardizedFileURL.path
+        let targetPath = url.standardizedFileURL.path
+        guard targetPath != rootPath else { return "." }
+        return String(targetPath.dropFirst(rootPath.count + 1))
     }
 
     private var fileContextMenuItems: [LitheContextMenuItem] {
@@ -576,6 +667,174 @@ private struct FileNodeRow: View {
 
 }
 
+private struct ProjectItemNameDialogPresenter: NSViewRepresentable {
+    @EnvironmentObject private var model: AppModel
+
+    func makeCoordinator() -> ProjectItemNameDialogPanelCoordinator {
+        ProjectItemNameDialogPanelCoordinator(model: model)
+    }
+
+    func makeNSView(context: Context) -> NSView { NSView() }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        // Wait for the anchor to join its owning window, without nesting AppKit's event loop.
+        DispatchQueue.main.async { [weak view, weak coordinator = context.coordinator] in
+            guard let view else { return }
+            coordinator?.update(parent: view.window)
+        }
+    }
+
+    static func dismantleNSView(_ view: NSView, coordinator: ProjectItemNameDialogPanelCoordinator) {
+        coordinator.close()
+    }
+}
+
+private final class ProjectItemNameDialogPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+}
+
+@MainActor
+private final class ProjectItemNameDialogPanelCoordinator: NSObject, NSWindowDelegate {
+    private let model: AppModel
+    private var panel: NSPanel?
+    private var requestID: UUID?
+    private var parentObservers: [NSObjectProtocol] = []
+
+    init(model: AppModel) {
+        self.model = model
+    }
+
+    func update(parent: NSWindow?) {
+        guard let request = model.projectItemEditRequest, request.kind != .rename,
+              let parent else {
+            close()
+            return
+        }
+        guard requestID != request.id else { return }
+        close()
+        requestID = request.id
+        let panel = ProjectItemNameDialogPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 340, height: 78),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        self.panel = panel
+        panel.isReleasedWhenClosed = false
+        panel.level = .modalPanel
+        panel.appearance = model.settings.themePreference.windowAppearance
+        panel.animationBehavior = .none
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.delegate = self
+        panel.contentViewController = NSHostingController(
+            rootView: ProjectItemNameDialogContent(request: request, coordinator: self)
+        )
+        parent.addChildWindow(panel, ordered: .above)
+        center()
+        for notification in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
+            parentObservers.append(NotificationCenter.default.addObserver(
+                forName: notification, object: parent, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.center() }
+            })
+        }
+        parentObservers.append(NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: parent, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.cancel() }
+        })
+        panel.makeKeyAndOrderFront(nil)
+        center()
+    }
+
+    private func center() {
+        guard let panel, let parent = panel.parent else { return }
+        panel.setFrameOrigin(NSPoint(
+            x: parent.frame.midX - panel.frame.width / 2,
+            y: parent.frame.midY - panel.frame.height / 2
+        ))
+    }
+
+    func close() {
+        parentObservers.forEach(NotificationCenter.default.removeObserver)
+        parentObservers.removeAll()
+        let previousPanel = panel
+        panel = nil
+        requestID = nil
+        previousPanel?.delegate = nil
+        if let previousPanel {
+            previousPanel.parent?.removeChildWindow(previousPanel)
+            previousPanel.close()
+        }
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        cancel()
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        // Hosting content can settle its size after the first placement.
+        // Keep the final panel frame centered on the whole owning window.
+        center()
+    }
+
+    func submit(_ name: String) {
+        guard let requestID, model.projectItemEditRequest?.id == requestID,
+              !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        Task { @MainActor in
+            guard model.projectItemEditRequest?.id == requestID else { return }
+            await model.performProjectItemEdit(named: name)
+            update(parent: panel?.parent)
+        }
+    }
+
+    func cancel() {
+        if model.projectItemEditRequest?.id == requestID {
+            model.cancelProjectItemEdit()
+        }
+        close()
+    }
+}
+
+private struct ProjectItemNameDialogContent: View {
+    let request: ProjectItemEditRequest
+    let coordinator: ProjectItemNameDialogPanelCoordinator
+    @State private var name = ""
+    @FocusState private var nameFocused: Bool
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Text(LocalizedStringKey(title))
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(LitheTheme.primaryText)
+
+            TextField("Name", text: $name)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .padding(.horizontal, 8)
+                .frame(height: 30)
+                .foregroundStyle(LitheTheme.primaryText)
+                .focused($nameFocused)
+                .onSubmit { coordinator.submit(name) }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 11)
+        .frame(width: 340, height: 78)
+        .litheContextMenuSurface()
+        .task {
+            await Task.yield()
+            nameFocused = true
+        }
+        .onExitCommand { coordinator.cancel() }
+    }
+
+    private var title: String {
+        request.kind == .createDirectory ? "New Directory" : "New File"
+    }
+}
+
 private struct ProjectItemNameDialog: View {
     @Environment(\.dismiss) private var dismiss
     let request: ProjectItemEditRequest
@@ -597,6 +856,10 @@ private struct ProjectItemNameDialog: View {
     }
 
     var body: some View {
+        standardNameDialog
+    }
+
+    private var standardNameDialog: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(LocalizedStringKey(title))

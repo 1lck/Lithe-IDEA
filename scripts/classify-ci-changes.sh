@@ -290,7 +290,7 @@ while IFS=$'\t' read -r status first_path _; do
         windows/*)
             windows=true
             ;;
-        scripts/test-macos.sh)
+        scripts/test-macos.sh|scripts/test-git-performance-baseline.sh|scripts/run-git-performance-verifier.mjs)
             swift=true
             plugins=true
             swift_database=true

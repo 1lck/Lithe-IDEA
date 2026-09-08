@@ -14,6 +14,13 @@ final class EditorTabOrderFeatureModel: ObservableObject {
         }
     }
 
+    var mediaIDs: [UUID] {
+        items.compactMap {
+            guard case .media(let id) = $0 else { return nil }
+            return id
+        }
+    }
+
     var terminalIDs: [UUID] {
         items.compactMap {
             guard case .terminal(let id) = $0 else { return nil }
@@ -70,7 +77,7 @@ final class EditorTabOrderFeatureModel: ObservableObject {
                       reorderedExistingIDs.indices.contains(existingIndex) else { continue }
                 next.append(.document(reorderedExistingIDs[existingIndex]))
                 existingIndex += 1
-            case .terminal:
+            case .terminal, .media:
                 next.append(item)
             }
         }
@@ -78,6 +85,35 @@ final class EditorTabOrderFeatureModel: ObservableObject {
         let alreadyRepresented = Set(reorderedExistingIDs)
         next.append(contentsOf: orderedIDs.compactMap { id in
             alreadyRepresented.contains(id) ? nil : .document(id)
+        })
+
+        guard next != items else { return }
+        items = next
+    }
+
+    /// Reconciles media membership while preserving the mixed tab slots.
+    func reconcileMedia(orderedIDs: [UUID]) {
+        let openMediaIDs = Set(orderedIDs)
+        let representedMediaIDs = Set(mediaIDs)
+        let reorderedExistingIDs = orderedIDs.filter { representedMediaIDs.contains($0) }
+        var existingIndex = 0
+        var next: [EditorTabItem] = []
+
+        for item in items {
+            switch item {
+            case .media(let id):
+                guard openMediaIDs.contains(id),
+                      reorderedExistingIDs.indices.contains(existingIndex) else { continue }
+                next.append(.media(reorderedExistingIDs[existingIndex]))
+                existingIndex += 1
+            default:
+                next.append(item)
+            }
+        }
+
+        let alreadyRepresented = Set(reorderedExistingIDs)
+        next.append(contentsOf: orderedIDs.compactMap { id in
+            alreadyRepresented.contains(id) ? nil : .media(id)
         })
 
         guard next != items else { return }

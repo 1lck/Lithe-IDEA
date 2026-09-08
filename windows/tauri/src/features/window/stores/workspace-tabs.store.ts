@@ -25,6 +25,8 @@ export interface ProjectTab {
   isActive: boolean;
   lastOpened: number;
   customIcon?: string;
+  /** User-defined label shown after the folder name to distinguish same-named projects. */
+  displayAlias?: string;
   theme?: string;
 }
 
@@ -41,6 +43,7 @@ interface WorkspaceTabsActions {
   hasProjectTab: (path: string) => boolean;
   renameRemoteProjectTabs: (connectionId: string, connectionName: string) => void;
   setProjectIcon: (projectId: string, iconPath: string | undefined) => void;
+  setProjectDisplayAlias: (projectId: string, displayAlias: string | undefined) => void;
   setProjectTheme: (projectId: string, theme: string) => void;
 }
 
@@ -154,6 +157,18 @@ const useWorkspaceTabsStoreBase = create<WorkspaceTabsStore>()(
             if (tab) {
               tab.customIcon = iconPath;
             }
+          });
+        },
+
+        setProjectDisplayAlias: (projectId: string, displayAlias: string | undefined) => {
+          set((state) => {
+            const tab = state.projectTabs.find((projectTab) => projectTab.id === projectId);
+            if (!tab) {
+              return;
+            }
+
+            const trimmedAlias = displayAlias?.trim();
+            tab.displayAlias = trimmedAlias && trimmedAlias.length > 0 ? trimmedAlias : undefined;
           });
         },
 

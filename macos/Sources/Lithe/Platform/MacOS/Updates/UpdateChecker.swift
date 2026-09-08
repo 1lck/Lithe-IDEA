@@ -105,6 +105,11 @@ final class UpdateChecker: ObservableObject {
     let currentVersion: String
     var isBusy: Bool { isChecking || isInstalling }
 
+    /// Returns `false` when the user cancels unsaved-document handling before install.
+    var prepareForInstall: (() -> Bool)?
+    /// Invoked after the replacement helper is running so the app can quit for swap-in.
+    var requestTerminationForInstall: (() -> Void)?
+
     private let transport: any UpdateNetworkTransport
     private let preferences: UserDefaults
     private let now: () -> Date
@@ -205,6 +210,12 @@ final class UpdateChecker: ObservableObject {
               let manifest = availableManifest,
               let asset = availableAsset,
               case .available(let version, _) = status else { return }
+
+        // Confirm unsaved work before download so quit-for-replace cannot be cancelled
+        // after the helper is already waiting on this process.
+        if let prepareForInstall, !prepareForInstall() {
+            return
+        }
 
         isInstalling = true
         status = .downloading(version: version, progress: .initial)
@@ -369,11 +380,24 @@ final class UpdateChecker: ObservableObject {
         temporary_root="$5"
         old_app="${target_app}.lithe-old"
 
-        install_without_privileges() {
+        wait_for_app_exit() {
+            attempts=0
             while /bin/kill -0 "$app_pid" 2>/dev/null; do
+                if [ "$attempts" -ge 150 ]; then
+                    # A stale termination request must not leave updates stuck forever.
+                    /bin/kill -TERM "$app_pid" 2>/dev/null || true
+                    /bin/sleep 2
+                    /bin/kill -KILL "$app_pid" 2>/dev/null || true
+                    break
+                fi
                 /bin/sleep 0.2
+                attempts=$((attempts + 1))
             done
             /bin/sleep 0.5
+        }
+
+        install_without_privileges() {
+            wait_for_app_exit
             /bin/rm -rf "$old_app"
             /bin/mv "$target_app" "$old_app"
             if ! /bin/mv "$staged_app" "$target_app"; then
@@ -397,7 +421,8 @@ final class UpdateChecker: ObservableObject {
             set mountPoint to item 4 of argv
             set temporaryRoot to item 5 of argv
             set oldApp to targetApp & ".lithe-old"
-            set installScript to "/bin/sh -c " & quoted form of ("while /bin/kill -0 " & quoted form of appPID & " 2>/dev/null; do /bin/sleep 0.2; done; /bin/sleep 0.5; /bin/rm -rf " & quoted form of oldApp & "; if ! /bin/mv " & quoted form of targetApp & " " & quoted form of oldApp & "; then exit 1; fi; if ! /bin/mv " & quoted form of stagedApp & " " & quoted form of targetApp & "; then /bin/mv " & quoted form of oldApp & " " & quoted form of targetApp & " || true; exit 1; fi; /usr/bin/hdiutil detach " & quoted form of mountPoint & " -force >/dev/null 2>&1 || true; /bin/rm -rf " & quoted form of oldApp & " " & quoted form of temporaryRoot)
+            set waitScript to "attempts=0; while /bin/kill -0 " & quoted form of appPID & " 2>/dev/null; do if [ \"$attempts\" -ge 150 ]; then /bin/kill -TERM " & quoted form of appPID & " 2>/dev/null || true; /bin/sleep 2; /bin/kill -KILL " & quoted form of appPID & " 2>/dev/null || true; break; fi; /bin/sleep 0.2; attempts=$((attempts + 1)); done; /bin/sleep 0.5; "
+            set installScript to "/bin/sh -c " & quoted form of (waitScript & "/bin/rm -rf " & quoted form of oldApp & "; if ! /bin/mv " & quoted form of targetApp & " " & quoted form of oldApp & "; then exit 1; fi; if ! /bin/mv " & quoted form of stagedApp & " " & quoted form of targetApp & "; then /bin/mv " & quoted form of oldApp & " " & quoted form of targetApp & " || true; exit 1; fi; /usr/bin/hdiutil detach " & quoted form of mountPoint & " -force >/dev/null 2>&1 || true; /bin/rm -rf " & quoted form of oldApp & " " & quoted form of temporaryRoot)
             try
                 do shell script installScript with administrator privileges
             on error
@@ -416,9 +441,12 @@ final class UpdateChecker: ObservableObject {
             ofItemAtPath: helperURL.path
         )
 
+        // Detach via nohup so module/process teardown cannot reap the installer
+        // before it replaces the bundle. Redirect I/O so the helper outlives Lithe.
         let helper = Process()
-        helper.executableURL = URL(fileURLWithPath: "/bin/sh")
+        helper.executableURL = URL(fileURLWithPath: "/usr/bin/nohup")
         helper.arguments = [
+            "/bin/sh",
             helperURL.path,
             String(ProcessInfo.processInfo.processIdentifier),
             stagedAppURL.path,
@@ -426,8 +454,15 @@ final class UpdateChecker: ObservableObject {
             mountPoint.path,
             temporaryRoot.path
         ]
+        helper.standardInput = FileHandle.nullDevice
+        helper.standardOutput = FileHandle.nullDevice
+        helper.standardError = FileHandle.nullDevice
         try helper.run()
-        NSApp.terminate(nil)
+        if let requestTerminationForInstall {
+            requestTerminationForInstall()
+        } else {
+            NSApp.terminate(nil)
+        }
     }
 
     private func runProcess(_ executablePath: String, arguments: [String]) throws {

@@ -39,10 +39,12 @@ final class AppServices {
     let secureStore: any SecureStore
     let databaseSecureStore: any SecureStore
     let discourseCommunityService: DiscourseCommunityService
+    let diagnosticsExportService: DiagnosticsExportService
     let credentialResolver: any AIProviderCredentialResolver
     let aiConfigurationSources: [any AIConfigurationSource]
     let recentProjectsStore: RecentProjectsStore
     let workspaceSessionStore: WorkspaceSessionStore
+    let directoryMarkStore: any WorkspaceDirectoryMarkStoring
     let workbenchLayoutStore: WorkbenchLayoutStore
     let workbenchBackgroundPlatform: any WorkbenchBackgroundPlatformProviding
     let directoryWatcherFactory: any DirectoryWatcherFactory
@@ -74,10 +76,12 @@ final class AppServices {
         secureStore: any SecureStore,
         databaseSecureStore: any SecureStore,
         discourseCommunityService: DiscourseCommunityService,
+        diagnosticsExportService: DiagnosticsExportService,
         credentialResolver: any AIProviderCredentialResolver,
         aiConfigurationSources: [any AIConfigurationSource],
         recentProjectsStore: RecentProjectsStore,
         workspaceSessionStore: WorkspaceSessionStore,
+        directoryMarkStore: any WorkspaceDirectoryMarkStoring,
         workbenchLayoutStore: WorkbenchLayoutStore,
         workbenchBackgroundPlatform: any WorkbenchBackgroundPlatformProviding,
         directoryWatcherFactory: any DirectoryWatcherFactory,
@@ -117,10 +121,12 @@ final class AppServices {
         self.secureStore = secureStore
         self.databaseSecureStore = databaseSecureStore
         self.discourseCommunityService = discourseCommunityService
+        self.diagnosticsExportService = diagnosticsExportService
         self.credentialResolver = credentialResolver
         self.aiConfigurationSources = aiConfigurationSources
         self.recentProjectsStore = recentProjectsStore
         self.workspaceSessionStore = workspaceSessionStore
+        self.directoryMarkStore = directoryMarkStore
         self.workbenchLayoutStore = workbenchLayoutStore
         self.workbenchBackgroundPlatform = workbenchBackgroundPlatform
         self.directoryWatcherFactory = directoryWatcherFactory

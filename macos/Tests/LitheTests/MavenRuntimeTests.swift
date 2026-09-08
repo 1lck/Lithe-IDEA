@@ -33,12 +33,14 @@ struct MavenRuntimeTests {
             "artifactId": "root",
             "version": "1.0",
             "packaging": "pom",
+            "sourceRoots": [{"path": "src/main/java", "kind": "mainJava"}],
             "modules": [{
                 "relativePath": "module-a",
                 "groupId": "com.example",
                 "artifactId": "child",
                 "version": "1.0",
                 "packaging": "jar",
+                "sourceRoots": [{"path": "src/test/java", "kind": "testJava"}],
                 "modules": []
             }],
             "profiles": [{"id": "dev", "isActiveByDefault": true}],
@@ -62,9 +64,15 @@ struct MavenRuntimeTests {
         #expect(project.pomURL == expectedRoot.appendingPathComponent("pom.xml"))
         #expect(project.groupID == "com.example")
         #expect(project.artifactID == "root")
+        #expect(project.sourceRoots == [
+            MavenSourceRoot(path: "src/main/java", kind: .mainJava)
+        ])
         #expect(project.modules.count == 1)
         #expect(project.modules[0].groupID == "com.example")
         #expect(project.modules[0].artifactID == "child")
+        #expect(project.modules[0].sourceRoots == [
+            MavenSourceRoot(path: "src/test/java", kind: .testJava)
+        ])
         #expect(project.modules[0].url == expectedRoot.appendingPathComponent("module-a"))
         #expect(project.profiles == [MavenProfile(id: "dev", isActiveByDefault: true)])
         #expect(project.hasWrapper)
@@ -131,6 +139,26 @@ struct MavenRuntimeTests {
         #expect(plan.arguments == ["-B", "-ntp", "verify"])
         #expect(plan.workingDirectory == "projects/demo")
         #expect(plan.configurationFingerprint == "sha256:fixture")
+    }
+
+    @Test
+    func mavenDependencyPayloadDecodesTheSharedFixture() throws {
+        let fixture = try Self.dependencyTreeFixture()
+        let tree = try fixture.expected.makeModel()
+
+        #expect(fixture.version == 1)
+        #expect(tree.modulePath == fixture.modulePath)
+        #expect(fixture.output.contains("omitted for conflict with 2.0"))
+        #expect(tree.dependencies.map(\.artifactID) == [
+            "compile-lib", "provided-lib", "runtime-lib", "test-lib"
+        ])
+        let compileDependency = try #require(tree.dependencies.first)
+        let conflict = try #require(compileDependency.children.first)
+        #expect(conflict.resolution == .omittedConflict)
+        #expect(conflict.selectedVersion == "2.0")
+        let testDependency = try #require(tree.dependencies.last)
+        #expect(testDependency.classifier == "tests")
+        #expect(testDependency.scope == "test")
     }
 
     @Test
@@ -276,6 +304,21 @@ struct MavenRuntimeTests {
             from: Data(contentsOf: url)
         )
     }
+
+    private static func dependencyTreeFixture() throws -> MavenDependencyTreeFixture {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let url = repositoryRoot.appendingPathComponent(
+            "shared/fixtures/maven/dependency-tree-v1.json"
+        )
+        return try JSONDecoder().decode(
+            MavenDependencyTreeFixture.self,
+            from: Data(contentsOf: url)
+        )
+    }
 }
 
 private struct MavenPlatformContractFixture: Decodable {
@@ -288,6 +331,13 @@ private struct MavenPlatformContractFixture: Decodable {
 
     let lifecyclePhases: [String]
     let storageIdentityCases: [StorageIdentityCase]
+}
+
+private struct MavenDependencyTreeFixture: Decodable {
+    let version: Int
+    let modulePath: String
+    let output: String
+    let expected: RustCoreBridge.MavenDependenciesPayload
 }
 
 private struct MavenTestFileStorage: FileStorage {

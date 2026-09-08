@@ -19,8 +19,9 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
     let rowOverlay: (DiffRow, DiffSide) -> RowOverlay
 
     @State private var horizontalOffset: CGFloat = 0
-    @State private var wheelUpdateBuffer = FrameCoalescedDragUpdateBuffer()
-    @State private var wheelUpdateTask: Task<Void, Never>?
+    @State private var wheelScheduler = LitheDragUpdateScheduler()
+    @State private var leftPaneWidth: CGFloat?
+    @State private var paneDragStart: CGFloat = 0
 
     init(
         displayRows: [DiffDisplayRow],
@@ -53,7 +54,12 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
     var body: some View {
         let layout = DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds)
         let gutterWidth = DiffLayoutMetrics.centerGutterWidth
-        let paneViewportWidth = max(0, (viewportWidth - gutterWidth) / 2)
+        let availablePaneWidth = max(0, viewportWidth - gutterWidth)
+        let paneViewportWidth = max(
+            0,
+            min(availablePaneWidth, leftPaneWidth ?? availablePaneWidth / 2)
+        )
+        let rightPaneViewportWidth = max(0, availablePaneWidth - paneViewportWidth)
         let paneContentWidth = max(
             paneViewportWidth,
             (contentWidth - gutterWidth) / 2
@@ -76,8 +82,11 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
                         sideViewport(
                             layout.rightItems,
                             side: .right,
-                            viewportWidth: paneViewportWidth,
-                            contentWidth: paneContentWidth,
+                            viewportWidth: rightPaneViewportWidth,
+                            contentWidth: max(
+                                rightPaneViewportWidth,
+                                contentWidth - gutterWidth - paneViewportWidth
+                            ),
                             height: height
                         )
                     }
@@ -99,20 +108,50 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
                 contentWidth: paneContentWidth
             )
         }
+        .overlay(alignment: .topLeading) {
+            SplitHandleView(
+                axis: .horizontal,
+                showsIdleDivider: false,
+                onDragStarted: {
+                    paneDragStart = paneViewportWidth
+                },
+                onDragChanged: { translation in
+                    leftPaneWidth = min(
+                        max(paneDragStart + translation, 220),
+                        max(220, availablePaneWidth - 220)
+                    )
+                },
+                onDragEnded: { translation in
+                    leftPaneWidth = min(
+                        max(paneDragStart + translation, 220),
+                        max(220, availablePaneWidth - 220)
+                    )
+                }
+            )
+            .offset(x: paneViewportWidth + gutterWidth / 2 - SplitHandleView.thickness / 2)
+            .frame(height: minimumHeight)
+        }
         .frame(width: viewportWidth, height: minimumHeight, alignment: .topLeading)
         .background {
             DiffHorizontalScrollWheelMonitor { delta in
-                let pendingOffset = wheelUpdateBuffer.pendingValue ?? horizontalOffset
-                scheduleWheelOffsetUpdate(
-                    min(max(pendingOffset + delta, 0), maximumHorizontalOffset)
-                )
+                // Wheel deltas are incremental, so accumulate onto the in-flight
+                // target rather than the last applied offset. minimumChange: 0
+                // keeps sub-point wheel steps from being swallowed by the
+                // deadband, matching the pre-scheduler behavior.
+                let pendingOffset = wheelScheduler.pendingValue ?? horizontalOffset
+                wheelScheduler.submit(
+                    min(max(pendingOffset + delta, 0), maximumHorizontalOffset),
+                    minimumChange: 0
+                ) { nextOffset in
+                    horizontalOffset = nextOffset
+                }
             }
         }
         .onChange(of: contentWidth) { _ in
-            cancelScheduledWheelOffsetUpdate()
+            wheelScheduler.cancel()
             horizontalOffset = min(horizontalOffset, maximumHorizontalOffset)
         }
-        .onDisappear(perform: cancelScheduledWheelOffsetUpdate)
+        .onDisappear { wheelScheduler.cancel() }
     }
 
     private func sideViewport(
@@ -127,25 +166,6 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
             .frame(width: viewportWidth, height: height, alignment: .topLeading)
             .clipped()
             .background(LitheTheme.editor)
-    }
-
-    private func scheduleWheelOffsetUpdate(_ nextOffset: CGFloat) {
-        guard wheelUpdateBuffer.submit(nextOffset) else { return }
-        wheelUpdateTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(16))
-            guard !Task.isCancelled else { return }
-            let nextOffset = wheelUpdateBuffer.takePendingValue()
-            wheelUpdateTask = nil
-            if let nextOffset {
-                horizontalOffset = nextOffset
-            }
-        }
-    }
-
-    private func cancelScheduledWheelOffsetUpdate() {
-        wheelUpdateTask?.cancel()
-        wheelUpdateTask = nil
-        wheelUpdateBuffer.cancel()
     }
 
     private var centerGutter: some View {

@@ -46,6 +46,20 @@ final class MacServiceContainer {
         MacApplicationLogWriter()
     }
 
+    static func makeDiagnosticsExportService(
+        fileStorage: any FileStorage,
+        processRunner: any ProcessRunner,
+        core: RustCoreBridge
+    ) -> DiagnosticsExportService {
+        DiagnosticsExportService(
+            logDirectoryProviding: makeLogDirectoryProvider(),
+            fileStorage: fileStorage,
+            systemDiagnostics: MacSystemDiagnosticsProvider(),
+            archiver: MacDittoArchiver(processRunner: processRunner),
+            core: core
+        )
+    }
+
     init(
         store: any KeyValueStore,
         settings: AppSettings,
@@ -58,7 +72,8 @@ final class MacServiceContainer {
         runExecutableResolver providedRunExecutableResolver: (any RunExecutableResolving)? = nil,
         pluginRuntimeRecovery: MacPluginRuntimeRecoveryCoordinator? = nil,
         authorizationCallbackRouter providedAuthorizationCallbackRouter: MacExternalAuthorizationCallbackRouter? = nil,
-        platformUI providedPlatformUI: (any PlatformUI)? = nil
+        platformUI providedPlatformUI: (any PlatformUI)? = nil,
+        gitPerformanceLogger: (any GitPerformanceLogger)? = nil
     ) {
         let authorizationCallbackRouter = providedAuthorizationCallbackRouter
             ?? MacExternalAuthorizationCallbackRouter()
@@ -72,6 +87,7 @@ final class MacServiceContainer {
             metadataRepositoryURLs: [mavenRepositoryURL, gradleRepositoryURL]
         )
         let fileStorage = MacFileStorage()
+        let directoryMarkStore = WorkspaceDirectoryMarkStore(store: store)
         let runConfigurationStore = MacRunConfigurationStore(
             core: rustCore,
             storage: fileStorage,
@@ -100,6 +116,11 @@ final class MacServiceContainer {
             credentialStore: MacKeychainSecureStore(service: "app.lithe.desktop.linux-do"),
             platformUI: platformUI,
             callbackRouter: authorizationCallbackRouter
+        )
+        let diagnosticsExportService = Self.makeDiagnosticsExportService(
+            fileStorage: fileStorage,
+            processRunner: processRunner,
+            core: rustCore
         )
         let codexConfigurationSource = MacCodexConfigurationSource()
         let claudeConfigurationSource = MacClaudeConfigurationSource()
@@ -317,6 +338,7 @@ final class MacServiceContainer {
                         maven: MavenService(
                             runtimeService: runtimeService,
                             process: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
+                            dependencyProcess: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
                             mavenOperations: javaMavenOperations,
                             configurationStore: MacMavenConfigurationStore(storage: fileStorage)
                         ),
@@ -443,7 +465,8 @@ final class MacServiceContainer {
             try moduleRegistry.register(ModuleFactory(manifest: GitModule.moduleManifest, contributions: GitModule.moduleContributions) {
                 GitModule(
                     operations: gitOperations,
-                    shelfStorage: MacGitShelfStorage(storage: fileStorage)
+                    shelfStorage: MacGitShelfStorage(storage: fileStorage),
+                    performanceLogger: gitPerformanceLogger ?? NullGitPerformanceLogger()
                 )
             })
             try moduleRegistry.register(ModuleFactory(manifest: SearchModule.moduleManifest, contributions: SearchModule.moduleContributions) {
@@ -534,10 +557,12 @@ final class MacServiceContainer {
             secureStore: secureStore,
             databaseSecureStore: databaseSecureStore,
             discourseCommunityService: discourseCommunityService,
+            diagnosticsExportService: diagnosticsExportService,
             credentialResolver: credentialResolver,
             aiConfigurationSources: aiConfigurationSources,
             recentProjectsStore: RecentProjectsStore(store: store),
             workspaceSessionStore: WorkspaceSessionStore(store: store),
+            directoryMarkStore: directoryMarkStore,
             workbenchLayoutStore: WorkbenchLayoutStore(store: store),
             workbenchBackgroundPlatform: MacWorkbenchBackgroundPlatform(store: store),
             directoryWatcherFactory: MacDirectoryWatcherFactory(),

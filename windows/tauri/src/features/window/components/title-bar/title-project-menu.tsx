@@ -2,6 +2,7 @@ import { convertFileSrc } from "@/platform/tauri-core";
 import { useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useRecentFoldersStore } from "@/features/file-system/stores/recent-folders.store";
+import { getProjectDisplayLabel } from "@/features/window/utils/project-display-label";
 import { useTranslation } from "@/i18n/locale-provider";
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
 import {
@@ -114,7 +115,9 @@ export function TitleProjectMenu({ onOpenProjectPicker }: TitleProjectMenuProps)
   const handleOpenFolder = useFileSystemStore((state) => state.handleOpenFolder);
   const switchToProject = useFileSystemStore((state) => state.switchToProject);
   const isSwitchingProject = useFileSystemStore((state) => state.isSwitchingProject);
-  const projectLabel = activeProject?.name ?? t("projectOpen.title");
+  const projectLabel = activeProject
+    ? getProjectDisplayLabel(activeProject)
+    : t("projectOpen.title");
   const [isOpen, setIsOpen] = useState(false);
   const [menuNode, setMenuNode] = useState<HTMLDivElement | null>(null);
   const projects = useMemo(
@@ -196,7 +199,7 @@ export function TitleProjectMenu({ onOpenProjectPicker }: TitleProjectMenuProps)
           {projects.openProjects.map((project) => (
             <ProjectMenuRow
               key={project.id}
-              name={project.name}
+              name={getProjectDisplayLabel(project)}
               path={project.path}
               iconPath={project.customIcon}
               active={project.isActive}

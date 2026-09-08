@@ -19,7 +19,7 @@ extension AppModel {
                 let sessions = try await languageSessionsForWorkspaceMaintenance()
                 try sessions.rebuildWorkspaceState(providerID: "java", rootURL: workspaceURL)
                 cancelJavaLanguageServerPreparation()
-                languageToolingFeature.resetWorkspaceState()
+                languageIntelligenceModuleCoordinator.resetWorkspaceState(languageToolingFeature)
                 showNotification(
                     settings.language == .simplifiedChinese
                         ? "Java 索引已清除，重新打开 Java 文件时将自动重建"
@@ -71,22 +71,8 @@ extension AppModel {
     func languageSessionsForWorkspaceMaintenance() async throws
         -> LanguageToolingSessionManager
     {
-        if let sessions = languageToolingSessionsIfActive {
-            return sessions
-        }
-        let value = try await services.moduleRuntime.activateCapability(.languageIntelligence)
-        guard let capability = value as? LanguageIntelligenceCapability else {
-            throw JavaIndexRebuildError.languageIntelligenceUnavailable
-        }
-        bindLanguageIntelligenceCapability(capability)
-        return capability.sessions
-    }
-}
-
-private enum JavaIndexRebuildError: LocalizedError {
-    case languageIntelligenceUnavailable
-
-    var errorDescription: String? {
-        "Language intelligence is unavailable."
+        try await languageIntelligenceModuleCoordinator.sessionsForMaintenance(
+            current: languageToolingSessionsIfActive
+        )
     }
 }

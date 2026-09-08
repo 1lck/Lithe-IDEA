@@ -13,6 +13,7 @@
         "-ntp",
         "-pl",
         "module-a",
+        "-am",
         "-Dexec.mainClass=com.example.App",
         "-Dexec.classpathScope=test",
         "test-compile",
@@ -30,6 +31,7 @@
         "-ntp",
         "-pl",
         "module-b",
+        "-am",
         "-Dexec.mainClass=com.example.App",
         "org.codehaus.mojo:exec-maven-plugin:3.5.0:java"
       ]

@@ -34,9 +34,17 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         case approved
     }
 
+    /// Upper bound for module/session teardown during in-app update replacement.
+    /// A hung language server or plugin must not leave the installer spinner forever.
+    private static let updateTerminationCleanupTimeoutNanoseconds: UInt64 = 5_000_000_000
+    /// Hard ceiling after requesting update termination; the helper force-kills later.
+    private static let updateTerminationForceExitNanoseconds: UInt64 = 8_000_000_000
+
     private var pendingFileURLs: [URL] = []
     private var terminationCleanupTask: Task<Void, Never>?
     private var terminationCleanupState: TerminationCleanupState = .idle
+    private var isUpdateInstallTermination = false
+    private var updateForceExitTask: Task<Void, Never>?
     weak var projectSessions: ProjectSessionManager? {
         didSet {
             guard let projectSessions else { return }
@@ -63,6 +71,31 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
+    /// Confirms unsaved work before an update download starts so termination
+    /// during replacement cannot be cancelled mid-install.
+    func prepareForUpdateInstall() -> Bool {
+        guard let projectSessions else { return true }
+        return Self.confirmUnsavedDocuments(
+            for: projectSessions,
+            context: .applicationTermination
+        )
+    }
+
+    /// Starts the post-helper quit path used by the in-app updater.
+    /// Skips cancelable prompts and bounds cleanup so replacement can proceed.
+    func requestTerminationForUpdateInstall() {
+        isUpdateInstallTermination = true
+        updateForceExitTask?.cancel()
+        updateForceExitTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.updateTerminationForceExitNanoseconds)
+            guard let self, self.isUpdateInstallTermination, !Task.isCancelled else { return }
+            // Soft AppKit termination can stall on module shutdown; the staged
+            // helper is already waiting and will replace the bundle after exit.
+            Foundation.exit(EXIT_SUCCESS)
+        }
+        NSApp.terminate(nil)
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let projectSessions else { return .terminateNow }
 
@@ -78,6 +111,15 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         case .idle:
             break
         }
+
+        if isUpdateInstallTermination {
+            return beginTerminationCleanup(
+                for: projectSessions,
+                sender: sender,
+                timeoutNanoseconds: Self.updateTerminationCleanupTimeoutNanoseconds
+            )
+        }
+
         return Self.confirmUnsavedDocuments(
             for: projectSessions,
             context: .applicationTermination
@@ -86,11 +128,19 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
 
     private func beginTerminationCleanup(
         for projectSessions: ProjectSessionManager,
-        sender: NSApplication
+        sender: NSApplication,
+        timeoutNanoseconds: UInt64? = nil
     ) -> NSApplication.TerminateReply {
         terminationCleanupState = .cleaning
         terminationCleanupTask = Task { @MainActor [weak self, projectSessions, sender] in
-            await projectSessions.stopAllSessions()
+            if let timeoutNanoseconds {
+                await Self.stopSessions(
+                    projectSessions,
+                    timingOutAfterNanoseconds: timeoutNanoseconds
+                )
+            } else {
+                await projectSessions.stopAllSessions()
+            }
             guard let self, self.terminationCleanupState == .cleaning else { return }
             self.terminationCleanupTask = nil
             self.terminationCleanupState = .approved
@@ -99,7 +149,26 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
 
+    private static func stopSessions(
+        _ projectSessions: ProjectSessionManager,
+        timingOutAfterNanoseconds timeoutNanoseconds: UInt64
+    ) async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor in
+                await projectSessions.stopAllSessions()
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+            }
+            await group.next()
+            group.cancelAll()
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
+        isUpdateInstallTermination = false
+        updateForceExitTask?.cancel()
+        updateForceExitTask = nil
         NSAppleEventManager.shared().removeEventHandler(
             forEventClass: AEEventClass(kCoreEventClass),
             andEventID: AEEventID(kAEOpenDocuments)
@@ -194,13 +263,19 @@ struct LitheApp: App {
     @NSApplicationDelegateAdaptor(LitheAppDelegate.self) private var appDelegate
     @StateObject private var settings: AppSettings
     @StateObject private var projectSessions: ProjectSessionManager
+    @StateObject private var projectWindowLauncher: ProjectWindowLauncher
     @StateObject private var memoryUsageMonitor: MemoryUsageMonitor
     @StateObject private var frameRateMonitor = FrameRateMonitor()
-    @StateObject private var updateChecker = UpdateChecker()
+    @StateObject private var updateChecker: UpdateChecker
     private let applicationLogWriter: MacApplicationLogWriter
 
     init() {
         let store = MacUserDefaultsStore()
+        if LithePerformanceBaseline.isEnabled {
+            LitheSignpost.configureBaselineOutput { line in
+                FileHandle.standardError.write(Data(line.utf8))
+            }
+        }
         let settings = AppSettings(
             store: store,
             logDirectoryProvider: MacServiceContainer.makeLogDirectoryProvider()
@@ -217,6 +292,7 @@ struct LitheApp: App {
             settings?.setCustomLogDirectory(nil)
         }
         self.applicationLogWriter = applicationLogWriter
+        let gitPerformanceLogger = MacGitPerformanceLogger(writer: applicationLogWriter)
         MacBundledFontRegistry.registerFonts { message in
             Self.appendApplicationLog(applicationLogWriter, message: message)
         }
@@ -226,10 +302,12 @@ struct LitheApp: App {
         let authorizationCallbackRouter = MacExternalAuthorizationCallbackRouter()
         pluginRuntimeRecovery.recoverPreviousSession(using: moduleStore)
         _settings = StateObject(wrappedValue: settings)
+        let projectWindowLauncher = ProjectWindowLauncher()
+        _projectWindowLauncher = StateObject(wrappedValue: projectWindowLauncher)
         let projectSessions = ProjectSessionManager(
             settings: settings,
             modelFactory: {
-                AppModel(
+                AppCompositionBuilder.makeModel(
                     settings: settings,
                     services: MacServiceContainer(
                         store: store,
@@ -240,11 +318,17 @@ struct LitheApp: App {
                             : .normal,
                         moduleStore: moduleStore,
                         pluginRuntimeRecovery: pluginRuntimeRecovery,
-                        authorizationCallbackRouter: authorizationCallbackRouter
+                        authorizationCallbackRouter: authorizationCallbackRouter,
+                        gitPerformanceLogger: gitPerformanceLogger
                     ).services
                 )
             },
-            newWindowOpener: Self.openProjectInNewWindow
+            projectWindowPresenter: { [weak projectWindowLauncher] windowID in
+                projectWindowLauncher?.present(windowID)
+            },
+            projectWindowDismisser: { [weak projectWindowLauncher] windowID in
+                projectWindowLauncher?.dismiss(windowID)
+            }
         )
         if let startupProjectURL = Self.startupProjectURL {
             projectSessions.openStartupProject(startupProjectURL)
@@ -254,15 +338,26 @@ struct LitheApp: App {
             startedAt: litheProcessLaunchDate,
             baselineReporter: { marker in
                 Self.appendApplicationLog(applicationLogWriter, message: marker + "\n")
+                Self.emitPerformanceBaselineMarker(marker)
             },
             logsPerformanceBaseline: ProcessInfo.processInfo.environment["LITHE_PERFORMANCE_BASELINE"] == "1",
             processRegistry: processRegistry,
             memorySampler: MacProcessMemorySampler()
         ))
+        Self.emitPerformanceBaselineMarker(LithePerformanceBaseline.configurationMarker())
+        let updateChecker = UpdateChecker()
+        _updateChecker = StateObject(wrappedValue: updateChecker)
         appDelegate.projectSessions = projectSessions
         appDelegate.authorizationCallbackRouter = authorizationCallbackRouter
         appDelegate.recordCleanPluginShutdown = {
             pluginRuntimeRecovery.recordCleanShutdown(using: moduleStore)
+        }
+        let appDelegate = appDelegate
+        updateChecker.prepareForInstall = { [weak appDelegate] in
+            appDelegate?.prepareForUpdateInstall() ?? true
+        }
+        updateChecker.requestTerminationForInstall = { [weak appDelegate] in
+            appDelegate?.requestTerminationForUpdateInstall()
         }
     }
 
@@ -296,13 +391,21 @@ struct LitheApp: App {
         }
     }
 
+    private static func emitPerformanceBaselineMarker(_ marker: String) {
+        guard LithePerformanceBaseline.isEnabled else { return }
+        let data = Data((marker + "\n").utf8)
+        FileHandle.standardOutput.write(data)
+        FileHandle.standardOutput.synchronizeFile()
+    }
+
     private var model: AppModel { projectSessions.activeModel }
 
     var body: some Scene {
-        WindowGroup {
-            RootView()
+        WindowGroup(id: LitheWindowID.welcome) {
+            RootView(scope: .primary)
                 .environmentObject(model)
                 .environmentObject(projectSessions)
+                .environmentObject(projectWindowLauncher)
                 .environmentObject(settings)
                 .environmentObject(memoryUsageMonitor)
                 .environmentObject(frameRateMonitor)
@@ -316,7 +419,9 @@ struct LitheApp: App {
                 .preferredColorScheme(settings.themePreference.preferredColorScheme)
                 .task {
                     memoryUsageMonitor.start()
-                    frameRateMonitor.start()
+                    if !LithePerformanceBaseline.isEnabled {
+                        frameRateMonitor.start()
+                    }
                 }
         }
         .defaultSize(
@@ -330,6 +435,11 @@ struct LitheApp: App {
                     model.chooseProject()
                 }
                 .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "open-project"))
+
+                Button("New Window") {
+                    projectSessions.ensurePrimaryWindowAvailable()
+                    projectWindowLauncher.presentPrimary()
+                }
             }
 
             CommandGroup(after: .saveItem) {
@@ -363,6 +473,10 @@ struct LitheApp: App {
                     Task { await updateChecker.checkForUpdates(manual: true) }
                 }
                 .disabled(updateChecker.isChecking)
+
+                Button("Export Diagnostics Bundle…") {
+                    model.diagnosticsFeature.presentExport()
+                }
             }
 
             CommandMenu("Navigate") {
@@ -476,6 +590,33 @@ struct LitheApp: App {
             }
         }
 
+        WindowGroup(id: LitheWindowID.project, for: UUID.self) { $windowID in
+            if let windowID {
+                let scopedSessions = projectSessions.sessions(in: .dedicated(windowID))
+                if scopedSessions.isEmpty {
+                    ProjectWindowMissingSessionView(windowID: windowID)
+                        .environmentObject(projectWindowLauncher)
+                } else {
+                    RootView(scope: .dedicated(windowID))
+                        .environmentObject(projectSessions.activeModel(in: .dedicated(windowID)))
+                        .environmentObject(projectSessions)
+                        .environmentObject(projectWindowLauncher)
+                        .environmentObject(settings)
+                        .environmentObject(memoryUsageMonitor)
+                        .environmentObject(frameRateMonitor)
+                        .environmentObject(updateChecker)
+                        .environment(\.locale, settings.language.locale)
+                        .id("\(windowID.uuidString)-\(settings.language)")
+                        .preferredColorScheme(settings.themePreference.preferredColorScheme)
+                }
+            }
+        }
+        .defaultSize(
+            width: LitheWindowLayout.workspaceContentSize.width,
+            height: LitheWindowLayout.workspaceContentSize.height
+        )
+        .windowStyle(.hiddenTitleBar)
+
         Window(settingsWindowTitle(for: settings.language), id: LitheWindowID.settings) {
             SettingsWindow(
                 model: model,
@@ -498,15 +639,32 @@ struct LitheApp: App {
               isDirectory.boolValue else { return nil }
         return url
     }
+}
 
-    private static func openProjectInNewWindow(_ url: URL) {
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.createsNewApplicationInstance = true
-        configuration.arguments = ["--open-project", url.path]
-        NSWorkspace.shared.openApplication(
-            at: Bundle.main.bundleURL,
-            configuration: configuration
-        )
+private struct ProjectWindowMissingSessionView: View {
+    let windowID: UUID
+    @EnvironmentObject private var projectWindowLauncher: ProjectWindowLauncher
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text("This project window is no longer available.")
+                .font(.system(size: 15, weight: .medium))
+            Text("Its session was closed or could not be restored.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+            Button("Close Window") {
+                ProjectWindowAppKitDismisser.dismiss(windowID: windowID)
+                projectWindowLauncher.dismiss(windowID)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
+        .onAppear {
+            let message = "Lithe project window \(windowID.uuidString) has no matching session.\n"
+            if let data = message.data(using: .utf8) {
+                FileHandle.standardError.write(data)
+            }
+        }
     }
 }
 

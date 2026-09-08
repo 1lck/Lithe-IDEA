@@ -9,8 +9,15 @@ interface LocaleContextValue {
 
 const LocaleContext = createContext<LocaleContextValue | null>(null);
 
-export function LocaleProvider({ children }: { children: ReactNode }) {
-  const language = useSettingsStore((state) => state.settings.displayLanguage);
+export function LocaleProvider({
+  children,
+  language: overrideLanguage,
+}: {
+  children: ReactNode;
+  language?: DisplayLanguage;
+}) {
+  const storedLanguage = useSettingsStore((state) => state.settings.displayLanguage);
+  const language = overrideLanguage ?? storedLanguage;
 
   return (
     <LocaleContext.Provider value={{ language, t: createTranslator(language) }}>

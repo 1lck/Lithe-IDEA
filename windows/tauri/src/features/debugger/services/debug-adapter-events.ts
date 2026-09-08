@@ -1,10 +1,13 @@
 import {
+  createDebugOperationId,
   sendDebugAdapterRequest,
+  stopDebugAdapterSession,
   subscribeDebuggerEvents,
 } from "@/features/debugger/services/debug-adapter-service";
 import { useDebuggerStore } from "@/features/debugger/stores/debugger.store";
 import type {
   DebugProtocolMessage,
+  DebugRequestContext,
   DebugScope,
   DebugStackFrame,
   DebugThread,
@@ -21,7 +24,7 @@ export function initializeDebuggerEventBridge(): Promise<void> {
   pendingSubscription = subscribeDebuggerEvents({
     onMessage: (message) => {
       useDebuggerStore.getState().actions.recordAdapterMessage(message);
-      void handleDebugProtocolMessage(message);
+      return handleDebugProtocolMessage(message);
     },
     onOutput: (output) => useDebuggerStore.getState().actions.recordAdapterOutput(output),
     onSessionEnded: (event) => useDebuggerStore.getState().actions.recordSessionEnded(event),
@@ -36,157 +39,227 @@ export function initializeDebuggerEventBridge(): Promise<void> {
   return pendingSubscription;
 }
 
-async function handleDebugProtocolMessage(payload: DebugProtocolMessage) {
-  const message = asRecord(payload.message);
-  if (!message) return;
-
-  if (message.type === "event") {
-    await handleDebugEvent(payload.sessionId, message);
-    return;
-  }
-
-  if (message.type === "response") {
-    await handleDebugResponse(payload.sessionId, message);
-  }
-}
-
-async function handleDebugEvent(sessionId: string, message: Record<string, unknown>) {
-  const event = typeof message.event === "string" ? message.event : "";
-  const body = asRecord(message.body);
-  const actions = useDebuggerStore.getState().actions;
-
-  if (event === "stopped") {
-    const threadId = typeof body?.threadId === "number" ? body.threadId : undefined;
-    actions.setSessionStatus("paused");
-    actions.setStoppedState({
-      reason: typeof body?.reason === "string" ? body.reason : "stopped",
-      threadId,
-      description: typeof body?.description === "string" ? body.description : undefined,
-    });
-
-    if (typeof threadId === "number") {
-      await requestStackTrace(sessionId, threadId);
-    } else {
-      await requestThreads(sessionId);
-    }
-    return;
-  }
-
-  if (event === "continued") {
-    actions.setSessionStatus("running");
-    actions.setStoppedState(null);
-    return;
-  }
-
-  if (event === "terminated" || event === "exited") {
-    actions.recordSessionEnded({
-      sessionId,
-      reason: event,
-    });
-  }
-}
-
-async function handleDebugResponse(sessionId: string, message: Record<string, unknown>) {
-  const requestSeq = typeof message.request_seq === "number" ? message.request_seq : null;
-  const command = typeof message.command === "string" ? message.command : "";
-  const body = asRecord(message.body);
+export async function selectDebugThread(sessionId: string, threadId: number): Promise<void> {
   const store = useDebuggerStore.getState();
-  const context = requestSeq ? store.pendingRequests[requestSeq] : undefined;
+  store.actions.setStoppedState({
+    reason: store.stoppedState?.reason ?? "pause",
+    threadId,
+    description: store.stoppedState?.description,
+  });
+  await requestStackTrace(sessionId, threadId);
+}
 
-  if (requestSeq) {
-    store.actions.clearAdapterRequest(requestSeq);
+// Rust Core emits normalized events only: no DAP frames, request sequences, or
+// response correlation exist in the React layer.
+async function handleDebugProtocolMessage(payload: DebugProtocolMessage) {
+  const event = asRecord(payload.message);
+  if (!event) return;
+
+  // Stale state and result events from a stopped session must not mutate the
+  // store after a fast Stop/Restart; per-session log output is still kept.
+  const activeSessionId = useDebuggerStore.getState().activeSession?.id;
+  if (event.type !== "output" && payload.sessionId !== activeSessionId) {
+    return;
   }
 
-  if (message.success === false) {
-    if (context?.command === "evaluate") {
-      store.actions.setWatchResult({
-        expressionId: context.expressionId,
-        value: "",
-        variablesReference: 0,
-        error:
-          typeof message.message === "string" ? message.message : "Could not evaluate expression.",
-        evaluatedAt: Date.now(),
-      });
+  switch (event.type) {
+    case "stateChanged":
+      handleStateChanged(payload.sessionId, event);
+      return;
+    case "stopped":
+      await handleStopped(payload.sessionId, event);
+      return;
+    case "continued":
+      handleContinued();
+      return;
+    case "terminated":
+      useDebuggerStore.getState().actions.setSessionStatus("idle");
+      useDebuggerStore.getState().actions.setStoppedState(null);
+      return;
+    case "output":
+      handleOutput(payload.sessionId, event);
+      return;
+    case "operationCompleted":
+      await handleOperationCompleted(payload.sessionId, event);
+      return;
+    case "operationFailed":
+      handleOperationFailed(event);
+      return;
+  }
+}
+
+function handleStateChanged(sessionId: string, event: Record<string, unknown>) {
+  const state = typeof event.state === "string" ? event.state : "";
+  if (state === "paused") {
+    useDebuggerStore.getState().actions.setSessionStatus("paused");
+  } else if (state === "running") {
+    useDebuggerStore.getState().actions.setSessionStatus("running");
+  } else if (state === "failed") {
+    const message =
+      typeof event.message === "string" && event.message
+        ? event.message
+        : "The debug session failed.";
+    useDebuggerStore.getState().actions.recordAdapterOutput({
+      sessionId,
+      stream: "stderr",
+      data: `${message}\n`,
+    });
+    useDebuggerStore.getState().actions.setSessionStatus("idle");
+    void stopDebugAdapterSession(sessionId).catch((error) => {
+      console.error("Failed to stop the debug session after a failure:", error);
+    });
+  }
+}
+
+async function handleStopped(sessionId: string, event: Record<string, unknown>) {
+  const threadId = typeof event.threadId === "number" ? event.threadId : undefined;
+  const actions = useDebuggerStore.getState().actions;
+  actions.setSessionStatus("paused");
+  actions.setStoppedState({
+    reason: typeof event.reason === "string" ? event.reason : "stopped",
+    threadId,
+    description: typeof event.description === "string" ? event.description : undefined,
+  });
+
+  if (typeof threadId === "number") {
+    await requestStackTrace(sessionId, threadId);
+  } else {
+    await requestThreads(sessionId);
+  }
+}
+
+function handleContinued() {
+  const actions = useDebuggerStore.getState().actions;
+  actions.setSessionStatus("running");
+  actions.setStoppedState(null);
+}
+
+function handleOutput(sessionId: string, event: Record<string, unknown>) {
+  const output = typeof event.output === "string" ? event.output : "";
+  if (!output) return;
+  useDebuggerStore.getState().actions.recordAdapterOutput({
+    sessionId,
+    stream: typeof event.category === "string" ? event.category : "stdout",
+    data: output,
+  });
+}
+
+async function handleOperationCompleted(sessionId: string, event: Record<string, unknown>) {
+  const operationId = typeof event.operationId === "string" ? event.operationId : "";
+  const result = asRecord(event.result);
+  const kind = typeof result?.kind === "string" ? result.kind : "";
+  const store = useDebuggerStore.getState();
+  const context = operationId ? store.pendingRequests[operationId] : undefined;
+  if (operationId) {
+    store.actions.clearAdapterRequest(operationId);
+  }
+  if (!context) return;
+
+  switch (kind) {
+    case "threads": {
+      if (context.command !== "threads") return;
+      const threads = toThreads(result?.threads);
+      store.actions.setThreads(threads);
+      const firstThreadId = threads[0]?.id;
+      if (typeof firstThreadId === "number") {
+        await requestStackTrace(sessionId, firstThreadId);
+      }
+      return;
     }
-    return;
-  }
-
-  if (command === "threads") {
-    const threads = toThreads(body?.threads);
-    store.actions.setThreads(threads);
-    const firstThreadId = threads[0]?.id;
-    if (typeof firstThreadId === "number") {
-      await requestStackTrace(sessionId, firstThreadId);
+    case "stackTrace": {
+      if (
+        context.command !== "stackTrace" ||
+        context.threadId !== store.stoppedState?.threadId
+      ) {
+        return;
+      }
+      const frames = toStackFrames(result?.stackFrames);
+      store.actions.setStackFrames(frames);
+      const firstFrameId = frames[0]?.id;
+      if (typeof firstFrameId === "number") {
+        await requestScopes(sessionId, firstFrameId);
+      }
+      return;
     }
-    return;
-  }
-
-  if (command === "stackTrace") {
-    const frames = toStackFrames(body?.stackFrames);
-    store.actions.setStackFrames(frames);
-    const firstFrameId = frames[0]?.id;
-    if (typeof firstFrameId === "number") {
-      await requestScopes(sessionId, firstFrameId);
+    case "scopes": {
+      if (context.command !== "scopes" || context.frameId !== store.selectedFrameId) return;
+      const scopes = toScopes(result?.scopes);
+      store.actions.setScopes(scopes);
+      await Promise.all(
+        scopes
+          .filter((scope) => scope.variablesReference > 0)
+          .map((scope) => requestVariables(sessionId, scope.variablesReference)),
+      );
+      return;
     }
-    return;
+    case "variables": {
+      if (context?.command === "variables") {
+        store.actions.setVariables(context.variablesReference, toVariables(result?.variables));
+      }
+      return;
+    }
+    case "evaluate": {
+      if (context?.command === "evaluate") {
+        const variable = asRecord(result?.variable);
+        store.actions.setWatchResult({
+          expressionId: context.expressionId,
+          value: typeof variable?.value === "string" ? variable.value : "",
+          type: typeof variable?.type === "string" ? variable.type : undefined,
+          variablesReference:
+            typeof variable?.variablesReference === "number" ? variable.variablesReference : 0,
+          evaluatedAt: Date.now(),
+        });
+      }
+      return;
+    }
   }
+}
 
-  if (command === "scopes") {
-    const scopes = toScopes(body?.scopes);
-    store.actions.setScopes(scopes);
-    await Promise.all(
-      scopes
-        .filter((scope) => scope.variablesReference > 0)
-        .map((scope) => requestVariables(sessionId, scope.variablesReference)),
-    );
-    return;
+function handleOperationFailed(event: Record<string, unknown>) {
+  const operationId = typeof event.operationId === "string" ? event.operationId : "";
+  const store = useDebuggerStore.getState();
+  const context = operationId ? store.pendingRequests[operationId] : undefined;
+  if (operationId) {
+    store.actions.clearAdapterRequest(operationId);
   }
-
-  if (command === "variables" && context?.command === "variables") {
-    store.actions.setVariables(context.variablesReference, toVariables(body?.variables));
-    return;
-  }
-
-  if (command === "evaluate" && context?.command === "evaluate") {
+  if (context?.command === "evaluate") {
     store.actions.setWatchResult({
       expressionId: context.expressionId,
-      value: typeof body?.result === "string" ? body.result : "",
-      type: typeof body?.type === "string" ? body.type : undefined,
-      variablesReference:
-        typeof body?.variablesReference === "number" ? body.variablesReference : 0,
+      value: "",
+      variablesReference: 0,
+      error: typeof event.message === "string" ? event.message : "Could not evaluate expression.",
       evaluatedAt: Date.now(),
     });
   }
 }
 
 async function requestThreads(sessionId: string) {
-  const seq = await sendDebugAdapterRequest(sessionId, "threads");
-  useDebuggerStore.getState().actions.registerAdapterRequest(seq, { command: "threads" });
+  const operationId = createDebugOperationId();
+  registerContext(operationId, { command: "threads" });
+  await sendDebugAdapterRequest(sessionId, "threads", undefined, operationId);
 }
 
 async function requestStackTrace(sessionId: string, threadId: number) {
-  const seq = await sendDebugAdapterRequest(sessionId, "stackTrace", {
-    threadId,
-    startFrame: 0,
-    levels: 50,
-  });
-  useDebuggerStore.getState().actions.registerAdapterRequest(seq, {
-    command: "stackTrace",
-    threadId,
-  });
+  const operationId = createDebugOperationId();
+  registerContext(operationId, { command: "stackTrace", threadId });
+  await sendDebugAdapterRequest(sessionId, "stackTrace", { threadId }, operationId);
 }
 
 async function requestScopes(sessionId: string, frameId: number) {
-  const seq = await sendDebugAdapterRequest(sessionId, "scopes", { frameId });
-  useDebuggerStore.getState().actions.registerAdapterRequest(seq, { command: "scopes", frameId });
+  const operationId = createDebugOperationId();
+  registerContext(operationId, { command: "scopes", frameId });
+  await sendDebugAdapterRequest(sessionId, "scopes", { frameId }, operationId);
 }
 
 async function requestVariables(sessionId: string, variablesReference: number) {
-  const seq = await sendDebugAdapterRequest(sessionId, "variables", { variablesReference });
-  useDebuggerStore.getState().actions.registerAdapterRequest(seq, {
-    command: "variables",
-    variablesReference,
-  });
+  const operationId = createDebugOperationId();
+  registerContext(operationId, { command: "variables", variablesReference });
+  await sendDebugAdapterRequest(sessionId, "variables", { variablesReference }, operationId);
+}
+
+function registerContext(operationId: string, context: DebugRequestContext) {
+  if (!operationId) return;
+  useDebuggerStore.getState().actions.registerAdapterRequest(operationId, context);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -215,11 +288,10 @@ function toStackFrames(value: unknown): DebugStackFrame[] {
     .map((item): DebugStackFrame | null => {
       const frame = asRecord(item);
       if (!frame || typeof frame.id !== "number") return null;
-      const source = asRecord(frame.source);
       return {
         id: frame.id,
         name: typeof frame.name === "string" ? frame.name : `Frame ${frame.id}`,
-        sourcePath: typeof source?.path === "string" ? source.path : undefined,
+        sourcePath: typeof frame.sourcePath === "string" ? frame.sourcePath : undefined,
         line: typeof frame.line === "number" ? frame.line : 0,
         column: typeof frame.column === "number" ? frame.column : 0,
       };

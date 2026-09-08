@@ -27,6 +27,7 @@ import {
   workspaceRelativePath,
 } from "../utils/run-configuration";
 import { RunConfigurationEditor } from "./run-configuration-editor";
+import { RunConfigurationListSplit } from "./run-configuration-list-split";
 import { JavaCupIcon, RunIcon } from "./run-icon";
 import { RunOutputText } from "./run-output-text";
 
@@ -191,68 +192,74 @@ export default function RunPane() {
           ) : null}
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1">
-          <div className="flex w-56 shrink-0 flex-col border-border/70 border-r">
-            <div className="px-3 py-2 font-medium text-subtle-foreground ui-text-sm">{t("run.configurations")}</div>
-            <div className="min-h-0 flex-1 overflow-y-auto pb-2">
-              <ConfigurationSection
-                title={t("run.services")}
-                configurations={services}
-                selectedId={selectedConfigurationId}
-                sessions={sessions}
-                onSelect={actions.selectConfiguration}
-                onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
-                onEdit={setEditingId}
-              />
-              <ConfigurationSection
-                title={t("run.applications")}
-                configurations={applications}
-                selectedId={selectedConfigurationId}
-                sessions={sessions}
-                onSelect={actions.selectConfiguration}
-                onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
-                onEdit={setEditingId}
-              />
-            </div>
-          </div>
-          <div className="flex min-w-0 flex-1 flex-col">
-            <div className="border-border/70 border-b px-3 py-2">
-              <div className="font-medium text-subtle-foreground ui-text-sm">{t("run.configurationDetails")}</div>
-              {selectedConfiguration ? (
-                <div className="mt-1 grid grid-cols-[6.5rem_1fr] gap-y-0.5 ui-text-sm">
-                  <span className="text-subtle-foreground">{t("run.type")}</span>
-                  <span>{selectedConfiguration.kindTitle}</span>
-                  {selectedConfiguration.mainClass ? (
-                    <>
-                      <span className="text-subtle-foreground">{t("run.mainClass")}</span>
-                      <span className="truncate font-mono">{selectedConfiguration.mainClass}</span>
-                    </>
-                  ) : null}
-                </div>
-              ) : (
-                <div className="mt-1 text-subtle-foreground ui-text-sm">{t("run.selectConfiguration")}</div>
-              )}
-            </div>
-            <div className="min-h-0 flex-1 overflow-auto px-3 py-2">
-              <RunOutputText
-                title={t("run.processOutput")}
-                source={output}
-                emptyLabel={t("run.emptyOutput")}
-              />
-            </div>
-            {isSelectedRunning ? (
-              <RunStdinInput
-                sessionId={selectedSessionId ?? PRIMARY_SESSION_ID}
-                onSend={(input) => void actions.writeStdin(selectedSessionId ?? PRIMARY_SESSION_ID, input)}
-              />
-            ) : null}
-            {generationNotice?.startsWith("generated:") ? (
-              <div className="border-border/70 border-t px-3 py-1.5 text-subtle-foreground ui-text-sm">
-                {t("run.generatedEntries", { count: generationNotice.slice("generated:".length) })}
+        <RunConfigurationListSplit
+          list={
+            <>
+              <div className="px-3 py-2 font-medium text-subtle-foreground ui-text-sm">
+                {t("run.configurations")}
               </div>
-            ) : null}
-          </div>
-        </div>
+              <div className="min-h-0 flex-1 overflow-y-auto pb-2">
+                <ConfigurationSection
+                  title={t("run.services")}
+                  configurations={services}
+                  selectedId={selectedConfigurationId}
+                  sessions={sessions}
+                  onSelect={actions.selectConfiguration}
+                  onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
+                  onEdit={setEditingId}
+                />
+                <ConfigurationSection
+                  title={t("run.applications")}
+                  configurations={applications}
+                  selectedId={selectedConfigurationId}
+                  sessions={sessions}
+                  onSelect={actions.selectConfiguration}
+                  onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
+                  onEdit={setEditingId}
+                />
+              </div>
+            </>
+          }
+          content={
+            <>
+              <div className="border-border/70 border-b px-3 py-2">
+                <div className="font-medium text-subtle-foreground ui-text-sm">{t("run.configurationDetails")}</div>
+                {selectedConfiguration ? (
+                  <div className="mt-1 grid grid-cols-[6.5rem_1fr] gap-y-0.5 ui-text-sm">
+                    <span className="text-subtle-foreground">{t("run.type")}</span>
+                    <span>{selectedConfiguration.kindTitle}</span>
+                    {selectedConfiguration.mainClass ? (
+                      <>
+                        <span className="text-subtle-foreground">{t("run.mainClass")}</span>
+                        <span className="truncate font-mono">{selectedConfiguration.mainClass}</span>
+                      </>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="mt-1 text-subtle-foreground ui-text-sm">{t("run.selectConfiguration")}</div>
+                )}
+              </div>
+              <div className="min-h-0 flex-1 overflow-auto px-3 py-2">
+                <RunOutputText
+                  title={t("run.processOutput")}
+                  source={output}
+                  emptyLabel={t("run.emptyOutput")}
+                />
+              </div>
+              {isSelectedRunning ? (
+                <RunStdinInput
+                  sessionId={selectedSessionId ?? PRIMARY_SESSION_ID}
+                  onSend={(input) => void actions.writeStdin(selectedSessionId ?? PRIMARY_SESSION_ID, input)}
+                />
+              ) : null}
+              {generationNotice?.startsWith("generated:") ? (
+                <div className="border-border/70 border-t px-3 py-1.5 text-subtle-foreground ui-text-sm">
+                  {t("run.generatedEntries", { count: generationNotice.slice("generated:".length) })}
+                </div>
+              ) : null}
+            </>
+          }
+        />
       )}
 
       {editingConfiguration ? (

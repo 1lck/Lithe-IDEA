@@ -37,6 +37,41 @@ package protocol WorkspaceOperations: Sendable {
     func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool
 }
 
+/// User-selected semantic role for a directory in the project tree.
+/// Values use workspace-relative paths and are stored in host application preferences.
+package enum WorkspaceDirectoryMark: String, CaseIterable, Codable, Sendable {
+    case plain
+    case sources
+    case resources
+    case excluded
+    case module
+    case package
+}
+
+/// Persists directory roles without changing the marked directories themselves.
+package protocol WorkspaceDirectoryMarkStoring: Sendable {
+    func loadDirectoryMarks(for workspaceURL: URL) throws -> [String: WorkspaceDirectoryMark]
+    func saveDirectoryMarks(
+        _ marks: [String: WorkspaceDirectoryMark],
+        for workspaceURL: URL
+    ) throws
+}
+
+package struct EmptyWorkspaceDirectoryMarkStore: WorkspaceDirectoryMarkStoring {
+    package init() {}
+
+    package func loadDirectoryMarks(
+        for workspaceURL: URL
+    ) throws -> [String: WorkspaceDirectoryMark] {
+        [:]
+    }
+
+    package func saveDirectoryMarks(
+        _ marks: [String: WorkspaceDirectoryMark],
+        for workspaceURL: URL
+    ) throws {}
+}
+
 package extension WorkspaceOperations {
     func warmSearchIndex(at rootURL: URL, visibilityRules: FileVisibilityRules) {}
     func updateSearchIndex(at rootURL: URL, changedPaths: [String], visibilityRules: FileVisibilityRules) {}

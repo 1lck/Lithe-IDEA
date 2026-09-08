@@ -31,6 +31,7 @@ struct BinaryFileOpenRequest: Sendable {
     let url: URL
     let viewerIdentifier: String
     let match: BinaryFileViewerMatch
+    let activateWhenReady: Bool
 }
 
 /// Describes an optional binary-file viewer; constructing this value does not
@@ -85,14 +86,19 @@ final class BinaryFileViewerRegistry {
     /// Magic signatures win over extensions across the whole registry. This
     /// lets a strongly identified format beat a misleading filename suffix.
     @discardableResult
-    func openIfSupported(url: URL, header: Data) async -> Bool {
+    func openIfSupported(
+        url: URL,
+        header: Data,
+        activateWhenReady: Bool = true
+    ) async -> Bool {
         if let registration = registrations.first(where: { registration in
             registration.magicSignatures.contains { $0.matches(header) }
         }) {
             await registration.open(BinaryFileOpenRequest(
                 url: url,
                 viewerIdentifier: registration.identifier,
-                match: .magicSignature
+                match: .magicSignature,
+                activateWhenReady: activateWhenReady
             ))
             return true
         }
@@ -105,7 +111,8 @@ final class BinaryFileViewerRegistry {
         await registration.open(BinaryFileOpenRequest(
             url: url,
             viewerIdentifier: registration.identifier,
-            match: .fileExtension(fileExtension)
+            match: .fileExtension(fileExtension),
+            activateWhenReady: activateWhenReady
         ))
         return true
     }

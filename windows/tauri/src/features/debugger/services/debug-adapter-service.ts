@@ -4,6 +4,7 @@ import type {
   DebugAdapterLaunch,
   DebugAdapterSessionInfo,
   DebugBreakpoint,
+  DebugCommandResult,
   DebugLaunchConfig,
   DebugProcessOutput,
   DebugProtocolMessage,
@@ -11,7 +12,7 @@ import type {
 } from "@/features/debugger/types/debugger.types";
 
 interface DebuggerEventHandlers {
-  onMessage?: (payload: DebugProtocolMessage) => void;
+  onMessage?: (payload: DebugProtocolMessage) => void | Promise<void>;
   onOutput?: (payload: DebugProcessOutput) => void;
   onSessionEnded?: (payload: DebugSessionEnded) => void;
 }
@@ -26,56 +27,68 @@ export async function sendDebugAdapterRequest(
   sessionId: string,
   command: string,
   argumentsPayload?: unknown,
-): Promise<number> {
-  return await invoke<number>("debug_send_request", {
+  operationId?: string,
+): Promise<DebugCommandResult> {
+  return await invoke<DebugCommandResult>("debug_send_request", {
     sessionId,
     command,
     arguments: argumentsPayload,
+    operationId,
   });
+}
+
+let operationCounter = 0;
+export function createDebugOperationId(): string {
+  operationCounter += 1;
+  return `ui-debug-op-${operationCounter}`;
 }
 
 export async function stopDebugAdapterSession(sessionId: string): Promise<void> {
   await invoke("debug_stop_session", { sessionId });
 }
 
+export async function markDebugSessionReady(sessionId: string): Promise<void> {
+  await invoke("debug_session_ready", { sessionId });
+}
+
 export async function startDebugLaunchSession(
   config: DebugLaunchConfig,
   breakpoints: DebugBreakpoint[],
+  workspacePath?: string,
+  onSessionStarted?: (session: DebugAdapterSessionInfo) => void,
 ): Promise<DebugAdapterSessionInfo> {
   if (!config.adapterCommand) {
     throw new Error("Debug configuration is missing adapterCommand");
   }
 
+  const effectiveCwd = config.cwd ?? workspacePath;
   const session = await startDebugAdapterSession({
     command: config.adapterCommand,
     args: config.adapterArgs ?? [],
-    cwd: config.cwd,
+    cwd: effectiveCwd,
     env: config.env,
+    workspacePath,
   });
+  onSessionStarted?.(session);
 
-  await sendDebugAdapterRequest(session.id, "initialize", {
-    adapterID: config.type ?? config.runtime,
-    pathFormat: "path",
-    linesStartAt1: true,
-    columnsStartAt1: true,
-    supportsVariableType: true,
-    supportsVariablePaging: true,
-    supportsRunInTerminalRequest: true,
-  });
-
-  await syncDebugBreakpoints(session.id, breakpoints);
-
-  await sendDebugAdapterRequest(session.id, config.request ?? "launch", {
-    name: config.name,
-    type: config.type ?? config.runtime,
-    request: config.request ?? "launch",
-    program: config.program,
-    cwd: config.cwd,
-    args: config.args ?? [],
-    env: config.env ?? {},
-  });
-
-  await sendDebugAdapterRequest(session.id, "configurationDone");
+  try {
+    // Rust Core owns DAP initialization and the configurationDone handshake;
+    // the host facade only queues the launch and breakpoint sets.
+    await sendDebugAdapterRequest(session.id, config.request ?? "launch", {
+      name: config.name,
+      type: config.type ?? config.runtime,
+      request: config.request ?? "launch",
+      program: config.program,
+      cwd: effectiveCwd,
+      args: config.args ?? [],
+      env: config.env ?? {},
+    });
+    await markDebugSessionReady(session.id);
+    await syncDebugBreakpoints(session.id, breakpoints);
+  } catch (error) {
+    await stopDebugAdapterSession(session.id).catch(() => {});
+    throw error;
+  }
 
   return session;
 }

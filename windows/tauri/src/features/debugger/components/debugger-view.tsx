@@ -1,5 +1,8 @@
 import {
+  ArrowDownIcon as StepIntoIcon,
+  ArrowUpIcon as StepOutIcon,
   BugIcon as Bug,
+  ArrowBendDownLeftIcon as StepOverIcon,
   FolderOpenIcon as FolderOpen,
   ListBulletsIcon as ListBullets,
   PauseIcon as Pause,
@@ -22,11 +25,13 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 import { joinPath } from "@/utils/path-helpers";
 import {
+  createDebugOperationId,
   sendDebugAdapterRequest,
   startDebugLaunchSession,
   stopDebugAdapterSession,
   syncDebugBreakpoints,
 } from "../services/debug-adapter-service";
+import { selectDebugThread } from "../services/debug-adapter-events";
 import { useDebuggerStore } from "../stores/debugger.store";
 import {
   buildDebugCommand,
@@ -40,6 +45,9 @@ import {
   DebugSection,
   DebugSessionStatusIcon,
   DebugStackFrames,
+  DebugThreads,
+  getDebugSessionDisplayStatus,
+  type DebugSessionDisplayStatus,
 } from "./debugger-panels";
 import { DebugWatchPanel } from "./debugger-watch-panel";
 import { DebugVariablesPanel } from "./debugger-variables-panel";
@@ -57,15 +65,30 @@ const getActiveDebuggableFile = (state: ReturnType<typeof useBufferStore.getStat
   };
 };
 
-function DebugStatusBadge({ status }: { status: "idle" | "running" | "paused" }) {
-  const variant = status === "paused" ? "default" : status === "running" ? "accent" : "muted";
+function DebugStatusBadge({ status }: { status: DebugSessionDisplayStatus }) {
+  const variant =
+    status === "failed"
+      ? "error"
+      : status === "exited"
+        ? "success"
+        : status === "paused"
+          ? "warning"
+          : status === "running"
+            ? "accent"
+            : "muted";
   const { t } = useTranslation();
   const statusLabel =
     status === "running"
       ? t("debugger.statusRunning")
       : status === "paused"
         ? t("debugger.statusPaused")
-        : t("debugger.statusIdle");
+        : status === "exited"
+          ? t("debugger.statusExited")
+          : status === "stopped"
+            ? t("debugger.statusStopped")
+            : status === "failed"
+              ? t("debugger.statusFailed")
+              : t("debugger.statusIdle");
 
   return (
     <Badge variant={variant} size="compact" className="gap-1.5">
@@ -92,9 +115,11 @@ export default function DebuggerView() {
   const scopes = useDebuggerStore.use.scopes();
   const variablesByReference = useDebuggerStore.use.variablesByReference();
   const adapterOutput = useDebuggerStore.use.adapterOutput();
+  const endedSessions = useDebuggerStore.use.endedSessions();
   const pendingRequests = useDebuggerStore.use.pendingRequests();
   const debuggerActions = useDebuggerStore.use.actions();
   const [customCommand, setCustomCommand] = useState("");
+  const [activeDebugTab, setActiveDebugTab] = useState<"threads" | "console">("threads");
   const [launchLoadError, setLaunchLoadError] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const syncedBreakpointFilesRef = useRef<Set<string>>(new Set());
@@ -142,6 +167,12 @@ export default function DebuggerView() {
     ? Boolean(resolvedSelectedConfig.adapterCommand.trim())
     : Boolean(selectedCommand.trim());
   const isActiveSession = activeSession?.status === "running" || activeSession?.status === "paused";
+  const activeSessionEndReason = activeSession
+    ? endedSessions.filter((event) => event.sessionId === activeSession.id).slice(-1)[0]?.reason
+    : undefined;
+  const activeSessionDisplayStatus = activeSession
+    ? getDebugSessionDisplayStatus(activeSession.status, activeSessionEndReason)
+    : "idle";
   const isAdapterSession = Boolean(isActiveSession && resolvedActiveConfig.adapterCommand);
   const activeThreadId = stoppedState?.threadId ?? threads[0]?.id;
   const canSendAdapterThreadRequest = Boolean(isAdapterSession && activeThreadId);
@@ -223,16 +254,22 @@ export default function DebuggerView() {
     setStartError(null);
     if (resolvedSelectedConfig.adapterCommand) {
       try {
-        const adapterSession = await startDebugLaunchSession(resolvedSelectedConfig, breakpoints);
-        debuggerActions.startSession({
-          id: adapterSession.id,
-          name: resolvedSelectedConfig.name,
-          configId: resolvedSelectedConfig.id,
-          command: [adapterSession.command, ...adapterSession.args].join(" "),
-          cwd: adapterSession.cwd,
-          startedAt: Date.now(),
-          status: "running",
-        });
+        await startDebugLaunchSession(
+          resolvedSelectedConfig,
+          breakpoints,
+          rootFolderPath,
+          (session) => {
+            debuggerActions.startSession({
+              id: session.id,
+              name: resolvedSelectedConfig.name,
+              configId: resolvedSelectedConfig.id,
+              command: [session.command, ...session.args].join(" "),
+              cwd: session.cwd,
+              startedAt: Date.now(),
+              status: "running",
+            });
+          },
+        );
       } catch (error) {
         setStartError(error instanceof Error ? error.message : String(error));
       }
@@ -298,8 +335,9 @@ export default function DebuggerView() {
 
     if (activeSession?.id) {
       try {
-        const seq = await sendDebugAdapterRequest(activeSession.id, "scopes", { frameId });
-        debuggerActions.registerAdapterRequest(seq, { command: "scopes", frameId });
+        const operationId = createDebugOperationId();
+        debuggerActions.registerAdapterRequest(operationId, { command: "scopes", frameId });
+        await sendDebugAdapterRequest(activeSession.id, "scopes", { frameId }, operationId);
       } catch {
         // Some adapters may not allow scope requests after the session moves on.
       }
@@ -322,7 +360,70 @@ export default function DebuggerView() {
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium ui-text-sm">{t("debugger.runAndDebug")}</div>
         </div>
-        {activeSession ? <DebugStatusBadge status={activeSession.status} /> : null}
+        <div className="flex shrink-0 items-center gap-0.5 border-border/60 border-l pl-2">
+          <Button
+            variant="ghost"
+            tooltip={t("debugger.start")}
+            onClick={startDebugging}
+            disabled={!canStartDebugging || isActiveSession}
+            aria-label={t("debugger.start")}
+            size="icon-xs"
+          >
+            <Play />
+          </Button>
+          <Button
+            variant="ghost"
+            tooltip={isPaused ? t("debugger.continue") : t("debugger.pause")}
+            disabled={!canSendAdapterThreadRequest}
+            onClick={() => void sendAdapterThreadRequest(isPaused ? "continue" : "pause")}
+            aria-label={isPaused ? t("debugger.continueDebugging") : t("debugger.pauseDebugging")}
+            size="icon-xs"
+          >
+            {isPaused ? <Play /> : <Pause />}
+          </Button>
+          <Button
+            variant="ghost"
+            tooltip={t("debugger.stop")}
+            disabled={!isActiveSession}
+            onClick={stopDebugging}
+            aria-label={t("debugger.stop")}
+            size="icon-xs"
+          >
+            <Square />
+          </Button>
+          <span className="mx-1 h-4 w-px bg-border/60" />
+          <Button
+            variant="ghost"
+            tooltip={t("debugger.stepOver")}
+            disabled={!canStep}
+            onClick={() => void sendAdapterThreadRequest("next")}
+            aria-label={t("debugger.stepOver")}
+            size="icon-xs"
+          >
+            <StepOverIcon />
+          </Button>
+          <Button
+            variant="ghost"
+            tooltip={t("debugger.stepInto")}
+            disabled={!canStep}
+            onClick={() => void sendAdapterThreadRequest("stepIn")}
+            aria-label={t("debugger.stepInto")}
+            size="icon-xs"
+          >
+            <StepIntoIcon />
+          </Button>
+          <Button
+            variant="ghost"
+            tooltip={t("debugger.stepOut")}
+            disabled={!canStep}
+            onClick={() => void sendAdapterThreadRequest("stepOut")}
+            aria-label={t("debugger.stepOut")}
+            size="icon-xs"
+          >
+            <StepOutIcon />
+          </Button>
+        </div>
+        {activeSession ? <DebugStatusBadge status={activeSessionDisplayStatus} /> : null}
         <Button
           variant="ghost"
           tooltip={t("debugger.toggleCurrentLineBreakpoint")}
@@ -466,8 +567,35 @@ export default function DebuggerView() {
           </div>
         </aside>
 
-        <div className="grid min-h-0 grid-cols-2 gap-2 p-2">
-          <DebugSection title={t("debugger.stack")} count={stackFrames.length}>
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex h-9 shrink-0 items-end gap-1 border-border/70 border-b px-2">
+            <button
+              type="button"
+              className={cn(
+                "h-8 border-b-2 px-2 font-medium ui-text-sm",
+                activeDebugTab === "threads"
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-subtle-foreground hover:text-foreground",
+              )}
+              onClick={() => setActiveDebugTab("threads")}
+            >
+              {t("debugger.threadsAndVariables")}
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "h-8 border-b-2 px-2 font-medium ui-text-sm",
+                activeDebugTab === "console"
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-subtle-foreground hover:text-foreground",
+              )}
+              onClick={() => setActiveDebugTab("console")}
+            >
+              {t("debugger.console")}
+            </button>
+          </div>
+          <div className="grid min-h-0 flex-1 grid-cols-2 gap-2 p-2">
+          <DebugSection className={activeDebugTab === "console" ? "hidden" : undefined} title={t("debugger.stack")} count={stackFrames.length}>
             <DebugStackFrames
               frames={stackFrames}
               selectedFrameId={selectedFrameId}
@@ -475,7 +603,23 @@ export default function DebuggerView() {
             />
           </DebugSection>
 
-          <DebugSection title={t("debugger.variables")} count={scopes.length}>
+          <DebugSection className={activeDebugTab === "console" ? "hidden" : undefined} title={t("debugger.threads")} count={threads.length}>
+            <DebugThreads
+              threads={threads}
+              selectedThreadId={activeThreadId}
+              onSelect={async (threadId) => {
+                if (!activeSession?.id || !isPaused) return;
+                setStartError(null);
+                try {
+                  await selectDebugThread(activeSession.id, threadId);
+                } catch (error) {
+                  setStartError(error instanceof Error ? error.message : String(error));
+                }
+              }}
+            />
+          </DebugSection>
+
+          <DebugSection className={activeDebugTab === "console" ? "hidden" : undefined} title={t("debugger.variables")} count={scopes.length}>
             <DebugVariablesPanel
               activeSessionId={activeSession?.id}
               selectedFrameId={selectedFrameId}
@@ -485,7 +629,7 @@ export default function DebuggerView() {
             />
           </DebugSection>
 
-          <DebugSection title={t("debugger.watch")} count={watchExpressions.length}>
+          <DebugSection className={activeDebugTab === "console" ? "hidden" : undefined} title={t("debugger.watch")} count={watchExpressions.length}>
             <DebugWatchPanel
               activeSessionId={activeSession?.id}
               selectedFrameId={selectedFrameId}
@@ -495,6 +639,7 @@ export default function DebuggerView() {
           </DebugSection>
 
           <DebugSection
+            className={cn("col-span-2", activeDebugTab === "threads" && "hidden")}
             title={t("debugger.console")}
             count={activeAdapterOutput.length}
             defaultOpen
@@ -531,9 +676,9 @@ export default function DebuggerView() {
           </DebugSection>
 
           <DebugSection
+            className={activeDebugTab === "threads" ? "hidden" : undefined}
             title={t("debugger.breakpoints")}
             count={sortedBreakpoints.length}
-            className="col-span-2"
             action={
               sortedBreakpoints.length > 0 ? (
                 <Button
@@ -563,6 +708,7 @@ export default function DebuggerView() {
               onRemove={(breakpoint) => debuggerActions.removeBreakpoint(breakpoint.id)}
             />
           </DebugSection>
+          </div>
         </div>
       </div>
     </div>

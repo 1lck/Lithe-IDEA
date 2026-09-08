@@ -414,6 +414,12 @@ struct CommitMessageSettingsTests {
     @Test
     func bundledThemeTokensMatchTheirDefinitions() {
         let cases: [(AppColorTheme, Bool, LitheTheme.ResolvedColorToken, UInt32)] = [
+            (.lithe, false, .editor, 0xffffff),
+            (.lithe, false, .toolHeader, 0xfbfbfc),
+            (.lithe, false, .primaryText, 0x1f2329),
+            (.lithe, false, .secondaryText, 0x5f6570),
+            (.lithe, false, .accent, 0x3574f0),
+            (.lithe, false, .divider, 0xd8dadf),
             (.codex, true, .editor, 0x111111),
             (.codex, true, .primaryText, 0xfcfcfc),
             (.codex, true, .accent, 0x0169cc),
@@ -447,7 +453,7 @@ struct CommitMessageSettingsTests {
     }
 
     @Test
-    func bundledToolWindowSurfacesMatchTheEditorSurface() {
+    func bundledToolWindowSurfacesFollowTheirThemeHierarchy() {
         for theme in AppColorTheme.allCases {
             for isDark in [false, true] {
                 let editor = rgbHex(LitheTheme.nsColor(.editor, theme: theme, isDark: isDark))
@@ -455,7 +461,11 @@ struct CommitMessageSettingsTests {
                 let toolHeader = rgbHex(LitheTheme.nsColor(.toolHeader, theme: theme, isDark: isDark))
 
                 #expect(sidebar == editor)
-                #expect(toolHeader == editor)
+                if theme == .lithe, !isDark {
+                    #expect(toolHeader != editor)
+                } else {
+                    #expect(toolHeader == editor)
+                }
             }
         }
     }

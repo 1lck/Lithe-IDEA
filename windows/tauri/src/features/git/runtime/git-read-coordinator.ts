@@ -37,6 +37,7 @@ export function runGitRead<T>(
   repoPath: string,
   queryKey: string,
   read: () => Promise<T>,
+  options?: { retryOnInvalidation?: boolean },
 ): Promise<T> {
   const key = JSON.stringify([repoPath, queryKey]);
   const existing = inFlightReads.get(key) as Promise<T> | undefined;
@@ -45,8 +46,8 @@ export function runGitRead<T>(
   const generation = getGeneration(repoPath);
   const request = read()
     .then((value) => {
-      if (generation !== getGeneration(repoPath)) {
-        return runGitRead(repoPath, queryKey, read);
+      if (generation !== getGeneration(repoPath) && options?.retryOnInvalidation !== false) {
+        return runGitRead(repoPath, queryKey, read, options);
       }
       return value;
     })

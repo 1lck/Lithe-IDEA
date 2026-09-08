@@ -55,6 +55,12 @@ extension AppModel {
                 return true
             }
             requestCloseTerminalSession(session)
+        case .media(let mediaID):
+            if let media = openMediaDocuments.first(where: { $0.id == mediaID }) {
+                closeMediaDocument(media)
+            } else {
+                editorTabOrderFeature.remove(item)
+            }
         }
         return true
     }

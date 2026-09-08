@@ -26,6 +26,7 @@ function mavenProject(artifactId: string): MavenProject {
     relativePath: ".",
     artifactId,
     packaging: "jar",
+    sourceRoots: [],
     modules: [],
     profiles: [],
     hasWrapper: true,

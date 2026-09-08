@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import ProjectIconPicker from "@/features/window/components/project-icon-picker";
+import { promptProjectDisplayAlias } from "@/features/window/controllers/prompt-project-display-alias";
 import type { ProjectTab } from "@/features/window/stores/workspace-tabs.store";
+import { getProjectDisplayLabel } from "@/features/window/utils/project-display-label";
 import { createAppWindow } from "@/features/window/utils/create-app-window";
 import {
   ContextMenu,
@@ -15,6 +17,7 @@ import {
   FolderOpenIcon,
   ImageIcon,
   OpenExternalIcon,
+  PencilSimpleLineIcon,
   TrashIcon,
   WindowExpandIcon,
 } from "@/ui/icons";
@@ -55,6 +58,7 @@ export function SidebarProjectDots({
         {projects.map((project) => {
           const isRemote = isRemoteProjectPath(project.path);
           const isActive = project.id === activeProjectId;
+          const displayName = getProjectDisplayLabel(project);
 
           return (
             <ContextMenu key={project.id}>
@@ -67,8 +71,8 @@ export function SidebarProjectDots({
                 )}
                 aria-label={
                   isActive
-                    ? t("titleProject.currentProject", { project: project.name })
-                    : t("titleProject.switchToProject", { project: project.name })
+                    ? t("titleProject.currentProject", { project: displayName })
+                    : t("titleProject.switchToProject", { project: displayName })
                 }
                 aria-current={isActive ? "page" : undefined}
                 aria-disabled={isSwitchingProject}
@@ -138,6 +142,10 @@ export function SidebarProjectDots({
                     {t("titleProject.selectIcon")}
                   </ContextMenuItem>
                 ) : null}
+                <ContextMenuItem onClick={() => void promptProjectDisplayAlias(project)}>
+                  <PencilSimpleLineIcon />
+                  {t("titleProject.setDisplayAlias")}
+                </ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem
                   variant="destructive"

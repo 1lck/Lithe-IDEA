@@ -8,6 +8,7 @@
         "reactorPath": "projects/demo",
         "profiles": ["qa", "dev", "dev"],
         "settingsPath": "/Users/example/.m2/settings.xml",
+        "localRepositoryPath": "/Users/example/.m2/custom-repository",
         "skipTests": true,
         "mavenExecutablePath": "/opt/apache-maven/bin/mvn",
         "javaHomePath": "/Library/Java/JavaVirtualMachines/example/Contents/Home"
@@ -24,6 +25,7 @@
           "dev,qa",
           "-s",
           "/Users/example/.m2/settings.xml",
+          "-Dmaven.repo.local=/Users/example/.m2/custom-repository",
           "-pl",
           "service-api",
           "-am",
@@ -31,7 +33,7 @@
           "verify"
         ],
         "workingDirectory": "projects/demo",
-        "configurationFingerprint": "sha256:8e665a85f0c0a9fa5567cfc88d90cc1e794a34810b4617662c5610699ad22df6"
+        "configurationFingerprint": "sha256:0e84a43d287c8e889ff15740114e8de0d719cbf3ca6b6ce3530b97e164770f4a"
       }
     },
     {
@@ -49,7 +51,7 @@
         "executable": { "toolchain": "project-maven" },
         "arguments": ["-B", "-ntp", "spring-boot:run"],
         "workingDirectory": ".",
-        "configurationFingerprint": "sha256:225165d5264a20dba15802483efebc3a0d29abb16f36702d599324891e242511"
+        "configurationFingerprint": "sha256:65a5de6ae2a3135ad844ed30ba8558865f97a6696654a83d3d1d8544cc63380f"
       }
     },
     {
@@ -79,7 +81,7 @@
           "-DforceStdout"
         ],
         "workingDirectory": ".",
-        "configurationFingerprint": "sha256:225165d5264a20dba15802483efebc3a0d29abb16f36702d599324891e242511"
+        "configurationFingerprint": "sha256:65a5de6ae2a3135ad844ed30ba8558865f97a6696654a83d3d1d8544cc63380f"
       }
     }
   ]

@@ -104,7 +104,7 @@ struct JavaTestDebugLaunchServiceTests {
 
         model.debugTest(providerID: "java", scope: .workspace)
 
-        #expect(model.notificationMessage == "Select a Java test file or test case to debug")
+        #expect(model.activeNotifications.last?.message == "Select a Java test file or test case to debug")
         #expect(model.javaTestWorkflowState.debugLaunchTask == nil)
         #expect(model.javaTestWorkflowState.debugLaunchOperationID == nil)
     }
@@ -155,6 +155,46 @@ struct JavaTestDebugLaunchServiceTests {
         model.handleDebugSessionStateChange(.terminated)
         #expect(resultServer.stopCount == 1)
         #expect(model.javaTestWorkflowState.resultServer == nil)
+    }
+
+    @Test
+    func workflowCoordinatorCleansUpWhenGenericDebugStartFails() async {
+        let notifications = NotificationSpy()
+        let state = JavaTestWorkflowState(notify: notifications.notify)
+        let coordinator = JavaTestDebugWorkflowCoordinator(notify: notifications.notify)
+        let actions = WorkflowActionsSpy()
+        coordinator.connect(actions: actions)
+        let resultServer = TestJavaTestResultServer(port: 43_128)
+        let prepared = PreparedJavaTestDebugLaunch(
+            target: javaTestTarget(
+                fileURL: URL(fileURLWithPath: "/workspace/UserServiceTest.java")
+            ),
+            configuration: DebugLaunchConfiguration(
+                name: "UserServiceTest",
+                request: .launch,
+                arguments: [:]
+            ),
+            resultServer: resultServer
+        )
+
+        coordinator.start(
+            request: JavaTestDebugRequest(
+                fileURL: prepared.target.fileURL,
+                testIdentifier: nil
+            ),
+            state: state,
+            prepareDirtyDocument: { true },
+            prepareLaunch: { prepared },
+            startDebug: { _ in false },
+            errorMessage: { "debug launch failed" }
+        )
+        await Task.yield()
+        await Task.yield()
+
+        #expect(resultServer.stopCount == 1)
+        #expect(state.resultServer == nil)
+        #expect(notifications.messages == ["debug launch failed"])
+        #expect(!actions.events.contains("show-debug"))
     }
 
     @Test

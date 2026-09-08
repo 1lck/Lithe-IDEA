@@ -6,6 +6,8 @@ import { useFileSystemFolderDrop } from "@/features/file-system/hooks/use-file-s
 import { openDroppedWorkspacePaths } from "@/features/file-system/utils/open-dropped-workspace-paths";
 import { useGitStore } from "@/features/git/stores/git.store";
 import { isGitChangeRelevant, subscribeToGitChanges } from "@/features/git/events/git-events";
+import { closeMavenToolWindow } from "@/features/maven/actions/maven-tool-window-actions";
+import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useOnboardingStore } from "@/features/onboarding/stores/onboarding.store";
 import { CachedWorkspaceSplitViews } from "@/features/panes/components/split-view-root";
@@ -16,6 +18,7 @@ import { isWslPath } from "@/features/wsl/utils/wsl-path";
 import { useTerminalStore } from "@/features/terminal/stores/terminal.store";
 import { useMenuEventsWrapper } from "@/features/window/hooks/use-menu-events-wrapper";
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
+import { getProjectDisplayLabel } from "@/features/window/utils/project-display-label";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { toast } from "sonner";
 import { useTranslation } from "@/i18n/locale-provider";
@@ -71,6 +74,7 @@ const TerminalHost = lazy(() =>
   })),
 );
 const BottomPane = lazy(() => import("./bottom-pane/bottom-pane"));
+const MavenPane = lazy(() => import("@/features/maven/components/maven-pane"));
 
 export function MainLayout() {
   const { t } = useTranslation();
@@ -81,6 +85,8 @@ export function MainLayout() {
   const isSidebarVisible = useUIState((state) => state.isSidebarVisible);
   const isRightSidebarVisible = useUIState((state) => state.isRightSidebarVisible);
   const activeRightSidebarView = useUIState((state) => state.activeRightSidebarView);
+  const mavenProjectStatus = useMavenStore((state) => state.projectStatus);
+  const mavenProject = useMavenStore((state) => state.project);
   const sidebarWidth = useSettingsStore((state) => state.settings.sidebarWidth);
   const showStatusBar = useSettingsStore((state) => state.settings.showStatusBar);
   const isDatabaseConnectionVisible = useUIState((state) => state.isDatabaseConnectionVisible);
@@ -91,6 +97,9 @@ export function MainLayout() {
     COLLAPSED_ACTIVITY_RAIL_WIDTH + (isSidebarVisible ? sidebarWidth : 0);
   const isNotificationsVisible =
     isRightSidebarVisible && activeRightSidebarView === "notifications";
+  const isMavenSelected = activeRightSidebarView === "maven";
+  const isMavenVisible = isRightSidebarVisible && isMavenSelected;
+  const isRightToolWindowVisible = isNotificationsVisible || isMavenVisible;
   const vimRelativeLineNumbers = useSettingsStore((state) => state.settings.vimRelativeLineNumbers);
   const relativeLineNumbers = useVimStore.use.relativeLineNumbers();
   const { setRelativeLineNumbers } = useVimStore.use.actions();
@@ -145,6 +154,12 @@ export function MainLayout() {
   }, []);
 
   useEffect(() => {
+    if (isMavenVisible && mavenProjectStatus === "ready" && !mavenProject) {
+      closeMavenToolWindow();
+    }
+  }, [isMavenVisible, mavenProject, mavenProjectStatus]);
+
+  useEffect(() => {
     if (!onboardingOpen || !onboardingContext) return;
 
     openOnboardingBuffer(onboardingContext);
@@ -185,7 +200,9 @@ export function MainLayout() {
         }
 
         useWorkspaceTabsStore.getState().actions.removeProjectTab(activeTab.id);
-        toast.warning(t("fileSystem.removedMissingProject", { name: activeTab.name }));
+        toast.warning(
+          t("fileSystem.removedMissingProject", { name: getProjectDisplayLabel(activeTab) }),
+        );
       }
     };
 
@@ -303,7 +320,7 @@ export function MainLayout() {
               <ResizablePane
                 position="right"
                 widthKey="rightToolWindowWidth"
-                hidden={!isNotificationsVisible}
+                hidden={!isRightToolWindowVisible}
                 outerEdge={false}
                 reservedWidth={leftPaneReservedWidth + COLLAPSED_ACTIVITY_RAIL_WIDTH}
               >
@@ -311,6 +328,11 @@ export function MainLayout() {
                   isVisible={isNotificationsVisible}
                   onClose={closeNotificationsToolWindow}
                 />
+                {isMavenSelected ? (
+                  <Suspense fallback={null}>
+                    <MavenPane onClose={closeMavenToolWindow} />
+                  </Suspense>
+                ) : null}
               </ResizablePane>
               <PluginActivityRail />
             </div>

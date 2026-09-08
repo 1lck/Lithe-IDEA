@@ -45,11 +45,7 @@ function InitialWindowShell() {
 
   return (
     <div className="h-dvh w-dvw overflow-hidden bg-surface">
-      <div
-        className="h-10 w-full bg-surface/70"
-        data-tauri-drag-region
-        onMouseDown={handleMouseDown}
-      />
+      <div className="h-10 w-full bg-surface/70" onMouseDown={handleMouseDown} />
       <div className="h-[calc(100dvh-2.5rem)] w-full bg-background" />
     </div>
   );

@@ -1385,6 +1385,7 @@ fn framework_launch_plans_use_each_goal_s_own_property_names() {
             "-ntp",
             "-pl",
             "api",
+            "-am",
             "-Djvm.args=-Xmx2g",
             "-Dquarkus.args=--dev",
             "quarkus:dev"
@@ -1397,6 +1398,7 @@ fn framework_launch_plans_use_each_goal_s_own_property_names() {
             "-ntp",
             "-pl",
             "api",
+            "-am",
             "-Dmn.jvmArgs=-Xmx2g",
             "-Dmn.appArgs=--dev",
             "mn:run"
@@ -1407,20 +1409,20 @@ fn framework_launch_plans_use_each_goal_s_own_property_names() {
     // into the JVM arguments as well would leave two agents contending for one
     // port, and the service would fail to bind rather than start.
     let quarkus = arguments("quarkus", serde_json::json!(5005));
-    assert_eq!(quarkus[4], "-Djvm.args=-Xmx2g");
-    assert_eq!(quarkus[6], "-Ddebug=5005");
+    assert_eq!(quarkus[5], "-Djvm.args=-Xmx2g");
+    assert_eq!(quarkus[7], "-Ddebug=5005");
     // Suspend so a breakpoint in initialisation is still reachable: Quarkus dev
     // mode does not suspend by default.
-    assert_eq!(quarkus[7], "-Dsuspend=y");
+    assert_eq!(quarkus[8], "-Dsuspend=y");
     assert!(
         !quarkus.to_string().contains("agentlib:jdwp"),
         "{quarkus:?}"
     );
 
     let micronaut = arguments("micronaut", serde_json::json!(5005));
-    assert_eq!(micronaut[6], "-Dmn.debug=true");
-    assert_eq!(micronaut[7], "-Dmn.debug.port=5005");
-    assert_eq!(micronaut[8], "-Dmn.debug.suspend=true");
+    assert_eq!(micronaut[7], "-Dmn.debug=true");
+    assert_eq!(micronaut[8], "-Dmn.debug.port=5005");
+    assert_eq!(micronaut[9], "-Dmn.debug.suspend=true");
     assert!(
         !micronaut.to_string().contains("agentlib:jdwp"),
         "{micronaut:?}"

@@ -9,7 +9,7 @@ import LitheRustCore
 /// The JSON request/response shape is also the contract that the future
 /// Windows Qt binding will consume. The bridge stays synchronous at this
 /// layer; callers move filesystem and Git work off the main actor.
-struct RustCoreBridge: Sendable {
+struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     private struct Request<Payload: Encodable>: Encodable {
         let id: String
         let operationId: String?
@@ -204,7 +204,62 @@ struct RustCoreBridge: Sendable {
         let html: String
     }
 
+    struct DiagnosticsRedactTextPayload: Decodable, Sendable {
+        let redacted: String
+    }
+
+    struct DiagnosticsManifestPayload: Decodable, Sendable {
+        struct Environment: Decodable, Sendable {
+            let appVersion: String
+            let osName: String
+            let osVersion: String
+            let cpuCoreCount: Int
+            let memoryRssBytes: Int64
+            let diskFreeBytes: Int64
+        }
+
+        struct FileEntry: Decodable, Sendable {
+            let relativePath: String
+            let sizeBytes: Int64
+            let description: String
+        }
+
+        let schemaVersion: Int
+        let generatedAtEpochMilliseconds: Int64
+        let environment: Environment
+        let files: [FileEntry]
+    }
+
+    /// Environment facts a caller gathers natively and passes to
+    /// `buildDiagnosticsManifest`; the Rust Core never reads the filesystem
+    /// or process table itself.
+    struct DiagnosticsEnvironmentInfo: Sendable {
+        let appVersion: String
+        let osName: String
+        let osVersion: String
+        let cpuCoreCount: Int
+        let memoryRssBytes: Int64
+        let diskFreeBytes: Int64
+    }
+
+    /// One file a caller has already redacted and staged for a diagnostic bundle.
+    struct DiagnosticsFileEntryInput: Sendable {
+        let relativePath: String
+        let sizeBytes: Int64
+        let description: String
+    }
+
     struct MavenScanPayload: Decodable, Sendable {
+        struct SourceRoot: Decodable, Sendable {
+            let path: String
+            let kind: String
+
+            func makeModel() -> MavenSourceRoot? {
+                guard let kind = MavenSourceRootKind(rawValue: kind) else { return nil }
+                return MavenSourceRoot(path: path, kind: kind)
+            }
+        }
+
         struct Profile: Decodable, Sendable {
             let id: String
             let isActiveByDefault: Bool
@@ -220,6 +275,7 @@ struct RustCoreBridge: Sendable {
             let artifactID: String
             let version: String?
             let packaging: String
+            let sourceRoots: [SourceRoot]?
             let modules: [Module]
 
             enum CodingKeys: String, CodingKey {
@@ -228,6 +284,7 @@ struct RustCoreBridge: Sendable {
                 case artifactID = "artifactId"
                 case version
                 case packaging
+                case sourceRoots
                 case modules
             }
 
@@ -239,7 +296,8 @@ struct RustCoreBridge: Sendable {
                     artifactID: artifactID,
                     version: version,
                     packaging: packaging,
-                    modules: modules.map { $0.makeModel(rootURL: rootURL) }
+                    modules: modules.map { $0.makeModel(rootURL: rootURL) },
+                    sourceRoots: sourceRoots?.compactMap { $0.makeModel() } ?? []
                 )
             }
         }
@@ -249,6 +307,7 @@ struct RustCoreBridge: Sendable {
         let artifactID: String
         let version: String?
         let packaging: String
+        let sourceRoots: [SourceRoot]?
         let modules: [Module]
         let profiles: [Profile]
         let hasWrapper: Bool
@@ -259,6 +318,7 @@ struct RustCoreBridge: Sendable {
             case artifactID = "artifactId"
             case version
             case packaging
+            case sourceRoots
             case modules
             case profiles
             case hasWrapper
@@ -279,7 +339,8 @@ struct RustCoreBridge: Sendable {
                 profiles: profiles.map {
                     MavenProfile(id: $0.id, isActiveByDefault: $0.isActiveByDefault)
                 },
-                hasWrapper: hasWrapper
+                hasWrapper: hasWrapper,
+                sourceRoots: sourceRoots?.compactMap { $0.makeModel() } ?? []
             )
         }
     }
@@ -314,6 +375,66 @@ struct RustCoreBridge: Sendable {
                 arguments: arguments,
                 workingDirectory: workingDirectory,
                 configurationFingerprint: configurationFingerprint
+            )
+        }
+    }
+
+    struct MavenDependenciesPayload: Decodable, Sendable {
+        struct Dependency: Decodable, Sendable {
+            let modulePath: String
+            let groupID: String
+            let artifactID: String
+            let version: String
+            let type: String
+            let classifier: String?
+            let scope: String
+            let resolution: String
+            let selectedVersion: String?
+            let children: [Dependency]
+
+            enum CodingKeys: String, CodingKey {
+                case modulePath
+                case groupID = "groupId"
+                case artifactID = "artifactId"
+                case version
+                case type
+                case classifier
+                case scope
+                case resolution
+                case selectedVersion
+                case children
+            }
+
+            func makeModel() throws -> MavenDependency {
+                guard let resolution = MavenDependencyResolution(rawValue: resolution) else {
+                    throw MavenOperationError(
+                        code: "parse_failed",
+                        message: "Maven dependency resolution state is invalid.",
+                        details: resolution
+                    )
+                }
+                return MavenDependency(
+                    modulePath: modulePath,
+                    groupID: groupID,
+                    artifactID: artifactID,
+                    version: version,
+                    type: type,
+                    classifier: classifier,
+                    scope: scope,
+                    resolution: resolution,
+                    selectedVersion: selectedVersion,
+                    children: try children.map { try $0.makeModel() }
+                )
+            }
+        }
+
+        let modulePath: String
+        let dependencies: [Dependency]
+
+        func makeModel() throws -> MavenDependencyTree {
+            MavenDependencyTree(
+                modulePath: modulePath,
+                dependencies: try dependencies.map { try $0.makeModel() }
             )
         }
     }
@@ -818,6 +939,18 @@ struct RustCoreBridge: Sendable {
             let conflictedPaths: [String]
         }
 
+        struct TagDeletion: Decodable, Sendable {
+            let name: String
+            let deletedTarget: String
+            let kind: GitTagKind
+            let message: String?
+        }
+
+        struct BranchDeletion: Decodable, Sendable {
+            let name: String
+            let deletedTarget: String
+        }
+
         struct Warning: Decodable, Sendable {
             let code: String
             let message: String
@@ -832,6 +965,8 @@ struct RustCoreBridge: Sendable {
         let invocations: [Invocation]?
         let operationError: OperationError?
         let stashRestore: StashRestore?
+        let tagDeletion: TagDeletion?
+        let branchDeletion: BranchDeletion?
         let warnings: [Warning]?
     }
 
@@ -906,6 +1041,7 @@ struct RustCoreBridge: Sendable {
             let fullName: String
             let shortName: String
             let kind: String
+            let peelsToCommit: Bool
             let isCurrent: Bool
             let upstreamShortName: String?
         }
@@ -936,6 +1072,7 @@ struct RustCoreBridge: Sendable {
                         fullName: reference.fullName,
                         shortName: reference.shortName,
                         kind: kind,
+                        peelsToCommit: reference.peelsToCommit,
                         isCurrent: reference.isCurrent,
                         upstreamShortName: reference.upstreamShortName
                     )
@@ -946,6 +1083,7 @@ struct RustCoreBridge: Sendable {
                         fullName: reference.fullName,
                         shortName: reference.shortName,
                         kind: kind,
+                        peelsToCommit: reference.peelsToCommit,
                         isCurrent: reference.isCurrent,
                         upstreamShortName: reference.upstreamShortName
                     )
@@ -966,6 +1104,59 @@ struct RustCoreBridge: Sendable {
                 identity: (userName == nil && userEmail == nil)
                     ? nil
                     : GitIdentity(name: userName, email: userEmail)
+            )
+        }
+    }
+
+    struct GitReferencesPayload: Decodable, Sendable {
+        let references: [GitHistoryPayload.Reference]
+        let recentReferences: [GitHistoryPayload.Reference]
+        let userName: String?
+        let userEmail: String?
+
+        func makeSnapshot() -> GitReferenceSnapshot {
+            GitReferenceSnapshot(
+                references: references.compactMap(makeReference),
+                recentReferences: recentReferences.compactMap(makeReference),
+                identity: (userName == nil && userEmail == nil)
+                    ? nil
+                    : GitIdentity(name: userName, email: userEmail)
+            )
+        }
+
+        private func makeReference(_ reference: GitHistoryPayload.Reference) -> GitReference? {
+            guard let kind = GitReferenceKind(rawValue: reference.kind) else { return nil }
+            return GitReference(
+                fullName: reference.fullName,
+                shortName: reference.shortName,
+                kind: kind,
+                isCurrent: reference.isCurrent,
+                upstreamShortName: reference.upstreamShortName
+            )
+        }
+    }
+
+    struct GitHistoryPagePayload: Decodable, Sendable {
+        let commits: [GitHistoryPayload.Commit]
+        let nextCursor: String?
+        let hasMore: Bool
+
+        func makePage() -> GitHistoryPage {
+            GitHistoryPage(
+                commits: commits.map { commit in
+                    GitCommit(
+                        hash: commit.hash,
+                        shortHash: commit.shortHash,
+                        parentHashes: commit.parentHashes,
+                        authorName: commit.authorName,
+                        authorEmail: commit.authorEmail,
+                        date: commit.date,
+                        subject: commit.subject,
+                        decorations: commit.decorations
+                    )
+                },
+                nextCursor: nextCursor,
+                hasMore: hasMore
             )
         }
     }
@@ -1116,6 +1307,40 @@ struct RustCoreBridge: Sendable {
         }
     }
 
+    struct GitWorktreesPayload: Decodable, Sendable {
+        struct Worktree: Decodable, Sendable {
+            let path: String
+            let head: String
+            let branch: String?
+            let isCurrent: Bool
+            let isPrimary: Bool
+            let isBare: Bool
+            let isDetached: Bool
+            let isLocked: Bool
+            let lockReason: String?
+            let isPrunable: Bool
+            let pruneReason: String?
+
+            func makeModel() -> GitWorktree {
+                GitWorktree(
+                    path: path,
+                    head: head,
+                    branch: branch,
+                    isCurrent: isCurrent,
+                    isPrimary: isPrimary,
+                    isBare: isBare,
+                    isDetached: isDetached,
+                    isLocked: isLocked,
+                    lockReason: lockReason,
+                    isPrunable: isPrunable,
+                    pruneReason: pruneReason
+                )
+            }
+        }
+
+        let worktrees: [Worktree]
+    }
+
     struct GitPullRequestContextPayload: Decodable, Sendable {
         let currentBranch: String?
         let suggestedBaseBranch: String?
@@ -1226,8 +1451,39 @@ struct RustCoreBridge: Sendable {
         let goals: [String]
     }
 
+    private struct MavenDependencyPlanRequest: Encodable {
+        let root: String
+        let context: MavenLaunchContext
+        let module: String?
+    }
+
     private struct MarkdownRenderRequest: Encodable {
         let source: String
+    }
+
+    private struct DiagnosticsRedactTextRequest: Encodable {
+        let text: String
+    }
+
+    private struct DiagnosticsManifestRequest: Encodable {
+        struct Environment: Encodable {
+            let appVersion: String
+            let osName: String
+            let osVersion: String
+            let cpuCoreCount: Int
+            let memoryRssBytes: Int64
+            let diskFreeBytes: Int64
+        }
+
+        struct FileEntry: Encodable {
+            let relativePath: String
+            let sizeBytes: Int64
+            let description: String
+        }
+
+        let environment: Environment
+        let files: [FileEntry]
+        let generatedAtEpochMilliseconds: Int64
     }
 
     private struct LspTextEditsRequest: Encodable {
@@ -1483,10 +1739,23 @@ struct RustCoreBridge: Sendable {
     }
 
     private struct LspSyncDocumentRequest: Encodable {
+        struct Change: Encodable {
+            let range: Range
+            let text: String
+        }
+        struct Position: Encodable {
+            let line: Int
+            let character: Int
+        }
+        struct Range: Encodable {
+            let start: LspSyncDocumentRequest.Position
+            let end: LspSyncDocumentRequest.Position
+        }
         let sessionId: String
         let uri: String
         let languageId: String
         let text: String
+        let contentChanges: [Change]
     }
 
     private struct LspWorkspaceFilesChangedRequest: Encodable {
@@ -1622,6 +1891,11 @@ struct RustCoreBridge: Sendable {
 
     private struct MavenDiagnosticsRequest: Encodable {
         let root: String
+        let output: String
+    }
+
+    private struct MavenDependenciesRequest: Encodable {
+        let modulePath: String
         let output: String
     }
 
@@ -1782,6 +2056,26 @@ struct RustCoreBridge: Sendable {
         let root: String
         let reference: String?
         let limit: Int
+    }
+
+    private struct GitReferencesRequest: Encodable {
+        let root: String
+    }
+
+    private struct GitHistoryPageRequest: Encodable {
+        let root: String
+        let reference: String?
+        let cursor: String?
+        let limit: Int
+    }
+
+    private struct GitHistoryCursorCloseRequest: Encodable {
+        let root: String
+        let cursor: String
+    }
+
+    private struct GitHistoryCursorClosePayload: Decodable {
+        let closed: Bool
     }
 
     private struct GitCommitRequest: Encodable {
@@ -2355,6 +2649,31 @@ struct RustCoreBridge: Sendable {
         )
     }
 
+    func mavenDependencyPlan(
+        at rootURL: URL,
+        context: MavenLaunchContext,
+        module: String?
+    ) -> Result<MavenLaunchPlanPayload, CoreCallError> {
+        executeResult(
+            command: "maven.dependencyPlan",
+            payload: MavenDependencyPlanRequest(
+                root: rootURL.standardizedFileURL.path,
+                context: context,
+                module: module
+            )
+        )
+    }
+
+    func mavenDependencies(
+        modulePath: String,
+        output: String
+    ) -> Result<MavenDependenciesPayload, CoreCallError> {
+        executeResult(
+            command: "maven.dependencies",
+            payload: MavenDependenciesRequest(modulePath: modulePath, output: output)
+        )
+    }
+
     func mavenDiagnostics(at rootURL: URL, output: String) -> MavenDiagnosticsPayload? {
         execute(
             command: "maven.diagnostics",
@@ -2591,6 +2910,13 @@ struct RustCoreBridge: Sendable {
             payload: GitWatchContextRequest(root: rootURL.standardizedFileURL.path)
         )
         return try? result.get()
+    }
+
+    func gitWorktrees(at rootURL: URL) -> GitWorktreesPayload? {
+        execute(
+            command: "git.worktrees",
+            payload: GitStatusRequest(root: rootURL.standardizedFileURL.path)
+        )
     }
 
     func gitPullRequestContext(
@@ -2847,6 +3173,47 @@ struct RustCoreBridge: Sendable {
         )
     }
 
+    func gitReferences(
+        at rootURL: URL,
+        operationID: String
+    ) -> GitReferencesPayload? {
+        execute(
+            command: "git.references",
+            payload: GitReferencesRequest(root: rootURL.standardizedFileURL.path),
+            operationID: operationID
+        )
+    }
+
+    func gitHistoryPage(
+        at rootURL: URL,
+        reference: String?,
+        cursor: String?,
+        limit: Int,
+        operationID: String
+    ) -> GitHistoryPagePayload? {
+        execute(
+            command: "git.historyPage",
+            payload: GitHistoryPageRequest(
+                root: rootURL.standardizedFileURL.path,
+                reference: reference,
+                cursor: cursor,
+                limit: limit
+            ),
+            operationID: operationID
+        )
+    }
+
+    func closeGitHistoryCursor(at rootURL: URL, cursor: String) -> Bool {
+        let payload: GitHistoryCursorClosePayload? = execute(
+            command: "git.historyCursorClose",
+            payload: GitHistoryCursorCloseRequest(
+                root: rootURL.standardizedFileURL.path,
+                cursor: cursor
+            )
+        )
+        return payload?.closed ?? false
+    }
+
     func gitCommit(at rootURL: URL, commit: String) -> GitCommitPayload? {
         execute(
             command: "git.commit",
@@ -2902,6 +3269,45 @@ struct RustCoreBridge: Sendable {
         executeResult(
             command: "markdown.render",
             payload: MarkdownRenderRequest(source: source)
+        )
+    }
+
+    /// Redacts credentials, tokens, and home-directory paths from diagnostic
+    /// text before it is staged for a diagnostic bundle export.
+    func redactDiagnosticText(_ text: String) -> Result<DiagnosticsRedactTextPayload, CoreCallError> {
+        executeResult(
+            command: "diagnostics.redactText",
+            payload: DiagnosticsRedactTextRequest(text: text)
+        )
+    }
+
+    /// Shapes a deterministic diagnostic bundle manifest from environment and
+    /// file facts the caller already gathered and redacted natively.
+    func buildDiagnosticsManifest(
+        environment: DiagnosticsEnvironmentInfo,
+        files: [DiagnosticsFileEntryInput],
+        generatedAtEpochMilliseconds: Int64
+    ) -> Result<DiagnosticsManifestPayload, CoreCallError> {
+        executeResult(
+            command: "diagnostics.buildManifest",
+            payload: DiagnosticsManifestRequest(
+                environment: DiagnosticsManifestRequest.Environment(
+                    appVersion: environment.appVersion,
+                    osName: environment.osName,
+                    osVersion: environment.osVersion,
+                    cpuCoreCount: environment.cpuCoreCount,
+                    memoryRssBytes: environment.memoryRssBytes,
+                    diskFreeBytes: environment.diskFreeBytes
+                ),
+                files: files.map {
+                    DiagnosticsManifestRequest.FileEntry(
+                        relativePath: $0.relativePath,
+                        sizeBytes: $0.sizeBytes,
+                        description: $0.description
+                    )
+                },
+                generatedAtEpochMilliseconds: generatedAtEpochMilliseconds
+            )
         )
     }
 
@@ -3119,7 +3525,8 @@ struct RustCoreBridge: Sendable {
         sessionID: String,
         fileURL: URL,
         languageID: String,
-        text: String
+        text: String,
+        changes: [LanguageServerDocumentChange] = []
     ) -> Result<LspSyncDocumentPayload, CoreCallError> {
         executeResult(
             command: "lsp.syncDocument",
@@ -3127,9 +3534,53 @@ struct RustCoreBridge: Sendable {
                 sessionId: sessionID,
                 uri: fileURL.standardizedFileURL.absoluteString,
                 languageId: languageID,
-                text: text
+                // Keep the full snapshot for the initial didOpen and as a
+                // recovery source; Rust emits range-based didChange when safe.
+                text: text,
+                contentChanges: changes.map { change in
+                    LspSyncDocumentRequest.Change(
+                        range: .init(
+                            start: LspSyncDocumentRequest.Position(
+                                line: change.start.line,
+                                character: change.start.utf16Column
+                            ),
+                            end: LspSyncDocumentRequest.Position(
+                                line: change.end.line,
+                                character: change.end.utf16Column
+                            )
+                        ),
+                        text: change.text
+                    )
+                }
             )
         )
+    }
+
+    func syncLanguageServerDocument(
+        sessionID: String,
+        fileURL: URL,
+        languageID: String,
+        text: String,
+        changes: [LanguageServerDocumentChange]
+    ) -> Result<LanguageServerDocumentSync, LanguageServerRuntimeFailure> {
+        lspSyncDocument(
+            sessionID: sessionID,
+            fileURL: fileURL,
+            languageID: languageID,
+            text: text,
+            changes: changes
+        ).map {
+            LanguageServerDocumentSync(
+                documentVersion: $0.documentVersion,
+                changed: $0.changed
+            )
+        }.mapError { error in
+            LanguageServerRuntimeFailure(
+                code: error.code,
+                message: error.message,
+                details: error.details
+            )
+        }
     }
 
     func lspWorkspaceFilesChanged(
@@ -3369,9 +3820,14 @@ struct RustCoreBridge: Sendable {
 
     private func execute<Payload: Encodable, Data: Decodable>(
         command: String,
-        payload: Payload
+        payload: Payload,
+        operationID: String? = nil
     ) -> Data? {
-        try? executeResult(command: command, payload: payload).get()
+        try? executeResult(
+            command: command,
+            payload: payload,
+            operationID: operationID
+        ).get()
     }
 
     /// Runs a command whose success carries no data. The core encodes those as a

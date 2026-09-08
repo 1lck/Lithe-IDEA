@@ -20,6 +20,7 @@ function getLanguageId(filePath: string): string | null {
 
 interface ReconstructedContent {
   content: string;
+  lines: string[];
   lineMapping: Map<number, number>;
 }
 
@@ -41,32 +42,51 @@ function reconstructContent(lines: GitDiffLine[], version: "old" | "new"): Recon
 
   return {
     content: contentLines.join("\n"),
+    lines: contentLines,
     lineMapping,
+  };
+}
+
+function clipTokenToLine(
+  token: HighlightToken,
+  line: number,
+  lineLength: number,
+): HighlightToken | null {
+  const startsBeforeLine = token.startPosition.row < line;
+  const endsAfterLine = token.endPosition.row > line;
+  const startColumn = startsBeforeLine ? 0 : token.startPosition.column;
+  const endColumn = endsAfterLine ? lineLength : token.endPosition.column;
+
+  if (endColumn <= startColumn || startColumn >= lineLength) {
+    return null;
+  }
+
+  return {
+    ...token,
+    startIndex: startColumn,
+    endIndex: endColumn,
+    startPosition: { row: 0, column: startColumn },
+    endPosition: { row: 0, column: Math.min(endColumn, lineLength) },
   };
 }
 
 function mapTokensToDiffLines(
   tokensByLine: Map<number, HighlightToken[]>,
   lineMapping: Map<number, number>,
+  reconstructedLines: string[],
 ): Map<number, HighlightToken[]> {
   const result = new Map<number, HighlightToken[]>();
 
   for (const [reconstructedLine, tokens] of tokensByLine) {
     const diffIndex = lineMapping.get(reconstructedLine);
-    if (diffIndex !== undefined) {
-      const adjustedTokens = tokens.map((token) => ({
-        ...token,
-        startPosition: {
-          row: 0,
-          column: token.startPosition.column,
-        },
-        endPosition: {
-          row: token.endPosition.row - token.startPosition.row,
-          column: token.endPosition.column,
-        },
-      }));
-      result.set(diffIndex, adjustedTokens);
-    }
+    if (diffIndex === undefined) continue;
+
+    const lineLength = reconstructedLines[reconstructedLine]?.length ?? 0;
+    const adjustedTokens = tokens
+      .map((token) => clipTokenToLine(token, reconstructedLine, lineLength))
+      .filter((token): token is HighlightToken => token !== null);
+
+    result.set(diffIndex, adjustedTokens);
   }
 
   return result;
@@ -138,8 +158,16 @@ export function createLineBasedDiffTokenMap(
   const newContent = reconstructContent(lines, "new");
   const oldTokensByLine = tokenizeLineBasedContentByLine(oldContent.content, languageId);
   const newTokensByLine = tokenizeLineBasedContentByLine(newContent.content, languageId);
-  const oldTokenMap = mapTokensToDiffLines(oldTokensByLine, oldContent.lineMapping);
-  const newTokenMap = mapTokensToDiffLines(newTokensByLine, newContent.lineMapping);
+  const oldTokenMap = mapTokensToDiffLines(
+    oldTokensByLine,
+    oldContent.lineMapping,
+    oldContent.lines,
+  );
+  const newTokenMap = mapTokensToDiffLines(
+    newTokensByLine,
+    newContent.lineMapping,
+    newContent.lines,
+  );
   const merged = new Map<number, HighlightToken[]>();
 
   for (const [index, tokens] of oldTokenMap) {
@@ -231,8 +259,16 @@ export function useDiffHighlighting(
 
         if (cancelled) return;
 
-        const oldTokenMap = mapTokensToDiffLines(oldTokensByLine, oldContent.lineMapping);
-        const newTokenMap = mapTokensToDiffLines(newTokensByLine, newContent.lineMapping);
+        const oldTokenMap = mapTokensToDiffLines(
+          oldTokensByLine,
+          oldContent.lineMapping,
+          oldContent.lines,
+        );
+        const newTokenMap = mapTokensToDiffLines(
+          newTokensByLine,
+          newContent.lineMapping,
+          newContent.lines,
+        );
 
         const merged = new Map<number, HighlightToken[]>();
 

@@ -34,6 +34,7 @@ export interface GitReference {
   fullName: string;
   shortName: string;
   kind: GitReferenceKind;
+  peelsToCommit: boolean;
   isCurrent: boolean;
   upstreamShortName?: string;
   ahead?: number;
@@ -72,6 +73,17 @@ export interface GitOperationWarning {
 export interface GitPushPreview extends GitPushExpectation {
   upstream: string | null;
   commits: GitCommit[];
+  hasMore: boolean;
+}
+
+export interface GitReferenceSnapshot {
+  references: GitReference[];
+  recentReferences: GitReference[];
+}
+
+export interface GitHistoryPage {
+  commits: GitCommit[];
+  nextCursor?: string;
   hasMore: boolean;
 }
 

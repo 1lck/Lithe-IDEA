@@ -72,70 +72,33 @@ extension AppModel {
             operationID: operationID
         )
         showJavaLanguageServerPreparingNotification()
-        let task = Task { @MainActor [weak self, weak fallbackDocument, weak owner] in
-            guard let owner else { return }
-            guard let self else { return }
-            defer {
-                owner.task = nil
-            }
-            do {
-                let sessions = try await self.languageSessionsForWorkspaceMaintenance()
-                guard self.ownsJavaLanguageServerPreparation(
-                    workspaceURL: normalizedRoot,
-                    operationID: operationID
-                ) else { return }
-                sessions.recordLanguageServerLog(
-                    providerID: "java",
-                    operationID: operationID,
-                    level: .info,
-                    message: "Bundled JDK preparation started",
-                    detail: nil
-                )
-                let preparation = await self.services.projectRuntimeService
+        javaLanguageServerPreparationCoordinator.prepareAndStart(
+            owner: owner,
+            workspaceURL: normalizedRoot,
+            runtimePreparation: { [weak self] in
+                guard let self else { return .unprepared }
+                return await self.services.projectRuntimeService
                     .prepareJavaLanguageServerRuntime()
-                guard !Task.isCancelled,
-                      self.ownsJavaLanguageServerPreparation(
-                        workspaceURL: normalizedRoot,
-                        operationID: operationID
-                      ) else { return }
-                switch preparation {
-                case .unprepared:
-                    return
-                case .failed(let message):
-                    sessions.recordLanguageServerLog(
-                        providerID: "java",
-                        operationID: operationID,
-                        level: .error,
-                        message: "Bundled JDK preparation failed",
-                        detail: message
-                    )
-                    self.failJavaLanguageServerPreparation(
-                        workspaceURL: normalizedRoot,
-                        operationID: operationID,
-                        failure: .failed(message: message)
-                    )
-                    return
-                case .ready(let executableURL):
-                    sessions.recordLanguageServerLog(
-                        providerID: "java",
-                        operationID: operationID,
-                        level: .info,
-                        message: "Bundled JDK preparation succeeded",
-                        detail: executableURL.path
-                    )
+            },
+            sessionsProvider: { [weak self] in
+                guard let self else {
+                    throw CancellationError()
                 }
-                let startedOperationID = try sessions.startLanguageServer(
-                    providerID: "java",
-                    rootURL: normalizedRoot,
-                    operationID: operationID
-                )
-                guard self.ownsJavaLanguageServerPreparation(
+                return try await self.languageSessionsForWorkspaceMaintenance()
+            },
+            ownsPreparation: { [weak self] in
+                guard let self else { return false }
+                return self.ownsJavaLanguageServerPreparation(
                     workspaceURL: normalizedRoot,
                     operationID: operationID
-                ) else { return }
+                )
+            },
+            onStarted: { [weak self, weak fallbackDocument] startedOperationID in
+                guard let self else { return }
                 if startedOperationID != operationID {
                     owner.operationID = startedOperationID
-                    if let currentState = sessions.languageServerStates["java"] {
+                    if let currentState = self.languageToolingSessionsIfActive?
+                        .languageServerStates["java"] {
                         self.handleJavaLanguageServerState(
                             currentState,
                             operationID: startedOperationID
@@ -146,29 +109,15 @@ extension AppModel {
                    fallbackDocument.url.pathExtension.lowercased() == "java" {
                     _ = self.activateLanguageServerIfAvailable(for: fallbackDocument)
                 }
-            } catch {
-                guard self.ownsJavaLanguageServerPreparation(
-                    workspaceURL: normalizedRoot,
-                    operationID: operationID
-                ) else { return }
-                self.languageToolingSessionsIfActive?.recordLanguageServerLog(
-                    providerID: "java",
-                    operationID: operationID,
-                    level: .error,
-                    message: "Java workspace preparation failed",
-                    detail: error.localizedDescription
-                )
-                let sessionFailure = (error as? LanguageServerSessionStartError)?.failure
-                self.failJavaLanguageServerPreparation(
+            },
+            onFailure: { [weak self] failure in
+                self?.failJavaLanguageServerPreparation(
                     workspaceURL: normalizedRoot,
                     operationID: operationID,
-                    failure: sessionFailure?.isTimedOut == true
-                        ? .timedOut(message: error.localizedDescription)
-                        : .failed(message: error.localizedDescription)
+                    failure: failure
                 )
             }
-        }
-        owner.task = task
+        )
     }
 
     func cancelJavaLanguageServerPreparation() {
@@ -190,27 +139,24 @@ extension AppModel {
         _ state: LanguageServerSessionState,
         operationID: UUID?
     ) {
-        guard let operationID,
-              javaFeature.languageServerOperationID == operationID,
-              let workspaceURL else { return }
-        switch state {
-        case .ready:
-            javaFeature.markLanguageServerReady(
-                workspaceURL: workspaceURL.standardizedFileURL,
-                operationID: operationID
-            )
-            showNotification(String(localized: "Java service is ready"))
-        case .failed(let failure):
-            failJavaLanguageServerPreparation(
-                workspaceURL: workspaceURL,
-                operationID: operationID,
-                failure: failure.isTimedOut
-                    ? .timedOut(message: failure.message ?? "JDTLS failed to start.")
-                    : .failed(message: failure.message ?? "JDTLS failed to start.")
-            )
-        case .startingProcess, .initializing, .stopping, .stopped:
-            break
-        }
+        let currentWorkspaceURL = workspaceURL
+        javaLanguageServerPreparationCoordinator.handleSessionState(
+            state,
+            operationID: operationID,
+            javaFeature: javaFeature,
+            workspaceURL: workspaceURL,
+            onReady: { [weak self] in
+                self?.showNotification(String(localized: "Java service is ready"))
+            },
+            onFailure: { [weak self] failure in
+                guard let self, let operationID, let currentWorkspaceURL else { return }
+                self.failJavaLanguageServerPreparation(
+                    workspaceURL: currentWorkspaceURL,
+                    operationID: operationID,
+                    failure: failure
+                )
+            }
+        )
     }
 
     func isJavaLanguageServerPreparing(for fileURL: URL) -> Bool {
@@ -227,51 +173,21 @@ extension AppModel {
     }
 
     func handleJavaWorkspaceFileChanges(_ changes: [WorkspaceFileChange]) {
-        guard let workspaceURL,
-              let policy = services.javaMavenOperations.javaWorkspacePolicy(
-                at: workspaceURL,
-                files: projectFiles,
-                changedFiles: changes.map(\.fileURL)
-              ) else { return }
-        let changeKinds = Dictionary(
-            uniqueKeysWithValues: changes.map { ($0.fileURL.standardizedFileURL, $0.kind) }
+        guard let workspaceURL else { return }
+        javaLanguageServerPreparationCoordinator.notifyWorkspaceFileChanges(
+            changes,
+            workspaceURL: workspaceURL,
+            projectFiles: projectFiles,
+            openDocuments: openDocuments,
+            policy: { rootURL, files, changedFiles in
+                self.services.javaMavenOperations.javaWorkspacePolicy(
+                    at: rootURL,
+                    files: files,
+                    changedFiles: changedFiles
+                )
+            },
+            sessions: languageToolingSessionsIfActive
         )
-        let openJavaURLs = Set(openDocuments.compactMap { document in
-            document.url.pathExtension.lowercased() == "java"
-                ? document.url.standardizedFileURL
-                : nil
-        })
-        let languageServerChanges = policy.changes.compactMap { change
-            -> LanguageServerWorkspaceFileChange? in
-            guard change.kind == .source || change.kind == .buildConfiguration else {
-                return nil
-            }
-            let url = change.url.standardizedFileURL
-            guard !openJavaURLs.contains(url), let kind = changeKinds[url] else { return nil }
-            let languageServerKind: LanguageServerWorkspaceFileChangeKind = switch kind {
-            case .created: .created
-            case .changed: .changed
-            case .deleted: .deleted
-            }
-            return LanguageServerWorkspaceFileChange(
-                fileURL: url,
-                kind: languageServerKind
-            )
-        }
-        guard !languageServerChanges.isEmpty else { return }
-        do {
-            try languageToolingSessionsIfActive?.notifyWorkspaceFilesChanged(
-                providerID: "java",
-                changes: languageServerChanges
-            )
-        } catch {
-            languageToolingSessionsIfActive?.recordLanguageServerLog(
-                providerID: "java",
-                level: .error,
-                message: "Java workspace change notification failed",
-                detail: error.localizedDescription
-            )
-        }
     }
 
     private func ownsJavaLanguageServerPreparation(
