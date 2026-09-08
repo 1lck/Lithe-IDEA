@@ -867,9 +867,6 @@ export function GitReferenceTree({
                     ) : (
                       <CaretDownIcon className="size-3" />
                     )}
-                    {kind === "tag" ? (
-                      <FolderIcon className="size-3.5 text-subtle-foreground" />
-                    ) : null}
                     {t(titleKey)}
                     <span className="ml-auto text-subtle-foreground tabular-nums">
                       {countGitReferencesByKind(visibleReferences, kind)}
