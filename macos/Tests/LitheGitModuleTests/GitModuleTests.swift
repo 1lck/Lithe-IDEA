@@ -318,6 +318,68 @@ struct GitModuleTests {
     }
 
     @Test
+    func gitRefreshCombinesChangesFromDiscoveredWorkspaceRepositories() async {
+        let workspace = URL(fileURLWithPath: "/workspace")
+        let firstRoot = workspace.appendingPathComponent("service-a", isDirectory: true)
+        let secondRoot = workspace.appendingPathComponent("service-b", isDirectory: true)
+        let firstChange = GitChange(
+            repositoryRoot: firstRoot,
+            path: "src/App.swift",
+            originalPath: nil,
+            indexStatus: "M",
+            workTreeStatus: "M"
+        )
+        let secondChange = GitChange(
+            repositoryRoot: secondRoot,
+            path: "src/App.swift",
+            originalPath: nil,
+            indexStatus: "U",
+            workTreeStatus: "U"
+        )
+        let service = GitService(operations: TestGitOperations(
+            snapshotsByRoot: [
+                firstRoot.standardizedFileURL.path: GitSnapshot(
+                    repositoryRoot: firstRoot,
+                    branch: "main",
+                    changes: [firstChange]
+                ),
+                secondRoot.standardizedFileURL.path: GitSnapshot(
+                    repositoryRoot: secondRoot,
+                    branch: "develop",
+                    changes: [secondChange]
+                )
+            ],
+            repositoryRoots: [firstRoot, secondRoot],
+            commitResult: GitProcessResult(arguments: ["commit"], output: "committed", exitCode: 0)
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(
+            workspaceURLProvider: { workspace },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+
+        #expect(feature.availableRepositoryRoots == [firstRoot, secondRoot])
+        #expect(feature.gitChanges == [firstChange, secondChange])
+        #expect(feature.currentBranch == "main")
+        #expect(feature.activeRepositoryChanges == [firstChange])
+        // A conflict or staged entry in another repository must not block this commit.
+        #expect(await feature.commitStagedChanges(message: "First repository", amend: false))
+        #expect(firstChange.id != secondChange.id)
+        #expect(feature.gitTreeStatus.change(relativePath: firstChange.url.path) == firstChange)
+        #expect(feature.gitTreeStatus.change(relativePath: secondChange.url.path) == secondChange)
+        await feature.selectRepository(secondRoot)
+        #expect(feature.gitRepositoryRoot == secondRoot)
+        #expect(feature.currentBranch == "develop")
+        #expect(feature.activeRepositoryChanges == [secondChange])
+        #expect(await !feature.commitStagedChanges(message: "Conflicted repository", amend: false))
+        #expect(feature.gitChanges == [firstChange, secondChange])
+    }
+
+    @Test
     func gitServiceRecordsElapsedTimeForHistoryOperations() async {
         let root = URL(fileURLWithPath: "/workspace")
         let logger = GitPerformanceLogRecorder()
@@ -2613,6 +2675,8 @@ private final class GitProcessResultQueue: @unchecked Sendable {
 
 private struct TestGitOperations: GitOperations {
     private let snapshotValue: GitSnapshot?
+    private let snapshotsByRoot: [String: GitSnapshot]
+    private let repositoryRoots: [URL]?
     private let comparisonValue: GitBranchComparison?
     private let typedComparisonValue: GitBranchComparison?
     private let filesValue: [GitCommitFile]?
@@ -2625,6 +2689,7 @@ private struct TestGitOperations: GitOperations {
     private let historyController: GitHistoryLoadController?
     private let snapshotGate: GitModuleTestGate?
     private let stageResult: GitProcessResult?
+    private let commitResult: GitProcessResult?
     private let runGate: TestGitRunGate?
     private let filesRecorder: GitFilesCallRecorder?
     private let filesGate: GitFilesLoadGate?
@@ -2640,6 +2705,8 @@ private struct TestGitOperations: GitOperations {
 
     init(
         snapshotValue: GitSnapshot? = nil,
+        snapshotsByRoot: [String: GitSnapshot] = [:],
+        repositoryRoots: [URL]? = nil,
         comparisonValue: GitBranchComparison? = nil,
         typedComparisonValue: GitBranchComparison? = nil,
         historyValue: GitHistorySnapshot? = nil,
@@ -2652,6 +2719,7 @@ private struct TestGitOperations: GitOperations {
         typedComparisonDiffDocumentValue: DiffDocument? = nil,
         snapshotGate: GitModuleTestGate? = nil,
         stageResult: GitProcessResult? = nil,
+        commitResult: GitProcessResult? = nil,
         runGate: TestGitRunGate? = nil,
         filesRecorder: GitFilesCallRecorder? = nil,
         filesGate: GitFilesLoadGate? = nil,
@@ -2666,6 +2734,8 @@ private struct TestGitOperations: GitOperations {
         removeWorktreeResult: GitProcessResult? = nil
     ) {
         self.snapshotValue = snapshotValue
+        self.snapshotsByRoot = snapshotsByRoot
+        self.repositoryRoots = repositoryRoots
         self.comparisonValue = comparisonValue
         self.typedComparisonValue = typedComparisonValue
         self.historyValue = historyValue
@@ -2678,6 +2748,7 @@ private struct TestGitOperations: GitOperations {
         self.typedComparisonDiffDocumentValue = typedComparisonDiffDocumentValue
         self.snapshotGate = snapshotGate
         self.stageResult = stageResult
+        self.commitResult = commitResult
         self.runGate = runGate
         self.filesRecorder = filesRecorder
         self.filesGate = filesGate
@@ -2705,7 +2776,13 @@ private struct TestGitOperations: GitOperations {
 
     func snapshot(at rootURL: URL) -> GitSnapshot? {
         _ = snapshotGate?.waitSynchronously()
+        if let snapshot = snapshotsByRoot[rootURL.standardizedFileURL.path] {
+            return snapshot
+        }
         return snapshotValue
+    }
+    func repositories(in workspaceURL: URL) -> [URL] {
+        repositoryRoots ?? (snapshot(at: workspaceURL).map { [$0.repositoryRoot] } ?? [])
     }
     func watchContext(at rootURL: URL) -> GitWatchContext? { nil }
     func worktrees(at rootURL: URL) -> [GitWorktree]? { nil }
@@ -2767,7 +2844,7 @@ private struct TestGitOperations: GitOperations {
     func unstage(_ change: GitChange) -> GitProcessResult? { nil }
     func discard(_ change: GitChange) -> GitProcessResult? { nil }
     func discardAll(_ change: GitChange) -> GitProcessResult? { nil }
-    func commit(at rootURL: URL, message: String, amend: Bool) -> GitProcessResult? { nil }
+    func commit(at rootURL: URL, message: String, amend: Bool) -> GitProcessResult? { commitResult }
     func cherryPick(_ hash: String, at rootURL: URL) -> GitProcessResult? { nil }
     func revert(_ hash: String, at rootURL: URL) -> GitProcessResult? { nil }
     func resetCurrentBranch(to hash: String, mode: String, at rootURL: URL) -> GitProcessResult? { nil }

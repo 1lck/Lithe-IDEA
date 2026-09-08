@@ -20,11 +20,11 @@ use crate::protocol::{
     GitIntegrationPreflightResponse, GitOperationStateResponse, GitPullPreflightResponse,
     GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse, GitStashResponse,
     GitStashesResponse, GitStatusResponse, GitWatchContextResponse, GitWorktreeResponse,
-    GitWorktreesResponse,
+    GitWorktreesResponse, WorkspaceRepositoriesResponse, WorkspaceRepositoryResponse,
 };
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::io::Read;
 use std::io::Write;
 #[cfg(target_os = "windows")]
@@ -36,8 +36,25 @@ use std::thread;
 use std::time::Duration;
 
 const DEFAULT_PUSH_PREVIEW_LIMIT: usize = 500;
+const DEFAULT_REPOSITORY_SCAN_MAX_DIRECTORIES: usize = usize::MAX;
+const DEFAULT_REPOSITORY_SCAN_MAX_DEPTH: usize = usize::MAX;
 static TEMPORARY_INDEX_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static AUTO_STASH_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+const REPOSITORY_SCAN_SKIP_DIRS: &[&str] = &[".git"];
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Request to discover Git repositories belonging to one opened workspace.
+pub struct WorkspaceRepositoriesRequest {
+    pub root: String,
+    /// Optional traversal budget; defaults to all directories below the workspace.
+    #[serde(default = "default_repository_scan_max_directories")]
+    pub max_directories: usize,
+    /// Optional traversal depth; defaults to the complete workspace tree.
+    #[serde(default = "default_repository_scan_max_depth")]
+    pub max_depth: usize,
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -657,6 +674,105 @@ fn default_review_context_lines() -> usize {
 
 fn default_push_preview_limit() -> usize {
     DEFAULT_PUSH_PREVIEW_LIMIT
+}
+
+fn default_repository_scan_max_directories() -> usize {
+    DEFAULT_REPOSITORY_SCAN_MAX_DIRECTORIES
+}
+
+fn default_repository_scan_max_depth() -> usize {
+    DEFAULT_REPOSITORY_SCAN_MAX_DEPTH
+}
+
+/// Discovers Git repositories for an opened workspace using shared traversal rules.
+pub fn workspace_repositories(
+    request: WorkspaceRepositoriesRequest,
+) -> Result<WorkspaceRepositoriesResponse, CoreError> {
+    let workspace_root = PathBuf::from(validate_root(&request.root)?);
+    let max_directories = request
+        .max_directories
+        .min(DEFAULT_REPOSITORY_SCAN_MAX_DIRECTORIES);
+    let max_depth = request.max_depth.min(DEFAULT_REPOSITORY_SCAN_MAX_DEPTH);
+    let mut discovered_repositories = HashSet::new();
+    let containing_repository = discover_containing_repository(&workspace_root)?;
+
+    if let Some(repository) = &containing_repository {
+        discovered_repositories.insert(repository.clone());
+    }
+
+    let mut queue = VecDeque::from([(workspace_root.clone(), 0usize)]);
+    let mut visited_directories = HashSet::new();
+
+    while let Some((directory, depth)) = queue.pop_front() {
+        crate::protocol::cancellation::check()?;
+        if visited_directories.len() >= max_directories {
+            break;
+        }
+
+        let canonical_directory = match directory.canonicalize() {
+            Ok(path) => path,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(repository_scan_error(error)),
+        };
+        if !canonical_directory.starts_with(&workspace_root) {
+            continue;
+        }
+        if !visited_directories.insert(canonical_directory.clone()) {
+            continue;
+        }
+
+        let entries = std::fs::read_dir(&canonical_directory).map_err(repository_scan_error)?;
+        let mut child_directories = Vec::new();
+        for entry in entries {
+            crate::protocol::cancellation::check()?;
+            let entry = entry.map_err(repository_scan_error)?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name == ".git" {
+                discovered_repositories.insert(canonical_directory.clone());
+                continue;
+            }
+            if REPOSITORY_SCAN_SKIP_DIRS
+                .iter()
+                .any(|skipped| name.eq_ignore_ascii_case(skipped))
+            {
+                continue;
+            }
+            let file_type = entry.file_type().map_err(repository_scan_error)?;
+            if file_type.is_dir() {
+                child_directories.push(entry.path());
+            }
+        }
+        child_directories.sort_by(|left, right| {
+            path_sort_key(left)
+                .cmp(&path_sort_key(right))
+                .then_with(|| left.cmp(right))
+        });
+
+        if depth >= max_depth {
+            continue;
+        }
+        for child_directory in child_directories {
+            queue.push_back((child_directory, depth + 1));
+        }
+    }
+
+    let mut repositories = discovered_repositories
+        .into_iter()
+        .collect::<Vec<PathBuf>>();
+    sort_workspace_repository_paths(&mut repositories, &workspace_root);
+    if let Some(repository) = containing_repository {
+        repositories.retain(|path| path != &repository);
+        repositories.insert(0, repository);
+    }
+
+    Ok(WorkspaceRepositoriesResponse {
+        repositories: repositories
+            .into_iter()
+            .map(|path| WorkspaceRepositoryResponse {
+                path: path.to_string_lossy().replace('\\', "/"),
+            })
+            .collect(),
+    })
 }
 
 /// Executes an argument-based Git command after validating the workspace root.
@@ -2675,6 +2791,60 @@ fn validate_root(raw_root: &str) -> Result<String, CoreError> {
         ));
     }
     Ok(root.to_string_lossy().to_string())
+}
+
+fn repository_scan_error(error: std::io::Error) -> CoreError {
+    CoreError::new(
+        ErrorCode::Unknown,
+        "Could not complete workspace repository discovery",
+    )
+    .with_details(error.to_string())
+}
+
+fn discover_containing_repository(root: &Path) -> Result<Option<PathBuf>, CoreError> {
+    let output = execute_git_readonly(
+        &root.to_string_lossy(),
+        &["rev-parse".into(), "--show-toplevel".into()],
+        None,
+    )?;
+    if output.exit_code != 0 {
+        return Ok(None);
+    }
+    let repository_root = output.stdout.trim();
+    if repository_root.is_empty() {
+        return Ok(None);
+    }
+    let path = PathBuf::from(repository_root)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(repository_root));
+    Ok(Some(path))
+}
+
+fn sort_workspace_repository_paths(paths: &mut [PathBuf], workspace_root: &Path) {
+    paths.sort_by(|left, right| {
+        let left_is_workspace = left == workspace_root;
+        let right_is_workspace = right == workspace_root;
+        if left_is_workspace != right_is_workspace {
+            return right_is_workspace.cmp(&left_is_workspace);
+        }
+
+        let left_inside_workspace = left.starts_with(workspace_root);
+        let right_inside_workspace = right.starts_with(workspace_root);
+        if left_inside_workspace != right_inside_workspace {
+            return right_inside_workspace.cmp(&left_inside_workspace);
+        }
+
+        let left_depth = left.components().count();
+        let right_depth = right.components().count();
+        left_depth
+            .cmp(&right_depth)
+            .then_with(|| path_sort_key(left).cmp(&path_sort_key(right)))
+            .then_with(|| left.cmp(right))
+    });
+}
+
+fn path_sort_key(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/").to_lowercase()
 }
 
 fn required_text(value: Option<&str>, label: &str) -> Result<String, CoreError> {

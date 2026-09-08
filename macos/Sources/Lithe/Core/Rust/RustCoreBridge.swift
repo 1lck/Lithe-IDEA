@@ -77,6 +77,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         }
     }
 
+    struct WorkspaceRepositoryPayload: Decodable, Sendable {
+        let path: String
+    }
+
+    struct WorkspaceRepositoriesPayload: Decodable, Sendable {
+        let repositories: [WorkspaceRepositoryPayload]
+    }
+
     private struct SearchIndexStatusPayload: Decodable {
         let fileCount: Int
         let symbolCount: Int
@@ -1986,6 +1994,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let root: String
     }
 
+    private struct WorkspaceRepositoriesRequest: Encodable {
+        let root: String
+    }
+
     private struct GitWatchContextRequest: Encodable {
         let root: String
     }
@@ -2901,6 +2913,13 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         execute(
             command: "git.status",
             payload: GitStatusRequest(root: rootURL.standardizedFileURL.path)
+        )
+    }
+
+    func workspaceRepositories(at rootURL: URL) -> WorkspaceRepositoriesPayload? {
+        execute(
+            command: "workspace.repositories",
+            payload: WorkspaceRepositoriesRequest(root: rootURL.standardizedFileURL.path)
         )
     }
 

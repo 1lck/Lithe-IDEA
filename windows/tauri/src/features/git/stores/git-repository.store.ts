@@ -5,6 +5,7 @@ import { discoverWorkspaceRepositories, normalizeRepositoryPath } from "../api/g
 
 interface RepositoryState {
   workspaceRootPath: string | null;
+  workspaceDiscoveryKey: string | null;
   workspaceRepoPaths: string[];
   manualRepoPath: string | null;
   manualRepoPaths: string[];
@@ -17,7 +18,7 @@ interface RepositoryState {
 
   actions: {
     syncWorkspaceRepositories: (
-      workspaceRootPath?: string | null,
+      workspaceRootPath?: string | readonly string[] | null,
       options?: { force?: boolean },
     ) => Promise<void>;
     refreshWorkspaceRepositories: () => Promise<void>;
@@ -47,6 +48,7 @@ const getWorkspaceDefaultRepo = (workspaceRepos: string[]): string | null => {
 
 const initialState = {
   workspaceRootPath: null,
+  workspaceDiscoveryKey: null,
   workspaceRepoPaths: [],
   manualRepoPath: null,
   manualRepoPaths: [],
@@ -65,9 +67,13 @@ export const createGitRepositoryStore = () =>
     actions: {
       syncWorkspaceRepositories: async (workspaceRootPath, options) => {
         const force = options?.force ?? false;
-        const normalizedRoot = workspaceRootPath
-          ? normalizeRepositoryPath(workspaceRootPath)
-          : null;
+        const normalizedRoots = (
+          Array.isArray(workspaceRootPath) ? workspaceRootPath : [workspaceRootPath]
+        )
+          .filter((path): path is string => !!path)
+          .map((path) => normalizeRepositoryPath(path));
+        const normalizedRoot = normalizedRoots[0] ?? null;
+        const workspaceDiscoveryKey = [...new Set(normalizedRoots)].join("\0");
 
         if (!normalizedRoot) {
           set((state) => {
@@ -75,6 +81,7 @@ export const createGitRepositoryStore = () =>
             const activeRepoPath = state.activeRepoPath ?? state.manualRepoPath ?? null;
             return {
               workspaceRootPath: null,
+              workspaceDiscoveryKey: null,
               workspaceRepoPaths: [],
               availableRepoPaths,
               activeRepoPath,
@@ -90,7 +97,7 @@ export const createGitRepositoryStore = () =>
         const current = get();
         if (
           !force &&
-          current.workspaceRootPath === normalizedRoot &&
+          current.workspaceDiscoveryKey === workspaceDiscoveryKey &&
           (current.hasDiscoveredWorkspace || current.isDiscovering)
         ) {
           return;
@@ -99,18 +106,19 @@ export const createGitRepositoryStore = () =>
         const requestId = current.discoveryRequestId + 1;
         set({
           workspaceRootPath: normalizedRoot,
+          workspaceDiscoveryKey,
           isDiscovering: true,
           discoveryRequestId: requestId,
           error: null,
         });
 
         try {
-          const discoveredRepos = await discoverWorkspaceRepositories(normalizedRoot, { force });
+          const discoveredRepos = await discoverWorkspaceRepositories(normalizedRoots, { force });
 
           set((state) => {
             if (
               state.discoveryRequestId !== requestId ||
-              state.workspaceRootPath !== normalizedRoot
+              state.workspaceDiscoveryKey !== workspaceDiscoveryKey
             ) {
               return state;
             }
@@ -127,6 +135,7 @@ export const createGitRepositoryStore = () =>
 
             return {
               workspaceRootPath: normalizedRoot,
+              workspaceDiscoveryKey,
               workspaceRepoPaths: discoveredRepos,
               availableRepoPaths,
               activeRepoPath: nextActiveRepoPath,
@@ -137,7 +146,8 @@ export const createGitRepositoryStore = () =>
           });
         } catch (error) {
           set((state) =>
-            state.discoveryRequestId === requestId && state.workspaceRootPath === normalizedRoot
+            state.discoveryRequestId === requestId &&
+            state.workspaceDiscoveryKey === workspaceDiscoveryKey
               ? {
                   isDiscovering: false,
                   hasDiscoveredWorkspace: true,
@@ -149,8 +159,8 @@ export const createGitRepositoryStore = () =>
       },
 
       refreshWorkspaceRepositories: async () => {
-        const { workspaceRootPath, actions } = get();
-        await actions.syncWorkspaceRepositories(workspaceRootPath, { force: true });
+        const { workspaceDiscoveryKey, actions } = get();
+        await actions.syncWorkspaceRepositories(workspaceDiscoveryKey?.split("\0"), { force: true });
       },
 
       selectRepository: (repoPath) => {
