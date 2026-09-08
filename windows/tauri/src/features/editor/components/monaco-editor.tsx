@@ -1078,15 +1078,18 @@ export function MonacoEditor({
         currentPosition.lineNumber === monacoPosition.lineNumber &&
         currentPosition.column === monacoPosition.column
       ) {
+        editor.focus();
         return;
       }
       const currentSelection = editor.getSelection();
       if (currentSelection && !currentSelection.isEmpty()) {
         editor.revealPositionInCenterIfOutsideViewport(monacoPosition);
+        editor.focus();
         return;
       }
       editor.setPosition(monacoPosition);
       editor.revealPositionInCenterIfOutsideViewport(monacoPosition);
+      editor.focus();
     });
     const unsubscribeSelection = editorAPI.on("selectionChange", (selection) => {
       if (!modelRef.current || editorRef.current !== editor) return;
