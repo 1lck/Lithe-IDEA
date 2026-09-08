@@ -46,7 +46,7 @@ async function navigateToJumpEntryInternal(entry: JumpListEntry): Promise<boolea
   // Wait for the active Monaco surface to register after a buffer switch.
   await waitForEditorActivation();
 
-  editorAPI.setSelection(null);
+  editorAPI.clearSelectionForNavigation();
   editorAPI.setCursorPosition({
     line: entry.line,
     column: entry.column,

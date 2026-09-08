@@ -198,6 +198,7 @@ export function MonacoEditor({
   const renderInlineGitBlameRef = useRef<() => void>(() => {});
   const mouseSelectingRef = useRef(false);
   const mouseGestureStartRef = useRef<CursorHistoryEntry | null>(null);
+  const suppressNextCursorSelectionSyncRef = useRef(false);
   const latestContentChangeRef = useRef(onContentChange);
   const isActiveSurfaceRef = useRef(isActiveSurface);
   const activeBufferId = useBufferStore((state) => propBufferId ?? state.activeBufferId);
@@ -831,6 +832,12 @@ export function MonacoEditor({
         scrollLeft: editor.getScrollLeft(),
       };
     };
+    const handleNativeMouseDownCapture = (event: MouseEvent) => {
+      if (event.button !== 0) return;
+      mouseSelectingRef.current = true;
+      mouseGestureStartRef.current = cursorEntryFromEditor();
+    };
+    container.addEventListener("mousedown", handleNativeMouseDownCapture, true);
 
     const handleWindowSelectAllShortcut = (event: KeyboardEvent) => {
       const isSelectAllShortcut =
@@ -951,6 +958,7 @@ export function MonacoEditor({
             mouseEvent.preventDefault();
             mouseEvent.stopPropagation();
             mouseSelectingRef.current = false;
+            mouseGestureStartRef.current = null;
             editor.setPosition({
               lineNumber: marker.line + 1,
               column: marker.utf16Column + 1,
@@ -973,6 +981,7 @@ export function MonacoEditor({
           mouseEvent.preventDefault();
           mouseEvent.stopPropagation();
           mouseSelectingRef.current = false;
+          mouseGestureStartRef.current = null;
           editor.setPosition(event.target.position);
           syncCursorAndSelection();
           const clickedPosition = event.target.position;
@@ -999,7 +1008,9 @@ export function MonacoEditor({
         }
         if (mouseEvent.leftButton) {
           mouseSelectingRef.current = true;
-          mouseGestureStartRef.current = cursorEntryFromEditor();
+          if (!mouseGestureStartRef.current) {
+            mouseGestureStartRef.current = cursorEntryFromEditor();
+          }
         }
       }),
       editor.onMouseUp(() => {
@@ -1019,6 +1030,11 @@ export function MonacoEditor({
       }),
       editor.onDidChangeCursorSelection(() => {
         if (!isCurrentEditorSurface()) return;
+        if (suppressNextCursorSelectionSyncRef.current) {
+          suppressNextCursorSelectionSyncRef.current = false;
+          scheduleInlineGitBlameRender();
+          return;
+        }
         syncCursorAndSelection();
         scheduleInlineGitBlameRender();
       }),
@@ -1102,6 +1118,7 @@ export function MonacoEditor({
       onModelPositionResolverChange?.(null);
       unsubscribeCursor();
       unsubscribeSelection();
+      container.removeEventListener("mousedown", handleNativeMouseDownCapture, true);
       window.removeEventListener("keydown", handleWindowSelectAllShortcut, true);
       window.removeEventListener("mouseup", handleWindowMouseUp);
       for (const disposable of disposables) {
@@ -1272,6 +1289,22 @@ export function MonacoEditor({
           if (model) executeMonacoTextEdit(toMonacoRange(model, range), text);
         },
         selectAll: selectEntireModel,
+        clearSelection: () => {
+          const editor = editorRef.current;
+          const position = editor?.getPosition();
+          const currentSelection = editor?.getSelection();
+          if (!editor || !position || !currentSelection || currentSelection.isEmpty()) return;
+
+          suppressNextCursorSelectionSyncRef.current = true;
+          editor.setSelection(
+            new MonacoRange(
+              position.lineNumber,
+              position.column,
+              position.lineNumber,
+              position.column,
+            ),
+          );
+        },
         focus: () => editorRef.current?.focus(),
         addSelectionToNextFindMatch: () =>
           runMonacoSelectionAction("editor.action.addSelectionToNextFindMatch"),
