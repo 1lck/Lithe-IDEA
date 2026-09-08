@@ -8,13 +8,13 @@ import LitheModuleAPI
 @MainActor
 final class GitModuleCoordinator {
     struct Handlers {
-        let workspaceURL: @MainActor () -> URL?
-        let gitLogVisible: @MainActor () -> Bool
-        let notify: @MainActor (String) -> Void
-        let stateRefreshed: @MainActor () async -> Void
-        let saveChangesPolicy: @MainActor () -> GitSaveChangesPolicy
-        let operationBegan: @MainActor () -> Void
-        let operationEnded: @MainActor () async -> Void
+        let workspaceURL: @MainActor @Sendable () -> URL?
+        let gitLogVisible: @MainActor @Sendable () -> Bool
+        let notify: @MainActor @Sendable (String) -> Void
+        let stateRefreshed: @MainActor @Sendable () async -> Void
+        let saveChangesPolicy: @MainActor @Sendable () -> GitSaveChangesPolicy
+        let operationBegan: @MainActor @Sendable () -> Void
+        let operationEnded: @MainActor @Sendable () async -> Void
         var commitUndone: (@MainActor (String) -> Void)? = nil
     }
 
