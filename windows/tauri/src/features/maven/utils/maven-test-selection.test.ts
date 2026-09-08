@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   createMavenTestSelector,
-  discoverJavaTestMethods,
   javaTestMethodAtLine,
   normalizeMavenTestMethod,
+  projectJavaTestMethods,
   resolveMavenTestTarget,
 } from "./maven-test-selection";
 import type { MavenProject } from "../types/maven.types";
@@ -40,73 +40,31 @@ describe("Maven test selection", () => {
     expect(createMavenTestSelector("com.example.CalculatorTest", "bad method")).toBeNull();
   });
 
-  test("discovers JUnit 4 and JUnit 5 test methods in source order", () => {
-    const methods = discoverJavaTestMethods(`
-      import org.junit.Test;
-      import org.junit.jupiter.api.ParameterizedTest;
-
-      class CalculatorTest {
-        @Test
-        public void additionIsCorrect() {}
-
-        @ParameterizedTest
-        void subtracts(int value) {}
-      }
-    `);
+  test("projects one-based Core method ranges for the Windows editor", () => {
+    const methods = projectJavaTestMethods([
+      { name: "additionIsCorrect", line: 7, endLine: 7 },
+      { name: "subtracts", line: 10, endLine: 13 },
+    ]);
 
     expect(methods).toEqual([
-      { name: "additionIsCorrect", line: 6 },
-      { name: "subtracts", line: 9 },
+      { name: "additionIsCorrect", line: 6, endLine: 6 },
+      { name: "subtracts", line: 9, endLine: 12 },
     ]);
-    expect(javaTestMethodAtLine("@Test\nvoid fast() {}", 1)).toEqual({
-      name: "fast",
-      line: 1,
-    });
-    expect(javaTestMethodAtLine("@Test\nvoid fast() {}", 0)).toBeNull();
+    expect(javaTestMethodAtLine(methods, 6)?.name).toBe("additionIsCorrect");
+    expect(javaTestMethodAtLine(methods, 8)).toBeNull();
+    expect(javaTestMethodAtLine(methods, 11)?.name).toBe("subtracts");
   });
 
-  test("only attributes lines inside a test method body", () => {
-    const source = `
-      class CalculatorTest {
-        @Test
-        void first() {
-          assertTrue(true);
-        }
-
-        void helper() {
-          return;
-        }
-
-        @Test
-        void second() {
-          assertTrue(true);
-        }
-      }
-    `;
-
-    expect(javaTestMethodAtLine(source, 7)).toBeNull();
-    expect(javaTestMethodAtLine(source, 8)).toBeNull();
-    expect(javaTestMethodAtLine(source, 12)?.name).toBe("second");
-  });
-
-  test("handles multiline test bodies and braces in comments and strings", () => {
-    const source = `
-      class CalculatorTest {
-        @Test
-        void first()
-            throws Exception {
-          String value = "}";
-          /* { this is not a body */
-          assertTrue(value != null);
-        }
-
-        void helper() {}
-      }
-    `;
-
-    expect(javaTestMethodAtLine(source, 5)?.name).toBe("first");
-    expect(javaTestMethodAtLine(source, 8)?.name).toBe("first");
-    expect(javaTestMethodAtLine(source, 9)).toBeNull();
+  test("rejects malformed method records returned across the Core boundary", () => {
+    expect(
+      projectJavaTestMethods([
+        { name: "valid", line: 2, endLine: 3 },
+        { name: "bad method", line: 4, endLine: 4 },
+        { name: "zeroBased", line: 0, endLine: 1 },
+        { name: "backwards", line: 8, endLine: 7 },
+        { name: "valid", line: 10, endLine: 10 },
+      ]),
+    ).toEqual([{ name: "valid", line: 1, endLine: 2 }]);
   });
 
   test("resolves a nested reactor module from a conventional test path", () => {

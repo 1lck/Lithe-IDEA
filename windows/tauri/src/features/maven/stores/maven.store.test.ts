@@ -681,6 +681,43 @@ describe("Maven workspace state", () => {
     expect(store.getState().testResults).toBeNull();
     expect(store.getState().lastTestRun).toEqual(testRun);
   });
+
+  test("keeps the active test context when output is cleared during a run", async () => {
+    scanMavenProject.mockResolvedValueOnce(mavenTestProject);
+    parseMavenTestResults.mockResolvedValueOnce({
+      testsRun: 1,
+      failures: 0,
+      errors: 0,
+      skipped: 0,
+      passed: 1,
+      success: true,
+      failureDetails: [],
+    });
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/service/pom.xml"]);
+    await store
+      .getState()
+      .actions.runTestClass(
+        "D:/work/reactor/service/src/test/java/com/example/CalculatorTest.java",
+      );
+    const sessionId = store.getState().activeSessionId!;
+
+    store.getState().actions.clearOutput();
+    expect(store.getState().activeTestRun?.selector).toBe("com.example.CalculatorTest");
+    store
+      .getState()
+      .actions.appendOutput(sessionId, "Tests run: 1, Failures: 0, Errors: 0, Skipped: 0\n");
+    store.getState().actions.finishProcess(sessionId, 0);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(parseMavenTestResults).toHaveBeenCalledWith(
+      "D:/work",
+      expect.stringContaining("Tests run: 1"),
+    );
+    expect(store.getState().testResults?.testsRun).toBe(1);
+    expect(store.getState().activeTestRun).toBeNull();
+  });
 });
 
 describe("Maven dependency state", () => {

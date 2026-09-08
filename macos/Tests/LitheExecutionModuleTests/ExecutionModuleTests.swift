@@ -567,8 +567,6 @@ struct ExecutionModuleTests {
         let firstProcess = TestStreamingProcess()
         let secondProcess = TestStreamingProcess()
         var factoryCall = 0
-        var parserCalls = 0
-        var parsedOutput = ""
         let parsedResults = MavenTestResults(
             testsRun: 3,
             failures: 1,
@@ -578,17 +576,14 @@ struct ExecutionModuleTests {
             success: false,
             failureDetails: []
         )
+        let parser = TestResultParserRecorder(result: parsedResults)
         let service = LanguageTestService(
             executableResolver: TestExecutableResolver(),
             processFactory: {
                 factoryCall += 1
                 return factoryCall == 1 ? firstProcess : secondProcess
             },
-            resultParser: { output, _ in
-                parserCalls += 1
-                parsedOutput = output
-                return parsedResults
-            }
+            resultParser: parser.parse
         )
 
         #expect(service.run(
@@ -606,8 +601,9 @@ struct ExecutionModuleTests {
         try await awaitTestValue(service.$state, matching: { $0 == .failed(exitCode: 1) })
         #expect(service.state == .failed(exitCode: 1))
         #expect(service.results == parsedResults)
-        #expect(parserCalls == 1)
-        #expect(parsedOutput.contains("Tests run: 3"))
+        #expect(parser.calls == 1)
+        #expect(parser.output.contains("Tests run: 3"))
+        #expect(!parser.ranOnMainThread)
         #expect(service.canRerun)
 
         #expect(service.rerun())
@@ -661,22 +657,19 @@ struct ExecutionModuleTests {
         )
         let buildFile = root.appendingPathComponent("build.gradle")
         let process = TestStreamingProcess()
-        var parserCalls = 0
+        let parser = TestResultParserRecorder(result: MavenTestResults(
+            testsRun: 1,
+            failures: 0,
+            errors: 0,
+            skipped: 0,
+            passed: 1,
+            success: true,
+            failureDetails: []
+        ))
         let service = LanguageTestService(
             executableResolver: TestExecutableResolver(),
             processFactory: { process },
-            resultParser: { _, _ in
-                parserCalls += 1
-                return MavenTestResults(
-                    testsRun: 1,
-                    failures: 0,
-                    errors: 0,
-                    skipped: 0,
-                    passed: 1,
-                    success: true,
-                    failureDetails: []
-                )
-            }
+            resultParser: parser.parse
         )
 
         #expect(service.run(
@@ -692,7 +685,7 @@ struct ExecutionModuleTests {
         try await awaitTestValue(service.$state, matching: { $0 == .passed })
         #expect(service.state == .passed)
         #expect(service.results == nil)
-        #expect(parserCalls == 0)
+        #expect(parser.calls == 0)
     }
 
     @Test
@@ -1203,6 +1196,45 @@ private func awaitTestValue<Value: Sendable>(
 
 private enum TestObservationError: Error {
     case deadlineExceeded
+}
+
+private final class TestResultParserRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private let result: MavenTestResults?
+    private var recordedCalls = 0
+    private var recordedOutput = ""
+    private var recordedMainThread = false
+
+    init(result: MavenTestResults?) {
+        self.result = result
+    }
+
+    func parse(output: String, rootURL: URL) -> MavenTestResults? {
+        lock.lock()
+        recordedCalls += 1
+        recordedOutput = output
+        recordedMainThread = Thread.isMainThread
+        lock.unlock()
+        return result
+    }
+
+    var calls: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedCalls
+    }
+
+    var output: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedOutput
+    }
+
+    var ranOnMainThread: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedMainThread
+    }
 }
 
 @MainActor

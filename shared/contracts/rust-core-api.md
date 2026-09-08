@@ -131,7 +131,7 @@ stable error code and a user-facing message:
 | `java.className` | Resolve a Java source package and simple name into a runtime class name |
 | `java.sourceDefinition` | Locate a Java type, method, or field declaration in source text |
 | `java.serverPort` | Parse Spring server port settings from properties or YAML text |
-| `java.structure` | Parse Java editor folds, inlay hints, and portable syntax roles |
+| `java.structure` | Parse Java editor folds, inlay hints, portable syntax roles, and JUnit test methods |
 | `spring.index` | Build a deterministic Spring configuration, bean, injection, and endpoint index |
 | `runConfig.inspect` | Inspect `.lithe` run documents, versions, and staleness without writing files |
 | `runConfig.generate` | Generate deterministic Java/Maven configurations and toolchain requirements |
@@ -1150,10 +1150,12 @@ name.
 when no declaration is found.
 
 `java.structure` accepts Java `source` and optional `declarationSources`. It
-returns `foldRegions`, `inlayHints`, and
-`syntaxHighlights`. Line numbers are zero-based because these values are editor
+returns `foldRegions`, `inlayHints`, `syntaxHighlights`, and `testMethods`.
+Fold and inlay line numbers are zero-based because these values are editor
 offsets; UTF-16 columns and hidden ranges match the native text editor coordinate
-system. Syntax highlights contain document-relative `utf16Start`,
+system. Each JUnit 4/5 test method contains its name plus inclusive one-based
+`line` and `endLine` values and comes from the Java syntax tree, so comments and
+method calls cannot create runnable test entries. Syntax highlights contain document-relative `utf16Start`,
 `utf16Length`, and a role from the shared editor syntax-theme contract. They
 are sorted and non-overlapping, so native renderers can apply semantic colors
 without maintaining another Java parser. The parser is platform-independent

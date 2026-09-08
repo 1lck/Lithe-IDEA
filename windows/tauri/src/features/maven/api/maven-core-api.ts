@@ -8,6 +8,12 @@ import type {
   MavenTestResults,
 } from "../types/maven.types";
 
+export interface CoreJavaTestMethod {
+  name: string;
+  line: number;
+  endLine: number;
+}
+
 let requestSequence = 0;
 
 function nextRequestId(prefix: string): string {
@@ -80,4 +86,11 @@ export async function parseMavenDiagnostics(root: string, output: string) {
 
 export function parseMavenTestResults(root: string, output: string) {
   return mavenCore<MavenTestResults>("maven.testResults", { root, output });
+}
+
+export async function discoverJavaTestMethods(source: string) {
+  const result = await mavenCore<{ testMethods: CoreJavaTestMethod[] }>("java.structure", {
+    source,
+  });
+  return result.testMethods ?? [];
 }

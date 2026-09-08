@@ -850,6 +850,9 @@ fn java_core_commands_return_shared_runtime_and_structure_data() {
         structure_response["data"]["foldRegions"][0]["kind"],
         "imports"
     );
+    assert!(structure_response["data"]["testMethods"]
+        .as_array()
+        .is_some_and(Vec::is_empty));
     assert!(structure_response["data"]
         .get("implementationMarkers")
         .is_none());

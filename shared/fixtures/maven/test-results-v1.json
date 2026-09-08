@@ -114,6 +114,52 @@
           }
         ]
       }
+    },
+    {
+      "name": "surefire-legacy-detailed-failure",
+      "sourceFiles": ["src/test/java/review/AppTest.java"],
+      "output": "review.AppTest.targetFailure  Time elapsed: 0.01 sec  <<< FAILURE!\njava.lang.AssertionError: expected legacy failure\n    at org.junit.Assert.fail(Assert.java:88)\n    at review.AppTest.targetFailure(AppTest.java:4)\n\nFailed tests:\n  targetFailure(review.AppTest):4 expected legacy failure\n\nTests run: 1, Failures: 1, Errors: 0, Skipped: 0\n",
+      "expected": {
+        "testsRun": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 0,
+        "success": false,
+        "failureDetails": [
+          {
+            "name": "review.AppTest.targetFailure",
+            "kind": "failure",
+            "message": "expected legacy failure",
+            "path": "src/test/java/review/AppTest.java",
+            "line": 4,
+            "column": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "junit4-failed-tests-footer-only",
+      "sourceFiles": ["src/test/java/review/AppTest.java"],
+      "output": "Failed tests:\n  targetFailure(review.AppTest):4 expected legacy failure\n\nTests run: 1, Failures: 1, Errors: 0, Skipped: 0\n",
+      "expected": {
+        "testsRun": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 0,
+        "success": false,
+        "failureDetails": [
+          {
+            "name": "targetFailure(review.AppTest)",
+            "kind": "failure",
+            "message": "expected legacy failure",
+            "path": "src/test/java/review/AppTest.java",
+            "line": 4,
+            "column": null
+          }
+        ]
+      }
     }
   ]
 }

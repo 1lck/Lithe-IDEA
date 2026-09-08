@@ -13,7 +13,7 @@ use quick_xml::Reader;
 use regex::Regex;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -762,7 +762,7 @@ pub fn test_results(
         Regex::new(r#"^(?:\d+\)\s*)?([A-Za-z_$][A-Za-z0-9_.$#<>$\[\]'\" ()-]*?)(?:\s*:\s*(.*))?$"#)
             .expect("static Maven test failure expression is valid");
     let detailed_failure_expression = Regex::new(
-        r#"^([A-Za-z_$][A-Za-z0-9_.$#<>$\[\]'\" ()-]*?)\s+--\s+Time elapsed:.*<<<\s+(FAILURE|ERROR)!\s*$"#,
+        r#"^([A-Za-z_$][A-Za-z0-9_.$#<>$\[\]'\" ()-]*?)\s+(?:--\s+)?Time elapsed:.*<<<\s+(FAILURE|ERROR)!\s*$"#,
     )
     .expect("static Maven detailed failure expression is valid");
     let stack_expression = Regex::new(
@@ -777,8 +777,13 @@ pub fn test_results(
     let mut section = None;
     let mut current_failure = None;
     let mut failure_details: Vec<MavenTestFailureResponse> = Vec::new();
+    let mut source_index = None;
+    let mut source_cache = HashMap::new();
 
-    for raw_line in request.output.lines() {
+    for (line_index, raw_line) in request.output.lines().enumerate() {
+        if line_index % 256 == 0 {
+            crate::protocol::cancellation::check()?;
+        }
         let clean_line = ansi.replace_all(raw_line, "");
         let line = strip_maven_log_prefix(clean_line.as_ref());
         let trimmed = line.trim();
@@ -835,7 +840,9 @@ pub fn test_results(
             continue;
         }
 
-        if trimmed.eq_ignore_ascii_case("Failures:") {
+        if trimmed.eq_ignore_ascii_case("Failures:")
+            || trimmed.eq_ignore_ascii_case("Failed tests:")
+        {
             section = Some(MavenTestFailureKind::Failure);
             current_failure = None;
             continue;
@@ -853,8 +860,14 @@ pub fn test_results(
 
         if let Some(captures) = stack_expression.captures(trimmed) {
             if let Some(index) = current_failure {
+                if failure_details
+                    .get(index)
+                    .is_some_and(|detail| detail.path.is_some())
+                {
+                    continue;
+                }
                 let line_number = captures[3].parse::<usize>().ok();
-                let location = line_number.and_then(|line_number| {
+                let location = if let Some(line_number) = line_number {
                     resolve_test_source_path(
                         &workspace_root,
                         captures
@@ -865,9 +878,13 @@ pub fn test_results(
                             .get(2)
                             .map(|value| value.as_str())
                             .unwrap_or_default(),
-                    )
+                        &mut source_index,
+                        &mut source_cache,
+                    )?
                     .map(|path| (path, line_number))
-                });
+                } else {
+                    None
+                };
                 if let Some(detail) = failure_details.get_mut(index) {
                     let detail: &mut MavenTestFailureResponse = detail;
                     if let Some((path, line_number)) = location {
@@ -898,23 +915,32 @@ pub fn test_results(
         // Surefire's compact footer encodes the source line as
         // `TestName:line message`. The detailed entry owns source locations;
         // strip the line token here while merging the footer into it.
-        let message = raw_message.map(|value| {
+        let (footer_line, message) = raw_message.map_or((None, None), |value| {
             let mut parts = value.splitn(2, char::is_whitespace);
             match parts.next() {
-                Some(token) if token.parse::<usize>().is_ok() => parts
-                    .next()
-                    .map(str::trim)
-                    .filter(|rest| !rest.is_empty())
-                    .map(str::to_string),
-                _ => Some(value),
+                Some(token) if token.parse::<usize>().is_ok() => (
+                    token.parse::<usize>().ok(),
+                    parts
+                        .next()
+                        .map(str::trim)
+                        .filter(|rest| !rest.is_empty())
+                        .map(str::to_string),
+                ),
+                _ => (None, Some(value)),
             }
         });
-        current_failure = Some(record_maven_failure(
-            &mut failure_details,
-            name,
-            kind,
-            message.flatten(),
-        )?);
+        let index = record_maven_failure(&mut failure_details, name, kind, message)?;
+        if let Some(line_number) = footer_line {
+            resolve_footer_source_location(
+                &workspace_root,
+                &mut failure_details[index],
+                name,
+                line_number,
+                &mut source_index,
+                &mut source_cache,
+            )?;
+        }
+        current_failure = Some(index);
     }
 
     let (tests_run, failures, errors, skipped) = if saw_footer_summary {
@@ -1032,11 +1058,22 @@ fn record_maven_failure(
     Ok(details.len() - 1)
 }
 
-fn resolve_test_source_path(root: &Path, class_name: &str, file_name: &str) -> Option<String> {
+fn resolve_test_source_path(
+    root: &Path,
+    class_name: &str,
+    file_name: &str,
+    source_index: &mut Option<MavenTestSourceIndex>,
+    source_cache: &mut HashMap<(String, String), Option<String>>,
+) -> Result<Option<String>, CoreError> {
+    let cache_key = (class_name.to_string(), file_name.to_string());
+    if let Some(cached) = source_cache.get(&cache_key) {
+        return Ok(cached.clone());
+    }
     let file_path = Path::new(file_name);
     if file_path.is_absolute() {
         if let Some(path) = workspace_relative_path(root, file_path) {
-            return Some(path);
+            source_cache.insert(cache_key, Some(path.clone()));
+            return Ok(Some(path));
         }
     }
 
@@ -1069,54 +1106,127 @@ fn resolve_test_source_path(root: &Path, class_name: &str, file_name: &str) -> O
             .is_file()
             .then(|| workspace_relative_path(root, &absolute))?
     }) {
-        return Some(path);
+        source_cache.insert(cache_key, Some(path.clone()));
+        return Ok(Some(path));
     }
 
-    // A workspace may contain a reactor below its root, so searching only the
-    // workspace-level source roots misses failures from nested Maven modules.
-    // Keep the fallback bounded and deterministic because this runs after a
-    // process has already produced potentially large output.
-    let mut directories = vec![root.to_path_buf()];
-    let mut visited = 0;
-    while let Some(directory) = directories.pop() {
-        if visited >= MAX_MAVEN_TEST_SOURCE_SEARCH_DIRECTORIES {
-            break;
-        }
-        visited += 1;
+    if source_index.is_none() {
+        *source_index = Some(MavenTestSourceIndex::build(root)?);
+    }
+    let index = source_index
+        .as_ref()
+        .expect("source index should exist after construction");
+    let resolved = index.resolve(&class_path, simple_file_name);
+    source_cache.insert(cache_key, resolved.clone());
+    Ok(resolved)
+}
 
-        for candidate in [
-            directory.join(&class_path),
-            directory.join(simple_file_name),
-        ] {
-            if candidate.is_file() {
-                if let Some(path) = workspace_relative_path(root, &candidate) {
-                    return Some(path);
+fn resolve_footer_source_location(
+    root: &Path,
+    detail: &mut MavenTestFailureResponse,
+    name: &str,
+    line_number: usize,
+    source_index: &mut Option<MavenTestSourceIndex>,
+    source_cache: &mut HashMap<(String, String), Option<String>>,
+) -> Result<(), CoreError> {
+    if detail.path.is_some() {
+        return Ok(());
+    }
+    let normalized = normalized_maven_test_name(name);
+    let Some((class_name, _)) = normalized.rsplit_once('.') else {
+        return Ok(());
+    };
+    let simple_class = class_name
+        .rsplit('.')
+        .next()
+        .unwrap_or(class_name)
+        .split('$')
+        .next()
+        .unwrap_or(class_name);
+    let file_name = format!("{simple_class}.java");
+    if let Some(path) =
+        resolve_test_source_path(root, &normalized, &file_name, source_index, source_cache)?
+    {
+        detail.path = Some(path);
+        detail.line = Some(line_number);
+    }
+    Ok(())
+}
+
+/// One lazily built, parse-wide index bounds fallback traversal to 10,000
+/// directories total instead of repeating that cost for every stack frame.
+struct MavenTestSourceIndex {
+    paths: Vec<String>,
+}
+
+impl MavenTestSourceIndex {
+    fn build(root: &Path) -> Result<Self, CoreError> {
+        let mut directories = vec![root.to_path_buf()];
+        let mut paths = Vec::new();
+        let mut visited = 0;
+        while let Some(directory) = directories.pop() {
+            crate::protocol::cancellation::check()?;
+            if visited >= MAX_MAVEN_TEST_SOURCE_SEARCH_DIRECTORIES {
+                break;
+            }
+            visited += 1;
+            let mut children = fs::read_dir(&directory)
+                .ok()
+                .into_iter()
+                .flatten()
+                .filter_map(Result::ok)
+                .filter_map(|entry| {
+                    let file_type = entry.file_type().ok()?;
+                    if file_type.is_dir() {
+                        return (!should_skip_test_source_directory(&entry.path()))
+                            .then(|| (entry.path(), true));
+                    }
+                    if file_type.is_file()
+                        && matches!(
+                            entry.path().extension().and_then(|value| value.to_str()),
+                            Some("java" | "kt")
+                        )
+                    {
+                        return Some((entry.path(), false));
+                    }
+                    None
+                })
+                .collect::<Vec<_>>();
+            children.sort_by(|left, right| {
+                left.0
+                    .to_string_lossy()
+                    .to_ascii_lowercase()
+                    .cmp(&right.0.to_string_lossy().to_ascii_lowercase())
+                    .then_with(|| left.0.cmp(&right.0))
+            });
+            for (path, is_directory) in children.into_iter().rev() {
+                if is_directory {
+                    directories.push(path);
+                } else if let Some(relative) = workspace_relative_path(root, &path) {
+                    paths.push(relative);
                 }
             }
         }
-
-        let mut children = fs::read_dir(&directory)
-            .ok()
-            .into_iter()
-            .flatten()
-            .filter_map(Result::ok)
-            .filter_map(|entry| {
-                let file_type = entry.file_type().ok()?;
-                if !file_type.is_dir() || should_skip_test_source_directory(&entry.path()) {
-                    return None;
-                }
-                Some(entry.path())
-            })
-            .collect::<Vec<_>>();
-        children.sort_by(|left, right| {
-            left.to_string_lossy()
-                .to_ascii_lowercase()
-                .cmp(&right.to_string_lossy().to_ascii_lowercase())
+        paths.sort_by(|left, right| {
+            left.to_ascii_lowercase()
+                .cmp(&right.to_ascii_lowercase())
                 .then_with(|| left.cmp(right))
         });
-        directories.extend(children.into_iter().rev());
+        Ok(Self { paths })
     }
-    None
+
+    fn resolve(&self, class_path: &str, simple_file_name: &str) -> Option<String> {
+        self.paths
+            .iter()
+            .find(|path| path.ends_with(class_path))
+            .or_else(|| {
+                self.paths.iter().find(|path| {
+                    Path::new(path).file_name().and_then(|value| value.to_str())
+                        == Some(simple_file_name)
+                })
+            })
+            .cloned()
+    }
 }
 
 fn should_skip_test_source_directory(path: &Path) -> bool {

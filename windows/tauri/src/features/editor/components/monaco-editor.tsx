@@ -37,12 +37,12 @@ import { useGitBlame } from "@/features/git/hooks/use-git-blame";
 import { keymapRegistry } from "@/features/keymaps/utils/registry";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { openMavenRunPane } from "@/features/maven/actions/maven-tool-window-actions";
+import { useJavaTestMethods } from "@/features/maven/hooks/use-java-test-methods";
 import {
   canRunMavenTest,
   runMavenTestAction,
 } from "@/features/maven/services/maven-test-actions";
 import {
-  discoverJavaTestMethods,
   javaTestMethodAtLine,
   type JavaTestMethod,
 } from "@/features/maven/utils/maven-test-selection";
@@ -256,11 +256,12 @@ export function MonacoEditor({
   );
   const languageId = documentTarget.languageId ?? getLanguageIdFromPath(filePath);
   const monacoLanguageId = toMonacoLanguageId(languageId);
-  const javaTestMethods = useMemo(
-    () => (/\.java$/i.test(filePath) ? discoverJavaTestMethods(content) : []),
-    [content, filePath],
-  );
   const [mavenTestsAvailable, setMavenTestsAvailable] = useState(false);
+  const javaTestMethods = useJavaTestMethods(filePath, content, mavenTestsAvailable);
+  const javaTestMethodsRef = useRef<readonly JavaTestMethod[]>([]);
+  useEffect(() => {
+    javaTestMethodsRef.current = javaTestMethods;
+  }, [javaTestMethods]);
   const {
     fontFamily,
     fontSize,
@@ -903,7 +904,10 @@ export function MonacoEditor({
         if (event.target.position) {
           setContextMenuTestMethod(
             /\.java$/i.test(filePath)
-              ? javaTestMethodAtLine(model.getValue(), event.target.position.lineNumber - 1)
+              ? javaTestMethodAtLine(
+                  javaTestMethodsRef.current,
+                  event.target.position.lineNumber - 1,
+                )
               : null,
           );
           const currentSelection = editor.getSelection();

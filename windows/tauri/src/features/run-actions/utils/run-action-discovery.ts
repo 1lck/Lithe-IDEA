@@ -6,7 +6,7 @@ import { createTranslator } from "@/i18n/locale";
 import { joinPath } from "@/utils/path-helpers";
 import type { CodeLensItem } from "@/features/editor/lsp/use-code-lens";
 import type { RunActionItem, RunActionSource } from "../types/run-action.types";
-import { discoverJavaTestMethods } from "@/features/maven/utils/maven-test-selection";
+import type { JavaTestMethod } from "@/features/maven/utils/maven-test-selection";
 
 type ManifestContents = Map<string, string>;
 
@@ -39,11 +39,10 @@ const SOURCE_PRIORITY: Record<RunActionSource, number> = {
 
 export function javaTestActionsForFile(
   filePath: string,
-  content: string,
+  methods: readonly JavaTestMethod[],
   translate: (key: string) => string = getCurrentTranslator(),
 ): RunActionItem[] {
   if (!/\.java$/i.test(filePath)) return [];
-  const methods = discoverJavaTestMethods(content);
   if (methods.length === 0) return [];
   return [
     {
