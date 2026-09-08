@@ -360,32 +360,36 @@ extension AppModel {
 
     func startRunConfiguration(_ configuration: RunConfiguration) {
         Task { [weak self] in
-            guard let self else { return }
-            guard let identity = currentWorkspaceIdentity else { return }
-            guard let runFeature = await activateExecutionModule()?.runFeature else { return }
-            guard isCurrentWorkspace(identity) else { return }
-            switch await ensureRunProjectReady(runFeature, for: identity) {
-            case .ready:
-                clearPendingRunAction(for: identity)
-            case .waitingForSnapshot(let waitingIdentity):
-                // Direct play buttons reach here without going through
-                // `runSelectedConfiguration`, so they need the same readiness
-                // gate and must remember which configuration to resume — bound
-                // to the opening this task started for, not whatever is current
-                // after an await.
-                deferRunAction(.startConfiguration(configuration), for: waitingIdentity)
-                return
-            case .stale:
-                return
-            }
-            guard await activateLanguageRunExtensionIfNeeded(
-                for: configuration,
-                currentFileURL: activeDocument?.url,
-                runFeature: runFeature
-            ) else { return }
-            guard isCurrentWorkspace(identity) else { return }
-            runFeature.startConfiguration(configuration)
+            await self?.performStartRunConfiguration(configuration)
         }
+    }
+
+    /// Completes the entry workflow, including rejecting actions from an earlier workspace opening.
+    func performStartRunConfiguration(_ configuration: RunConfiguration) async {
+        guard let identity = currentWorkspaceIdentity else { return }
+        guard let runFeature = await activateExecutionModule()?.runFeature else { return }
+        guard isCurrentWorkspace(identity) else { return }
+        switch await ensureRunProjectReady(runFeature, for: identity) {
+        case .ready:
+            clearPendingRunAction(for: identity)
+        case .waitingForSnapshot(let waitingIdentity):
+            // Direct play buttons reach here without going through
+            // `runSelectedConfiguration`, so they need the same readiness
+            // gate and must remember which configuration to resume — bound
+            // to the opening this task started for, not whatever is current
+            // after an await.
+            deferRunAction(.startConfiguration(configuration), for: waitingIdentity)
+            return
+        case .stale:
+            return
+        }
+        guard await activateLanguageRunExtensionIfNeeded(
+            for: configuration,
+            currentFileURL: activeDocument?.url,
+            runFeature: runFeature
+        ) else { return }
+        guard isCurrentWorkspace(identity) else { return }
+        runFeature.startConfiguration(configuration)
     }
 
     func runAllServiceConfigurations() {
