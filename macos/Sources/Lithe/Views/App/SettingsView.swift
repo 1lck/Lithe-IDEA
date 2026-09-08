@@ -11,6 +11,7 @@ final class SettingsViewState: ObservableObject {
     @Published var hiddenFilePatternsDraft = ""
     @Published var aiAPIKeyDraft = ""
     @Published var isFormatPickerPresented = false
+    @Published var detectedTerminalShells: [String] = []
 
     init(initialCategory: SettingsCategory) {
         selection = initialCategory
@@ -165,6 +166,8 @@ struct SettingsView: View {
             ["AI & Commit", "AI provider", "Model", "API key", "Commit message"]
         case .updates:
             ["Updates", "Application version", "Update status", "Check for Updates"]
+        case .diagnostics:
+            ["Diagnostics", "Diagnostics bundle", "Export logs", "Bug report"]
         }
     }
 
@@ -214,6 +217,7 @@ struct SettingsView: View {
                     case .lsp: EmptyView()
                     case .ai: aiSettings
                     case .updates: updatesSettings
+                    case .diagnostics: diagnosticsSettings
                     }
                 }
                 .padding(.horizontal, 28)
@@ -549,21 +553,36 @@ struct SettingsView: View {
         group("Shell") {
             row("Default shell") {
                 LitheSettingsSelect(
-                    selection: $settings.terminalShell,
-                    options: TerminalShell.allCases,
-                    width: 180,
+                    selection: Binding(
+                        get: { settings.terminalShellPath ?? "" },
+                        set: { settings.selectTerminalShell(path: $0) }
+                    ),
+                    options: terminalShellOptions,
+                    width: 320,
                     accessibilityLabel: "Default shell",
-                    title: \TerminalShell.title
+                    title: { path in
+                        path.isEmpty ? "System default" : "\(URL(fileURLWithPath: path).lastPathComponent) (\(path))"
+                    }
                 )
-                .onChange(of: settings.terminalShell) { _ in
-                    guard model.activeTerminalSession?.isRunning == true else { return }
-                    model.restartActiveTerminal(using: model.activeTerminalShellPath)
-                }
+            }
+            Button("Detect Installed Shells") {
+                model.terminalFeature?.refreshAvailableShells()
+                viewState.detectedTerminalShells = model.availableTerminalShells
             }
             Text("Used for new terminal sessions.")
                 .font(LitheTheme.smallFont)
                 .foregroundStyle(LitheTheme.secondaryText)
         }
+        .task {
+            guard await model.activateTerminalModule() else { return }
+            viewState.detectedTerminalShells = model.availableTerminalShells
+        }
+    }
+
+    private var terminalShellOptions: [String] {
+        var options = [""] + viewState.detectedTerminalShells
+        if let selected = settings.terminalShellPath, !options.contains(selected) { options.append(selected) }
+        return options
     }
 
     private var aiSettings: some View {
@@ -1106,6 +1125,32 @@ struct SettingsView: View {
                     }
                 }
             }
+        }
+    }
+
+    private var diagnosticsSettings: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            group("Diagnostic bundle") {
+                Text("Package the redacted application log with an environment and performance snapshot into a zip you can attach to a bug report. Credentials, tokens, and home-directory paths are removed automatically, and you can review the file list before anything is written.")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+
+                Button {
+                    model.diagnosticsFeature.presentExport()
+                } label: {
+                    Label("Export Diagnostics Bundle…", systemImage: "stethoscope")
+                }
+                .buttonStyle(LithePrimaryButtonStyle(
+                    backgroundColor: LitheTheme.settingsPrimaryAction,
+                    restingOpacity: 1
+                ))
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { model.diagnosticsFeature.isPresented },
+            set: { model.diagnosticsFeature.isPresented = $0 }
+        )) {
+            DiagnosticsExportSheet(feature: model.diagnosticsFeature)
         }
     }
 

@@ -19,7 +19,7 @@ private enum ActivityBarMetrics {
 
 private enum WorkbenchWorkspaceMetrics {
     static let paneInset: CGFloat = 0
-    static let paneSpacing: CGFloat = 6
+    static let paneSpacing: CGFloat = SplitHandleView.thickness
     static let paneCornerRadius: CGFloat = 10
 }
 
@@ -68,6 +68,7 @@ struct WorkbenchView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var projectSessions: ProjectSessionManager
     @EnvironmentObject private var settings: AppSettings
+    @Environment(\.projectWindowScope) private var projectWindowScope
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var linuxDoWebSession = LinuxDoAnonymousWebSession()
     @State private var sidebarWidth: CGFloat = 320
@@ -94,7 +95,7 @@ struct WorkbenchView: View {
         VStack(spacing: 0) {
             topBar
 
-            if projectSessions.openProjects.count > 1 {
+            if projectSessions.openProjects(in: projectWindowScope).count > 1 {
                 projectTabBar
             }
 
@@ -430,12 +431,16 @@ struct WorkbenchView: View {
         }
     }
 
+    private var scopedOpenProjects: [AppModel] {
+        projectSessions.openProjects(in: projectWindowScope)
+    }
+
     private var projectTabBar: some View {
         GeometryReader { geometry in
             let horizontalPadding: CGFloat = 6
             let tabSpacing: CGFloat = 6
             let minimumTabWidth: CGFloat = 180
-            let projectCount = CGFloat(max(projectSessions.openProjects.count, 1))
+            let projectCount = CGFloat(max(scopedOpenProjects.count, 1))
             let availableWidth = geometry.size.width
                 - horizontalPadding * 2
                 - tabSpacing * (projectCount - 1)
@@ -444,7 +449,7 @@ struct WorkbenchView: View {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: tabSpacing) {
-                        ForEach(projectSessions.openProjects) { projectModel in
+                        ForEach(scopedOpenProjects) { projectModel in
                             projectTab(projectModel, width: tabWidth)
                                 .id(projectModel.id)
                         }
@@ -453,11 +458,14 @@ struct WorkbenchView: View {
                     .frame(minWidth: geometry.size.width, alignment: .leading)
                 }
                 .onAppear {
-                    proxy.scrollTo(projectSessions.activeSessionID, anchor: .center)
+                    proxy.scrollTo(projectSessions.activeSessionID(in: projectWindowScope), anchor: .center)
                 }
-                .onChange(of: projectSessions.activeSessionID) { id in
+                .onChange(of: projectSessions.activeSessionIDs) { _ in
                     withAnimation(.easeOut(duration: 0.12)) {
-                        proxy.scrollTo(id, anchor: .center)
+                        proxy.scrollTo(
+                            projectSessions.activeSessionID(in: projectWindowScope),
+                            anchor: .center
+                        )
                     }
                 }
             }
@@ -467,7 +475,7 @@ struct WorkbenchView: View {
     }
 
     private func projectTab(_ projectModel: AppModel, width: CGFloat) -> some View {
-        let isActive = projectModel.id == projectSessions.activeSessionID
+        let isActive = projectModel.id == projectSessions.activeSessionID(in: projectWindowScope)
         let isHovered = projectModel.id == hoveredProjectTabID
 
         return ZStack(alignment: .trailing) {
@@ -1729,9 +1737,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
     let bottomTool: BottomTool
 
     @State private var liveSidebarWidth: CGFloat
-    @State private var sidebarDragStart: CGFloat
     @State private var liveTopPaneHeight: CGFloat?
-    @State private var topPaneDragStart: CGFloat = 0
 
     init(
         sidebarWidth: CGFloat,
@@ -1754,7 +1760,6 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
         self.editor = editor()
         self.bottomTool = bottomTool()
         _liveSidebarWidth = State(initialValue: sidebarWidth)
-        _sidebarDragStart = State(initialValue: sidebarWidth)
         _liveTopPaneHeight = State(initialValue: topPaneHeight)
     }
 
@@ -1878,87 +1883,6 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
             guard newHeight != liveTopPaneHeight else { return }
             liveTopPaneHeight = newHeight
         }
-    }
-
-    private func sidebarResizeHandle(
-        resolvedSidebarWidth: CGFloat,
-        minimumSidebarWidth: CGFloat,
-        maximumSidebarWidth: CGFloat,
-        bottomInset: CGFloat
-    ) -> some View {
-        SplitHandleView(
-            axis: .horizontal,
-            showsIdleDivider: false,
-            onDragStarted: {
-                sidebarDragStart = resolvedSidebarWidth
-            },
-            onDragChanged: { translation in
-                liveSidebarWidth = constrained(
-                    sidebarDragStart + translation,
-                    minimum: minimumSidebarWidth,
-                    maximum: maximumSidebarWidth
-                )
-            },
-            onDragEnded: { translation in
-                let finalWidth = constrained(
-                    sidebarDragStart + translation,
-                    minimum: minimumSidebarWidth,
-                    maximum: maximumSidebarWidth
-                )
-                liveSidebarWidth = finalWidth
-                actions.onSidebarWidthCommitted(finalWidth)
-            }
-        )
-        .frame(maxHeight: .infinity)
-        .padding(.top, WorkbenchWorkspaceMetrics.paneInset)
-        .padding(.bottom, bottomInset)
-        .contentShape(Rectangle())
-        .zIndex(1)
-        .offset(
-            x: WorkbenchWorkspaceMetrics.paneInset
-                + resolvedSidebarWidth
-                + WorkbenchWorkspaceMetrics.paneSpacing / 2
-                - SplitHandleView.thickness / 2
-        )
-    }
-
-    private func topPaneResizeHandle(
-        resolvedTopPaneHeight: CGFloat,
-        minimumTopPaneHeight: CGFloat,
-        maximumTopPaneHeight: CGFloat
-    ) -> some View {
-        SplitHandleView(
-            axis: .vertical,
-            showsIdleDivider: false,
-            onDragStarted: {
-                topPaneDragStart = resolvedTopPaneHeight
-            },
-            onDragChanged: { translation in
-                liveTopPaneHeight = constrained(
-                    topPaneDragStart + translation,
-                    minimum: minimumTopPaneHeight,
-                    maximum: maximumTopPaneHeight
-                )
-            },
-            onDragEnded: { translation in
-                let finalHeight = constrained(
-                    topPaneDragStart + translation,
-                    minimum: minimumTopPaneHeight,
-                    maximum: maximumTopPaneHeight
-                )
-                liveTopPaneHeight = finalHeight
-                actions.onTopPaneHeightCommitted(finalHeight)
-            }
-        )
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
-        .contentShape(Rectangle())
-        .zIndex(1)
-        .offset(
-            y: resolvedTopPaneHeight
-                + WorkbenchWorkspaceMetrics.paneSpacing / 2
-                - SplitHandleView.thickness / 2
-        )
     }
 
     private func constrained(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {

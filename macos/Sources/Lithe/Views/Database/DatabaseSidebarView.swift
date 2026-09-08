@@ -431,27 +431,29 @@ struct DatabaseSidebarView: View {
             .contentShape(Rectangle())
             .background(targetedFolderID == folder.id ? LitheTheme.accent.opacity(0.18) : .clear)
             .clipShape(RoundedRectangle(cornerRadius: 5))
-            .contextMenu {
-                Button(isExpanded ? "Collapse Folder" : "Expand Folder") {
+            .litheContextMenu {
+                var items: [LitheContextMenuItem] = []
+                items.append(.action(isExpanded ? "Collapse Folder" : "Expand Folder", action: {
                     if isExpanded { collapsedFolderIDs.insert(folder.id) }
                     else { collapsedFolderIDs.remove(folder.id) }
-                }
-                Button("New Connection") {
+                }))
+                items.append(.action("New Connection", action: {
                     presentConnectionEditor(defaultFolderID: folder.id)
-                }
-                Button("New Subfolder") {
+                }))
+                items.append(.action("New Subfolder", action: {
                     editingFolder = nil
                     creatingFolderParentID = folder.id
                     showsFolderEditor = true
-                }
-                Button("Rename Folder") {
+                }))
+                items.append(.action("Rename Folder", action: {
                     editingFolder = folder
                     showsFolderEditor = true
-                }
-                Button("Remove Folder", role: .destructive) {
+                }))
+                items.append(.action("Remove Folder", role: .destructive, action: {
                     folderPendingDeletion = folder
                     showsFolderDeletionConfirmation = true
-                }
+                }))
+                return items
             }
             .dropDestination(for: String.self) { items, _ in
                 moveDroppedProfile(items, to: folder.id)
@@ -530,9 +532,7 @@ struct DatabaseSidebarView: View {
             .contentShape(Rectangle())
             .litheRowHover(isActive: isSelected, activeBackground: profileColor(for: profile).opacity(0.12))
             .draggable(profile.id.uuidString)
-            .contextMenu {
-                connectionContextMenu(profile)
-            }
+            .litheContextMenu { connectionContextMenu(profile) }
 
             if isExpanded, isSelected {
                 profileObjectTree(profile, indent: indent + 24)
@@ -577,9 +577,11 @@ struct DatabaseSidebarView: View {
             .contentShape(Rectangle())
             .lithePointer()
             .litheRowHover()
-            .contextMenu {
-                if profile.kind == .mongodb { mongoDatabaseContextMenu(profile) }
-                else { databaseContextMenu(profile) }
+            .litheContextMenu {
+                var items: [LitheContextMenuItem] = []
+                if profile.kind == .mongodb { items.append(contentsOf: mongoDatabaseContextMenu(profile)) }
+                else { items.append(contentsOf: databaseContextMenu(profile)) }
+                return items
             }
 
             if databaseExpanded {
@@ -593,12 +595,12 @@ struct DatabaseSidebarView: View {
                 count: model.databaseFeature.redisKeys.count,
                 indent: indent
             )
-            .contextMenu { redisDatabaseContextMenu(profile) }
+            .litheContextMenu { redisDatabaseContextMenu(profile) }
         } else {
             sidebarLeaf(title: "Configurations", symbol: "doc.text", count: model.databaseFeature.nacosConfigs.count, indent: indent)
-                .contextMenu { nacosContextMenu(profile) }
+                .litheContextMenu { nacosContextMenu(profile) }
             sidebarLeaf(title: "Services", symbol: "network", count: model.databaseFeature.nacosServices.count, indent: indent)
-                .contextMenu { nacosContextMenu(profile) }
+                .litheContextMenu { nacosContextMenu(profile) }
         }
     }
 
@@ -606,9 +608,11 @@ struct DatabaseSidebarView: View {
     private func databaseObjects(for profile: DatabaseProfile, indent: CGFloat) -> some View {
         if profile.kind.supportsDataGrid {
             objectSectionHeader(kind: .tables, title: profile.kind == .mongodb ? "Collections" : "Tables", count: model.databaseFeature.tables.count, indent: indent)
-                .contextMenu {
-                    if profile.kind == .mongodb { Button("Refresh Collections") { refresh(profile) } }
-                    else { tableGroupContextMenu(profile) }
+                .litheContextMenu {
+                    var items: [LitheContextMenuItem] = []
+                    if profile.kind == .mongodb { items.append(.action("Refresh Collections", action: { refresh(profile) })) }
+                    else { items.append(contentsOf: tableGroupContextMenu(profile)) }
+                    return items
                 }
             if !collapsedObjectKinds.contains(.tables), model.databaseFeature.tables.isEmpty && !model.databaseFeature.isLoading {
                 VStack(alignment: .leading, spacing: 4) {
@@ -660,9 +664,11 @@ struct DatabaseSidebarView: View {
                     .contentShape(Rectangle())
                     .lithePointer()
                     .litheRowHover(isActive: model.databaseFeature.selectedTable == table)
-                    .contextMenu {
-                        if profile.kind == .mongodb { mongoCollectionContextMenu(profile, collection: table) }
-                        else { tableContextMenu(profile, table: table) }
+                    .litheContextMenu {
+                        var items: [LitheContextMenuItem] = []
+                        if profile.kind == .mongodb { items.append(contentsOf: mongoCollectionContextMenu(profile, collection: table)) }
+                        else { items.append(contentsOf: tableContextMenu(profile, table: table)) }
+                        return items
                     }
 
                     if isExpanded, model.databaseFeature.selectedTable == table {
@@ -804,49 +810,49 @@ struct DatabaseSidebarView: View {
         model.databaseFeature.folders.filter { $0.parentID == folder.id }
     }
 
-    @ViewBuilder
-    private func connectionContextMenu(_ profile: DatabaseProfile) -> some View {
+    private func connectionContextMenu(_ profile: DatabaseProfile) -> [LitheContextMenuItem] {
+        var items: [LitheContextMenuItem] = []
         let status = model.databaseFeature.connectionStatus(for: profile)
-        Button(status == .connected ? "Disconnect" : "Connect") {
+        items.append(.action(status == .connected ? "Disconnect" : "Connect", isEnabled: !(status == .connecting), action: {
             if status == .connected {
                 model.databaseFeature.disconnect(profile)
             } else {
                 selectProfile(profile, expand: true)
             }
-        }
-        .disabled(status == .connecting)
+        }))
         if profile.kind.isSQLDatabase {
-            Button("New Query") { openSQLQuery(profile) }
+            items.append(.action("New Query", action: { openSQLQuery(profile) }))
         }
-        Button("Refresh") { refresh(profile) }
-        Divider()
-        Button("Copy Name") { copyToPasteboard(profile.name) }
-        Button("Edit Connection") {
+        items.append(.action("Refresh", action: { refresh(profile) }))
+        items.append(.separator)
+        items.append(.action("Copy Name", action: { copyToPasteboard(profile.name) }))
+        items.append(.action("Edit Connection", action: {
             presentConnectionEditor(profile: profile)
-        }
-        Menu("Move to Folder") {
-            Button("Move to root") { model.databaseFeature.move(profile, toFolder: nil) }
-                .disabled(profile.folderID == nil)
+        }))
+        items.append(.submenu("Move to Folder", items: {
+            var submenuItems: [LitheContextMenuItem] = []
+            submenuItems.append(.action("Move to root", isEnabled: !(profile.folderID == nil), action: { model.databaseFeature.move(profile, toFolder: nil) }))
             if !model.databaseFeature.folders.isEmpty {
-                Divider()
-                ForEach(model.databaseFeature.folders) { folder in
-                    Button(folder.name) { model.databaseFeature.move(profile, toFolder: folder.id) }
-                        .disabled(profile.folderID == folder.id)
+                submenuItems.append(.separator)
+                for folder in model.databaseFeature.folders {
+                    submenuItems.append(.action(folder.name, isEnabled: !(profile.folderID == folder.id), action: { model.databaseFeature.move(profile, toFolder: folder.id) }))
                 }
             }
-            Divider()
-            Button("New Folder") {
+            submenuItems.append(.separator)
+            submenuItems.append(.action("New Folder", action: {
                 editingFolder = nil
                 creatingFolderParentID = nil
                 showsFolderEditor = true
-            }
-        }
-        Button("Duplicate Connection") { _ = model.databaseFeature.duplicate(profile) }
-        Divider()
-        Button("Remove Connection", role: .destructive) {
+            }))
+            return submenuItems
+        }()))
+        items.append(.action("Duplicate Connection", action: { _ = model.databaseFeature.duplicate(profile) }))
+        items.append(.separator)
+        items.append(.action("Remove Connection", role: .destructive, action: {
             profilePendingDeletion = profile
             showsProfileDeletionConfirmation = true
-        }
+        }))
+        return items
     }
 
     private func refresh(_ profile: DatabaseProfile) {
@@ -876,74 +882,76 @@ struct DatabaseSidebarView: View {
         NSPasteboard.general.setString(value, forType: .string)
     }
 
-    @ViewBuilder
-    private func databaseContextMenu(_ profile: DatabaseProfile) -> some View {
-        Button("New Query") { openSQLQuery(profile) }
-        Button("New Table") {
+    private func databaseContextMenu(_ profile: DatabaseProfile) -> [LitheContextMenuItem] {
+        var items: [LitheContextMenuItem] = []
+        items.append(.action("New Query", action: { openSQLQuery(profile) }))
+        items.append(.action("New Table", isEnabled: !(profile.readOnly), action: {
             openSQLQuery(profile, sql: "CREATE TABLE new_table (\n    id INTEGER PRIMARY KEY\n);\n")
-        }
-        .disabled(profile.readOnly)
+        }))
         if profile.kind != .sqlserver {
-            Button("Import SQL Backup…") {
+            items.append(.action("Import SQL Backup…", isEnabled: !(profile.readOnly), action: {
                 Task {
                     if model.databaseFeature.selectedProfileID != profile.id { await model.databaseFeature.select(profile) }
                     importFormat = .sql; pendingImportFormat = .sql; showsImporter = true
                 }
-            }
-            .disabled(profile.readOnly)
-            Button("Export Database as SQL…") { exportDatabase(profile) }
+            }))
+            items.append(.action("Export Database as SQL…", action: { exportDatabase(profile) }))
         }
-        Divider()
-        Button("Copy Name") { copyToPasteboard(profile.database.isEmpty ? "Default database" : profile.database) }
-        Button("Refresh") { refresh(profile) }
+        items.append(.separator)
+        items.append(.action("Copy Name", action: { copyToPasteboard(profile.database.isEmpty ? "Default database" : profile.database) }))
+        items.append(.action("Refresh", action: { refresh(profile) }))
+        return items
     }
 
-    @ViewBuilder
-    private func mongoDatabaseContextMenu(_ profile: DatabaseProfile) -> some View {
-        Button("Refresh Collections") { refresh(profile) }
-        Button("Copy Name") { copyToPasteboard(profile.database.isEmpty ? "admin" : profile.database) }
+    private func mongoDatabaseContextMenu(_ profile: DatabaseProfile) -> [LitheContextMenuItem] {
+        var items: [LitheContextMenuItem] = []
+        items.append(.action("Refresh Collections", action: { refresh(profile) }))
+        items.append(.action("Copy Name", action: { copyToPasteboard(profile.database.isEmpty ? "admin" : profile.database) }))
+        return items
     }
 
-    @ViewBuilder
-    private func mongoCollectionContextMenu(_ profile: DatabaseProfile, collection: String) -> some View {
-        Button("View Documents") { openTable(profile, table: collection, section: .data) }
-        Button("Copy Name") { copyToPasteboard(collection) }
-        Divider()
-        Button("Refresh") {
+    private func mongoCollectionContextMenu(_ profile: DatabaseProfile, collection: String) -> [LitheContextMenuItem] {
+        var items: [LitheContextMenuItem] = []
+        items.append(.action("View Documents", action: { openTable(profile, table: collection, section: .data) }))
+        items.append(.action("Copy Name", action: { copyToPasteboard(collection) }))
+        items.append(.separator)
+        items.append(.action("Refresh", action: {
             Task {
                 if model.databaseFeature.selectedProfileID != profile.id { await model.databaseFeature.select(profile) }
                 await model.databaseFeature.openTable(collection)
             }
-        }
+        }))
+        return items
     }
 
-    @ViewBuilder
-    private func tableGroupContextMenu(_ profile: DatabaseProfile) -> some View {
-        Button("New Table") { openSQLQuery(profile, sql: "CREATE TABLE new_table (\n    id INTEGER PRIMARY KEY\n);\n") }
-            .disabled(profile.readOnly)
-        Button("Refresh") { refresh(profile) }
+    private func tableGroupContextMenu(_ profile: DatabaseProfile) -> [LitheContextMenuItem] {
+        var items: [LitheContextMenuItem] = []
+        items.append(.action("New Table", isEnabled: !(profile.readOnly), action: { openSQLQuery(profile, sql: "CREATE TABLE new_table (\n    id INTEGER PRIMARY KEY\n);\n") }))
+        items.append(.action("Refresh", action: { refresh(profile) }))
+        return items
     }
 
-    @ViewBuilder
-    private func redisDatabaseContextMenu(_ profile: DatabaseProfile) -> some View {
-        Button("Refresh Keys") { refresh(profile) }
-        Button("Set Database Alias") {
+    private func redisDatabaseContextMenu(_ profile: DatabaseProfile) -> [LitheContextMenuItem] {
+        var items: [LitheContextMenuItem] = []
+        items.append(.action("Refresh Keys", action: { refresh(profile) }))
+        items.append(.action("Set Database Alias", action: {
             presentConnectionEditor(profile: profile)
-        }
-        Button("Clear Current Redis DB", role: .destructive) {
+        }))
+        items.append(.action("Clear Current Redis DB", role: .destructive, isEnabled: !(profile.readOnly), action: {
             pendingRedisProfile = profile
             showsRedisFlushConfirmation = true
-        }
-        .disabled(profile.readOnly)
+        }))
+        return items
     }
 
-    @ViewBuilder
-    private func nacosContextMenu(_ profile: DatabaseProfile) -> some View {
-        Button("Refresh") { refresh(profile) }
-        Button("Copy Name") { copyToPasteboard(profile.name) }
-        Button("Edit Namespace") {
+    private func nacosContextMenu(_ profile: DatabaseProfile) -> [LitheContextMenuItem] {
+        var items: [LitheContextMenuItem] = []
+        items.append(.action("Refresh", action: { refresh(profile) }))
+        items.append(.action("Copy Name", action: { copyToPasteboard(profile.name) }))
+        items.append(.action("Edit Namespace", action: {
             presentConnectionEditor(profile: profile)
-        }
+        }))
+        return items
     }
 
     private func presentConnectionEditor(
@@ -956,36 +964,33 @@ struct DatabaseSidebarView: View {
         showsConnectionEditor = true
     }
 
-    @ViewBuilder
-    private func tableContextMenu(_ profile: DatabaseProfile, table: String) -> some View {
-        Group {
-            Button("View Data") { openTable(profile, table: table, section: .data) }
-            Button("New Query") {
+    private func tableContextMenu(_ profile: DatabaseProfile, table: String) -> [LitheContextMenuItem] {
+        var items: [LitheContextMenuItem] = [
+            .action("View Data") { openTable(profile, table: table, section: .data) },
+            .action("New Query") {
                 openTable(profile, table: table, section: .sql, sql: "SELECT * FROM \(quotedIdentifier(table, kind: profile.kind));\n")
-            }
-            Button("View Structure") { openTable(profile, table: table, section: .structure) }
-            Button("Copy Name") { copyToPasteboard(table) }
-            Divider()
-            Menu("Export Data…") {
-                Button("CSV") { exportTable(profile, table: table, format: .csv) }
-                Button("JSON") { exportTable(profile, table: table, format: .json) }
-            }
-        }
-        Button("Import Data…") { beginImport(.csv, profile: profile, table: table) }
-            .disabled(profile.readOnly)
-        Divider()
-        Button("Clear Table", role: .destructive) {
+            },
+            .action("View Structure") { openTable(profile, table: table, section: .structure) },
+            .action("Copy Name") { copyToPasteboard(table) },
+            .separator,
+            .submenu("Export Data…", items: [
+                .action("CSV") { exportTable(profile, table: table, format: .csv) },
+                .action("JSON") { exportTable(profile, table: table, format: .json) }
+            ])
+        ]
+        items.append(.action("Import Data…", isEnabled: !(profile.readOnly), action: { beginImport(.csv, profile: profile, table: table) }))
+        items.append(.separator)
+        items.append(.action("Clear Table", role: .destructive, isEnabled: !(profile.readOnly), action: {
             pendingTableAction = DatabaseTableContextAction(profile: profile, table: table, kind: .clear)
             showsTableActionConfirmation = true
-        }
-        .disabled(profile.readOnly)
-        Button("Delete Table", role: .destructive) {
+        }))
+        items.append(.action("Delete Table", role: .destructive, isEnabled: !(profile.readOnly), action: {
             pendingTableAction = DatabaseTableContextAction(profile: profile, table: table, kind: .drop)
             showsTableActionConfirmation = true
-        }
-        .disabled(profile.readOnly)
-        Divider()
-        Button("Refresh") { refresh(profile) }
+        }))
+        items.append(.separator)
+        items.append(.action("Refresh", action: { refresh(profile) }))
+        return items
     }
 
     private func openTable(_ profile: DatabaseProfile, table: String, section: DatabaseWorkspaceSection, sql: String = "") {

@@ -2,6 +2,7 @@ mod detectors;
 mod git;
 mod github;
 mod languages;
+mod mybatis;
 mod plugins;
 mod project;
 mod protocol;

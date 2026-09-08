@@ -27,6 +27,11 @@ import type {
 import { mapGitReadsInBatches } from "../utils/git-async-batch";
 import { aggregateSelectedCommitDiffs } from "../utils/git-commit-selection-diff";
 import {
+  getGitFileOriginalRepositoryRelativePath,
+  getGitFileRepositoryPath,
+  getGitFileRepositoryRelativePath,
+} from "../utils/git-status-selection";
+import {
   createRequestGeneration,
   type RequestGeneration,
 } from "../utils/request-generation";
@@ -124,8 +129,11 @@ export function useGitDiffActions({
 
       try {
         const actualFilePath = normalizeDisplayedFilePath(filePath, "new");
+        const file = gitFileByPath.get(actualFilePath);
+        const fileRepoPath = file ? getGitFileRepositoryPath(file, activeRepoPath) : activeRepoPath;
+        const relativePath = file ? getGitFileRepositoryRelativePath(file) : actualFilePath;
         activateMainEditorPane();
-        onFileSelect(`${activeRepoPath}/${actualFilePath}`, false);
+        onFileSelect(`${fileRepoPath}/${relativePath}`, false);
       } catch (error) {
         console.error("Error opening file:", error);
         await showAlertDialog(
@@ -137,7 +145,7 @@ export function useGitDiffActions({
         );
       }
     },
-    [activeRepoPath, onFileSelect, t],
+    [activeRepoPath, gitFileByPath, onFileSelect, t],
   );
 
   const viewFileDiff = useCallback(
@@ -153,10 +161,13 @@ export function useGitDiffActions({
         const file = gitFileByPath.get(actualFilePath);
         if (file) {
           const fileKey = `${staged ? "staged" : "unstaged"}:${actualFilePath}`;
+          const fileRepoPath = getGitFileRepositoryPath(file, activeRepoPath) ?? activeRepoPath;
+          const relativePath = getGitFileRepositoryRelativePath(file);
+          const originalRelativePath = getGitFileOriginalRepositoryRelativePath(file);
           const title = t(WORKING_TREE_TITLES.all);
           const loadingDiff: MultiFileDiff = {
             title,
-            repoPath: activeRepoPath,
+            repoPath: fileRepoPath,
             commitHash: "working-tree",
             files: [],
             totalFiles: 0,
@@ -178,10 +189,10 @@ export function useGitDiffActions({
           );
           void (async () => {
             const diff = await getWorkingTreePathDiff(
-              activeRepoPath,
-              actualFilePath,
+              fileRepoPath,
+              relativePath,
               file.status === "untracked",
-              file.originalPath,
+              originalRelativePath,
             );
             if (
               !latestFileDiffRequest.isCurrent(requestId) ||
@@ -190,7 +201,7 @@ export function useGitDiffActions({
               return;
             }
             await loadWorkingTreeDiffsProgressively({
-              repoPath: activeRepoPath,
+              repoPath: fileRepoPath,
               bufferId,
               title,
               indexingLabel: t("git.indexing"),

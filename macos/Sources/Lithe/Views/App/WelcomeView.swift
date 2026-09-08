@@ -300,16 +300,18 @@ struct WelcomeView: View {
         .onHover { isHovering in
             hoveredProjectID = isHovering ? project.id : nil
         }
-        .contextMenu {
+        .litheContextMenu {
+            var items: [LitheContextMenuItem] = []
             if exists {
-                Button("Open") { model.openProject(project.url) }
-                Button("Show in Finder") {
+                items.append(.action("Open", action: { model.openProject(project.url) }))
+                items.append(.action("Show in Finder", action: {
                     NSWorkspace.shared.activateFileViewerSelecting([project.url])
-                }
+                }))
             }
-            Button("Remove from Recent Projects", role: .destructive) {
+            items.append(.action("Remove from Recent Projects", role: .destructive, action: {
                 model.removeRecentProject(project)
-            }
+            }))
+            return items
         }
     }
 

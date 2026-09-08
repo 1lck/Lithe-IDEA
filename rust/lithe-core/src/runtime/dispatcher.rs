@@ -5,6 +5,7 @@ use crate::community::{
     DiscourseCategoriesRequest, DiscourseRevokeRequest, DiscourseSearchRequest,
     DiscourseTopicRequest, DiscourseTopicsRequest,
 };
+use crate::diagnostics::{BuildManifestRequest, RedactTextRequest};
 use crate::git::{
     self, GitApplyRequest, GitBlameRequest, GitCheckoutPreflightRequest, GitCommandRequest,
     GitCommitFilesRequest, GitCommitRequest, GitComparisonRequest, GitConflictMarkerRequest,
@@ -12,11 +13,13 @@ use crate::git::{
     GitIntegrationPreflightRequest, GitOperationStateRequest, GitPullPreflightRequest,
     GitPullRequestContextRequest, GitPushPreviewRequest, GitReferencesRequest, GitStashesRequest,
     GitStatusRequest, GitWatchContextRequest, GitWorktreesRequest, GitWriteRequest,
+    WorkspaceRepositoriesRequest,
 };
 use crate::github::{NormalizeResponseRequest, ParseRemoteRequest, RequestPlanRequest};
 use crate::languages::{
     JavaClassNameRequest, JavaCodeVisionRequest, JavaRunConfigurationsRequest,
-    JavaServerPortRequest, JavaSourceDefinitionRequest, JavaStructureRequest, SpringIndexRequest,
+    JavaServerPortRequest, JavaSourceDefinitionRequest, JavaStructureRequest, MybatisIndexRequest,
+    SpringIndexRequest,
 };
 use crate::project::{
     self, DocumentLifecycleRequest, FileReadRequest, FileWriteRequest, ReplacementPreviewRequest,
@@ -217,6 +220,24 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("snapshot should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::WorkspaceRepositories => {
+            match serde_json::from_value::<WorkspaceRepositoriesRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid workspace repositories request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::workspace_repositories)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("workspace repositories should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }
@@ -1437,6 +1458,21 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::MybatisIndex => {
+            match serde_json::from_value::<MybatisIndexRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid MyBatis index request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::languages::mybatis_index)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("MyBatis index response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::GitStatus => match serde_json::from_value::<GitStatusRequest>(parsed.payload)
             .map_err(|error| {
                 CoreError::new(ErrorCode::InvalidRequest, "Invalid Git status request")
@@ -1850,6 +1886,38 @@ fn execute(request: &str) -> CoreResponse {
                 .and_then(crate::github::normalize_response)
             {
                 Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DiagnosticsRedactText => {
+            match serde_json::from_value::<RedactTextRequest>(parsed.payload).map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid diagnostics redact request",
+                )
+                .with_details(error.to_string())
+            }) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::diagnostics::redact_text(request))
+                        .expect("Diagnostics redact response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DiagnosticsBuildManifest => {
+            match serde_json::from_value::<BuildManifestRequest>(parsed.payload).map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid diagnostics manifest request",
+                )
+                .with_details(error.to_string())
+            }) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::diagnostics::build_manifest(request))
+                        .expect("Diagnostics manifest response should encode"),
+                ),
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
