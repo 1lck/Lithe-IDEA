@@ -39,9 +39,7 @@ import {
   selectedCommitsInHistoryOrder,
   updateGitHistorySelection,
 } from "../../utils/git-history-selection";
-import {
-  type GitReferenceAction,
-} from "../../utils/git-reference-actions";
+import { type GitReferenceAction } from "../../utils/git-reference-actions";
 import { showGitPushDialog } from "../../services/git-push-dialog-service";
 import { showGitPatchDialog } from "../../services/git-patch-dialog-service";
 import type {
@@ -53,6 +51,7 @@ import { GitCommitTable } from "./git-commit-table";
 import { GitLogTitleBar } from "./git-log-title-bar";
 import { GitReferenceTree } from "./git-reference-tree";
 import GitRemoteManager from "../git-remote-manager";
+import { GitRepositoryEmptyState } from "../git-repository-empty-state";
 
 type DirectReferenceAction = Extract<
   GitReferenceAction,
@@ -180,8 +179,7 @@ export function GitLogToolWindow() {
       if (outcome.warnings?.some((warning) => warning.code === "git_stash_drop_failed")) {
         toast.warning(t("git.log.autoStashCleanupFailed"));
       }
-    }
-    else if (outcome.status === "conflicts") {
+    } else if (outcome.status === "conflicts") {
       if (outcome.stashRestore) {
         toast.warning(
           t("git.log.autoStashRestoreConflicts", {
@@ -545,12 +543,7 @@ export function GitLogToolWindow() {
           {t("git.log.loading")}
         </div>
       ) : loadState === "failed" && history.commits.length === 0 ? (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-          <div className="text-destructive">{error ?? t("git.log.unableToLoad")}</div>
-          <Button type="button" variant="ghost" size="xs" onClick={() => void refresh()}>
-            {t("git.log.tryAgain")}
-          </Button>
-        </div>
+        <GitRepositoryEmptyState root={repoPath} historyError={error} onRefresh={refresh} />
       ) : (
         <ResizablePanelGroup
           orientation="horizontal"
@@ -577,6 +570,7 @@ export function GitLogToolWindow() {
           <ResizableHandle />
           <ResizablePanel id="commits" defaultSize="57" minSize={320}>
             <GitCommitTable
+              emptyState={<GitRepositoryEmptyState root={repoPath} onRefresh={refresh} />}
               commits={history.commits}
               selectedCommit={selectedCommit}
               selectedCommitHashes={selectedCommitHashes}
@@ -596,8 +590,12 @@ export function GitLogToolWindow() {
               }
               onEditMessage={(commit) => void editMessage(commit)}
               onUndo={(commit) => void undoCommit(commit)}
-              onInteractiveRebase={(commit) => { if (repoPath) showGitRebaseDialog(repoPath, commit.hash); }}
-              onExportPatch={(commits) => { if (repoPath) void showGitPatchDialog(repoPath, { mode: "export", commits }); }}
+              onInteractiveRebase={(commit) => {
+                if (repoPath) showGitRebaseDialog(repoPath, commit.hash);
+              }}
+              onExportPatch={(commits) => {
+                if (repoPath) void showGitPatchDialog(repoPath, { mode: "export", commits });
+              }}
               onDelete={(commit) => void removeCommit(commit)}
               onSquash={(commits) => void squashSelectedCommits(commits)}
               onReset={(commit) => void resetBranchToCommit(commit)}

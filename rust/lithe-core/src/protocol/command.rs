@@ -211,6 +211,12 @@ pub enum CoreCommand {
     GitCommand,
     /// Performs one supported Git mutation (`git.write`).
     GitWrite,
+    /// Inspects repository initialization and scoped commit identity.
+    GitRepositorySetup,
+    /// Initializes an existing folder outside any repository.
+    GitInitialize,
+    /// Writes or clears one explicitly scoped commit identity field.
+    GitConfigureIdentity,
     /// Reviews a local history mutation and its immutable checkout snapshot (`git.historyRewritePreview`).
     GitHistoryRewritePreview,
     /// Preview a linear local range after an unchanged base commit.
@@ -371,6 +377,9 @@ impl CoreCommand {
             "git.write" => Some(Self::GitWrite),
             "git.historyRewritePreview" => Some(Self::GitHistoryRewritePreview),
             "git.rebasePreview" => Some(Self::GitRebasePreview),
+            "git.repositorySetup" => Some(Self::GitRepositorySetup),
+            "git.initialize" => Some(Self::GitInitialize),
+            "git.configureIdentity" => Some(Self::GitConfigureIdentity),
             "git.rebaseStart" => Some(Self::GitRebaseStart),
             "git.rebaseSession" => Some(Self::GitRebaseSession),
             "git.rebaseControl" => Some(Self::GitRebaseControl),

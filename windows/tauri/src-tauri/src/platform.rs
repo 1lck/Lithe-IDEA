@@ -483,10 +483,7 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             payload.insert("destination".into(), json!(path));
             "git.write"
         }
-        "git_init" => {
-            payload.insert("arguments".into(), json!(["init"]));
-            "git.command"
-        }
+        "git_init" => "git.initialize",
         "git_clone" => {
             let remote = take_text(&mut payload, "repositoryUrl")?;
             let destination = take_text(&mut payload, "destinationPath")?;

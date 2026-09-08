@@ -6,6 +6,8 @@ struct GitLogNavigation {
     let compareWithWorkingTree: (GitReference) async -> Void
     let compareReferences: (GitReference, GitReference) async -> Void
     let openCommitDiff: (GitCommitFile) -> Void
+    var openGitSettings: () -> Void = {}
+    var openChanges: () -> Void = {}
 }
 
 struct GitLogView: View {
@@ -1140,14 +1142,8 @@ struct GitLogView: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
             if (visibleCommitHashes?.isEmpty == true || (visibleCommitHashes == nil && feature.gitCommits.isEmpty)) && !feature.isLoadingGitHistory {
-                VStack(spacing: 8) {
-                    LitheSystemIcon(systemImage: "point.3.connected.trianglepath.dotted")
-                        .font(.system(size: 27, weight: .light))
-                    Text("No commits match this view")
-                }
-                .font(LitheTheme.uiFont)
-                .foregroundStyle(LitheTheme.secondaryText)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                GitRepositoryEmptyView(feature: feature, setup: feature.repositorySetup,
+                                       openSettings: navigation.openGitSettings, openChanges: navigation.openChanges)
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -1375,7 +1371,7 @@ struct GitLogView: View {
     }
 
     private var primaryComparisonDescription: String {
-        guard let currentReference else { return "No current branch" }
+        guard let currentReference else { return feature.gitRepositoryRoot != nil ? feature.currentBranch : "No current branch" }
         if let target = feature.selectedGitReference, target.id != currentReference.id {
             return "\(currentReference.shortName) → \(target.shortName)"
         }

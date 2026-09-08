@@ -1617,6 +1617,51 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::GitRepositorySetup => {
+            match serde_json::from_value::<git::GitSetupRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid Git setup request")
+                        .with_details(error.to_string())
+                })
+                .and_then(git::repository_setup)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git setup should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitInitialize => {
+            match serde_json::from_value::<git::GitSetupRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid Git setup request")
+                        .with_details(error.to_string())
+                })
+                .and_then(git::initialize_repository)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git setup should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitConfigureIdentity => {
+            match serde_json::from_value::<git::GitConfigureIdentityRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid Git setup request")
+                        .with_details(error.to_string())
+                })
+                .and_then(git::configure_identity)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git setup should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::GitPatchExport => {
             match serde_json::from_value::<PatchExportRequest>(parsed.payload)
                 .map_err(|error| {

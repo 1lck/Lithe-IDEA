@@ -7,6 +7,9 @@ import LitheModuleAPI
 /// in AppModel. Git command construction and parsing remain in GitService/Core.
 @MainActor
 package final class GitFeatureModel: ObservableObject {
+    package lazy var repositorySetup = GitRepositorySetupFeatureModel(service: service)
+    package lazy var identitySettings = GitRepositorySetupFeatureModel(service: service)
+    package var repositorySetupRoot: URL? { gitRepositoryRoot ?? workspaceURLProvider?() }
     package lazy var patchExchange = makePatchExchange()
     package lazy var historyEditing = makeHistoryEditing()
     package lazy var interactiveRebase = makeInteractiveRebase()
@@ -105,6 +108,8 @@ package final class GitFeatureModel: ObservableObject {
     @Published package private(set) var gitRepositoryRoot: URL? {
         didSet {
             if oldValue != gitRepositoryRoot {
+                repositorySetup.reset()
+                identitySettings.reset()
                 historyEditing.reset()
                 patchExchange.reset()
                 interactiveRebase.reset()
@@ -307,6 +312,8 @@ package final class GitFeatureModel: ObservableObject {
 
     package var hasActiveModuleWork: Bool {
         historyEditing.isBusy
+            || repositorySetup.isBusy
+            || identitySettings.isBusy
             || patchExchange.isBusy
             || interactiveRebase.isBusy
             || isPerformingStashOperation
@@ -325,6 +332,8 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func reset() {
+        repositorySetup.reset()
+        identitySettings.reset()
         historyEditing.reset()
         patchExchange.reset()
         interactiveRebase.reset()

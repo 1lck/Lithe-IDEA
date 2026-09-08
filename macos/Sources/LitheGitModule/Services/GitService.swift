@@ -12,6 +12,9 @@ package struct NullGitPerformanceLogger: GitPerformanceLogger {
 }
 
 package protocol GitOperations: Sendable {
+    func repositorySetup(at root: URL, scope: GitIdentityScope) -> Result<GitRepositorySetup, GitSetupFailure>
+    func initializeRepository(at root: URL) -> Result<GitRepositorySetup, GitSetupFailure>
+    func configureIdentity(at root: URL, scope: GitIdentityScope, field: GitIdentityField, value: String?) -> Result<GitRepositorySetup, GitSetupFailure>
     func run(
         arguments: [String],
         workingDirectory: String,
@@ -162,6 +165,15 @@ package protocol GitOperations: Sendable {
 }
 
 package extension GitOperations {
+    func repositorySetup(at root: URL, scope: GitIdentityScope) -> Result<GitRepositorySetup, GitSetupFailure> {
+        .failure(GitSetupFailure("Git setup is unavailable."))
+    }
+    func initializeRepository(at root: URL) -> Result<GitRepositorySetup, GitSetupFailure> {
+        .failure(GitSetupFailure("Git setup is unavailable."))
+    }
+    func configureIdentity(at root: URL, scope: GitIdentityScope, field: GitIdentityField, value: String?) -> Result<GitRepositorySetup, GitSetupFailure> {
+        .failure(GitSetupFailure("Git setup is unavailable."))
+    }
     func interactiveRebasePreview(at rootURL: URL, revision: String) -> Result<GitRebasePreview, GitRebaseFailure> {
         .failure(GitRebaseFailure("Interactive rebase is unavailable."))
     }
@@ -522,6 +534,21 @@ package struct GitService: Sendable {
     func interactiveRebasePreview(at root: URL, revision: String) async -> Result<GitRebasePreview, GitRebaseFailure> {
         await read { $0.interactiveRebasePreview(at: root, revision: revision) }
             ?? .failure(GitRebaseFailure("Could not inspect the rebase range."))
+    }
+
+    func repositorySetup(at root: URL, scope: GitIdentityScope) async -> Result<GitRepositorySetup, GitSetupFailure> {
+        await read { $0.repositorySetup(at: root, scope: scope) }
+            ?? .failure(GitSetupFailure("Git setup is unavailable."))
+    }
+
+    func initializeRepository(at root: URL) async -> Result<GitRepositorySetup, GitSetupFailure> {
+        await read { $0.initializeRepository(at: root) }
+            ?? .failure(GitSetupFailure("Git setup is unavailable."))
+    }
+
+    func configureIdentity(at root: URL, scope: GitIdentityScope, field: GitIdentityField, value: String?) async -> Result<GitRepositorySetup, GitSetupFailure> {
+        await read { $0.configureIdentity(at: root, scope: scope, field: field, value: value) }
+            ?? .failure(GitSetupFailure("Git setup is unavailable."))
     }
 
     func interactiveRebaseSession(at root: URL) async -> Result<GitRebaseSession?, GitRebaseFailure> {

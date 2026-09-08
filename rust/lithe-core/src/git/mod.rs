@@ -9,6 +9,12 @@ mod mutations;
 mod patch_exchange;
 mod rebase_session;
 mod rewrite;
+mod setup;
+
+pub use setup::{
+    configure_identity, initialize as initialize_repository, inspect as repository_setup,
+    GitConfigureIdentityRequest, GitSetupRequest,
+};
 
 pub use history::{
     close_history_cursor, history, history_page, references, GitHistoryCursorCloseRequest,

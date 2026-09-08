@@ -44,6 +44,7 @@ const ROW_HEIGHT = 30;
 
 export function GitCommitTable({
   commits,
+  emptyState,
   selectedCommit,
   selectedCommitHashes,
   isMutatingHistory,
@@ -66,6 +67,7 @@ export function GitCommitTable({
   onLoadMore,
 }: {
   commits: GitCommit[];
+  emptyState?: import("react").ReactNode;
   selectedCommit: GitCommit | null;
   selectedCommitHashes: ReadonlySet<string>;
   isMutatingHistory: boolean;
@@ -242,9 +244,13 @@ export function GitCommitTable({
         className="min-h-0 flex-1 overflow-auto [overflow-anchor:none]"
       >
         {visibleRows.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-subtle-foreground">
-            {query ? t("git.log.noMatch") : t("git.log.noCommits")}
-          </div>
+          commits.length === 0 && emptyState ? (
+            emptyState
+          ) : (
+            <div className="flex h-full items-center justify-center text-subtle-foreground">
+              {query ? t("git.log.noMatch") : t("git.log.noCommits")}
+            </div>
+          )
         ) : (
           <>
             <div className="relative min-w-130" style={{ height: virtualizer.getTotalSize() }}>
@@ -302,22 +308,26 @@ export function GitCommitTable({
                     <ContextMenuContent>
                       {hasMultipleContextCommits ? (
                         <>
-                        <ContextMenuItem
-                          disabled={isMutatingHistory || !canSquash}
-                          title={!canSquash ? t("git.historyReview.contiguousRequired") : undefined}
-                          onClick={() => onSquash(contextSelection)}
-                        >
-                          <Squash />
-                          {t("git.squashCommits")}
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          disabled={isMutatingHistory || contextSelection.length !== 2}
-                          title={contextSelection.length !== 2 ? t("git.patch.twoCommits") : undefined}
-                          onClick={() => onExportPatch(contextSelection)}
-                        >
-                          <GitDiff />
-                          {t("git.patch.create")}
-                        </ContextMenuItem>
+                          <ContextMenuItem
+                            disabled={isMutatingHistory || !canSquash}
+                            title={
+                              !canSquash ? t("git.historyReview.contiguousRequired") : undefined
+                            }
+                            onClick={() => onSquash(contextSelection)}
+                          >
+                            <Squash />
+                            {t("git.squashCommits")}
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            disabled={isMutatingHistory || contextSelection.length !== 2}
+                            title={
+                              contextSelection.length !== 2 ? t("git.patch.twoCommits") : undefined
+                            }
+                            onClick={() => onExportPatch(contextSelection)}
+                          >
+                            <GitDiff />
+                            {t("git.patch.create")}
+                          </ContextMenuItem>
                         </>
                       ) : (
                         <>
@@ -333,13 +343,20 @@ export function GitCommitTable({
                           <ContextMenuSeparator />
                           <ContextMenuItem
                             disabled={isMutatingHistory || !isGitHeadCommit(row.commit)}
-                            title={!isGitHeadCommit(row.commit) ? t("git.historyReview.headRequired") : undefined}
+                            title={
+                              !isGitHeadCommit(row.commit)
+                                ? t("git.historyReview.headRequired")
+                                : undefined
+                            }
                             onClick={() => onUndo(row.commit)}
                           >
                             <Reset />
                             {t("git.undoCommit")}
                           </ContextMenuItem>
-                          <ContextMenuItem disabled={isMutatingHistory} onClick={() => onInteractiveRebase(row.commit)}>
+                          <ContextMenuItem
+                            disabled={isMutatingHistory}
+                            onClick={() => onInteractiveRebase(row.commit)}
+                          >
                             <GitBranch />
                             {t("git.rebasePlan.fromHere")}
                           </ContextMenuItem>
