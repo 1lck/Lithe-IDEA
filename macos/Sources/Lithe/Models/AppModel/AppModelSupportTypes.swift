@@ -10,6 +10,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case lsp = "LSP"
     case ai = "AI & Commit"
     case updates = "Updates"
+    case diagnostics = "Diagnostics"
 
     var id: String { rawValue }
 
@@ -22,6 +23,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .lsp: "server.rack"
         case .ai: "wand.and.stars"
         case .updates: "arrow.down.circle"
+        case .diagnostics: "stethoscope"
         }
     }
 }
