@@ -1,5 +1,7 @@
 #[cfg(any(target_os = "windows", test))]
 mod git_bash;
+#[cfg(any(target_os = "windows", test))]
+mod windows_shells;
 
 use serde::{Deserialize, Serialize};
 use std::{
@@ -46,11 +48,11 @@ fn windows_known_shell_path(_exe: &str) -> Option<String> {
 fn windows_known_shell_candidates(exe: &str) -> Vec<PathBuf> {
    let mut candidates = Vec::new();
 
-   if matches!(exe, "cmd.exe" | "powershell.exe")
+   if matches!(exe, "cmd.exe" | "powershell.exe" | "wsl.exe")
       && let Ok(windows_dir) = env::var("SystemRoot").or_else(|_| env::var("WINDIR"))
    {
       let windows_dir = Path::new(&windows_dir);
-      if exe == "cmd.exe" {
+      if matches!(exe, "cmd.exe" | "wsl.exe") {
          candidates.push(windows_dir.join("System32").join(exe));
       } else {
          candidates.push(
@@ -78,6 +80,35 @@ fn windows_known_shell_candidates(exe: &str) -> Vec<PathBuf> {
       }
    }
 
+   if exe == "nu.exe" {
+      for key in ["ProgramFiles", "ProgramW6432"] {
+         if let Some(base) = env::var_os(key) {
+            candidates.push(PathBuf::from(base).join("nu").join("bin").join(exe));
+         }
+      }
+   }
+   for (shell_exe, package) in [("nu.exe", "nu"), ("pwsh.exe", "pwsh")] {
+      if exe != shell_exe {
+         continue;
+      }
+      for key in ["SCOOP", "SCOOP_GLOBAL"] {
+         if let Some(base) = env::var_os(key) {
+            let root = PathBuf::from(base)
+               .join("apps")
+               .join(package)
+               .join("current");
+            candidates.extend([root.join(exe), root.join("bin").join(exe)]);
+         }
+      }
+      if let Some(base) = env::var_os("USERPROFILE") {
+         let root = PathBuf::from(base)
+            .join("scoop")
+            .join("apps")
+            .join(package)
+            .join("current");
+         candidates.extend([root.join(exe), root.join("bin").join(exe)]);
+      }
+   }
    candidates
 }
 
@@ -180,7 +211,11 @@ impl Shell {
    }
 
    pub fn get_available_shells() -> Vec<Shell> {
-      Self::get_shell_list()
+      #[allow(unused_mut)]
+      let mut shells = Self::get_shell_list();
+      #[cfg(target_os = "windows")]
+      shells.extend(windows_shells::additional_shells());
+      shells
          .into_iter()
          .filter(|sh| {
             let path = if cfg!(windows) {

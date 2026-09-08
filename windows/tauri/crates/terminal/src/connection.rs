@@ -187,6 +187,12 @@ impl TerminalConnection {
       if let Some(working_dir) = &config.working_directory {
          Self::ensure_working_directory_access(working_dir)?;
          cmd.cwd(working_dir);
+         if cfg!(windows)
+            && config.command.is_none()
+            && selected_shell_id.is_some_and(|id| id.starts_with("wsl:"))
+         {
+            cmd.args(["--cd", working_dir]);
+         }
       }
 
       // First, inherit user's full shell environment
@@ -213,6 +219,9 @@ impl TerminalConnection {
          cmd.env("SHELL", &shell_path);
          if cfg!(target_os = "windows") && Self::is_git_bash_shell(selected_shell_id, &shell_path) {
             cmd.env("CHERE_INVOKING", "1");
+            if selected_shell_id == Some("msys2") {
+               cmd.env("MSYSTEM", "MSYS");
+            }
          }
       }
       cmd.env("CLICOLOR", "1");
@@ -284,7 +293,12 @@ impl TerminalConnection {
          if shell_id.eq_ignore_ascii_case("bash") {
             // Never fall back to bare bash.exe: Windows may resolve it to WSL.
             return Err(anyhow!(
-               "Git Bash was not found. Install Git for Windows, restart Lithe, then select Git Bash in Settings > Terminal."
+               "Git Bash was not found. Install Git for Windows, then use Detect Installed Shells in the terminal menu."
+            ));
+         }
+         if shell_id.starts_with("wsl:") || matches!(shell_id, "msys2" | "cygwin") {
+            return Err(anyhow!(
+               "The selected shell is no longer installed. Use Detect Installed Shells in the terminal menu."
             ));
          }
          if let Some(executable) = Self::windows_builtin_shell_executable(shell_id) {
@@ -302,6 +316,12 @@ impl TerminalConnection {
    }
 
    fn shell_startup_args(shell_id: Option<&str>, shell_path: &str) -> Vec<String> {
+      if let Some(distribution) = shell_id.and_then(|id| id.strip_prefix("wsl:")) {
+         return vec!["--distribution".into(), distribution.into()];
+      }
+      if shell_id == Some("nu") {
+         return vec!["--login".into(), "--interactive".into()];
+      }
       if Self::is_powershell_shell(shell_id, shell_path) {
          return vec!["-NoLogo".to_string()];
       }
@@ -677,6 +697,63 @@ mod tests {
       let error = TerminalConnection::missing_shell_path("bash", "cmd.exe").unwrap_err();
       assert!(error.to_string().contains("Install Git for Windows"));
       assert!(TerminalConnection::windows_builtin_shell_executable("bash").is_none());
+   }
+
+   #[test]
+   fn wsl_and_nushell_use_their_own_startup_arguments() {
+      assert_eq!(
+         TerminalConnection::shell_startup_args(Some("wsl:Ubuntu"), "wsl.exe"),
+         ["--distribution", "Ubuntu"]
+      );
+      assert_eq!(
+         TerminalConnection::shell_startup_args(Some("nu"), "nu.exe"),
+         ["--login", "--interactive"]
+      );
+   }
+
+   #[cfg(windows)]
+   #[test]
+   fn wsl_new_terminal_preserves_workspace_and_distribution_as_separate_arguments() {
+      let directory = crate::test_support::TestDirectory::new();
+      let mut config = config_with_env(HashMap::new());
+      config.command = None;
+      config.shell = Some("wsl:Ubuntu".into());
+      config.working_directory = Some(directory.path().to_string_lossy().into_owned());
+      let cmd =
+         TerminalConnection::build_command_with_shell_resolver(
+            &config,
+            |_, _| Ok("wsl.exe".into()),
+         )
+         .unwrap();
+      let args = cmd
+         .get_argv()
+         .iter()
+         .map(|arg| arg.to_string_lossy().into_owned())
+         .collect::<Vec<_>>();
+      assert_eq!(
+         args,
+         [
+            "wsl.exe",
+            "--distribution",
+            "Ubuntu",
+            "--cd",
+            config.working_directory.as_deref().unwrap()
+         ]
+      );
+   }
+
+   #[cfg(windows)]
+   #[test]
+   fn msys2_shell_sets_its_own_environment_and_keeps_the_workspace() {
+      let mut config = config_with_env(HashMap::new());
+      config.command = None;
+      config.shell = Some("msys2".into());
+      let cmd = TerminalConnection::build_command_with_shell_resolver(&config, |_, _| {
+         Ok(r"C:\fixtures\msys64\usr\bin\bash.exe".into())
+      })
+      .unwrap();
+      assert_eq!(cmd.get_env("MSYSTEM"), Some(OsStr::new("MSYS")));
+      assert_eq!(cmd.get_env("CHERE_INVOKING"), Some(OsStr::new("1")));
    }
 
    #[test]
