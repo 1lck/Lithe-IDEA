@@ -10,3 +10,6 @@ pub use protocol::{
    TerminalEvent, TerminalEventHandler, TerminalInput, TerminalReaderControl, TerminalSize,
 };
 pub use shell::get_shells;
+
+#[cfg(test)]
+mod test_support;

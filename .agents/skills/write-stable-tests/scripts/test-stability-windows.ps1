@@ -125,6 +125,13 @@ if ($Scope -in @("All", "Frontend")) {
 }
 
 if ($Scope -in @("All", "WindowsRust")) {
+    # Cargo does not run dependency crate tests when testing only the Tauri host.
+    Invoke-TimedRustTests `
+        -Manifest "windows/tauri/src-tauri/Cargo.toml" `
+        -Package "lithe-terminal" `
+        -TargetDirectory "windows/tauri/src-tauri/target" `
+        -Report (Join-Path $reportRoot "windows-terminal-rust.json")
+
     Invoke-TimedRustTests `
         -Manifest "windows/tauri/src-tauri/Cargo.toml" `
         -TargetDirectory "windows/tauri/src-tauri/target" `

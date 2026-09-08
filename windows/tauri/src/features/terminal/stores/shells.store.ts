@@ -7,38 +7,43 @@ interface TerminalShellsState {
   shells: Shell[];
   isLoading: boolean;
   hasLoaded: boolean;
+  error: string | null;
   actions: {
-    loadShells: () => Promise<void>;
+    loadShells: (options?: { force?: boolean }) => Promise<void>;
   };
 }
 
-const useTerminalShellsStoreBase = create<TerminalShellsState>()((set, get) => ({
-  shells: [],
-  isLoading: false,
-  hasLoaded: false,
-  actions: {
-    loadShells: async () => {
-      const { isLoading, hasLoaded } = get();
-      if (isLoading || hasLoaded) return;
+export const createTerminalShellsStore = (discover: () => Promise<Shell[]>) =>
+  create<TerminalShellsState>()((set, get) => ({
+    shells: [],
+    isLoading: false,
+    hasLoaded: false,
+    error: null,
+    actions: {
+      loadShells: async (options) => {
+        const { isLoading, hasLoaded } = get();
+        if (isLoading || (hasLoaded && !options?.force)) return;
 
-      set({ isLoading: true });
+        set({ isLoading: true, error: null });
 
-      try {
-        const shells = await invoke<Shell[]>("list_shells");
-        set({
-          shells,
-          isLoading: false,
-          hasLoaded: true,
-        });
-      } catch (error) {
-        console.error("Failed to load terminal shells:", error);
-        set({
-          isLoading: false,
-          hasLoaded: false,
-        });
-      }
+        try {
+          const shells = await discover();
+          set({
+            shells,
+            isLoading: false,
+            hasLoaded: true,
+          });
+        } catch (error) {
+          console.error("Failed to load terminal shells:", error);
+          set({
+            isLoading: false,
+            error: String(error),
+          });
+        }
+      },
     },
-  },
-}));
+  }));
 
-export const useTerminalShellsStore = createSelectors(useTerminalShellsStoreBase);
+export const useTerminalShellsStore = createSelectors(
+  createTerminalShellsStore(() => invoke<Shell[]>("list_shells")),
+);

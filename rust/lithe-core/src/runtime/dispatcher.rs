@@ -13,6 +13,7 @@ use crate::git::{
     GitIntegrationPreflightRequest, GitOperationStateRequest, GitPullPreflightRequest,
     GitPullRequestContextRequest, GitPushPreviewRequest, GitReferencesRequest, GitStashesRequest,
     GitStatusRequest, GitWatchContextRequest, GitWorktreesRequest, GitWriteRequest,
+    WorkspaceRepositoriesRequest,
 };
 use crate::github::{NormalizeResponseRequest, ParseRemoteRequest, RequestPlanRequest};
 use crate::languages::{
@@ -218,6 +219,24 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("snapshot should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::WorkspaceRepositories => {
+            match serde_json::from_value::<WorkspaceRepositoriesRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid workspace repositories request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::workspace_repositories)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("workspace repositories should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

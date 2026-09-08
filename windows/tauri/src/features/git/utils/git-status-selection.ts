@@ -1,8 +1,28 @@
 import type { GitFile } from "../types/git.types";
 
+export function getGitFileRepositoryPath(file: GitFile, fallbackRepoPath?: string): string | null {
+  return file.repositoryPath ?? fallbackRepoPath ?? null;
+}
+
+export function getGitFileRepositoryRelativePath(file: GitFile): string {
+  return file.repositoryRelativePath ?? file.path;
+}
+
+export function getGitFileOriginalRepositoryRelativePath(file: GitFile): string | undefined {
+  return file.repositoryOriginalRelativePath ?? file.originalPath;
+}
+
 export function resolveGitFileMutationPaths(files: readonly GitFile[]): string[] {
   return [
-    ...new Set(files.flatMap((file) => [file.originalPath, file.path].filter(Boolean) as string[])),
+    ...new Set(
+      files.flatMap(
+        (file) =>
+          [
+            getGitFileOriginalRepositoryRelativePath(file),
+            getGitFileRepositoryRelativePath(file),
+          ].filter(Boolean) as string[],
+      ),
+    ),
   ].sort((left, right) => left.localeCompare(right));
 }
 
