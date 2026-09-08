@@ -73,54 +73,7 @@ fn find_git_bash_in(
 
 #[cfg(target_os = "windows")]
 fn registry_install_roots() -> Vec<PathBuf> {
-   use std::{ffi::OsString, os::windows::ffi::OsStringExt, ptr};
-   use windows_sys::{
-      Win32::{
-         Foundation::{ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, ERROR_SUCCESS},
-         System::Registry::{
-            HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RRF_SUBKEY_WOW6432KEY,
-            RRF_SUBKEY_WOW6464KEY, RegGetValueW,
-         },
-      },
-      core::w,
-   };
-
-   let mut roots = Vec::new();
-   // Query both installation scopes and registry views, including 32-bit Git
-   // installed on 64-bit Windows. No subprocess or registry mutation is needed.
-   for hive in [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE] {
-      for view in [RRF_SUBKEY_WOW6464KEY, RRF_SUBKEY_WOW6432KEY] {
-         let mut buffer = vec![0u16; 32_768];
-         let mut bytes = (buffer.len() * size_of::<u16>()) as u32;
-         // SAFETY: predefined hive handles stay valid, names are NUL-terminated,
-         // and the writable UTF-16 buffer matches the supplied byte capacity.
-         let status = unsafe {
-            RegGetValueW(
-               hive,
-               w!("Software\\GitForWindows"),
-               w!("InstallPath"),
-               RRF_RT_REG_SZ | view,
-               ptr::null_mut(),
-               buffer.as_mut_ptr().cast(),
-               &mut bytes,
-            )
-         };
-         match status {
-            ERROR_SUCCESS => {
-               let length = buffer.iter().position(|value| *value == 0).unwrap_or(0);
-               let root = PathBuf::from(OsString::from_wide(&buffer[..length]));
-               if root.is_absolute() && !roots.contains(&root) {
-                  roots.push(root);
-               }
-            }
-            ERROR_FILE_NOT_FOUND | ERROR_PATH_NOT_FOUND => {}
-            _ => log::debug!(
-               "Could not read Git for Windows install location: Windows error {status}"
-            ),
-         }
-      }
-   }
-   roots
+   super::windows_shells::registered_install_roots(r"Software\GitForWindows", "InstallPath")
 }
 
 #[cfg(test)]
