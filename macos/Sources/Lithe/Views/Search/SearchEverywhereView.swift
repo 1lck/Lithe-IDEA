@@ -15,7 +15,17 @@ enum SearchEverywhereScope: String, CaseIterable, Identifiable {
 
 /// IDEA 风格的全局搜索弹窗：分类标签、双栏结果和可执行 Actions 共用同一套键盘导航。
 struct SearchEverywhereView: View {
-    @EnvironmentObject private var model: AppModel
+    @ObservedObject var feature: SearchFeatureModel
+    @ObservedObject var session: SearchSessionFeatureModel
+    let actionMatches: (String) -> [LitheAction]
+    let search: (String, ProjectSearchOptions) async -> Void
+    let dismiss: () -> Void
+    let openResult: (FileSearchResult) -> Void
+    let performAction: (LitheAction) -> Void
+    let revealInFinder: (URL) -> Void
+    let copyPath: (URL, Bool) -> Void
+    let relativePath: (URL) -> String
+    let moduleLabel: (URL) -> String
     @FocusState private var searchFocused: Bool
     @State private var query = ""
     @State private var selectedIndex = 0
@@ -34,21 +44,21 @@ struct SearchEverywhereView: View {
             // 对齐 IDEA：默认视图按“名字”找（文件、类、符号、Action），
             // 正文命中只在 Text 标签页出现，避免与 Find in Files 的结果重叠。
             // IDEA 不按 kind 分段，而是把三类混排后按相关度排序。
-            let nameMatches = model.searchEverywhereResults.fileMatches
-                + model.searchEverywhereResults.classMatches
-                + model.searchEverywhereResults.symbolMatches
+            let nameMatches = feature.searchEverywhereResults.fileMatches
+                + feature.searchEverywhereResults.classMatches
+                + feature.searchEverywhereResults.symbolMatches
             return rankedResults(nameMatches)
-                + model.searchEverywhereActionMatches(query: query).map(SearchItem.action)
+                + actionMatches(query).map(SearchItem.action)
         case .classes:
-            return results(in: model.searchEverywhereResults.classMatches)
+            return results(in: feature.searchEverywhereResults.classMatches)
         case .files:
-            return results(in: model.searchEverywhereResults.fileMatches)
+            return results(in: feature.searchEverywhereResults.fileMatches)
         case .symbols:
-            return results(in: model.searchEverywhereResults.symbolMatches)
+            return results(in: feature.searchEverywhereResults.symbolMatches)
         case .text:
-            return results(in: model.searchEverywhereResults.contentMatches)
+            return results(in: feature.searchEverywhereResults.contentMatches)
         case .actions:
-            return model.searchEverywhereActionMatches(query: query).map(SearchItem.action)
+            return actionMatches(query).map(SearchItem.action)
         }
     }
 
@@ -83,7 +93,7 @@ struct SearchEverywhereView: View {
             Color.clear
                 .contentShape(Rectangle())
                 .ignoresSafeArea()
-                .onTapGesture { model.dismissSearchEverywhere() }
+                .onTapGesture { dismiss() }
 
             VStack(spacing: 0) {
                 scopeTabs
@@ -102,7 +112,7 @@ struct SearchEverywhereView: View {
         .onAppear {
             searchFocused = true
             selectedIndex = 0
-            query = model.searchEverywhereQuery
+            query = session.everywhereQuery
             installKeyMonitor()
         }
         .onDisappear { removeKeyMonitor() }
@@ -111,7 +121,7 @@ struct SearchEverywhereView: View {
         .task(id: "\(query)|\(searchOptions.cacheKey)") {
             try? await Task.sleep(for: .milliseconds(180))
             guard !Task.isCancelled else { return }
-            await model.searchEverywhere(query: query, options: searchOptions)
+            await search(query, searchOptions)
         }
     }
 
@@ -138,13 +148,13 @@ struct SearchEverywhereView: View {
             }
 
             Spacer(minLength: 12)
-            if model.isSearchingEverywhere {
+            if feature.isSearchingEverywhere {
                 ProgressView().controlSize(.mini)
             }
             includeNonProjectItemsToggle
             searchOptionsMenu
             Button {
-                model.dismissSearchEverywhere()
+                dismiss()
             } label: {
                 Image(systemName: "xmark")
             }
@@ -215,7 +225,7 @@ struct SearchEverywhereView: View {
     @ViewBuilder
     private var resultsList: some View {
         if visibleItems.isEmpty {
-            if !model.isSearchingEverywhere {
+            if !feature.isSearchingEverywhere {
                 placeholder("No matches in \(scope.rawValue)")
             }
         } else {
@@ -242,7 +252,7 @@ struct SearchEverywhereView: View {
 
     /// 后端按 matchLimit 截断，命中数刚好顶到上限时提示还有更多。
     private var isTruncated: Bool {
-        model.searchEverywhereResults.allMatches.count >= SearchEverywhereResults.matchLimit
+        feature.searchEverywhereResults.allMatches.count >= SearchEverywhereResults.matchLimit
     }
 
     private var moreRow: some View {
@@ -278,7 +288,7 @@ struct SearchEverywhereView: View {
         // 否则嵌套的 Button 收不到点击。
         HStack(spacing: 8) {
             Button {
-                model.openSearchEverywhereResult(result)
+                openResult(result)
             } label: {
                 HStack(spacing: 8) {
                     LitheIcon(kind: iconKind(for: result), size: 14)
@@ -322,7 +332,7 @@ struct SearchEverywhereView: View {
             .lithePointer()
 
             Button {
-                model.revealProjectItemInFinder(result.url)
+                revealInFinder(result.url)
             } label: {
                 LitheIcon(kind: .folder, size: 13)
             }
@@ -337,17 +347,17 @@ struct SearchEverywhereView: View {
         .litheContextMenu {
             [
                 .action("Open", systemImage: "doc.text", action: {
-                    model.openSearchEverywhereResult(result)
+                    openResult(result)
                 }),
                 .action("Show in Finder", systemImage: "folder", action: {
-                    model.revealProjectItemInFinder(result.url)
+                    revealInFinder(result.url)
                 }),
                 .submenu("Copy Path / Reference", items: [
                     .action("Copy Path", action: {
-                        model.copyProjectItemPath(result.url, relative: false)
+                        copyPath(result.url, false)
                     }),
                     .action("Copy Relative Path", action: {
-                        model.copyProjectItemPath(result.url, relative: true)
+                        copyPath(result.url, true)
                     })
                 ])
             ]
@@ -356,32 +366,19 @@ struct SearchEverywhereView: View {
 
     /// 结果所在目录（不含文件名本身），文件直接位于工作区根下时为空。
     private func containerPath(for url: URL) -> String {
-        let relative = model.relativePath(for: url)
+        let relative = relativePath(url)
         let parent = (relative as NSString).deletingLastPathComponent
         return parent
     }
 
     /// 结果归属的 Maven 模块 artifactID；非 Maven 项目或匹配不到时回退到顶层目录名。
     private func moduleLabel(for url: URL) -> String {
-        let path = url.standardizedFileURL.path
-        if let project = model.mavenFeatureIfActive?.project {
-            // 多个模块可能嵌套，取路径最长（最深）的那个才是直接归属。
-            let owning = project.allModules
-                .filter { path.hasPrefix($0.url.standardizedFileURL.path + "/") }
-                .max { $0.url.standardizedFileURL.path.count < $1.url.standardizedFileURL.path.count }
-            if let owning {
-                return owning.displayName
-            }
-            if path.hasPrefix(project.rootURL.standardizedFileURL.path + "/") {
-                return project.displayName
-            }
-        }
-        return model.relativePath(for: url).components(separatedBy: "/").first ?? ""
+        moduleLabel(url)
     }
 
     private func actionRow(_ action: LitheAction, index: Int) -> some View {
         Button {
-            model.performSearchEverywhereAction(action)
+            performAction(action)
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "bolt.fill")
@@ -437,7 +434,7 @@ struct SearchEverywhereView: View {
     private func installKeyMonitor() {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard model.isSearchEverywhereVisible else { return event }
+            guard session.isSearchEverywhereVisible else { return event }
             switch event.keyCode {
             case 125: // Arrow Down
                 if !visibleItems.isEmpty { selectedIndex = min(selectedIndex + 1, visibleItems.count - 1) }
@@ -456,7 +453,7 @@ struct SearchEverywhereView: View {
                 performSelectedItem()
                 return nil
             case 53: // Escape
-                model.dismissSearchEverywhere()
+                dismiss()
                 return nil
             default:
                 return event
@@ -474,8 +471,8 @@ struct SearchEverywhereView: View {
     private func performSelectedItem() {
         guard visibleItems.indices.contains(selectedIndex) else { return }
         switch visibleItems[selectedIndex] {
-        case .result(let result): model.openSearchEverywhereResult(result)
-        case .action(let action): model.performSearchEverywhereAction(action)
+        case .result(let result): openResult(result)
+        case .action(let action): performAction(action)
         }
     }
 

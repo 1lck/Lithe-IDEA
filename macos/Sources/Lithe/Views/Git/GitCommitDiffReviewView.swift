@@ -5,7 +5,7 @@ import LitheGitModule
 /// Working-tree diffs keep using DiffReviewView because they expose stage and
 /// discard actions; historical commit diffs deliberately do not.
 struct GitCommitDiffReviewView: View {
-    @EnvironmentObject private var model: AppModel
+    @ObservedObject var feature: GitFeatureModel
     let context: GitCommitDiffContext
 
     @State private var highlightsWords = true
@@ -21,7 +21,7 @@ struct GitCommitDiffReviewView: View {
                 versionHeader
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-                if model.isLoadingDiff {
+                if feature.isLoadingDiff {
                     VStack(spacing: 9) {
                         ProgressView().controlSize(.small)
                         Text("Loading commit diff…")
@@ -29,7 +29,7 @@ struct GitCommitDiffReviewView: View {
                     .font(LitheTheme.uiFont)
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if model.diffRows.isEmpty {
+                } else if feature.diffRows.isEmpty {
                     VStack(spacing: 9) {
                         Image(systemName: "doc.richtext")
                             .font(.system(size: 30, weight: .light))
@@ -44,7 +44,7 @@ struct GitCommitDiffReviewView: View {
             }
         }
         .litheWorkbenchSurface(LitheTheme.editor)
-        .onChange(of: model.diffRows.count) { _ in
+        .onChange(of: feature.diffRows.count) { _ in
             selectedDifferenceIndex = 0
         }
     }
@@ -71,7 +71,7 @@ struct GitCommitDiffReviewView: View {
             Spacer()
 
             Button {
-                model.closeGitCommitDiff()
+                feature.closeGitCommitDiff()
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .semibold))
@@ -199,22 +199,22 @@ struct GitCommitDiffReviewView: View {
         GeometryReader { geometry in
             let usesSinglePane = context.kind == .added || context.kind == .deleted
             let contentWidth = DiffLayoutMetrics.contentWidth(
-                rows: model.diffRows,
+                rows: feature.diffRows,
                 viewportWidth: geometry.size.width,
                 minimumWidth: usesSinglePane ? 680 : 980,
                 paneCount: usesSinglePane ? 1 : 2
             )
 
-            let kinds = model.diffRows.map(\.kind)
+            let kinds = feature.diffRows.map(\.kind)
             if usesSinglePane {
                 ScrollView(.horizontal) {
                     ScrollView(.vertical) {
                         let contentHeight = max(
-                            DiffLayoutMetrics.contentHeight(rows: model.diffRows, kinds: kinds),
+                            DiffLayoutMetrics.contentHeight(rows: feature.diffRows, kinds: kinds),
                             geometry.size.height
                         )
                         LazyVStack(spacing: 0) {
-                            ForEach(model.diffRows, id: \.id) { row in
+                            ForEach(feature.diffRows, id: \.id) { row in
                                 diffRowView(for: row, contentWidth: contentWidth)
                             }
                         }
@@ -226,7 +226,7 @@ struct GitCommitDiffReviewView: View {
                 .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
                 .background(LitheTheme.editor)
             } else {
-                let displayRows = model.diffRows.enumerated().map {
+                let displayRows = feature.diffRows.enumerated().map {
                     DiffDisplayRow.row($0.element, index: $0.offset)
                 }
                 DiffSplitPaneView(
@@ -265,7 +265,7 @@ struct GitCommitDiffReviewView: View {
     private var differenceStarts: [DiffRowID] {
         var result: [DiffRowID] = []
         var insideDifference = false
-        for row in model.diffRows {
+        for row in feature.diffRows {
             let isDifference = row.kind.isCommitDifference
             if isDifference && !insideDifference {
                 result.append(row.id)
@@ -279,7 +279,7 @@ struct GitCommitDiffReviewView: View {
         var result: [DiffRowID: Int] = [:]
         var currentIndex = -1
         var insideDifference = false
-        for row in model.diffRows {
+        for row in feature.diffRows {
             let isDifference = row.kind.isCommitDifference
             if isDifference && !insideDifference {
                 currentIndex += 1

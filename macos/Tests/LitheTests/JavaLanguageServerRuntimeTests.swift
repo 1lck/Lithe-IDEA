@@ -325,6 +325,24 @@ struct JavaLanguageServerRuntimeTests {
 
     @Test
     @MainActor
+    func preparationCoordinatorReplacesThePreviousTask() {
+        let coordinator = JavaLanguageServerPreparationCoordinator()
+        let owner = JavaLanguageServerPreparationOwner(
+            workspaceURL: URL(fileURLWithPath: "/workspace", isDirectory: true),
+            operationID: UUID()
+        )
+        coordinator.schedule(for: owner) {}
+        let previous = owner.task
+        coordinator.schedule(for: owner) {}
+
+        #expect(previous?.isCancelled == true)
+        #expect(owner.task != nil)
+        coordinator.cancel(owner)
+        #expect(owner.task == nil)
+    }
+
+    @Test
+    @MainActor
     func workspaceStateKeepsPreparationOperationIdentity() {
         let workspaceURL = URL(fileURLWithPath: "/workspace", isDirectory: true)
         let operationID = UUID()

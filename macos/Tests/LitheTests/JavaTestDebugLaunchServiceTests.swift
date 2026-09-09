@@ -158,6 +158,46 @@ struct JavaTestDebugLaunchServiceTests {
     }
 
     @Test
+    func workflowCoordinatorCleansUpWhenGenericDebugStartFails() async {
+        let notifications = NotificationSpy()
+        let state = JavaTestWorkflowState(notify: notifications.notify)
+        let coordinator = JavaTestDebugWorkflowCoordinator(notify: notifications.notify)
+        let actions = WorkflowActionsSpy()
+        coordinator.connect(actions: actions)
+        let resultServer = TestJavaTestResultServer(port: 43_128)
+        let prepared = PreparedJavaTestDebugLaunch(
+            target: javaTestTarget(
+                fileURL: URL(fileURLWithPath: "/workspace/UserServiceTest.java")
+            ),
+            configuration: DebugLaunchConfiguration(
+                name: "UserServiceTest",
+                request: .launch,
+                arguments: [:]
+            ),
+            resultServer: resultServer
+        )
+
+        coordinator.start(
+            request: JavaTestDebugRequest(
+                fileURL: prepared.target.fileURL,
+                testIdentifier: nil
+            ),
+            state: state,
+            prepareDirtyDocument: { true },
+            prepareLaunch: { prepared },
+            startDebug: { _ in false },
+            errorMessage: { "debug launch failed" }
+        )
+        await Task.yield()
+        await Task.yield()
+
+        #expect(resultServer.stopCount == 1)
+        #expect(state.resultServer == nil)
+        #expect(notifications.messages == ["debug launch failed"])
+        #expect(!actions.events.contains("show-debug"))
+    }
+
+    @Test
     func pausedDebugStateShowsDebuggerAndActivatesApplication() {
         let store = JavaTestDebugStore()
         let settings = AppSettings(store: store)

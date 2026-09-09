@@ -45,6 +45,14 @@ final class MacPlatformUI: PlatformUI {
     func markdownImageFromClipboard() -> MarkdownImageSource? {
         MarkdownClipboardImageReader.read(from: .general)
     }
+
+    func startAccessingProject(_ url: URL) -> Bool {
+        url.startAccessingSecurityScopedResource()
+    }
+
+    func stopAccessingProject(_ url: URL) {
+        url.stopAccessingSecurityScopedResource()
+    }
 }
 
 enum MarkdownClipboardImageReader {

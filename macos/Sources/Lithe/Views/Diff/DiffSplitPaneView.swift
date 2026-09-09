@@ -20,6 +20,8 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
 
     @State private var horizontalOffset: CGFloat = 0
     @State private var wheelScheduler = LitheDragUpdateScheduler()
+    @State private var leftPaneWidth: CGFloat?
+    @State private var paneDragStart: CGFloat = 0
 
     init(
         displayRows: [DiffDisplayRow],
@@ -52,7 +54,12 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
     var body: some View {
         let layout = DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds)
         let gutterWidth = DiffLayoutMetrics.centerGutterWidth
-        let paneViewportWidth = max(0, (viewportWidth - gutterWidth) / 2)
+        let availablePaneWidth = max(0, viewportWidth - gutterWidth)
+        let paneViewportWidth = max(
+            0,
+            min(availablePaneWidth, leftPaneWidth ?? availablePaneWidth / 2)
+        )
+        let rightPaneViewportWidth = max(0, availablePaneWidth - paneViewportWidth)
         let paneContentWidth = max(
             paneViewportWidth,
             (contentWidth - gutterWidth) / 2
@@ -75,8 +82,11 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
                         sideViewport(
                             layout.rightItems,
                             side: .right,
-                            viewportWidth: paneViewportWidth,
-                            contentWidth: paneContentWidth,
+                            viewportWidth: rightPaneViewportWidth,
+                            contentWidth: max(
+                                rightPaneViewportWidth,
+                                contentWidth - gutterWidth - paneViewportWidth
+                            ),
                             height: height
                         )
                     }
@@ -97,6 +107,29 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
                 viewportWidth: paneViewportWidth,
                 contentWidth: paneContentWidth
             )
+        }
+        .overlay(alignment: .topLeading) {
+            SplitHandleView(
+                axis: .horizontal,
+                showsIdleDivider: false,
+                onDragStarted: {
+                    paneDragStart = paneViewportWidth
+                },
+                onDragChanged: { translation in
+                    leftPaneWidth = min(
+                        max(paneDragStart + translation, 220),
+                        max(220, availablePaneWidth - 220)
+                    )
+                },
+                onDragEnded: { translation in
+                    leftPaneWidth = min(
+                        max(paneDragStart + translation, 220),
+                        max(220, availablePaneWidth - 220)
+                    )
+                }
+            )
+            .offset(x: paneViewportWidth + gutterWidth / 2 - SplitHandleView.thickness / 2)
+            .frame(height: minimumHeight)
         }
         .frame(width: viewportWidth, height: minimumHeight, alignment: .topLeading)
         .background {

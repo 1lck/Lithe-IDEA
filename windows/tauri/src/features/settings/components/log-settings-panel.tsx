@@ -1,9 +1,11 @@
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   clearLitheLogs,
+  exportDiagnosticBundle,
   getLogSettings,
   openLogDirectory,
+  previewDiagnosticBundle,
   resolvePreviousLogCleanup,
   setDiagnosticLogging,
   setLogDirectory,
@@ -250,6 +252,65 @@ export function LogSettingsPanel({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const exportDiagnostics = async () => {
+    setBusy(true);
+    let preview: Awaited<ReturnType<typeof previewDiagnosticBundle>>;
+    try {
+      preview = await previewDiagnosticBundle();
+    } catch (error) {
+      showToast({
+        message: t("settings.logs.exportBundlePreviewFailed", { error: errorMessage(error) }),
+        type: "error",
+      });
+      return;
+    } finally {
+      setBusy(false);
+    }
+
+    const confirmed = await showConfirmDialog(
+      <div className="flex flex-col gap-2">
+        <p>{t("settings.logs.exportBundleIntro")}</p>
+        <ul className="flex max-h-48 flex-col gap-1 overflow-y-auto ui-text-caption text-subtle-foreground">
+          {preview.manifest.files.map((file) => (
+            <li key={file.relativePath} className="flex items-center justify-between gap-3">
+              <span className="truncate">{file.relativePath}</span>
+              <span className="shrink-0">{formatBytes(file.sizeBytes)}</span>
+            </li>
+          ))}
+        </ul>
+      </div>,
+      {
+        title: t("settings.logs.exportBundleTitle"),
+        confirmLabel: t("settings.logs.exportBundleConfirm"),
+        cancelLabel: t("settings.logs.cancel"),
+      },
+    );
+    if (!confirmed) return;
+
+    const destination = await save({
+      defaultPath: `lithe-diagnostics-${new Date().toISOString().split("T")[0]}.zip`,
+      title: t("settings.logs.exportBundleChooseDestination"),
+      filters: [{ name: t("settings.logs.exportBundleFilter"), extensions: ["zip"] }],
+    });
+    if (!destination) return;
+
+    setBusy(true);
+    try {
+      const result = await exportDiagnosticBundle(destination);
+      showToast({
+        message: t("settings.logs.exportBundleSuccess", { path: result.destination_path }),
+        type: "success",
+      });
+    } catch (error) {
+      showToast({
+        message: t("settings.logs.exportBundleFailed", { error: errorMessage(error) }),
+        type: "error",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const fallbackReason = settings?.fallback_reason
     ? t(`settings.logs.fallback.${settings.fallback_reason as LogFallbackReason}`)
     : null;
@@ -350,6 +411,17 @@ export function LogSettingsPanel({ onClose }: { onClose: () => void }) {
         >
           <Button variant="default" size="sm" disabled={busy} onClick={() => void clearLogs()}>
             {t("settings.logs.clearLogs")}
+          </Button>
+        </SettingsRow>
+      </SettingsGroup>
+
+      <SettingsGroup title={t("settings.logs.diagnosticBundle")}>
+        <SettingsRow
+          label={t("settings.logs.exportBundle")}
+          description={t("settings.logs.diagnosticBundleDescription")}
+        >
+          <Button variant="default" size="sm" disabled={busy} onClick={() => void exportDiagnostics()}>
+            {t("settings.logs.exportBundleConfirm")}
           </Button>
         </SettingsRow>
       </SettingsGroup>

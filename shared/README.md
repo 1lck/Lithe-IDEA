@@ -25,4 +25,11 @@ The canonical Lithe palette lives in
 platform renderers map the roles to AppKit or Monaco without sharing rendering
 implementation.
 
+Update state and preference semantics are defined by
+[`contracts/update-v1.md`](contracts/update-v1.md), with the canonical shape in
+[`contracts/update-v1.schema.json`](contracts/update-v1.schema.json) and the
+golden sample in [`fixtures/updates/update-v1.json`](fixtures/updates/update-v1.json).
+Platform installers remain native; their feeds are normalized to this contract
+by the macOS and Windows adapters.
+
 Do not place UI state, process management, file watching, terminal sessions, installers, or update logic here. The compiled implementation lives under `rust/lithe-core`; this directory remains the stable contract and fixture source.

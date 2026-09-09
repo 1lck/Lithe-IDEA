@@ -1,7 +1,11 @@
 mod detectors;
 mod git;
+mod git_history_rewrite;
+mod git_patch_exchange;
+mod git_repository_setup;
 mod github;
 mod languages;
+mod mybatis;
 mod plugins;
 mod project;
 mod protocol;

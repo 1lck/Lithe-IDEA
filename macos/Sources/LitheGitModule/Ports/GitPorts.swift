@@ -94,6 +94,7 @@ public struct GitProcessResult: Sendable {
     public let stashRestoreConflict: GitStashRestoreConflict?
     public let tagDeletion: GitTagDeletion?
     public let branchDeletion: GitBranchDeletion?
+    package let historyRewrite: GitHistoryRewriteResult?
     public let warnings: [GitOperationWarning]
     public init(
         arguments: [String] = [],
@@ -106,6 +107,7 @@ public struct GitProcessResult: Sendable {
         stashRestoreConflict: GitStashRestoreConflict? = nil,
         tagDeletion: GitTagDeletion? = nil,
         branchDeletion: GitBranchDeletion? = nil,
+        historyRewrite: GitHistoryRewriteResult? = nil,
         warnings: [GitOperationWarning] = []
     ) {
         self.arguments = arguments
@@ -118,6 +120,7 @@ public struct GitProcessResult: Sendable {
         self.stashRestoreConflict = stashRestoreConflict
         self.tagDeletion = tagDeletion
         self.branchDeletion = branchDeletion
+        self.historyRewrite = historyRewrite
         self.warnings = warnings
     }
 }

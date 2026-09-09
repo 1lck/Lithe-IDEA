@@ -2,7 +2,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { create } from "zustand";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { createSelectors } from "@/utils/zustand-selectors";
-import type { UpdateInfo } from "../hooks/use-updater";
+import type { UpdateInfo } from "./update.store";
 import {
   hydrateWhatsNew,
   queuePendingWhatsNew,
@@ -75,10 +75,10 @@ const useWhatsNewStoreBase = create<WhatsNewState>()((set, get) => ({
 
     queuePendingUpdate: (updateInfo) => {
       queuePendingWhatsNew({
-        version: updateInfo.version,
+        version: updateInfo.targetVersion,
         previousVersion: updateInfo.currentVersion,
-        body: updateInfo.body,
-        date: updateInfo.date,
+        body: updateInfo.releaseNotes ?? undefined,
+        date: updateInfo.releaseDate ?? undefined,
       });
     },
   },

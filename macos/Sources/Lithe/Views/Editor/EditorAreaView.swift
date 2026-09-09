@@ -62,7 +62,7 @@ struct EditorAreaView: View {
         let _ = LitheSignpost.bodyEvaluated("EditorAreaView")
         ZStack(alignment: .top) {
             Group {
-                if model.selectedSidebar == .database {
+                if model.workbenchFeature.selectedSidebar == .database {
                     if model.isDatabaseModuleActive {
                         DatabaseWorkspaceView()
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -70,12 +70,25 @@ struct EditorAreaView: View {
                         ProgressView()
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                } else if let comparison = model.branchComparison {
-                    BranchComparisonView(comparison: comparison)
-                } else if let commitDiff = model.selectedGitCommitDiffContext {
-                    GitCommitDiffReviewView(context: commitDiff)
-                } else if let selectedChange = model.selectedChange {
-                    DiffReviewView(change: selectedChange)
+                } else if let feature = model.gitFeatureIfActive,
+                          let comparison = feature.branchComparison {
+                    BranchComparisonView(
+                        feature: feature,
+                        comparison: comparison,
+                        onRefresh: { [weak model] in
+                            if let target = comparison.targetReference {
+                                await model?.showComparison(from: comparison.reference, to: target)
+                            } else {
+                                await model?.showComparisonWithWorkingTree(for: comparison.reference)
+                            }
+                        }
+                    )
+                } else if let feature = model.gitFeatureIfActive,
+                          let commitDiff = feature.selectedGitCommitDiffContext {
+                    GitCommitDiffReviewView(feature: feature, context: commitDiff)
+                } else if let feature = model.gitFeatureIfActive,
+                          let selectedChange = feature.selectedChange {
+                    DiffReviewView(feature: feature, change: selectedChange)
                 } else {
                     VStack(spacing: 0) {
                         if model.editorTabItems.isEmpty {

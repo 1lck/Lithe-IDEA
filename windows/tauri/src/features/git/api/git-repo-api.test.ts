@@ -1,14 +1,79 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-const invoke = mock(async (_command: string, _args?: unknown): Promise<string | null> => null);
+const invoke = mock(async (_command: string, _args?: unknown): Promise<unknown> => null);
+const readDirectory = mock(async (_path: string): Promise<unknown[]> => []);
 
 mock.module("@/platform/tauri-core", () => ({ invoke }));
+mock.module("@/features/file-system/controllers/platform", () => ({ readDirectory }));
 
-const { clearRepositoryDiscoveryCache, resolveRepositoryForFile } = await import("./git-repo-api");
+const { clearRepositoryDiscoveryCache, discoverWorkspaceRepositories, resolveRepositoryForFile } =
+  await import("./git-repo-api");
 
 beforeEach(() => {
   invoke.mockReset();
+  readDirectory.mockReset();
   clearRepositoryDiscoveryCache();
+});
+
+describe("discoverWorkspaceRepositories", () => {
+  test("a slower older scan cannot replace a forced refresh in the cache", async () => {
+    let completeOlder!: (value: unknown) => void;
+    const olderResult = new Promise<unknown>((resolve) => { completeOlder = resolve; });
+    invoke.mockImplementationOnce(() => olderResult);
+    invoke.mockResolvedValue({ repositories: [{ path: "D:/work/new" }] });
+    const olderScan = discoverWorkspaceRepositories("D:/work");
+    try {
+      expect(await discoverWorkspaceRepositories("D:/work", { force: true })).toEqual(["D:/work/new"]);
+    } finally {
+      completeOlder({ repositories: [{ path: "D:/work/old" }] });
+      await olderScan;
+    }
+    expect(await discoverWorkspaceRepositories("D:/work")).toEqual(["D:/work/new"]);
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+  test("preserves the containing repository before nested repositories", async () => {
+    invoke.mockResolvedValue({
+      repositories: [{ path: "D:/repo" }, { path: "D:/repo/packages/nested" }],
+    });
+    expect(await discoverWorkspaceRepositories("D:/repo/packages")).toEqual([
+      "D:/repo", "D:/repo/packages/nested",
+    ]);
+  });
+  test("uses shared Core repository discovery for multiple child repositories", async () => {
+    invoke.mockResolvedValue({
+      repositories: [{ path: "D:\\work\\service-b" }, { path: "D:\\work\\service-a" }],
+    });
+
+    const result = await discoverWorkspaceRepositories("D:/work");
+
+    expect(invoke).toHaveBeenCalledWith("git_discover_workspace_repos", {
+      workspacePath: "D:/work",
+    });
+    expect(readDirectory).not.toHaveBeenCalled();
+    expect(result).toEqual(["D:/work/service-b", "D:/work/service-a"]);
+  });
+
+  test("discovers repositories from every workspace root", async () => {
+    invoke.mockImplementation(async (_command, args) => {
+      const workspacePath = (args as { workspacePath: string }).workspacePath;
+      return {
+        repositories:
+          workspacePath === "D:/work-a"
+            ? [{ path: "D:/work-a/repo-a" }]
+            : [{ path: "D:/work-b/repo-b" }],
+      };
+    });
+
+    const result = await discoverWorkspaceRepositories(["D:/work-a", "D:/work-b"]);
+
+    expect(invoke).toHaveBeenNthCalledWith(1, "git_discover_workspace_repos", {
+      workspacePath: "D:/work-a",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(2, "git_discover_workspace_repos", {
+      workspacePath: "D:/work-b",
+    });
+    expect(result).toEqual(["D:/work-a/repo-a", "D:/work-b/repo-b"]);
+  });
 });
 
 describe("resolveRepositoryForFile", () => {
