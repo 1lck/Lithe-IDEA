@@ -9,7 +9,7 @@ import LitheGitModule
 struct RustGitOperations: GitOperations, Sendable {
     let core: RustCoreBridge
 
-    private func makeProcessResult(_ response: RustCoreBridge.GitCommandPayload) -> GitProcessResult {
+    func makeProcessResult(_ response: RustCoreBridge.GitCommandPayload) -> GitProcessResult {
         GitProcessResult(
             arguments: response.arguments ?? [],
             output: response.operationError?.userMessage ?? response.output,
@@ -45,6 +45,7 @@ struct RustGitOperations: GitOperations, Sendable {
                     deletedTarget: $0.deletedTarget
                 )
             },
+            historyRewrite: response.historyRewrite,
             warnings: response.warnings?.map {
                 GitOperationWarning(code: $0.code, message: $0.message, details: $0.details)
             } ?? []
@@ -149,6 +150,41 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: rootURL, operation: "reset", revision: hash, mode: mode)
     }
 
+    func historyRewritePreview(at rootURL: URL, operation: GitHistoryRewriteOperation, revisions: [String]) -> GitHistoryRewritePreview? {
+        switch core.gitHistoryRewritePreview(at: rootURL, operation: operation, revisions: revisions) {
+        case .success(let preview): return preview
+        case .failure(let error): return .failed(operation: operation, message: error.userMessage)
+        }
+    }
+
+    func rewriteHistory(at rootURL: URL, expectedState: GitHistoryRewriteExpectedState, message: String?) -> GitProcessResult? {
+        switch core.gitHistoryRewrite(at: rootURL, expectedState: expectedState, message: message) {
+        case .success(let response): return makeProcessResult(response)
+        case .failure(let error): return GitProcessResult(output: error.userMessage, exitCode: 1)
+        }
+    }
+
+    func createHistoryRecoveryBranch(named name: String, reference: String, at rootURL: URL) -> GitProcessResult? {
+        write(at: rootURL, operation: "createBranch", reference: reference, name: name, checkout: false)
+    }
+
+    func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure> {
+        core.gitPatchExport(at: rootURL, source: source, paths: paths, base: base, target: target, metadataOnly: metadataOnly)
+            .mapError { GitPatchFailure($0.userMessage) }
+    }
+
+    func previewPatch(at rootURL: URL, patch: String, target: GitPatchTarget) -> Result<GitPatchPreview, GitPatchFailure> {
+        core.gitPatchPreview(at: rootURL, patch: patch, target: target)
+            .mapError { GitPatchFailure($0.userMessage) }
+    }
+
+    func applyExchangePatch(at rootURL: URL, patch: String, target: GitPatchTarget, expectedState: String) -> GitProcessResult? {
+        switch core.gitPatchApply(at: rootURL, patch: patch, target: target, expectedState: expectedState) {
+        case .success(let response): return makeProcessResult(response)
+        case .failure(let error): return GitProcessResult(output: error.userMessage, exitCode: 1)
+        }
+    }
+
     func createBranch(named name: String, from reference: GitReference, checkout: Bool, at rootURL: URL) -> GitProcessResult? {
         write(
             at: rootURL,
@@ -174,6 +210,13 @@ struct RustGitOperations: GitOperations, Sendable {
             name: name,
             destination: destination
         )
+    }
+
+    func createWorktree(_ request: GitWorktreeCreation, at rootURL: URL) -> GitProcessResult? {
+        switch core.gitCreateWorktree(request, at: rootURL) {
+        case .success(let response): return makeProcessResult(response)
+        case .failure(let error): return GitProcessResult(output: error.userMessage, exitCode: 1)
+        }
     }
 
     func removeWorktree(

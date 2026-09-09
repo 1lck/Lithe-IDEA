@@ -103,26 +103,33 @@ export function shouldSuppressUpdate(
   );
 }
 
-export function skipUpdateVersion(update: UpdatePreferenceTarget) {
+export function skipUpdateVersion(
+  update: UpdatePreferenceTarget,
+  storage: StorageLike | null = getStorage(),
+) {
   writeUpdatePreferences({
     skippedVersion: update.version,
-  });
+  }, storage);
 }
 
 export function remindAboutUpdateLater(
   update: UpdatePreferenceTarget,
   now = Date.now(),
   delayMs = DEFAULT_REMIND_LATER_MS,
+  storage: StorageLike | null = getStorage(),
 ) {
   writeUpdatePreferences({
     skippedVersion: undefined,
     remindVersion: update.version,
     remindAfter: now + delayMs,
-  });
+  }, storage);
 }
 
-export function clearUpdatePreferencesForNewVersion(update: UpdatePreferenceTarget) {
-  const preferences = readUpdatePreferences();
+export function clearUpdatePreferencesForNewVersion(
+  update: UpdatePreferenceTarget,
+  storage: StorageLike | null = getStorage(),
+) {
+  const preferences = readUpdatePreferences(storage);
   const nextPreferences = { ...preferences };
   let changed = false;
 
@@ -138,6 +145,6 @@ export function clearUpdatePreferencesForNewVersion(update: UpdatePreferenceTarg
   }
 
   if (changed) {
-    writeUpdatePreferences(nextPreferences);
+    writeUpdatePreferences(nextPreferences, storage);
   }
 }

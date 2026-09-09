@@ -231,7 +231,8 @@ struct WorkbenchView: View {
             titleVisibility: .visible
         ) {
             Button(model.pendingDiscardChange?.isUntracked == true ? "Delete File" : "Discard Changes", role: .destructive) {
-                Task { await model.confirmDiscardChange() }
+                guard let change = model.pendingDiscardChange else { return }
+                Task { await model.confirmDiscardChange(change) }
             }
             .lithePointer()
             Button("Cancel", role: .cancel) { model.cancelDiscardChange() }
@@ -266,7 +267,8 @@ struct WorkbenchView: View {
             titleVisibility: .visible
         ) {
             Button("Discard Block", role: .destructive) {
-                Task { await model.confirmDiscardHunk() }
+                guard let request = model.pendingDiscardHunk else { return }
+                Task { await model.confirmDiscardHunk(request) }
             }
             .lithePointer()
             Button("Cancel", role: .cancel) { model.cancelDiscardHunk() }
@@ -633,6 +635,7 @@ struct WorkbenchView: View {
                 }
             }
 
+            UpdateControl(compact: true)
             backgroundPickerButton
 
         }

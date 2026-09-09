@@ -9,6 +9,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case terminal = "Terminal"
     case lsp = "LSP"
     case ai = "AI & Commit"
+    case git = "Git"
     case updates = "Updates"
     case diagnostics = "Diagnostics"
 
@@ -22,6 +23,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .terminal: "terminal"
         case .lsp: "server.rack"
         case .ai: "wand.and.stars"
+        case .git: "arrow.triangle.branch"
         case .updates: "arrow.down.circle"
         case .diagnostics: "stethoscope"
         }

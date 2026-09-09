@@ -4336,9 +4336,28 @@ fn history_write(root: &Path, overrides: Value) -> Value {
             payload[key.as_str()] = value;
         }
     }
+    // Existing rewrite regressions now exercise the reviewed contract rather
+    // than bypassing the same eligibility snapshot required by product clients.
+    let revisions = payload
+        .get("revisions")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!([payload["revision"].clone()]));
+    let preview: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "history-write-preview",
+            "timeoutMilliseconds": 5_000,
+            "command": "git.historyRewritePreview",
+            "payload": {"root": root, "operation": payload["operation"], "revisions": revisions}
+        })
+        .to_string(),
+    ))
+    .expect("history preview should be JSON");
+    assert_eq!(preview["ok"], true, "{preview:?}");
+    payload["expectedState"] = preview["data"]["expectedState"].clone();
     serde_json::from_str(&execute_json(
         &serde_json::to_string(&serde_json::json!({
             "id": "history-write",
+            "timeoutMilliseconds": 5_000,
             "command": "git.write",
             "payload": payload
         }))
