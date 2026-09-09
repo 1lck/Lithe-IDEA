@@ -43,6 +43,7 @@ import {
 } from "./sidebar/main-sidebar";
 import { PluginActivityRail } from "./plugin-activity-rail";
 import { WelcomeScreen } from "./welcome-screen";
+import { getUpdateControlVisibility } from "../utils/update-control-visibility";
 
 const CommandPalette = lazy(() => import("@/features/command-palette/components/command-palette"));
 const ConnectionDialog = lazy(() =>
@@ -108,6 +109,8 @@ export function MainLayout() {
   const handleOpenFolderByPath = useFileSystemStore.use.handleOpenFolderByPath?.();
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.();
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.();
+  const { showTitleBarControl, showWelcomeControl } =
+    getUpdateControlVisibility(rootFolderPath);
   const switchToProject = useFileSystemStore.use.switchToProject?.();
   const setIsSwitchingProject = useFileSystemStore.use.setIsSwitchingProject?.();
   const refreshWorkspaceGitStatus = useGitStore((state) => state.actions.refreshWorkspaceGitStatus);
@@ -286,10 +289,10 @@ export function MainLayout() {
         </div>
       )}
 
-      <TitleBarWithSettings />
+      <TitleBarWithSettings showUpdateControl={showTitleBarControl} />
       <ProjectTabBar hideWhenSingle />
 
-      {rootFolderPath ? (
+      {rootFolderPath && !showWelcomeControl ? (
         <>
           <div className="lithe-workbench-glass relative z-10 flex flex-1 flex-col overflow-hidden">
             <div
