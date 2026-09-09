@@ -525,7 +525,7 @@ struct GitModuleTests {
     }
 
     @Test
-    func successfulRevertRefreshesVisibleGitHistoryWhenStatusIsUnchanged() async {
+    func successfulRevertRefreshesVisibleGitHistoryAndFocusesCurrentHead() async {
         let root = URL(fileURLWithPath: "/workspace")
         let revertedCommit = makeTestCommit(hash: "original-commit", subject: "Original change")
         let revertCommit = makeTestCommit(hash: "revert-commit", subject: "Revert original change")
@@ -548,12 +548,16 @@ struct GitModuleTests {
 
         await feature.refreshGit()
         #expect(feature.gitCommits.map(\.hash) == [revertedCommit.hash])
+        await feature.showAllGitReferences()
+        #expect(feature.isShowingAllGitReferences)
 
         await feature.revert(revertedCommit)
 
         #expect(feature.gitCommits.map(\.hash) == [revertCommit.hash, revertedCommit.hash])
+        #expect(!feature.isShowingAllGitReferences)
+        #expect(feature.selectedGitCommit?.hash == revertCommit.hash)
         #expect(controller.revertedHashes == [revertedCommit.hash])
-        #expect(controller.historyCallCount == 2)
+        #expect(controller.historyCallCount == 4)
     }
 
     @Test

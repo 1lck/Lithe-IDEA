@@ -2794,6 +2794,26 @@ package final class GitFeatureModel: ObservableObject {
             success: operationResult.1,
             historyVersion: historyVersion
         )
+        if operationResult.0.succeeded, gitOperationState == nil {
+            await focusCurrentCheckoutHead()
+        }
+    }
+
+    private func focusCurrentCheckoutHead() async {
+        guard isGitLogVisibleProvider?() == true else { return }
+        let isShowingCurrentCheckout = !isShowingAllGitReferences
+            && (selectedGitReference == nil || selectedGitReference?.isCurrent == true)
+        if !isShowingCurrentCheckout {
+            selectedGitReference = nil
+            isShowingAllGitReferences = false
+            canLoadMoreGitHistory = false
+            let historyVersion = gitCommitsVersion
+            await refreshGitHistory()
+            guard gitCommitsVersion != historyVersion else { return }
+        }
+        if let head = gitCommits.first {
+            await selectGitCommit(head)
+        }
     }
 
     /// Merge and rebase are only ever started from a branch, so a commit target here
