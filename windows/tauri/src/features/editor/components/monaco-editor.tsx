@@ -201,6 +201,7 @@ export function MonacoEditor({
   const mouseSelectingRef = useRef(false);
   const mouseGestureStartRef = useRef<CursorHistoryEntry | null>(null);
   const suppressNextCursorSelectionSyncRef = useRef(false);
+  const restoringViewStateRef = useRef(false);
   const latestContentChangeRef = useRef(onContentChange);
   const isActiveSurfaceRef = useRef(isActiveSurface);
   const activeBufferId = useBufferStore((state) => propBufferId ?? state.activeBufferId);
@@ -1044,6 +1045,7 @@ export function MonacoEditor({
       definitionLinkGesture,
       editor.onDidScrollChange((event) => {
         if (!isCurrentEditorSurface()) return;
+        if (restoringViewStateRef.current) return;
         const viewKey = viewStateKey ?? activeBufferId ?? null;
         setScrollForBuffer(viewKey, event.scrollTop, event.scrollLeft);
         onScrollOffsetChange?.(event.scrollTop, event.scrollLeft);
@@ -1312,6 +1314,18 @@ export function MonacoEditor({
               position.column,
             ),
           );
+        },
+        setCursorPosition: (position) => {
+          const editor = editorRef.current;
+          const model = modelRef.current;
+          if (!editor || !model || model.isDisposed()) return;
+
+          const monacoPosition = toClampedMonacoPosition(model, position);
+          editor.setPosition(monacoPosition);
+          editor.revealPositionInCenterIfOutsideViewport(monacoPosition);
+        },
+        setScroll: (scrollTop, scrollLeft) => {
+          editorRef.current?.setScrollPosition({ scrollTop, scrollLeft });
         },
         focus: () => editorRef.current?.focus(),
         addSelectionToNextFindMatch: () =>
@@ -1908,29 +1922,50 @@ export function MonacoEditor({
     const cached = useEditorStateStore
       .getState()
       .actions.getCachedViewState(viewStateKey ?? activeBufferId ?? "");
+
+    restoringViewStateRef.current = true;
+    editor.layout();
     if (cached) {
+      const model = editor.getModel();
+      if (model) {
+        editor.setPosition(toClampedMonacoPosition(model, cached.cursor));
+        if (cached.selection) editor.setSelection(toMonacoRange(model, cached.selection));
+      }
       editor.setScrollPosition({
         scrollTop: cached.scrollTop,
         scrollLeft: cached.scrollLeft,
       });
-      const model = editor.getModel();
-      if (!model) return;
-
-      editor.setPosition(toClampedMonacoPosition(model, cached.cursor));
-      if (cached.selection) editor.setSelection(toMonacoRange(model, cached.selection));
     }
 
     let focusFrame: number | null = null;
     let confirmationFrame: number | null = null;
     focusFrame = requestAnimationFrame(() => {
-      if (editorRef.current !== editor || !isActiveSurfaceRef.current) return;
+      if (editorRef.current !== editor) {
+        restoringViewStateRef.current = false;
+        return;
+      }
 
       // A previously hidden Monaco surface may not accept focus until its new
       // layout has been applied. Focus after that layout, then confirm it once
       // more on the following frame for reliable keyboard shortcut handling.
       editor.layout();
-      editor.focus();
+      if (cached) {
+        editor.setScrollPosition({
+          scrollTop: cached.scrollTop,
+          scrollLeft: cached.scrollLeft,
+        });
+      }
+      if (isActiveSurfaceRef.current) editor.focus();
       confirmationFrame = requestAnimationFrame(() => {
+        if (editorRef.current === editor) {
+          if (cached) {
+            editor.setScrollPosition({
+              scrollTop: cached.scrollTop,
+              scrollLeft: cached.scrollLeft,
+            });
+          }
+          restoringViewStateRef.current = false;
+        }
         if (editorRef.current === editor && isActiveSurfaceRef.current) {
           editor.focus();
         }
@@ -1940,6 +1975,7 @@ export function MonacoEditor({
     return () => {
       if (focusFrame !== null) cancelAnimationFrame(focusFrame);
       if (confirmationFrame !== null) cancelAnimationFrame(confirmationFrame);
+      restoringViewStateRef.current = false;
     };
   }, [activeBufferId, isActiveSurface, viewStateKey]);
 

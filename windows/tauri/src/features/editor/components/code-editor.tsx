@@ -253,7 +253,7 @@ const CodeEditor = ({
     });
   }, [isActiveSurface, setRefs]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isActiveSurface) return;
     setActiveEditorViewKey(editorViewKey ?? null);
   }, [editorViewKey, isActiveSurface, setActiveEditorViewKey]);

@@ -55,6 +55,8 @@ interface ActiveEditorAdapter {
   replaceRange: (range: Range, text: string) => void;
   selectAll: () => void;
   clearSelection: () => void;
+  setCursorPosition?: (position: Position) => void;
+  setScroll?: (scrollTop: number, scrollLeft: number) => void;
   focus: () => void;
   addSelectionToNextFindMatch?: () => void;
   addSelectionToPreviousFindMatch?: () => void;
@@ -70,6 +72,14 @@ interface ActiveEditorAdapter {
 interface ActiveFindAdapter {
   ownerId: string;
   openFind: (replace: boolean) => void;
+}
+
+interface PendingOwnerNavigation {
+  ownerId: string;
+  position: Position;
+  scrollTop: number;
+  scrollLeft: number;
+  revision: number;
 }
 
 function normalizeSelectionOffsets(selection?: Range | null): OffsetRange | null {
@@ -96,6 +106,8 @@ class EditorAPIImpl implements EditorAPI {
   private activeEditorAdapter: ActiveEditorAdapter | null = null;
   private focusWhenAdapterRegisters = false;
   private pendingFocusOwnerId: string | null = null;
+  private pendingOwnerNavigation: PendingOwnerNavigation | null = null;
+  private ownerNavigationRevision = 0;
   private activeFindAdapter: ActiveFindAdapter | null = null;
   private smartSelectionHistory: OffsetRange[] = [];
 
@@ -199,7 +211,9 @@ class EditorAPIImpl implements EditorAPI {
     this.emit("selectionChange", range ?? null);
   }
 
-  clearSelectionForNavigation(): void {
+  clearSelectionForNavigation(ownerId?: string): void {
+    if (ownerId && this.activeEditorAdapter?.ownerId !== ownerId) return;
+
     this.selection = null;
     useEditorStateStore.getState().actions.setSelection(undefined);
     this.activeEditorAdapter?.clearSelection();
@@ -219,6 +233,8 @@ class EditorAPIImpl implements EditorAPI {
     this.focusWhenAdapterRegisters = true;
     this.pendingFocusOwnerId = ownerId ?? null;
     if (!ownerId || this.activeEditorAdapter?.ownerId === ownerId) {
+      this.focusWhenAdapterRegisters = false;
+      this.pendingFocusOwnerId = null;
       this.activeEditorAdapter?.focus();
     }
   }
@@ -253,6 +269,55 @@ class EditorAPIImpl implements EditorAPI {
         this.viewportRef.scrollTop = targetLineBottom - viewportHeight;
       }
     }
+  }
+
+  navigateToPositionForOwner(
+    ownerId: string,
+    position: Position,
+    scrollTop: number,
+    scrollLeft: number,
+  ): boolean {
+    const navigation = {
+      ownerId,
+      position,
+      scrollTop,
+      scrollLeft,
+      revision: ++this.ownerNavigationRevision,
+    };
+    // A newer navigation supersedes any delayed navigation for another pane.
+    this.pendingOwnerNavigation = null;
+    const adapter = this.activeEditorAdapter;
+    if (!adapter || adapter.ownerId !== ownerId) {
+      this.pendingOwnerNavigation = navigation;
+      return false;
+    }
+
+    this.applyOwnerNavigation(navigation);
+    return true;
+  }
+
+  private applyOwnerNavigation(navigation: PendingOwnerNavigation): void {
+    if (this.activeEditorAdapter?.ownerId !== navigation.ownerId) return;
+    if (this.pendingOwnerNavigation?.revision === navigation.revision) {
+      this.pendingOwnerNavigation = null;
+    }
+    this.cursorPosition = navigation.position;
+    this.selection = null;
+    const actions = useEditorStateStore.getState().actions;
+    actions.setCursorPosition(navigation.position, {
+      ensureVisible: false,
+      viewKey: navigation.ownerId,
+    });
+    actions.setSelection(undefined, navigation.ownerId);
+    actions.setScroll(
+      navigation.scrollTop,
+      navigation.scrollLeft,
+      navigation.ownerId,
+    );
+    this.activeEditorAdapter.clearSelection();
+    this.activeEditorAdapter.setCursorPosition?.(navigation.position);
+    this.activeEditorAdapter.setScroll?.(navigation.scrollTop, navigation.scrollLeft);
+    this.activeEditorAdapter.focus();
   }
 
   selectAll(): void {
@@ -843,6 +908,18 @@ class EditorAPIImpl implements EditorAPI {
         this.focusWhenAdapterRegisters = false;
         this.pendingFocusOwnerId = null;
         adapter.focus();
+      }
+      const pendingNavigation = this.pendingOwnerNavigation;
+      if (pendingNavigation?.ownerId === adapter.ownerId) {
+        requestAnimationFrame(() => {
+          if (
+            this.pendingOwnerNavigation?.revision !== pendingNavigation.revision ||
+            this.activeEditorAdapter?.ownerId !== pendingNavigation.ownerId
+          ) {
+            return;
+          }
+          this.applyOwnerNavigation(pendingNavigation);
+        });
       }
       return;
     }

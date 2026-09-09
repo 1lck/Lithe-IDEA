@@ -771,7 +771,9 @@ export async function goBack(): Promise<void> {
   }
 
   // Repeated navigation at the beginning must not leave Monaco's input surface.
-  editorAPI.focus();
+  const ownerId = paneId && activeBufferId ? `${paneId}:${activeBufferId}` : undefined;
+  editorAPI.focusWhenReady(ownerId);
+  editorAPI.focus(ownerId);
 }
 
 export async function goForward(): Promise<void> {
@@ -782,5 +784,10 @@ export async function goForward(): Promise<void> {
   }
 
   // Repeated navigation at the end must not leave Monaco's input surface.
-  editorAPI.focus();
+  const bufferStore = useBufferStore.getState();
+  const activeBufferId = bufferStore.activeBufferId;
+  const paneId = usePaneStore.getState().activePaneId;
+  const ownerId = paneId && activeBufferId ? `${paneId}:${activeBufferId}` : undefined;
+  editorAPI.focusWhenReady(ownerId);
+  editorAPI.focus(ownerId);
 }

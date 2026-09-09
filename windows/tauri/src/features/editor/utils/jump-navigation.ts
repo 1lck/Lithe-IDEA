@@ -54,14 +54,32 @@ async function navigateToJumpEntryInternal(entry: JumpListEntry): Promise<boolea
   // Wait for the active Monaco surface to register after a buffer switch.
   await waitForEditorActivation();
 
-  editorAPI.clearSelectionForNavigation();
+  if (typeof editorAPI.navigateToPositionForOwner === "function") {
+    editorAPI.navigateToPositionForOwner(
+      targetEditorOwnerId,
+      {
+        line: entry.line,
+        column: entry.column,
+        offset: entry.offset,
+      },
+      entry.scrollTop,
+      entry.scrollLeft,
+    );
+    await waitForEditorActivation();
+    editorAPI.focus(targetEditorOwnerId);
+    return true;
+  }
+
+  editorAPI.clearSelectionForNavigation(targetEditorOwnerId);
   editorAPI.setCursorPosition({
     line: entry.line,
     column: entry.column,
     offset: entry.offset,
   });
 
-  useEditorStateStore.getState().actions.setScroll(entry.scrollTop, entry.scrollLeft);
+  useEditorStateStore
+    .getState()
+    .actions.setScroll(entry.scrollTop, entry.scrollLeft, targetEditorOwnerId);
   editorAPI.focus(targetEditorOwnerId);
 
   // Cursor/state updates can trigger another render; focus again after it so
