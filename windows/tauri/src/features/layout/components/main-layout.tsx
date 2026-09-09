@@ -17,6 +17,7 @@ import { useVimStore } from "@/features/vim/stores/vim.store";
 import { isWslPath } from "@/features/wsl/utils/wsl-path";
 import { useTerminalStore } from "@/features/terminal/stores/terminal.store";
 import { useMenuEventsWrapper } from "@/features/window/hooks/use-menu-events-wrapper";
+import { useAutoUpdate } from "@/features/settings/hooks/use-auto-update";
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
 import { getProjectDisplayLabel } from "@/features/window/utils/project-display-label";
 import { useUIState } from "@/features/window/stores/ui-state.store";
@@ -42,6 +43,7 @@ import {
 } from "./sidebar/main-sidebar";
 import { PluginActivityRail } from "./plugin-activity-rail";
 import { WelcomeScreen } from "./welcome-screen";
+import { getUpdateControlVisibility } from "../utils/update-control-visibility";
 
 const CommandPalette = lazy(() => import("@/features/command-palette/components/command-palette"));
 const ConnectionDialog = lazy(() =>
@@ -78,6 +80,7 @@ const MavenPane = lazy(() => import("@/features/maven/components/maven-pane"));
 
 export function MainLayout() {
   const { t } = useTranslation();
+  useAutoUpdate();
   const [deferredSurfacesReady, setDeferredSurfacesReady] = useState(false);
 
   usePaneKeyboard();
@@ -106,6 +109,8 @@ export function MainLayout() {
   const handleOpenFolderByPath = useFileSystemStore.use.handleOpenFolderByPath?.();
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.();
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.();
+  const { showTitleBarControl, showWelcomeControl } =
+    getUpdateControlVisibility(rootFolderPath);
   const switchToProject = useFileSystemStore.use.switchToProject?.();
   const setIsSwitchingProject = useFileSystemStore.use.setIsSwitchingProject?.();
   const refreshWorkspaceGitStatus = useGitStore((state) => state.actions.refreshWorkspaceGitStatus);
@@ -284,10 +289,10 @@ export function MainLayout() {
         </div>
       )}
 
-      <TitleBarWithSettings />
+      <TitleBarWithSettings showUpdateControl={showTitleBarControl} />
       <ProjectTabBar hideWhenSingle />
 
-      {rootFolderPath ? (
+      {rootFolderPath && !showWelcomeControl ? (
         <>
           <div className="lithe-workbench-glass relative z-10 flex flex-1 flex-col overflow-hidden">
             <div

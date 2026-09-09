@@ -5,6 +5,31 @@ import Testing
 
 @Suite("Git reference operations", .serialized)
 struct GitReferenceOperationsTests {
+    @Test(.enabled(if: RustCoreBridge().isAvailable, "Requires the linked Rust Core integration library"))
+    func worktreeCreationSendsCompleteReferenceThroughRustCore() async throws {
+        let core = RustCoreBridge()
+        try #require(core.isAvailable)
+        let fixture = try await GitReferenceFixture()
+        let branch = try await fixture.git(["branch", "--show-current"])
+        let destination = fixture.repository.appendingPathExtension("worktree")
+        defer {
+            if FileManager.default.fileExists(atPath: destination.path) {
+                do { try FileManager.default.removeItem(at: destination) }
+                catch { Issue.record("Could not remove test worktree: \(error)") }
+            }
+        }
+        let reference = GitReference(fullName: "refs/heads/\(branch)", shortName: branch,
+                                     kind: .local, isCurrent: true, upstreamShortName: nil)
+        let request = GitWorktreeCreation(mode: .newBranch, name: "ui-worktree", reference: reference,
+                                          revision: nil, destination: destination, noCheckout: false)
+        let result = try #require(RustGitOperations(core: core).createWorktree(request, at: fixture.repository))
+        try #require(result.exitCode == 0, "\(result.output)")
+        #expect(try String(contentsOf: destination.appendingPathComponent("tracked.txt")) == "main\n")
+        #expect(try await fixture.git(["worktree", "list", "--porcelain"]).contains("branch refs/heads/ui-worktree"))
+        #expect(try await fixture.git(["branch", "--show-current"]) == branch)
+        try await fixture.git(["worktree", "remove", destination.path])
+    }
+
     @Test
     func remoteReferenceWorkflowsUseCompleteIdentityThroughRustCore() async throws {
         let core = RustCoreBridge()

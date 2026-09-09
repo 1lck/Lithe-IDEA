@@ -32,7 +32,7 @@ struct GitWorktreeRowsView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: GitWorktreeRowsNSView, context: Context) {
-        nsView.update(snapshot: snapshot, rowHeight: Self.rowHeight)
+        nsView.update(snapshot: snapshot, rowHeight: Self.rowHeight, locale: context.environment.locale)
     }
 }
 
@@ -69,7 +69,7 @@ struct GitWorktreeRowsScrollView: NSViewRepresentable {
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let documentView = nsView.documentView as? GitWorktreeRowsNSView else { return }
         let previousOrigin = nsView.contentView.bounds.origin
-        let contentChanged = documentView.update(snapshot: snapshot, rowHeight: GitWorktreeRowsView.rowHeight)
+        let contentChanged = documentView.update(snapshot: snapshot, rowHeight: GitWorktreeRowsView.rowHeight, locale: context.environment.locale)
         let layoutChanged = documentView.updateLayout(width: nsView.contentView.bounds.width)
         if contentChanged || layoutChanged {
             nsView.contentView.setBoundsOrigin(Self.preservedScrollOrigin(
@@ -101,6 +101,7 @@ final class GitWorktreeRowsNSView: NSView {
         identity: .changes(inspectionVersion: 0),
         rows: []
     )
+    private var locale = Locale.current
     private var rowHeight = GitWorktreeRowsView.rowHeight
     private var drawingStyle: DrawingStyle?
     private var lastLayoutWidth: CGFloat = -.greatestFiniteMagnitude
@@ -117,15 +118,13 @@ final class GitWorktreeRowsNSView: NSView {
     required init?(coder: NSCoder) { nil }
 
     @discardableResult
-    func update(snapshot: GitWorktreeRowsSnapshot, rowHeight: CGFloat) -> Bool {
-        guard self.snapshot != snapshot || self.rowHeight != rowHeight else { return false }
+    func update(snapshot: GitWorktreeRowsSnapshot, rowHeight: CGFloat, locale: Locale = .current) -> Bool {
+        guard self.snapshot != snapshot || self.rowHeight != rowHeight || self.locale != locale else { return false }
+        self.locale = locale
         self.snapshot = snapshot
         self.rowHeight = rowHeight
-        setAccessibilityLabel(snapshot.accessibilityLabel)
-        setAccessibilityValue(String(
-            format: String(localized: "%lld rows"),
-            snapshot.rows.count
-        ))
+        setAccessibilityLabel(snapshot.accessibilityLabel(locale: locale))
+        setAccessibilityValue(gitLocalizedFormat("%lld rows", snapshot.rows.count, locale: locale))
         needsDisplay = true
         return true
     }
@@ -211,7 +210,7 @@ final class GitWorktreeRowsNSView: NSView {
         in rect: CGRect,
         style: DrawingStyle
     ) {
-        let stageText = isStaged ? String(localized: "Staged") : String(localized: "Unstaged")
+        let stageText = isStaged ? gitLocalizedFormat("Staged", locale: locale) : gitLocalizedFormat("Unstaged", locale: locale)
         let stageWidth: CGFloat = 78
         drawText(
             status,
@@ -393,10 +392,10 @@ final class GitWorktreeRowsNSView: NSView {
 }
 
 private extension GitWorktreeRowsSnapshot {
-    var accessibilityLabel: String {
+    func accessibilityLabel(locale: Locale) -> String {
         switch identity {
-        case .changes: String(localized: "Worktree changes")
-        case .history: String(localized: "Worktree commit history")
+        case .changes: gitLocalizedFormat("Worktree changes", locale: locale)
+        case .history: gitLocalizedFormat("Worktree commit history", locale: locale)
         }
     }
 }

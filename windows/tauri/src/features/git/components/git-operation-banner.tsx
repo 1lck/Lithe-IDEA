@@ -1,3 +1,4 @@
+import { showGitRebaseDialog } from "../services/git-rebase-dialog-service";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/ui/button";
@@ -103,7 +104,8 @@ const GitOperationBanner = ({ repoPath }: GitOperationBannerProps) => {
         )}
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {operation.kind === "rebase" ? <Button size="xs" disabled={isResolving} onClick={() => showGitRebaseDialog(repoPath)}>{t("git.rebasePlan.session")}</Button> : null}
         <Button
           variant="default"
           size="xs"
