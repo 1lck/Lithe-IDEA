@@ -269,7 +269,7 @@ jobs:
           # The staged runtime tree includes Java resource identity files.
           include-hidden-files: true
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
 
       - name: Link Windows test build
         if: needs.changes.outputs.windows == 'true'

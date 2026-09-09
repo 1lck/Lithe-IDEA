@@ -1,7 +1,7 @@
 # Downloading CI test builds
 
 The macOS CI and Windows CI workflows upload runnable test builds when their
-respective application build lanes are selected. Builds are retained for 14
+respective application build lanes are selected. Builds are retained for 3
 days. Documentation-only or test-only changes may skip application packaging;
 use `workflow_dispatch` on the desired branch to run all lanes of that workflow.
 
