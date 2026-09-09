@@ -1,6 +1,6 @@
 import { invoke } from "@/platform/tauri-core";
 import type React from "react";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useTerminalTabs } from "@/features/terminal/hooks/use-terminal-tabs";
@@ -8,6 +8,7 @@ import { useTerminalProfilesStore } from "@/features/terminal/stores/profiles.st
 import { useTerminalStore } from "@/features/terminal/stores/terminal.store";
 import { useTerminalShellsStore } from "@/features/terminal/stores/shells.store";
 import type { TerminalSplitDirection } from "@/features/terminal/types/terminal.types";
+import { createDefaultTerminalHandler } from "@/features/terminal/utils/terminal-launch-actions";
 import {
   openNewTerminalFromGlobalEntry,
   shouldAutoHideTerminalPane,
@@ -133,7 +134,7 @@ const TerminalContainer = ({
     tabFocusTimeoutRef.current.set(terminalId, timeoutId);
   }, []);
 
-  const handleNewTerminal = useCallback(
+  const handleNewTerminalWithProfile = useCallback(
     (profileId?: string) => {
       const resolvedLaunch = resolveTerminalLaunch({
         currentDirectory,
@@ -170,6 +171,11 @@ const TerminalContainer = ({
       terminalDefaultProfileId,
       terminalDefaultShellId,
     ],
+  );
+
+  const handleNewTerminal = useMemo(
+    () => createDefaultTerminalHandler(handleNewTerminalWithProfile),
+    [handleNewTerminalWithProfile],
   );
 
   const handleTabCreate = useCallback(
@@ -603,7 +609,7 @@ const TerminalContainer = ({
     onTabPin: handleTabPin,
     onTabRename: handleTabRename,
     onNewTerminal: handleNewTerminal,
-    onNewTerminalWithProfile: handleNewTerminal,
+    onNewTerminalWithProfile: handleNewTerminalWithProfile,
     onTabCreate: handleTabCreate,
     onCloseOtherTabs: handleCloseOtherTabs,
     onCloseAllTabs: handleCloseAllTabs,
