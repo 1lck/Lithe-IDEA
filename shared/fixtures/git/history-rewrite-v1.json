@@ -1,0 +1,46 @@
+{
+  "protocolVersion": 1,
+  "previewRequest": {
+    "operation": "editCommitMessage",
+    "revisions": ["2222222222222222222222222222222222222222"]
+  },
+  "preview": {
+    "operation": "editCommitMessage",
+    "allowed": true,
+    "blockers": [],
+    "branch": "refs/heads/feature/example",
+    "head": "3333333333333333333333333333333333333333",
+    "selectedCommits": [{
+      "hash": "2222222222222222222222222222222222222222",
+      "parents": ["1111111111111111111111111111111111111111"],
+      "message": "Update example\n\nKeep the complete description.\n"
+    }],
+    "affectedCommits": [{
+      "hash": "2222222222222222222222222222222222222222",
+      "parents": ["1111111111111111111111111111111111111111"],
+      "message": "Update example\n\nKeep the complete description.\n"
+    }, {
+      "hash": "3333333333333333333333333333333333333333",
+      "parents": ["2222222222222222222222222222222222222222"],
+      "message": "Follow up\n"
+    }],
+    "suggestedMessage": "Update example\n\nKeep the complete description.\n",
+    "expectedState": {
+      "branch": "refs/heads/feature/example",
+      "head": "3333333333333333333333333333333333333333",
+      "stateToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "operation": "editCommitMessage",
+      "revisions": ["2222222222222222222222222222222222222222"]
+    }
+  },
+  "historyRewrite": {
+    "operation": "editCommitMessage",
+    "branch": "refs/heads/feature/example",
+    "originalHead": "3333333333333333333333333333333333333333",
+    "newHead": "4444444444444444444444444444444444444444",
+    "recoveryReference": "refs/lithe/history-recovery/00000000000000000001-example",
+    "mutationApplied": true,
+    "outcomeKnown": true,
+    "worktreeRefresh": "notNeeded"
+  }
+}

@@ -7,6 +7,36 @@ import Testing
 @MainActor
 struct GitModuleTests {
     @Test
+    func patchDiscoveryKeepsFilesSelectableAfterAnEncodingFailure() async throws {
+        let good = GitPatchFile(path: "good.txt", originalPath: nil, additions: 1, deletions: 0)
+        let legacy = GitPatchFile(path: "legacy.txt", originalPath: nil, additions: 1, deletions: 0)
+        let service = GitService(operations: TestGitOperations(exportPatchHandler: { paths, metadataOnly in
+            if metadataOnly { return .success(GitPatchExport(patch: "", files: [good, legacy], byteLength: 0)) }
+            if paths.contains("legacy.txt") { return .failure(GitPatchFailure("Non-UTF-8 patch")) }
+            return .success(GitPatchExport(patch: "selected UTF-8 patch", files: [good], byteLength: 20))
+        }))
+        let feature = GitPatchFeatureModel(service: service) { _, _, _, _ in nil }
+        defer { feature.reset() }
+        feature.beginExport(at: URL(fileURLWithPath: "/workspace"))
+        // Observe the public busy boundary with the existing bounded helper;
+        // reset owns task cancellation even when an assertion fails.
+        try #require(await waitForGitWorkToBecomeIdle { feature.isBusy })
+        #expect(feature.files == [good, legacy])
+        #expect(feature.exportPreview == nil)
+        #expect(feature.canGenerateExport)
+        feature.generateExport()
+        try #require(await waitForGitWorkToBecomeIdle { feature.isBusy })
+        #expect(feature.errorMessage == "Non-UTF-8 patch")
+        #expect(feature.files == [good, legacy])
+        feature.selectPath("legacy.txt", included: false)
+        feature.generateExport()
+        try #require(await waitForGitWorkToBecomeIdle { feature.isBusy })
+        #expect(feature.errorMessage == nil)
+        #expect(feature.exportPreview?.files == [good])
+        #expect(feature.canSave)
+    }
+
+    @Test
     func treeStatusProjectsExactFilesAndHighestPriorityDirectories() {
         let root = URL(fileURLWithPath: "/workspace")
         let projection = GitTreeStatusProjection(changes: [
@@ -577,6 +607,66 @@ struct GitModuleTests {
             ["stash", "push", "--include-untracked"]
         ])
         #expect(feature.gitConsoleEntries.first?.succeeded == true)
+    }
+
+    @Test(arguments: [false, true])
+    func confirmedDiscardSurvivesDialogDismissal(untracked: Bool) async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let change = GitChange(repositoryRoot: root, path: "target.txt", originalPath: nil,
+                               indexStatus: untracked ? "?" : " ", workTreeStatus: untracked ? "?" : "M")
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            discardHandler: { target in
+                GitProcessResult(arguments: ["discard", target.path], output: "", standardOutput: "",
+                                 standardError: "", exitCode: 0)
+            }
+        ))
+        let feature = GitFeatureModel(service: service)
+        var notifications: [String] = []
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+                          notify: { notifications.append($0) }, onStateRefreshed: {})
+        await feature.refreshGit()
+        feature.clearGitConsole()
+        feature.requestDiscardChange(change)
+        let confirmed = try #require(feature.pendingDiscardChange)
+        // SwiftUI dismisses the dialog before the button's asynchronous operation starts.
+        feature.cancelDiscardChange()
+        #expect(feature.gitConsoleEntries.isEmpty)
+        await feature.confirmDiscardChange(confirmed)
+        #expect(feature.gitConsoleEntries.map(\.arguments) == [["discard", "target.txt"]])
+        #expect(notifications == ["Discarded target.txt"])
+        #expect(feature.pendingDiscardChange == nil)
+        #expect(feature.gitChanges.isEmpty)
+    }
+
+    @Test
+    func confirmedDiscardHunkSurvivesDialogDismissalAndReportsFailure() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let change = GitChange(repositoryRoot: root, path: "target.txt", originalPath: nil,
+                               indexStatus: " ", workTreeStatus: "M")
+        let hunk = DiffHunk(id: "h1", header: "@@ -1 +1 @@", patch: "confirmed patch")
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: [change]),
+            applyPatchHandler: { patch, _, mode in
+                GitProcessResult(arguments: [mode, patch], output: "Patch no longer applies",
+                                 standardOutput: "", standardError: "Patch no longer applies", exitCode: 1)
+            }
+        ))
+        let feature = GitFeatureModel(service: service)
+        var notifications: [String] = []
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+                          notify: { notifications.append($0) }, onStateRefreshed: {})
+        await feature.refreshGit()
+        feature.clearGitConsole()
+        feature.requestDiscardHunk(hunk, in: change)
+        let confirmed = try #require(feature.pendingDiscardHunk)
+        feature.cancelDiscardHunk()
+        #expect(feature.gitConsoleEntries.isEmpty)
+        await feature.confirmDiscardHunk(confirmed)
+        #expect(feature.gitConsoleEntries.map(\.arguments) == [["discard", "confirmed patch"]])
+        #expect(notifications == ["Patch no longer applies"])
+        #expect(feature.pendingDiscardHunk == nil)
+        #expect(feature.gitChanges == [change])
     }
 
     // MARK: Tag management
@@ -2688,6 +2778,8 @@ private struct TestGitOperations: GitOperations {
     private let historyPageValues: [String: GitHistoryPage]?
     private let historyController: GitHistoryLoadController?
     private let snapshotGate: GitModuleTestGate?
+    private let discardHandler: (@Sendable (GitChange) -> GitProcessResult?)?
+    private let applyPatchHandler: (@Sendable (String, URL, String) -> GitProcessResult?)?
     private let stageResult: GitProcessResult?
     private let commitResult: GitProcessResult?
     private let runGate: TestGitRunGate?
@@ -2701,6 +2793,7 @@ private struct TestGitOperations: GitOperations {
     private let deleteBranchResult: GitProcessResult?
     private let deleteBranchResults: GitProcessResultQueue?
     private let branchCallRecorder: BranchCallRecorder?
+    private let exportPatchHandler: (@Sendable ([String], Bool) -> Result<GitPatchExport, GitPatchFailure>)?
     private let removeWorktreeResult: GitProcessResult?
 
     init(
@@ -2718,6 +2811,8 @@ private struct TestGitOperations: GitOperations {
         comparisonDiffDocumentValue: DiffDocument? = nil,
         typedComparisonDiffDocumentValue: DiffDocument? = nil,
         snapshotGate: GitModuleTestGate? = nil,
+        discardHandler: (@Sendable (GitChange) -> GitProcessResult?)? = nil,
+        applyPatchHandler: (@Sendable (String, URL, String) -> GitProcessResult?)? = nil,
         stageResult: GitProcessResult? = nil,
         commitResult: GitProcessResult? = nil,
         runGate: TestGitRunGate? = nil,
@@ -2731,6 +2826,7 @@ private struct TestGitOperations: GitOperations {
         deleteBranchResult: GitProcessResult? = nil,
         deleteBranchResults: GitProcessResultQueue? = nil,
         branchCallRecorder: BranchCallRecorder? = nil,
+        exportPatchHandler: (@Sendable ([String], Bool) -> Result<GitPatchExport, GitPatchFailure>)? = nil,
         removeWorktreeResult: GitProcessResult? = nil
     ) {
         self.snapshotValue = snapshotValue
@@ -2747,6 +2843,8 @@ private struct TestGitOperations: GitOperations {
         self.comparisonDiffDocumentValue = comparisonDiffDocumentValue
         self.typedComparisonDiffDocumentValue = typedComparisonDiffDocumentValue
         self.snapshotGate = snapshotGate
+        self.discardHandler = discardHandler
+        self.applyPatchHandler = applyPatchHandler
         self.stageResult = stageResult
         self.commitResult = commitResult
         self.runGate = runGate
@@ -2760,7 +2858,12 @@ private struct TestGitOperations: GitOperations {
         self.deleteBranchResult = deleteBranchResult
         self.deleteBranchResults = deleteBranchResults
         self.branchCallRecorder = branchCallRecorder
+        self.exportPatchHandler = exportPatchHandler
         self.removeWorktreeResult = removeWorktreeResult
+    }
+
+    func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure> {
+        exportPatchHandler?(paths, metadataOnly) ?? .failure(GitPatchFailure("Patch export unavailable"))
     }
 
     func run(arguments: [String], workingDirectory: String, input: String?) -> GitProcessResult {
@@ -2793,7 +2896,9 @@ private struct TestGitOperations: GitOperations {
     func commitDiffDocument(at rootURL: URL, commit: String, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { nil }
     func comparisonDiffDocument(at rootURL: URL, reference: String, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { comparisonDiffDocumentValue }
     func comparisonDiffDocument(at rootURL: URL, reference: GitReference, targetReference: GitReference?, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { typedComparisonDiffDocumentValue }
-    func applyPatch(_ patch: String, at rootURL: URL, mode: String) -> GitProcessResult? { nil }
+    func applyPatch(_ patch: String, at rootURL: URL, mode: String) -> GitProcessResult? {
+        applyPatchHandler?(patch, rootURL, mode)
+    }
     func history(at rootURL: URL, reference: GitReference?, limit: Int) -> GitHistorySnapshot? {
         if let historyController {
             return historyController.history(at: rootURL, reference: reference, limit: limit)
@@ -2842,7 +2947,7 @@ private struct TestGitOperations: GitOperations {
     func blame(at rootURL: URL, relativePath: String) -> [GitBlameLine]? { nil }
     func stage(_ change: GitChange) -> GitProcessResult? { stageResult }
     func unstage(_ change: GitChange) -> GitProcessResult? { nil }
-    func discard(_ change: GitChange) -> GitProcessResult? { nil }
+    func discard(_ change: GitChange) -> GitProcessResult? { discardHandler?(change) }
     func discardAll(_ change: GitChange) -> GitProcessResult? { nil }
     func commit(at rootURL: URL, message: String, amend: Bool) -> GitProcessResult? { commitResult }
     func cherryPick(_ hash: String, at rootURL: URL) -> GitProcessResult? { nil }

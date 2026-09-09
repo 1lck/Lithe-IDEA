@@ -206,7 +206,7 @@ final class ProjectSessionManager: ObservableObject {
         syncProjectSessionActivation(for: scope)
     }
 
-    func requestOpenProject(_ url: URL, from sourceSessionID: UUID) {
+    func requestOpenProject(_ url: URL, from sourceSessionID: UUID, placement: ProjectOpenPlacement? = nil) {
         let normalizedURL = url.standardizedFileURL
         let sourceScope = scope(for: sourceSessionID)
         if let existing = openProjects.first(where: {
@@ -218,6 +218,14 @@ final class ProjectSessionManager: ObservableObject {
 
         if openProjects.isEmpty {
             openInThisWindow(normalizedURL, scope: sourceScope)
+            return
+        }
+
+        if let placement {
+            switch placement {
+            case .thisWindow: openInThisWindow(normalizedURL, scope: sourceScope)
+            case .newWindow: openInNewWindow(normalizedURL)
+            }
             return
         }
 
@@ -495,6 +503,10 @@ final class ProjectSessionManager: ObservableObject {
             didClose: { [weak self, weak model] in
                 guard let self, let model else { return }
                 self.removeClosedSession(model)
+            },
+            requestOpenAtPlacement: { [weak self, weak model] url, placement in
+                guard let self, let model else { return }
+                self.requestOpenProject(url, from: model.id, placement: placement)
             }
         )
         // Only workspace open/close should wake the window chrome. Relaying

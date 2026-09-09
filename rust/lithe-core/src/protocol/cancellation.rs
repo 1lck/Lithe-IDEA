@@ -96,6 +96,27 @@ pub fn check() -> Result<(), CoreError> {
     })
 }
 
+/// Runs bounded outcome inspection after a mutation's cancellation or deadline.
+///
+/// Cleanup must determine whether a ref already moved without inheriting the
+/// cancelled request token. The original thread state is restored on every exit.
+pub(crate) fn with_cleanup_deadline<T>(timeout: Duration, operation: impl FnOnce() -> T) -> T {
+    struct RestoreState(Option<State>);
+    impl Drop for RestoreState {
+        fn drop(&mut self) {
+            CURRENT.with(|current| *current.borrow_mut() = self.0.take());
+        }
+    }
+    let previous = CURRENT.with(|current| {
+        current.replace(Some(State {
+            cancelled: Arc::new(AtomicBool::new(false)),
+            deadline: Some(Instant::now() + timeout),
+        }))
+    });
+    let _restore = RestoreState(previous);
+    operation()
+}
+
 fn registry() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
     OPERATIONS.get_or_init(|| Mutex::new(HashMap::new()))
 }

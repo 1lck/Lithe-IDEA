@@ -120,6 +120,7 @@ final class AppModel: ObservableObject, Identifiable {
     private var featureObservationBinder: AppModelObservationBinder?
     private var fileVisibilityRulesObserverID: UUID?
     private var requestProjectOpen: ((URL) -> Void)?
+    private var requestProjectOpenAtPlacement: ((URL, ProjectOpenPlacement) -> Void)?
     private var didCloseProject: (() -> Void)?
     var javaTestWorkflowState: JavaTestWorkflowState {
         featureGraph.javaTestWorkflow
@@ -583,10 +584,12 @@ final class AppModel: ObservableObject, Identifiable {
 
     func configureProjectSession(
         requestOpen: @escaping (URL) -> Void,
-        didClose: @escaping () -> Void
+        didClose: @escaping () -> Void,
+        requestOpenAtPlacement: ((URL, ProjectOpenPlacement) -> Void)? = nil
     ) {
         requestProjectOpen = requestOpen
         didCloseProject = didClose
+        requestProjectOpenAtPlacement = requestOpenAtPlacement
     }
 
     func setProjectSessionActive(_ isActive: Bool) {
@@ -798,6 +801,16 @@ final class AppModel: ObservableObject, Identifiable {
             return
         }
         openProjectDirectly(url)
+    }
+
+    func openProject(_ url: URL, placement: ProjectOpenPlacement) {
+        if let requestProjectOpenAtPlacement {
+            requestProjectOpenAtPlacement(url.standardizedFileURL, placement)
+        } else if placement == .thisWindow {
+            openProjectDirectly(url)
+        } else {
+            showNotification("Project window management is unavailable.")
+        }
     }
 
     func openProjectDirectly(_ url: URL) {
