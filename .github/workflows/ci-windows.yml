@@ -223,6 +223,68 @@ jobs:
         shell: pwsh
         run: ./scripts/build-windows.ps1 -Configuration Release
 
+      - name: Stage downloadable Windows app
+        if: needs.changes.outputs.windows == 'true'
+        shell: pwsh
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $runtimeRoot = Join-Path $env:GITHUB_WORKSPACE 'windows/tauri/src-tauri/target/x86_64-pc-windows-msvc/release'
+          $artifact = Join-Path $env:GITHUB_WORKSPACE '.artifacts/ci-builds/windows'
+          New-Item -ItemType Directory -Force -Path $artifact | Out-Null
+          # Upload runtime files only, never Cargo caches, debug symbols, or test binaries.
+          foreach ($relativePath in @('lithe-windows.exe', 'extensions', 'LanguageServers')) {
+            $source = Join-Path $runtimeRoot $relativePath
+            if (-not (Test-Path -LiteralPath $source)) {
+              throw "Windows test build is missing: $relativePath"
+            }
+            Copy-Item -LiteralPath $source -Destination $artifact -Recurse -Force
+          }
+          Get-ChildItem -LiteralPath $runtimeRoot -Filter '*.dll' -File | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination $artifact -Force
+          }
+          $revision = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Could not resolve the built commit.' }
+          $prHead = if ($env:PR_HEAD_SHA) { $env:PR_HEAD_SHA } else { 'not a pull request' }
+          @(
+            'Lithe Windows x64 CI test build',
+            "Built commit: $revision",
+            "PR head commit: $prHead",
+            "Workflow: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID",
+            'Extract the entire artifact to a local folder, then run lithe-windows.exe.',
+            'Keep extensions, LanguageServers, and DLLs beside the executable.',
+            'Requires the Microsoft Edge WebView2 Runtime. No IDE or build toolchain is needed.',
+            'Windows 11 ARM supports x64 emulation; this is not a native ARM64 build.',
+            'This unsigned test build uses normal Lithe user data.',
+            'Artifact availability does not mean all CI tests passed; check the workflow results.'
+          ) | Set-Content -LiteralPath (Join-Path $artifact 'BUILD-INFO.txt') -Encoding utf8
+
+      - name: Upload Windows test build
+        id: app-artifact
+        if: needs.changes.outputs.windows == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lithe-windows-x64-${{ github.sha }}
+          path: .artifacts/ci-builds/windows/
+          # The staged runtime tree includes Java resource identity files.
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Link Windows test build
+        if: needs.changes.outputs.windows == 'true'
+        shell: pwsh
+        env:
+          ARTIFACT_URL: ${{ steps.app-artifact.outputs.artifact-url }}
+        run: |
+          @(
+            '### Download Windows test build',
+            "[Lithe for Windows x64]($env:ARTIFACT_URL)",
+            "Built commit: $env:GITHUB_SHA. Extract the whole ZIP and run lithe-windows.exe.",
+            'Windows 11 ARM can run this x64 build through emulation.',
+            'See BUILD-INFO.txt in the artifact for requirements and source identity.'
+          ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+
       - name: Verify Windows boundaries
         if: needs.changes.outputs.windows == 'true'
         shell: pwsh

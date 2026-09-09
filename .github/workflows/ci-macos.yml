@@ -232,7 +232,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.macos_release == 'true'
     runs-on: macos-14
-    timeout-minutes: 40
+    timeout-minutes: 60
 
     steps:
       - name: Check out source
@@ -253,6 +253,7 @@ jobs:
         with:
           swiftpm: "true"
           cargo: "true"
+          jdtls: "true"
 
       - name: Check packaging scripts and metadata
         shell: zsh {0}
@@ -267,6 +268,56 @@ jobs:
           ruby -c scripts/test-macos-update-manifest.rb
           ruby scripts/test-macos-update-manifest.rb
           plutil -lint macos/Resources/Info.plist
+
+      # The packaging smoke test below uses fake Java runtimes. Build the
+      # downloadable app separately with real resources, reusing compilation.
+      - name: Package downloadable macOS app
+        shell: zsh {0}
+        env:
+          LITHE_ARCH: universal
+          LITHE_CODESIGN_IDENTITY: "-"
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          ./scripts/package-app.sh
+          codesign --verify --deep --strict dist/Lithe.app
+          lipo dist/Lithe.app/Contents/MacOS/Lithe -verify_arch arm64 x86_64
+          artifact_directory="$GITHUB_WORKSPACE/.artifacts/ci-builds/macos"
+          mkdir -p "$artifact_directory"
+          # Archive first so artifact upload preserves app permissions and links.
+          ditto -c -k --sequesterRsrc --keepParent \
+            dist/Lithe.app "$artifact_directory/Lithe-macos-universal.zip"
+          {
+            echo "Lithe macOS universal CI test build (arm64 + x86_64)"
+            echo "Built commit: $(git rev-parse HEAD)"
+            echo "PR head commit: ${PR_HEAD_SHA:-not a pull request}"
+            echo "Workflow: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "Extract Lithe-macos-universal.zip to get Lithe.app."
+            echo "This app is ad-hoc signed, not notarized, and uses normal Lithe user data."
+            echo "Artifact availability does not mean all CI tests passed; check the workflow results."
+          } > "$artifact_directory/BUILD-INFO.txt"
+
+      - name: Upload macOS test build
+        id: app-artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lithe-macos-universal-${{ github.sha }}
+          path: .artifacts/ci-builds/macos/
+          include-hidden-files: true
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Link macOS test build
+        env:
+          ARTIFACT_URL: ${{ steps.app-artifact.outputs.artifact-url }}
+        run: |
+          {
+            echo "### Download macOS test build"
+            echo "[Lithe for Apple Silicon and Intel Macs]($ARTIFACT_URL)"
+            echo "Built commit: \`$GITHUB_SHA\`. Ad-hoc signed; not notarized."
+            echo "See BUILD-INFO.txt in the artifact for launch instructions and source identity."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build and verify default universal package
         env:
