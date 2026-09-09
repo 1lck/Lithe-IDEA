@@ -17,8 +17,8 @@ struct CommitAreaView: View {
                 }
                     .toggleStyle(.checkbox)
                     .lithePointer()
-                    .font(.system(size: 12))
-                Image(systemName: "clock")
+                    .font(.system(size: LitheTheme.Commit.amendFontSize))
+                LitheSystemIcon(systemImage: "clock", size: LitheTheme.Commit.actionIconSize)
                     .foregroundStyle(LitheTheme.secondaryText)
                 Spacer()
                 Button {
@@ -28,20 +28,18 @@ struct CommitAreaView: View {
                         if draft.isGenerating {
                             ProgressView().controlSize(.mini)
                         } else {
-                            Image(systemName: "wand.and.stars")
+                            LitheSystemIcon(systemImage: "wand.and.stars", size: LitheTheme.Commit.actionIconSize)
                         }
                         Text("AI")
                     }
-                    .font(.system(size: 10.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.primaryText)
-                    .padding(.horizontal, 7)
-                    .frame(height: 24)
-                    .background(LitheTheme.raised.opacity(0.72))
-                    .clipShape(RoundedRectangle(cornerRadius: 5))
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .lithePointer()
+                .buttonStyle(
+                    LitheSecondaryButtonStyle(
+                        horizontalPadding: LitheTheme.Commit.compactButtonPadding,
+                        height: LitheTheme.Commit.compactButtonHeight,
+                        fontSize: LitheTheme.Commit.compactButtonFontSize
+                    )
+                )
                 .disabled(
                     stagedChanges.isEmpty ||
                         feature.isLoadingDiff ||
@@ -49,15 +47,15 @@ struct CommitAreaView: View {
                 )
                 .help("Generate a commit message from staged diffs")
                 Text("\(stagedChanges.count) staged")
-                    .font(.system(size: 10.5))
+                    .font(.system(size: LitheTheme.Commit.metadataFontSize))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
 
             CommitMessageEditor(text: $draft.message, focused: $commitMessageFocused)
             .frame(maxWidth: .infinity, minHeight: 50, maxHeight: .infinity, alignment: .topLeading)
-            .litheRoundedControlBackground(LitheTheme.editor, cornerRadius: 4)
+            .litheRoundedControlBackground(LitheTheme.editor)
             .overlay {
-                RoundedRectangle(cornerRadius: 4)
+                RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
                     .strokeBorder(
                         commitMessageFocused ? LitheTheme.selection : LitheTheme.divider,
                         lineWidth: commitMessageFocused ? 2 : 1
@@ -76,16 +74,13 @@ struct CommitAreaView: View {
                         Text("Commit")
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(LitheTheme.accent)
-                .lithePointer()
+                .buttonStyle(LithePrimaryButtonStyle())
                 .disabled(!canCommit)
 
                 Button("Commit and Push…") {
                     Task { await commitWorkflow.commit(push: true) }
                 }
-                .buttonStyle(.bordered)
-                .lithePointer()
+                .buttonStyle(LitheSecondaryButtonStyle())
                 .disabled(!canCommit)
 
                 Spacer(minLength: 0)
@@ -97,9 +92,8 @@ struct CommitAreaView: View {
                 .litheIconButton()
                 .help("Open AI & Commit settings")
             }
-            .controlSize(.regular)
         }
-        .padding(10)
+        .padding(LitheTheme.Commit.panelPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(hasBackgroundImage ? Color.clear : LitheTheme.toolHeader)
         .confirmationDialog(

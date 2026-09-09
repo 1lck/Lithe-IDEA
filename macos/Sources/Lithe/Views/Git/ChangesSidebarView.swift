@@ -151,15 +151,18 @@ struct ChangesSidebarView: View {
                     selectedTab = tab
                 } label: {
                     Text(LocalizedStringKey(tab.title))
-                        .font(.system(size: 12.5, weight: tab == selectedTab ? .semibold : .regular))
+                        .font(.system(size: LitheTheme.Commit.toolbarFontSize, weight: tab == selectedTab ? .semibold : .regular))
                         .foregroundStyle(tab == selectedTab ? LitheTheme.primaryText : LitheTheme.secondaryText)
-                        .padding(.horizontal, 10)
-                        .frame(height: 30)
-                        .background(tab == selectedTab ? LitheTheme.subtleSelection : .clear)
-                        .clipShape(RoundedRectangle(cornerRadius: 5))
+                        .padding(.horizontal, LitheTheme.Commit.tabItemHorizontalPadding)
+                        .padding(.vertical, LitheTheme.Commit.tabItemVerticalPadding)
+                        .litheRowHover(
+                            isActive: tab == selectedTab,
+                            cornerRadius: LitheTheme.Metrics.cornerRadius,
+                            activeBackground: LitheTheme.subtleSelection,
+                            hoverBackground: LitheTheme.hoverBackground
+                        )
                 }
                 .buttonStyle(.plain)
-                .lithePointer()
             }
             Spacer()
         }
@@ -170,9 +173,9 @@ struct ChangesSidebarView: View {
 
     private var commitContent: some View {
         GeometryReader { geometry in
-            let toolbarHeight: CGFloat = 37
-            let minimumListHeight: CGFloat = 120
-            let minimumCommitHeight: CGFloat = 124
+            let toolbarHeight = LitheTheme.Commit.toolbarHeight
+            let minimumListHeight = LitheTheme.Commit.listMinimumHeight
+            let minimumCommitHeight = LitheTheme.Commit.areaMinimumHeight
             let availableCommitHeight = geometry.size.height
                 - toolbarHeight
                 - SplitHandleView.thickness
@@ -206,7 +209,7 @@ struct ChangesSidebarView: View {
         }
     }
 
-    private static let defaultCommitAreaHeight: CGFloat = 124
+    private static let defaultCommitAreaHeight = LitheTheme.Commit.areaMinimumHeight
 
     private var shelfContent: some View {
         VStack(spacing: 0) {
@@ -424,7 +427,7 @@ struct ChangesSidebarView: View {
             Button {
                 pendingDiscardSelection = selectedChanges
             } label: {
-                Image(systemName: "arrow.uturn.backward")
+                LitheSystemIcon(systemImage: "arrow.uturn.backward", size: LitheTheme.Commit.actionIconSize)
             }
             .litheIconButton()
             .disabled(selectedChanges.isEmpty)
@@ -433,7 +436,7 @@ struct ChangesSidebarView: View {
             Button {
                 Task { await feature.stageAllChanges() }
             } label: {
-                Image(systemName: "square.and.arrow.down")
+                LitheSystemIcon(systemImage: "square.and.arrow.down", size: LitheTheme.Commit.actionIconSize)
             }
             .litheIconButton()
             .disabled(feature.gitChanges.isEmpty)
@@ -444,7 +447,7 @@ struct ChangesSidebarView: View {
                     selectChange(first)
                 }
             } label: {
-                Image(systemName: "eye")
+                LitheSystemIcon(systemImage: "eye", size: LitheTheme.Commit.actionIconSize)
             }
             .litheIconButton()
             .disabled(feature.gitChanges.isEmpty)
@@ -485,7 +488,7 @@ struct ChangesSidebarView: View {
                 .lineLimit(1)
         }
         .padding(.horizontal, 7)
-        .frame(height: 36)
+        .frame(height: LitheTheme.Commit.toolbarHeight)
     }
 
     private var changeList: some View {

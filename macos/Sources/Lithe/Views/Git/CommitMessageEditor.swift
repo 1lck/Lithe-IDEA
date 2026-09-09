@@ -26,6 +26,7 @@ struct CommitMessageEditor: NSViewRepresentable {
         editor.textColor = NSColor(LitheTheme.primaryText)
         editor.insertionPointColor = NSColor(LitheTheme.primaryText)
         editor.placeholderColor = NSColor(LitheTheme.tertiaryText)
+        editor.font = LitheTheme.editorFont(size: LitheTheme.Commit.messageFontSize)
         // Leave IME composition and the selection untouched during normal typing.
         if editor.string != text && !editor.hasMarkedText() {
             let selection = editor.selectedRange()
@@ -62,8 +63,11 @@ final class CommitMessageTextView: NSTextView {
         importsGraphics = false
         allowsUndo = true
         drawsBackground = false
-        font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        textContainerInset = NSSize(width: 8, height: 7)
+        font = LitheTheme.editorFont(size: LitheTheme.Commit.messageFontSize)
+        textContainerInset = NSSize(
+            width: LitheTheme.Commit.editorHorizontalInset,
+            height: LitheTheme.Commit.editorVerticalInset
+        )
         textContainer?.lineFragmentPadding = 0
         isVerticallyResizable = true
         isHorizontallyResizable = false
