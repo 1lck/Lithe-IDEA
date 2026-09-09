@@ -635,6 +635,7 @@ struct WorkbenchView: View {
                 }
             }
 
+            UpdateControl(compact: true)
             backgroundPickerButton
 
         }

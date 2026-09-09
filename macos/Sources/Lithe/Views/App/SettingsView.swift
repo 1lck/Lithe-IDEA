@@ -1206,10 +1206,7 @@ struct SettingsView: View {
         case .upToDate(let version):
             Label("Lithe is up to date at version \(version).", systemImage: "checkmark.circle.fill")
                 .foregroundStyle(LitheTheme.success)
-        case .noRelease:
-            Text("No published release is available yet.")
-                .foregroundStyle(LitheTheme.secondaryText)
-        case .failed(let message):
+        case .failed(_, let message):
             Label(message, systemImage: "exclamationmark.triangle")
                 .foregroundStyle(LitheTheme.warning)
                 .fixedSize(horizontal: false, vertical: true)

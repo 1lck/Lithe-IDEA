@@ -189,7 +189,8 @@ jobs:
           ruby scripts/create-macos-update-manifest.rb \
             --version "$LITHE_VERSION" \
             --repository "$GITHUB_REPOSITORY" \
-            --release-tag "$RELEASE_TAG"
+            --release-tag "$RELEASE_TAG" \
+            --release-notes-path "docs/releases/v${LITHE_VERSION}.md"
           ruby -rjson -e 'manifest = JSON.parse(File.read("dist/latest-macos.json")); abort "Invalid schema" unless manifest["schemaVersion"] == 1'
 
       - name: Create or update GitHub Release

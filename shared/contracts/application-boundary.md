@@ -36,6 +36,7 @@ verification scripts are the executable source of boundary checks.
 | Local History | revision metadata, text content, restore result | persistence location and file operations |
 | Modules | stable IDs, manifests, enabled state, lifecycle snapshots, dependencies, capabilities, and contributions | native factories, processes, timers, PTY/ConPTY, watchers, connections, and UI rendering |
 | Community integrations | Discourse authorization sessions, RSA-OAEP callback verification, user API protocol models, and normalized community data | opening the system browser, receiving URL callbacks, and credential-vault persistence |
+| Updates | normalized release metadata, state names, preference semantics, and stable error codes | update feeds, package verification, download, installation, restart, and native UI |
 
 ## Module Lifecycle Contract
 

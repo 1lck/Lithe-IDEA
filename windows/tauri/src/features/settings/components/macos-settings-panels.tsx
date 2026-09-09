@@ -515,7 +515,7 @@ function UpdatesPanel() {
           {error
             ? t("settings.mac.updateFailed")
             : available
-              ? t("settings.mac.updateAvailable", { version: updateInfo?.version ?? "" })
+              ? t("settings.mac.updateAvailable", { version: updateInfo?.targetVersion ?? "" })
               : hasCheckedForUpdates
                 ? t("settings.mac.upToDate")
                 : t("settings.mac.updateHint")}

@@ -3,6 +3,8 @@ import Foundation
 struct UpdateManifest: Decodable, Sendable {
     let schemaVersion: Int
     let version: String
+    let releaseDate: String?
+    let releaseNotes: String?
     let releaseURL: URL
     let assets: [String: UpdateManifestAsset]
 
@@ -15,6 +17,12 @@ struct UpdateManifest: Decodable, Sendable {
               Self.isAllowedWebURL(releaseURL, allowingLocalHTTP: allowingLocalHTTP),
               !assets.isEmpty else {
             throw UpdateCheckError.invalidManifest
+        }
+
+        if let releaseDate {
+            guard ISO8601DateFormatter().date(from: releaseDate) != nil else {
+                throw UpdateCheckError.invalidManifest
+            }
         }
 
         for asset in assets.values {
@@ -128,6 +136,26 @@ enum UpdateCheckError: Error, Equatable {
     case notAppBundle
     case appNotFoundInDiskImage
     case toolFailed(String)
+
+    var code: UpdateErrorCode {
+        switch self {
+        case .noPublishedRelease: return .noPublishedRelease
+        case .invalidResponse: return .invalidResponse
+        case .rateLimited: return .rateLimited
+        case .httpStatus: return .httpStatus
+        case .timedOut: return .timedOut
+        case .tlsOrProxyFailure: return .tlsOrProxyFailure
+        case .connectionFailed: return .connectionFailed
+        case .invalidManifest: return .invalidManifest
+        case .unsupportedSchema: return .unsupportedSchema
+        case .noCompatibleAsset: return .noCompatibleAsset
+        case .checksumMismatch: return .checksumMismatch
+        case .downloadFailed: return .downloadFailed
+        case .notAppBundle: return .notAppBundle
+        case .appNotFoundInDiskImage: return .appNotFoundInDiskImage
+        case .toolFailed: return .installFailed
+        }
+    }
 
     var userMessage: String {
         switch self {
