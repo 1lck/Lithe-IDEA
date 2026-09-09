@@ -24,13 +24,22 @@ impl Repository {
         result
     }
 
-    fn request(&self, command: &str, mut payload: Value) -> Value {
+    fn request(&self, command: &str, payload: Value) -> Value {
+        self.request_with_timeout(command, payload, 5_000)
+    }
+
+    fn request_with_timeout(
+        &self,
+        command: &str,
+        mut payload: Value,
+        timeout_milliseconds: u64,
+    ) -> Value {
         payload["root"] = json!(self.0);
         // Each real Git subprocess is governed by Core's local deadline; tests
         // do not synchronize using sleeps or depend on a network remote.
         serde_json::from_str(&execute_json(&json!({
             "id": format!("history-integration-{}", REQUEST_SEQUENCE.fetch_add(1, Ordering::Relaxed)),
-            "timeoutMilliseconds": 5_000,
+            "timeoutMilliseconds": timeout_milliseconds,
             "command": command,
             "payload": payload,
         }).to_string())).unwrap()
@@ -839,7 +848,7 @@ fn native_rebase_rejects_escaped_manifest_overflow_before_replacing_session() {
 }
 
 // Keep the large manifest read and abort/recovery assertions in separate test
-// processes so the payload does not push one case over the stability budget.
+// cases so each failure identifies the affected lifecycle stage.
 #[test]
 fn native_rebase_large_escaped_manifest_is_readable_while_paused() {
     let repo = Repository::new("rebase-encoded-readable");
@@ -875,11 +884,18 @@ fn start_large_escaped_manifest_rebase(repo: &Repository) -> (String, Value) {
     let first = repo.commit("story.txt", "first\n", "first");
     let head = repo.commit("story.txt", "last\n", "last");
     let preview = repo.request("git.rebasePreview", json!({"revision":base}));
+    // Keep the escaped manifest close to the supported size boundary. Starting
+    // a native rebase invokes several Git processes, so this fixture uses an
+    // explicit bounded budget instead of the ordinary request deadline.
     let message = format!("Title\n{}End", "\n\\".repeat(4 * 1024 * 1024 / 2));
-    let result = repo.request("git.rebaseStart", json!({
-        "expectedState":preview["data"]["expectedState"],
-        "steps":[{"hash":first,"action":"edit"}, {"hash":head,"action":"reword","message":message}]
-    }));
+    let result = repo.request_with_timeout(
+        "git.rebaseStart",
+        json!({
+            "expectedState":preview["data"]["expectedState"],
+            "steps":[{"hash":first,"action":"edit"}, {"hash":head,"action":"reword","message":message}]
+        }),
+        30_000,
+    );
     assert_eq!(result["ok"], true, "{result}");
     assert_eq!(result["data"]["session"]["status"], "edit", "{result}");
     (head, result)
