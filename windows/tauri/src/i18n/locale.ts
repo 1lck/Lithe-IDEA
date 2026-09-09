@@ -1806,6 +1806,12 @@ const catalogs = {
     "update.availableVersion": "Update available: {version}",
     "update.downloading": "Downloading",
     "update.options": "Update options",
+    "update.detailsTitle": "Lithe {version} update",
+    "update.currentVersion": "Current version",
+    "update.targetVersion": "Target version",
+    "update.releaseDate": "Release date",
+    "update.releaseNotes": "Release notes",
+    "update.openReleasePage": "Open release page",
     "settings.general.terminalCommand": "Terminal Command",
     "settings.general.terminalCommandDescription":
       "Install the `lithe` command to open folders and files from your terminal.",
@@ -2327,7 +2333,8 @@ const catalogs = {
     "git.commitChanges": "Commit Changes",
     "git.changesCommitted": "Changes committed successfully",
     "git.commitChangesFailed": "Failed to commit changes",
-    "git.finishOperationBeforeCommit": "Finish or abort the current Git operation before committing.",
+    "git.finishOperationBeforeCommit":
+      "Finish or abort the current Git operation before committing.",
     "git.commitIndexReconcileFailed":
       "The commit succeeded, but the staging area could not be refreshed.",
     "git.aiCommitEmptyMessage": "AI returned an empty commit message.",
@@ -5793,6 +5800,12 @@ const catalogs = {
     "update.availableVersion": "有可用更新：{version}",
     "update.downloading": "正在下载",
     "update.options": "更新选项",
+    "update.detailsTitle": "Lithe {version} 更新",
+    "update.currentVersion": "当前版本",
+    "update.targetVersion": "目标版本",
+    "update.releaseDate": "发布日期",
+    "update.releaseNotes": "发行说明",
+    "update.openReleasePage": "打开发布页面",
     "settings.general.terminalCommand": "终端命令",
     "settings.general.terminalCommandDescription":
       "安装 `lithe` 命令，以便从终端打开文件夹和文件。",
