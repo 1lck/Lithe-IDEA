@@ -525,6 +525,38 @@ struct GitModuleTests {
     }
 
     @Test
+    func successfulRevertRefreshesVisibleGitHistoryWhenStatusIsUnchanged() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let revertedCommit = makeTestCommit(hash: "original-commit", subject: "Original change")
+        let revertCommit = makeTestCommit(hash: "revert-commit", subject: "Revert original change")
+        let controller = GitHistoryMutationController(
+            before: [revertedCommit],
+            after: [revertCommit, revertedCommit]
+        )
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            historyPageHandler: { controller.historyPage() },
+            revertHandler: { hash in controller.revert(hash) }
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(
+            workspaceURLProvider: { root },
+            isGitLogVisibleProvider: { true },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+        #expect(feature.gitCommits.map(\.hash) == [revertedCommit.hash])
+
+        await feature.revert(revertedCommit)
+
+        #expect(feature.gitCommits.map(\.hash) == [revertCommit.hash, revertedCommit.hash])
+        #expect(controller.revertedHashes == [revertedCommit.hash])
+        #expect(controller.historyCallCount == 2)
+    }
+
+    @Test
     func remoteReferenceActionsPreserveIdentityAndPullStrategy() async {
         let root = URL(fileURLWithPath: "/workspace")
         let reference = GitReference(
@@ -2309,6 +2341,47 @@ private func makeTestCommit(hash: String, subject: String) -> GitCommit {
     )
 }
 
+private final class GitHistoryMutationController: @unchecked Sendable {
+    private let lock = NSLock()
+    private let before: [GitCommit]
+    private let after: [GitCommit]
+    private var didMutate = false
+    private var historyCalls = 0
+    private var revertedHashValues: [String] = []
+
+    init(before: [GitCommit], after: [GitCommit]) {
+        self.before = before
+        self.after = after
+    }
+
+    var historyCallCount: Int {
+        lock.withLock { historyCalls }
+    }
+
+    var revertedHashes: [String] {
+        lock.withLock { revertedHashValues }
+    }
+
+    func historyPage() -> GitHistoryPage {
+        lock.withLock {
+            historyCalls += 1
+            return GitHistoryPage(
+                commits: didMutate ? after : before,
+                nextCursor: nil,
+                hasMore: false
+            )
+        }
+    }
+
+    func revert(_ hash: String) -> GitProcessResult {
+        lock.withLock {
+            revertedHashValues.append(hash)
+            didMutate = true
+        }
+        return GitProcessResult(arguments: ["revert", hash], output: "", exitCode: 0)
+    }
+}
+
 private func makeTestWorktree(path: String, branch: String) -> GitWorktree {
     GitWorktree(
         path: path,
@@ -2776,12 +2849,14 @@ private struct TestGitOperations: GitOperations {
     private let historyValue: GitHistorySnapshot?
     private let referencesValue: GitReferenceSnapshot?
     private let historyPageValues: [String: GitHistoryPage]?
+    private let historyPageHandler: (@Sendable () -> GitHistoryPage?)?
     private let historyController: GitHistoryLoadController?
     private let snapshotGate: GitModuleTestGate?
     private let discardHandler: (@Sendable (GitChange) -> GitProcessResult?)?
     private let applyPatchHandler: (@Sendable (String, URL, String) -> GitProcessResult?)?
     private let stageResult: GitProcessResult?
     private let commitResult: GitProcessResult?
+    private let revertHandler: (@Sendable (String) -> GitProcessResult?)?
     private let runGate: TestGitRunGate?
     private let filesRecorder: GitFilesCallRecorder?
     private let filesGate: GitFilesLoadGate?
@@ -2805,6 +2880,7 @@ private struct TestGitOperations: GitOperations {
         historyValue: GitHistorySnapshot? = nil,
         referencesValue: GitReferenceSnapshot? = nil,
         historyPageValues: [String: GitHistoryPage]? = nil,
+        historyPageHandler: (@Sendable () -> GitHistoryPage?)? = nil,
         historyController: GitHistoryLoadController? = nil,
         filesValue: [GitCommitFile]? = nil,
         untrackedDiffDocumentValue: DiffDocument? = nil,
@@ -2815,6 +2891,7 @@ private struct TestGitOperations: GitOperations {
         applyPatchHandler: (@Sendable (String, URL, String) -> GitProcessResult?)? = nil,
         stageResult: GitProcessResult? = nil,
         commitResult: GitProcessResult? = nil,
+        revertHandler: (@Sendable (String) -> GitProcessResult?)? = nil,
         runGate: TestGitRunGate? = nil,
         filesRecorder: GitFilesCallRecorder? = nil,
         filesGate: GitFilesLoadGate? = nil,
@@ -2837,6 +2914,7 @@ private struct TestGitOperations: GitOperations {
         self.historyValue = historyValue
         self.referencesValue = referencesValue
         self.historyPageValues = historyPageValues
+        self.historyPageHandler = historyPageHandler
         self.historyController = historyController
         self.filesValue = filesValue
         self.untrackedDiffDocumentValue = untrackedDiffDocumentValue
@@ -2847,6 +2925,7 @@ private struct TestGitOperations: GitOperations {
         self.applyPatchHandler = applyPatchHandler
         self.stageResult = stageResult
         self.commitResult = commitResult
+        self.revertHandler = revertHandler
         self.runGate = runGate
         self.filesRecorder = filesRecorder
         self.filesGate = filesGate
@@ -2921,6 +3000,7 @@ private struct TestGitOperations: GitOperations {
         limit: Int,
         operationID: String
     ) -> GitHistoryPage? {
+        if let historyPageHandler { return historyPageHandler() }
         if let historyPageValues { return historyPageValues[cursor ?? ""] }
         guard let historyValue else { return nil }
         let offset = cursor.flatMap(Int.init) ?? 0
@@ -2951,7 +3031,7 @@ private struct TestGitOperations: GitOperations {
     func discardAll(_ change: GitChange) -> GitProcessResult? { nil }
     func commit(at rootURL: URL, message: String, amend: Bool) -> GitProcessResult? { commitResult }
     func cherryPick(_ hash: String, at rootURL: URL) -> GitProcessResult? { nil }
-    func revert(_ hash: String, at rootURL: URL) -> GitProcessResult? { nil }
+    func revert(_ hash: String, at rootURL: URL) -> GitProcessResult? { revertHandler?(hash) }
     func resetCurrentBranch(to hash: String, mode: String, at rootURL: URL) -> GitProcessResult? { nil }
     func createBranch(named name: String, from reference: GitReference, checkout: Bool, at rootURL: URL) -> GitProcessResult? {
         branchCallRecorder?.record(BranchCallRecorder.Call(name: name, reference: reference.fullName, checkout: checkout))

@@ -2756,6 +2756,7 @@ package final class GitFeatureModel: ObservableObject {
     ) async {
         guard let gitRepositoryRoot else { return }
         isPerformingBranchOperation = true
+        let historyVersion = gitCommitsVersion
         let operationResult = await withGitOperation {
             let result: GitService.CommandResult
             let success: String
@@ -2788,7 +2789,11 @@ package final class GitFeatureModel: ObservableObject {
             return (result, success)
         }
         isPerformingBranchOperation = false
-        await reportBranchOperation(operationResult.0, success: operationResult.1)
+        await reportBranchOperation(
+            operationResult.0,
+            success: operationResult.1,
+            historyVersion: historyVersion
+        )
     }
 
     /// Merge and rebase are only ever started from a branch, so a commit target here
@@ -2814,9 +2819,10 @@ package final class GitFeatureModel: ObservableObject {
     /// the user acts on it, so the toast just points at the conflict count.
     private func reportBranchOperation(
         _ result: GitService.CommandResult,
-        success: String
+        success: String,
+        historyVersion: Int? = nil
     ) async {
-        await refreshGit()
+        await refreshGitFromMetadataChange(since: historyVersion)
         if let state = gitOperationState, state.hasConflicts {
             notify?("\(state.kind.title) stopped with \(state.conflictedPaths.count) conflicted file(s)")
         } else {
