@@ -107,6 +107,7 @@ export interface MavenState {
   reloadRequired: boolean;
   projectReloadRequired: boolean;
   reloadRevision: number;
+  projectReloadRevision: number;
   taskStatus: MavenTaskStatus;
   taskError: string | null;
   activeSessionId: string | null;
@@ -123,7 +124,8 @@ export interface MavenState {
     markPomReloadRequired: (changedPath: string) => void;
     restoreReloadSnapshot: (
       snapshot: MavenReloadSnapshot,
-      revision: number,
+      projectRevision: number,
+      reloadRevision: number,
       message: string,
     ) => void;
     setSelectedProfiles: (profiles: string[]) => void;
@@ -362,6 +364,9 @@ export const createMavenStore = (
         reloadRequired: true,
         projectReloadRequired: state.projectReloadRequired || reloadProject,
         reloadRevision: state.reloadRevision + 1,
+        projectReloadRevision: reloadProject
+          ? state.projectReloadRevision + 1
+          : state.projectReloadRevision,
         projectError: reloadProject ? null : state.projectError,
       }));
     };
@@ -389,6 +394,7 @@ export const createMavenStore = (
       reloadRequired: false,
       projectReloadRequired: false,
       reloadRevision: 0,
+      projectReloadRevision: 0,
       taskStatus: "idle",
       taskError: null,
       activeSessionId: null,
@@ -546,22 +552,29 @@ export const createMavenStore = (
 
         markPomReloadRequired: (changedPath) => markReloadRequired(changedPath, true),
 
-        restoreReloadSnapshot: (snapshot, revision, message) => {
-          if (get().reloadRevision !== revision) return;
+        restoreReloadSnapshot: (snapshot, projectRevision, reloadRevision, message) => {
+          const state = get();
+          if (state.projectReloadRevision !== projectRevision) return;
+          const configurationChanged = state.reloadRevision !== reloadRevision;
           set((state) => ({
             projectStatus: snapshot.project ? "failed" : snapshot.projectStatus,
             projectError: message,
             project: snapshot.project,
-            selectedProfiles: [...snapshot.selectedProfiles],
-            customProfiles: [...snapshot.customProfiles],
-            skipTests: snapshot.skipTests,
-            settingsPath: snapshot.settingsPath,
-            localRepositoryPath: snapshot.localRepositoryPath,
-            mavenExecutablePath: snapshot.mavenExecutablePath,
-            javaHomePath: snapshot.javaHomePath,
+            ...(configurationChanged
+              ? {}
+              : {
+                  selectedProfiles: [...snapshot.selectedProfiles],
+                  customProfiles: [...snapshot.customProfiles],
+                  skipTests: snapshot.skipTests,
+                  settingsPath: snapshot.settingsPath,
+                  localRepositoryPath: snapshot.localRepositoryPath,
+                  mavenExecutablePath: snapshot.mavenExecutablePath,
+                  javaHomePath: snapshot.javaHomePath,
+                }),
             reloadRequired: true,
             projectReloadRequired: true,
             reloadRevision: state.reloadRevision + 1,
+            projectReloadRevision: state.projectReloadRevision + 1,
           }));
         },
 

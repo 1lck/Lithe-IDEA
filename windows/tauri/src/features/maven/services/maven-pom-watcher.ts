@@ -9,16 +9,20 @@ export interface MavenPomWatchOperations {
 
 export function mavenPomPaths(root: string, project: MavenProject): Set<string> {
   const paths = new Set<string>();
+  const reactorRoot = joinPath(root, ...relativePathSegments(project.relativePath));
 
   const appendPomPath = (module: Pick<MavenModule, "relativePath" | "modules">) => {
-    const relativePath = module.relativePath === "." ? "" : module.relativePath;
-    const segments = relativePath.split(/[\\/]+/).filter(Boolean);
-    paths.add(joinPath(root, ...segments, "pom.xml"));
+    paths.add(joinPath(reactorRoot, ...relativePathSegments(module.relativePath), "pom.xml"));
     for (const child of module.modules) appendPomPath(child);
   };
 
-  appendPomPath(project);
+  paths.add(joinPath(reactorRoot, "pom.xml"));
+  for (const module of project.modules) appendPomPath(module);
   return paths;
+}
+
+function relativePathSegments(relativePath: string): string[] {
+  return (relativePath === "." ? "" : relativePath).split(/[\\/]+/).filter(Boolean);
 }
 
 export async function reconcileMavenPomWatches(

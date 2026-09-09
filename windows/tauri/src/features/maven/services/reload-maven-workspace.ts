@@ -16,6 +16,7 @@ interface MavenReloadState {
   projectStatus: "idle" | "loading" | "ready" | "failed";
   projectError?: string | null;
   reloadRevision: number;
+  projectReloadRevision: number;
   project: MavenProject | null;
   selectedProfiles?: string[];
   customProfiles?: string[];
@@ -27,7 +28,12 @@ interface MavenReloadState {
   actions: {
     loadProject(root: string, visiblePaths?: string[]): Promise<void>;
     acknowledgeReload(revision?: number): void;
-    restoreReloadSnapshot(snapshot: MavenReloadSnapshot, revision: number, message: string): void;
+    restoreReloadSnapshot(
+      snapshot: MavenReloadSnapshot,
+      projectRevision: number,
+      reloadRevision: number,
+      message: string,
+    ): void;
   };
 }
 
@@ -124,6 +130,7 @@ async function performMavenWorkspaceReload(
   let states = scopedStates(scope, dependencies);
   if (!states) return "stale";
   const reloadRevision = states.maven.reloadRevision;
+  const projectReloadRevision = states.maven.projectReloadRevision;
   const previous: MavenReloadSnapshot = {
     projectStatus: states.maven.projectStatus,
     projectError: states.maven.projectError ?? null,
@@ -151,6 +158,7 @@ async function performMavenWorkspaceReload(
     if (states) {
       states.maven.actions.restoreReloadSnapshot(
         previous,
+        projectReloadRevision,
         reloadRevision,
         error instanceof Error ? error.message : JAVA_RELOAD_FAILED_MESSAGE,
       );

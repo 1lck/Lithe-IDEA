@@ -49,6 +49,7 @@ test("finishes workspace A reload without reading or mutating active workspace B
     projectStatus: "ready" as const,
     projectError: null as string | null,
     reloadRevision: 0,
+    projectReloadRevision: 0,
     project: mavenProject("old-a") as MavenProject | null,
     activeSessionId: null as string | null,
     output: "A output",
@@ -59,7 +60,12 @@ test("finishes workspace A reload without reading or mutating active workspace B
       }),
       acknowledgeReload: acknowledgeA,
       restoreReloadSnapshot: mock(
-        (_snapshot: MavenReloadSnapshot, _revision: number, _message: string) => undefined,
+        (
+          _snapshot: MavenReloadSnapshot,
+          _projectRevision: number,
+          _reloadRevision: number,
+          _message: string,
+        ) => undefined,
       ),
     },
   };
@@ -69,6 +75,7 @@ test("finishes workspace A reload without reading or mutating active workspace B
     projectStatus: "ready" as const,
     projectError: null as string | null,
     reloadRevision: 0,
+    projectReloadRevision: 0,
     project: mavenProject("project-b") as MavenProject | null,
     activeSessionId: "session-b",
     output: "B output",
@@ -76,7 +83,12 @@ test("finishes workspace A reload without reading or mutating active workspace B
       loadProject: mock(async () => undefined),
       acknowledgeReload: mock(() => undefined),
       restoreReloadSnapshot: mock(
-        (_snapshot: MavenReloadSnapshot, _revision: number, _message: string) => undefined,
+        (
+          _snapshot: MavenReloadSnapshot,
+          _projectRevision: number,
+          _reloadRevision: number,
+          _message: string,
+        ) => undefined,
       ),
     },
   };
@@ -175,12 +187,18 @@ test("acknowledges only the configuration revision active when Java reload start
     projectStatus: "ready" as const,
     projectError: null as string | null,
     reloadRevision: 4,
+    projectReloadRevision: 4,
     project: mavenProject("project") as MavenProject | null,
     actions: {
       loadProject: mock(async () => undefined),
       acknowledgeReload,
       restoreReloadSnapshot: mock(
-        (_snapshot: MavenReloadSnapshot, _revision: number, _message: string) => undefined,
+        (
+          _snapshot: MavenReloadSnapshot,
+          _projectRevision: number,
+          _reloadRevision: number,
+          _message: string,
+        ) => undefined,
       ),
     },
   };
@@ -214,6 +232,7 @@ test("does not restart Java when the Maven scan fails with an old project", asyn
     projectStatus: "ready" as "ready" | "failed",
     projectError: null as string | null,
     reloadRevision: 0,
+    projectReloadRevision: 0,
     project: mavenProject("old") as MavenProject | null,
     actions: {
       loadProject: mock(async () => {
@@ -222,7 +241,12 @@ test("does not restart Java when the Maven scan fails with an old project", asyn
       }),
       acknowledgeReload: mock(() => undefined),
       restoreReloadSnapshot: mock(
-        (_snapshot: MavenReloadSnapshot, _revision: number, _message: string) => undefined,
+        (
+          _snapshot: MavenReloadSnapshot,
+          _projectRevision: number,
+          _reloadRevision: number,
+          _message: string,
+        ) => undefined,
       ),
     },
   };
@@ -256,6 +280,7 @@ test("coalesces concurrent reload requests for the same workspace root", async (
     projectStatus: "ready" as const,
     projectError: null as string | null,
     reloadRevision: 0,
+    projectReloadRevision: 0,
     project: mavenProject("project") as MavenProject | null,
     actions: {
       loadProject: mock(async () => {
@@ -263,7 +288,12 @@ test("coalesces concurrent reload requests for the same workspace root", async (
       }),
       acknowledgeReload: mock(() => undefined),
       restoreReloadSnapshot: mock(
-        (_snapshot: MavenReloadSnapshot, _revision: number, _message: string) => undefined,
+        (
+          _snapshot: MavenReloadSnapshot,
+          _projectRevision: number,
+          _reloadRevision: number,
+          _message: string,
+        ) => undefined,
       ),
     },
   };
@@ -308,12 +338,18 @@ test("does not coalesce case-sensitive workspace roots", async () => {
       projectStatus: "ready" as const,
       projectError: null as string | null,
       reloadRevision: 0,
+      projectReloadRevision: 0,
       project: mavenProject(root) as MavenProject | null,
       actions: {
         loadProject,
         acknowledgeReload: mock(() => undefined),
         restoreReloadSnapshot: mock(
-          (_snapshot: MavenReloadSnapshot, _revision: number, _message: string) => undefined,
+          (
+            _snapshot: MavenReloadSnapshot,
+            _projectRevision: number,
+            _reloadRevision: number,
+            _message: string,
+          ) => undefined,
         ),
       },
     };
@@ -363,6 +399,7 @@ test("refreshes Java after the last Maven descriptor is removed", async () => {
     projectStatus: "ready" as const,
     projectError: null as string | null,
     reloadRevision: 3,
+    projectReloadRevision: 3,
     project: mavenProject("old") as MavenProject | null,
     actions: {
       loadProject: mock(async () => {
@@ -370,7 +407,12 @@ test("refreshes Java after the last Maven descriptor is removed", async () => {
       }),
       acknowledgeReload,
       restoreReloadSnapshot: mock(
-        (_snapshot: MavenReloadSnapshot, _revision: number, _message: string) => undefined,
+        (
+          _snapshot: MavenReloadSnapshot,
+          _projectRevision: number,
+          _reloadRevision: number,
+          _message: string,
+        ) => undefined,
       ),
     },
   };
@@ -403,7 +445,12 @@ test("refreshes Java after the last Maven descriptor is removed", async () => {
 
 test("keeps reload actionable when Java restart fails", async () => {
   const restoreReloadSnapshot = mock(
-    (_snapshot: MavenReloadSnapshot, _revision: number, _message: string) => undefined,
+    (
+      _snapshot: MavenReloadSnapshot,
+      _projectRevision: number,
+      _reloadRevision: number,
+      _message: string,
+    ) => undefined,
   );
   const maven = {
     root: "D:/work" as string | null,
@@ -411,6 +458,7 @@ test("keeps reload actionable when Java restart fails", async () => {
     projectStatus: "ready" as const,
     projectError: null as string | null,
     reloadRevision: 1,
+    projectReloadRevision: 1,
     project: mavenProject("project") as MavenProject | null,
     actions: {
       loadProject: mock(async () => undefined),
@@ -442,6 +490,7 @@ test("keeps reload actionable when Java restart fails", async () => {
   expect(restoreReloadSnapshot).toHaveBeenCalledWith(
     expect.objectContaining({ project: maven.project }),
     1,
+    1,
     "JDT LS did not stop",
   );
 });
@@ -449,7 +498,12 @@ test("keeps reload actionable when Java restart fails", async () => {
 test("keeps reload actionable when Java preparation reports failure", async () => {
   const acknowledgeReload = mock(() => undefined);
   const restoreReloadSnapshot = mock(
-    (_snapshot: MavenReloadSnapshot, _revision: number, _message: string) => undefined,
+    (
+      _snapshot: MavenReloadSnapshot,
+      _projectRevision: number,
+      _reloadRevision: number,
+      _message: string,
+    ) => undefined,
   );
   const maven = {
     root: "D:/work" as string | null,
@@ -457,6 +511,7 @@ test("keeps reload actionable when Java preparation reports failure", async () =
     projectStatus: "ready" as const,
     projectError: null as string | null,
     reloadRevision: 2,
+    projectReloadRevision: 2,
     project: mavenProject("project") as MavenProject | null,
     actions: {
       loadProject: mock(async () => undefined),
@@ -488,6 +543,7 @@ test("keeps reload actionable when Java preparation reports failure", async () =
   expect(acknowledgeReload).not.toHaveBeenCalled();
   expect(restoreReloadSnapshot).toHaveBeenCalledWith(
     expect.objectContaining({ project: maven.project }),
+    2,
     2,
     "Unable to reload the Java language server.",
   );
