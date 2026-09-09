@@ -215,6 +215,28 @@ pub enum CoreCommand {
     GitCommand,
     /// Performs one supported Git mutation (`git.write`).
     GitWrite,
+    /// Inspects repository initialization and scoped commit identity.
+    GitRepositorySetup,
+    /// Initializes an existing folder outside any repository.
+    GitInitialize,
+    /// Writes or clears one explicitly scoped commit identity field.
+    GitConfigureIdentity,
+    /// Reviews a local history mutation and its immutable checkout snapshot (`git.historyRewritePreview`).
+    GitHistoryRewritePreview,
+    /// Preview a linear local range after an unchanged base commit.
+    GitRebasePreview,
+    /// Start a reviewed native interactive rebase with a durable session.
+    GitRebaseStart,
+    /// Read the current checkout's last owned interactive rebase session.
+    GitRebaseSession,
+    /// Continue, skip, or abort an identified native rebase session.
+    GitRebaseControl,
+    /// Exports a lossless UTF-8 exchange patch (`git.patchExport`).
+    GitPatchExport,
+    /// Reviews a patch with a forward applicability check (`git.patchPreview`).
+    GitPatchPreview,
+    /// Applies a patch tied to its reviewed snapshot (`git.patchApply`).
+    GitPatchApply,
     /// Builds a structured Git diff (`git.diff`).
     GitDiff,
     /// Applies a patch to the index or working tree (`git.apply`).
@@ -359,6 +381,17 @@ impl CoreCommand {
             "git.pullRequestContext" => Some(Self::GitPullRequestContext),
             "git.command" => Some(Self::GitCommand),
             "git.write" => Some(Self::GitWrite),
+            "git.historyRewritePreview" => Some(Self::GitHistoryRewritePreview),
+            "git.rebasePreview" => Some(Self::GitRebasePreview),
+            "git.repositorySetup" => Some(Self::GitRepositorySetup),
+            "git.initialize" => Some(Self::GitInitialize),
+            "git.configureIdentity" => Some(Self::GitConfigureIdentity),
+            "git.rebaseStart" => Some(Self::GitRebaseStart),
+            "git.rebaseSession" => Some(Self::GitRebaseSession),
+            "git.rebaseControl" => Some(Self::GitRebaseControl),
+            "git.patchExport" => Some(Self::GitPatchExport),
+            "git.patchPreview" => Some(Self::GitPatchPreview),
+            "git.patchApply" => Some(Self::GitPatchApply),
             "git.diff" => Some(Self::GitDiff),
             "git.apply" => Some(Self::GitApply),
             "git.history" => Some(Self::GitHistory),

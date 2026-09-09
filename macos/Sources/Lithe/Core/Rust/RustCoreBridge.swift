@@ -1015,6 +1015,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let tagDeletion: TagDeletion?
         let branchDeletion: BranchDeletion?
         let warnings: [Warning]?
+        let historyRewrite: GitHistoryRewriteResult?
     }
 
     struct GitDiffPayload: Decodable, Sendable {
@@ -3962,6 +3963,15 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             }
             return .success(value)
         }
+    }
+
+    /// Session queries intentionally return JSON null when no owned operation exists.
+    func executeNullableResult<Payload: Encodable, Data: Decodable>(
+        command: String,
+        payload: Payload
+    ) -> Result<Data?, CoreCallError> {
+        let outcome: Result<Envelope<Data>, CoreCallError> = decodeEnvelope(command: command, payload: payload)
+        return outcome.map(\.data)
     }
 
     /// Performs the call and reports the envelope's own verdict. Whether a
