@@ -37,9 +37,11 @@ final class ProjectRuntimeService: ObservableObject {
     @Published private(set) var mavenRuntimes: [MavenRuntimeCandidate] = []
     @Published private(set) var javaEnvironmentReport: JavaEnvironmentReport?
     @Published private(set) var isDiscovering = false
+    @Published private(set) var settings = ProjectRuntimeSettings()
     private var activeServiceJavaHomePath = ""
 
     private let runtimeLocator: any RuntimeLocator
+    private let store: any KeyValueStore
     private let toolDiscovery: any RuntimeToolDiscovery
     private var discoveryTask: Task<Void, Never>?
     private var activeDiscoveryID: UUID?
@@ -51,7 +53,7 @@ final class ProjectRuntimeService: ObservableObject {
         toolDiscovery: (any RuntimeToolDiscovery)? = nil
     ) {
         self.runtimeLocator = runtimeLocator
-        _ = store
+        self.store = store
         self.toolDiscovery = toolDiscovery ?? DefaultRuntimeToolDiscovery()
     }
 
@@ -66,6 +68,7 @@ final class ProjectRuntimeService: ObservableObject {
         projectURL = normalizedURL
         javaRuntimes = []
         mavenRuntimes = []
+        settings = loadSettings(for: normalizedURL)
         javaEnvironmentReport = .checking(for: normalizedURL)
         javaLanguageServerRuntimePreparation = .unprepared
         discoveryTask = nil
@@ -78,6 +81,7 @@ final class ProjectRuntimeService: ObservableObject {
         projectURL = nil
         javaRuntimes = []
         mavenRuntimes = []
+        settings = ProjectRuntimeSettings()
         javaEnvironmentReport = nil
         isDiscovering = false
         activeServiceJavaHomePath = ""
@@ -126,6 +130,11 @@ final class ProjectRuntimeService: ObservableObject {
             if !normalizedPath.isEmpty {
                 return runtimeLocator.validJavaHome(path: normalizedPath)
             }
+        }
+        let configuredProjectJDK = settings.javaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !configuredProjectJDK.isEmpty,
+           let home = runtimeLocator.validJavaHome(path: normalizedOverridePath(configuredProjectJDK)) {
+            return home
         }
         let paths = [runtimeLocator.environment()["JAVA_HOME"]]
         for path in paths.compactMap({ $0 }).map(normalizedPath).filter({ !$0.isEmpty }) {
@@ -216,9 +225,10 @@ final class ProjectRuntimeService: ObservableObject {
                 return runtimeLocator.validJavaHome(path: normalizedPath)
             }
         }
-        let paths = [runtimeLocator.environment()["JAVA_HOME"]]
-        for path in paths.compactMap({ $0 }).map(normalizedPath).filter({ !$0.isEmpty }) {
-            if let home = runtimeLocator.validJavaHome(path: path) { return home }
+        let configuredMavenJDK = settings.mavenJavaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !configuredMavenJDK.isEmpty,
+           let home = runtimeLocator.validJavaHome(path: normalizedOverridePath(configuredMavenJDK)) {
+            return home
         }
         return javaHomeURL()
     }
@@ -295,7 +305,8 @@ final class ProjectRuntimeService: ObservableObject {
             return
         }
 
-        let javaHome = discoveredJavaRuntimes.first.flatMap { runtimeLocator.validJavaHome(path: $0.homePath) }
+        let javaHome = javaHomeURL()
+            ?? discoveredJavaRuntimes.first.flatMap { runtimeLocator.validJavaHome(path: $0.homePath) }
         guard let javaHome else {
             javaEnvironmentReport = JavaEnvironmentReport(
                 status: .jdkMissing,
@@ -412,6 +423,85 @@ final class ProjectRuntimeService: ObservableObject {
             ))
         }
         return result
+    }
+
+    package func overlayProjectRuntime(
+        onto options: RunOptions,
+        modulePath: String?,
+        workingDirectory: String?
+    ) -> RunOptions {
+        settings.overlay(
+            onto: options,
+            workspaceRelativePath: ProjectRuntimeInventory.workspaceRelativePath(
+                modulePath: modulePath,
+                workingDirectory: workingDirectory
+            )
+        )
+    }
+
+    func updateSettings(_ settings: ProjectRuntimeSettings) {
+        self.settings = settings
+        persistSettings()
+        if !javaRuntimes.isEmpty {
+            refreshJavaEnvironmentReport(using: javaRuntimes)
+        }
+    }
+
+    func mergeImportedSettings(
+        toolchain: ProjectToolchainSelection?,
+        mavenSettingsPath: String?,
+        mavenLocalRepositoryPath: String?,
+        mavenExecutablePath: String?,
+        mavenJavaHomePath: String?
+    ) {
+        var next = settings
+        if next.javaHomePath.isEmpty {
+            next.javaHomePath = toolchain?.javaHomePath ?? ""
+        }
+        if next.mavenHomeSelection == .automatic, next.mavenHomePath.isEmpty,
+           let mavenExecutablePath, !mavenExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let trimmed = mavenExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed == "mvnw" || trimmed.hasSuffix("/mvnw") || trimmed == "./mvnw" {
+                next.mavenHomeSelection = .wrapper
+            } else {
+                next.mavenHomeSelection = .custom
+                next.mavenHomePath = trimmed
+            }
+        }
+        if next.mavenJavaHomePath.isEmpty {
+            next.mavenJavaHomePath = mavenJavaHomePath?.trimmingCharacters(in: .whitespacesAndNewlines)
+                ?? toolchain?.mavenJavaHomePath
+                ?? ""
+        }
+        if next.mavenSettingsPath.isEmpty {
+            next.mavenSettingsPath = mavenSettingsPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+        if next.mavenLocalRepositoryPath.isEmpty {
+            next.mavenLocalRepositoryPath = mavenLocalRepositoryPath?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+        if next != settings {
+            updateSettings(next)
+        }
+    }
+
+    private func loadSettings(for projectURL: URL) -> ProjectRuntimeSettings {
+        guard let data = store.data(forKey: Self.settingsKey(for: projectURL)),
+              let decoded = try? JSONDecoder().decode(ProjectRuntimeSettings.self, from: data) else {
+            return ProjectRuntimeSettings()
+        }
+        return decoded
+    }
+
+    private func persistSettings() {
+        guard let projectURL,
+              let data = try? JSONEncoder().encode(settings) else { return }
+        store.set(data, forKey: Self.settingsKey(for: projectURL))
+    }
+
+    private static func settingsKey(for projectURL: URL) -> String {
+        "lithe.project-runtime-settings."
+            + projectURL.standardizedFileURL.path.replacingOccurrences(of: "/", with: "_")
     }
 
     private func normalizedOverridePath(_ path: String) -> String {

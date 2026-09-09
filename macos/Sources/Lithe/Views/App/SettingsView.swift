@@ -158,10 +158,12 @@ struct SettingsView: View {
             ["Editor", "Display", "Editor tabs", "Font size", "File tree row height", "Indentation", "Tab width"]
         case .keymap:
             ["Keymap", "Keyboard shortcuts", "Shortcuts", "Actions"]
+        case .project:
+            ["Project", "Java SDK", "JDK", "Project JDK", "Maven", "Maven Home", "Maven Wrapper", "Maven JDK"]
         case .terminal:
             ["Terminal", "Shell", "Default shell"]
         case .lsp:
-            ["LSP", "Language server", "Java SDK", "JDK", "Maven"]
+            ["LSP", "Language server"]
         case .ai:
             ["AI & Commit", "AI provider", "Model", "API key", "Commit message"]
         case .updates:
@@ -195,6 +197,9 @@ struct SettingsView: View {
         } else if viewState.selection == .lsp {
             LSPControlCenterView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if viewState.selection == .project {
+            ProjectRuntimeSettingsView(feature: model.runtimeFeature)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if viewState.selection == .keymap {
             KeyboardShortcutSettingsView(
                 feature: model.keyboardShortcutFeature,
@@ -215,6 +220,7 @@ struct SettingsView: View {
                     case .keymap: EmptyView()
                     case .terminal: terminalSettings
                     case .lsp: EmptyView()
+                    case .project: EmptyView()
                     case .ai: aiSettings
                     case .updates: updatesSettings
                     case .diagnostics: diagnosticsSettings
