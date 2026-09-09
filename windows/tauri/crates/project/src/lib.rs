@@ -47,14 +47,14 @@ impl FileWatcher {
    }
 
    pub async fn watch_path(&self, path: String) -> Result<()> {
-      self.watch_path_with_mode(path, true).await
+      self.watch_path_with_mode(path, true, false)
    }
 
    pub async fn watch_project_root(&self, path: String) -> Result<()> {
-      self.watch_path_with_mode(path, false).await
+      self.watch_path_with_mode(path, false, true)
    }
 
-   async fn watch_path_with_mode(&self, path: String, recursive: bool) -> Result<()> {
+   fn watch_path_with_mode(&self, path: String, recursive: bool, emit_opened: bool) -> Result<()> {
       let path_buf = PathBuf::from(&path);
 
       if !path_buf.exists() {
@@ -69,16 +69,17 @@ impl FileWatcher {
       self.ensure_debouncer_initialized()?;
       self.setup_path_watching(&path_buf, &mut watched_paths, recursive)?;
 
-      // Emit an "Opened" event for clarity in the app UI
-      let change_event = FileChangeEvent {
-         path: path_buf.to_string_lossy().to_string(),
-         event_type: FileChangeType::Opened,
-      };
-      log::debug!(
-         "[FileWatcher] Emitting opened event for: {}",
-         change_event.path
-      );
-      self.emitter.emit_file_change(&change_event);
+      if emit_opened {
+         let change_event = FileChangeEvent {
+            path: path_buf.to_string_lossy().to_string(),
+            event_type: FileChangeType::Opened,
+         };
+         log::debug!(
+            "[FileWatcher] Emitting opened event for: {}",
+            change_event.path
+         );
+         self.emitter.emit_file_change(&change_event);
+      }
 
       Ok(())
    }
@@ -286,25 +287,109 @@ impl FileWatcher {
       let path_buf = PathBuf::from(path);
       let mut watched_paths = self.watched_paths.lock().unwrap();
 
-      if !watched_paths.remove(&path_buf) {
+      if !watched_paths.contains(&path_buf) {
          bail!("Path was not being watched");
       }
 
-      // Remove from watched directories if it's a directory
-      if path_buf.is_dir() {
-         let mut watched_dirs = self.watched_directories.lock().unwrap();
-         watched_dirs.remove(&path_buf);
-      }
-
-      // Remove from known files tracking
-      self.known_files.lock().unwrap().remove(&path_buf);
-
-      // Unwatch the path
       let mut debouncer_guard = self.debouncer.lock().unwrap();
       if let Some(ref mut debouncer) = *debouncer_guard {
          debouncer.watcher().unwatch(&path_buf)?;
       }
 
+      // Commit the in-memory cleanup only after native unwatch succeeds so a
+      // transient adapter failure remains retryable.
+      watched_paths.remove(&path_buf);
+      self.watched_directories.lock().unwrap().remove(&path_buf);
+      self.known_files.lock().unwrap().remove(&path_buf);
+
       Ok(())
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use std::{
+      fs,
+      sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError},
+      time::Instant,
+   };
+
+   struct ChannelEmitter(Sender<FileChangeEvent>);
+
+   impl FileChangeEmitter for ChannelEmitter {
+      fn emit_file_change(&self, event: &FileChangeEvent) {
+         let _ = self.0.send(event.clone());
+      }
+   }
+
+   struct TestDirectory(PathBuf);
+
+   impl TestDirectory {
+      fn new() -> Self {
+         let unique = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("system clock should follow the Unix epoch")
+            .as_nanos();
+         let path = std::env::temp_dir().join(format!(
+            "lithe-project-watcher-{}-{unique}",
+            std::process::id()
+         ));
+         fs::create_dir_all(&path).expect("test directory should be created");
+         Self(path)
+      }
+   }
+
+   impl Drop for TestDirectory {
+      fn drop(&mut self) {
+         let _ = fs::remove_dir_all(&self.0);
+      }
+   }
+
+   fn receive_reload(receiver: &Receiver<FileChangeEvent>, path: &PathBuf) -> FileChangeEvent {
+      let deadline = Instant::now() + Duration::from_secs(5);
+      loop {
+         let remaining = deadline.saturating_duration_since(Instant::now());
+         assert!(
+            !remaining.is_zero(),
+            "timed out waiting for a POM reload event"
+         );
+         match receiver.recv_timeout(remaining) {
+            Ok(event)
+               if event.path == path.to_string_lossy()
+                  && matches!(event.event_type, FileChangeType::Reloaded) =>
+            {
+               return event;
+            }
+            Ok(_) => continue,
+            Err(RecvTimeoutError::Timeout) => {
+               panic!("timed out waiting for a POM reload event")
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+               panic!("file watcher event channel disconnected")
+            }
+         }
+      }
+   }
+
+   #[test]
+   fn exact_nested_pom_watch_emits_reload_without_registration_event() {
+      let directory = TestDirectory::new();
+      let module_directory = directory.0.join("module");
+      fs::create_dir_all(&module_directory).expect("module directory should be created");
+      let pom_path = module_directory.join("pom.xml");
+      fs::write(&pom_path, "<project/>").expect("initial POM should be written");
+      let (sender, receiver) = mpsc::channel();
+      let watcher = FileWatcher::new(Arc::new(ChannelEmitter(sender)));
+
+      watcher
+         .watch_path_with_mode(pom_path.to_string_lossy().to_string(), true, false)
+         .expect("nested POM should be watched");
+      assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
+
+      fs::write(&pom_path, "<project><version>2</version></project>")
+         .expect("updated POM should be written");
+      let event = receive_reload(&receiver, &pom_path);
+      assert!(matches!(event.event_type, FileChangeType::Reloaded));
    }
 }
