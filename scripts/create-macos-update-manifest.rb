@@ -5,10 +5,13 @@ require "digest"
 require "json"
 require "optparse"
 require "pathname"
+require "time"
 
 options = {
   output_directory: "dist",
-  release_tag: nil
+  release_tag: nil,
+  release_notes_path: nil,
+  release_date: nil
 }
 
 OptionParser.new do |parser|
@@ -16,6 +19,8 @@ OptionParser.new do |parser|
   parser.on("--version VERSION") { |value| options[:version] = value }
   parser.on("--repository OWNER/REPO") { |value| options[:repository] = value }
   parser.on("--release-tag TAG") { |value| options[:release_tag] = value }
+  parser.on("--release-notes-path PATH") { |value| options[:release_notes_path] = value }
+  parser.on("--release-date DATE") { |value| options[:release_date] = value }
   parser.on("--output-directory PATH") { |value| options[:output_directory] = value }
 end.parse!
 
@@ -29,6 +34,14 @@ abort "Release tag contains unsupported characters" unless release_tag.match?(/\
 
 root = Pathname(__dir__).parent
 output_directory = root.join(options[:output_directory]).cleanpath
+release_notes = if options[:release_notes_path]
+  notes_path = root.join(options[:release_notes_path]).cleanpath
+  abort "Missing release notes: #{notes_path}" unless notes_path.file?
+
+  notes_path.read
+end
+release_date = options[:release_date] || Time.now.utc.iso8601
+abort "Release date must be ISO-8601" unless Time.iso8601(release_date)
 assets = {}
 
 %w[arm64 x86_64].each do |architecture|
@@ -53,6 +66,8 @@ end
 manifest = {
   "schemaVersion" => 1,
   "version" => version,
+  "releaseDate" => release_date,
+  "releaseNotes" => release_notes,
   "releaseURL" => "https://github.com/#{repository}/releases/tag/#{release_tag}",
   "assets" => assets
 }

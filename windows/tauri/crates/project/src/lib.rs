@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, bail};
+pub mod git_watcher;
 use notify::RecursiveMode;
 use notify_debouncer_mini::{DebounceEventResult, Debouncer, new_debouncer};
 use std::{

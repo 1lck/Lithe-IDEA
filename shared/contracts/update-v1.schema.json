@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lithe.dev/contracts/update-v1.schema.json",
+  "title": "Lithe update state v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "currentVersion",
+    "targetVersion",
+    "releaseDate",
+    "releaseNotes",
+    "releaseURL",
+    "status",
+    "downloadProgress",
+    "errorCode"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "currentVersion": {"$ref": "#/$defs/version"},
+    "targetVersion": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
+    },
+    "releaseDate": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "releaseNotes": {"type": ["string", "null"]},
+    "releaseURL": {
+      "type": ["string", "null"],
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "status": {
+      "enum": [
+        "idle",
+        "checking",
+        "available",
+        "downloading",
+        "installing",
+        "upToDate",
+        "failed"
+      ]
+    },
+    "downloadProgress": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["downloadedBytes", "totalBytes", "percentage"],
+          "properties": {
+            "downloadedBytes": {"type": "integer", "minimum": 0},
+            "totalBytes": {
+              "type": ["integer", "null"],
+              "minimum": 0
+            },
+            "percentage": {
+              "type": ["integer", "null"],
+              "minimum": 0,
+              "maximum": 100
+            }
+          }
+        }
+      ]
+    },
+    "errorCode": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "no_published_release",
+        "invalid_response",
+        "rate_limited",
+        "http_status",
+        "timed_out",
+        "tls_or_proxy_failure",
+        "connection_failed",
+        "invalid_manifest",
+        "unsupported_schema",
+        "no_compatible_asset",
+        "checksum_mismatch",
+        "download_failed",
+        "install_failed",
+        "not_app_bundle",
+        "app_not_found_in_disk_image"
+      ]
+    }
+  },
+  "$defs": {
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
+    }
+  }
+}

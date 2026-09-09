@@ -1,0 +1,32 @@
+{
+  "protocolVersion": 1,
+  "command": "git.write",
+  "requests": [
+    {
+      "operation": "createWorktree",
+      "destination": "../feature-worktree",
+      "name": "feature/worktree",
+      "gitReference": { "kind": "local", "shortName": "main", "fullName": "refs/heads/main" }
+    },
+    {
+      "operation": "createWorktree",
+      "worktreeMode": "existingBranch",
+      "destination": "../existing-worktree",
+      "gitReference": { "kind": "local", "shortName": "feature/existing", "fullName": "refs/heads/feature/existing" },
+      "noCheckout": false
+    },
+    {
+      "operation": "createWorktree",
+      "worktreeMode": "detached",
+      "destination": "../detached-worktree",
+      "revision": "1111111111111111111111111111111111111111",
+      "noCheckout": true
+    }
+  ],
+  "invalidRequests": [
+    { "worktreeMode": "existingBranch", "name": "unexpected-new-branch" },
+    { "worktreeMode": "existingBranch", "gitReference": { "kind": "remote", "shortName": "origin/main", "fullName": "refs/remotes/origin/main" } },
+    { "worktreeMode": "detached", "name": "unexpected-new-branch" },
+    { "worktreeMode": "unknown" }
+  ]
+}
