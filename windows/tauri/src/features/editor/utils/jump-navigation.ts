@@ -45,10 +45,11 @@ async function navigateToJumpEntryInternal(entry: JumpListEntry): Promise<boolea
   // Activate the pane captured with the history entry. The global active-buffer
   // sync otherwise selects the first matching pane for buffers shown in multiple panes.
   activateBufferInPaneAndSync(paneId, targetBufferId);
+  const targetEditorOwnerId = `${paneId}:${targetBufferId}`;
 
   // The active editor adapter is replaced during a buffer switch. Preserve the
   // focus request until the target Monaco surface registers its adapter.
-  editorAPI.focusWhenReady();
+  editorAPI.focusWhenReady(targetEditorOwnerId);
 
   // Wait for the active Monaco surface to register after a buffer switch.
   await waitForEditorActivation();
@@ -61,12 +62,12 @@ async function navigateToJumpEntryInternal(entry: JumpListEntry): Promise<boolea
   });
 
   useEditorStateStore.getState().actions.setScroll(entry.scrollTop, entry.scrollLeft);
-  editorAPI.focus();
+  editorAPI.focus(targetEditorOwnerId);
 
   // Cursor/state updates can trigger another render; focus again after it so
   // repeated history shortcuts keep the editor as the active input target.
   await waitForEditorActivation();
-  editorAPI.focus();
+  editorAPI.focus(targetEditorOwnerId);
 
   logger.info("JumpList", `Jumped to ${entry.filePath}:${entry.line}:${entry.column}`);
 
@@ -76,10 +77,6 @@ async function navigateToJumpEntryInternal(entry: JumpListEntry): Promise<boolea
 export function navigateToJumpEntry(entry: JumpListEntry): Promise<boolean> {
   const navigation = navigationQueue.then(async () => {
     const didNavigate = await navigateToJumpEntryInternal(entry);
-
-    // The Monaco activation effect can run after the internal cursor update.
-    // Keep this as the final queued action so the destination remains keyboard-focused.
-    editorAPI.focus();
 
     return didNavigate;
   });

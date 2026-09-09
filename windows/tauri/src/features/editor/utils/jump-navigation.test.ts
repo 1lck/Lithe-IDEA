@@ -99,11 +99,12 @@ afterAll(() => {
 });
 
 describe("navigateToJumpEntry", () => {
-  test("reasserts focus after the destination activation finishes", async () => {
+  test("targets focus at the destination pane after activation finishes", async () => {
     await navigateToJumpEntry(entry);
 
     expect(activateBufferInPaneAndSync).toHaveBeenCalledWith("pane-a", "buffer-a");
-    expect(focusWhenReady).toHaveBeenCalledTimes(1);
-    expect(focus).toHaveBeenCalledTimes(3);
+    expect(focusWhenReady).toHaveBeenCalledWith("pane-a:buffer-a");
+    expect(focus).toHaveBeenNthCalledWith(1, "pane-a:buffer-a");
+    expect(focus).toHaveBeenNthCalledWith(2, "pane-a:buffer-a");
   });
 });

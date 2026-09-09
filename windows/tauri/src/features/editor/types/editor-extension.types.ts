@@ -13,8 +13,8 @@ export interface EditorAPI {
   setSelection: (range?: Range | null) => void;
   getCursorPosition: () => Position;
   setCursorPosition: (position: Position) => void;
-  focus: () => void;
-  focusWhenReady: () => void;
+  focus: (ownerId?: string) => void;
+  focusWhenReady: (ownerId?: string) => void;
   selectAll: () => void;
   openFind: (replace?: boolean) => boolean;
   addSelectionToNextFindMatch: () => boolean;

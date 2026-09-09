@@ -1897,13 +1897,14 @@ export function MonacoEditor({
     };
   }, [lineHeight, onModelPositionResolverChange]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const editor = editorRef.current;
     if (!editor) return;
 
     // Switching panes can recreate the Monaco surface. Restore every recreated
-    // surface so the pane that just became inactive keeps its own viewport;
-    // the focus callback below remains limited to the active surface.
+    // surface before paint so the pane that just became inactive keeps its own
+    // viewport instead of briefly rendering at the first line; the focus
+    // callback below remains limited to the active surface.
     const cached = useEditorStateStore
       .getState()
       .actions.getCachedViewState(viewStateKey ?? activeBufferId ?? "");

@@ -95,6 +95,7 @@ class EditorAPIImpl implements EditorAPI {
   private viewportRef: HTMLDivElement | null = null;
   private activeEditorAdapter: ActiveEditorAdapter | null = null;
   private focusWhenAdapterRegisters = false;
+  private pendingFocusOwnerId: string | null = null;
   private activeFindAdapter: ActiveFindAdapter | null = null;
   private smartSelectionHistory: OffsetRange[] = [];
 
@@ -208,13 +209,18 @@ class EditorAPIImpl implements EditorAPI {
     return useEditorStateStore.getState().cursorPosition;
   }
 
-  focus(): void {
-    this.activeEditorAdapter?.focus();
+  focus(ownerId?: string): void {
+    if (!ownerId || this.activeEditorAdapter?.ownerId === ownerId) {
+      this.activeEditorAdapter?.focus();
+    }
   }
 
-  focusWhenReady(): void {
+  focusWhenReady(ownerId?: string): void {
     this.focusWhenAdapterRegisters = true;
-    this.activeEditorAdapter?.focus();
+    this.pendingFocusOwnerId = ownerId ?? null;
+    if (!ownerId || this.activeEditorAdapter?.ownerId === ownerId) {
+      this.activeEditorAdapter?.focus();
+    }
   }
 
   setCursorPosition(position: Position): void {
@@ -830,8 +836,12 @@ class EditorAPIImpl implements EditorAPI {
   setActiveEditorAdapter(adapter: ActiveEditorAdapter | null): void {
     if (adapter) {
       this.activeEditorAdapter = adapter;
-      if (this.focusWhenAdapterRegisters) {
+      if (
+        this.focusWhenAdapterRegisters &&
+        (!this.pendingFocusOwnerId || this.pendingFocusOwnerId === adapter.ownerId)
+      ) {
         this.focusWhenAdapterRegisters = false;
+        this.pendingFocusOwnerId = null;
         adapter.focus();
       }
       return;
