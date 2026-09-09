@@ -126,3 +126,9 @@ proof of an active native operation. When a user requests a new plan, clients
 may obtain a fresh Core preview; Core still rejects any actual active operation.
 Keep the previous recovery reference available when showing its diagnostic
 record, without forcing new plan requests back into that record.
+
+The persisted session JSON is bounded to 9 MiB, independently of the 8 MiB
+raw plan-message limit. Core validates encoded size (including JSON escaping
+and space for later status changes) before replacing the stored session or
+starting the native sequencer. Oversized plans return `invalid_request` and
+require shorter messages; the current branch, index and worktree stay intact.

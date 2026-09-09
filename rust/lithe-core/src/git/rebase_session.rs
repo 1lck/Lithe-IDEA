@@ -366,16 +366,27 @@ fn write_file(path: &Path, bytes: &[u8]) -> Result<(), CoreError> {
     file.sync_all().map_err(io_error)
 }
 
+// Status is the only persisted field that changes during a session. Reserve
+// its longest value so every accepted plan remains readable after transitions.
+fn encode_record(record: &SessionRecord) -> Result<Vec<u8>, CoreError> {
+    let bytes = serde_json::to_vec(record)
+        .map_err(|_| invalid("Could not encode the Git rebase session"))?;
+    let status_growth = "interrupted".len().saturating_sub(record.status.len());
+    if bytes.len() as u64 + status_growth as u64 > MAX_MANIFEST_BYTES {
+        return Err(invalid(
+            "The encoded Git rebase plan is too large; shorten its messages",
+        ));
+    }
+    Ok(bytes)
+}
+
 fn save_record(root: &str, record: &SessionRecord) -> Result<(), CoreError> {
+    let bytes = encode_record(record)?;
     let directory = session_directory(root)?;
     let target = directory.join(SESSION_MANIFEST);
     ensure_owned_file(&target)?;
     let temporary = directory.join(format!("{}.tmp", record.session_id));
-    write_file(
-        &temporary,
-        &serde_json::to_vec(record)
-            .map_err(|_| invalid("Could not encode the Git rebase session"))?,
-    )?;
+    write_file(&temporary, &bytes)?;
     fs::rename(temporary, target).map_err(io_error)
 }
 
@@ -743,15 +754,6 @@ pub fn start(request: GitRebaseStartRequest) -> Result<GitRebaseMutationResponse
         ));
     }
     let messages = planned_messages(&request.steps, &preview.commits)?;
-    let directory = session_directory(&root)?;
-    if let Ok(metadata) = fs::symlink_metadata(&directory) {
-        if !metadata.is_dir() || metadata.file_type().is_symlink() {
-            return Err(invalid("The Git rebase session directory is unsafe"));
-        }
-        fs::remove_dir_all(&directory).map_err(io_error)?;
-    }
-    fs::create_dir(&directory).map_err(io_error)?;
-    fs::create_dir(directory.join("messages")).map_err(io_error)?;
     let recovery = rewrite::create_recovery(
         &root,
         &request.expected_state.head,
@@ -767,6 +769,18 @@ pub fn start(request: GitRebaseStartRequest) -> Result<GitRebaseMutationResponse
         steps: request.steps,
         status: "starting".into(),
     };
+    // Reject before replacing the previous session or starting Git. JSON
+    // escaping can exceed the storage budget even when raw messages fit.
+    encode_record(&record)?;
+    let directory = session_directory(&root)?;
+    if let Ok(metadata) = fs::symlink_metadata(&directory) {
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err(invalid("The Git rebase session directory is unsafe"));
+        }
+        fs::remove_dir_all(&directory).map_err(io_error)?;
+    }
+    fs::create_dir(&directory).map_err(io_error)?;
+    fs::create_dir(directory.join("messages")).map_err(io_error)?;
     let prepared = (|| {
         save_record(&root, &record)?;
         let todo = record

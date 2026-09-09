@@ -803,3 +803,68 @@ fn externally_aborted_rebase_keeps_recovery_but_allows_a_new_reviewed_plan() {
     );
     assert_eq!(repo.git(&["log", "-1", "--format=%B"]), "New plan");
 }
+
+#[test]
+fn native_rebase_rejects_escaped_manifest_overflow_before_replacing_session() {
+    let repo = Repository::new("rebase-encoded-overflow");
+    let base = repo.commit("story.txt", "base\n", "base");
+    let first = repo.commit("story.txt", "first\n", "first");
+    let head = repo.commit("story.txt", "last\n", "last");
+    let index = fs::read(repo.0.join(".git/index")).unwrap();
+    let directory = repo.0.join(".git/lithe-rebase-session");
+    fs::create_dir(&directory).unwrap();
+    let previous = b"previous diagnostic record";
+    fs::write(directory.join("session.json"), previous).unwrap();
+    let preview = repo.request("git.rebasePreview", json!({"revision":base}));
+    // Both newline and backslash are valid message bytes but double in JSON.
+    let message = format!("Title\n{}End", "\n\\".repeat(5 * 1024 * 1024 / 2));
+    let result = repo.request("git.rebaseStart", json!({
+        "expectedState":preview["data"]["expectedState"],
+        "steps":[{"hash":first,"action":"edit"}, {"hash":head,"action":"reword","message":message}]
+    }));
+    assert_eq!(result["ok"], false);
+    assert_eq!(result["error"]["code"], "invalid_request");
+    assert!(result["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("encoded Git rebase plan"));
+    assert!(!repo.0.join(".git/rebase-merge").exists());
+    assert_eq!(repo.git(&["rev-parse", "HEAD"]), head);
+    assert_eq!(fs::read(repo.0.join(".git/index")).unwrap(), index);
+    assert_eq!(
+        fs::read_to_string(repo.0.join("story.txt")).unwrap(),
+        "last\n"
+    );
+    assert_eq!(fs::read(directory.join("session.json")).unwrap(), previous);
+}
+
+#[test]
+fn native_rebase_large_escaped_manifest_remains_readable_through_abort() {
+    let repo = Repository::new("rebase-encoded-readable");
+    let base = repo.commit("story.txt", "base\n", "base");
+    let first = repo.commit("story.txt", "first\n", "first");
+    let head = repo.commit("story.txt", "last\n", "last");
+    let preview = repo.request("git.rebasePreview", json!({"revision":base}));
+    let message = format!("Title\n{}End", "\n\\".repeat(4 * 1024 * 1024 / 2));
+    let result = repo.request("git.rebaseStart", json!({
+        "expectedState":preview["data"]["expectedState"],
+        "steps":[{"hash":first,"action":"edit"}, {"hash":head,"action":"reword","message":message}]
+    }));
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["data"]["session"]["status"], "edit");
+    let session = repo.request("git.rebaseSession", json!({}));
+    assert_eq!(session["ok"], true);
+    assert_eq!(session["data"]["canAbort"], true);
+    let aborted = repo.request(
+        "git.rebaseControl",
+        json!({
+            "sessionId":session["data"]["sessionId"], "action":"abort"
+        }),
+    );
+    assert_eq!(aborted["data"]["session"]["status"], "aborted");
+    let restored = repo.request("git.rebaseSession", json!({}));
+    assert_eq!(restored["ok"], true);
+    assert_eq!(restored["data"]["status"], "aborted");
+    assert_eq!(repo.git(&["rev-parse", "HEAD"]), head);
+    assert!(!repo.0.join(".git/rebase-merge").exists());
+}
