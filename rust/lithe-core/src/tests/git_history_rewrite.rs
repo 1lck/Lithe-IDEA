@@ -838,9 +838,39 @@ fn native_rebase_rejects_escaped_manifest_overflow_before_replacing_session() {
     assert_eq!(fs::read(directory.join("session.json")).unwrap(), previous);
 }
 
+// Keep the large manifest read and abort/recovery assertions in separate test
+// processes so the payload does not push one case over the stability budget.
 #[test]
-fn native_rebase_large_escaped_manifest_remains_readable_through_abort() {
+fn native_rebase_large_escaped_manifest_is_readable_while_paused() {
     let repo = Repository::new("rebase-encoded-readable");
+    let (_, result) = start_large_escaped_manifest_rebase(&repo);
+    let session = repo.request("git.rebaseSession", json!({}));
+
+    assert_eq!(result["data"]["session"]["status"], "edit");
+    assert_eq!(session["ok"], true, "{session}");
+    assert_eq!(session["data"]["canAbort"], true);
+}
+
+#[test]
+fn native_rebase_large_escaped_manifest_abort_restores_original_history() {
+    let repo = Repository::new("rebase-encoded-abort");
+    let (head, result) = start_large_escaped_manifest_rebase(&repo);
+
+    let aborted = repo.request(
+        "git.rebaseControl",
+        json!({
+            "sessionId":result["data"]["session"]["sessionId"], "action":"abort"
+        }),
+    );
+    assert_eq!(aborted["data"]["session"]["status"], "aborted");
+    let restored = repo.request("git.rebaseSession", json!({}));
+    assert_eq!(restored["ok"], true);
+    assert_eq!(restored["data"]["status"], "aborted");
+    assert_eq!(repo.git(&["rev-parse", "HEAD"]), head);
+    assert!(!repo.0.join(".git/rebase-merge").exists());
+}
+
+fn start_large_escaped_manifest_rebase(repo: &Repository) -> (String, Value) {
     let base = repo.commit("story.txt", "base\n", "base");
     let first = repo.commit("story.txt", "first\n", "first");
     let head = repo.commit("story.txt", "last\n", "last");
@@ -850,21 +880,7 @@ fn native_rebase_large_escaped_manifest_remains_readable_through_abort() {
         "expectedState":preview["data"]["expectedState"],
         "steps":[{"hash":first,"action":"edit"}, {"hash":head,"action":"reword","message":message}]
     }));
-    assert_eq!(result["ok"], true);
-    assert_eq!(result["data"]["session"]["status"], "edit");
-    let session = repo.request("git.rebaseSession", json!({}));
-    assert_eq!(session["ok"], true);
-    assert_eq!(session["data"]["canAbort"], true);
-    let aborted = repo.request(
-        "git.rebaseControl",
-        json!({
-            "sessionId":session["data"]["sessionId"], "action":"abort"
-        }),
-    );
-    assert_eq!(aborted["data"]["session"]["status"], "aborted");
-    let restored = repo.request("git.rebaseSession", json!({}));
-    assert_eq!(restored["ok"], true);
-    assert_eq!(restored["data"]["status"], "aborted");
-    assert_eq!(repo.git(&["rev-parse", "HEAD"]), head);
-    assert!(!repo.0.join(".git/rebase-merge").exists());
+    assert_eq!(result["ok"], true, "{result}");
+    assert_eq!(result["data"]["session"]["status"], "edit", "{result}");
+    (head, result)
 }
