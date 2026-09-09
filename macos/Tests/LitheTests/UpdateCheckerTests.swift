@@ -80,6 +80,14 @@ struct UpdateManifestTests {
         #expect(throws: UpdateCheckError.invalidManifest) {
             try incompleteVersion.validated()
         }
+
+        let invalidReleaseDate = try JSONDecoder().decode(
+            UpdateManifest.self,
+            from: manifestData(releaseDate: "not-a-date")
+        )
+        #expect(throws: UpdateCheckError.invalidManifest) {
+            try invalidReleaseDate.validated()
+        }
     }
 
     @Test
@@ -139,6 +147,70 @@ struct UpdateCheckerTests {
             version: "0.3.1",
             url: URL(string: "https://github.com/1lck/Lithe-IDEA/releases/tag/v0.3.1")!
         ))
+        #expect(checker.notice == nil)
+        #expect(checker.updateInfo == UpdateInfo(
+            currentVersion: "0.3.0",
+            targetVersion: "0.3.1",
+            releaseDate: "2026-01-02T00:00:00Z",
+            releaseNotes: "Bug fixes and improvements.",
+            releaseURL: URL(string: "https://github.com/1lck/Lithe-IDEA/releases/tag/v0.3.1")!
+        ))
+    }
+
+    @Test
+    func automaticCheckSuppressesRemindedVersionButManualCheckIgnoresIt() async {
+        let preferences = makePreferences()
+        defer { clear(preferences) }
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        preferences.set("0.3.1", forKey: "lithe.update.remindVersion")
+        preferences.set(now.addingTimeInterval(60 * 60), forKey: "lithe.update.remindUntil")
+        let transport = StubUpdateNetworkTransport(fetch: { _ in
+            UpdateHTTPResponse(statusCode: 200, headers: [:], body: manifestData())
+        })
+        let checker = UpdateChecker(
+            currentVersion: "0.3.0",
+            transport: transport,
+            preferences: preferences,
+            now: { now },
+            architecture: .arm64
+        )
+
+        await checker.checkForUpdates()
+        #expect(checker.status == .upToDate(version: "0.3.0"))
+        #expect(checker.updateInfo == nil)
+
+        await checker.checkForUpdates(manual: true)
+        #expect(checker.status == .available(
+            version: "0.3.1",
+            url: URL(string: "https://github.com/1lck/Lithe-IDEA/releases/tag/v0.3.1")!
+        ))
+    }
+
+    @Test
+    func laterAndSkipVersionPersistTargetVersionPreferences() async {
+        let preferences = makePreferences()
+        defer { clear(preferences) }
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let transport = StubUpdateNetworkTransport(fetch: { _ in
+            UpdateHTTPResponse(statusCode: 200, headers: [:], body: manifestData())
+        })
+        let checker = UpdateChecker(
+            currentVersion: "0.3.0",
+            transport: transport,
+            preferences: preferences,
+            now: { now },
+            architecture: .arm64
+        )
+
+        await checker.checkForUpdates(manual: true)
+        checker.remindLater()
+        #expect(preferences.string(forKey: "lithe.update.remindVersion") == "0.3.1")
+        #expect(preferences.object(forKey: "lithe.update.remindUntil") as? Date == now.addingTimeInterval(24 * 60 * 60))
+
+        await checker.checkForUpdates(manual: true)
+        checker.skipVersion()
+        #expect(preferences.string(forKey: "lithe.update.skippedVersion") == "0.3.1")
+        #expect(preferences.string(forKey: "lithe.update.remindVersion") == nil)
     }
 
     @Test
@@ -161,7 +233,7 @@ struct UpdateCheckerTests {
         await checker.checkForUpdates()
 
         #expect(await recorder.requests.count == 2)
-        guard case .failed(let message) = checker.status else {
+        guard case .failed(_, let message) = checker.status else {
             Issue.record("Expected a failed update status")
             return
         }
@@ -252,7 +324,12 @@ struct UpdateCheckerTests {
         await checker.checkForUpdates(manual: true)
         await checker.installAvailableUpdate()
 
-        #expect(checker.notice?.message.contains("SHA-256") == true)
+        guard case .failed(let code, let message) = checker.status else {
+            Issue.record("Expected a checksum failure status")
+            return
+        }
+        #expect(code == .checksumMismatch)
+        #expect(message.contains("SHA-256"))
         #expect(!FileManager.default.fileExists(atPath: downloadedFile.path))
     }
 
@@ -365,6 +442,7 @@ private actor UpdateRequestRecorder {
 private func manifestData(
     schemaVersion: Int = 1,
     version: String = "0.3.1",
+    releaseDate: String = "2026-01-02T00:00:00Z",
     releaseURL: String = "https://github.com/1lck/Lithe-IDEA/releases/tag/v0.3.1",
     armChecksum: String = String(repeating: "a", count: 64),
     armURL: String = "https://github.com/1lck/Lithe-IDEA/releases/download/v0.3.1/Lithe-0.3.1-arm64.dmg",
@@ -374,5 +452,5 @@ private func manifestData(
     let intelEntry = includeIntel
         ? #", "x86_64": {"url":"\#(intelURL)","sha256":"\#(String(repeating: "b", count: 64))"}"#
         : ""
-    return Data(#"{"schemaVersion":\#(schemaVersion),"version":"\#(version)","releaseURL":"\#(releaseURL)","assets":{"arm64":{"url":"\#(armURL)","sha256":"\#(armChecksum)"}\#(intelEntry)}}"#.utf8)
+    return Data(#"{"schemaVersion":\#(schemaVersion),"version":"\#(version)","releaseDate":"\#(releaseDate)","releaseNotes":"Bug fixes and improvements.","releaseURL":"\#(releaseURL)","assets":{"arm64":{"url":"\#(armURL)","sha256":"\#(armChecksum)"}\#(intelEntry)}}"#.utf8)
 }

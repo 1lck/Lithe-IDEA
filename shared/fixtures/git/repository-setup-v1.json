@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "uninitialized": {
+    "isRepository": false, "hasCommits": false, "branch": null, "scope": "local",
+    "configuredName": null, "configuredEmail": null,
+    "effectiveName": "Fixture User", "effectiveEmail": "fixture@example.invalid"
+  },
+  "unborn": {
+    "isRepository": true, "hasCommits": false, "branch": "fixture-branch", "scope": "local",
+    "configuredName": null, "configuredEmail": null,
+    "effectiveName": "Fixture User", "effectiveEmail": "fixture@example.invalid"
+  },
+  "configured": {
+    "isRepository": true, "hasCommits": true, "branch": "fixture-branch", "scope": "local",
+    "configuredName": "Local User", "configuredEmail": "local@example.invalid",
+    "effectiveName": "Local User", "effectiveEmail": "local@example.invalid"
+  }
+}

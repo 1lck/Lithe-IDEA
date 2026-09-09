@@ -71,4 +71,30 @@ if [[ -n "$TRIPLE" ]]; then
     SWIFT_ARGS+=(--triple "$TRIPLE")
 fi
 SWIFT_ARGS+=(-Xlinker -force_load -Xlinker "$RUST_LIBRARY")
+
+# SwiftPM can reuse binary modules produced by an incompatible compiler after
+# an Xcode/toolchain upgrade. Keep the full compiler identity, including its
+# build number, and let SwiftPM clean build products while retaining checkouts.
+SWIFT_TOOLCHAIN_VERSION="$(swift --version)"
+if [[ -n "${SWIFT_EXEC:-}" ]]; then
+    SWIFT_TOOLCHAIN_VERSION+=$'\n'"$("$SWIFT_EXEC" --version)"
+fi
+SWIFT_TOOLCHAIN_STAMP="$ROOT_DIR/.build/.lithe-swift-toolchain"
+PREVIOUS_SWIFT_TOOLCHAIN_VERSION=""
+if [[ -f "$SWIFT_TOOLCHAIN_STAMP" ]]; then
+    PREVIOUS_SWIFT_TOOLCHAIN_VERSION="$(<"$SWIFT_TOOLCHAIN_STAMP")"
+fi
+if [[ -d "$ROOT_DIR/.build" && "$PREVIOUS_SWIFT_TOOLCHAIN_VERSION" != "$SWIFT_TOOLCHAIN_VERSION" ]]; then
+    if [[ -n "$PREVIOUS_SWIFT_TOOLCHAIN_VERSION" ]]; then
+        print -- "Swift compiler changed; cleaning incompatible SwiftPM build products."
+    else
+        # Existing caches predate this stamp, so their compiler is unknown.
+        print -- "Swift compiler cache version is unknown; cleaning SwiftPM build products once."
+    fi
+    swift package clean
+fi
+mkdir -p "$ROOT_DIR/.build"
+# Record only after cleaning succeeds; failed builds can safely resume with
+# this compiler without discarding their newly compiled modules.
+print -r -- "$SWIFT_TOOLCHAIN_VERSION" > "$SWIFT_TOOLCHAIN_STAMP"
 swift "${SWIFT_ARGS[@]}"
