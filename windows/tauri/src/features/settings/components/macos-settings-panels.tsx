@@ -13,8 +13,10 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Switch from "@/ui/switch";
 import { LogSettingsPanel } from "./log-settings-panel";
+import { GitSettings } from "./tabs/git-settings";
 
 export type MacSettingsCategory =
+  | "git"
   | "general"
   | "editor"
   | "keyboard"
@@ -195,10 +197,7 @@ function GeneralPanel() {
               if (patch.openFoldersInNewWindow !== undefined) {
                 void updateSetting("openFoldersInNewWindow", patch.openFoldersInNewWindow);
               }
-              void updateSetting(
-                "askWhereToOpenProjects",
-                patch.askWhereToOpenProjects ?? true,
-              );
+              void updateSetting("askWhereToOpenProjects", patch.askWhereToOpenProjects ?? true);
             }}
           >
             <option value="ask">{t("settings.mac.askEveryTime")}</option>
@@ -534,6 +533,8 @@ export function MacSettingsPanel({
   onClose: () => void;
 }) {
   switch (category) {
+    case "git":
+      return <GitSettings />;
     case "general":
       return <GeneralPanel />;
     case "editor":
