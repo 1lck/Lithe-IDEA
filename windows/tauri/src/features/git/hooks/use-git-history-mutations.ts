@@ -1,16 +1,21 @@
-import { useState } from "react";
+import { createElement, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "@/i18n/locale-provider";
-import { showChoiceDialog, showConfirmDialog, showPromptDialog } from "@/ui/dialog";
-import {
-  cherryPickCommit,
-  deleteCommit,
-  editCommitMessage,
-  resetToCommit,
-  squashCommits,
-  type GitResetMode,
-} from "../api/git-commits-api";
+import { showChoiceDialog, showConfirmDialog } from "@/ui/dialog";
+import { cherryPickCommit, resetToCommit, type GitResetMode } from "../api/git-commits-api";
 import type { GitCommit } from "../types/git.types";
+import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
+import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { useUIState } from "@/features/window/stores/ui-state.store";
+import {
+  GitHistoryRewriteDialog,
+  type GitHistoryRewriteDialogRequest,
+} from "../components/git-history-rewrite-dialog";
+import type {
+  GitHistoryRewriteOperation,
+  GitHistoryRewriteResult,
+} from "../types/git-history-rewrite.types";
+import { useGitStore } from "../stores/git.store";
 
 export function useGitHistoryMutations({
   repoPath,
@@ -20,13 +25,35 @@ export function useGitHistoryMutations({
   onCompleted: () => void | Promise<void>;
 }) {
   const { t } = useTranslation();
-  const [isMutatingHistory, setIsMutatingHistory] = useState(false);
+  const workspaceId = useActiveWorkspaceId();
+  const scope = `${workspaceId}\0${repoPath ?? ""}`;
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
+  const epochRef = useRef(0);
+  const pendingRef = useRef(false);
+  const [isRunning, setIsRunning] = useState(false);
+  const [review, setReview] = useState<(GitHistoryRewriteDialogRequest & { scope: string }) | null>(
+    null,
+  );
+
+  useEffect(() => {
+    setReview(null);
+    setIsRunning(false);
+    pendingRef.current = false;
+    return () => {
+      epochRef.current += 1;
+    };
+  }, [scope]);
 
   const runMutation = async (mutation: () => Promise<void>) => {
-    setIsMutatingHistory(true);
+    if (pendingRef.current || scopeRef.current !== scope) return;
+    const epoch = epochRef.current;
+    const isCurrent = () => epoch === epochRef.current && scopeRef.current === scope;
+    pendingRef.current = true;
+    setIsRunning(true);
     try {
       await mutation();
-      await onCompleted();
+      if (isCurrent()) await onCompleted();
     } catch (error) {
       const message =
         error instanceof Error
@@ -34,62 +61,59 @@ export function useGitHistoryMutations({
           : typeof error === "object" && error && "message" in error
             ? String(error.message)
             : String(error);
-      toast.error(message || t("git.historyMutationFailed"));
+      if (isCurrent()) toast.error(message || t("git.historyMutationFailed"));
     } finally {
-      setIsMutatingHistory(false);
+      if (isCurrent()) {
+        pendingRef.current = false;
+        setIsRunning(false);
+      }
     }
   };
 
-  const editMessage = async (commit: GitCommit) => {
-    if (!repoPath) return;
-    const message = await showPromptDialog(
-      t("git.editCommitMessagePrompt", { hash: commit.shortHash }),
-      {
-        title: t("git.editCommitMessage"),
-        confirmLabel: t("git.saveCommitMessage"),
-        defaultValue: commit.message,
-      },
-    );
-    if (!message?.trim() || message.trim() === commit.message) return;
-    await runMutation(() => editCommitMessage(repoPath, commit.hash, message.trim()));
-  };
-
-  const removeCommit = async (commit: GitCommit) => {
-    if (
-      !repoPath ||
-      !(await showConfirmDialog(
-        t("git.deleteCommitConfirm", { hash: commit.shortHash, message: commit.message }),
-        {
-          title: t("git.deleteCommit"),
-          confirmLabel: t("git.deleteCommit"),
-        },
-      ))
-    ) {
-      return;
-    }
-    await runMutation(() => deleteCommit(repoPath, commit.hash));
-  };
-
-  const squashSelectedCommits = async (commits: GitCommit[]) => {
-    if (!repoPath || commits.length < 2) return;
-    const oldestCommit = commits[commits.length - 1];
-    const message = await showPromptDialog(t("git.squashCommitsPrompt", { count: commits.length }), {
-      title: t("git.squashCommits"),
-      confirmLabel: t("git.squash"),
-      defaultValue: oldestCommit.message,
+  const openReview = (operation: GitHistoryRewriteOperation, commits: GitCommit[]) => {
+    if (!repoPath || pendingRef.current || review) return;
+    setReview({
+      id: crypto.randomUUID(),
+      repoPath,
+      operation,
+      revisions: commits.map((commit) => commit.hash),
+      scope,
     });
-    if (!message?.trim()) return;
-    await runMutation(() =>
-      squashCommits(
-        repoPath,
-        commits.map((commit) => commit.hash),
-        message.trim(),
-      ),
-    );
+  };
+
+  const undoCommit = (commit: GitCommit) => openReview("undoCommit", [commit]);
+  const editMessage = (commit: GitCommit) => openReview("editCommitMessage", [commit]);
+  const removeCommit = (commit: GitCommit) => openReview("deleteCommit", [commit]);
+  const squashSelectedCommits = (commits: GitCommit[]) => {
+    if (commits.length >= 2) openReview("squashCommits", commits);
+  };
+
+  const closeReview = async (result?: GitHistoryRewriteResult, originalMessage?: string) => {
+    const epoch = epochRef.current;
+    if (scopeRef.current !== scope) return;
+    setReview(null);
+    if (!result) return;
+    await onCompleted();
+    if (epoch !== epochRef.current || scopeRef.current !== scope) return;
+    if (review?.operation === "undoCommit" && result.historyRewrite?.mutationApplied) {
+      const git = useGitStore.getStore(workspaceId).getState();
+      if (originalMessage && !git.sourceControlSessions[review.repoPath]?.commitMessage.trim()) {
+        git.actions.updateSourceControlSession(review.repoPath, { commitMessage: originalMessage });
+      }
+      const ui = useUIState.getStore(workspaceId).getState();
+      ui.setIsSidebarVisible(true);
+      ui.setActiveView("git");
+      window.dispatchEvent(
+        new CustomEvent("lithe:git-palette-action", {
+          detail: { type: "show-tab", tab: "changes" },
+        }),
+      );
+    }
   };
 
   const resetBranchToCommit = async (commit: GitCommit) => {
     if (!repoPath) return;
+    const epoch = epochRef.current;
     const mode = await showChoiceDialog<GitResetMode>(
       t("git.resetToCommitPrompt", { hash: commit.shortHash }),
       {
@@ -101,11 +125,12 @@ export function useGitHistoryMutations({
         ],
       },
     );
-    if (!mode) return;
+    if (!mode || epoch !== epochRef.current) return;
     await runMutation(() => resetToCommit(repoPath, commit.hash, mode));
   };
 
   const cherryPickSelectedCommit = async (commit: GitCommit) => {
+    const epoch = epochRef.current;
     if (
       !repoPath ||
       !(await showConfirmDialog(
@@ -118,11 +143,25 @@ export function useGitHistoryMutations({
     ) {
       return;
     }
-    await runMutation(() => cherryPickCommit(repoPath, commit.hash));
+    if (epoch === epochRef.current)
+      await runMutation(() => cherryPickCommit(repoPath, commit.hash));
   };
 
   return {
-    isMutatingHistory,
+    isMutatingHistory: isRunning || (review !== null && review.scope === scope),
+    historyDialog:
+      review?.scope === scope && workspaceRuntimeRegistry.getActiveWorkspaceId() === workspaceId
+        ? createElement(GitHistoryRewriteDialog, {
+            key: review.id,
+            request: review,
+            onClose: (result, originalMessage) => {
+              void closeReview(result, originalMessage).catch((error) =>
+                toast.error(String(error)),
+              );
+            },
+          })
+        : null,
+    undoCommit,
     editMessage,
     removeCommit,
     squashSelectedCommits,

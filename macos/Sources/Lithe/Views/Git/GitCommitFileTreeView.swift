@@ -71,6 +71,7 @@ struct GitCommitFileTreeScrollView: NSViewRepresentable {
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let documentView = nsView.documentView as? GitCommitFileTreeNSView else { return }
         documentView.update(
+            locale: context.environment.locale,
             items: items,
             selectedFileID: selectedFileID,
             rootSubtitle: rootSubtitle,
@@ -119,6 +120,7 @@ final class GitCommitFileTreeNSView: NSControl {
     static let rowHeight: CGFloat = 28
     private let verticalInset: CGFloat = 5
 
+    private var locale = Locale.current
     private var items: [GitCommitFileTreeItem] = []
     private var selectedFileID: String?
     private var rootSubtitle: String?
@@ -138,7 +140,7 @@ final class GitCommitFileTreeNSView: NSControl {
         super.init(frame: frameRect)
         allowsExpansionToolTips = true
         setAccessibilityRole(.outline)
-        setAccessibilityLabel(String(localized: "Commit changed files"))
+        setAccessibilityLabel(gitLocalizedFormat("Commit changed files", locale: locale))
     }
 
     @available(*, unavailable)
@@ -146,6 +148,7 @@ final class GitCommitFileTreeNSView: NSControl {
 
     @discardableResult
     func update(
+        locale: Locale = .current,
         items: [GitCommitFileTreeItem],
         selectedFileID: String?,
         rootSubtitle: String?,
@@ -153,7 +156,8 @@ final class GitCommitFileTreeNSView: NSControl {
         onToggleFolder: @escaping (String) -> Void,
         onSelectFile: @escaping (GitCommitFile) -> Void
     ) -> Bool {
-        let contentChanged = self.items != items || self.rootSubtitle != rootSubtitle
+        let contentChanged = self.items != items || self.rootSubtitle != rootSubtitle || self.locale != locale
+        self.locale = locale
         let changed = contentChanged
             || self.selectedFileID != selectedFileID
             || self.collapsedFolderIDs != collapsedFolderIDs
@@ -163,7 +167,8 @@ final class GitCommitFileTreeNSView: NSControl {
         self.collapsedFolderIDs = collapsedFolderIDs
         self.onToggleFolder = onToggleFolder
         self.onSelectFile = onSelectFile
-        setAccessibilityValue(String(format: String(localized: "%lld changed files"), items.count))
+        setAccessibilityLabel(gitLocalizedFormat("Commit changed files", locale: locale))
+        setAccessibilityValue(gitLocalizedFormat("%lld changed files", items.count, locale: locale))
         if contentChanged {
             rebuildRowPresentations()
             hoveredIndex = nil
@@ -422,7 +427,7 @@ final class GitCommitFileTreeNSView: NSControl {
                 title = NSMutableAttributedString(string: node.name, attributes: [
                     .font: font, .foregroundColor: style.primaryText
                 ])
-                let count = node.fileCount == 1 ? String(localized: "1 file") : String(format: String(localized: "%lld files"), node.fileCount)
+                let count = node.fileCount == 1 ? gitLocalizedFormat("1 file", locale: locale) : gitLocalizedFormat("%lld files", node.fileCount, locale: locale)
                 title.append(NSAttributedString(string: "  \(count)", attributes: [
                     .font: style.metadataFont, .foregroundColor: style.secondaryText
                 ]))

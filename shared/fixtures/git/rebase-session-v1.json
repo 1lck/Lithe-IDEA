@@ -1,0 +1,58 @@
+{
+  "protocolVersion": 1,
+  "previewRequest": { "root": "/workspace/project", "revision": "1111111111111111111111111111111111111111" },
+  "previewResponse": {
+    "allowed": true,
+    "blockers": [],
+    "branch": "refs/heads/feature/local",
+    "head": "3333333333333333333333333333333333333333",
+    "base": "1111111111111111111111111111111111111111",
+    "commits": [
+      { "hash": "2222222222222222222222222222222222222222", "parents": ["1111111111111111111111111111111111111111"], "message": "First change\n\nFull body\n" },
+      { "hash": "3333333333333333333333333333333333333333", "parents": ["2222222222222222222222222222222222222222"], "message": "Second change\n" }
+    ],
+    "expectedState": {
+      "branch": "refs/heads/feature/local",
+      "head": "3333333333333333333333333333333333333333",
+      "stateToken": "opaque-reviewed-range-token",
+      "operation": "interactiveRebase",
+      "revisions": ["2222222222222222222222222222222222222222"]
+    }
+  },
+  "startRequest": {
+    "root": "/workspace/project",
+    "expectedState": {
+      "branch": "refs/heads/feature/local",
+      "head": "3333333333333333333333333333333333333333",
+      "stateToken": "opaque-reviewed-range-token",
+      "operation": "interactiveRebase",
+      "revisions": ["2222222222222222222222222222222222222222"]
+    },
+    "steps": [
+      { "hash": "2222222222222222222222222222222222222222", "action": "edit" },
+      { "hash": "3333333333333333333333333333333333333333", "action": "reword", "message": "Revised title\n\nComplete replacement body\n" }
+    ]
+  },
+  "sessionResponse": {
+    "sessionId": "0123456789abcdef0123456789abcdef",
+    "status": "edit",
+    "branch": "refs/heads/feature/local",
+    "originalHead": "3333333333333333333333333333333333333333",
+    "head": "2222222222222222222222222222222222222222",
+    "recoveryReference": "refs/lithe/history-recovery/00000000000000000001-1-1",
+    "steps": [
+      { "hash": "2222222222222222222222222222222222222222", "action": "edit" },
+      { "hash": "3333333333333333333333333333333333333333", "action": "reword", "message": "Revised title\n\nComplete replacement body\n" }
+    ],
+    "completedSteps": 1,
+    "currentCommit": "2222222222222222222222222222222222222222",
+    "currentMessage": "First change\n\nFull body\n",
+    "conflictedPaths": [],
+    "canContinue": true,
+    "canSkip": false,
+    "canAbort": true
+  },
+  "controlRequest": { "root": "/workspace/project", "sessionId": "0123456789abcdef0123456789abcdef", "action": "continue", "expectedHead": "2222222222222222222222222222222222222222", "amendMessage": "Amended title\n\nAmend includes currently staged content.\n" },
+  "mutationResponseShape": { "command": "GitCommandResponse", "session": "sessionResponse" },
+  "absentSessionResponse": null
+}
