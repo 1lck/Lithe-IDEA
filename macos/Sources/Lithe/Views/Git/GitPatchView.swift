@@ -153,7 +153,9 @@ private struct GitPatchDialog: View {
                 }
                 .padding(9)
             }
-            .frame(maxHeight: 135)
+            // A sheet measures its ideal height before lazy rows are laid out.
+            // Reserve visible space so discovery never collapses the file picker.
+            .frame(height: 135)
             .background(LitheTheme.inputBackground)
             .clipShape(RoundedRectangle(cornerRadius: 5))
         }

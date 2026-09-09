@@ -5,6 +5,7 @@ extension RustCoreBridge {
     private struct WorktreeCreationRequest: Encodable {
         struct Reference: Encodable {
             let fullName: String
+            let shortName: String
             let kind: String
         }
         let root: String
@@ -22,7 +23,7 @@ extension RustCoreBridge {
             root: root.standardizedFileURL.path,
             worktreeMode: request.mode,
             name: request.name,
-            gitReference: request.reference.map { .init(fullName: $0.fullName, kind: $0.kind.rawValue) },
+            gitReference: request.reference.map { .init(fullName: $0.fullName, shortName: $0.shortName, kind: $0.kind.rawValue) },
             revision: request.revision,
             destination: request.destination.standardizedFileURL.path,
             noCheckout: request.noCheckout
