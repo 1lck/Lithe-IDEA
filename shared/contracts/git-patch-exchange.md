@@ -20,6 +20,13 @@ repository-relative identities. Sources are:
 - `commits`: the resolved `baseRevision` tree to the resolved `targetRevision`
   tree. Both revisions are required; they need not be adjacent or on one branch.
 
+For file selection, pass `metadataOnly: true` to enumerate the same source's
+sorted counts and rename paths using Git's NUL-delimited statistics. The result
+has `patch: ""` and `byteLength: 0`; its files remain available even if an actual
+export would exceed 32 MiB or contain non-UTF-8 text. Hosts discover files first,
+then request patch contents only for the selected paths. Export failures must
+leave the selection editable. Omission or false preserves normal export behavior.
+
 The response contains exact `patch` text, sorted `files`, and UTF-8 `byteLength`.
 Each file has `path`, nullable `originalPath`, and nullable `additions` /
 `deletions` (null for binary line counts). An empty export returns an empty patch

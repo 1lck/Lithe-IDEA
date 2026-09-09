@@ -25,8 +25,8 @@ package final class GitFeatureModel: ObservableObject {
                 switch mutation {
                 case .start(let state, let steps):
                     await self.service.startInteractiveRebase(at: root, expectedState: state, steps: steps)
-                case .control(let sessionID, let action, let message):
-                    await self.service.controlInteractiveRebase(at: root, sessionId: sessionID, action: action, amendMessage: message)
+                case .control(let sessionID, let action, let message, let expectedHead):
+                    await self.service.controlInteractiveRebase(at: root, sessionId: sessionID, action: action, amendMessage: message, expectedHead: expectedHead)
                 }
             }
             if self.gitRepositoryRoot == root { await self.refreshGitFromMetadataChange(since: historyVersion) }

@@ -8,6 +8,7 @@ extension RustCoreBridge {
         let paths: [String]
         let baseRevision: String?
         let targetRevision: String?
+        let metadataOnly: Bool
     }
 
     private struct PatchApplyRequest: Encodable {
@@ -17,9 +18,9 @@ extension RustCoreBridge {
         let expectedState: String?
     }
 
-    func gitPatchExport(at root: URL, source: GitPatchSource, paths: [String], base: String?, target: String?) -> Result<GitPatchExport, CoreCallError> {
+    func gitPatchExport(at root: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, CoreCallError> {
         executeResult(command: "git.patchExport", payload: PatchExportRequest(
-            root: root.standardizedFileURL.path, source: source, paths: paths, baseRevision: base, targetRevision: target
+            root: root.standardizedFileURL.path, source: source, paths: paths, baseRevision: base, targetRevision: target, metadataOnly: metadataOnly
         ))
     }
 

@@ -1286,3 +1286,15 @@ Re-running it over already-redacted text is a no-op.
 confirm a diagnostic export — and the zip's contents — are deterministic
 across runs and across platforms. Hosts gather the environment and file facts
 natively; this command only shapes and sorts them.
+
+### Git patch discovery and rebase amendment preconditions
+
+`git.patchExport` accepts optional `metadataOnly` (default false). In metadata
+mode it returns candidate file counts and rename identities with empty `patch`
+and zero `byteLength`, independently of patch text encoding and exchange size.
+See [Patch exchange](git-patch-exchange.md) and its metadata fixture.
+
+`git.rebaseControl` requires `expectedHead` when `amendMessage` is present.
+Missing or stale HEAD rejects the amendment before writing; plain Continue,
+Skip and Abort do not require this field. Both products must send the HEAD
+reviewed by the amendment editor. See [Rebase sessions](git-rebase-session.md).

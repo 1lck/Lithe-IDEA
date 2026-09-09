@@ -56,3 +56,14 @@ describe("Git patch exchange boundary", () => {
     });
   });
 });
+
+test("file discovery requests metadata independently of patch text generation", async () => {
+  await exportGitPatch("C:/repo", "workingTree", [], {}, "discover", true);
+  expect(invoke).toHaveBeenLastCalledWith("git.patchExport", {
+    root: "C:/repo",
+    source: "workingTree",
+    paths: [],
+    operationId: "discover",
+    metadataOnly: true,
+  });
+});

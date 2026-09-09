@@ -127,11 +127,11 @@ function PatchExportDialog({
     };
   }, []);
 
-  const read = async (paths: string[]) => {
+  const read = async (paths: string[], metadataOnly = false) => {
     const id = crypto.randomUUID();
     activeReads.current.add(id);
     try {
-      return await exportGitPatch(request.repoPath, source, paths, ranges, id);
+      return await exportGitPatch(request.repoPath, source, paths, ranges, id, metadataOnly);
     } finally {
       activeReads.current.delete(id);
     }
@@ -153,7 +153,7 @@ function PatchExportDialog({
     }
     void (async () => {
       try {
-        const all = await read([]);
+        const all = await read([], true);
         if (!alive.current || token !== generation.current) return;
         const initial = new Set(
           request.paths
@@ -168,24 +168,6 @@ function PatchExportDialog({
         );
         setFiles(all.files);
         setSelected(initial);
-        const value =
-          initial.size === all.files.length
-            ? all
-            : initial.size > 0
-              ? await read(
-                  all.files
-                    .filter((file) => initial.has(file.path))
-                    .flatMap((file) =>
-                      file.originalPath ? [file.path, file.originalPath] : [file.path],
-                    ),
-                )
-              : null;
-        if (!alive.current || token !== generation.current) return;
-        setReview(
-          value
-            ? { value, selectionKey: `${contextKey}\0${JSON.stringify([...initial].sort())}` }
-            : null,
-        );
         setStatus("ready");
       } catch (failure) {
         if (!alive.current || token !== generation.current) return;
@@ -213,7 +195,8 @@ function PatchExportDialog({
     } catch (failure) {
       if (alive.current && token === generation.current) {
         setError(String(failure));
-        setStatus("failed");
+        setReview(null);
+        setStatus("ready");
       }
     }
   };

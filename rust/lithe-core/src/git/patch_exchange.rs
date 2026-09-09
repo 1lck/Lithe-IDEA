@@ -38,6 +38,9 @@ pub struct PatchExportRequest {
     pub paths: Vec<String>,
     pub base_revision: Option<String>,
     pub target_revision: Option<String>,
+    /// Enumerate counts and rename paths without decoding or transporting patch contents.
+    #[serde(default)]
+    pub metadata_only: bool,
 }
 
 /// Application target; importing a patch never creates a commit.
@@ -123,6 +126,10 @@ pub fn export(request: PatchExportRequest) -> Result<PatchExportResponse, CoreEr
         "--src-prefix=a/".into(),
         "--dst-prefix=b/".into(),
     ];
+    if request.metadata_only {
+        arguments.retain(|argument| argument != "--binary");
+        arguments.extend(["--numstat".into(), "-z".into()]);
+    }
     let bytes = match request.source {
         PatchSource::WorkingTree => export_worktree(&root, &paths, arguments)?,
         PatchSource::Staged | PatchSource::Unstaged | PatchSource::Commits => {
@@ -153,6 +160,13 @@ pub fn export(request: PatchExportRequest) -> Result<PatchExportResponse, CoreEr
             output.stdout
         }
     };
+    if request.metadata_only {
+        return Ok(PatchExportResponse {
+            files: parse_export_statistics(&bytes)?,
+            patch: String::new(),
+            byte_length: 0,
+        });
+    }
     let patch = String::from_utf8(bytes).map_err(|_| {
         invalid(
         "This patch contains non-UTF-8 text and cannot be exported without changing its contents",
@@ -169,6 +183,43 @@ pub fn export(request: PatchExportRequest) -> Result<PatchExportResponse, CoreEr
         patch,
         files,
     })
+}
+
+// Git diff uses an empty third column followed by two NUL-delimited names for
+// renames. Parse bytes so unrelated non-UTF-8 file contents never enter discovery.
+fn parse_export_statistics(bytes: &[u8]) -> Result<Vec<PatchFile>, CoreError> {
+    let mut fields = bytes.split(|byte| *byte == 0);
+    let mut files = Vec::new();
+    while let Some(field) = fields.next().filter(|field| !field.is_empty()) {
+        let mut columns = field.splitn(3, |byte| *byte == b'\t');
+        let additions = parse_count(columns.next())?;
+        let deletions = parse_count(columns.next())?;
+        let path = columns
+            .next()
+            .ok_or_else(|| invalid("Invalid patch file statistics"))?;
+        let (path, original_path) = if path.is_empty() {
+            let original = fields
+                .next()
+                .ok_or_else(|| invalid("Missing original patch path"))?;
+            let destination = fields
+                .next()
+                .ok_or_else(|| invalid("Missing destination patch path"))?;
+            (
+                safe_patch_path(destination)?,
+                Some(safe_patch_path(original)?),
+            )
+        } else {
+            (safe_patch_path(path)?, None)
+        };
+        files.push(PatchFile {
+            path,
+            original_path,
+            additions,
+            deletions,
+        });
+    }
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(files)
 }
 
 fn export_worktree(

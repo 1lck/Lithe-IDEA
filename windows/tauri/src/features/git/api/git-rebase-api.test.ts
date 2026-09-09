@@ -44,12 +44,19 @@ test("continue never amends unless the user selects amend and preserves the dura
     action: "continue",
   });
   expect(result.session).toEqual(fixture.sessionResponse as GitRebaseSession);
-  await controlGitRebase("C:/repo", sessionId, "continue", "Amended\n\nFull body");
+  await controlGitRebase(
+    "C:/repo",
+    sessionId,
+    "continue",
+    "Amended\n\nFull body",
+    fixture.sessionResponse.head,
+  );
   expect(invoke).toHaveBeenLastCalledWith("git.rebaseControl", {
     root: "C:/repo",
     sessionId,
     action: "continue",
     amendMessage: "Amended\n\nFull body",
+    expectedHead: fixture.sessionResponse.head,
   });
   expect(emitGitChanged).toHaveBeenLastCalledWith({
     repoPath: "C:/repo",

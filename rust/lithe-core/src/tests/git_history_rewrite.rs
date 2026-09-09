@@ -545,7 +545,8 @@ fn native_rebase_edit_pause_restores_full_message_and_amend_flows_into_squash_fi
         "git.rebaseControl",
         json!({
             "sessionId":restored["data"]["sessionId"], "action":"continue",
-            "amendMessage":"Amended title\n\nNew complete body\n"
+            "amendMessage":"Amended title\n\nNew complete body\n",
+            "expectedHead": paused_head
         }),
     );
     assert_eq!(
@@ -715,4 +716,90 @@ fn native_rebase_skip_omits_conflicted_message_from_later_squash() {
         repo.git(&["rev-list", "--count", &format!("{base}..HEAD")]),
         "1"
     );
+}
+
+#[test]
+fn native_rebase_rejects_missing_or_stale_amend_head_without_changing_external_edits() {
+    let repo = Repository::new("native-rebase-stale-amend");
+    let base = repo.commit("base", "base\n", "Base");
+    let first = repo.commit("one", "one\n", "Original message");
+    let preview = repo.request("git.rebasePreview", json!({"revision": base}));
+    let started = repo.request(
+        "git.rebaseStart",
+        json!({
+            "expectedState": preview["data"]["expectedState"],
+            "steps": [{"hash": first, "action": "edit"}]
+        }),
+    );
+    assert_eq!(started["data"]["session"]["status"], "edit", "{started}");
+    let session_id = &started["data"]["session"]["sessionId"];
+    repo.git(&["commit", "--amend", "-m", "External message"]);
+    let amended = repo.git(&["rev-parse", "HEAD"]);
+    let index = fs::read(repo.0.join(".git/index")).unwrap();
+    for expected_head in [Value::Null, json!(first)] {
+        let rejected = repo.request(
+            "git.rebaseControl",
+            json!({
+                "sessionId": session_id, "action": "continue",
+                "amendMessage": "Stale editor message", "expectedHead": expected_head
+            }),
+        );
+        assert_eq!(rejected["ok"], false, "{rejected}");
+        assert_eq!(repo.git(&["rev-parse", "HEAD"]), amended);
+        assert_eq!(repo.git(&["log", "-1", "--format=%B"]), "External message");
+        assert_eq!(fs::read(repo.0.join(".git/index")).unwrap(), index);
+    }
+    let continued = repo.request(
+        "git.rebaseControl",
+        json!({
+            "sessionId": session_id, "action": "continue",
+            "amendMessage": "Reviewed current message", "expectedHead": amended
+        }),
+    );
+    assert_eq!(
+        continued["data"]["session"]["status"], "completed",
+        "{continued}"
+    );
+    assert_eq!(
+        repo.git(&["log", "-1", "--format=%B"]),
+        "Reviewed current message"
+    );
+}
+
+#[test]
+fn externally_aborted_rebase_keeps_recovery_but_allows_a_new_reviewed_plan() {
+    let repo = Repository::new("native-rebase-external-abort");
+    let base = repo.commit("base", "base\n", "Base");
+    let first = repo.commit("one", "one\n", "First");
+    let preview = repo.request("git.rebasePreview", json!({"revision": base}));
+    let started = repo.request(
+        "git.rebaseStart",
+        json!({
+            "expectedState": preview["data"]["expectedState"],
+            "steps": [{"hash": first, "action": "edit"}]
+        }),
+    );
+    assert_eq!(started["data"]["session"]["status"], "edit", "{started}");
+    repo.git(&["rebase", "--abort"]);
+    let old = repo.request("git.rebaseSession", json!({}));
+    assert_eq!(old["data"]["status"], "interrupted");
+    for flag in ["canContinue", "canSkip", "canAbort"] {
+        assert_eq!(old["data"][flag], false);
+    }
+    let recovery = old["data"]["recoveryReference"].as_str().unwrap();
+    assert_eq!(repo.git(&["rev-parse", recovery]), first);
+    let next = repo.request("git.rebasePreview", json!({"revision": base}));
+    assert_eq!(next["data"]["allowed"], true, "{next}");
+    let finished = repo.request(
+        "git.rebaseStart",
+        json!({
+            "expectedState": next["data"]["expectedState"],
+            "steps": [{"hash": first, "action": "reword", "message": "New plan"}]
+        }),
+    );
+    assert_eq!(
+        finished["data"]["session"]["status"], "completed",
+        "{finished}"
+    );
+    assert_eq!(repo.git(&["log", "-1", "--format=%B"]), "New plan");
 }

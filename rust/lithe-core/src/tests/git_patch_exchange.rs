@@ -336,3 +336,72 @@ fn patch_exchange_roundtrips_renames_deletes_and_platform_file_modes() {
         );
     }
 }
+
+#[test]
+fn patch_metadata_allows_selecting_utf8_files_without_decoding_unrelated_contents() {
+    let repository = PatchRepository::new("patch-metadata-encoding");
+    repository.write("legacy.txt", b"legacy\xff\n");
+    repository.write("text.txt", b"valid change\n");
+    repository.git(&["add", "legacy.txt"]);
+    let index = fs::read(repository.0.join(".git/index")).unwrap();
+    let metadata = repository.data(
+        "git.patchExport",
+        json!({"source": "workingTree", "metadataOnly": true}),
+    );
+    assert_eq!(metadata["patch"], "");
+    assert_eq!(metadata["byteLength"], 0);
+    assert_eq!(metadata["files"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        repository.call("git.patchExport", json!({"source": "workingTree"}))["ok"],
+        false
+    );
+    let selected = repository.data(
+        "git.patchExport",
+        json!({"source": "workingTree", "paths": ["text.txt"]}),
+    );
+    assert!(selected["patch"]
+        .as_str()
+        .unwrap()
+        .contains("+valid change"));
+    assert_eq!(fs::read(repository.0.join(".git/index")).unwrap(), index);
+}
+
+#[test]
+fn patch_metadata_keeps_rename_paths_and_index_only_changes() {
+    let repository = PatchRepository::new("patch-metadata-paths");
+    repository.git(&["mv", "text.txt", "renamed space.txt"]);
+    repository.write("index-only.txt", b"staged content\n");
+    repository.git(&["add", "index-only.txt"]);
+    fs::remove_file(repository.0.join("index-only.txt")).unwrap();
+    let metadata = repository.data(
+        "git.patchExport",
+        json!({"source": "staged", "metadataOnly": true}),
+    );
+    let files = metadata["files"].as_array().unwrap();
+    assert_eq!(files.len(), 2);
+    assert_eq!(files[0]["path"], "index-only.txt");
+    assert_eq!(files[1]["path"], "renamed space.txt");
+    assert_eq!(files[1]["originalPath"], "text.txt");
+    assert_eq!(metadata["patch"], "");
+}
+
+#[test]
+fn patch_metadata_can_list_an_oversized_export_before_selecting_a_small_subset() {
+    let repository = PatchRepository::new("patch-metadata-size");
+    repository.write("large.txt", &vec![b'x'; 32 * 1024 * 1024 + 1]);
+    repository.write("text.txt", b"small change\n");
+    let metadata = repository.data(
+        "git.patchExport",
+        json!({"source": "workingTree", "metadataOnly": true}),
+    );
+    assert_eq!(metadata["files"].as_array().unwrap().len(), 2);
+    assert_eq!(metadata["patch"], "");
+    let selected = repository.data(
+        "git.patchExport",
+        json!({"source": "workingTree", "paths": ["text.txt"]}),
+    );
+    assert!(selected["patch"]
+        .as_str()
+        .unwrap()
+        .contains("+small change"));
+}

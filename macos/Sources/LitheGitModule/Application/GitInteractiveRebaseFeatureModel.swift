@@ -6,7 +6,7 @@ import Foundation
 package final class GitInteractiveRebaseFeatureModel: ObservableObject {
     package enum Mutation {
         case start(GitRebaseExpectedState, [GitRebaseStep])
-        case control(String, GitRebaseControlAction, String?)
+        case control(String, GitRebaseControlAction, String?, String?)
     }
 
     @Published package private(set) var preview: GitRebasePreview?
@@ -116,7 +116,7 @@ package final class GitInteractiveRebaseFeatureModel: ObservableObject {
         if let amendMessage {
             guard session.status == .edit, !amendMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         }
-        _ = await perform(at: root, mutation: .control(session.sessionId, action, amendMessage))
+        _ = await perform(at: root, mutation: .control(session.sessionId, action, amendMessage, amendMessage == nil ? nil : session.head))
     }
 
     package func amendAndContinue(_ message: String, from displayedSession: GitRebaseSession) async {

@@ -109,9 +109,9 @@ package protocol GitOperations: Sendable {
     func interactiveRebasePreview(at rootURL: URL, revision: String) -> Result<GitRebasePreview, GitRebaseFailure>
     func interactiveRebaseSession(at rootURL: URL) -> Result<GitRebaseSession?, GitRebaseFailure>
     func startInteractiveRebase(at rootURL: URL, expectedState: GitRebaseExpectedState, steps: [GitRebaseStep]) -> GitRebaseProcessResult
-    func controlInteractiveRebase(at rootURL: URL, sessionId: String, action: GitRebaseControlAction, amendMessage: String?) -> GitRebaseProcessResult
+    func controlInteractiveRebase(at rootURL: URL, sessionId: String, action: GitRebaseControlAction, amendMessage: String?, expectedHead: String?) -> GitRebaseProcessResult
     func createHistoryRecoveryBranch(named name: String, reference: String, at rootURL: URL) -> GitProcessResult?
-    func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?) -> Result<GitPatchExport, GitPatchFailure>
+    func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure>
     func previewPatch(at rootURL: URL, patch: String, target: GitPatchTarget) -> Result<GitPatchPreview, GitPatchFailure>
     func applyExchangePatch(at rootURL: URL, patch: String, target: GitPatchTarget, expectedState: String) -> GitProcessResult?
     func createBranch(named name: String, from reference: GitReference, checkout: Bool, at rootURL: URL) -> GitProcessResult?
@@ -181,7 +181,7 @@ package extension GitOperations {
     func startInteractiveRebase(at rootURL: URL, expectedState: GitRebaseExpectedState, steps: [GitRebaseStep]) -> GitRebaseProcessResult {
         GitRebaseProcessResult(command: GitProcessResult(output: "Interactive rebase is unavailable.", exitCode: 1), session: nil)
     }
-    func controlInteractiveRebase(at rootURL: URL, sessionId: String, action: GitRebaseControlAction, amendMessage: String?) -> GitRebaseProcessResult {
+    func controlInteractiveRebase(at rootURL: URL, sessionId: String, action: GitRebaseControlAction, amendMessage: String?, expectedHead: String?) -> GitRebaseProcessResult {
         GitRebaseProcessResult(command: GitProcessResult(output: "Interactive rebase is unavailable.", exitCode: 1), session: nil)
     }
     func createWorktree(_ request: GitWorktreeCreation, at rootURL: URL) -> GitProcessResult? {
@@ -189,7 +189,7 @@ package extension GitOperations {
         return createWorktree(named: name, from: reference, revision: request.revision, at: request.destination, repositoryRoot: rootURL)
     }
     func createHistoryRecoveryBranch(named name: String, reference: String, at rootURL: URL) -> GitProcessResult? { nil }
-    func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?) -> Result<GitPatchExport, GitPatchFailure> {
+    func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure> {
         .failure(GitPatchFailure("Patch export is unavailable."))
     }
     func previewPatch(at rootURL: URL, patch: String, target: GitPatchTarget) -> Result<GitPatchPreview, GitPatchFailure> {
@@ -560,8 +560,8 @@ package struct GitService: Sendable {
         await rebaseCommand(at: root) { $0.startInteractiveRebase(at: root, expectedState: expectedState, steps: steps) }
     }
 
-    func controlInteractiveRebase(at root: URL, sessionId: String, action: GitRebaseControlAction, amendMessage: String?) async -> GitRebaseMutationResult {
-        await rebaseCommand(at: root) { $0.controlInteractiveRebase(at: root, sessionId: sessionId, action: action, amendMessage: amendMessage) }
+    func controlInteractiveRebase(at root: URL, sessionId: String, action: GitRebaseControlAction, amendMessage: String?, expectedHead: String?) async -> GitRebaseMutationResult {
+        await rebaseCommand(at: root) { $0.controlInteractiveRebase(at: root, sessionId: sessionId, action: action, amendMessage: amendMessage, expectedHead: expectedHead) }
     }
 
     private func rebaseCommand(
@@ -586,8 +586,8 @@ package struct GitService: Sendable {
         await command(at: root) { $0.createWorktree(request, at: root) }
     }
 
-    func exportPatch(at root: URL, source: GitPatchSource, paths: [String], base: String?, target: String?) async -> Result<GitPatchExport, GitPatchFailure> {
-        await read { $0.exportPatch(at: root, source: source, paths: paths, base: base, target: target) }
+    func exportPatch(at root: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) async -> Result<GitPatchExport, GitPatchFailure> {
+        await read { $0.exportPatch(at: root, source: source, paths: paths, base: base, target: target, metadataOnly: metadataOnly) }
             ?? .failure(GitPatchFailure("Could not create a patch preview."))
     }
 

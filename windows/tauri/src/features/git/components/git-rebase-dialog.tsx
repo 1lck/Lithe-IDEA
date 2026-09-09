@@ -41,6 +41,12 @@ import type {
   GitRebaseStep,
 } from "../types/git-rebase.types";
 import { joinGitCommitMessage, splitGitCommitMessage } from "../utils/git-history-message";
+import {
+  refreshRebaseAmendDraft,
+  rebaseAmendIdentity,
+  shouldPresentRebaseSession,
+  type GitRebaseAmendDraft,
+} from "../utils/git-rebase-session";
 import { prepareGitRebasePlan } from "../utils/git-rebase-plan";
 
 const actions: GitRebaseAction[] = ["pick", "reword", "edit", "squash", "fixup", "drop"];
@@ -96,27 +102,24 @@ function GitRebaseDialog({
   const [steps, setSteps] = useState<GitRebaseStep[]>([]);
   const [session, setSession] = useState<GitRebaseSession | null>(null);
   const [command, setCommand] = useState<GitHistoryRewriteResult | null>(null);
-  const [amendMessage, setAmendMessage] = useState("");
+  const [amendDraft, setAmendDraft] = useState<GitRebaseAmendDraft>({
+    identity: "",
+    message: "",
+    edited: false,
+    stale: false,
+  });
+  const amendMessage = amendDraft.message;
   const [status, setStatus] = useState<"loading" | "ready" | "failed" | "working">("loading");
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const alive = useRef(true);
   const working = useRef(false);
   const sessionRef = useRef<GitRebaseSession | null>(null);
-  const amendIdentity = useRef("");
 
   const acceptSession = (value: GitRebaseSession | null) => {
     sessionRef.current = value;
     setSession(value);
-    const identity = value ? `${value.sessionId}:${value.currentCommit}:${value.status}` : "";
-    if (identity !== amendIdentity.current) {
-      amendIdentity.current = identity;
-      setAmendMessage(
-        value?.currentMessage ??
-          value?.steps.find((entry) => entry.hash === value.currentCommit)?.message ??
-          "",
-      );
-    }
+    setAmendDraft((draft) => refreshRebaseAmendDraft(draft, value));
   };
   useEffect(() => {
     alive.current = true;
@@ -132,19 +135,20 @@ function GitRebaseDialog({
       try {
         const existing = await getGitRebaseSession(request.repoPath, operationId);
         if (!current) return;
-        const unfinished =
+        if (
           existing &&
-          !terminalSession(existing) &&
-          (existing.status !== "failed" ||
-            existing.canContinue ||
-            existing.canSkip ||
-            existing.canAbort);
-        if (existing && (unfinished || !request.revision || sessionRef.current)) {
+          shouldPresentRebaseSession(
+            existing,
+            Boolean(request.revision),
+            Boolean(sessionRef.current),
+          )
+        ) {
           acceptSession(existing);
           setPreview(null);
         } else if (request.revision) {
           const value = await previewGitRebase(request.repoPath, request.revision, operationId);
           if (!current) return;
+          acceptSession(value.allowed ? null : existing);
           setPreview(value);
           setSteps(
             value.commits.map((entry) => ({
@@ -235,6 +239,7 @@ function GitRebaseDialog({
   };
   const control = async (action: "continue" | "skip" | "abort", amend = false) => {
     if (!session || working.current) return;
+    if (amend && (amendDraft.stale || amendDraft.identity !== rebaseAmendIdentity(session))) return;
     if (
       (action !== "continue" || amend) &&
       !(await showConfirmDialog(
@@ -256,6 +261,7 @@ function GitRebaseDialog({
         session.sessionId,
         action,
         amend ? amendMessage : undefined,
+        amend ? (session.head ?? undefined) : undefined,
       ),
     );
   };
@@ -408,9 +414,30 @@ function GitRebaseDialog({
               {session.status === "edit" ? (
                 <>
                   <p>{t("git.rebasePlan.editHelp")}</p>
+                  {amendDraft.stale && (
+                    <div role="alert" className="space-y-2 text-destructive">
+                      <p>{t("git.rebasePlan.staleAmend")}</p>
+                      <Button
+                        size="xs"
+                        disabled={status === "working"}
+                        onClick={() =>
+                          setAmendDraft(
+                            refreshRebaseAmendDraft(
+                              { identity: "", message: "", edited: false, stale: false },
+                              session,
+                            ),
+                          )
+                        }
+                      >
+                        {t("git.rebasePlan.reloadAmend")}
+                      </Button>
+                    </div>
+                  )}
                   <MessageEditor
                     message={amendMessage}
-                    onChange={setAmendMessage}
+                    onChange={(message) =>
+                      setAmendDraft((draft) => ({ ...draft, message, edited: true }))
+                    }
                     disabled={status === "working"}
                   />
                 </>
@@ -499,7 +526,13 @@ function GitRebaseDialog({
               </Button>
               {session.status === "edit" ? (
                 <Button
-                  disabled={status !== "ready" || !session.canContinue || !amendMessage.trim()}
+                  disabled={
+                    status !== "ready" ||
+                    !session.canContinue ||
+                    !amendMessage.trim() ||
+                    amendDraft.stale ||
+                    amendDraft.identity !== rebaseAmendIdentity(session)
+                  }
                   onClick={() => void control("continue", true)}
                 >
                   {t("git.rebasePlan.amendContinue")}

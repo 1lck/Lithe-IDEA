@@ -15,6 +15,7 @@ export async function exportGitPatch(
   paths: string[],
   revisions: { baseRevision?: string; targetRevision?: string } = {},
   operationId?: string,
+  metadataOnly = false,
 ): Promise<GitPatchExport> {
   const root = await resolveRepositoryPathOrThrow(repoPath);
   return invoke("git.patchExport", {
@@ -22,6 +23,7 @@ export async function exportGitPatch(
     source,
     paths,
     ...revisions,
+    ...(metadataOnly ? { metadataOnly: true } : {}),
     ...(operationId ? { operationId } : {}),
   });
 }

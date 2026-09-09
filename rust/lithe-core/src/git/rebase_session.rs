@@ -87,6 +87,8 @@ pub struct GitRebaseControlRequest {
     pub action: String,
     /// At an edit pause only: amend HEAD with staged content and this full message.
     pub amend_message: Option<String>,
+    /// HEAD reviewed by the amendment editor; required whenever amend_message is present.
+    pub expected_head: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -879,6 +881,13 @@ pub fn control(request: GitRebaseControlRequest) -> Result<GitRebaseMutationResp
             ));
         }
     }
+    if request.amend_message.is_some()
+        && (request.expected_head.is_none() || request.expected_head != current.head)
+    {
+        return Err(invalid(
+            "The edit HEAD changed; refresh and review the amendment again",
+        ));
+    }
     let environment = environment(&root, &record)?;
     let mutation = with_git_invocation_trace(|| {
         if let Some(message) = request.amend_message {
@@ -997,6 +1006,7 @@ pub(super) fn resolve_owned_operation(
         session_id: record.session_id,
         action: action.into(),
         amend_message: None,
+        expected_head: None,
     })
     .map(|response| Some(response.command))
 }

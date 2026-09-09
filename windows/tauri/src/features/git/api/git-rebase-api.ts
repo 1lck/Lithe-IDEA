@@ -65,10 +65,11 @@ export function controlGitRebase(
   sessionId: string,
   action: "continue" | "skip" | "abort",
   amendMessage?: string,
+  expectedHead?: string,
 ): Promise<GitRebaseResult> {
   return mutate(repoPath, "git.rebaseControl", {
     sessionId,
     action,
-    ...(amendMessage === undefined ? {} : { amendMessage }),
+    ...(amendMessage === undefined ? {} : { amendMessage, expectedHead }),
   });
 }

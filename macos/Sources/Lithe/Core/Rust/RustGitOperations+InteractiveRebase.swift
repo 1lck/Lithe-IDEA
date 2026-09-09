@@ -14,8 +14,8 @@ extension RustGitOperations {
         rebaseResult(core.gitRebaseStart(at: rootURL, expectedState: expectedState, steps: steps))
     }
 
-    func controlInteractiveRebase(at rootURL: URL, sessionId: String, action: GitRebaseControlAction, amendMessage: String?) -> GitRebaseProcessResult {
-        rebaseResult(core.gitRebaseControl(at: rootURL, sessionId: sessionId, action: action, amendMessage: amendMessage))
+    func controlInteractiveRebase(at rootURL: URL, sessionId: String, action: GitRebaseControlAction, amendMessage: String?, expectedHead: String?) -> GitRebaseProcessResult {
+        rebaseResult(core.gitRebaseControl(at: rootURL, sessionId: sessionId, action: action, amendMessage: amendMessage, expectedHead: expectedHead))
     }
 
     private func rebaseResult(_ response: Result<RustCoreBridge.GitRebaseMutationPayload, RustCoreBridge.CoreCallError>) -> GitRebaseProcessResult {

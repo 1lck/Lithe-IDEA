@@ -168,8 +168,8 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: rootURL, operation: "createBranch", reference: reference, name: name, checkout: false)
     }
 
-    func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?) -> Result<GitPatchExport, GitPatchFailure> {
-        core.gitPatchExport(at: rootURL, source: source, paths: paths, base: base, target: target)
+    func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure> {
+        core.gitPatchExport(at: rootURL, source: source, paths: paths, base: base, target: target, metadataOnly: metadataOnly)
             .mapError { GitPatchFailure($0.userMessage) }
     }
 

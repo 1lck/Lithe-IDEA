@@ -64,7 +64,7 @@ package final class GitPatchFeatureModel: ObservableObject {
         source = .commits
         baseRevision = base
         targetRevision = target
-        generateExport()
+        generateExport(metadataOnly: true)
     }
 
     package func beginImport(at root: URL, surface: Surface) {
@@ -88,7 +88,7 @@ package final class GitPatchFeatureModel: ObservableObject {
         files = []
         selectedPaths = []
         exportPreview = nil
-        generateExport()
+        generateExport(metadataOnly: true)
     }
 
     package func selectPath(_ path: String, included: Bool) {
@@ -112,10 +112,10 @@ package final class GitPatchFeatureModel: ObservableObject {
         files = []
         selectedPaths = []
         exportPreview = nil
-        generateExport()
+        generateExport(metadataOnly: true)
     }
 
-    package func generateExport() {
+    package func generateExport(metadataOnly: Bool = false) {
         guard canGenerateExport, let root else { return }
         let requestGeneration = nextRequest()
         let source = source
@@ -126,19 +126,19 @@ package final class GitPatchFeatureModel: ObservableObject {
         let base = source == .commits ? baseRevision : nil
         let target = source == .commits ? targetRevision : nil
         task = Task { [weak self, service] in
-            let result = await service.exportPatch(at: root, source: source, paths: paths, base: base, target: target)
+            let result = await service.exportPatch(at: root, source: source, paths: paths, base: base, target: target, metadataOnly: metadataOnly)
             guard let self, self.generation == requestGeneration, !Task.isCancelled else { return }
             self.isWorking = false
             self.task = nil
             switch result {
             case .success(let exported):
-                self.exportPreview = exported
+                self.exportPreview = metadataOnly ? nil : exported
                 if !self.discoveredFiles {
                     self.files = exported.files
                     self.selectedPaths = Set(exported.files.map(\.path))
                     self.discoveredFiles = true
                 }
-                if exported.patch.isEmpty { self.notice = "No differences were found for this selection." }
+                if exported.files.isEmpty { self.notice = "No differences were found for this selection." }
             case .failure(let error): self.errorMessage = error.message
             }
         }

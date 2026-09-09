@@ -37,5 +37,23 @@
     "diagnostic": "",
     "expectedState": "opaque-state-from-preview",
     "byteLength": 113
+  },
+  "metadataRequest": {
+    "root": ".",
+    "source": "workingTree",
+    "paths": [],
+    "metadataOnly": true
+  },
+  "metadataResponse": {
+    "patch": "",
+    "files": [
+      {
+        "path": "example.txt",
+        "originalPath": null,
+        "additions": 1,
+        "deletions": 0
+      }
+    ],
+    "byteLength": 0
   }
 }

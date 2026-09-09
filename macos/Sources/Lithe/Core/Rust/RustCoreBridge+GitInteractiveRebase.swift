@@ -27,6 +27,7 @@ extension RustCoreBridge {
         let sessionId: String
         let action: GitRebaseControlAction
         let amendMessage: String?
+        let expectedHead: String?
     }
 
     func gitRebasePreview(at root: URL, revision: String) -> Result<GitRebasePreview, CoreCallError> {
@@ -41,7 +42,7 @@ extension RustCoreBridge {
         executeNullableResult(command: "git.rebaseSession", payload: RebaseSessionRequest(root: root.standardizedFileURL.path))
     }
 
-    func gitRebaseControl(at root: URL, sessionId: String, action: GitRebaseControlAction, amendMessage: String?) -> Result<GitRebaseMutationPayload, CoreCallError> {
-        executeResult(command: "git.rebaseControl", payload: RebaseControlRequest(root: root.standardizedFileURL.path, sessionId: sessionId, action: action, amendMessage: amendMessage))
+    func gitRebaseControl(at root: URL, sessionId: String, action: GitRebaseControlAction, amendMessage: String?, expectedHead: String?) -> Result<GitRebaseMutationPayload, CoreCallError> {
+        executeResult(command: "git.rebaseControl", payload: RebaseControlRequest(root: root.standardizedFileURL.path, sessionId: sessionId, action: action, amendMessage: amendMessage, expectedHead: expectedHead))
     }
 }

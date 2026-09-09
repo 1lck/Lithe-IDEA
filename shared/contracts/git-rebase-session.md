@@ -56,11 +56,14 @@ Prepared message files have an aggregate 8 MiB limit.
 | `conflictedPaths` | Current native conflict paths |
 | `canContinue`, `canSkip`, `canAbort` | Controls verified against matching native session state |
 
-`git.rebaseControl` accepts `{ root, sessionId, action, amendMessage? }`, where
+`git.rebaseControl` accepts `{ root, sessionId, action, amendMessage?, expectedHead? }`, where
 action is `continue`, `skip`, or `abort`. Only an edit pause accepts
 `amendMessage`, and only together with continue. This is an explicit amendment
 of HEAD using all currently staged content and the complete supplied message,
-followed by native continuation. A plain continue preserves the user's current
+followed by native continuation. Amend requests must include the `expectedHead`
+shown by the editor; Core rejects missing or changed HEAD before amending.
+Clients reload untouched drafts when HEAD changes and preserve edited drafts
+with a stale warning until the user explicitly reloads. A plain continue preserves the user's current
 commit, including amendments already made outside the dialog. Plain
 continuation with staged changes at an edit pause requires an explicit
 amendment first; Core prevents Git from silently consuming them. At either kind
@@ -117,3 +120,9 @@ controls and permits explicit abort of the matching session. Original history
 remains reachable through the recovery ref and its attributable reflog. The
 latest session files remain available across application restart and are
 replaced only when another reviewed session starts in that checkout.
+
+An `interrupted` record with no available controls is diagnostic history, not
+proof of an active native operation. When a user requests a new plan, clients
+may obtain a fresh Core preview; Core still rejects any actual active operation.
+Keep the previous recovery reference available when showing its diagnostic
+record, without forcing new plan requests back into that record.

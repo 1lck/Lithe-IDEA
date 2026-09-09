@@ -52,7 +52,7 @@
     "canSkip": false,
     "canAbort": true
   },
-  "controlRequest": { "root": "/workspace/project", "sessionId": "0123456789abcdef0123456789abcdef", "action": "continue", "amendMessage": "Amended title\n\nAmend includes currently staged content.\n" },
+  "controlRequest": { "root": "/workspace/project", "sessionId": "0123456789abcdef0123456789abcdef", "action": "continue", "expectedHead": "2222222222222222222222222222222222222222", "amendMessage": "Amended title\n\nAmend includes currently staged content.\n" },
   "mutationResponseShape": { "command": "GitCommandResponse", "session": "sessionResponse" },
   "absentSessionResponse": null
 }
