@@ -1089,27 +1089,6 @@ fn resolve_test_source_path(
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or(file_name);
-    let candidates = [
-        PathBuf::from("src/test/java").join(&class_path),
-        PathBuf::from("src/test/kotlin").join(&class_path),
-        PathBuf::from("src/main/java").join(&class_path),
-        PathBuf::from("src/main/kotlin").join(&class_path),
-        PathBuf::from(&class_path),
-        PathBuf::from("src/test/java").join(simple_file_name),
-        PathBuf::from("src/test/kotlin").join(simple_file_name),
-        PathBuf::from("src/main/java").join(simple_file_name),
-        PathBuf::from(simple_file_name),
-    ];
-    if let Some(path) = candidates.into_iter().find_map(|candidate| {
-        let absolute = root.join(candidate);
-        absolute
-            .is_file()
-            .then(|| workspace_relative_path(root, &absolute))?
-    }) {
-        source_cache.insert(cache_key, Some(path.clone()));
-        return Ok(Some(path));
-    }
-
     if source_index.is_none() {
         *source_index = Some(MavenTestSourceIndex::build(root)?);
     }
@@ -1153,10 +1132,11 @@ fn resolve_footer_source_location(
     Ok(())
 }
 
-/// One lazily built, parse-wide index bounds fallback traversal to 10,000
+/// One lazily built, parse-wide index bounds source traversal to 10,000
 /// directories total instead of repeating that cost for every stack frame.
 struct MavenTestSourceIndex {
     paths: Vec<String>,
+    complete: bool,
 }
 
 impl MavenTestSourceIndex {
@@ -1164,34 +1144,50 @@ impl MavenTestSourceIndex {
         let mut directories = vec![root.to_path_buf()];
         let mut paths = Vec::new();
         let mut visited = 0;
+        let mut complete = true;
         while let Some(directory) = directories.pop() {
             crate::protocol::cancellation::check()?;
             if visited >= MAX_MAVEN_TEST_SOURCE_SEARCH_DIRECTORIES {
+                complete = false;
                 break;
             }
             visited += 1;
-            let mut children = fs::read_dir(&directory)
-                .ok()
-                .into_iter()
-                .flatten()
-                .filter_map(Result::ok)
-                .filter_map(|entry| {
-                    let file_type = entry.file_type().ok()?;
-                    if file_type.is_dir() {
-                        return (!should_skip_test_source_directory(&entry.path()))
-                            .then(|| (entry.path(), true));
+            let entries = match fs::read_dir(&directory) {
+                Ok(entries) => entries,
+                Err(_) => {
+                    complete = false;
+                    continue;
+                }
+            };
+            let mut children = Vec::new();
+            for entry in entries {
+                let entry = match entry {
+                    Ok(entry) => entry,
+                    Err(_) => {
+                        complete = false;
+                        continue;
                     }
-                    if file_type.is_file()
-                        && matches!(
-                            entry.path().extension().and_then(|value| value.to_str()),
-                            Some("java" | "kt")
-                        )
-                    {
-                        return Some((entry.path(), false));
+                };
+                let file_type = match entry.file_type() {
+                    Ok(file_type) => file_type,
+                    Err(_) => {
+                        complete = false;
+                        continue;
                     }
-                    None
-                })
-                .collect::<Vec<_>>();
+                };
+                if file_type.is_dir() {
+                    if !should_skip_test_source_directory(&entry.path()) {
+                        children.push((entry.path(), true));
+                    }
+                } else if file_type.is_file()
+                    && matches!(
+                        entry.path().extension().and_then(|value| value.to_str()),
+                        Some("java" | "kt")
+                    )
+                {
+                    children.push((entry.path(), false));
+                }
+            }
             children.sort_by(|left, right| {
                 left.0
                     .to_string_lossy()
@@ -1204,6 +1200,8 @@ impl MavenTestSourceIndex {
                     directories.push(path);
                 } else if let Some(relative) = workspace_relative_path(root, &path) {
                     paths.push(relative);
+                } else {
+                    complete = false;
                 }
             }
         }
@@ -1212,20 +1210,99 @@ impl MavenTestSourceIndex {
                 .cmp(&right.to_ascii_lowercase())
                 .then_with(|| left.cmp(right))
         });
-        Ok(Self { paths })
+        Ok(Self { paths, complete })
     }
 
     fn resolve(&self, class_path: &str, simple_file_name: &str) -> Option<String> {
-        self.paths
+        // A partial index cannot prove uniqueness, so returning any candidate
+        // would risk navigating to a same-named source in another module.
+        if !self.complete {
+            return None;
+        }
+
+        let mut exact_matches = self
+            .paths
             .iter()
-            .find(|path| path.ends_with(class_path))
-            .or_else(|| {
-                self.paths.iter().find(|path| {
-                    Path::new(path).file_name().and_then(|value| value.to_str())
-                        == Some(simple_file_name)
-                })
-            })
-            .cloned()
+            .filter(|path| path_has_suffix(path, class_path));
+        if let Some(path) = exact_matches.next() {
+            return exact_matches.next().is_none().then(|| path.clone());
+        }
+
+        let mut file_name_matches = self.paths.iter().filter(|path| {
+            Path::new(path).file_name().and_then(|value| value.to_str()) == Some(simple_file_name)
+        });
+        let path = file_name_matches.next()?;
+        file_name_matches.next().is_none().then(|| path.clone())
+    }
+}
+
+fn path_has_suffix(path: &str, suffix: &str) -> bool {
+    path == suffix
+        || path
+            .strip_suffix(suffix)
+            .is_some_and(|prefix| prefix.ends_with('/'))
+}
+
+#[cfg(test)]
+mod test_source_index_tests {
+    use super::MavenTestSourceIndex;
+
+    #[test]
+    fn source_index_prefers_the_unique_package_path() {
+        let index = MavenTestSourceIndex {
+            paths: vec![
+                "src/test/java/AppTest.java".to_string(),
+                "service/src/test/java/com/example/AppTest.java".to_string(),
+            ],
+            complete: true,
+        };
+
+        assert_eq!(
+            index.resolve("com/example/AppTest.java", "AppTest.java"),
+            Some("service/src/test/java/com/example/AppTest.java".to_string())
+        );
+    }
+
+    #[test]
+    fn source_index_rejects_ambiguous_or_incomplete_results() {
+        let duplicate_index = MavenTestSourceIndex {
+            paths: vec![
+                "service-one/src/test/java/com/example/AppTest.java".to_string(),
+                "service-two/src/test/java/com/example/AppTest.java".to_string(),
+            ],
+            complete: true,
+        };
+        let incomplete_index = MavenTestSourceIndex {
+            paths: vec!["service/src/test/java/com/example/AppTest.java".to_string()],
+            complete: false,
+        };
+
+        assert_eq!(
+            duplicate_index.resolve("com/example/AppTest.java", "AppTest.java"),
+            None
+        );
+        assert_eq!(
+            incomplete_index.resolve("com/example/AppTest.java", "AppTest.java"),
+            None
+        );
+    }
+
+    #[test]
+    fn source_index_requires_a_path_boundary_and_unique_filename_fallback() {
+        let mut index = MavenTestSourceIndex {
+            paths: vec!["src/test/java/notcom/example/AppTest.java".to_string()],
+            complete: true,
+        };
+        assert_eq!(
+            index.resolve("com/example/AppTest.java", "AppTest.java"),
+            Some("src/test/java/notcom/example/AppTest.java".to_string())
+        );
+        index.paths.push("other/AppTest.java".to_string());
+        // The partial package suffix must not bypass ambiguous filename fallback.
+        assert_eq!(
+            index.resolve("com/example/AppTest.java", "AppTest.java"),
+            None
+        );
     }
 }
 

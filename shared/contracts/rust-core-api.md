@@ -200,8 +200,12 @@ limited to 500,000 characters. The response is:
 ```
 
 `kind` is `failure` or `error`; `path` is a workspace-relative source path
-when the first matching stack frame exists, and all locations use one-based
-lines with nullable columns. `passed` is derived from the summary and never
+when a stack frame or failure footer can be resolved unambiguously. Relative
+source lookup requires a complete workspace index, prefers a unique full
+package-path suffix at a path boundary, and falls back to a unique filename
+only when no package-path candidate exists. Ambiguous matches or an incomplete
+scan (including the 10,000-directory limit) leave the location `null`.
+All locations use one-based lines with nullable columns. `passed` is derived from the summary and never
 negative. A final `Results` summary is preferred; when Maven only prints
 per-class summaries, the counts are aggregated. Failure details retain Maven's output order and are bounded to
 10,000 entries. A parser or size violation returns the standard

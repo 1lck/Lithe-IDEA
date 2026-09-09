@@ -116,6 +116,58 @@
       }
     },
     {
+      "name": "packaged-source-wins-over-root-same-name",
+      "sourceFiles": [
+        "src/test/java/AppTest.java",
+        "service/src/test/java/com/example/AppTest.java"
+      ],
+      "output": "[ERROR] com.example.AppTest.fails -- Time elapsed: 0.023 s <<< FAILURE!\njava.lang.AssertionError: expected failure\n    at com.example.AppTest.fails(AppTest.java:8)\n\n[ERROR] Failures:\n[ERROR]   com.example.AppTest.fails:8 expected failure\n[INFO] Tests run: 1, Failures: 1, Errors: 0, Skipped: 0\n",
+      "expected": {
+        "testsRun": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 0,
+        "success": false,
+        "failureDetails": [
+          {
+            "name": "com.example.AppTest.fails",
+            "kind": "failure",
+            "message": "expected failure",
+            "path": "service/src/test/java/com/example/AppTest.java",
+            "line": 8,
+            "column": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "duplicate-packaged-source-has-no-location",
+      "sourceFiles": [
+        "service-one/src/test/java/com/example/AppTest.java",
+        "service-two/src/test/java/com/example/AppTest.java"
+      ],
+      "output": "[ERROR] com.example.AppTest.fails -- Time elapsed: 0.023 s <<< FAILURE!\njava.lang.AssertionError: expected failure\n    at com.example.AppTest.fails(AppTest.java:8)\n\n[ERROR] Failures:\n[ERROR]   com.example.AppTest.fails:8 expected failure\n[INFO] Tests run: 1, Failures: 1, Errors: 0, Skipped: 0\n",
+      "expected": {
+        "testsRun": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 0,
+        "success": false,
+        "failureDetails": [
+          {
+            "name": "com.example.AppTest.fails",
+            "kind": "failure",
+            "message": "expected failure",
+            "path": null,
+            "line": null,
+            "column": null
+          }
+        ]
+      }
+    },
+    {
       "name": "surefire-legacy-detailed-failure",
       "sourceFiles": ["src/test/java/review/AppTest.java"],
       "output": "review.AppTest.targetFailure  Time elapsed: 0.01 sec  <<< FAILURE!\njava.lang.AssertionError: expected legacy failure\n    at org.junit.Assert.fail(Assert.java:88)\n    at review.AppTest.targetFailure(AppTest.java:4)\n\nFailed tests:\n  targetFailure(review.AppTest):4 expected legacy failure\n\nTests run: 1, Failures: 1, Errors: 0, Skipped: 0\n",
