@@ -46,8 +46,6 @@ import {
   addPathsToLocalGitExclude,
   rollbackFilesChanges,
   setFilesStaged,
-  stageAllFiles,
-  unstageAllFiles,
 } from "../../api/git-status-api";
 import type { GitFile } from "../../types/git.types";
 import {
@@ -60,6 +58,8 @@ import {
 import { deleteGitStatusPaths } from "../../utils/git-status-deletion";
 import {
   buildGitIgnorePaths,
+  getGitFileRepositoryPath,
+  getGitFileRepositoryRelativePath,
   resolveGitFileMutationPaths,
   resolveGitStatusDeletionPaths,
   resolveGitStatusContextSelection,
@@ -77,7 +77,7 @@ interface GitStatusPanelProps {
   collapsedSections: ReadonlySet<string>;
   onCollapsedSectionsChange: (sections: Set<string>) => void;
   onFileSelect?: (path: string, staged: boolean) => void;
-  onOpenPath?: (path: string, isDirectory: boolean) => void;
+  onOpenPath?: (path: string, isDirectory: boolean, repositoryPath?: string) => void;
   onViewDiff?: (scope?: GitStatusDiffScope) => void;
   onViewFilesDiff?: (filePaths: string[]) => void;
   onCommitSelection?: (filePaths: string[]) => void;
@@ -142,6 +142,32 @@ const getFileEntryId = (filePath: string) => `file:${filePath}`;
 const getFolderEntryId = (section: StatusSection, folderPath: string) =>
   `folder:${section}:${folderPath}`;
 
+function groupGitFilesByRepository(
+  files: readonly GitFile[],
+  fallbackRepoPath?: string,
+): Array<{ repoPath: string; files: GitFile[] }> {
+  const filesByRepository = new Map<string, GitFile[]>();
+
+  for (const file of files) {
+    const fileRepoPath = getGitFileRepositoryPath(file, fallbackRepoPath);
+    if (!fileRepoPath) continue;
+    const repositoryFiles = filesByRepository.get(fileRepoPath) ?? [];
+    repositoryFiles.push(file);
+    filesByRepository.set(fileRepoPath, repositoryFiles);
+  }
+
+  return [...filesByRepository.entries()].map(([fileRepoPath, repositoryFiles]) => ({
+    repoPath: fileRepoPath,
+    files: repositoryFiles,
+  }));
+}
+
+function getRepoRelativePaths(files: readonly GitFile[]): string[] {
+  return [
+    ...new Set(files.map(getGitFileRepositoryRelativePath).filter(Boolean)),
+  ].sort((left, right) => left.localeCompare(right));
+}
+
 const GitStatusPanel = ({
   files,
   commitSelectedPaths,
@@ -179,6 +205,7 @@ const GitStatusPanel = ({
     type: "selection" | "all";
     filePaths?: string[];
     includeUntracked?: boolean;
+    repoPath?: string;
   }>({
     isOpen: false,
     type: "selection",
@@ -382,15 +409,22 @@ const GitStatusPanel = ({
     });
   };
 
-  const handleSetFilesStaged = async (filePaths: string[], staged: boolean): Promise<boolean> => {
-    if (!repoPath || filePaths.length === 0) return false;
+  const handleSetFilesStaged = async (filesToStage: GitFile[], staged: boolean): Promise<boolean> => {
+    const repositoryGroups = groupGitFilesByRepository(filesToStage, repoPath);
+    if (repositoryGroups.length === 0) return false;
+    const displayFilePaths = filesToStage.map((file) => file.path);
 
-    setOptimisticStage(filePaths, staged);
+    setOptimisticStage(displayFilePaths, staged);
     setIsLoading(true);
     try {
-      const success = await setFilesStaged(repoPath, filePaths, staged);
+      const results = await Promise.all(
+        repositoryGroups.map(({ repoPath: fileRepoPath, files: repositoryFiles }) =>
+          setFilesStaged(fileRepoPath, resolveGitFileMutationPaths(repositoryFiles), staged),
+        ),
+      );
+      const success = results.every(Boolean);
       if (!success) {
-        setOptimisticStage(filePaths, !staged);
+        setOptimisticStage(displayFilePaths, !staged);
         return false;
       }
       await onRefresh?.();
@@ -401,14 +435,20 @@ const GitStatusPanel = ({
   };
 
   const handleStageAll = async () => {
-    if (!repoPath) return;
+    const repositoryGroups = groupGitFilesByRepository(unstagedFiles, repoPath);
+    if (repositoryGroups.length === 0) return;
     setOptimisticStage(
       unstagedFiles.map((file) => file.path),
       true,
     );
     setIsLoading(true);
     try {
-      const success = await stageAllFiles(repoPath);
+      const results = await Promise.all(
+        repositoryGroups.map(({ repoPath: fileRepoPath, files: repositoryFiles }) =>
+          setFilesStaged(fileRepoPath, resolveGitFileMutationPaths(repositoryFiles), true),
+        ),
+      );
+      const success = results.every(Boolean);
       if (!success) {
         setOptimisticStage(
           unstagedFiles.map((file) => file.path),
@@ -423,14 +463,20 @@ const GitStatusPanel = ({
   };
 
   const handleUnstageAll = async () => {
-    if (!repoPath) return;
+    const repositoryGroups = groupGitFilesByRepository(stagedFiles, repoPath);
+    if (repositoryGroups.length === 0) return;
     setOptimisticStage(
       stagedFiles.map((file) => file.path),
       false,
     );
     setIsLoading(true);
     try {
-      const success = await unstageAllFiles(repoPath);
+      const results = await Promise.all(
+        repositoryGroups.map(({ repoPath: fileRepoPath, files: repositoryFiles }) =>
+          setFilesStaged(fileRepoPath, resolveGitFileMutationPaths(repositoryFiles), false),
+        ),
+      );
+      const success = results.every(Boolean);
       if (!success) {
         setOptimisticStage(
           stagedFiles.map((file) => file.path),
@@ -458,20 +504,15 @@ const GitStatusPanel = ({
   };
 
   const handleRollbackEntries = async (entries: GitStatusSelectionEntry[]) => {
-    if (!repoPath) return;
-    const trackedFilePaths = [
-      ...new Set(
-        entries
-          .flatMap((entry) => entry.files)
-          .filter((file) => file.status !== "untracked")
-          .map((file) => file.path),
-      ),
-    ];
-    if (trackedFilePaths.length === 0) return;
+    const trackedFilesToRollback = entries
+      .flatMap((entry) => entry.files)
+      .filter((file) => file.status !== "untracked");
+    const displayTrackedFilePaths = [...new Set(trackedFilesToRollback.map((file) => file.path))];
+    if (displayTrackedFilePaths.length === 0) return;
 
     if (
       confirmBeforeDiscard &&
-      !(await showConfirmDialog(t("git.rollbackPathsConfirm", { count: trackedFilePaths.length }), {
+      !(await showConfirmDialog(t("git.rollbackPathsConfirm", { count: displayTrackedFilePaths.length }), {
         title: t("git.rollback"),
         confirmLabel: t("git.rollback"),
       }))
@@ -481,7 +522,12 @@ const GitStatusPanel = ({
 
     setIsLoading(true);
     try {
-      await rollbackFilesChanges(repoPath, trackedFilePaths);
+      await Promise.all(
+        groupGitFilesByRepository(trackedFilesToRollback, repoPath).map(
+          ({ repoPath: fileRepoPath, files: repositoryFiles }) =>
+            rollbackFilesChanges(fileRepoPath, getRepoRelativePaths(repositoryFiles)),
+        ),
+      );
       await onRefresh?.();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -492,7 +538,6 @@ const GitStatusPanel = ({
   };
 
   const handleDeleteEntries = async (entries: GitStatusSelectionEntry[]) => {
-    if (!repoPath) return;
     const filePaths = resolveGitStatusDeletionPaths(entries);
     if (filePaths.length === 0) return;
     const singleFileEntry = entries.length === 1 && entries[0]?.kind === "file";
@@ -513,11 +558,13 @@ const GitStatusPanel = ({
 
     setIsLoading(true);
     try {
-      const result = await deleteGitStatusPaths(
-        filePaths,
-        (filePath) => deleteFile(joinPath(repoPath, filePath)),
-        async () => onRefresh?.(),
-      );
+      const result = await deleteGitStatusPaths(filePaths, async (filePath) => {
+        const file = entries.flatMap((entry) => entry.files).find((candidate) => candidate.path === filePath);
+        const fileRepoPath = file ? getGitFileRepositoryPath(file, repoPath) : repoPath;
+        const relativePath = file ? getGitFileRepositoryRelativePath(file) : filePath;
+        if (!fileRepoPath) throw new Error("Missing Git repository path for delete operation");
+        return deleteFile(joinPath(fileRepoPath, relativePath));
+      }, async () => onRefresh?.());
       for (const failure of result.failures) {
         console.error(`Failed to delete source-control file ${failure.path}:`, failure.error);
       }
@@ -538,16 +585,11 @@ const GitStatusPanel = ({
   };
 
   const handleAddToVcs = async (entries: GitStatusSelectionEntry[]) => {
-    const untrackedFilePaths = [
-      ...new Set(
-        entries
-          .flatMap((entry) => entry.files)
-          .filter((file) => file.status === "untracked")
-          .map((file) => file.path),
-      ),
-    ];
-    if (untrackedFilePaths.length > 0) {
-      await handleSetFilesStaged(untrackedFilePaths, true);
+    const untrackedFilesToAdd = entries
+      .flatMap((entry) => entry.files)
+      .filter((file) => file.status === "untracked");
+    if (untrackedFilesToAdd.length > 0) {
+      await handleSetFilesStaged(untrackedFilesToAdd, true);
     }
   };
 
@@ -555,7 +597,6 @@ const GitStatusPanel = ({
     entries: GitStatusSelectionEntry[],
     target: "gitignore" | "exclude",
   ) => {
-    if (!repoPath) return;
     const paths = buildGitIgnorePaths(
       entries
         .filter((entry) => entry.files.some((file) => file.status === "untracked"))
@@ -582,11 +623,23 @@ const GitStatusPanel = ({
 
     setIsLoading(true);
     try {
-      const success =
-        target === "gitignore"
-          ? await addPathsToGitignore(repoPath, paths)
-          : await addPathsToLocalGitExclude(repoPath, paths);
-      if (success) {
+      const results = await Promise.all(
+        groupGitFilesByRepository(
+          entries.flatMap((entry) => entry.files).filter((file) => file.status === "untracked"),
+          repoPath,
+        ).map(({ repoPath: fileRepoPath, files: repositoryFiles }) => {
+          const repositoryPaths = buildGitIgnorePaths(
+            repositoryFiles.map((file) => ({
+              kind: "file" as const,
+              path: getGitFileRepositoryRelativePath(file),
+            })),
+          );
+          return target === "gitignore"
+            ? addPathsToGitignore(fileRepoPath, repositoryPaths)
+            : addPathsToLocalGitExclude(fileRepoPath, repositoryPaths);
+        }),
+      );
+      if (results.every(Boolean)) {
         setSelectedEntryIds(new Set());
         await onRefresh?.();
       }
@@ -598,13 +651,22 @@ const GitStatusPanel = ({
   const handleStashEntries = (entries: GitStatusSelectionEntry[]) => {
     const filePaths = getSelectionFilePaths(entries);
     if (filePaths.length === 0) return;
+    const repositoryGroups = groupGitFilesByRepository(
+      entries.flatMap((entry) => entry.files),
+      repoPath,
+    );
+    if (repositoryGroups.length !== 1) {
+      toast.error(t("git.selectSingleRepositoryForStash"));
+      return;
+    }
     setStashModal({
       isOpen: true,
       type: "selection",
-      filePaths,
+      filePaths: resolveGitFileMutationPaths(repositoryGroups[0]?.files ?? []),
       includeUntracked: entries
         .flatMap((entry) => entry.files)
         .some((file) => file.status === "untracked"),
+      repoPath: repositoryGroups[0]?.repoPath,
     });
   };
 
@@ -621,27 +683,30 @@ const GitStatusPanel = ({
   };
 
   const handleStashAllUnstaged = async () => {
+    const repositoryGroups = groupGitFilesByRepository(unstagedFiles, repoPath);
+    if (repositoryGroups.length !== 1) {
+      toast.error(t("git.selectSingleRepositoryForStash"));
+      return;
+    }
     setStashModal({
       isOpen: true,
       type: "all",
+      filePaths: resolveGitFileMutationPaths(repositoryGroups[0]?.files ?? []),
+      includeUntracked: false,
+      repoPath: repositoryGroups[0]?.repoPath,
     });
   };
 
   const handleConfirmStash = async (message: string) => {
     if (!repoPath) return;
 
-    if (stashModal.type === "selection" && stashModal.filePaths?.length) {
+    if (stashModal.filePaths?.length) {
       await createStash(
-        repoPath,
-        message || t("git.stashSelectedDefault"),
+        stashModal.repoPath ?? repoPath,
+        message || t(stashModal.type === "all" ? "git.stashAllUnstagedChanges" : "git.stashSelectedDefault"),
         stashModal.includeUntracked,
         stashModal.filePaths,
       );
-    } else if (stashModal.type === "all") {
-      const paths = unstagedFiles.map((f) => f.path);
-      if (paths.length === 0) return;
-
-      await createStash(repoPath, message || t("git.stashAllUnstagedChanges"), false, paths);
     }
 
     await onRefresh?.();
@@ -1160,7 +1225,15 @@ const GitStatusPanel = ({
                   disabled: !contextMenuTarget || !onOpenPath,
                   onClick: () => {
                     if (contextMenuTarget) {
-                      onOpenPath?.(contextMenuTarget.path, contextMenuTarget.kind === "folder");
+                      const file = contextMenuTarget.files[0];
+                      const isDirectory = contextMenuTarget.kind === "folder";
+                      const prefixLength = file?.repositoryRelativePath
+                        ? file.path.length - file.repositoryRelativePath.length
+                        : 0;
+                      const path = isDirectory
+                        ? contextMenuTarget.path.slice(prefixLength)
+                        : contextMenuTarget.path;
+                      onOpenPath?.(path, isDirectory, file?.repositoryPath);
                     }
                   },
                 },

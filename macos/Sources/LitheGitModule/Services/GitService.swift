@@ -19,6 +19,7 @@ package protocol GitOperations: Sendable {
     ) -> GitProcessResult
 
     func snapshot(at rootURL: URL) -> GitSnapshot?
+    func repositories(in workspaceURL: URL) -> [URL]
     func watchContext(at rootURL: URL) -> GitWatchContext?
     func worktrees(at rootURL: URL) -> [GitWorktree]?
 
@@ -150,6 +151,10 @@ package protocol GitOperations: Sendable {
 }
 
 package extension GitOperations {
+    func repositories(in workspaceURL: URL) -> [URL] {
+        snapshot(at: workspaceURL).map { [$0.repositoryRoot] } ?? []
+    }
+
     func references(at rootURL: URL, operationID: String) -> GitReferenceSnapshot? {
         guard let snapshot = history(at: rootURL, reference: nil, limit: 1) else { return nil }
         return GitReferenceSnapshot(
@@ -287,6 +292,10 @@ package struct GitService: Sendable {
 
     func snapshot(for workspace: URL) async -> GitSnapshot? {
         await read(priority: .utility) { $0.snapshot(at: workspace) }
+    }
+
+    func repositories(in workspace: URL) async -> [URL] {
+        await read(priority: .utility) { $0.repositories(in: workspace) } ?? []
     }
 
     func worktrees(at repositoryRoot: URL) async -> [GitWorktree]? {

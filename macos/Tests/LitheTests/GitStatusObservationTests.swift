@@ -239,7 +239,6 @@ struct GitStatusObservationTests {
             ["init", "-q", "--separate-git-dir=\(gitDirectory.path)", workspace.path],
             at: fixture.url
         )
-        try await fixture.configureRepository(at: workspace)
         try Data("initial\n".utf8).write(to: workspace.appendingPathComponent("tracked.txt"))
         try await fixture.git(["add", "tracked.txt"], at: workspace)
         try await fixture.git(["commit", "-q", "-m", "initial"], at: workspace)
@@ -273,7 +272,6 @@ struct GitStatusObservationTests {
         )
         try await fixture.git(["commit", "-q", "-am", "add submodule"], at: parent)
         let submodule = parent.appendingPathComponent("modules/child", isDirectory: true)
-        try await fixture.configureRepository(at: submodule)
         try Data("changed\n".utf8).write(to: submodule.appendingPathComponent("tracked.txt"))
         let recorder = GitObservationRecorder()
         let model = makeObservationModel(recorder: recorder)
@@ -304,7 +302,6 @@ struct GitStatusObservationTests {
         )
         try await fixture.git(["commit", "-q", "-am", "add submodule"], at: parent)
         let submodule = parent.appendingPathComponent("modules/child", isDirectory: true)
-        try await fixture.configureRepository(at: submodule)
         try Data("changed\n".utf8).write(to: submodule.appendingPathComponent("tracked.txt"))
         try await fixture.git(["add", "tracked.txt"], at: submodule)
         let recorder = GitObservationRecorder()
@@ -427,16 +424,9 @@ private final class GitObservationFixture {
         try? FileManager.default.removeItem(at: url)
     }
 
-    func configureRepository(at repository: URL) async throws {
-        try await git(["config", "user.email", "tests@lithe.local"], at: repository)
-        try await git(["config", "user.name", "Lithe Tests"], at: repository)
-        try await git(["config", "core.autocrlf", "false"], at: repository)
-    }
-
     func initializeRepository(at repository: URL) async throws {
         try FileManager.default.createDirectory(at: repository, withIntermediateDirectories: true)
         try await git(["init", "-q"], at: repository)
-        try await configureRepository(at: repository)
         try Data("initial\n".utf8).write(to: repository.appendingPathComponent("tracked.txt"))
         try await git(["add", "tracked.txt"], at: repository)
         try await git(["commit", "-q", "-m", "initial"], at: repository)
@@ -446,7 +436,8 @@ private final class GitObservationFixture {
     func git(_ arguments: [String], at directory: URL) async throws -> String {
         let result = try await TestProcess.run(
             executableURL: URL(fileURLWithPath: "/usr/bin/git"),
-            arguments: arguments,
+            arguments: ["-c", "user.email=tests@lithe.local", "-c", "user.name=Lithe Tests",
+                        "-c", "core.autocrlf=false"] + arguments,
             currentDirectoryURL: directory
         )
         guard result.terminationStatus == 0 else {
@@ -496,37 +487,18 @@ private enum GitObservationTestError: Error {
 
 private struct GitObservationWatchContextProvider: GitWatchContextProviding {
     func watchContext(for workspace: URL) async -> GitWatchContext? {
-        guard let repositoryRoot = await Self.resolvePath(
-            at: workspace,
-            arguments: ["rev-parse", "--show-toplevel"]
-        ),
-        let gitDirectory = await Self.resolvePath(
-            at: workspace,
-            arguments: ["rev-parse", "--absolute-git-dir"]
-        ),
-        let gitCommonDirectory = await Self.resolvePath(
-            at: workspace,
-            arguments: ["rev-parse", "--path-format=absolute", "--git-common-dir"]
-        ) else { return nil }
-        return GitWatchContext(
-            repositoryRoot: repositoryRoot,
-            gitDirectory: gitDirectory,
-            gitCommonDirectory: gitCommonDirectory
-        )
-    }
-
-    private static func resolvePath(at workspace: URL, arguments: [String]) async -> URL? {
+        // Resolve all three paths from one Git process; each output line corresponds to an option.
         guard let result = try? await TestProcess.run(
             executableURL: URL(fileURLWithPath: "/usr/bin/git"),
-            arguments: arguments,
+            arguments: ["rev-parse", "--path-format=absolute", "--show-toplevel",
+                        "--absolute-git-dir", "--git-common-dir"],
             currentDirectoryURL: workspace
         ), result.terminationStatus == 0 else { return nil }
-        let path = String(
-            decoding: result.output,
-            as: UTF8.self
-        ).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !path.isEmpty else { return nil }
-        return URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath()
+        let paths = String(decoding: result.output, as: UTF8.self)
+            .split(separator: "\n").map(String.init)
+        guard paths.count == 3 else { return nil }
+        let urls = paths.map { URL(fileURLWithPath: $0).standardizedFileURL.resolvingSymlinksInPath() }
+        return GitWatchContext(repositoryRoot: urls[0], gitDirectory: urls[1], gitCommonDirectory: urls[2])
     }
 }
 
@@ -574,6 +546,8 @@ private func startObservation(
     at workspace: URL,
     recorder: GitObservationRecorder
 ) async throws {
+    let marker = workspace.appendingPathComponent("watcher-ready.txt").standardizedFileURL
+    try Data("preparing\n".utf8).write(to: marker)
     model.beginWorkspace(at: workspace, visibilityRules: .default)
     let result = await model.rebuild(
         at: workspace,
@@ -583,7 +557,15 @@ private func startObservation(
     guard case .loaded = result else {
         throw GitObservationTestError.workspaceUnavailable
     }
-    try await Task.sleep(for: .milliseconds(750))
+    // FSEvents can deliver setup writes after stream installation. Wait for a
+    // later marker to traverse the real watcher and refresh pipeline before
+    // measuring the operation, instead of guessing when setup events settle.
+    let initialRefreshCount = recorder.gitRefreshCount
+    try Data("ready\n".utf8).write(to: marker)
+    try #require(await waitUntil {
+        recorder.externalChangeBatches.flatMap { $0 }.contains(marker)
+            && recorder.gitRefreshCount > initialRefreshCount
+    }, "The watcher did not process its readiness marker")
     recorder.reset()
 }
 

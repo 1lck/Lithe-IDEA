@@ -2,6 +2,15 @@ import AppKit
 import SwiftUI
 import LitheGitModule
 
+enum GitWorktreeListAction: String {
+    case open
+    case reveal
+    case copyPath
+    case toggleLock
+    case remove
+    case prune
+}
+
 /// Native worktree list surface. A single document view lets AppKit move the
 /// clip bounds without rebuilding one SwiftUI hierarchy per worktree row.
 struct GitWorktreeListScrollView: NSViewRepresentable {
@@ -11,20 +20,26 @@ struct GitWorktreeListScrollView: NSViewRepresentable {
 
     let items: [GitWorktreeListItem]
     let selectedWorktreeID: String?
+    let isPerformingWorktreeOperation: Bool
     let onSelect: (String) -> Void
+    let onContextMenuAction: (GitWorktreeListAction, GitWorktreeListItem) -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
         Self.makeScrollView(
             items: items,
             selectedWorktreeID: selectedWorktreeID,
-            onSelect: onSelect
+            isPerformingWorktreeOperation: isPerformingWorktreeOperation,
+            onSelect: onSelect,
+            onContextMenuAction: onContextMenuAction
         )
     }
 
     static func makeScrollView(
         items: [GitWorktreeListItem],
         selectedWorktreeID: String?,
-        onSelect: @escaping (String) -> Void
+        isPerformingWorktreeOperation: Bool = false,
+        onSelect: @escaping (String) -> Void,
+        onContextMenuAction: @escaping (GitWorktreeListAction, GitWorktreeListItem) -> Void = { _, _ in }
     ) -> NSScrollView {
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
@@ -40,7 +55,13 @@ struct GitWorktreeListScrollView: NSViewRepresentable {
 
         let documentView = GitWorktreeListNSView()
         documentView.autoresizingMask = [.width]
-        documentView.update(items: items, selectedWorktreeID: selectedWorktreeID, onSelect: onSelect)
+        documentView.update(
+            items: items,
+            selectedWorktreeID: selectedWorktreeID,
+            isPerformingWorktreeOperation: isPerformingWorktreeOperation,
+            onSelect: onSelect,
+            onContextMenuAction: onContextMenuAction
+        )
         scrollView.documentView = documentView
         return scrollView
     }
@@ -51,7 +72,9 @@ struct GitWorktreeListScrollView: NSViewRepresentable {
         let contentChanged = documentView.update(
             items: items,
             selectedWorktreeID: selectedWorktreeID,
-            onSelect: onSelect
+            isPerformingWorktreeOperation: isPerformingWorktreeOperation,
+            onSelect: onSelect,
+            onContextMenuAction: onContextMenuAction
         )
         let layoutChanged = documentView.updateLayout(width: nsView.contentView.bounds.width)
 
@@ -81,7 +104,9 @@ struct GitWorktreeListScrollView: NSViewRepresentable {
 final class GitWorktreeListNSView: NSView {
     private var items: [GitWorktreeListItem] = []
     private var selectedWorktreeID: String?
+    private var isPerformingWorktreeOperation = false
     private var onSelect: ((String) -> Void)?
+    private var onContextMenuAction: ((GitWorktreeListAction, GitWorktreeListItem) -> Void)?
     private var drawingStyle: DrawingStyle?
     private var hoveredIndex: Int?
     private var lastLayoutWidth: CGFloat = -.greatestFiniteMagnitude
@@ -101,16 +126,21 @@ final class GitWorktreeListNSView: NSView {
     func update(
         items: [GitWorktreeListItem],
         selectedWorktreeID: String?,
-        onSelect: @escaping (String) -> Void
+        isPerformingWorktreeOperation: Bool = false,
+        onSelect: @escaping (String) -> Void,
+        onContextMenuAction: @escaping (GitWorktreeListAction, GitWorktreeListItem) -> Void = { _, _ in }
     ) -> Bool {
         let dataChanged = self.items != items
         let selectionChanged = self.selectedWorktreeID != selectedWorktreeID
+        let operationStateChanged = self.isPerformingWorktreeOperation != isPerformingWorktreeOperation
         self.items = items
         self.selectedWorktreeID = selectedWorktreeID
+        self.isPerformingWorktreeOperation = isPerformingWorktreeOperation
         self.onSelect = onSelect
+        self.onContextMenuAction = onContextMenuAction
         setAccessibilityValue(String(format: String(localized: "%lld worktrees"), items.count))
-        if dataChanged || selectionChanged { needsDisplay = true }
-        return dataChanged || selectionChanged
+        if dataChanged || selectionChanged || operationStateChanged { needsDisplay = true }
+        return dataChanged || selectionChanged || operationStateChanged
     }
 
     @discardableResult
@@ -162,12 +192,57 @@ final class GitWorktreeListNSView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.control) {
+            _ = menu(for: event)
+            return
+        }
         let point = convert(event.locationInWindow, from: nil)
         guard let index = rowIndex(at: point), items.indices.contains(index) else {
             super.mouseDown(with: event)
             return
         }
         onSelect?(items[index].id)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let window else { return nil }
+        let point = convert(event.locationInWindow, from: nil)
+        guard let index = rowIndex(at: point), items.indices.contains(index) else { return nil }
+        let item = items[index]
+        let menuItems = contextMenuItems(for: item)
+        onSelect?(item.id)
+        LitheContextMenuPresenter.shared.show(
+            items: menuItems,
+            at: window.convertPoint(toScreen: event.locationInWindow),
+            appearance: effectiveAppearance,
+            locale: .current
+        )
+        return nil
+    }
+
+    func contextMenuItems(for item: GitWorktreeListItem) -> [LitheContextMenuItem] {
+        // Capture the clicked worktree and callback before selection refreshes the list.
+        let perform = onContextMenuAction
+        let worktree = item.worktree
+        return [
+            .action("Open in Lithe", isEnabled: !worktree.isPrunable) { perform?(.open, item) },
+            .action("Show in Finder", isEnabled: !worktree.isPrunable) { perform?(.reveal, item) },
+            .action("Copy Path") { perform?(.copyPath, item) },
+            .separator,
+            .action(
+                worktree.isLocked ? "Unlock Worktree" : "Lock Worktree",
+                isEnabled: !isPerformingWorktreeOperation && !worktree.isPrimary && !worktree.isPrunable
+            ) { perform?(.toggleLock, item) },
+            .action(
+                "Remove Worktree…", role: .destructive,
+                isEnabled: !isPerformingWorktreeOperation && !worktree.isPrimary
+                    && !worktree.isCurrent && !worktree.isLocked && !worktree.isPrunable
+            ) { perform?(.remove, item) },
+            .action(
+                "Prune Stale Records",
+                isEnabled: !isPerformingWorktreeOperation && items.contains { $0.worktree.isPrunable }
+            ) { perform?(.prune, item) }
+        ]
     }
 
     override func draw(_ dirtyRect: NSRect) {

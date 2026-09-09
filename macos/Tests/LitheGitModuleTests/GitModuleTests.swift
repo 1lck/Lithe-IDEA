@@ -318,6 +318,68 @@ struct GitModuleTests {
     }
 
     @Test
+    func gitRefreshCombinesChangesFromDiscoveredWorkspaceRepositories() async {
+        let workspace = URL(fileURLWithPath: "/workspace")
+        let firstRoot = workspace.appendingPathComponent("service-a", isDirectory: true)
+        let secondRoot = workspace.appendingPathComponent("service-b", isDirectory: true)
+        let firstChange = GitChange(
+            repositoryRoot: firstRoot,
+            path: "src/App.swift",
+            originalPath: nil,
+            indexStatus: "M",
+            workTreeStatus: "M"
+        )
+        let secondChange = GitChange(
+            repositoryRoot: secondRoot,
+            path: "src/App.swift",
+            originalPath: nil,
+            indexStatus: "U",
+            workTreeStatus: "U"
+        )
+        let service = GitService(operations: TestGitOperations(
+            snapshotsByRoot: [
+                firstRoot.standardizedFileURL.path: GitSnapshot(
+                    repositoryRoot: firstRoot,
+                    branch: "main",
+                    changes: [firstChange]
+                ),
+                secondRoot.standardizedFileURL.path: GitSnapshot(
+                    repositoryRoot: secondRoot,
+                    branch: "develop",
+                    changes: [secondChange]
+                )
+            ],
+            repositoryRoots: [firstRoot, secondRoot],
+            commitResult: GitProcessResult(arguments: ["commit"], output: "committed", exitCode: 0)
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(
+            workspaceURLProvider: { workspace },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+
+        #expect(feature.availableRepositoryRoots == [firstRoot, secondRoot])
+        #expect(feature.gitChanges == [firstChange, secondChange])
+        #expect(feature.currentBranch == "main")
+        #expect(feature.activeRepositoryChanges == [firstChange])
+        // A conflict or staged entry in another repository must not block this commit.
+        #expect(await feature.commitStagedChanges(message: "First repository", amend: false))
+        #expect(firstChange.id != secondChange.id)
+        #expect(feature.gitTreeStatus.change(relativePath: firstChange.url.path) == firstChange)
+        #expect(feature.gitTreeStatus.change(relativePath: secondChange.url.path) == secondChange)
+        await feature.selectRepository(secondRoot)
+        #expect(feature.gitRepositoryRoot == secondRoot)
+        #expect(feature.currentBranch == "develop")
+        #expect(feature.activeRepositoryChanges == [secondChange])
+        #expect(await !feature.commitStagedChanges(message: "Conflicted repository", amend: false))
+        #expect(feature.gitChanges == [firstChange, secondChange])
+    }
+
+    @Test
     func gitServiceRecordsElapsedTimeForHistoryOperations() async {
         let root = URL(fileURLWithPath: "/workspace")
         let logger = GitPerformanceLogRecorder()
@@ -515,6 +577,66 @@ struct GitModuleTests {
             ["stash", "push", "--include-untracked"]
         ])
         #expect(feature.gitConsoleEntries.first?.succeeded == true)
+    }
+
+    @Test(arguments: [false, true])
+    func confirmedDiscardSurvivesDialogDismissal(untracked: Bool) async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let change = GitChange(repositoryRoot: root, path: "target.txt", originalPath: nil,
+                               indexStatus: untracked ? "?" : " ", workTreeStatus: untracked ? "?" : "M")
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            discardHandler: { target in
+                GitProcessResult(arguments: ["discard", target.path], output: "", standardOutput: "",
+                                 standardError: "", exitCode: 0)
+            }
+        ))
+        let feature = GitFeatureModel(service: service)
+        var notifications: [String] = []
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+                          notify: { notifications.append($0) }, onStateRefreshed: {})
+        await feature.refreshGit()
+        feature.clearGitConsole()
+        feature.requestDiscardChange(change)
+        let confirmed = try #require(feature.pendingDiscardChange)
+        // SwiftUI dismisses the dialog before the button's asynchronous operation starts.
+        feature.cancelDiscardChange()
+        #expect(feature.gitConsoleEntries.isEmpty)
+        await feature.confirmDiscardChange(confirmed)
+        #expect(feature.gitConsoleEntries.map(\.arguments) == [["discard", "target.txt"]])
+        #expect(notifications == ["Discarded target.txt"])
+        #expect(feature.pendingDiscardChange == nil)
+        #expect(feature.gitChanges.isEmpty)
+    }
+
+    @Test
+    func confirmedDiscardHunkSurvivesDialogDismissalAndReportsFailure() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let change = GitChange(repositoryRoot: root, path: "target.txt", originalPath: nil,
+                               indexStatus: " ", workTreeStatus: "M")
+        let hunk = DiffHunk(id: "h1", header: "@@ -1 +1 @@", patch: "confirmed patch")
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: [change]),
+            applyPatchHandler: { patch, _, mode in
+                GitProcessResult(arguments: [mode, patch], output: "Patch no longer applies",
+                                 standardOutput: "", standardError: "Patch no longer applies", exitCode: 1)
+            }
+        ))
+        let feature = GitFeatureModel(service: service)
+        var notifications: [String] = []
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+                          notify: { notifications.append($0) }, onStateRefreshed: {})
+        await feature.refreshGit()
+        feature.clearGitConsole()
+        feature.requestDiscardHunk(hunk, in: change)
+        let confirmed = try #require(feature.pendingDiscardHunk)
+        feature.cancelDiscardHunk()
+        #expect(feature.gitConsoleEntries.isEmpty)
+        await feature.confirmDiscardHunk(confirmed)
+        #expect(feature.gitConsoleEntries.map(\.arguments) == [["discard", "confirmed patch"]])
+        #expect(notifications == ["Patch no longer applies"])
+        #expect(feature.pendingDiscardHunk == nil)
+        #expect(feature.gitChanges == [change])
     }
 
     // MARK: Tag management
@@ -2613,6 +2735,8 @@ private final class GitProcessResultQueue: @unchecked Sendable {
 
 private struct TestGitOperations: GitOperations {
     private let snapshotValue: GitSnapshot?
+    private let snapshotsByRoot: [String: GitSnapshot]
+    private let repositoryRoots: [URL]?
     private let comparisonValue: GitBranchComparison?
     private let typedComparisonValue: GitBranchComparison?
     private let filesValue: [GitCommitFile]?
@@ -2624,7 +2748,10 @@ private struct TestGitOperations: GitOperations {
     private let historyPageValues: [String: GitHistoryPage]?
     private let historyController: GitHistoryLoadController?
     private let snapshotGate: GitModuleTestGate?
+    private let discardHandler: (@Sendable (GitChange) -> GitProcessResult?)?
+    private let applyPatchHandler: (@Sendable (String, URL, String) -> GitProcessResult?)?
     private let stageResult: GitProcessResult?
+    private let commitResult: GitProcessResult?
     private let runGate: TestGitRunGate?
     private let filesRecorder: GitFilesCallRecorder?
     private let filesGate: GitFilesLoadGate?
@@ -2640,6 +2767,8 @@ private struct TestGitOperations: GitOperations {
 
     init(
         snapshotValue: GitSnapshot? = nil,
+        snapshotsByRoot: [String: GitSnapshot] = [:],
+        repositoryRoots: [URL]? = nil,
         comparisonValue: GitBranchComparison? = nil,
         typedComparisonValue: GitBranchComparison? = nil,
         historyValue: GitHistorySnapshot? = nil,
@@ -2651,7 +2780,10 @@ private struct TestGitOperations: GitOperations {
         comparisonDiffDocumentValue: DiffDocument? = nil,
         typedComparisonDiffDocumentValue: DiffDocument? = nil,
         snapshotGate: GitModuleTestGate? = nil,
+        discardHandler: (@Sendable (GitChange) -> GitProcessResult?)? = nil,
+        applyPatchHandler: (@Sendable (String, URL, String) -> GitProcessResult?)? = nil,
         stageResult: GitProcessResult? = nil,
+        commitResult: GitProcessResult? = nil,
         runGate: TestGitRunGate? = nil,
         filesRecorder: GitFilesCallRecorder? = nil,
         filesGate: GitFilesLoadGate? = nil,
@@ -2666,6 +2798,8 @@ private struct TestGitOperations: GitOperations {
         removeWorktreeResult: GitProcessResult? = nil
     ) {
         self.snapshotValue = snapshotValue
+        self.snapshotsByRoot = snapshotsByRoot
+        self.repositoryRoots = repositoryRoots
         self.comparisonValue = comparisonValue
         self.typedComparisonValue = typedComparisonValue
         self.historyValue = historyValue
@@ -2677,7 +2811,10 @@ private struct TestGitOperations: GitOperations {
         self.comparisonDiffDocumentValue = comparisonDiffDocumentValue
         self.typedComparisonDiffDocumentValue = typedComparisonDiffDocumentValue
         self.snapshotGate = snapshotGate
+        self.discardHandler = discardHandler
+        self.applyPatchHandler = applyPatchHandler
         self.stageResult = stageResult
+        self.commitResult = commitResult
         self.runGate = runGate
         self.filesRecorder = filesRecorder
         self.filesGate = filesGate
@@ -2705,7 +2842,13 @@ private struct TestGitOperations: GitOperations {
 
     func snapshot(at rootURL: URL) -> GitSnapshot? {
         _ = snapshotGate?.waitSynchronously()
+        if let snapshot = snapshotsByRoot[rootURL.standardizedFileURL.path] {
+            return snapshot
+        }
         return snapshotValue
+    }
+    func repositories(in workspaceURL: URL) -> [URL] {
+        repositoryRoots ?? (snapshot(at: workspaceURL).map { [$0.repositoryRoot] } ?? [])
     }
     func watchContext(at rootURL: URL) -> GitWatchContext? { nil }
     func worktrees(at rootURL: URL) -> [GitWorktree]? { nil }
@@ -2716,7 +2859,9 @@ private struct TestGitOperations: GitOperations {
     func commitDiffDocument(at rootURL: URL, commit: String, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { nil }
     func comparisonDiffDocument(at rootURL: URL, reference: String, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { comparisonDiffDocumentValue }
     func comparisonDiffDocument(at rootURL: URL, reference: GitReference, targetReference: GitReference?, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { typedComparisonDiffDocumentValue }
-    func applyPatch(_ patch: String, at rootURL: URL, mode: String) -> GitProcessResult? { nil }
+    func applyPatch(_ patch: String, at rootURL: URL, mode: String) -> GitProcessResult? {
+        applyPatchHandler?(patch, rootURL, mode)
+    }
     func history(at rootURL: URL, reference: GitReference?, limit: Int) -> GitHistorySnapshot? {
         if let historyController {
             return historyController.history(at: rootURL, reference: reference, limit: limit)
@@ -2765,9 +2910,9 @@ private struct TestGitOperations: GitOperations {
     func blame(at rootURL: URL, relativePath: String) -> [GitBlameLine]? { nil }
     func stage(_ change: GitChange) -> GitProcessResult? { stageResult }
     func unstage(_ change: GitChange) -> GitProcessResult? { nil }
-    func discard(_ change: GitChange) -> GitProcessResult? { nil }
+    func discard(_ change: GitChange) -> GitProcessResult? { discardHandler?(change) }
     func discardAll(_ change: GitChange) -> GitProcessResult? { nil }
-    func commit(at rootURL: URL, message: String, amend: Bool) -> GitProcessResult? { nil }
+    func commit(at rootURL: URL, message: String, amend: Bool) -> GitProcessResult? { commitResult }
     func cherryPick(_ hash: String, at rootURL: URL) -> GitProcessResult? { nil }
     func revert(_ hash: String, at rootURL: URL) -> GitProcessResult? { nil }
     func resetCurrentBranch(to hash: String, mode: String, at rootURL: URL) -> GitProcessResult? { nil }

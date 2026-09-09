@@ -67,6 +67,7 @@ stable error code and a user-facing message:
 | `community.discourse.categories` | List normalized visible categories |
 | `community.discourse.search` | Search normalized topics and sanitized posts |
 | `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths |
+| `workspace.repositories` | Discover deterministic Git repository roots for an opened workspace |
 | `workspace.search` | Search visible file names and UTF-8 text files |
 | `workspace.searchEverywhere` | Search visible file names, Java types/methods, and UTF-8 text files |
 | `workspace.replacePreview` | Return deterministic replacement lines and complete replacement text |
@@ -134,6 +135,7 @@ stable error code and a user-facing message:
 | `java.serverPort` | Parse Spring server port settings from properties or YAML text |
 | `java.structure` | Parse Java editor folds, inlay hints, and portable syntax roles |
 | `spring.index` | Build a deterministic Spring configuration, bean, injection, and endpoint index |
+| `mybatis.index` | Build a deterministic MyBatis mapper-interface and XML statement index |
 | `runConfig.inspect` | Inspect `.lithe` run documents, versions, and staleness without writing files |
 | `runConfig.generate` | Generate deterministic Java/Maven configurations and toolchain requirements |
 | `runConfig.resolve` | Merge generated, project, and local layers and return diagnostics |
@@ -213,6 +215,18 @@ are one-based. `git.status.repositoryRoot` may be an absolute path when the
 opened workspace is a subdirectory of the repository; all Git change paths are
 relative to that repository root. `git.status.ahead` and `behind` report the
 current branch's tracking counts and are zero when no upstream is configured.
+`workspace.repositories.repositories` is ordered with the containing workspace
+repository first when present, then repositories under the opened workspace by
+workspace containment, depth, and path. Each entry contains an absolute native
+`path` because repository roots are platform boundary values and may be outside
+the opened folder when the folder is nested inside a checkout. Core treats both
+`.git` directories and `.git` files as repository markers. The default traversal
+visits the entire workspace tree, including build and dependency folders, and
+continues below discovered repositories. Git metadata itself is not traversed.
+Symbolic directory links are not followed, preventing cycles and traversal
+outside the workspace. Callers may explicitly supply `maxDirectories` and
+`maxDepth` to request a bounded scan; product consumers omit these limits.
+Traversal checks cancellation between directories and entries.
 `git.worktrees.worktrees` is ordered with the primary worktree first and then
 by path. Each entry contains `path`, `head`, nullable `branch`, `isCurrent`,
 `isPrimary`, `isBare`, `isDetached`, `isLocked`, nullable `lockReason`,
@@ -1189,6 +1203,25 @@ Dependency metadata is cached in the Rust process. Project-open indexing sets
 it `false`, so editing Java or configuration files does not repeatedly traverse
 and open the local dependency repository. The repository path is selected by
 the platform composition layer and is never persisted in shared results.
+
+`mybatis.index` accepts `root`, workspace-relative `paths`, and optional
+`textOverrides` keyed by relative path. It pairs Java mapper types with XML
+`<mapper namespace>` documents and returns only statements that have both a
+Java method and a matching XML `select`/`insert`/`update`/`delete` `id`.
+Results are deterministically ordered by namespace, statement id, XML path,
+and line. Locations use relative paths and one-based lines and columns.
+`javaLine`/`javaColumn` point at the method name; `javaEndColumn` is the
+exclusive UTF-16 column after that name. `javaEndLine` is the signature
+terminator. `xmlLine`/`xmlColumn`/`xmlEndColumn` bound the statement `id`
+value the same way. Hosts intercept go-to-definition only when the caret
+is inside those name ranges; return types and parameters keep LSP
+navigation. Java methods are collected from `tree-sitter-java` syntax
+nodes, so nested generics, split signatures, and commented-out methods
+are not mistaken for declarations. XML comments are ignored. Methods with
+a method body, including `default` methods, are omitted from the Java
+side of the index. Paths are indexed only when they are regular `.java`
+or mapper `.xml` files no larger than 2 MiB; `pom.xml` and other
+extensions are skipped before content is read.
 
 `diagnostics.redactText` accepts `text` and returns `redacted` with
 credentials, tokens, and home-directory paths replaced by stable placeholders

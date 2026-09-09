@@ -358,16 +358,14 @@ const TitleBarWithSettings = ({
   const isProjectPickerVisible = useUIState((state) => state.isProjectPickerVisible);
   const setIsSettingsDialogVisible = useUIState((state) => state.setIsSettingsDialogVisible);
   const setIsProjectPickerVisible = useUIState((state) => state.setIsProjectPickerVisible);
-  const [projectPickerMode, setProjectPickerMode] = useState<ProjectPickerMode>("picker");
+  const projectPickerMode = useUIState((state) => state.projectPickerMode);
   const openProjectPicker = useCallback(
     (mode: ProjectPickerMode = "picker") => {
-      setProjectPickerMode(mode);
-      setIsProjectPickerVisible(true);
+      setIsProjectPickerVisible(true, mode);
     },
     [setIsProjectPickerVisible],
   );
   const closeProjectPicker = useCallback(() => {
-    setProjectPickerMode("picker");
     setIsProjectPickerVisible(false);
   }, [setIsProjectPickerVisible]);
 
