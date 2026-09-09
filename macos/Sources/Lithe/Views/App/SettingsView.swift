@@ -166,6 +166,8 @@ struct SettingsView: View {
             ["LSP", "Language server"]
         case .ai:
             ["AI & Commit", "AI provider", "Model", "API key", "Commit message"]
+        case .git:
+            ["Git", "Commit identity", "Committer name", "Committer email", "Configuration scope", "user.name", "user.email"]
         case .updates:
             ["Updates", "Application version", "Update status", "Check for Updates"]
         case .diagnostics:
@@ -222,6 +224,7 @@ struct SettingsView: View {
                     case .lsp: EmptyView()
                     case .project: EmptyView()
                     case .ai: aiSettings
+                    case .git: GitIdentitySettingsView()
                     case .updates: updatesSettings
                     case .diagnostics: diagnosticsSettings
                     }
@@ -1209,10 +1212,7 @@ struct SettingsView: View {
         case .upToDate(let version):
             Label("Lithe is up to date at version \(version).", systemImage: "checkmark.circle.fill")
                 .foregroundStyle(LitheTheme.success)
-        case .noRelease:
-            Text("No published release is available yet.")
-                .foregroundStyle(LitheTheme.secondaryText)
-        case .failed(let message):
+        case .failed(_, let message):
             Label(message, systemImage: "exclamationmark.triangle")
                 .foregroundStyle(LitheTheme.warning)
                 .fixedSize(horizontal: false, vertical: true)

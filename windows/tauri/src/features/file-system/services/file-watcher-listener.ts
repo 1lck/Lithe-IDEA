@@ -4,6 +4,8 @@ import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getBufferByPath } from "@/features/editor/utils/buffer-index";
 import { emitGitChanged } from "@/features/git/events/git-events";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { useMavenStore } from "@/features/maven/stores/maven.store";
+import { getBaseName, getRelativePath, pathStartsWithRoot } from "@/utils/path-helpers";
 import { useFileSystemStore } from "../stores/file-system.store";
 import { useFileWatcherStore } from "../stores/file-watcher.store";
 import {
@@ -22,6 +24,20 @@ interface FileChangeEvent {
 
 let unlistenFileChanged: UnlistenFn | null = null;
 
+export function getMavenPomChangePath(
+  path: string,
+  rootFolderPath: string | undefined,
+): string | null {
+  if (
+    !rootFolderPath ||
+    !pathStartsWithRoot(path, rootFolderPath) ||
+    getBaseName(path).toLowerCase() !== "pom.xml"
+  ) {
+    return null;
+  }
+  return getRelativePath(path, rootFolderPath);
+}
+
 function scheduleDirectoryRefresh(workspaceId: string, directoryPath: string) {
   scheduleFileWatcherRefresh(workspaceId, directoryPath, async () => {
     if (!workspaceRuntimeRegistry.hasWorkspace(workspaceId)) {
@@ -39,7 +55,9 @@ export async function initializeFileWatcherListener() {
     const { path, event_type } = event.payload;
     const workspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId();
     const rootFolderPath = useFileSystemStore.getStore(workspaceId).getState().rootFolderPath;
+    if (!rootFolderPath || !pathStartsWithRoot(path, rootFolderPath)) return;
     const parentDirectory = await dirname(path);
+    const mavenPomPath = getMavenPomChangePath(path, rootFolderPath);
 
     window.dispatchEvent(
       new CustomEvent("file-external-change", {
@@ -47,10 +65,10 @@ export async function initializeFileWatcherListener() {
       }),
     );
 
-    const pendingSave = useFileWatcherStore
-      .getStore(workspaceId)
-      .getState().pendingSaves.has(path);
-    if (rootFolderPath) {
+    const pendingSave = useFileWatcherStore.getStore(workspaceId).getState().pendingSaves.has(path);
+    if (mavenPomPath !== null) {
+      useMavenStore.getStore(workspaceId).getState().actions.markPomReloadRequired(mavenPomPath);
+    } else {
       scheduleJavaWorkspaceChange(workspaceId, rootFolderPath, {
         path,
         kind: event_type === "deleted" ? "deleted" : event_type === "opened" ? "created" : "changed",

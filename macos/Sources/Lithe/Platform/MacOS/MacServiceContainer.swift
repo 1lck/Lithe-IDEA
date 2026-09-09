@@ -466,7 +466,8 @@ final class MacServiceContainer {
                 GitModule(
                     operations: gitOperations,
                     shelfStorage: MacGitShelfStorage(storage: fileStorage),
-                    performanceLogger: gitPerformanceLogger ?? NullGitPerformanceLogger()
+                    performanceLogger: gitPerformanceLogger ?? NullGitPerformanceLogger(),
+                    patchFileAccess: MacGitPatchFileAccess(storage: fileStorage)
                 )
             })
             try moduleRegistry.register(ModuleFactory(manifest: SearchModule.moduleManifest, contributions: SearchModule.moduleContributions) {

@@ -7,6 +7,36 @@ import Testing
 @MainActor
 struct GitModuleTests {
     @Test
+    func patchDiscoveryKeepsFilesSelectableAfterAnEncodingFailure() async throws {
+        let good = GitPatchFile(path: "good.txt", originalPath: nil, additions: 1, deletions: 0)
+        let legacy = GitPatchFile(path: "legacy.txt", originalPath: nil, additions: 1, deletions: 0)
+        let service = GitService(operations: TestGitOperations(exportPatchHandler: { paths, metadataOnly in
+            if metadataOnly { return .success(GitPatchExport(patch: "", files: [good, legacy], byteLength: 0)) }
+            if paths.contains("legacy.txt") { return .failure(GitPatchFailure("Non-UTF-8 patch")) }
+            return .success(GitPatchExport(patch: "selected UTF-8 patch", files: [good], byteLength: 20))
+        }))
+        let feature = GitPatchFeatureModel(service: service) { _, _, _, _ in nil }
+        defer { feature.reset() }
+        feature.beginExport(at: URL(fileURLWithPath: "/workspace"))
+        // Observe the public busy boundary with the existing bounded helper;
+        // reset owns task cancellation even when an assertion fails.
+        try #require(await waitForGitWorkToBecomeIdle { feature.isBusy })
+        #expect(feature.files == [good, legacy])
+        #expect(feature.exportPreview == nil)
+        #expect(feature.canGenerateExport)
+        feature.generateExport()
+        try #require(await waitForGitWorkToBecomeIdle { feature.isBusy })
+        #expect(feature.errorMessage == "Non-UTF-8 patch")
+        #expect(feature.files == [good, legacy])
+        feature.selectPath("legacy.txt", included: false)
+        feature.generateExport()
+        try #require(await waitForGitWorkToBecomeIdle { feature.isBusy })
+        #expect(feature.errorMessage == nil)
+        #expect(feature.exportPreview?.files == [good])
+        #expect(feature.canSave)
+    }
+
+    @Test
     func treeStatusProjectsExactFilesAndHighestPriorityDirectories() {
         let root = URL(fileURLWithPath: "/workspace")
         let projection = GitTreeStatusProjection(changes: [
@@ -2763,6 +2793,7 @@ private struct TestGitOperations: GitOperations {
     private let deleteBranchResult: GitProcessResult?
     private let deleteBranchResults: GitProcessResultQueue?
     private let branchCallRecorder: BranchCallRecorder?
+    private let exportPatchHandler: (@Sendable ([String], Bool) -> Result<GitPatchExport, GitPatchFailure>)?
     private let removeWorktreeResult: GitProcessResult?
 
     init(
@@ -2795,6 +2826,7 @@ private struct TestGitOperations: GitOperations {
         deleteBranchResult: GitProcessResult? = nil,
         deleteBranchResults: GitProcessResultQueue? = nil,
         branchCallRecorder: BranchCallRecorder? = nil,
+        exportPatchHandler: (@Sendable ([String], Bool) -> Result<GitPatchExport, GitPatchFailure>)? = nil,
         removeWorktreeResult: GitProcessResult? = nil
     ) {
         self.snapshotValue = snapshotValue
@@ -2826,7 +2858,12 @@ private struct TestGitOperations: GitOperations {
         self.deleteBranchResult = deleteBranchResult
         self.deleteBranchResults = deleteBranchResults
         self.branchCallRecorder = branchCallRecorder
+        self.exportPatchHandler = exportPatchHandler
         self.removeWorktreeResult = removeWorktreeResult
+    }
+
+    func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure> {
+        exportPatchHandler?(paths, metadataOnly) ?? .failure(GitPatchFailure("Patch export unavailable"))
     }
 
     func run(arguments: [String], workingDirectory: String, input: String?) -> GitProcessResult {

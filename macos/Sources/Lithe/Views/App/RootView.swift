@@ -96,15 +96,6 @@ struct RootView: View {
         }
         .alert(item: $updateChecker.notice) { notice in
             switch notice.action {
-            case .install:
-                return Alert(
-                    title: Text(LocalizedStringKey(notice.title)),
-                    message: Text(LocalizedStringKey(notice.message)),
-                    primaryButton: .default(Text("Update")) {
-                        Task { await updateChecker.installAvailableUpdate() }
-                    },
-                    secondaryButton: .cancel()
-                )
             case .open(let url):
                 return Alert(
                     title: Text(LocalizedStringKey(notice.title)),
@@ -120,27 +111,6 @@ struct RootView: View {
                     message: Text(LocalizedStringKey(notice.message)),
                     dismissButton: .default(Text("OK"))
                 )
-            }
-        }
-        .confirmationDialog(
-            updateChecker.updatePrompt?.title ?? "Update Available",
-            isPresented: updatePromptPresented,
-            titleVisibility: .visible
-        ) {
-            if let prompt = updateChecker.updatePrompt {
-                Button("Update Now") {
-                    Task { await updateChecker.installAvailableUpdate() }
-                }
-                Button("Open Release Page") {
-                    updateChecker.openRelease(prompt.releaseURL)
-                }
-                Button("Later", role: .cancel) {
-                    updateChecker.dismissUpdatePrompt()
-                }
-            }
-        } message: {
-            if let prompt = updateChecker.updatePrompt {
-                Text(LocalizedStringKey(prompt.message))
             }
         }
         .task {
@@ -186,16 +156,6 @@ struct RootView: View {
         )
     }
 
-    private var updatePromptPresented: Binding<Bool> {
-        Binding(
-            get: { updateChecker.updatePrompt != nil },
-            set: { isPresented in
-                if !isPresented {
-                    updateChecker.dismissUpdatePrompt()
-                }
-            }
-        )
-    }
 }
 
 private struct ProjectSessionContent: View {

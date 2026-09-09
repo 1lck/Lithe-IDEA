@@ -1,3 +1,5 @@
+import { showGitWorktreeDialog } from "../services/git-worktree-dialog-service";
+import { showGitRebaseDialog } from "../services/git-rebase-dialog-service";
 import {
   ArchiveIcon as Archive,
   DownloadIcon as Download,
@@ -23,6 +25,7 @@ import { showGitPushDialog } from "../services/git-push-dialog-service";
 import { discardAllChanges, initRepository } from "../api/git-status-api";
 import { useGitStore } from "../stores/git.store";
 import { type GitActionsMenuAnchorRect } from "../utils/git-actions-menu-position";
+import { showGitPatchDialog } from "../services/git-patch-dialog-service";
 
 interface GitActionsMenuProps {
   isOpen: boolean;
@@ -269,6 +272,35 @@ const GitActionsMenu = ({
           onClick: () => void handleRefresh(),
         },
         { id: "sep-5", label: "", separator: true, onClick: () => {} },
+        {
+          id: "manage-worktrees",
+          label: t("git.worktreeDialog.manage"),
+          icon: <FolderOpen />,
+          disabled: isLoading,
+          onClick: () => { if (repoPath) { onClose(); void showGitWorktreeDialog(repoPath); } },
+        },
+        {
+          id: "rebase-session",
+          label: t("git.rebasePlan.session"),
+          icon: <GitBranch />,
+          disabled: isLoading,
+          onClick: () => { if (repoPath) { onClose(); showGitRebaseDialog(repoPath); } },
+        },
+        {
+          id: "create-patch",
+          label: t("git.patch.create"),
+          icon: <Upload />,
+          disabled: isLoading,
+          onClick: () => { if (repoPath) { onClose(); void showGitPatchDialog(repoPath, { mode: "export" }); } },
+        },
+        {
+          id: "apply-patch",
+          label: t("git.patch.apply"),
+          icon: <Download />,
+          disabled: isLoading,
+          onClick: () => { if (repoPath) { onClose(); void showGitPatchDialog(repoPath, { mode: "apply" }); } },
+        },
+        { id: "sep-patch", label: "", separator: true, onClick: () => {} },
         {
           id: "discard-all",
           label: t("git.discardAllChanges"),

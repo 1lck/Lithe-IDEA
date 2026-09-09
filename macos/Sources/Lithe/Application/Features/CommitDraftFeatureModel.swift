@@ -14,6 +14,17 @@ final class CommitDraftFeatureModel: ObservableObject {
     @Published var amend = false
     @Published private(set) var isGenerating = false
     @Published private(set) var pendingGeneratedMessage: String?
+    @Published private(set) var commitEditorRequestVersion = 0
+
+    /// Undo returns to normal committing without overwriting a draft the user is already writing.
+    func prepareForUndoneCommit(message originalMessage: String) {
+        if message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            message = originalMessage
+        }
+        // Undo moved HEAD; leaving Amend enabled would rewrite its parent on the next commit.
+        amend = false
+        commitEditorRequestVersion &+= 1
+    }
 
     func generate(using operation: () async throws -> String?) async throws -> GenerationOutcome? {
         guard !isGenerating else { return nil }
