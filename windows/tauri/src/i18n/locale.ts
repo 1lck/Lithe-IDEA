@@ -2893,6 +2893,7 @@ const catalogs = {
     "terminal.pasteLinesConfirm":
       "Paste {count} lines into the terminal? This may run multiple commands.",
     "terminal.pasteIntoTerminal": "Paste into Terminal",
+    "terminal.copySelection": "Copy Selection",
     "terminal.paste": "Paste",
     "terminal.openExternalLink": "Open External Link",
     "terminal.openExternalLinkConfirm": "Do you want to open this link in your browser?\n\n{url}",
@@ -6811,6 +6812,7 @@ const catalogs = {
     "terminal.retry": "重试",
     "terminal.pasteLinesConfirm": "要将 {count} 行粘贴到终端吗？这可能会执行多条命令。",
     "terminal.pasteIntoTerminal": "粘贴到终端",
+    "terminal.copySelection": "复制所选内容",
     "terminal.paste": "粘贴",
     "terminal.openExternalLink": "打开外部链接",
     "terminal.openExternalLinkConfirm": "要在浏览器中打开此链接吗？\n\n{url}",
