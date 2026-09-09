@@ -252,12 +252,12 @@ open dist/Lithe.app
   </tr>
   <tr>
     <td width="112" align="center">
-      <a href="https://torchai.ai">
+      <a href="https://torchai.ai/sign-up?aff=FdkE">
         <img src="./docs/assets/sponsors/torchai.jpg" width="64" alt="TorchAI">
       </a>
     </td>
     <td>
-      <a href="https://torchai.ai"><strong>TorchAI</strong></a> 面向开发者提供大模型中转服务，便于在编程、内容生成和自动化等不同场景中调用模型 API。其支持帮助 Lithe 保持持续开发，并探索更实用的 AI 工具体验。感谢 TorchAI 对本项目的支持！
+      <a href="https://torchai.ai/sign-up?aff=FdkE"><strong>TorchAI</strong></a> 面向开发者提供大模型中转服务，便于在编程、内容生成和自动化等不同场景中调用模型 API。其支持帮助 Lithe 保持持续开发，并探索更实用的 AI 工具体验。感谢 TorchAI 对本项目的支持！
     </td>
   </tr>
 </table>
