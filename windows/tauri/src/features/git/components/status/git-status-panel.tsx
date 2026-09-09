@@ -38,7 +38,6 @@ import {
   type PathTreeBranch,
   type PathTreeNode,
 } from "@/features/sidebar/lib/path-tree";
-import { cn } from "@/utils/cn";
 import { getBaseName, joinPath } from "@/utils/path-helpers";
 import { createStash } from "../../api/git-stash-api";
 import {
@@ -61,6 +60,7 @@ import {
   getGitFileRepositoryPath,
   getGitFileRepositoryRelativePath,
   resolveGitFileMutationPaths,
+  resolveGitFilesForStagedState,
   resolveGitStatusDeletionPaths,
   resolveGitStatusContextSelection,
   updateGitStatusSelection,
@@ -198,6 +198,7 @@ const GitStatusPanel = ({
   const [isLoading, setIsLoading] = useState(false);
   const [isDiffMenuOpen, setIsDiffMenuOpen] = useState(false);
   const [optimisticStageMap, setOptimisticStageMap] = useState<Record<string, boolean>>({});
+  const [stagePendingPaths, setStagePendingPaths] = useState<Set<string>>(new Set());
   const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(new Set());
 
   const [stashModal, setStashModal] = useState<{
@@ -415,7 +416,7 @@ const GitStatusPanel = ({
     const displayFilePaths = filesToStage.map((file) => file.path);
 
     setOptimisticStage(displayFilePaths, staged);
-    setIsLoading(true);
+    setStagePendingPaths((current) => new Set([...current, ...displayFilePaths]));
     try {
       const results = await Promise.all(
         repositoryGroups.map(({ repoPath: fileRepoPath, files: repositoryFiles }) =>
@@ -430,7 +431,11 @@ const GitStatusPanel = ({
       await onRefresh?.();
       return true;
     } finally {
-      setIsLoading(false);
+      setStagePendingPaths((current) => {
+        const next = new Set(current);
+        for (const filePath of displayFilePaths) next.delete(filePath);
+        return next;
+      });
     }
   };
 
@@ -862,6 +867,9 @@ const GitStatusPanel = ({
           onContextMenu={(event) => handleContextMenu(event, entry)}
           checked={commitSelectedPaths.has(row.file.path)}
           onCheckedChange={(checked) => handleSetCommitPathsSelected([row.file.path], checked)}
+          disabled={isLoading}
+          onStagedChange={(staged) => void handleSetFilesStaged([row.file], staged)}
+          stagePending={stagePendingPaths.has(row.file.path)}
           showDirectory={row.showDirectory}
           showFileIcon={fileTreePresentation.showIcons}
           showIndentGuides={fileTreePresentation.showIndentGuides}
@@ -968,6 +976,14 @@ const GitStatusPanel = ({
     () => contextMenuEntries.flatMap((entry) => entry.files),
     [contextMenuEntries],
   );
+  const contextMenuStagedFiles = useMemo(
+    () => resolveGitFilesForStagedState(contextMenuFiles, false),
+    [contextMenuFiles],
+  );
+  const contextMenuUnstagedFiles = useMemo(
+    () => resolveGitFilesForStagedState(contextMenuFiles, true),
+    [contextMenuFiles],
+  );
   const contextMenuDeletionPaths = useMemo(
     () => resolveGitStatusDeletionPaths(contextMenuEntries),
     [contextMenuEntries],
@@ -975,6 +991,19 @@ const GitStatusPanel = ({
   const contextMenuTarget = contextMenuEntries.length === 1 ? contextMenuEntries[0] : null;
   const contextMenuHasTrackedFiles = contextMenuFiles.some((file) => file.status !== "untracked");
   const contextMenuHasUntrackedFiles = contextMenuFiles.some((file) => file.status === "untracked");
+  const getStageActionLabel = (staged: boolean) => {
+    if (contextMenuTarget?.kind === "folder") {
+      return t(staged ? "git.unstageFolder" : "git.stageFolder", {
+        name: getBaseName(contextMenuTarget.path, contextMenuTarget.path),
+      });
+    }
+    if (contextMenuTarget?.kind === "file" && contextMenuFiles.length === 1) {
+      return t(staged ? "git.unstageFileNamed" : "git.stageFileNamed", {
+        name: getBaseName(contextMenuTarget.path, contextMenuTarget.path),
+      });
+    }
+    return t(staged ? "git.unstageFile" : "git.stageFile");
+  };
   const openScopedDiff = useCallback(
     (scope: GitStatusDiffScope) => {
       setIsDiffMenuOpen(false);
@@ -1197,6 +1226,30 @@ const GitStatusPanel = ({
                 },
               ]
             : [
+                ...(contextMenuUnstagedFiles.length > 0
+                  ? [
+                      {
+                        id: "stage-selection",
+                        label: getStageActionLabel(false),
+                        icon: <Plus />,
+                        disabled: isLoading || stagePendingPaths.size > 0,
+                        onClick: () =>
+                          void handleSetFilesStaged(contextMenuUnstagedFiles, true),
+                      },
+                    ]
+                  : []),
+                ...(contextMenuStagedFiles.length > 0
+                  ? [
+                      {
+                        id: "unstage-selection",
+                        label: getStageActionLabel(true),
+                        icon: <Minus />,
+                        disabled: isLoading || stagePendingPaths.size > 0,
+                        onClick: () =>
+                          void handleSetFilesStaged(contextMenuStagedFiles, false),
+                      },
+                    ]
+                  : []),
                 {
                   id: "commit-selection",
                   label: t("git.commit"),
