@@ -1899,8 +1899,11 @@ export function MonacoEditor({
 
   useEffect(() => {
     const editor = editorRef.current;
-    if (!editor || !isActiveSurface) return;
+    if (!editor) return;
 
+    // Switching panes can recreate the Monaco surface. Restore every recreated
+    // surface so the pane that just became inactive keeps its own viewport;
+    // the focus callback below remains limited to the active surface.
     const cached = useEditorStateStore
       .getState()
       .actions.getCachedViewState(viewStateKey ?? activeBufferId ?? "");
