@@ -764,16 +764,15 @@ export async function goBack(): Promise<void> {
         }
       : undefined;
 
-  const entry = useJumpListStore.getState().actions.goBack(currentPosition, paneId);
+  const entry = useJumpListStore.getState().actions.goBack(currentPosition);
   if (entry) {
-    await navigateToJumpEntry(entry, paneId);
+    await navigateToJumpEntry(entry);
   }
 }
 
 export async function goForward(): Promise<void> {
-  const paneId = usePaneStore.getState().activePaneId;
-  const entry = useJumpListStore.getState().actions.goForward(paneId);
+  const entry = useJumpListStore.getState().actions.goForward();
   if (entry) {
-    await navigateToJumpEntry(entry, paneId);
+    await navigateToJumpEntry(entry);
   }
 }

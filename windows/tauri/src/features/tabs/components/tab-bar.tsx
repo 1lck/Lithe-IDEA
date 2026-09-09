@@ -122,10 +122,10 @@ const TabBar = ({
   const usesWebViewerNavigation = activeBuffer?.type === "webViewer";
   const canGoBack = usesWebViewerNavigation
     ? Boolean(activeWebViewerNavigation?.canGoBack)
-    : jumpListActions.canGoBack(paneId);
+    : jumpListActions.canGoBack();
   const canGoForward = usesWebViewerNavigation
     ? Boolean(activeWebViewerNavigation?.canGoForward)
-    : jumpListActions.canGoForward(paneId);
+    : jumpListActions.canGoForward();
   const isPaneFullscreen = paneId ? fullscreenPaneId === paneId : false;
   const isPaneLocked = Boolean(pane?.locked);
   const isInSplit = paneRoot.type === "split";
@@ -200,9 +200,9 @@ const TabBar = ({
           }
         : undefined;
 
-    const entry = jumpListActions.goBack(currentPosition, paneId);
+    const entry = jumpListActions.goBack(currentPosition);
     if (entry) {
-      await navigateToJumpEntry(entry, paneId);
+      await navigateToJumpEntry(entry);
     }
   }, [activeWebViewerNavigation, jumpListActions, paneId, usesWebViewerNavigation]);
 
@@ -212,11 +212,11 @@ const TabBar = ({
       return;
     }
 
-    const entry = jumpListActions.goForward(paneId);
+    const entry = jumpListActions.goForward();
     if (entry) {
-      await navigateToJumpEntry(entry, paneId);
+      await navigateToJumpEntry(entry);
     }
-  }, [activeWebViewerNavigation, jumpListActions, paneId, usesWebViewerNavigation]);
+  }, [activeWebViewerNavigation, jumpListActions, usesWebViewerNavigation]);
 
   const handleShowNewTab = useCallback(() => {
     if (!paneId) return;

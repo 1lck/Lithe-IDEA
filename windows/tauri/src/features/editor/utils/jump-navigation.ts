@@ -16,12 +16,9 @@ function waitForEditorActivation(): Promise<void> {
   });
 }
 
-async function navigateToJumpEntryInternal(
-  entry: JumpListEntry,
-  requestedPaneId?: string,
-): Promise<boolean> {
+async function navigateToJumpEntryInternal(entry: JumpListEntry): Promise<boolean> {
   const bufferStore = useBufferStore.getState();
-  const paneId = requestedPaneId ?? entry.paneId ?? usePaneStore.getState().activePaneId;
+  const paneId = entry.paneId ?? usePaneStore.getState().activePaneId;
 
   // Try to find the buffer by ID first, then by path.
   let targetBuffer = getBufferById(bufferStore.buffers, entry.bufferId);
@@ -45,9 +42,8 @@ async function navigateToJumpEntryInternal(
     targetBufferId = targetBuffer.id;
   }
 
-  // Keep the navigation in the triggering pane even when another pane contains
-  // the same buffer. The global active-buffer sync otherwise selects the first
-  // matching pane and can move a right-pane navigation back to the left pane.
+  // Activate the pane captured with the history entry. The global active-buffer
+  // sync otherwise selects the first matching pane for buffers shown in multiple panes.
   activateBufferInPaneAndSync(paneId, targetBufferId);
 
   // The active editor adapter is replaced during a buffer switch. Preserve the
@@ -77,8 +73,8 @@ async function navigateToJumpEntryInternal(
   return true;
 }
 
-export function navigateToJumpEntry(entry: JumpListEntry, paneId?: string): Promise<boolean> {
-  const navigation = navigationQueue.then(() => navigateToJumpEntryInternal(entry, paneId));
+export function navigateToJumpEntry(entry: JumpListEntry): Promise<boolean> {
+  const navigation = navigationQueue.then(() => navigateToJumpEntryInternal(entry));
   navigationQueue = navigation.then(
     () => undefined,
     () => undefined,

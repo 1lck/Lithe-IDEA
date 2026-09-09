@@ -98,7 +98,28 @@ describe("jump list cursor history", () => {
     expect(actions.goForward()).toBeNull();
   });
 
-  test("keeps cursor history isolated by pane", () => {
+  test("keeps nearby explicit entries distinct in the same pane", () => {
+    const actions = useJumpListStore.getState().actions;
+    const paneId = "left-pane";
+
+    actions.pushEntry(cursorEntry(10, 5, paneId));
+    actions.pushEntry(cursorEntry(10, 20, paneId));
+
+    expect(
+      useJumpListStore
+        .getState()
+        .entries.map(({ line, column, paneId: entryPaneId }) => ({
+          line,
+          column,
+          paneId: entryPaneId,
+        })),
+    ).toEqual([
+      { line: 10, column: 5, paneId },
+      { line: 10, column: 20, paneId },
+    ]);
+  });
+
+  test("navigates chronologically across panes and preserves each destination pane", () => {
     const actions = useJumpListStore.getState().actions;
     const leftPaneId = "left-pane";
     const rightPaneId = "right-pane";
@@ -108,19 +129,17 @@ describe("jump list cursor history", () => {
     actions.recordCursorEntry(cursorEntry(29, 1, rightPaneId));
     actions.recordCursorEntry(cursorEntry(39, 1, rightPaneId));
 
-    expect(
-      actions.goBack(cursorEntry(49, 1, rightPaneId), rightPaneId),
-    ).toMatchObject({ line: 39, paneId: rightPaneId });
-    expect(actions.goBack(undefined, rightPaneId)).toMatchObject({
-      line: 29,
-      paneId: rightPaneId,
-    });
-    expect(actions.goForward(rightPaneId)).toMatchObject({
+    expect(actions.goBack(cursorEntry(49, 1, rightPaneId))).toMatchObject({
       line: 39,
       paneId: rightPaneId,
     });
-    expect(
-      actions.goBack(cursorEntry(29, 1, leftPaneId), leftPaneId),
-    ).toMatchObject({ line: 19, paneId: leftPaneId });
+    expect(actions.goBack()).toMatchObject({ line: 29, paneId: rightPaneId });
+    expect(actions.goBack()).toMatchObject({ line: 19, paneId: leftPaneId });
+    expect(actions.goBack()).toMatchObject({ line: 9, paneId: leftPaneId });
+
+    expect(actions.goForward()).toMatchObject({ line: 19, paneId: leftPaneId });
+    expect(actions.goForward()).toMatchObject({ line: 29, paneId: rightPaneId });
+    expect(actions.goForward()).toMatchObject({ line: 39, paneId: rightPaneId });
+    expect(actions.goForward()).toMatchObject({ line: 49, paneId: rightPaneId });
   });
 });
