@@ -52,6 +52,38 @@ struct ProjectRuntimeSettingsTests {
     }
 
     @Test
+    func nestedSubprojectOverrideKeepsParentOverride() {
+        var settings = ProjectRuntimeSettings(javaHomePath: "/jdk-21")
+        settings.setOverride(path: "services/alpha", javaHomePath: "/jdk-17")
+        settings.setOverride(path: "services/alpha/api", javaHomePath: "/jdk-11")
+
+        #expect(settings.exactOverride(for: "services/alpha")?.javaHomePath == "/jdk-17")
+        #expect(settings.exactOverride(for: "services/alpha/api")?.javaHomePath == "/jdk-11")
+        #expect(
+            settings.overlay(onto: RunOptions(), workspaceRelativePath: "services/alpha").javaHomePath
+                == "/jdk-17"
+        )
+        #expect(
+            settings.overlay(onto: RunOptions(), workspaceRelativePath: "services/alpha/api").javaHomePath
+                == "/jdk-11"
+        )
+        #expect(
+            settings.overlay(
+                onto: RunOptions(),
+                workspaceRelativePath: "services/alpha/api/impl"
+            ).javaHomePath == "/jdk-11"
+        )
+
+        settings.setOverride(path: "services/alpha/api", javaHomePath: "")
+        #expect(settings.exactOverride(for: "services/alpha/api") == nil)
+        #expect(settings.exactOverride(for: "services/alpha")?.javaHomePath == "/jdk-17")
+        #expect(
+            settings.overlay(onto: RunOptions(), workspaceRelativePath: "services/alpha/api").javaHomePath
+                == "/jdk-17"
+        )
+    }
+
+    @Test
     func inventoryListsIndependentBackendsAndFrontendRoots() {
         let root = URL(fileURLWithPath: "/workspace/shop", isDirectory: true)
         let alpha = MavenProject(
@@ -141,6 +173,32 @@ struct ProjectRuntimeSettingsTests {
             ).javaHomePath == "/Library/Java/jdk-17"
         )
     }
+
+    @Test
+    @MainActor
+    func invalidConfiguredProjectJDKIsNotMaskedByDiscovery() async throws {
+        let store = ProjectRuntimeSettingsTestStore()
+        let root = URL(fileURLWithPath: "/workspace/shop", isDirectory: true)
+        let discovered = JavaRuntimeCandidate(
+            homePath: "/Library/Java/jdk-21",
+            version: "21",
+            vendor: "Test"
+        )
+        let locator = ProjectRuntimeSettingsTestLocator(
+            validJavaHomes: ["/Library/Java/jdk-21"],
+            discoveredJavaRuntimes: [discovered]
+        )
+        let service = ProjectRuntimeService(runtimeLocator: locator, store: store)
+        service.openProject(at: root)
+        service.updateSettings(ProjectRuntimeSettings(javaHomePath: "/missing-jdk"))
+        await service.refreshAvailableRuntimes()
+
+        let report = try #require(service.javaEnvironmentReport)
+        #expect(report.status == .configuredJDKInvalid(path: "/missing-jdk"))
+        #expect(report.status.blocksJavaRun)
+        #expect(service.javaHomeURL() == nil)
+        #expect(report.javaHomePath == "/missing-jdk")
+    }
 }
 
 private final class ProjectRuntimeSettingsTestStore: KeyValueStore, @unchecked Sendable {
@@ -154,12 +212,18 @@ private final class ProjectRuntimeSettingsTestStore: KeyValueStore, @unchecked S
 }
 
 private struct ProjectRuntimeSettingsTestLocator: RuntimeLocator {
+    var validJavaHomes: Set<String>?
+    var discoveredJavaRuntimes: [JavaRuntimeCandidate] = []
+
     func environment() -> [String: String] { [:] }
     func discover() -> RuntimeDiscoveryResult {
-        RuntimeDiscoveryResult(javaRuntimes: [], mavenRuntimes: [])
+        RuntimeDiscoveryResult(javaRuntimes: discoveredJavaRuntimes, mavenRuntimes: [])
     }
     func validJavaHome(path: String) -> URL? {
-        URL(fileURLWithPath: path, isDirectory: true)
+        if let validJavaHomes {
+            return validJavaHomes.contains(path) ? URL(fileURLWithPath: path, isDirectory: true) : nil
+        }
+        return URL(fileURLWithPath: path, isDirectory: true)
     }
     func javaRuntime(at homeURL: URL) -> JavaRuntimeCandidate? {
         JavaRuntimeCandidate(homePath: homeURL.path, version: "21", vendor: "Test")

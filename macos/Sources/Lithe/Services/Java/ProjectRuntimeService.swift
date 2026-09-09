@@ -132,9 +132,8 @@ final class ProjectRuntimeService: ObservableObject {
             }
         }
         let configuredProjectJDK = settings.javaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !configuredProjectJDK.isEmpty,
-           let home = runtimeLocator.validJavaHome(path: normalizedOverridePath(configuredProjectJDK)) {
-            return home
+        if !configuredProjectJDK.isEmpty {
+            return runtimeLocator.validJavaHome(path: normalizedOverridePath(configuredProjectJDK))
         }
         let paths = [runtimeLocator.environment()["JAVA_HOME"]]
         for path in paths.compactMap({ $0 }).map(normalizedPath).filter({ !$0.isEmpty }) {
@@ -305,6 +304,21 @@ final class ProjectRuntimeService: ObservableObject {
             return
         }
 
+        let configuredProjectJDK = settings.javaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !configuredProjectJDK.isEmpty {
+            if let javaHome = runtimeLocator.validJavaHome(path: normalizedOverridePath(configuredProjectJDK)) {
+                publishReadyJavaEnvironmentReport(projectURL: projectURL, javaHome: javaHome)
+            } else {
+                javaEnvironmentReport = JavaEnvironmentReport(
+                    status: .configuredJDKInvalid(path: configuredProjectJDK),
+                    projectURL: projectURL,
+                    javaHomePath: configuredProjectJDK,
+                    javaExecutablePath: nil
+                )
+            }
+            return
+        }
+
         let javaHome = javaHomeURL()
             ?? discoveredJavaRuntimes.first.flatMap { runtimeLocator.validJavaHome(path: $0.homePath) }
         guard let javaHome else {
@@ -317,12 +331,15 @@ final class ProjectRuntimeService: ObservableObject {
             return
         }
 
-        let javaExecutable = javaHome.appendingPathComponent("bin/java")
+        publishReadyJavaEnvironmentReport(projectURL: projectURL, javaHome: javaHome)
+    }
+
+    private func publishReadyJavaEnvironmentReport(projectURL: URL, javaHome: URL) {
         javaEnvironmentReport = JavaEnvironmentReport(
             status: .ready,
             projectURL: projectURL,
             javaHomePath: javaHome.path,
-            javaExecutablePath: javaExecutable.path
+            javaExecutablePath: javaHome.appendingPathComponent("bin/java").path
         )
     }
 

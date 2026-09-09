@@ -162,8 +162,7 @@ struct ProjectRuntimeSettings: Codable, Hashable, Sendable {
     ) {
         let normalizedPath = Self.normalizedRelativePath(path)
         guard !normalizedPath.isEmpty, normalizedPath != "." else { return }
-        var current = override(matching: normalizedPath) ?? ProjectModuleRuntimeOverride(path: normalizedPath)
-        current.path = normalizedPath
+        var current = exactOverride(for: normalizedPath) ?? ProjectModuleRuntimeOverride(path: normalizedPath)
         if let javaHomePath { current.javaHomePath = javaHomePath.trimmingCharacters(in: .whitespacesAndNewlines) }
         if let mavenExecutablePath {
             current.mavenExecutablePath = mavenExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines)
