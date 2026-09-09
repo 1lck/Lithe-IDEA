@@ -74,7 +74,7 @@ struct GitWorktreeCreateView: View {
                 .toggleStyle(.checkbox).disabled(isSubmitting)
                 .help("Registers the worktree and prepares its HEAD while leaving its files unchecked out.")
             if let errorMessage {
-                Text(errorMessage).font(.system(size: 12)).foregroundStyle(LitheTheme.error).textSelection(.enabled)
+                Text(LocalizedStringKey(errorMessage)).font(.system(size: 12)).foregroundStyle(LitheTheme.error).textSelection(.enabled)
             }
             HStack {
                 if isSubmitting { ProgressView().controlSize(.small) }

@@ -50,10 +50,10 @@ private struct GitInteractiveRebaseSessionBanner: View {
                 Text("Current commit: \(currentCommit.prefix(12))").font(.system(size: 10.5, design: .monospaced))
             }
             if let error = editor.errorMessage {
-                Text(error).font(.system(size: 11)).foregroundStyle(LitheTheme.error).lineLimit(6).textSelection(.enabled)
+                Text(LocalizedStringKey(error)).font(.system(size: 11)).foregroundStyle(LitheTheme.error).lineLimit(6).textSelection(.enabled)
             }
             ForEach(Array(editor.warnings.enumerated()), id: \.offset) { _, warning in
-                Text(warning.message).font(.system(size: 11)).foregroundStyle(LitheTheme.warning)
+                Text(LocalizedStringKey(warning.message)).font(.system(size: 11)).foregroundStyle(LitheTheme.warning)
             }
             if session.isActive {
                 HStack(spacing: 7) {
@@ -134,7 +134,7 @@ private struct GitInteractiveRebaseSessionBanner: View {
             Text("Create Recovery Branch").font(.system(size: 16, weight: .semibold))
             Text("Create a branch at the history saved before this rebase. Your current checkout stays in place.").font(.system(size: 12))
             TextField("Branch name", text: $recoveryName).textFieldStyle(.roundedBorder).disabled(isCreatingRecovery)
-            if let recoveryError { Text(recoveryError).font(.system(size: 12)).foregroundStyle(LitheTheme.error) }
+            if let recoveryError { Text(LocalizedStringKey(recoveryError)).font(.system(size: 12)).foregroundStyle(LitheTheme.error) }
             HStack {
                 if isCreatingRecovery { ProgressView().controlSize(.small) }
                 Spacer()
@@ -175,7 +175,7 @@ private struct GitRebaseAmendDialog: View {
                 .overlay(Rectangle().stroke(LitheTheme.divider, lineWidth: 1)).disabled(editor.isBusy)
                 .accessibilityLabel("Complete commit message")
             Text("\(message.count) characters").font(.system(size: 11)).foregroundStyle(LitheTheme.secondaryText)
-            if let error = editor.errorMessage { Text(error).font(.system(size: 12)).foregroundStyle(LitheTheme.error) }
+            if let error = editor.errorMessage { Text(LocalizedStringKey(error)).font(.system(size: 12)).foregroundStyle(LitheTheme.error) }
             HStack {
                 if editor.isExecuting { ProgressView().controlSize(.small) }
                 Spacer()

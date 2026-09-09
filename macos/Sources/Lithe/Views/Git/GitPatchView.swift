@@ -56,15 +56,15 @@ private struct GitPatchDialog: View {
                     .font(.system(size: 12))
                     .foregroundStyle(check.applicable ? LitheTheme.accent : LitheTheme.warning)
                 if !check.diagnostic.isEmpty {
-                    Text(check.diagnostic).font(.system(size: 11)).textSelection(.enabled)
+                    Text(LocalizedStringKey(check.diagnostic)).font(.system(size: 11)).textSelection(.enabled)
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
             }
             if let message = editor.errorMessage {
-                Text(message).font(.system(size: 12)).foregroundStyle(LitheTheme.error).textSelection(.enabled)
+                Text(LocalizedStringKey(message)).font(.system(size: 12)).foregroundStyle(LitheTheme.error).textSelection(.enabled)
             }
             if let notice = editor.notice {
-                Text(notice).font(.system(size: 12)).foregroundStyle(LitheTheme.accent).textSelection(.enabled)
+                Text(LocalizedStringKey(notice)).font(.system(size: 12)).foregroundStyle(LitheTheme.accent).textSelection(.enabled)
             }
             footer
         }

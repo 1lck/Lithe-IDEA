@@ -42,7 +42,7 @@ private struct GitInteractiveRebasePlanView: View {
                 Text(message).font(.system(size: 12)).foregroundStyle(LitheTheme.warning)
             }
             if let error = editor.errorMessage {
-                Text(error).font(.system(size: 12)).foregroundStyle(LitheTheme.error).textSelection(.enabled)
+                Text(LocalizedStringKey(error)).font(.system(size: 12)).foregroundStyle(LitheTheme.error).textSelection(.enabled)
             }
             HStack {
                 Button("Reload Range") { editor.reloadPreview() }.disabled(editor.isBusy).lithePointer()

@@ -570,7 +570,7 @@ struct ChangesSidebarView: View {
                         Text(LocalizedStringKey(title))
                             .font(.system(size: 12.5, weight: .semibold))
                             .foregroundStyle(LitheTheme.primaryText)
-                        Text(changes.count == 1 ? "1 file" : "\(changes.count) files")
+                        Text("\(changes.count) files")
                             .font(.system(size: 11))
                             .foregroundStyle(LitheTheme.secondaryText)
                         Spacer()
@@ -1008,7 +1008,7 @@ private struct GitStashRestoreConflictBanner: View {
                 Spacer(minLength: 0)
             }
 
-            Text("Your local changes are safe in \(conflict.stashReference). The \(conflict.operationTitle) is incomplete. Resolve the conflicts, then drop this stash manually.")
+            Text("Your local changes are safe in \(conflict.stashReference). The \(Text(LocalizedStringKey(conflict.operationTitle))) is incomplete. Resolve the conflicts, then drop this stash manually.")
                 .font(.system(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)

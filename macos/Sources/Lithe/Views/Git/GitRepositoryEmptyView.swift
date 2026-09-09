@@ -41,7 +41,7 @@ struct GitRepositoryEmptyView: View {
                 Text("Open a project to use Git")
             }
             if let error = setup.errorMessage {
-                Text(error).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.error).textSelection(.enabled)
+                Text(LocalizedStringKey(error)).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.error).textSelection(.enabled)
                 Button("Retry") { Task { await setup.load(at: feature.repositorySetupRoot) } }.lithePointer()
             }
         }

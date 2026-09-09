@@ -68,9 +68,9 @@ struct GitHistoryRewriteOutcomeView: View {
                 Image(systemName: outcome.succeeded ? "checkmark.circle" : "exclamationmark.triangle")
                     .foregroundStyle(outcome.succeeded ? LitheTheme.accent : LitheTheme.warning)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(outcome.message).font(.system(size: 12, weight: .medium))
+                    Text(LocalizedStringKey(outcome.message)).font(.system(size: 12, weight: .medium))
                     ForEach(Array(outcome.warnings.enumerated()), id: \.offset) { _, warning in
-                        Text(warning.message).font(.system(size: 11)).foregroundStyle(LitheTheme.warning)
+                        Text(LocalizedStringKey(warning.message)).font(.system(size: 11)).foregroundStyle(LitheTheme.warning)
                     }
                     if let rewrite = outcome.rewrite {
                         if rewrite.mutationApplied && !outcome.succeeded {
@@ -125,7 +125,7 @@ struct GitHistoryRewriteOutcomeView: View {
                 .font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
             TextField("Branch name", text: $recoveryBranchName).textFieldStyle(.roundedBorder)
                 .disabled(isCreatingRecoveryBranch)
-            if let recoveryError { Text(recoveryError).font(.system(size: 12)).foregroundStyle(LitheTheme.error) }
+            if let recoveryError { Text(LocalizedStringKey(recoveryError)).font(.system(size: 12)).foregroundStyle(LitheTheme.error) }
             HStack {
                 if isCreatingRecoveryBranch { ProgressView().controlSize(.small) }
                 Spacer()
@@ -164,7 +164,7 @@ private struct GitHistoryRewriteDialog: View {
                 previewContent(preview)
             }
             if let error = editor.errorMessage {
-                Text(error).font(.system(size: 12)).foregroundStyle(LitheTheme.error).textSelection(.enabled)
+                Text(LocalizedStringKey(error)).font(.system(size: 12)).foregroundStyle(LitheTheme.error).textSelection(.enabled)
             }
             if editor.operation.editsMessage, editor.preview != nil {
                 messageEditor
@@ -201,7 +201,7 @@ private struct GitHistoryRewriteDialog: View {
         }
         Text(impactDescription(preview)).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
         ForEach(Array(preview.blockers.enumerated()), id: \.offset) { _, blocker in
-            Label(blocker.message, systemImage: "exclamationmark.triangle")
+            Label(LocalizedStringKey(blocker.message), systemImage: "exclamationmark.triangle")
                 .font(.system(size: 12)).foregroundStyle(LitheTheme.warning)
                 .fixedSize(horizontal: false, vertical: true)
         }

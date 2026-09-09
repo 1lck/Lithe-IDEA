@@ -2,6 +2,7 @@ import SwiftUI
 import LitheGitModule
 
 struct GitWorktreesView: View {
+    @Environment(\.locale) private var locale
     private enum WorktreeSection: String, CaseIterable, Identifiable {
         case overview = "Overview"
         case changes = "Changes"
@@ -298,12 +299,12 @@ struct GitWorktreesView: View {
                 switch confirmation {
                 case .removal(let worktree, force: true):
                     Text(String(
-                        format: String(localized: "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept."),
+                        format: gitLocalizedFormat("This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept.", locale: locale),
                         worktree.displayName
                     ))
                 case .removal(let worktree, force: false):
                     Text(String(
-                        format: String(localized: "Remove '%@' and its checkout directory? The branch is kept. If Git refuses because files have changed, review the force-removal warning."),
+                        format: gitLocalizedFormat("Remove '%@' and its checkout directory? The branch is kept. If Git refuses because files have changed, review the force-removal warning.", locale: locale),
                         worktree.displayName
                     ))
                 case .prune:
@@ -357,7 +358,7 @@ struct GitWorktreesView: View {
             HStack {
                 Text("Worktrees")
                     .font(Visual.section)
-                Text(String(format: String(localized: "%lld worktrees"), filteredWorktrees.count))
+                Text(String(format: gitLocalizedFormat("%lld worktrees", locale: locale), filteredWorktrees.count))
                     .font(Visual.metadata)
                     .foregroundStyle(LitheTheme.secondaryText)
                 Spacer()
@@ -430,7 +431,7 @@ struct GitWorktreesView: View {
     private func detailHeader(_ worktree: GitWorktree) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 10) {
-                Text(worktree.isPrimary ? String(localized: "Main Worktree") : worktree.displayName)
+                Text(worktree.isPrimary ? gitLocalizedFormat("Main Worktree", locale: locale) : worktree.displayName)
                     .font(Visual.title)
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
@@ -448,8 +449,8 @@ struct GitWorktreesView: View {
                 Text("·")
                     .foregroundStyle(LitheTheme.tertiaryText)
                 Text(String(
-                    format: String(localized: "Branch: %@"),
-                    worktree.branchName ?? String(localized: "Detached HEAD")
+                    format: gitLocalizedFormat("Branch: %@", locale: locale),
+                    worktree.branchName ?? gitLocalizedFormat("Detached HEAD", locale: locale)
                 ))
                     .font(Visual.metadata)
                     .foregroundStyle(LitheTheme.secondaryText)
@@ -816,7 +817,7 @@ struct GitWorktreesView: View {
                 .foregroundStyle(LitheTheme.warning)
             VStack(alignment: .leading, spacing: 2) {
                 Text(String(
-                    format: String(localized: "%lld worktree records need attention"),
+                    format: gitLocalizedFormat("%lld worktree records need attention", locale: locale),
                     feature.gitWorktrees.filter(\.isPrunable).count
                 ))
                     .font(Visual.bodyMedium)
@@ -995,10 +996,10 @@ struct GitWorktreesView: View {
         } else if worktree.isCurrent {
             count = feature.gitChanges.count
         } else {
-            return "Loading…"
+            return gitLocalizedFormat("Loading…", locale: locale)
         }
-        if count == 0 { return String(localized: "No changes") }
-        return String(format: String(localized: "%lld changed files"), count)
+        if count == 0 { return gitLocalizedFormat("No changes", locale: locale) }
+        return String(format: gitLocalizedFormat("%lld changed files", locale: locale), count)
     }
 
     private func matchingInspection(for worktree: GitWorktree) -> GitWorktreeInspection? {
@@ -1035,24 +1036,24 @@ struct GitWorktreesView: View {
     }
 
     private func removalHelp(for worktree: GitWorktree) -> String {
-        if worktree.isPrimary { return String(localized: "The primary worktree cannot be removed.") }
-        if worktree.isCurrent { return String(localized: "The current worktree cannot be removed here.") }
-        if worktree.isLocked { return String(localized: "Unlock the worktree before removing it.") }
-        if worktree.isPrunable { return String(localized: "Prune the stale record instead.") }
+        if worktree.isPrimary { return gitLocalizedFormat("The primary worktree cannot be removed.", locale: locale) }
+        if worktree.isCurrent { return gitLocalizedFormat("The current worktree cannot be removed here.", locale: locale) }
+        if worktree.isLocked { return gitLocalizedFormat("Unlock the worktree before removing it.", locale: locale) }
+        if worktree.isPrunable { return gitLocalizedFormat("Prune the stale record instead.", locale: locale) }
         return ""
     }
 
     private func lockHelp(for worktree: GitWorktree) -> String {
-        if worktree.isPrimary { return String(localized: "The primary worktree cannot be locked.") }
-        if worktree.isPrunable { return String(localized: "Repair or prune the missing checkout before changing its lock.") }
+        if worktree.isPrimary { return gitLocalizedFormat("The primary worktree cannot be locked.", locale: locale) }
+        if worktree.isPrunable { return gitLocalizedFormat("Repair or prune the missing checkout before changing its lock.", locale: locale) }
         return ""
     }
 
     private func toggleLock(for worktree: GitWorktree) {
         if worktree.isPrimary {
-            worktreeActionNotice = WorktreeActionNotice(message: String(localized: "The primary worktree cannot be locked."))
+            worktreeActionNotice = WorktreeActionNotice(message: gitLocalizedFormat("The primary worktree cannot be locked.", locale: locale))
         } else if worktree.isPrunable {
-            worktreeActionNotice = WorktreeActionNotice(message: String(localized: "Repair or prune the missing checkout before changing its lock."))
+            worktreeActionNotice = WorktreeActionNotice(message: gitLocalizedFormat("Repair or prune the missing checkout before changing its lock.", locale: locale))
         } else {
             Task { await feature.setWorktreeLocked(worktree, locked: !worktree.isLocked) }
         }
@@ -1092,18 +1093,18 @@ struct GitWorktreesView: View {
     private var worktreeConfirmationTitle: String {
         switch worktreeConfirmation {
         case .removal(_, force: true):
-            String(localized: "Force remove worktree?")
+            gitLocalizedFormat("Force remove worktree?", locale: locale)
         case .removal(_, force: false):
-            String(localized: "Remove worktree?")
+            gitLocalizedFormat("Remove worktree?", locale: locale)
         case .prune:
-            String(localized: "Prune stale worktree records?")
+            gitLocalizedFormat("Prune stale worktree records?", locale: locale)
         case nil:
-            String(localized: "Worktree action")
+            gitLocalizedFormat("Worktree action", locale: locale)
         }
     }
 
     private func pathActionHelp(for worktree: GitWorktree) -> String {
-        worktree.isPrunable ? String(localized: "The checkout path does not exist") : ""
+        worktree.isPrunable ? gitLocalizedFormat("The checkout path does not exist", locale: locale) : ""
     }
 
     private func changeColor(_ change: GitChange) -> Color {
