@@ -3580,6 +3580,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
+    /// Retries Maven Profile application while retaining the running JDTLS process.
+    func lspRetryMavenProfiles(sessionID: String) {
+        executeVoid(
+            command: "lsp.retryMavenProfiles",
+            payload: LspSessionIdentifierRequest(sessionId: sessionID)
+        )
+    }
+
     /// Publishes the current text of a document. Rust decides whether that means
     /// an open or a change, and assigns the version.
     func lspSyncDocument(

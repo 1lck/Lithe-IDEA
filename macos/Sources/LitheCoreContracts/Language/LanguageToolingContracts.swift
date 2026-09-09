@@ -478,6 +478,18 @@ package struct LanguageServerLogEntry: Identifiable, Equatable, Sendable {
     }
 }
 
+package struct MavenProfileProjectResult: Equatable, Sendable {
+    package let projectURI: URL
+    package let status: String
+    package let errorDetails: String?
+
+    package init(projectURI: URL, status: String, errorDetails: String? = nil) {
+        self.projectURI = projectURI
+        self.status = status
+        self.errorDetails = errorDetails
+    }
+}
+
 package struct LanguageServerTextEdit: Equatable, Sendable {
     package let range: LanguageServerRange
     package let newText: String
@@ -546,6 +558,7 @@ package protocol LanguageServerSession: AnyObject {
         workspaceFingerprint: String?,
         mavenContext: MavenLaunchContext?
     ) throws
+    func retryMavenProfiles()
     func synchronize(fileURL: URL, text: String, languageID: String) throws
     func notifyWorkspaceFilesChanged(_ changes: [LanguageServerWorkspaceFileChange]) throws
     func closeDocument(_ fileURL: URL)
@@ -618,6 +631,8 @@ package protocol LanguageServerSession: AnyObject {
 }
 
 package extension LanguageServerSession {
+    func retryMavenProfiles() {}
+
     func start(
         rootURL: URL,
         workspaceFingerprint: String?,

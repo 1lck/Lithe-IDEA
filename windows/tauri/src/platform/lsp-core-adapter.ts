@@ -96,6 +96,11 @@ interface RuntimeEvent {
   level?: string;
   message?: string;
   detail?: string;
+  mavenProfileProject?: {
+    projectUri: string;
+    status: string;
+    errorDetails?: string;
+  };
   capabilities?: string[];
 }
 
@@ -331,7 +336,7 @@ function normalizeCoreValue(value: unknown): unknown {
   return normalized;
 }
 
-async function dispatchRuntimeEvent(event: RuntimeEvent): Promise<void> {
+async function dispatchRuntimeEvent(event: RuntimeEvent, workspacePath?: string): Promise<void> {
   if (event.type === "log") {
     const level = event.level === "error" ? "error" : event.level === "warning" ? "warn" : "info";
     const structuredDetail = parseStructuredRuntimeDetail(event.detail);
@@ -340,6 +345,58 @@ async function dispatchRuntimeEvent(event: RuntimeEvent): Promise<void> {
       providerId: event.providerId,
       sessionId: event.sessionId,
     });
+    if (event.message === "Maven profile project update completed" && structuredDetail) {
+      await emit("lsp://maven-profile-project", {
+        providerId: event.providerId,
+        sessionId: event.sessionId,
+        workspacePath,
+        ...structuredDetail,
+      });
+    }
+    if (event.message === "Java language service applied Maven profiles") {
+      await emit("lsp://language-lifecycle", {
+        providerId: event.providerId,
+        sessionId: event.sessionId,
+        workspacePath,
+        phase: "fullyReady",
+      });
+    } else if (event.message === "Java language service partially applied Maven profiles") {
+      await emit("lsp://language-lifecycle", {
+        providerId: event.providerId,
+        sessionId: event.sessionId,
+        workspacePath,
+        phase: "profileApplying",
+        status: "partiallySucceeded",
+      });
+    } else if (event.message === "Java language service applying Maven profiles") {
+      await emit("lsp://language-lifecycle", {
+        providerId: event.providerId,
+        sessionId: event.sessionId,
+        workspacePath,
+        phase: "profileApplying",
+      });
+    } else if (event.message === "Java language service protocol initialized") {
+      await emit("lsp://language-lifecycle", {
+        providerId: event.providerId,
+        sessionId: event.sessionId,
+        workspacePath,
+        phase: "serverConnected",
+      });
+      await emit("lsp://language-lifecycle", {
+        providerId: event.providerId,
+        sessionId: event.sessionId,
+        workspacePath,
+        phase: "projectImporting",
+      });
+    }
+    if (event.mavenProfileProject) {
+      await emit("lsp://maven-profile-project", {
+        providerId: event.providerId,
+        sessionId: event.sessionId,
+        workspacePath,
+        ...event.mavenProfileProject,
+      });
+    }
   }
   if (event.type === "diagnostics" && event.uri) {
     await emit("lsp://diagnostics", {
@@ -371,8 +428,19 @@ function isInitializationTimeout(reason: unknown): boolean {
 }
 
 async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Promise<void> {
-  await dispatchRuntimeEvent(event);
+  await dispatchRuntimeEvent(event, session.workspacePath);
   if (event.type === "stateChanged" && event.state) {
+    const phase = event.state === "processStarting"
+      ? "starting"
+      : event.state === "initializing"
+        ? event.providerId === "java" ? "projectImporting" : "starting"
+        : event.state === "ready" ? "serviceReady" : event.state;
+    await emit("lsp://language-lifecycle", {
+      providerId: event.providerId,
+      sessionId: event.sessionId,
+      workspacePath: session.workspacePath,
+      phase,
+    });
     // Core events are consumptive. Synchronize every state transition here so
     // any poller (startup, recovery, or the long-lived pump) leaves a durable
     // readiness snapshot for the rest of the frontend.
@@ -1178,6 +1246,15 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
         normalizedPathKey(session.workspacePath) === normalizedPathKey(args.workspacePath),
     );
     await Promise.all(matches.map(stopSession));
+    return undefined as T;
+  }
+  if (command === "lsp_retry_maven_profiles") {
+    const session = [...sessions.values()].find(
+      (candidate) =>
+        normalizedPathKey(candidate.workspacePath) === normalizedPathKey(args.workspacePath),
+    );
+    if (!session) throw new Error("No active Java language session for this workspace.");
+    await core("lsp.retryMavenProfiles", { sessionId: session.id }, crypto.randomUUID());
     return undefined as T;
   }
   if (command === "lsp_stop_for_file") {

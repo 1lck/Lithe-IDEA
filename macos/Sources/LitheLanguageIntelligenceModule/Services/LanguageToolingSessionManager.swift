@@ -3,6 +3,18 @@ import Foundation
 import LitheCoreContracts
 import LitheModuleAPI
 
+private struct MavenProfileProjectPayload: Decodable {
+    let projectURI: String
+    let status: String
+    let errorDetails: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case projectURI = "projectUri"
+        case status
+        case errorDetails
+    }
+}
+
 package enum LanguageToolingSessionError: LocalizedError, Equatable, Sendable {
     case noProvider(fileExtension: String)
     case providerNotInstalled(String)
@@ -35,6 +47,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
     @Published package private(set) var diagnostics: [URL: [LanguageServerDiagnostic]] = [:]
     @Published package private(set) var languageServerFeatures: [String: LanguageServerFeatureSet] = [:]
     @Published package private(set) var languageServerLogs: [LanguageServerLogEntry] = []
+    @Published package private(set) var mavenProfileProjectResults: [URL: MavenProfileProjectResult] = [:]
     @Published package private(set) var languageServerStates: [String: LanguageServerSessionState] = [:]
     @Published package private(set) var languageServerInfos: [String: LanguageServerInfo] = [:]
     @Published package private(set) var languageServerOperationIDs: [String: UUID] = [:]
@@ -97,6 +110,11 @@ package final class LanguageToolingSessionManager: ObservableObject,
         _ provider: @escaping (LanguageProviderDescriptor, URL) -> MavenLaunchContext?
     ) {
         mavenContextProvider = provider
+    }
+
+    package func retryMavenProfiles(providerID: String) {
+        guard let session = languageServers[providerID] else { return }
+        session.retryMavenProfiles()
     }
 
     package func updateCatalog(_ catalog: LanguageProviderCatalog) {
@@ -1603,6 +1621,17 @@ package final class LanguageToolingSessionManager: ObservableObject,
             }
         }
         session.onLog = { [weak self] level, message, detail, operationID in
+            if message == "Maven profile project update completed",
+               let data = detail?.data(using: .utf8),
+               let payload = try? JSONDecoder().decode(MavenProfileProjectPayload.self, from: data),
+               let uri = URL(string: payload.projectURI)
+            {
+                self?.mavenProfileProjectResults[uri] = MavenProfileProjectResult(
+                    projectURI: uri,
+                    status: payload.status,
+                    errorDetails: payload.errorDetails
+                )
+            }
             self?.recordLanguageServerLog(
                 providerID: providerID,
                 operationID: operationID,

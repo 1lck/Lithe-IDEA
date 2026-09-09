@@ -339,9 +339,11 @@ The Java language-server startup consumes that same context. Core exposes the
 selected `settings.xml` to JDT LS as
 `java.configuration.maven.userSettings`, then applies the sorted Profile set
 to the reactor and every recursively declared Maven module after JDT LS
-reports `ServiceReady`. The Java session remains `initializing` until those
-project updates all succeed; a rejected or timed-out update fails the session
-instead of silently retaining the previous Maven model.
+reports `ServiceReady`. The Java session reaches `ready` at that verified
+signal; Profile updates then run as a bounded background task with at most
+eight in-flight projects. Each project reports its own result, and a rejected
+or timed-out update preserves the usable Java session while exposing a partial
+failure that the host can retry.
 
 Maven-backed Run and Debug launch planning consumes the current project Maven
 context. A Run Configuration's explicit Profiles and toolchain paths take

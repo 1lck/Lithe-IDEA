@@ -84,6 +84,10 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
         lspStopServer(sessionID: sessionID)
     }
 
+    func retryMavenProfiles(sessionID: String) {
+        lspRetryMavenProfiles(sessionID: sessionID)
+    }
+
     func syncLanguageServerDocument(
         sessionID: String,
         fileURL: URL,

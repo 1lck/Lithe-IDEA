@@ -148,6 +148,18 @@ const executeCore = mock(
                       providerId: "java",
                       sessionId,
                     },
+                    {
+                      type: "log",
+                      level: "error",
+                      message: "Maven profile project update completed",
+                      detail: JSON.stringify({
+                        projectUri: "file:///C:/work/module-a",
+                        status: "failed",
+                        errorDetails: "profile resolution failed",
+                      }),
+                      providerId: "java",
+                      sessionId,
+                    },
                     ...readyEvents(sessionId),
                   ]
                 : [],
@@ -506,6 +518,14 @@ describe("Rust Core LSP adapter failures", () => {
         downloadedBytes: 1024,
       }),
     );
+    expect(emit).toHaveBeenCalledWith("lsp://maven-profile-project", {
+      providerId: "java",
+      sessionId: "java-session",
+      workspacePath: "C:/work",
+      projectUri: "file:///C:/work/module-a",
+      status: "failed",
+      errorDetails: "profile resolution failed",
+    });
   });
 
   test("starts and exposes a workspace-owned Java session before a file attaches", async () => {
@@ -760,6 +780,7 @@ describe("Rust Core LSP adapter failures", () => {
       "lsp_stop",
       "lsp_stop_for_file",
       "lsp_workspace_files_changed",
+      "lsp_retry_maven_profiles",
     ]);
     const clientSource = readFileSync(
       new URL("../features/editor/lsp/lsp-client.ts", import.meta.url),

@@ -149,6 +149,8 @@ pub enum CoreCommand {
     JavaJdtWorkspaceFingerprint,
     /// Gracefully shuts down a managed server (`lsp.stopServer`).
     LspStopServer,
+    /// Retries Maven profile application for an existing Java session.
+    LspRetryMavenProfiles,
     /// Opens or updates a synchronized document (`lsp.syncDocument`).
     LspSyncDocument,
     /// Publishes external workspace file changes (`lsp.workspaceFilesChanged`).
@@ -344,6 +346,7 @@ impl CoreCommand {
             "java.jdtCacheRetention" => Some(Self::JavaJdtCacheRetention),
             "java.jdtWorkspaceFingerprint" => Some(Self::JavaJdtWorkspaceFingerprint),
             "lsp.stopServer" => Some(Self::LspStopServer),
+            "lsp.retryMavenProfiles" => Some(Self::LspRetryMavenProfiles),
             "lsp.syncDocument" => Some(Self::LspSyncDocument),
             "lsp.workspaceFilesChanged" => Some(Self::LspWorkspaceFilesChanged),
             "lsp.closeDocument" => Some(Self::LspCloseDocument),

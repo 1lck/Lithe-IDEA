@@ -5,6 +5,7 @@ import {
   isLspSemanticCommandSupported,
 } from "@/platform/lsp-core-adapter";
 import { listen } from "@tauri-apps/api/event";
+import { toast } from "sonner";
 import type {
   CompletionItem,
   Hover,
@@ -223,6 +224,7 @@ export class LspClient {
   private constructor() {
     this.setupDiagnosticsListener();
     this.setupCrashListener();
+    this.setupLanguageLifecycleListener();
   }
 
   /**
@@ -564,6 +566,55 @@ export class LspClient {
       logger.debug("LSPClient", "Crash listener setup complete");
     } catch (error) {
       logger.error("LSPClient", "Failed to setup crash listener:", error);
+    }
+  }
+
+  private async setupLanguageLifecycleListener() {
+    const lifecycleToastId = "java-language-lifecycle";
+    try {
+      await listen<{ sessionId?: string; phase?: import("./stores/lsp.store").LanguageLifecyclePhase; status?: string }>(
+        "lsp://language-lifecycle",
+        ({ payload }) => {
+          if (!payload.sessionId || !payload.phase) return;
+          useLspStore.getState().actions.updateLanguageLifecycle(payload.sessionId, payload.phase);
+          if (payload.phase === "projectImporting") {
+            toast.loading("Language service connected; importing project", {
+              id: lifecycleToastId,
+            });
+          } else if (payload.phase === "profileApplying" && payload.status !== "partiallySucceeded") {
+            toast.loading("Applying Maven configuration", { id: lifecycleToastId });
+          } else if (payload.phase === "fullyReady") {
+            toast.success("Java language service is ready", {
+              id: lifecycleToastId,
+              duration: 2500,
+            });
+          }
+        },
+      );
+      await listen<import("./stores/lsp.store").MavenProfileProjectResult & { workspacePath?: string }>(
+        "lsp://maven-profile-project",
+        ({ payload }) => {
+          if (!payload?.projectUri) return;
+          useLspStore.getState().actions.recordMavenProfileProject(payload);
+          if (payload.status === "failed" || payload.status === "timedOut") {
+            toast.warning("Some Maven modules failed to update; the language service remains available", {
+              id: lifecycleToastId,
+              duration: 8000,
+              action: {
+                label: "Retry",
+                onClick: () => {
+                  const workspacePath = payload.workspacePath;
+                  if (workspacePath) {
+                    void invoke("lsp_retry_maven_profiles", { workspacePath });
+                  }
+                },
+              },
+            });
+          }
+        },
+      );
+    } catch (error) {
+      logger.error("LSPClient", "Failed to setup language lifecycle listener:", error);
     }
   }
 

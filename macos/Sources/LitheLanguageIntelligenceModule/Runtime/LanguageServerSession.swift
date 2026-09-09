@@ -459,6 +459,11 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         if isRunning { transition(to: .stopping) }
     }
 
+    package func retryMavenProfiles() {
+        guard let sessionID, isRunning else { return }
+        core.retryMavenProfiles(sessionID: sessionID)
+    }
+
     // MARK: - Requests
 
     private func request(
