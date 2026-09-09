@@ -127,48 +127,72 @@ fn undo_preserves_staged_unstaged_and_untracked_content_and_keeps_recovery() {
         .all(|commit| commit["hash"] != head));
 }
 
-#[test]
-fn history_preview_detects_index_worktree_untracked_refs_and_checkout_changes() {
+// Keep independent Git scenarios separately timed: combining five repositories
+// in one test exceeds the Windows per-test process budget.
+fn assert_history_preview_detects_change(change: &str) {
     // Each mutation preserves HEAD's OID, so a HEAD-only stale guard would miss it.
-    for change in ["index", "worktree", "untracked", "refs", "checkout"] {
-        let repo = Repository::new(&format!("history-stale-{change}"));
-        repo.commit("story.txt", "one\n", "one");
-        let head = repo.commit("story.txt", "two\n", "two");
-        fs::write(repo.0.join("new.txt"), "initial\n").unwrap();
-        let preview = repo.preview("undoCommit", &[&head]);
-        assert_eq!(preview["allowed"], true, "{preview}");
-        match change {
-            "index" => {
-                fs::write(repo.0.join("story.txt"), "staged\n").unwrap();
-                repo.git(&["add", "story.txt"]);
-            }
-            "worktree" => fs::write(repo.0.join("story.txt"), "changed\n").unwrap(),
-            "untracked" => fs::write(repo.0.join("new.txt"), "changed\n").unwrap(),
-            "refs" => {
-                repo.git(&["update-ref", "refs/remotes/origin/older", "HEAD^"]);
-            }
-            "checkout" => {
-                repo.git(&["switch", "-qc", "other"]);
-            }
-            _ => unreachable!(),
+    let repo = Repository::new(&format!("history-stale-{change}"));
+    repo.commit("story.txt", "one\n", "one");
+    let head = repo.commit("story.txt", "two\n", "two");
+    fs::write(repo.0.join("new.txt"), "initial\n").unwrap();
+    let preview = repo.preview("undoCommit", &[&head]);
+    assert_eq!(preview["allowed"], true, "{preview}");
+    match change {
+        "index" => {
+            fs::write(repo.0.join("story.txt"), "staged\n").unwrap();
+            repo.git(&["add", "story.txt"]);
         }
-        let response = repo.apply(&preview, None);
-        assert!(
-            response["data"]["operationError"]["message"]
-                .as_str()
-                .unwrap()
-                .contains("stale"),
-            "{change}: {response}"
-        );
-        assert_eq!(repo.git(&["rev-parse", "HEAD"]), head);
-        assert!(repo
-            .git(&[
-                "for-each-ref",
-                "--format=%(refname)",
-                "refs/lithe/history-recovery"
-            ])
-            .is_empty());
+        "worktree" => fs::write(repo.0.join("story.txt"), "changed\n").unwrap(),
+        "untracked" => fs::write(repo.0.join("new.txt"), "changed\n").unwrap(),
+        "refs" => {
+            repo.git(&["update-ref", "refs/remotes/origin/older", "HEAD^"]);
+        }
+        "checkout" => {
+            repo.git(&["switch", "-qc", "other"]);
+        }
+        _ => unreachable!(),
     }
+    let response = repo.apply(&preview, None);
+    assert!(
+        response["data"]["operationError"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("stale"),
+        "{change}: {response}"
+    );
+    assert_eq!(repo.git(&["rev-parse", "HEAD"]), head);
+    assert!(repo
+        .git(&[
+            "for-each-ref",
+            "--format=%(refname)",
+            "refs/lithe/history-recovery"
+        ])
+        .is_empty());
+}
+
+#[test]
+fn history_preview_detects_index_changes() {
+    assert_history_preview_detects_change("index");
+}
+
+#[test]
+fn history_preview_detects_worktree_changes() {
+    assert_history_preview_detects_change("worktree");
+}
+
+#[test]
+fn history_preview_detects_untracked_changes() {
+    assert_history_preview_detects_change("untracked");
+}
+
+#[test]
+fn history_preview_detects_refs_changes() {
+    assert_history_preview_detects_change("refs");
+}
+
+#[test]
+fn history_preview_detects_checkout_changes() {
+    assert_history_preview_detects_change("checkout");
 }
 
 #[test]
