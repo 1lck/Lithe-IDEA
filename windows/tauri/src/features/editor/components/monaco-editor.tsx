@@ -1043,6 +1043,7 @@ export function MonacoEditor({
       }),
       definitionLinkGesture,
       editor.onDidScrollChange((event) => {
+        if (!isCurrentEditorSurface()) return;
         const viewKey = viewStateKey ?? activeBufferId ?? null;
         setScrollForBuffer(viewKey, event.scrollTop, event.scrollLeft);
         onScrollOffsetChange?.(event.scrollTop, event.scrollLeft);

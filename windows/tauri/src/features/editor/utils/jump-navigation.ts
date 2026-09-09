@@ -74,7 +74,15 @@ async function navigateToJumpEntryInternal(entry: JumpListEntry): Promise<boolea
 }
 
 export function navigateToJumpEntry(entry: JumpListEntry): Promise<boolean> {
-  const navigation = navigationQueue.then(() => navigateToJumpEntryInternal(entry));
+  const navigation = navigationQueue.then(async () => {
+    const didNavigate = await navigateToJumpEntryInternal(entry);
+
+    // The Monaco activation effect can run after the internal cursor update.
+    // Keep this as the final queued action so the destination remains keyboard-focused.
+    editorAPI.focus();
+
+    return didNavigate;
+  });
   navigationQueue = navigation.then(
     () => undefined,
     () => undefined,

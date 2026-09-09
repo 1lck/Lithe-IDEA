@@ -767,12 +767,20 @@ export async function goBack(): Promise<void> {
   const entry = useJumpListStore.getState().actions.goBack(currentPosition);
   if (entry) {
     await navigateToJumpEntry(entry);
+    return;
   }
+
+  // Repeated navigation at the beginning must not leave Monaco's input surface.
+  editorAPI.focus();
 }
 
 export async function goForward(): Promise<void> {
   const entry = useJumpListStore.getState().actions.goForward();
   if (entry) {
     await navigateToJumpEntry(entry);
+    return;
   }
+
+  // Repeated navigation at the end must not leave Monaco's input surface.
+  editorAPI.focus();
 }
