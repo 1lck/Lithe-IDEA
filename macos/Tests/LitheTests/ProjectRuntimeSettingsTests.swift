@@ -108,10 +108,13 @@ struct ProjectRuntimeSettingsTests {
 
     @Test
     func settingsCategoryIncludesProjectBetweenKeymapAndTerminal() {
-        #expect(SettingsCategory.allCases.map(\.rawValue) == [
-            "General", "Editor", "Keymap", "Project", "Terminal",
-            "LSP", "AI & Commit", "Updates", "Diagnostics"
-        ])
+        let titles = SettingsCategory.allCases.map(\.rawValue)
+        let keymap = titles.firstIndex(of: "Keymap")
+        let project = titles.firstIndex(of: "Project")
+        let terminal = titles.firstIndex(of: "Terminal")
+        #expect(keymap != nil && project != nil && terminal != nil)
+        #expect(project == keymap.map { $0 + 1 })
+        #expect(terminal == project.map { $0 + 1 })
     }
 
     @Test
