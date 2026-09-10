@@ -20,6 +20,7 @@ import { ThemedFileIcon } from "@/extensions/icon-themes/components/themed-file-
 import { useFileTreePresentation } from "@/features/file-explorer/hooks/use-file-tree-presentation";
 import { FILE_TREE_BASE_INDENT } from "@/features/file-explorer/lib/file-tree-row";
 import "@/features/file-explorer/styles/file-explorer-tree.css";
+import { submitFrontendLog } from "@/features/logging/frontend-log-runtime";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { writeSidebarResourceDragData } from "@/features/sidebar/utils/sidebar-resource-drag";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
@@ -167,6 +168,38 @@ function getRepoRelativePaths(files: readonly GitFile[]): string[] {
   return [
     ...new Set(files.map(getGitFileRepositoryRelativePath).filter(Boolean)),
   ].sort((left, right) => left.localeCompare(right));
+}
+
+function logStagingFailure(
+  message: string,
+  staged: boolean,
+  phase: "write" | "refresh",
+  fileCount: number,
+  repositoryCount: number,
+  repositoryIndex?: number,
+) {
+  // Only fixed categories leave this boundary. Git stderr may contain absolute
+  // paths, filter output or credentials, so never attach the original error.
+  const category = /index\.lock/i.test(message)
+    ? "index_lock"
+    : /permission denied|access is denied|operation not permitted/i.test(message)
+      ? "permission_denied"
+      : /timed? out|timeout/i.test(message)
+        ? "timeout"
+        : "operation_failed";
+  void submitFrontendLog({
+    level: "error",
+    scope: "git.staging",
+    message: "Git staging action failed",
+    payload: {
+      operation: staged ? "stage" : "unstage",
+      phase,
+      category,
+      fileCount,
+      repositoryCount,
+      ...(repositoryIndex !== undefined ? { repositoryIndex } : {}),
+    },
+  });
 }
 
 const GitStatusPanel = ({
@@ -434,9 +467,17 @@ const GitStatusPanel = ({
           setFilesStaged(fileRepoPath, resolveGitFileMutationPaths(repositoryFiles), staged),
         ),
       );
-      for (const result of results) {
+      for (const [repositoryIndex, result] of results.entries()) {
         if (result.status === "rejected") {
           const message = result.reason instanceof Error ? result.reason.message : String(result.reason);
+          logStagingFailure(
+            message,
+            staged,
+            "write",
+            resolveGitFileMutationPaths(repositoryGroups[repositoryIndex]!.files).length,
+            repositoryGroups.length,
+            repositoryIndex,
+          );
           toast.error(t("git.operationError", { error: message }));
         }
       }
@@ -445,6 +486,7 @@ const GitStatusPanel = ({
       return results.every((result) => result.status === "fulfilled" && result.value);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      logStagingFailure(message, staged, "refresh", displayFilePaths.length, repositoryGroups.length);
       toast.error(t("git.operationError", { error: message }));
       return false;
     } finally {
