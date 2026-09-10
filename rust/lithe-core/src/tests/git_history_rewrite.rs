@@ -24,13 +24,22 @@ impl Repository {
         result
     }
 
-    fn request(&self, command: &str, mut payload: Value) -> Value {
+    fn request(&self, command: &str, payload: Value) -> Value {
+        self.request_with_timeout(command, payload, 5_000)
+    }
+
+    fn request_with_timeout(
+        &self,
+        command: &str,
+        mut payload: Value,
+        timeout_milliseconds: u64,
+    ) -> Value {
         payload["root"] = json!(self.0);
         // Each real Git subprocess is governed by Core's local deadline; tests
         // do not synchronize using sleeps or depend on a network remote.
         serde_json::from_str(&execute_json(&json!({
             "id": format!("history-integration-{}", REQUEST_SEQUENCE.fetch_add(1, Ordering::Relaxed)),
-            "timeoutMilliseconds": 5_000,
+            "timeoutMilliseconds": timeout_milliseconds,
             "command": command,
             "payload": payload,
         }).to_string())).unwrap()
@@ -846,24 +855,33 @@ fn native_rebase_large_escaped_manifest_remains_readable_through_abort() {
     let head = repo.commit("story.txt", "last\n", "last");
     let preview = repo.request("git.rebasePreview", json!({"revision":base}));
     let message = format!("Title\n{}End", "\n\\".repeat(4 * 1024 * 1024 / 2));
-    let result = repo.request("git.rebaseStart", json!({
-        "expectedState":preview["data"]["expectedState"],
-        "steps":[{"hash":first,"action":"edit"}, {"hash":head,"action":"reword","message":message}]
-    }));
-    assert_eq!(result["ok"], true);
+    // JSON-escaping this plan is several megabytes. Five seconds is enough on
+    // an idle machine, but CI workers encoding it beside other Git tests miss
+    // that deadline and return ok=false before Git starts.
+    const LARGE_PLAN_TIMEOUT_MS: u64 = 30_000;
+    let result = repo.request_with_timeout(
+        "git.rebaseStart",
+        json!({
+            "expectedState":preview["data"]["expectedState"],
+            "steps":[{"hash":first,"action":"edit"}, {"hash":head,"action":"reword","message":message}]
+        }),
+        LARGE_PLAN_TIMEOUT_MS,
+    );
+    assert_eq!(result["ok"], true, "{result}");
     assert_eq!(result["data"]["session"]["status"], "edit");
-    let session = repo.request("git.rebaseSession", json!({}));
-    assert_eq!(session["ok"], true);
+    let session = repo.request_with_timeout("git.rebaseSession", json!({}), LARGE_PLAN_TIMEOUT_MS);
+    assert_eq!(session["ok"], true, "{session}");
     assert_eq!(session["data"]["canAbort"], true);
-    let aborted = repo.request(
+    let aborted = repo.request_with_timeout(
         "git.rebaseControl",
         json!({
             "sessionId":session["data"]["sessionId"], "action":"abort"
         }),
+        LARGE_PLAN_TIMEOUT_MS,
     );
-    assert_eq!(aborted["data"]["session"]["status"], "aborted");
-    let restored = repo.request("git.rebaseSession", json!({}));
-    assert_eq!(restored["ok"], true);
+    assert_eq!(aborted["data"]["session"]["status"], "aborted", "{aborted}");
+    let restored = repo.request_with_timeout("git.rebaseSession", json!({}), LARGE_PLAN_TIMEOUT_MS);
+    assert_eq!(restored["ok"], true, "{restored}");
     assert_eq!(restored["data"]["status"], "aborted");
     assert_eq!(repo.git(&["rev-parse", "HEAD"]), head);
     assert!(!repo.0.join(".git/rebase-merge").exists());
