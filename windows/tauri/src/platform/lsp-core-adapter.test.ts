@@ -337,6 +337,7 @@ mock.module("@/utils/frontend-trace", () => ({ frontendTrace }));
 const {
   getLspSessionSnapshot,
   getLspWorkspaceSessionSnapshot,
+  ownsLspSession,
   invokeLsp,
   LSP_EXPLICITLY_UNAVAILABLE_COMMANDS,
   LSP_OPERATION_BY_COMMAND,
@@ -549,11 +550,14 @@ describe("Rust Core LSP adapter failures", () => {
       getLspWorkspaceSessionSnapshot({ workspacePath: "C:\\work", languageId: "java" }),
     ).toEqual(expect.objectContaining({ id: "java-session", phase: "ready" }));
     expect(getLspSessionSnapshot({ filePath: "C:/work/Main.java" })).toBeNull();
+    expect(ownsLspSession("java-session")).toBe(true);
+    expect(ownsLspSession("other-window-session")).toBe(false);
 
     await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
     expect(
       getLspWorkspaceSessionSnapshot({ workspacePath: "C:/work", languageId: "java" }),
     ).toBeNull();
+    expect(ownsLspSession("java-session")).toBe(false);
   });
 
   test("projects readiness changes consumed by the long-lived event pump", async () => {

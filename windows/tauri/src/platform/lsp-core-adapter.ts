@@ -118,6 +118,7 @@ const sessions = new Map<string, Session>();
 const fileSessions = new Map<string, FileAttachment>();
 const sessionStarts = new Map<string, Promise<Session>>();
 const sessionStops = new Map<string, Promise<void>>();
+const stoppingSessionIds = new Set<string>();
 const pendingFileSessions = new Map<string, PendingFileAttachment>();
 const SESSION_STORAGE_KEY = "lithe:lsp-core-sessions:v1";
 
@@ -626,6 +627,7 @@ async function cleanupFailedStart(
   session: Session,
   operationId: string,
 ): Promise<void> {
+  stoppingSessionIds.add(session.id);
   if (sessions.get(key) === session) sessions.delete(key);
   removeSessionMappings(session);
   persistSessions();
@@ -637,6 +639,8 @@ async function cleanupFailedStart(
       sessionId: session.id,
       error: reason instanceof Error ? reason.message : String(reason),
     });
+  } finally {
+    stoppingSessionIds.delete(session.id);
   }
 }
 
@@ -894,6 +898,7 @@ async function start(args: JsonRecord): Promise<void> {
 
 async function stopSession(session: Session): Promise<void> {
   const key = sessionKey(session.workspacePath, session.languageId);
+  stoppingSessionIds.add(session.id);
   removeSessionMappings(session);
   persistSessions();
 
@@ -917,6 +922,7 @@ async function stopSession(session: Session): Promise<void> {
         throw reason;
       })
       .finally(() => {
+        stoppingSessionIds.delete(session.id);
         if (sessionStops.get(key) === stopPromise) sessionStops.delete(key);
       });
     sessionStops.set(key, stopPromise);
@@ -1181,6 +1187,10 @@ async function closeDocument(session: Session, filePath: string): Promise<void> 
     operation.failed(reason);
     throw reason;
   }
+}
+
+export function ownsLspSession(sessionId: string): boolean {
+  return stoppingSessionIds.has(sessionId) || [...sessions.values()].some((session) => session.id === sessionId);
 }
 
 export function getLspSessionSnapshot(args: {

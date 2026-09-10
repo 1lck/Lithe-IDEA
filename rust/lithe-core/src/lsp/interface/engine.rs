@@ -3715,12 +3715,22 @@ fn push_maven_profile_project_event(
             server_info: None,
             level: Some(
                 match result.status {
-                    MavenProfileTaskStatus::Succeeded => "info",
-                    _ => "error",
+                    MavenProfileTaskStatus::Failed | MavenProfileTaskStatus::TimedOut => "error",
+                    MavenProfileTaskStatus::PartiallySucceeded => "warning",
+                    _ => "info",
                 }
                 .to_string(),
             ),
-            message: Some("Maven profile project update completed".to_string()),
+            message: Some(
+                match result.status {
+                    MavenProfileTaskStatus::Running => "Maven profile project update running",
+                    MavenProfileTaskStatus::Failed => "Maven profile project update failed",
+                    MavenProfileTaskStatus::TimedOut => "Maven profile project update timed out",
+                    MavenProfileTaskStatus::Cancelled => "Maven profile project update cancelled",
+                    _ => "Maven profile project update completed",
+                }
+                .to_string(),
+            ),
             detail: None,
             maven_profile_project: Some(result),
             maven_profile_task: None,
@@ -4546,6 +4556,56 @@ mod tests {
             redacted_project_uri("file:///workspace/service-a/common/"),
             redacted_project_uri("file:///workspace/service-b/common/")
         );
+    }
+
+    #[test]
+    fn maven_profile_project_log_matches_its_status() {
+        let harness = Harness::ready();
+        let session = harness.session();
+        for (status, level, message) in [
+            (
+                MavenProfileTaskStatus::Running,
+                "info",
+                "Maven profile project update running",
+            ),
+            (
+                MavenProfileTaskStatus::Succeeded,
+                "info",
+                "Maven profile project update completed",
+            ),
+            (
+                MavenProfileTaskStatus::Failed,
+                "error",
+                "Maven profile project update failed",
+            ),
+            (
+                MavenProfileTaskStatus::TimedOut,
+                "error",
+                "Maven profile project update timed out",
+            ),
+        ] {
+            {
+                let mut state = session.lock_state().unwrap();
+                push_maven_profile_project_event(
+                    &session,
+                    &mut state,
+                    MavenProfileProjectResult {
+                        project_uri: "file:///workspace/module".to_string(),
+                        status,
+                        error_details: None,
+                    },
+                );
+            }
+            let event = session
+                .poll_events()
+                .unwrap()
+                .into_iter()
+                .find(|event| event.maven_profile_project.is_some())
+                .unwrap();
+            assert_eq!(event.level.as_deref(), Some(level));
+            assert_eq!(event.message.as_deref(), Some(message));
+            assert_eq!(event.maven_profile_project.unwrap().status, status);
+        }
     }
 
     #[test]
