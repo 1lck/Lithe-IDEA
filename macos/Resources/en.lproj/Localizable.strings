@@ -250,6 +250,22 @@
 "Unlock the worktree before removing it." = "Unlock the worktree before removing it.";
 "Prune the stale record instead." = "Prune the stale record instead.";
 "Loading…" = "Loading…";
+"Dependencies" = "Dependencies";
+"Resolving dependencies..." = "Resolving dependencies...";
+"Dependency resolution cancelled" = "Dependency resolution cancelled";
+"No dependencies" = "No dependencies";
+"Open module pom.xml" = "Open module pom.xml";
+" (duplicate omitted)" = " (duplicate omitted)";
+" (conflict -> %@)" = " (conflict -> %@)";
+"selected version" = "selected version";
+"Unable to create the Maven dependency plan." = "Unable to create the Maven dependency plan.";
+"No Maven executable was found. Choose Maven Home or an executable in Maven Settings." = "No Maven executable was found. Choose Maven Home or an executable in Maven Settings.";
+"Unable to start Maven dependency resolution: %@" = "Unable to start Maven dependency resolution: %@";
+"Maven dependency resolution timed out after 60 seconds." = "Maven dependency resolution timed out after 60 seconds.";
+"Maven dependency resolution exited with code %@." = "Maven dependency resolution exited with code %@.";
+"Unable to parse Maven dependencies for this module." = "Unable to parse Maven dependencies for this module.";
+"Unable to resolve Maven dependencies." = "Unable to resolve Maven dependencies.";
+"Maven dependency output exceeded the supported limit." = "Maven dependency output exceeded the supported limit.";
 
 /* Git history editing, rebase, worktree and patch workflows. */
 "Undo Commit…" = "Undo Last Commit (Keep Changes)…";
