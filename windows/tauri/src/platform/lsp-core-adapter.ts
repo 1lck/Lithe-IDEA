@@ -101,6 +101,7 @@ interface RuntimeEvent {
     status: string;
     errorDetails?: string;
   };
+  mavenProfileTask?: string;
   capabilities?: string[];
 }
 
@@ -395,6 +396,15 @@ async function dispatchRuntimeEvent(event: RuntimeEvent, workspacePath?: string)
         sessionId: event.sessionId,
         workspacePath,
         ...event.mavenProfileProject,
+      });
+    }
+    if (event.mavenProfileTask) {
+      await emit("lsp://language-lifecycle", {
+        providerId: event.providerId,
+        sessionId: event.sessionId,
+        workspacePath,
+        phase: event.mavenProfileTask === "running" ? "profileApplying" : "serviceReady",
+        status: event.mavenProfileTask,
       });
     }
   }

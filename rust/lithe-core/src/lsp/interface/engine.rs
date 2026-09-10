@@ -373,6 +373,9 @@ pub struct LspRuntimeEvent {
     pub detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub maven_profile_project: Option<MavenProfileProjectResult>,
+    /// Structured aggregate state for the Maven profile task.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub maven_profile_task: Option<MavenProfileTaskStatus>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1509,6 +1512,7 @@ impl RuntimeSession {
             }
             if state.maven_profile_status == MavenProfileTaskStatus::Running {
                 state.maven_profile_status = MavenProfileTaskStatus::Cancelled;
+                push_maven_profile_task_event(self, &mut state, MavenProfileTaskStatus::Cancelled);
                 state.maven_profile_queue.clear();
                 state.maven_profile_deadline = None;
                 let cancelled_maven_ids: Vec<String> = state
@@ -2187,6 +2191,8 @@ impl RuntimeSession {
                         } else {
                             MavenProfileTaskStatus::Succeeded
                         };
+                        let task_status = state.maven_profile_status;
+                        push_maven_profile_task_event(self, &mut state, task_status);
                         if state.maven_profile_status == MavenProfileTaskStatus::Succeeded {
                             state.maven_profile_applied_fingerprint =
                                 maven_profile_fingerprint(self.jdt_maven_configuration.as_ref());
@@ -2536,6 +2542,7 @@ impl RuntimeSession {
             .maven_profile_queue
             .extend(requests.iter().skip(MAX_IN_FLIGHT).cloned());
         state.maven_profile_status = MavenProfileTaskStatus::Running;
+        push_maven_profile_task_event(self, &mut state, MavenProfileTaskStatus::Running);
         state.maven_profile_results.clear();
         // Register queued projects up front so a task timeout still emits a
         // terminal result for every project, not only the first batch.
@@ -2751,6 +2758,8 @@ impl RuntimeSession {
                 } else {
                     MavenProfileTaskStatus::Failed
                 };
+                let task_status = state.maven_profile_status;
+                push_maven_profile_task_event(self, &mut state, task_status);
                 state.maven_profile_applied_fingerprint = None;
                 if state.lifecycle == LspLifecycleState::Initializing {
                     timeout_queued_messages =
@@ -3363,6 +3372,7 @@ fn transition_locked(
             message: None,
             detail: None,
             maven_profile_project: None,
+            maven_profile_task: None,
         },
     );
 }
@@ -3398,6 +3408,7 @@ fn push_request_event(
             message: None,
             detail: None,
             maven_profile_project: None,
+            maven_profile_task: None,
         },
     );
 }
@@ -3545,6 +3556,7 @@ fn push_diagnostics_event(
             message: None,
             detail: None,
             maven_profile_project: None,
+            maven_profile_task: None,
         },
     );
 }
@@ -3577,6 +3589,7 @@ fn push_features_event(
             message: None,
             detail: None,
             maven_profile_project: None,
+            maven_profile_task: None,
         },
     );
 }
@@ -3605,6 +3618,7 @@ fn push_server_info_event(session: &RuntimeSession, state: &mut SessionState, in
             message: None,
             detail: None,
             maven_profile_project: None,
+            maven_profile_task: None,
         },
     );
 }
@@ -3639,6 +3653,7 @@ fn push_log_event(
             message: Some(message.to_string()),
             detail: detail.filter(|value| !value.is_empty()),
             maven_profile_project: None,
+            maven_profile_task: None,
         },
     );
 }
@@ -3680,6 +3695,40 @@ fn push_maven_profile_project_event(
             message: Some("Maven profile project update completed".to_string()),
             detail: None,
             maven_profile_project: Some(result),
+            maven_profile_task: None,
+        },
+    );
+}
+
+fn push_maven_profile_task_event(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    status: MavenProfileTaskStatus,
+) {
+    let sequence = take_sequence(state);
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "log".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: None,
+            method: None,
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: None,
+            error: None,
+            capabilities: None,
+            server_info: None,
+            level: Some("info".to_string()),
+            message: Some("Maven profile task state changed".to_string()),
+            detail: None,
+            maven_profile_project: None,
+            maven_profile_task: Some(status),
         },
     );
 }
