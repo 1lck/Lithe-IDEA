@@ -588,10 +588,15 @@ export class LspClient {
               id: lifecycleToastId,
               duration: 2500,
             });
+          } else if (payload.phase === "serviceReady") {
+            toast.success("Java language service is ready", {
+              id: lifecycleToastId,
+              duration: 2500,
+            });
           }
         },
       );
-      await listen<import("./stores/lsp.store").MavenProfileProjectResult & { workspacePath?: string }>(
+      await listen<import("./stores/lsp.store").MavenProfileProjectResult & { workspacePath?: string; sessionId?: string }>(
         "lsp://maven-profile-project",
         ({ payload }) => {
           if (!payload?.projectUri) return;
@@ -604,8 +609,10 @@ export class LspClient {
                 label: "Retry",
                 onClick: () => {
                   const workspacePath = payload.workspacePath;
-                  if (workspacePath) {
-                    void invoke("lsp_retry_maven_profiles", { workspacePath });
+                  if (payload.sessionId) {
+                    void invoke("lsp_retry_maven_profiles", { sessionId: payload.sessionId });
+                  } else if (workspacePath) {
+                    void invoke("lsp_retry_maven_profiles", { workspacePath, languageId: "java" });
                   }
                 },
               },

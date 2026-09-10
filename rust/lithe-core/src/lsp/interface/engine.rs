@@ -1491,6 +1491,7 @@ impl RuntimeSession {
         let outbound_order = self.lock_outbound_order()?;
         let (messages, force_kill) = {
             let mut state = self.lock_state()?;
+            let mut cancel_messages = Vec::new();
             if matches!(
                 state.lifecycle,
                 LspLifecycleState::Stopped | LspLifecycleState::Failed
@@ -1504,6 +1505,28 @@ impl RuntimeSession {
                 state.maven_profile_status = MavenProfileTaskStatus::Cancelled;
                 state.maven_profile_queue.clear();
                 state.maven_profile_deadline = None;
+                let cancelled_maven_ids: Vec<String> = state
+                    .pending
+                    .iter()
+                    .filter_map(|(id, pending)| {
+                        (pending.kind == PendingKind::JdtMavenProfiles).then_some(id.clone())
+                    })
+                    .collect();
+                cancel_messages = cancelled_maven_ids
+                    .iter()
+                    .map(|id| {
+                        json!({
+                            "jsonrpc": "2.0",
+                            "method": "$/cancelRequest",
+                            "params": { "id": id }
+                        })
+                        .to_string()
+                    })
+                    .collect();
+                for id in cancelled_maven_ids {
+                    state.pending.remove(&id);
+                    state.client.pending_requests.remove(&id);
+                }
                 push_log_event(
                     self,
                     &mut state,
@@ -1544,11 +1567,13 @@ impl RuntimeSession {
                     },
                 );
                 state.client = response.state;
-                (response.messages, false)
+                let mut messages = cancel_messages;
+                messages.extend(response.messages);
+                (messages, false)
             } else {
                 state.client.pending_requests.clear();
                 state.pending.clear();
-                (Vec::new(), true)
+                (cancel_messages, true)
             }
         };
         self.send_messages_or_fail(&outbound_order, messages, "shutdown")?;
@@ -2040,7 +2065,12 @@ impl RuntimeSession {
                     }
                 }
                 Some(PendingKind::JdtMavenProfiles) => {
-                    let server_error = value.get("error").map(Value::to_string);
+                    // JDT LS error payloads may contain absolute workspace paths
+                    // or URLs. Keep the user-facing project result actionable
+                    // without persisting the opaque server payload in logs.
+                    let server_error = value
+                        .get("error")
+                        .map(|_| "Maven profile project update failed.".to_string());
                     let request_key = response_id.as_ref().cloned().unwrap_or_default();
                     if let Some(result) = state.maven_profile_results.get_mut(&request_key) {
                         result.status = if server_error.is_some() {
@@ -2100,6 +2130,16 @@ impl RuntimeSession {
                             },
                         );
                         if let Some(uri) = project_uri {
+                            if let Some((queued_id, _)) = state
+                                .maven_profile_results
+                                .iter()
+                                .find(|(id, result)| {
+                                    id.starts_with("queued:") && result.project_uri == uri
+                                })
+                                .map(|(id, result)| (id.clone(), result.clone()))
+                            {
+                                state.maven_profile_results.remove(&queued_id);
+                            }
                             state.maven_profile_results.insert(
                                 next_id,
                                 MavenProfileProjectResult {
@@ -2485,6 +2525,25 @@ impl RuntimeSession {
             .extend(requests.iter().skip(MAX_IN_FLIGHT).cloned());
         state.maven_profile_status = MavenProfileTaskStatus::Running;
         state.maven_profile_results.clear();
+        // Register queued projects up front so a task timeout still emits a
+        // terminal result for every project, not only the first batch.
+        for (index, params) in requests.iter().enumerate().skip(MAX_IN_FLIGHT) {
+            if let Some(uri) = params
+                .get("arguments")
+                .and_then(Value::as_array)
+                .and_then(|arguments| arguments.first())
+                .and_then(Value::as_str)
+            {
+                state.maven_profile_results.insert(
+                    format!("queued:{index}"),
+                    MavenProfileProjectResult {
+                        project_uri: uri.to_string(),
+                        status: MavenProfileTaskStatus::Running,
+                        error_details: None,
+                    },
+                );
+            }
+        }
         let mut messages = Vec::with_capacity(requests.len());
         for params in requests.into_iter().take(MAX_IN_FLIGHT) {
             let project_uri = params
@@ -2653,10 +2712,22 @@ impl RuntimeSession {
                         detail,
                     );
                 }
-                state.maven_profile_status = if state.maven_profile_results.is_empty() {
-                    MavenProfileTaskStatus::Failed
-                } else {
+                let succeeded = state
+                    .maven_profile_results
+                    .values()
+                    .filter(|result| result.status == MavenProfileTaskStatus::Succeeded)
+                    .count();
+                let timed_out = state
+                    .maven_profile_results
+                    .values()
+                    .filter(|result| result.status == MavenProfileTaskStatus::TimedOut)
+                    .count();
+                state.maven_profile_status = if succeeded == 0 && timed_out > 0 {
+                    MavenProfileTaskStatus::TimedOut
+                } else if timed_out > 0 {
                     MavenProfileTaskStatus::PartiallySucceeded
+                } else {
+                    MavenProfileTaskStatus::Failed
                 };
                 state.maven_profile_applied_fingerprint = None;
                 if state.lifecycle == LspLifecycleState::Initializing {

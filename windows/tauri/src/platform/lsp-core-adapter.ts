@@ -1249,10 +1249,16 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     return undefined as T;
   }
   if (command === "lsp_retry_maven_profiles") {
-    const session = [...sessions.values()].find(
-      (candidate) =>
-        normalizedPathKey(candidate.workspacePath) === normalizedPathKey(args.workspacePath),
-    );
+    const requestedSessionId = typeof args.sessionId === "string" ? args.sessionId : undefined;
+    const session = requestedSessionId
+      ? [...sessions.values()].find(
+          (candidate) => candidate.id === requestedSessionId && candidate.languageId === "java",
+        )
+      : [...sessions.values()].find(
+          (candidate) =>
+            candidate.languageId === "java" &&
+            normalizedPathKey(candidate.workspacePath) === normalizedPathKey(args.workspacePath),
+        );
     if (!session) throw new Error("No active Java language session for this workspace.");
     await core("lsp.retryMavenProfiles", { sessionId: session.id }, crypto.randomUUID());
     return undefined as T;
