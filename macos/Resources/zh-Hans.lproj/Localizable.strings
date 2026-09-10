@@ -196,9 +196,11 @@
 "Save after" = "保存延迟";
 "Hidden paths" = "隐藏路径";
 "LSP generated artifacts" = "LSP 生成产物";
-"Adds or removes the recommended LSP generated artifact rules from Hidden paths and the Git local exclude list. Lithe does not keep managing those rules afterward." = "一次性将推荐的 LSP 生成产物规则加入或移出隐藏路径与 Git 本地排除列表。执行后 Lithe 不再持续托管这些规则。";
+"Adds or removes the recommended LSP generated artifact rules from Hidden paths. When the current workspace is a Git repository, the same rules are also written to the Git local exclude list. Lithe does not keep managing those rules afterward." = "一次性将推荐的 LSP 生成产物规则加入或移出隐藏路径；当前工作区是 Git 仓库时，也会同步写入 Git 本地排除列表。执行后 Lithe 不再持续托管这些规则。";
+"Apply Hidden paths changes before adding or removing recommended rules." = "请先应用隐藏路径的修改，再添加或移除推荐规则。";
 "Add recommended rules" = "添加推荐规则";
 "Remove recommended rules" = "移除推荐规则";
+"Hidden paths updated. No Git repository detected, so the Git local exclude list was not changed." = "隐藏路径已更新。未检测到 Git 仓库，因此未修改 Git 本地排除列表。";
 "Could not update the Git local exclude list for LSP generated artifacts." = "无法更新 LSP 生成产物的 Git 本地排除列表。";
 "One entry per line. Directory names hide matching folders; file entries support * and ?." = "每行输入一项。目录名用于隐藏匹配的文件夹；文件条目支持 * 和 ?。";
 "Directories" = "目录";

@@ -323,7 +323,7 @@ response retains the invocation trace and includes the failure as
 `operationError`.
 
 `git.write` accepts a typed mutation request. Its required `operation` values are
-`stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `cherryPick`, `revert`,
+`stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `excludePatterns`, `unexcludePatterns`, `cherryPick`, `revert`,
 `reset`, `undoCommit`, `editCommitMessage`, `deleteCommit`, `squashCommits`, `createBranch`, `publishBranch`,
 `renameBranch`, `setUpstream`, `unsetUpstream`, `deleteBranch`, `merge`, `rebase`, `createWorktree`,
 `removeWorktree`, `lockWorktree`, `unlockWorktree`, `repairWorktrees`, `pruneWorktrees`,
@@ -453,7 +453,12 @@ the legacy behavior of committing the existing index. `ignore` appends root-anch
 repository's top-level `.gitignore`; `exclude` appends the same patterns to the
 worktree-aware Git metadata path for `info/exclude`. Both ignore operations
 preserve existing content, escape Git pattern characters, de-duplicate rules,
-and interpret a trailing `/` as a directory rule.
+and interpret a trailing `/` as a directory rule. `excludePatterns` and
+`unexcludePatterns` mutate exact literal lines in that same worktree-aware
+`info/exclude` file without root-anchoring or escaping, so recommended IDE
+patterns such as `.factorypath` can be added or removed once. Remove is a no-op
+when managed lines are absent. A non-repository root fails with
+`invalid_request` / `Not a Git repository`.
 
 `editCommitMessage` rebuilds the selected commit and its later first-parent
 descendants with the new `message`. `squashCommits` requires at least two

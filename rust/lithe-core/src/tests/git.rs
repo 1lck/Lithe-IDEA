@@ -796,6 +796,109 @@ fn git_write_appends_shared_and_local_ignore_patterns_without_duplicates() {
 }
 
 #[test]
+fn git_write_mutates_literal_local_exclude_patterns_including_linked_worktrees() {
+    let root = temporary_root("lithe-exclude-patterns");
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    assert!(run(&["config", "user.email", "dev@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Dev"]).status.success());
+    fs::write(root.join("README.md"), "ok\n").expect("readme should be writable");
+    assert!(run(&["add", "README.md"]).status.success());
+    assert!(run(&["commit", "-qm", "init"]).status.success());
+
+    let request = |root: &Path, operation: &str, paths: Value| -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::to_string(&serde_json::json!({
+                "id": operation,
+                "command": "git.write",
+                "payload": {"root": root, "operation": operation, "paths": paths}
+            }))
+            .expect("exclude pattern request should encode"),
+        ))
+        .expect("exclude pattern response should be JSON")
+    };
+
+    let added = request(
+        &root,
+        "excludePatterns",
+        serde_json::json!([".factorypath", " .factorypath "]),
+    );
+    assert_eq!(added["ok"], true, "{added:?}");
+    let exclude = fs::read_to_string(root.join(".git/info/exclude"))
+        .expect("local exclude file should be readable");
+    assert!(exclude.lines().any(|line| line == ".factorypath"));
+    assert_eq!(
+        exclude
+            .lines()
+            .filter(|line| line.trim() == ".factorypath")
+            .count(),
+        1
+    );
+
+    let worktree = root.parent().unwrap().join(format!(
+        "{}-linked",
+        root.file_name().unwrap().to_string_lossy()
+    ));
+    assert!(run(&[
+        "worktree",
+        "add",
+        "-b",
+        "feature",
+        worktree.to_str().unwrap()
+    ])
+    .status
+    .success());
+
+    let removed = request(
+        &worktree,
+        "unexcludePatterns",
+        serde_json::json!([".factorypath"]),
+    );
+    assert_eq!(removed["ok"], true, "{removed:?}");
+    let shared_exclude = fs::read_to_string(root.join(".git/info/exclude"))
+        .expect("shared exclude should remain readable");
+    assert!(!shared_exclude
+        .lines()
+        .any(|line| line.trim() == ".factorypath"));
+    assert!(!worktree.join(".git").join("info/exclude").is_file());
+
+    let missing = request(
+        &worktree,
+        "unexcludePatterns",
+        serde_json::json!([".factorypath"]),
+    );
+    assert_eq!(missing["ok"], true, "{missing:?}");
+
+    let non_git = temporary_root("lithe-exclude-patterns-nongit");
+    fs::create_dir_all(&non_git).expect("temporary non-git directory should be creatable");
+    let rejected = request(
+        &non_git,
+        "excludePatterns",
+        serde_json::json!([".factorypath"]),
+    );
+    assert_eq!(rejected["ok"], false, "{rejected:?}");
+    assert_eq!(rejected["error"]["code"], "invalid_request");
+    assert_eq!(rejected["error"]["message"], "Not a Git repository");
+
+    let _ = Command::new("git")
+        .args(["worktree", "remove", "--force", worktree.to_str().unwrap()])
+        .current_dir(&root)
+        .output();
+    fs::remove_dir_all(root).expect("temporary workspace should be removable");
+    fs::remove_dir_all(non_git).expect("temporary non-git directory should be removable");
+    let _ = fs::remove_dir_all(&worktree);
+}
+
+#[test]
 fn git_write_edits_a_local_commit_message_and_rebuilds_descendants() {
     let root = history_rewrite_repository("git-edit-commit-message");
     commit_history_file(&root, "story.txt", "one\n", "one");

@@ -861,24 +861,62 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     /// One-shot add/remove of recommended LSP artifact rules in Git local exclude.
-    /// Does not track or restore those lines afterward.
+    /// Requests are serialized so click order matches write order.
+    private let lspGeneratedArtifactGitExcludeQueue = SerialMainActorActionQueue()
+    var isApplyingLSPGeneratedArtifactRules: Bool {
+        lspGeneratedArtifactGitExcludeQueue.isBusy
+    }
+
     func applyLSPGeneratedArtifactGitExcludeRules(adding: Bool) {
-        guard let workspaceURL else { return }
-        Task { @MainActor [weak self] in
+        guard workspaceURL != nil else { return }
+        objectWillChange.send()
+        lspGeneratedArtifactGitExcludeQueue.enqueue { [weak self] in
             guard let self else { return }
-            do {
-                try await GitLocalExcludeSynchronizer(
-                    fileOperations: services.fileOperations,
-                    gitWatchContextProvider: services.gitWatchContextProvider
-                ).applyManagedPatterns(
-                    adding: adding,
-                    patterns: LSPGeneratedArtifactVisibility.filePatterns,
-                    at: workspaceURL
-                )
+            let result = self.performLSPGeneratedArtifactGitExclude(adding: adding)
+            switch result {
+            case .updated:
                 await self.gitFeatureIfActive?.refreshGitFromMetadataChange()
-            } catch {
-                showNotification("Could not update the Git local exclude list for LSP generated artifacts.")
+            case .noRepository:
+                self.showNotification(
+                    "Hidden paths updated. No Git repository detected, so the Git local exclude list was not changed."
+                )
+            case .failed:
+                self.showNotification(
+                    "Could not update the Git local exclude list for LSP generated artifacts."
+                )
             }
+            self.objectWillChange.send()
+        }
+    }
+
+    private enum LSPGeneratedArtifactGitExcludeResult {
+        case updated
+        case noRepository
+        case failed
+    }
+
+    private func performLSPGeneratedArtifactGitExclude(adding: Bool) -> LSPGeneratedArtifactGitExcludeResult {
+        guard let workspaceURL else { return .failed }
+        let operation = adding ? "excludePatterns" : "unexcludePatterns"
+        switch RustCoreBridge().gitWriteResult(
+            at: workspaceURL,
+            operation: operation,
+            paths: LSPGeneratedArtifactVisibility.filePatterns
+        ) {
+        case .success(let payload):
+            if let error = payload.operationError {
+                if error.code == "invalid_request", error.message == "Not a Git repository" {
+                    return .noRepository
+                }
+                return .failed
+            }
+            guard payload.exitCode == 0 else { return .failed }
+            return .updated
+        case .failure(let error):
+            if error.code == "invalid_request", error.message == "Not a Git repository" {
+                return .noRepository
+            }
+            return .failed
         }
     }
 

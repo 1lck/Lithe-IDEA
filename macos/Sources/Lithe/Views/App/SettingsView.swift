@@ -421,21 +421,30 @@ struct SettingsView: View {
 
                 Text("LSP generated artifacts")
                     .font(.system(size: 11.5, weight: .medium))
-                Text("Adds or removes the recommended LSP generated artifact rules from Hidden paths and the Git local exclude list. Lithe does not keep managing those rules afterward.")
+                Text("Adds or removes the recommended LSP generated artifact rules from Hidden paths. When the current workspace is a Git repository, the same rules are also written to the Git local exclude list. Lithe does not keep managing those rules afterward.")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
+
+                if hasUnappliedHiddenPathsDraft {
+                    Text("Apply Hidden paths changes before adding or removing recommended rules.")
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 HStack(spacing: 8) {
                     Button("Add recommended rules") {
                         applyLSPGeneratedArtifactRules(adding: true)
                     }
                     .buttonStyle(LitheSecondaryButtonStyle())
+                    .disabled(!canApplyLSPGeneratedArtifactRules)
 
                     Button("Remove recommended rules") {
                         applyLSPGeneratedArtifactRules(adding: false)
                     }
                     .buttonStyle(LitheSecondaryButtonStyle())
+                    .disabled(!canApplyLSPGeneratedArtifactRules)
 
                     Spacer()
                     Button("Apply") { applyVisibilityDrafts() }
@@ -1353,12 +1362,21 @@ struct SettingsView: View {
         settings.hiddenFilePatterns = entries(from: viewState.hiddenFilePatternsDraft)
     }
 
-    /// One-shot shortcut: updates Hidden paths (settings + draft) and Git local exclude once.
+    private var hasUnappliedHiddenPathsDraft: Bool {
+        entries(from: viewState.hiddenDirectoriesDraft) != settings.hiddenDirectoryNames
+            || entries(from: viewState.hiddenFilePatternsDraft) != settings.hiddenFilePatterns
+    }
+
+    private var canApplyLSPGeneratedArtifactRules: Bool {
+        !hasUnappliedHiddenPathsDraft && !model.isApplyingLSPGeneratedArtifactRules
+    }
+
+    /// One-shot shortcut against persisted Hidden paths only; requires a clean draft.
     private func applyLSPGeneratedArtifactRules(adding: Bool) {
-        let current = entries(from: viewState.hiddenFilePatternsDraft)
+        guard canApplyLSPGeneratedArtifactRules else { return }
         let updated = adding
-            ? LSPGeneratedArtifactVisibility.inserting(into: current)
-            : LSPGeneratedArtifactVisibility.removing(from: current)
+            ? LSPGeneratedArtifactVisibility.inserting(into: settings.hiddenFilePatterns)
+            : LSPGeneratedArtifactVisibility.removing(from: settings.hiddenFilePatterns)
         settings.hiddenFilePatterns = updated
         viewState.hiddenFilePatternsDraft = updated.joined(separator: "\n")
         model.applyLSPGeneratedArtifactGitExcludeRules(adding: adding)
