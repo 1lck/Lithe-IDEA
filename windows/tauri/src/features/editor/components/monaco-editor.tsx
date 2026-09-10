@@ -72,6 +72,7 @@ import { isEditorGoToDefinitionModifierClick } from "../utils/go-to-definition-g
 import { getLanguageIdFromPath } from "../utils/language-id";
 import { toggleCaseText } from "../utils/text-operations";
 import { editorAPI } from "../extensions/api";
+import type { MarkdownScrollMetrics } from "../markdown/scroll-sync";
 import type { EditorModelPositionResolver } from "../view-model/view-layout";
 import { syncContainedEditorFontOptions } from "../engines/monaco/contained-editors";
 import { registerMonacoDefinitionLinkGesture } from "../engines/monaco/definition-link";
@@ -129,7 +130,13 @@ registerMonacoCodeLensProvider();
 const EMPTY_DIAGNOSTICS: Diagnostic[] = [];
 const INACTIVE_CURSOR_POSITION: Position = { line: 0, column: 0, offset: 0 };
 
-interface MonacoEditorProps {
+/** Imperative scroll access for embedders that mirror editor scrolling. */
+export interface MonacoEditorScrollApi {
+  getMetrics: () => MarkdownScrollMetrics;
+  setScrollTop: (scrollTop: number) => void;
+}
+
+export interface MonacoEditorProps {
   bufferId?: string;
   viewStateKey?: string;
   isActiveSurface?: boolean;
@@ -152,6 +159,14 @@ interface MonacoEditorProps {
     options?: EditorContentChangeOptions,
   ) => void;
   onScrollOffsetChange?: (scrollTop: number, scrollLeft: number) => void;
+  /** Reports viewport scroll metrics on every editor scroll event. */
+  onScrollMetricsChange?: (metrics: MarkdownScrollMetrics) => void;
+  /**
+   * Hands out imperative scroll access once the editor exists, and null when
+   * it is disposed. Kept as a callback so embedders never depend on editor
+   * instance lifecycles.
+   */
+  onEditorScrollApiReady?: (api: MonacoEditorScrollApi | null) => void;
   onModelPositionResolverChange?: (resolver: EditorModelPositionResolver | null) => void;
   onMouseMove?: MouseEventHandler<HTMLDivElement>;
   onMouseLeave?: () => void;
@@ -177,6 +192,8 @@ export function MonacoEditor({
   lineNumberMap,
   onContentChange,
   onScrollOffsetChange,
+  onScrollMetricsChange,
+  onEditorScrollApiReady,
   onModelPositionResolverChange,
   onMouseMove,
   onMouseLeave,
@@ -206,6 +223,8 @@ export function MonacoEditor({
   const mouseSelectingRef = useRef(false);
   const latestContentChangeRef = useRef(onContentChange);
   const isActiveSurfaceRef = useRef(isActiveSurface);
+  const onScrollMetricsChangeRef = useRef(onScrollMetricsChange);
+  const onEditorScrollApiReadyRef = useRef(onEditorScrollApiReady);
   // Read inside the editor-creation effect's long-lived closures. The flag flips
   // on every tab switch (it derives from `isActiveSurface`); keeping it out of
   // that effect's dependencies avoids disposing and rebuilding the whole Monaco
@@ -409,6 +428,8 @@ export function MonacoEditor({
 
   latestContentChangeRef.current = onContentChange;
   isActiveSurfaceRef.current = isActiveSurface;
+  onScrollMetricsChangeRef.current = onScrollMetricsChange;
+  onEditorScrollApiReadyRef.current = onEditorScrollApiReady;
   enableExpensiveServicesRef.current = enableExpensiveServices;
 
   const lineNumberFormatter = useCallback(
@@ -860,6 +881,18 @@ export function MonacoEditor({
     });
     requestAnimationFrame(syncNestedEditorFonts);
 
+    const scrollApi: MonacoEditorScrollApi = {
+      getMetrics: () => ({
+        scrollTop: editor.getScrollTop(),
+        scrollHeight: editor.getScrollHeight(),
+        clientHeight: editor.getLayoutInfo().height,
+      }),
+      setScrollTop: (scrollTop) => {
+        editor.setScrollTop(scrollTop);
+      },
+    };
+    onEditorScrollApiReadyRef.current?.(scrollApi);
+
     editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyA, selectEntireModel);
     const definitionLinkGesture = registerMonacoDefinitionLinkGesture({
       editor,
@@ -1064,6 +1097,11 @@ export function MonacoEditor({
         const viewKey = viewStateKey ?? activeBufferId ?? null;
         setScrollForBuffer(viewKey, event.scrollTop, event.scrollLeft);
         onScrollOffsetChange?.(event.scrollTop, event.scrollLeft);
+        onScrollMetricsChangeRef.current?.({
+          scrollTop: event.scrollTop,
+          scrollHeight: event.scrollHeight,
+          clientHeight: editor.getLayoutInfo().height,
+        });
       }),
       editor.onDidLayoutChange((info) => {
         setViewportHeight(info.height);
@@ -1152,6 +1190,7 @@ export function MonacoEditor({
       renderedGitBlameKeyRef.current = null;
       mouseSelectingRef.current = false;
       createdEditorDisposable.dispose();
+      onEditorScrollApiReadyRef.current?.(null);
       try {
         vimAdapterRef.current?.dispose();
       } catch (error) {
