@@ -160,8 +160,30 @@ Dir.mktmpdir("lithe-sparkle-channels-") do |root|
     expected = channel == "preview" ? "download/preview-0.3.0/appcast-preview-#{architecture}.xml" : "latest/download/appcast-#{architecture}.xml"
     expect(info["SUFeedURL"] == "https://github.com/example/lithe/releases/#{expected}", "Update channels must use separate architecture-specific feeds")
     expect(info["LitheUpdateChannel"] == channel, "Bundle must identify its channel")
+    expect(info["SUDefaultsDomain"] == "app.lithe.desktop.sparkle.#{channel}", "Sparkle preferences must be isolated per channel")
     expect(info["SUPublicEDKey"] == key, "Both channels must validate signed updates")
   end
+  # Use isolated test suites derived from the actual packaged domains. Never
+  # write the developer's live Sparkle preferences while testing channel changes.
+  stable = JSON.parse(run("plutil", "-convert", "json", "-o", "-", File.join(root, "stable-arm64.plist"))).fetch("SUDefaultsDomain")
+  preview = JSON.parse(run("plutil", "-convert", "json", "-o", "-", File.join(root, "preview-arm64.plist"))).fetch("SUDefaultsDomain")
+  run("swift", "-e", <<~'SWIFT', stable, preview)
+    import Foundation
+    let suffix = ".fixture." + UUID().uuidString
+    let stableName = CommandLine.arguments[1] + suffix
+    let previewName = CommandLine.arguments[2] + suffix
+    let stable = UserDefaults(suiteName: stableName)!
+    let preview = UserDefaults(suiteName: previewName)!
+    defer {
+        stable.removePersistentDomain(forName: stableName)
+        preview.removePersistentDomain(forName: previewName)
+    }
+    let skippedKey = "SUSkippedMinorVersion"
+    preview.set("201.1", forKey: skippedKey)
+    guard stable.string(forKey: skippedKey) == nil else { exit(1) }
+    stable.set("51", forKey: skippedKey)
+    guard preview.string(forKey: skippedKey) == "201.1" else { exit(1) }
+  SWIFT
 end
 
 releases = (1..5).map do |version|

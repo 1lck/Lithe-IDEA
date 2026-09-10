@@ -22,11 +22,14 @@ final class MacStableRollback: ObservableObject {
     private var staged: StableRollbackPackage?
     private var helper: Process?
     private let loadPackage: PackageLoader
+    private let diagnosticSink: @Sendable (String) -> Void
 
-    init(loadPackage: @escaping PackageLoader = { bundle, preparing in
+    init(diagnosticSink: @escaping @Sendable (String) -> Void = { NSLog("%@", $0) },
+         loadPackage: @escaping PackageLoader = { bundle, preparing in
         try await StableRollbackPackage.download(bundle: bundle, preparing: preparing)
     }) {
         self.loadPackage = loadPackage
+        self.diagnosticSink = diagnosticSink
     }
 
     func download(bundle: Bundle) {
@@ -51,6 +54,9 @@ final class MacStableRollback: ObservableObject {
                 staged = package
                 state = .ready(package.version)
             } catch {
+                if let failure = error as? StableRollbackPreparationFailure {
+                    diagnosticSink(failure.diagnostic + "\n")
+                }
                 if error is CancellationError || (Task.isCancelled && (error as? URLError)?.code == .cancelled) { state = .idle }
                 else { state = .failed((error as? UpdateCheckError)?.userMessage ?? error.localizedDescription) }
             }
@@ -124,6 +130,12 @@ final class MacStableRollback: ObservableObject {
         }
     }
 
+}
+
+struct StableRollbackPreparationFailure: LocalizedError {
+    let executable: String
+    let diagnostic: String
+    var errorDescription: String? { UpdateCheckError.toolFailed(executable).userMessage }
 }
 
 enum StableRollbackFailure: LocalizedError {
@@ -263,13 +275,13 @@ struct StableRollbackPackage: Sendable {
         }
     }
 
-    private static func run(_ executable: String, _ arguments: [String]) throws {
+    static func run(_ executable: String, _ arguments: [String]) throws {
         let result = MacProcessRunner().run(ProcessRequest(executablePath: executable,
             arguments: arguments, timeoutMilliseconds: 120_000))
         guard result.succeeded else {
-            NSLog("%@", preparationDiagnostic(executable: executable, arguments: arguments,
-                exitCode: result.exitCode, output: result.output))
-            throw UpdateCheckError.toolFailed(executable)
+            throw StableRollbackPreparationFailure(executable: executable,
+                diagnostic: preparationDiagnostic(executable: executable, arguments: arguments,
+                    exitCode: result.exitCode, output: result.output))
         }
     }
 

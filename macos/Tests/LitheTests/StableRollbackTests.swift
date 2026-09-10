@@ -7,15 +7,47 @@ import Testing
 @Suite("macOS stable rollback")
 struct StableRollbackTests {
     @Test @MainActor
+    func preparationFailureReachesTheExportedApplicationLog() async throws {
+        let fixture = try RollbackFixture()
+        defer { fixture.remove() }
+        let writer = MacApplicationLogWriter()
+        try writer.redirect(to: fixture.root)
+        let finished = TestGate()
+        let rollback = MacStableRollback(diagnosticSink: { message in
+            do { try writer.append(message) }
+            catch { Issue.record("Could not append fixture diagnostic: \(error)") }
+        }, loadPackage: { _, _ in
+            try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .utility).async {
+                    continuation.resume(with: Result<StableRollbackPackage, Error> {
+                        try StableRollbackPackage.run("/usr/bin/codesign", ["--verify", fixture.target.path])
+                        throw StableRollbackFailure.invalidBundle
+                    })
+                }
+            }
+        })
+        let observation = rollback.$state.sink { if case .failed = $0 { finished.open() } }
+        defer { observation.cancel() }
+        rollback.download(bundle: .main)
+        #expect(await finished.waitUntilOpen())
+        // This is the same applicationLogFileURL contract used by the export service.
+        let provider = RollbackLogDirectory(defaultLogDirectory: fixture.root)
+        let contents = try String(contentsOf: provider.applicationLogFileURL, encoding: .utf8)
+        #expect(contents.contains("stage=codesign"))
+        #expect(contents.contains("exit=1"))
+        #expect(!contents.contains(fixture.root.path))
+    }
+
+    @Test @MainActor
     func cancelledExitKeepsPreparedPackageAndDoesNotLaunchHelper() async throws {
         let fixture = try RollbackFixture()
         defer { fixture.remove() }
         let package = StableRollbackPackage(root: fixture.stage, target: fixture.target, version: "0.2.0")
         let ready = TestGate()
-        let rollback = MacStableRollback { _, preparing in
+        let rollback = MacStableRollback(loadPackage: { _, preparing in
             await preparing()
             return package
-        }
+        })
         let observation = rollback.$state.sink { state in
             if case .ready = state { ready.open() }
         }
@@ -48,11 +80,11 @@ struct StableRollbackTests {
         let release = TestGate()
         let finished = TestGate()
         let package = StableRollbackPackage(root: fixture.stage, target: fixture.target, version: "0.2.0")
-        let rollback = MacStableRollback { _, _ in
+        let rollback = MacStableRollback(loadPackage: { _, _ in
             started.open()
             _ = await release.waitUntilOpen()
             return package
-        }
+        })
         defer { release.open() }
         rollback.download(bundle: .main)
         #expect(await started.waitUntilOpen())
@@ -244,4 +276,8 @@ private struct RollbackFixture {
     }
 
     func remove() { try? FileManager.default.removeItem(at: root) }
+}
+
+private struct RollbackLogDirectory: LogDirectoryProviding {
+    let defaultLogDirectory: URL
 }

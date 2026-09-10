@@ -97,6 +97,11 @@ Stable apps continue to use the stable feed; no update-channel selector or
 automatic channel switch is introduced. Preview users can explicitly return to
 stable using the full-package workflow below. Sparkle uses the embedded feed instead
 of a persisted feed override. Both channels use the same configured EdDSA key.
+Packaging also assigns separate `SUDefaultsDomain` suites:
+`app.lithe.desktop.sparkle.stable` and `app.lithe.desktop.sparkle.preview`.
+Skipped versions and automatic-check preferences cannot cross channels with
+unrelated workflow build numbers. Existing preferences are not copied into the
+new suites; users may need to reselect their update-check preferences once.
 
 The update offer shows **Preview Update**, the current and target build numbers,
 the new build's date, and a short instability notice. It has **Install Preview**,
@@ -154,7 +159,8 @@ and minimum macOS version. It stages the app on the destination volume. Native
 copying, mounting and verification run on a worker queue with bounded processes.
 Download cancellation or preparation failure leaves the installed app intact.
 Preparation failures record the tool name, exit code and up to 2048 characters
-of path-redacted output through the existing application diagnostic logging;
+of path-redacted output through the injected `MacApplicationLogWriter` sink in
+`lithe.log`, the same file read by Diagnostics Export;
 the UI retains its short recovery message.
 
 Previously published stable DMGs without `edSignature` are refused by automatic

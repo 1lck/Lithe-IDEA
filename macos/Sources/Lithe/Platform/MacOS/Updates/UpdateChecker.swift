@@ -148,7 +148,7 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     var versionDescription: String {
         isPreview ? "\(currentVersion) Preview (\(buildIdentity.build))" : currentVersion
     }
-    let stableRollback = MacStableRollback()
+    let stableRollback: MacStableRollback
     private var rollbackObservation: AnyCancellable?
     private var rollbackRequested = false
     var canReturnToStable: Bool {
@@ -165,7 +165,8 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     private var started = false
     static let releasePageURL = URL(string: "https://github.com/1lck/Lithe-IDEA/releases/latest")!
 
-    init(bundle: Bundle = .main) {
+    init(bundle: Bundle = .main, diagnosticSink: @escaping @Sendable (String) -> Void = { NSLog("%@", $0) }) {
+        stableRollback = MacStableRollback(diagnosticSink: diagnosticSink)
         self.bundle = bundle
         buildIdentity = UpdateBuildIdentity(info: bundle.infoDictionary ?? [:])
         currentVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"

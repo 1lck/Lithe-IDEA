@@ -357,7 +357,9 @@ struct LitheApp: App {
             memorySampler: MacProcessMemorySampler()
         ))
         Self.emitPerformanceBaselineMarker(LithePerformanceBaseline.configurationMarker())
-        let updateChecker = UpdateChecker()
+        let updateChecker = UpdateChecker(diagnosticSink: { message in
+            Self.appendApplicationLog(applicationLogWriter, message: message)
+        })
         _updateChecker = StateObject(wrappedValue: updateChecker)
         appDelegate.projectSessions = projectSessions
         appDelegate.authorizationCallbackRouter = authorizationCallbackRouter
