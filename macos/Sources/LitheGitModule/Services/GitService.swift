@@ -12,6 +12,9 @@ package struct NullGitPerformanceLogger: GitPerformanceLogger {
 }
 
 package protocol GitOperations: Sendable {
+    func repositorySetup(at root: URL, scope: GitIdentityScope) -> Result<GitRepositorySetup, GitSetupFailure>
+    func initializeRepository(at root: URL) -> Result<GitRepositorySetup, GitSetupFailure>
+    func configureIdentity(at root: URL, scope: GitIdentityScope, field: GitIdentityField, value: String?) -> Result<GitRepositorySetup, GitSetupFailure>
     func run(
         arguments: [String],
         workingDirectory: String,
@@ -101,8 +104,19 @@ package protocol GitOperations: Sendable {
     func cherryPick(_ hash: String, at rootURL: URL) -> GitProcessResult?
     func revert(_ hash: String, at rootURL: URL) -> GitProcessResult?
     func resetCurrentBranch(to hash: String, mode: String, at rootURL: URL) -> GitProcessResult?
+    func historyRewritePreview(at rootURL: URL, operation: GitHistoryRewriteOperation, revisions: [String]) -> GitHistoryRewritePreview?
+    func rewriteHistory(at rootURL: URL, expectedState: GitHistoryRewriteExpectedState, message: String?) -> GitProcessResult?
+    func interactiveRebasePreview(at rootURL: URL, revision: String) -> Result<GitRebasePreview, GitRebaseFailure>
+    func interactiveRebaseSession(at rootURL: URL) -> Result<GitRebaseSession?, GitRebaseFailure>
+    func startInteractiveRebase(at rootURL: URL, expectedState: GitRebaseExpectedState, steps: [GitRebaseStep]) -> GitRebaseProcessResult
+    func controlInteractiveRebase(at rootURL: URL, sessionId: String, action: GitRebaseControlAction, amendMessage: String?, expectedHead: String?) -> GitRebaseProcessResult
+    func createHistoryRecoveryBranch(named name: String, reference: String, at rootURL: URL) -> GitProcessResult?
+    func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure>
+    func previewPatch(at rootURL: URL, patch: String, target: GitPatchTarget) -> Result<GitPatchPreview, GitPatchFailure>
+    func applyExchangePatch(at rootURL: URL, patch: String, target: GitPatchTarget, expectedState: String) -> GitProcessResult?
     func createBranch(named name: String, from reference: GitReference, checkout: Bool, at rootURL: URL) -> GitProcessResult?
     func createWorktree(named name: String, from reference: GitReference, revision: String?, at destination: URL, repositoryRoot: URL) -> GitProcessResult?
+    func createWorktree(_ request: GitWorktreeCreation, at rootURL: URL) -> GitProcessResult?
     func removeWorktree(_ worktree: GitWorktree, force: Bool, at rootURL: URL) -> GitProcessResult?
     func lockWorktree(_ worktree: GitWorktree, at rootURL: URL) -> GitProcessResult?
     func unlockWorktree(_ worktree: GitWorktree, at rootURL: URL) -> GitProcessResult?
@@ -151,6 +165,40 @@ package protocol GitOperations: Sendable {
 }
 
 package extension GitOperations {
+    func repositorySetup(at root: URL, scope: GitIdentityScope) -> Result<GitRepositorySetup, GitSetupFailure> {
+        .failure(GitSetupFailure("Git setup is unavailable."))
+    }
+    func initializeRepository(at root: URL) -> Result<GitRepositorySetup, GitSetupFailure> {
+        .failure(GitSetupFailure("Git setup is unavailable."))
+    }
+    func configureIdentity(at root: URL, scope: GitIdentityScope, field: GitIdentityField, value: String?) -> Result<GitRepositorySetup, GitSetupFailure> {
+        .failure(GitSetupFailure("Git setup is unavailable."))
+    }
+    func interactiveRebasePreview(at rootURL: URL, revision: String) -> Result<GitRebasePreview, GitRebaseFailure> {
+        .failure(GitRebaseFailure("Interactive rebase is unavailable."))
+    }
+    func interactiveRebaseSession(at rootURL: URL) -> Result<GitRebaseSession?, GitRebaseFailure> { .success(nil) }
+    func startInteractiveRebase(at rootURL: URL, expectedState: GitRebaseExpectedState, steps: [GitRebaseStep]) -> GitRebaseProcessResult {
+        GitRebaseProcessResult(command: GitProcessResult(output: "Interactive rebase is unavailable.", exitCode: 1), session: nil)
+    }
+    func controlInteractiveRebase(at rootURL: URL, sessionId: String, action: GitRebaseControlAction, amendMessage: String?, expectedHead: String?) -> GitRebaseProcessResult {
+        GitRebaseProcessResult(command: GitProcessResult(output: "Interactive rebase is unavailable.", exitCode: 1), session: nil)
+    }
+    func createWorktree(_ request: GitWorktreeCreation, at rootURL: URL) -> GitProcessResult? {
+        guard request.mode == .newBranch, !request.noCheckout, let name = request.name, let reference = request.reference else { return nil }
+        return createWorktree(named: name, from: reference, revision: request.revision, at: request.destination, repositoryRoot: rootURL)
+    }
+    func createHistoryRecoveryBranch(named name: String, reference: String, at rootURL: URL) -> GitProcessResult? { nil }
+    func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure> {
+        .failure(GitPatchFailure("Patch export is unavailable."))
+    }
+    func previewPatch(at rootURL: URL, patch: String, target: GitPatchTarget) -> Result<GitPatchPreview, GitPatchFailure> {
+        .failure(GitPatchFailure("Patch preview is unavailable."))
+    }
+    func applyExchangePatch(at rootURL: URL, patch: String, target: GitPatchTarget, expectedState: String) -> GitProcessResult? { nil }
+    func historyRewritePreview(at rootURL: URL, operation: GitHistoryRewriteOperation, revisions: [String]) -> GitHistoryRewritePreview? { nil }
+    func rewriteHistory(at rootURL: URL, expectedState: GitHistoryRewriteExpectedState, message: String?) -> GitProcessResult? { nil }
+
     func repositories(in workspaceURL: URL) -> [URL] {
         snapshot(at: workspaceURL).map { [$0.repositoryRoot] } ?? []
     }
@@ -255,6 +303,7 @@ package struct GitService: Sendable {
         package let stashRestoreConflict: GitStashRestoreConflict?
         package let tagDeletion: GitTagDeletion?
         package let branchDeletion: GitBranchDeletion?
+        package let historyRewrite: GitHistoryRewriteResult?
         package let warnings: [GitOperationWarning]
 
         package init(
@@ -269,6 +318,7 @@ package struct GitService: Sendable {
             stashRestoreConflict: GitStashRestoreConflict? = nil,
             tagDeletion: GitTagDeletion? = nil,
             branchDeletion: GitBranchDeletion? = nil,
+            historyRewrite: GitHistoryRewriteResult? = nil,
             warnings: [GitOperationWarning] = []
         ) {
             self.workingDirectory = workingDirectory
@@ -282,6 +332,7 @@ package struct GitService: Sendable {
             self.stashRestoreConflict = stashRestoreConflict
             self.tagDeletion = tagDeletion
             self.branchDeletion = branchDeletion
+            self.historyRewrite = historyRewrite
             self.warnings = warnings
         }
 
@@ -474,6 +525,87 @@ package struct GitService: Sendable {
 
     func commit(at repositoryRoot: URL, message: String, amend: Bool = false) async -> CommandResult {
         await command(at: repositoryRoot) { $0.commit(at: repositoryRoot, message: message, amend: amend) }
+    }
+
+    func historyRewritePreview(at repositoryRoot: URL, operation: GitHistoryRewriteOperation, revisions: [String]) async -> GitHistoryRewritePreview? {
+        await read { $0.historyRewritePreview(at: repositoryRoot, operation: operation, revisions: revisions) }
+    }
+
+    func interactiveRebasePreview(at root: URL, revision: String) async -> Result<GitRebasePreview, GitRebaseFailure> {
+        await read { $0.interactiveRebasePreview(at: root, revision: revision) }
+            ?? .failure(GitRebaseFailure("Could not inspect the rebase range."))
+    }
+
+    func repositorySetup(at root: URL, scope: GitIdentityScope) async -> Result<GitRepositorySetup, GitSetupFailure> {
+        await read { $0.repositorySetup(at: root, scope: scope) }
+            ?? .failure(GitSetupFailure("Git setup is unavailable."))
+    }
+
+    func initializeRepository(at root: URL) async -> Result<GitRepositorySetup, GitSetupFailure> {
+        await read { $0.initializeRepository(at: root) }
+            ?? .failure(GitSetupFailure("Git setup is unavailable."))
+    }
+
+    func configureIdentity(at root: URL, scope: GitIdentityScope, field: GitIdentityField, value: String?) async -> Result<GitRepositorySetup, GitSetupFailure> {
+        await read { $0.configureIdentity(at: root, scope: scope, field: field, value: value) }
+            ?? .failure(GitSetupFailure("Git setup is unavailable."))
+    }
+
+    func interactiveRebaseSession(at root: URL) async -> Result<GitRebaseSession?, GitRebaseFailure> {
+        await read { $0.interactiveRebaseSession(at: root) }
+            ?? .failure(GitRebaseFailure("Could not inspect the rebase session."))
+    }
+
+    func startInteractiveRebase(at root: URL, expectedState: GitRebaseExpectedState, steps: [GitRebaseStep]) async -> GitRebaseMutationResult {
+        await rebaseCommand(at: root) { $0.startInteractiveRebase(at: root, expectedState: expectedState, steps: steps) }
+    }
+
+    func controlInteractiveRebase(at root: URL, sessionId: String, action: GitRebaseControlAction, amendMessage: String?, expectedHead: String?) async -> GitRebaseMutationResult {
+        await rebaseCommand(at: root) { $0.controlInteractiveRebase(at: root, sessionId: sessionId, action: action, amendMessage: amendMessage, expectedHead: expectedHead) }
+    }
+
+    private func rebaseCommand(
+        at root: URL,
+        _ operation: @escaping @Sendable (any GitOperations) -> GitRebaseProcessResult
+    ) async -> GitRebaseMutationResult {
+        let operations = self.operations
+        let response = await Task.detached(priority: .userInitiated) { operation(operations) }.value
+        let result = response.command
+        return GitRebaseMutationResult(command: CommandResult(
+            workingDirectory: root, arguments: result.arguments, output: result.output,
+            standardOutput: result.standardOutput, standardError: result.standardError,
+            exitCode: result.exitCode, invocations: result.invocations,
+            operationErrorMessage: result.operationErrorMessage,
+            stashRestoreConflict: result.stashRestoreConflict, tagDeletion: result.tagDeletion,
+            branchDeletion: result.branchDeletion, historyRewrite: result.historyRewrite,
+            warnings: result.warnings
+        ), session: response.session)
+    }
+
+    func createWorktree(_ request: GitWorktreeCreation, at root: URL) async -> CommandResult {
+        await command(at: root) { $0.createWorktree(request, at: root) }
+    }
+
+    func exportPatch(at root: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) async -> Result<GitPatchExport, GitPatchFailure> {
+        await read { $0.exportPatch(at: root, source: source, paths: paths, base: base, target: target, metadataOnly: metadataOnly) }
+            ?? .failure(GitPatchFailure("Could not create a patch preview."))
+    }
+
+    func previewPatch(at root: URL, patch: String, target: GitPatchTarget) async -> Result<GitPatchPreview, GitPatchFailure> {
+        await read { $0.previewPatch(at: root, patch: patch, target: target) }
+            ?? .failure(GitPatchFailure("Could not inspect the patch."))
+    }
+
+    func applyExchangePatch(at root: URL, patch: String, target: GitPatchTarget, expectedState: String) async -> CommandResult {
+        await command(at: root) { $0.applyExchangePatch(at: root, patch: patch, target: target, expectedState: expectedState) }
+    }
+
+    func rewriteHistory(at repositoryRoot: URL, expectedState: GitHistoryRewriteExpectedState, message: String?) async -> CommandResult {
+        await command(at: repositoryRoot) { $0.rewriteHistory(at: repositoryRoot, expectedState: expectedState, message: message) }
+    }
+
+    func createHistoryRecoveryBranch(named name: String, reference: String, at root: URL) async -> CommandResult {
+        await command(at: root) { $0.createHistoryRecoveryBranch(named: name, reference: reference, at: root) }
     }
 
     func cherryPick(_ hash: String, at repositoryRoot: URL) async -> CommandResult {
@@ -920,6 +1052,7 @@ package struct GitService: Sendable {
             stashRestoreConflict: result?.stashRestoreConflict,
             tagDeletion: result?.tagDeletion,
             branchDeletion: result?.branchDeletion,
+            historyRewrite: result?.historyRewrite,
             warnings: result?.warnings ?? []
         )
         performanceLogger.record(

@@ -28,7 +28,7 @@ export function useRunActionDiscovery(
     return buffer?.type === "editor" ? buffer.content ?? "" : "";
   });
   const javaTestMethods = useJavaTestMethods(
-    activeFilePath,
+    activeFilePath ?? "",
     activeFileContent,
     enabled && mavenTestsAvailable,
   );

@@ -47,6 +47,11 @@ test("welcome Clone opens repository details with no open or recent project", as
       );
     });
     expect(container.textContent).toContain(t("welcome.noRecentProjects"));
+    expect(
+      Array.from(container.querySelectorAll("button")).filter(
+        (button) => button.textContent === t("welcome.checkUpdates"),
+      ),
+    ).toHaveLength(1);
     const cloneButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === t("welcome.clone"),
     );

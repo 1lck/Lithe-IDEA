@@ -9,7 +9,7 @@ const cancelCoreOperation = mock(async () => true);
 
 mock.module("@/core/lithe-core-client", () => ({ executeCore, cancelCoreOperation }));
 
-const { createMavenLaunchPlan, discoverJavaTestMethods, scanMavenProject } =
+const { createMavenLaunchPlan, parseJavaTestMethods, scanMavenProject } =
   await import("./maven-core-api");
 
 beforeEach(() => {
@@ -62,16 +62,16 @@ describe("Maven Core API", () => {
       id: "request",
       ok: true as const,
       data: {
-        testMethods: [{ name: "inline", line: 2, endLine: 2 }],
+        methods: [{ name: "inline", line: 2, endLine: 2 }],
       },
     });
 
-    await expect(discoverJavaTestMethods("class AppTest {}")).resolves.toEqual([
+    await expect(parseJavaTestMethods("class AppTest {}")).resolves.toEqual([
       { name: "inline", line: 2, endLine: 2 },
     ]);
     expect(executeCore).toHaveBeenCalledWith(
       expect.objectContaining({
-        command: "java.structure",
+        command: "java.testMethods",
         payload: { source: "class AppTest {}" },
       }),
     );

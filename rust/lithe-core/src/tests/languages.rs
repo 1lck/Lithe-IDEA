@@ -951,3 +951,65 @@ fn java_core_commands_return_shared_runtime_and_structure_data() {
     assert_eq!(port_response["data"]["port"], 8080);
     fs::remove_dir_all(root).expect("Java fixture should be removable");
 }
+
+#[test]
+fn java_test_methods_handle_inline_annotations_and_ignore_non_code_text() {
+    // Build the Java block comment at runtime so repository lint does not parse fixture text as Rust.
+    let java_block_comment = ["/", "* @Test void commentMethod() {} *", "/"].concat();
+    let source = r#"class CalculatorTest {
+    String example = "@Test void stringMethod() {}";
+    String textBlock = """
+        @Test void textBlockMethod() {}
+        """;
+    <java-block-comment>
+    @example.Test void customAnnotation() {}
+    @org.junit.Test public void inlineJUnit4() { helper(); }
+
+    @org.junit.jupiter.params.ParameterizedTest(name = "case {0}")
+    @ValueSource(ints = {1, 2})
+    void parameterized(int value) {
+        String braces = "}";
+        helper();
+    }
+
+    @Test
+    int field = 1;
+    void helper() {}
+}"#
+    .replace("<java-block-comment>", &java_block_comment);
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "java-test-methods",
+            "command": "java.testMethods",
+            "payload": {"source": source}
+        })
+        .to_string(),
+    ))
+    .expect("Java test methods response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["data"]["methods"],
+        serde_json::json!([
+            {"name": "inlineJUnit4", "line": 7, "endLine": 7},
+            {"name": "parameterized", "line": 11, "endLine": 14}
+        ])
+    );
+    let structure: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "java-structure-test-methods",
+            "command": "java.structure",
+            "payload": {"source": source}
+        })
+        .to_string(),
+    ))
+    .expect("Java structure response should be JSON");
+    assert_eq!(structure["ok"], true, "{structure}");
+    assert_eq!(
+        structure["data"]["testMethods"],
+        serde_json::json!([
+            {"name": "inlineJUnit4", "line": 8, "endLine": 8},
+            {"name": "parameterized", "line": 12, "endLine": 15}
+        ])
+    );
+}

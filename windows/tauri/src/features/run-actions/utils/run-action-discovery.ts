@@ -6,7 +6,7 @@ import { createTranslator } from "@/i18n/locale";
 import { joinPath } from "@/utils/path-helpers";
 import type { CodeLensItem } from "@/features/editor/lsp/use-code-lens";
 import type { RunActionItem, RunActionSource } from "../types/run-action.types";
-import type { JavaTestMethod } from "@/features/maven/utils/maven-test-selection";
+import type { JavaTestMethod } from "@/features/maven/types/maven.types";
 
 type ManifestContents = Map<string, string>;
 
@@ -43,7 +43,6 @@ export function javaTestActionsForFile(
   translate: (key: string) => string = getCurrentTranslator(),
 ): RunActionItem[] {
   if (!/\.java$/i.test(filePath)) return [];
-  if (methods.length === 0) return [];
   return [
     {
       id: `maven:test-class:${filePath}`,

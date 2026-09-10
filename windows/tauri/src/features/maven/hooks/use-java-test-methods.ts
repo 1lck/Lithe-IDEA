@@ -1,32 +1,30 @@
 import { useEffect, useState } from "react";
 import { frontendTrace } from "@/utils/frontend-trace";
-import { discoverJavaTestMethods } from "../api/maven-core-api";
-import { projectJavaTestMethods, type JavaTestMethod } from "../utils/maven-test-selection";
+import { parseJavaTestMethods } from "../api/maven-core-api";
+import type { JavaTestMethod } from "../types/maven.types";
 
-export function useJavaTestMethods(
-  filePath: string | undefined,
-  content: string,
-  enabled = true,
-): JavaTestMethod[] {
-  const [methods, setMethods] = useState<JavaTestMethod[]>([]);
+export function useJavaTestMethods(filePath: string, source: string, enabled: boolean) {
+  const [result, setResult] = useState<{
+    filePath: string;
+    source: string;
+    methods: JavaTestMethod[];
+  } | null>(null);
 
   useEffect(() => {
-    if (!enabled || !filePath || !/\.java$/i.test(filePath)) {
-      setMethods([]);
+    if (!enabled || !/\.java$/i.test(filePath)) {
+      setResult(null);
       return;
     }
 
-    setMethods([]);
     let cancelled = false;
-    void discoverJavaTestMethods(content)
-      .then((values) => {
-        if (!cancelled) setMethods(projectJavaTestMethods(values));
+    void parseJavaTestMethods(source)
+      .then((methods) => {
+        if (!cancelled) setResult({ filePath, source, methods });
       })
       .catch((error) => {
         if (cancelled) return;
-        setMethods([]);
-        frontendTrace("warn", "maven.test.discovery", "javaStructure:error", {
-          filePath,
+        setResult({ filePath, source, methods: [] });
+        frontendTrace("warn", "maven.testMethods", filePath, {
           error: error instanceof Error ? error.message : String(error),
         });
       });
@@ -34,7 +32,9 @@ export function useJavaTestMethods(
     return () => {
       cancelled = true;
     };
-  }, [content, enabled, filePath]);
+  }, [enabled, filePath, source]);
 
-  return methods;
+  return enabled && result?.filePath === filePath && result.source === source
+    ? result.methods
+    : [];
 }

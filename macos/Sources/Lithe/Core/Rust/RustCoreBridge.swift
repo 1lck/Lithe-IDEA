@@ -1015,6 +1015,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let tagDeletion: TagDeletion?
         let branchDeletion: BranchDeletion?
         let warnings: [Warning]?
+        let historyRewrite: GitHistoryRewriteResult?
     }
 
     struct GitDiffPayload: Decodable, Sendable {
@@ -1917,6 +1918,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let level: String?
         let message: String?
         let detail: String?
+        let mavenProfileTask: String?
+        let mavenProfileProject: MavenProfileProjectPayload?
+    }
+
+    struct MavenProfileProjectPayload: Decodable, Sendable {
+        let projectUri: URL
+        let status: String
+        let errorDetails: String?
     }
 
     struct LspRuntimeErrorPayload: Decodable, Sendable {
@@ -3616,6 +3625,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
+    /// Retries Maven Profile application while retaining the running JDTLS process.
+    func lspRetryMavenProfiles(sessionID: String) -> Result<Void, CoreCallError> {
+        executeVoid(
+            command: "lsp.retryMavenProfiles",
+            payload: LspSessionIdentifierRequest(sessionId: sessionID)
+        )
+    }
+
     /// Publishes the current text of a document. Rust decides whether that means
     /// an open or a change, and assigns the version.
     func lspSyncDocument(
@@ -3962,6 +3979,15 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             }
             return .success(value)
         }
+    }
+
+    /// Session queries intentionally return JSON null when no owned operation exists.
+    func executeNullableResult<Payload: Encodable, Data: Decodable>(
+        command: String,
+        payload: Payload
+    ) -> Result<Data?, CoreCallError> {
+        let outcome: Result<Envelope<Data>, CoreCallError> = decodeEnvelope(command: command, payload: payload)
+        return outcome.map(\.data)
     }
 
     /// Performs the call and reports the envelope's own verdict. Whether a

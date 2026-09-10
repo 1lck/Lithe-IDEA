@@ -5,7 +5,9 @@ import {
   pathStartsWithRoot,
 } from "@/utils/path-helpers";
 import type { MavenModule, MavenProject } from "../types/maven.types";
-import type { CoreJavaTestMethod } from "../api/maven-core-api";
+import type { JavaTestMethod } from "../types/maven.types";
+
+export type { JavaTestMethod } from "../types/maven.types";
 
 export interface MavenTestTarget {
   className: string;
@@ -145,36 +147,6 @@ export function resolveMavenTestTarget(
   return createMavenTestSelector(className)
     ? { className, module: modulePath === "." ? null : modulePath }
     : null;
-}
-
-export interface JavaTestMethod {
-  name: string;
-  line: number;
-  endLine: number;
-}
-
-export function projectJavaTestMethods(methods: readonly CoreJavaTestMethod[]): JavaTestMethod[] {
-  const projected: JavaTestMethod[] = [];
-  const names = new Set<string>();
-  for (const method of methods) {
-    if (
-      !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(method.name) ||
-      !Number.isInteger(method.line) ||
-      !Number.isInteger(method.endLine) ||
-      method.line <= 0 ||
-      method.endLine < method.line ||
-      names.has(method.name)
-    ) {
-      continue;
-    }
-    names.add(method.name);
-    projected.push({
-      name: method.name,
-      line: method.line - 1,
-      endLine: method.endLine - 1,
-    });
-  }
-  return projected;
 }
 
 export function javaTestMethodAtLine(

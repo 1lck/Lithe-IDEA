@@ -1,5 +1,6 @@
 import { executeCore } from "@/core/lithe-core-client";
 import type {
+  JavaTestMethod,
   MavenDependenciesResponse,
   MavenDiagnostic,
   MavenLaunchContext,
@@ -7,12 +8,6 @@ import type {
   MavenProject,
   MavenTestResults,
 } from "../types/maven.types";
-
-export interface CoreJavaTestMethod {
-  name: string;
-  line: number;
-  endLine: number;
-}
 
 let requestSequence = 0;
 
@@ -88,9 +83,7 @@ export function parseMavenTestResults(root: string, output: string) {
   return mavenCore<MavenTestResults>("maven.testResults", { root, output });
 }
 
-export async function discoverJavaTestMethods(source: string) {
-  const result = await mavenCore<{ testMethods: CoreJavaTestMethod[] }>("java.structure", {
-    source,
-  });
-  return result.testMethods ?? [];
+export async function parseJavaTestMethods(source: string) {
+  const result = await mavenCore<{ methods: JavaTestMethod[] }>("java.testMethods", { source });
+  return result.methods ?? [];
 }

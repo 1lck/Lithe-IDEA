@@ -780,10 +780,8 @@ pub fn test_results(
     let mut source_index = None;
     let mut source_cache = HashMap::new();
 
-    for (line_index, raw_line) in request.output.lines().enumerate() {
-        if line_index % 256 == 0 {
-            crate::protocol::cancellation::check()?;
-        }
+    for raw_line in request.output.lines() {
+        crate::protocol::cancellation::check()?;
         let clean_line = ansi.replace_all(raw_line, "");
         let line = strip_maven_log_prefix(clean_line.as_ref());
         let trimmed = line.trim();
@@ -913,8 +911,8 @@ pub fn test_results(
             .filter(|value| !value.is_empty())
             .map(str::to_string);
         // Surefire's compact footer encodes the source line as
-        // `TestName:line message`. The detailed entry owns source locations;
-        // strip the line token here while merging the footer into it.
+        // `TestName:line message`. Preserve a detailed entry's location, or use
+        // the footer line when legacy output provides no usable stack frame.
         let (footer_line, message) = raw_message.map_or((None, None), |value| {
             let mut parts = value.splitn(2, char::is_whitespace);
             match parts.next() {
@@ -1065,6 +1063,7 @@ fn resolve_test_source_path(
     source_index: &mut Option<MavenTestSourceIndex>,
     source_cache: &mut HashMap<(String, String), Option<String>>,
 ) -> Result<Option<String>, CoreError> {
+    crate::protocol::cancellation::check()?;
     let cache_key = (class_name.to_string(), file_name.to_string());
     if let Some(cached) = source_cache.get(&cache_key) {
         return Ok(cached.clone());
@@ -1161,6 +1160,7 @@ impl MavenTestSourceIndex {
             };
             let mut children = Vec::new();
             for entry in entries {
+                crate::protocol::cancellation::check()?;
                 let entry = match entry {
                     Ok(entry) => entry,
                     Err(_) => {

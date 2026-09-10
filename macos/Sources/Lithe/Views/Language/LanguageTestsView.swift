@@ -134,6 +134,10 @@ struct LanguageTestsView: View {
             Label(localization.text("Timed Out"), systemImage: "clock.badge.exclamationmark")
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.error)
+        case .timedOut:
+            Label("Timed Out", systemImage: "clock.badge.exclamationmark")
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(LitheTheme.error)
         case .cancelled:
             Label(localization.text("Cancelled"), systemImage: "stop.circle.fill")
                 .font(.system(size: 11.5, weight: .medium))

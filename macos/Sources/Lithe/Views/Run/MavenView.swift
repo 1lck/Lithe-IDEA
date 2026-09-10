@@ -7,14 +7,9 @@ struct MavenView: View {
     @State private var selectedPhase: MavenLifecyclePhase?
     @State private var expandedNodeIDs: Set<String> = []
     @State private var isGoalSheetPresented = false
-    @State private var isSettingsSheetPresented = false
     @State private var isAddProfilePresented = false
     @State private var customGoal = ""
     @State private var customProfile = ""
-    @State private var settingsPath = ""
-    @State private var localRepositoryPath = ""
-    @State private var mavenExecutablePath = ""
-    @State private var javaHomePath = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -58,9 +53,6 @@ struct MavenView: View {
         }
         .sheet(isPresented: $isGoalSheetPresented) {
             goalSheet
-        }
-        .sheet(isPresented: $isSettingsSheetPresented) {
-            settingsSheet
         }
     }
 
@@ -142,7 +134,7 @@ struct MavenView: View {
             .litheIconButton()
             .help("Collapse all")
 
-            Button(action: presentSettings) {
+            Button(action: { model.showSettings(category: .project) }) {
                 LitheSystemIcon(systemImage: "slider.horizontal.3")
             }
             .litheIconButton()
@@ -808,90 +800,6 @@ struct MavenView: View {
         .frame(width: 420)
     }
 
-    private var settingsSheet: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Maven Settings")
-                .font(.system(size: 16, weight: .semibold))
-
-            settingsPathRow(
-                title: "settings.xml",
-                value: $settingsPath,
-                choose: {
-                    model.platformUI.chooseFile(title: "Choose Maven settings.xml", prompt: "Choose")
-                }
-            )
-            settingsPathRow(
-                title: "Local Repository",
-                value: $localRepositoryPath,
-                choose: {
-                    model.platformUI.chooseDirectory(title: "Choose Maven Local Repository", prompt: "Choose")
-                }
-            )
-            settingsPathRow(
-                title: "Maven Home or Executable",
-                value: $mavenExecutablePath,
-                choose: {
-                    model.platformUI.chooseDirectory(title: "Choose Maven Home", prompt: "Choose")
-                }
-            )
-            settingsPathRow(
-                title: "Maven JDK",
-                value: $javaHomePath,
-                choose: {
-                    model.platformUI.chooseDirectory(title: "Choose Maven JDK", prompt: "Choose")
-                }
-            )
-
-            if let error = feature.configurationSaveError {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(LitheTheme.error)
-            }
-
-            HStack {
-                Spacer()
-                Button("Cancel") { isSettingsSheetPresented = false }
-                    .keyboardShortcut(.cancelAction)
-                Button("Save", action: saveSettings)
-                    .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(20)
-        .frame(width: 560)
-    }
-
-    private func settingsPathRow(
-        title: String,
-        value: Binding<String>,
-        choose: @escaping () -> URL?
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(LitheTheme.primaryText)
-            HStack(spacing: 6) {
-                TextField("Automatic", text: value)
-                    .textFieldStyle(.roundedBorder)
-                Button {
-                    value.wrappedValue = ""
-                } label: {
-                    Image(systemName: "xmark")
-                }
-                .litheIconButton()
-                .help("Use automatic value")
-                Button {
-                    if let url = choose() {
-                        value.wrappedValue = url.standardizedFileURL.path
-                    }
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .litheIconButton()
-                .help("Choose path")
-            }
-        }
-    }
-
     private func profileBinding(for profile: MavenProfile) -> Binding<Bool> {
         Binding(
             get: { feature.selectedProfiles.contains(profile.id) },
@@ -924,24 +832,6 @@ struct MavenView: View {
             customProfile = ""
             isAddProfilePresented = false
         }
-    }
-
-    private func presentSettings() {
-        settingsPath = feature.settingsPath ?? ""
-        localRepositoryPath = feature.localRepositoryPath ?? ""
-        mavenExecutablePath = feature.mavenExecutablePath ?? ""
-        javaHomePath = feature.javaHomePath ?? ""
-        isSettingsSheetPresented = true
-    }
-
-    private func saveSettings() {
-        feature.updateLocalConfiguration(
-            settingsPath: settingsPath,
-            localRepositoryPath: localRepositoryPath,
-            mavenExecutablePath: mavenExecutablePath,
-            javaHomePath: javaHomePath
-        )
-        isSettingsSheetPresented = false
     }
 
     private var selectedModule: MavenModule? {

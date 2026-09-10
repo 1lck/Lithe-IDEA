@@ -1,112 +1,23 @@
-import { useCallback, useEffect, useState } from "react";
-import {
-  shouldSuppressUpdate,
-  UPDATE_DISMISSED_EVENT,
-  UPDATE_PREFERENCES_CHANGED_EVENT,
-} from "../lib/update-preferences";
-import { useUpdater } from "./use-updater";
+import { useEffect } from "react";
+import { useUpdateStore } from "../stores/update.store";
 
-const UPDATE_CHECK_DELAY = 5000; // 5 seconds after app start
-const UPDATE_CHECK_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours
+const UPDATE_CHECK_DELAY = 5000;
+const UPDATE_CHECK_INTERVAL = 4 * 60 * 60 * 1000;
 
 export const useAutoUpdate = () => {
-  const [showUpdateIndicator, setShowUpdateIndicator] = useState(false);
-  const {
-    available,
-    checking,
-    downloading,
-    installing,
-    error,
-    updateInfo,
-    downloadProgress,
-    checkForUpdates,
-    downloadAndInstall,
-    dismissUpdate,
-    downloadLater,
-    remindLater,
-    skipVersion,
-    viewReleaseNotes,
-  } = useUpdater(false); // Don't check on mount, we'll do it with a delay
+  const checkForUpdates = useUpdateStore((state) => state.actions.checkForUpdates);
 
-  // Check for updates after app starts (with delay)
   useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      checkForUpdates();
+    const timeoutId = window.setTimeout(() => {
+      void checkForUpdates();
     }, UPDATE_CHECK_DELAY);
-
-    // Set up periodic check
-    const intervalId = setInterval(() => {
-      checkForUpdates();
+    const intervalId = window.setInterval(() => {
+      void checkForUpdates();
     }, UPDATE_CHECK_INTERVAL);
 
     return () => {
-      clearTimeout(timeoutId);
-      clearInterval(intervalId);
+      window.clearTimeout(timeoutId);
+      window.clearInterval(intervalId);
     };
   }, [checkForUpdates]);
-
-  // Show the footer update indicator when update is available
-  useEffect(() => {
-    if (available && updateInfo) {
-      setShowUpdateIndicator(true);
-    }
-  }, [available, updateInfo]);
-
-  useEffect(() => {
-    const hideUpdate = () => {
-      setShowUpdateIndicator(false);
-      dismissUpdate();
-    };
-
-    const syncUpdatePreferences = () => {
-      if (!updateInfo || !shouldSuppressUpdate(updateInfo)) {
-        return;
-      }
-
-      hideUpdate();
-    };
-
-    window.addEventListener(UPDATE_DISMISSED_EVENT, hideUpdate);
-    window.addEventListener(UPDATE_PREFERENCES_CHANGED_EVENT, syncUpdatePreferences);
-
-    return () => {
-      window.removeEventListener(UPDATE_DISMISSED_EVENT, hideUpdate);
-      window.removeEventListener(UPDATE_PREFERENCES_CHANGED_EVENT, syncUpdatePreferences);
-    };
-  }, [dismissUpdate, updateInfo]);
-
-  const handleDismiss = useCallback(() => {
-    setShowUpdateIndicator(false);
-    downloadLater();
-  }, [downloadLater]);
-
-  const handleDownload = useCallback(async () => {
-    await downloadAndInstall();
-  }, [downloadAndInstall]);
-
-  const handleRemindLater = useCallback(() => {
-    setShowUpdateIndicator(false);
-    remindLater();
-  }, [remindLater]);
-
-  const handleSkipVersion = useCallback(() => {
-    setShowUpdateIndicator(false);
-    skipVersion();
-  }, [skipVersion]);
-
-  return {
-    showUpdateIndicator,
-    updateInfo,
-    downloadProgress,
-    downloading,
-    installing,
-    error,
-    checking,
-    onDismiss: handleDismiss,
-    onDownload: handleDownload,
-    onRemindLater: handleRemindLater,
-    onSkipVersion: handleSkipVersion,
-    onViewReleaseNotes: viewReleaseNotes,
-    checkForUpdates,
-  };
 };

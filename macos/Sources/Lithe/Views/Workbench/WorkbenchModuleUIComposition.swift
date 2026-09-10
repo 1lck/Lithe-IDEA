@@ -73,7 +73,9 @@ enum WorkbenchModuleUIComposition {
                             compareReferences: { [weak model] in
                                 await model?.showComparison(from: $0, to: $1)
                             },
-                            openCommitDiff: { [weak model] in model?.showGitCommitDiff(for: $0) }
+                            openCommitDiff: { [weak model] in model?.showGitCommitDiff(for: $0) },
+                            openGitSettings: { [weak model] in model?.showSettings(category: .git) },
+                            openChanges: { [weak model] in model?.selectedSidebar = .changes }
                         ),
                         worktreeActions: GitWorktreeActions(
                             openProject: { [weak model] in model?.openProject($0) },
@@ -83,7 +85,10 @@ enum WorkbenchModuleUIComposition {
                                 model?.platformUI.chooseDirectory(
                                     title: "Choose Worktree Parent", prompt: "Choose"
                                 )
-                            }
+                            },
+                            openProjectInCurrentWindow: { [weak model] in model?.openProject($0, placement: .thisWindow) },
+                            openProjectInNewWindow: { [weak model] in model?.openProject($0, placement: .newWindow) },
+                            temporaryDirectory: { [storage = model.services.fileStorage] in storage.temporaryDirectory() }
                         )
                     ))
                 }
