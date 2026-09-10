@@ -195,6 +195,10 @@ macOS owns the platform side of these capabilities:
   native handles (LSP process transport belongs to Rust);
 - native window, menu, clipboard, shortcut, installer, and update behavior.
 
+In-app updates use Sparkle through the macOS update adapter. See
+[`macos-updates.md`](macos-updates.md) for signing, differential archives,
+legacy-client compatibility, and release verification.
+
 ## Verification
 
 Run this check after changing an application boundary:

@@ -6,6 +6,7 @@ require "json"
 require "optparse"
 require "pathname"
 require "time"
+require "base64"
 
 options = {
   output_directory: "dist",
@@ -22,6 +23,7 @@ OptionParser.new do |parser|
   parser.on("--release-notes-path PATH") { |value| options[:release_notes_path] = value }
   parser.on("--release-date DATE") { |value| options[:release_date] = value }
   parser.on("--output-directory PATH") { |value| options[:output_directory] = value }
+  parser.on("--require-signatures") { options[:require_signatures] = true }
 end.parse!
 
 version = options[:version]
@@ -61,6 +63,14 @@ assets = {}
     "url" => "https://github.com/#{repository}/releases/download/#{release_tag}/#{asset_name}",
     "sha256" => checksum
   }
+  signature_path = output_directory.join("#{asset_name}.edsig")
+  if signature_path.file?
+    signature = signature_path.read.strip
+    abort "Invalid Ed25519 signature for #{asset_name}" unless Base64.strict_decode64(signature).bytesize == 64
+    assets[architecture]["edSignature"] = signature
+  elsif options[:require_signatures]
+    abort "Missing publisher signature for #{asset_name}"
+  end
 end
 
 manifest = {

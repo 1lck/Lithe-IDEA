@@ -162,6 +162,8 @@ else
 fi
 
 cp "$INFO_PLIST" "$APP_DIR/Contents/Info.plist"
+zsh "$ROOT_DIR/scripts/embed-sparkle.sh" "$APP_DIR"
+zsh "$ROOT_DIR/scripts/configure-sparkle-app.sh" "$APP_DIR/Contents/Info.plist" "$ARCH"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_DIR/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP_DIR/Contents/Info.plist"
 "$ROOT_DIR/scripts/stamp-macos-app-build-info.sh" "$APP_DIR/Contents/Info.plist"
