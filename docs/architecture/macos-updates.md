@@ -140,11 +140,30 @@ downloads the latest stable `latest-macos.json` and the architecture-specific fu
 DMG over HTTPS. This path intentionally accepts a lower version and never requests
 a delta. It supports stable releases published before the Sparkle migration.
 
-The installer verifies the manifest SHA-256, app code signature, bundle identifier,
+The stable publisher signs each full DMG using `SPARKLE_PRIVATE_KEY` and embeds
+the detached signature in the architecture asset's optional `edSignature` field.
+The stable workflow requires both signatures when producing `latest-macos.json`;
+older clients ignore this additive schema-1 field. The rollback client requires
+the signature and verifies it with its embedded `SUPublicEDKey` before mounting
+or copying anything. It never accepts a key supplied by the downloaded manifest.
+SHA-256 and ad-hoc code signing alone do not authenticate the publisher.
+
+The installer verifies the manifest SHA-256, DMG Ed25519 signature, app code signature, bundle identifier,
 display version, executable architecture, stable channel (or legacy missing channel),
 and minimum macOS version. It stages the app on the destination volume. Native
 copying, mounting and verification run on a worker queue with bounded processes.
 Download cancellation or preparation failure leaves the installed app intact.
+Preparation failures record the tool name, exit code and up to 2048 characters
+of path-redacted output through the existing application diagnostic logging;
+the UI retains its short recovery message.
+
+Previously published stable DMGs without `edSignature` are refused by automatic
+rollback and offer manual installation instead. To enable them without rebuilding,
+an authorized maintainer must obtain and verify the original binaries, sign each
+with the existing Sparkle private key using `sign_update --ed-key-file - -p`, save
+the public signature as `<DMG filename>.edsig`, and regenerate the manifest with
+`create-macos-update-manifest.rb --require-signatures`. Publishing that manifest
+is a separate release operation; no existing live release is modified by this PR.
 
 Install and Restart uses the same unsaved-document confirmation and bounded
 shutdown as application updates. The independent helper starts only after that

@@ -87,12 +87,29 @@ struct StableRollbackTests {
         try await runFixtureTool("/usr/bin/codesign", ["--force", "--sign", "-", app.path])
         try await runFixtureTool("/usr/bin/hdiutil", ["create", "-srcfolder", root.appendingPathComponent("payload").path,
                                                    "-format", "UDZO", dmg.path])
-        let checksum = SHA256.hash(data: try Data(contentsOf: dmg)).map { String(format: "%02x", $0) }.joined()
+        let archiveData = try Data(contentsOf: dmg)
+        let checksum = SHA256.hash(data: archiveData).map { String(format: "%02x", $0) }.joined()
+        let publisher = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(repeating: 1, count: 32))
+        let publicKey = publisher.publicKey.rawRepresentation.base64EncodedString()
+        let signature = try publisher.signature(for: archiveData).base64EncodedString()
         let target = root.appendingPathComponent("Installed.app")
         try manager.createDirectory(at: target, withIntermediateDirectories: false)
+        // Valid checksum and ad-hoc signature cannot substitute for publisher
+        // authentication, even if the attacker controls the entire manifest.
+        for invalidSignature: String? in [nil, "invalid", Data(repeating: 0, count: 64).base64EncodedString()] {
+            do {
+                _ = try await StableRollbackPackage.prepare(download: dmg,
+                    asset: UpdateManifestAsset(url: URL(string: "https://example.com/stable.dmg")!, sha256: checksum, edSignature: invalidSignature),
+                    version: "0.2.0", target: target, identifier: "example.lithe",
+                    architecture: try #require(UpdateArchitecture.current), publicKey: publicKey)
+                Issue.record("Missing or forged publisher signatures must fail before mounting")
+            } catch let failure as StableRollbackFailure {
+                guard case .invalidPublisherSignature = failure else { throw failure }
+            }
+        }
         let package = try await StableRollbackPackage.prepare(download: dmg,
-            asset: UpdateManifestAsset(url: URL(string: "https://example.com/stable.dmg")!, sha256: checksum),
-            version: "0.2.0", target: target, identifier: "example.lithe", architecture: try #require(UpdateArchitecture.current))
+            asset: UpdateManifestAsset(url: URL(string: "https://example.com/stable.dmg")!, sha256: checksum, edSignature: signature),
+            version: "0.2.0", target: target, identifier: "example.lithe", architecture: try #require(UpdateArchitecture.current), publicKey: publicKey)
         #expect(package.version == "0.2.0")
         #expect(manager.fileExists(atPath: package.root.appendingPathComponent("new.app/Contents/MacOS/Lithe").path))
         #expect(try manager.contentsOfDirectory(atPath: target.path).isEmpty)
@@ -126,7 +143,7 @@ struct StableRollbackTests {
         do {
             _ = try await StableRollbackPackage.prepare(download: download,
                 asset: UpdateManifestAsset(url: URL(string: "https://example.com/stable.dmg")!, sha256: String(repeating: "0", count: 64)),
-                version: "0.2.0", target: root.appendingPathComponent("Lithe.app"), identifier: "example.lithe", architecture: .arm64)
+                version: "0.2.0", target: root.appendingPathComponent("Lithe.app"), identifier: "example.lithe", architecture: .arm64, publicKey: "invalid")
             Issue.record("A corrupted full download must never reach installation")
         } catch let error as UpdateCheckError {
             #expect(error == .checksumMismatch)
@@ -145,6 +162,23 @@ struct StableRollbackTests {
         if launchSucceeds {
             #expect(try String(contentsOf: fixture.stage.appendingPathComponent("previous.app/identity"), encoding: .utf8) == "preview")
         }
+    }
+
+    @Test
+    func preparationDiagnosticsPreserveFailureWithoutLocalPaths() throws {
+        let fixture = try RollbackFixture()
+        defer { fixture.remove() }
+        let result = MacProcessRunner().run(ProcessRequest(executablePath: "/usr/bin/codesign",
+            arguments: ["--verify", "--deep", "--strict", fixture.target.path], timeoutMilliseconds: 3000))
+        #expect(!result.succeeded)
+        let diagnostic = StableRollbackPackage.preparationDiagnostic(executable: "/usr/bin/codesign",
+            arguments: [fixture.target.path], exitCode: result.exitCode, output: result.output + String(repeating: "x", count: 3000))
+        #expect(diagnostic.contains("stage=codesign"))
+        #expect(diagnostic.contains("exit=\(result.exitCode)"))
+        #expect(!diagnostic.contains(fixture.root.path))
+        #expect(!diagnostic.contains(NSHomeDirectory()))
+        #expect(diagnostic.count < 2200)
+        #expect(diagnostic.contains("<path>"))
     }
 
     @Test

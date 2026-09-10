@@ -127,9 +127,11 @@ final class MacStableRollback: ObservableObject {
 }
 
 enum StableRollbackFailure: LocalizedError {
-    case cannotReplace, invalidBundle
+    case cannotReplace, invalidBundle, invalidPublisherSignature
     var errorDescription: String? {
         switch self {
+        case .invalidPublisherSignature:
+            return String(localized: "The stable release is missing a valid publisher signature. Nothing was installed. Try a newer release or install manually from a trusted source.")
         case .cannotReplace:
             return String(localized: "Lithe cannot replace this app in its current folder. Move it to a writable Applications folder or install the stable release manually.")
         case .invalidBundle:
@@ -147,6 +149,8 @@ struct StableRollbackPackage: Sendable {
         let target = bundle.bundleURL.resolvingSymlinksInPath()
         guard target.pathExtension == "app", let identifier = bundle.bundleIdentifier,
               let architecture = UpdateArchitecture.current else { throw UpdateCheckError.notAppBundle }
+        guard let publicKey = bundle.object(forInfoDictionaryKey: "SUPublicEDKey") as? String,
+              Data(base64Encoded: publicKey)?.count == 32 else { throw StableRollbackFailure.invalidPublisherSignature }
         guard FileManager.default.isWritableFile(atPath: target.deletingLastPathComponent().path) else {
             throw StableRollbackFailure.cannotReplace
         }
@@ -159,13 +163,16 @@ struct StableRollbackPackage: Sendable {
         try validateResponse(response)
         let manifest = try JSONDecoder().decode(UpdateManifest.self, from: data).validated()
         let asset = try manifest.asset(for: architecture)
+        guard let signature = asset.edSignature, Data(base64Encoded: signature)?.count == 64 else {
+            throw StableRollbackFailure.invalidPublisherSignature
+        }
         let (download, archiveResponse) = try await session.download(from: asset.url)
         defer { try? FileManager.default.removeItem(at: download) }
         try validateResponse(archiveResponse)
         try Task.checkCancellation()
         await preparing()
         return try await prepare(download: download, asset: asset, version: manifest.version,
-            target: target, identifier: identifier, architecture: architecture)
+            target: target, identifier: identifier, architecture: architecture, publicKey: publicKey)
     }
 
     private static func validateResponse(_ response: URLResponse) throws {
@@ -183,24 +190,30 @@ struct StableRollbackPackage: Sendable {
     }
 
     nonisolated static func prepare(download: URL, asset: UpdateManifestAsset, version: String,
-                                   target: URL, identifier: String, architecture: UpdateArchitecture) async throws -> Self {
+                                   target: URL, identifier: String, architecture: UpdateArchitecture, publicKey: String) async throws -> Self {
         // Native filesystem and process work is bounded, but blocking; keep it
         // off both the UI thread and Swift's cooperative executor.
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
                 continuation.resume(with: Result {
                     try prepareSynchronously(download: download, asset: asset, version: version,
-                        target: target, identifier: identifier, architecture: architecture)
+                        target: target, identifier: identifier, architecture: architecture, publicKey: publicKey)
                 })
             }
         }
     }
 
     private static func prepareSynchronously(download: URL, asset: UpdateManifestAsset, version: String,
-                                            target: URL, identifier: String, architecture: UpdateArchitecture) throws -> Self {
+                                            target: URL, identifier: String, architecture: UpdateArchitecture, publicKey: String) throws -> Self {
         let data = try Data(contentsOf: download, options: .mappedIfSafe)
         let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         guard digest == asset.normalizedSHA256 else { throw UpdateCheckError.checksumMismatch }
+        // The manifest checksum is not proof of publisher identity. Only the
+        // key embedded in the installed app is trusted, never downloaded key data.
+        guard let keyData = Data(base64Encoded: publicKey),
+              let signature = asset.edSignature.flatMap({ Data(base64Encoded: $0) }),
+              let key = try? Curve25519.Signing.PublicKey(rawRepresentation: keyData),
+              key.isValidSignature(signature, for: data) else { throw StableRollbackFailure.invalidPublisherSignature }
         let manager = FileManager.default
         // Stage on the target volume so both rename operations remain atomic.
         let root = target.deletingLastPathComponent().appendingPathComponent(".lithe-stable-\(UUID().uuidString)")
@@ -253,7 +266,24 @@ struct StableRollbackPackage: Sendable {
     private static func run(_ executable: String, _ arguments: [String]) throws {
         let result = MacProcessRunner().run(ProcessRequest(executablePath: executable,
             arguments: arguments, timeoutMilliseconds: 120_000))
-        guard result.succeeded else { throw UpdateCheckError.toolFailed(executable) }
+        guard result.succeeded else {
+            NSLog("%@", preparationDiagnostic(executable: executable, arguments: arguments,
+                exitCode: result.exitCode, output: result.output))
+            throw UpdateCheckError.toolFailed(executable)
+        }
+    }
+
+    static func preparationDiagnostic(executable: String, arguments: [String], exitCode: Int32, output: String) -> String {
+        var sanitized = output
+        let paths = arguments.filter { $0.hasPrefix("/") }.flatMap {
+            [$0, URL(fileURLWithPath: $0).deletingLastPathComponent().path]
+        } + [NSHomeDirectory(), NSTemporaryDirectory()]
+        for path in Set(paths).filter({ $0 != "/" }).sorted(by: { $0.count > $1.count }) {
+            sanitized = sanitized.replacingOccurrences(of: path, with: "<path>")
+        }
+        sanitized = sanitized.replacingOccurrences(of: #"/[^\s\"'<>]+"#, with: "<path>", options: .regularExpression)
+        let stage = URL(fileURLWithPath: executable).lastPathComponent
+        return "Stable rollback preparation stage=\(stage) exit=\(exitCode): \(sanitized.prefix(2048))"
     }
 
     static let replacementScript = #"""

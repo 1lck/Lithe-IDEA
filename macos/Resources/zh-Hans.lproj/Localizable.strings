@@ -1765,6 +1765,7 @@
 "Skip Build" = "跳过此构建";
 "Continue Installation" = "继续安装";
 "Return to Stable" = "回到正式版";
+"The stable release is missing a valid publisher signature. Nothing was installed. Try a newer release or install manually from a trusted source." = "正式版缺少有效的发布者签名，未执行安装。请等待新版本，或从可信来源手动安装。";
 "Return to Stable?" = "回到正式版？";
 "Download Stable Release" = "下载正式版";
 "Downloading full stable release…" = "正在下载正式版完整安装包…";

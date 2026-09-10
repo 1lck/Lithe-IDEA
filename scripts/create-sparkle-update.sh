@@ -43,6 +43,10 @@ while IFS=$'\t' read -r tag name; do
 done < "$temporary/baselines"
 
 if [[ "$channel" == stable ]]; then
+    # Keep legacy DMGs while authenticating full-package rollback with the same
+    # publisher key used for Sparkle archives. Only the public signature is saved.
+    print -r -- "$LITHE_SPARKLE_PRIVATE_KEY" | "$tools/sign_update" --ed-key-file - -p \
+        "dist/Lithe-$LITHE_VERSION-$LITHE_ARCH.dmg" > "dist/Lithe-$LITHE_VERSION-$LITHE_ARCH.dmg.edsig"
     notes="docs/releases/v$LITHE_VERSION.md"
     test -s "$notes" || { print -u2 -- "Missing release notes: $notes"; exit 1; }
     # The native details view consumes plain text, not rendered HTML.

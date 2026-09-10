@@ -4,6 +4,7 @@ require "fileutils"
 require "open3"
 require "timeout"
 require "time"
+require "digest"
 require "base64"
 require_relative "select-sparkle-baselines"
 require_relative "verify-sparkle-appcast"
@@ -39,6 +40,32 @@ def expect(condition, message)
 end
 
 tools = ARGV.fetch(0)
+Dir.mktmpdir("lithe-rollback-signatures-") do |root|
+  @fixture_home = File.join(root, "home")
+  FileUtils.mkdir_p(@fixture_home)
+  key = Base64.strict_encode64("\x01" * 32)
+  %w[arm64 x86_64].each do |architecture|
+    path = File.join(root, "Lithe-1.0.0-#{architecture}.dmg")
+    File.write(path, "full archive #{architecture}")
+    File.write(path + ".sha256", Digest::SHA256.file(path).hexdigest)
+    signature = run(File.join(tools, "sign_update"), "--ed-key-file", "-", "-p", path, input: key + "\n").strip
+    File.write(path + ".edsig", signature + "\n")
+    run("swift", "-e", 'import CryptoKit; import Foundation; let key = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(repeating: 1, count: 32)); let data = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])); guard key.publicKey.isValidSignature(Data(base64Encoded: CommandLine.arguments[2])!, for: data) else { exit(1) }', path, signature)
+  end
+  generator = ["ruby", File.join(__dir__, "create-macos-update-manifest.rb"), "--version", "1.0.0",
+               "--repository", "example/lithe", "--output-directory", root, "--require-signatures"]
+  run(*generator)
+  manifest = JSON.parse(File.read(File.join(root, "latest-macos.json")))
+  %w[arm64 x86_64].each do |architecture|
+    expect(manifest.fetch("assets").fetch(architecture).fetch("edSignature") == File.read(File.join(root, "Lithe-1.0.0-#{architecture}.dmg.edsig")).strip,
+      "Manifest must preserve the Sparkle-compatible archive signature")
+  end
+  File.delete(File.join(root, "Lithe-1.0.0-arm64.dmg.edsig"))
+  run(*generator, succeeds: false)
+  File.write(File.join(root, "Lithe-1.0.0-arm64.dmg.edsig"), "invalid")
+  run(*generator, succeeds: false)
+end
+puts "Rollback DMG signatures, CryptoKit compatibility and required manifest fields passed"
 [false, true].each do |preview|
 Dir.mktmpdir("lithe-sparkle-test-") do |root|
   @fixture_home = File.join(root, "home")

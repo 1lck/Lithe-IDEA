@@ -754,6 +754,7 @@
 "Skip Build" = "Skip Build";
 "Continue Installation" = "Continue Installation";
 "Return to Stable" = "Return to Stable";
+"The stable release is missing a valid publisher signature. Nothing was installed. Try a newer release or install manually from a trusted source." = "The stable release is missing a valid publisher signature. Nothing was installed. Try a newer release or install manually from a trusted source.";
 "Return to Stable?" = "Return to Stable?";
 "Download Stable Release" = "Download Stable Release";
 "Downloading full stable release…" = "Downloading full stable release…";

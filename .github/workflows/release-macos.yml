@@ -172,6 +172,7 @@ jobs:
           path: |
             dist/Lithe-${{ needs.prepare.outputs.version }}-${{ matrix.architecture }}.dmg
             dist/Lithe-${{ needs.prepare.outputs.version }}-${{ matrix.architecture }}.dmg.sha256
+            dist/Lithe-${{ needs.prepare.outputs.version }}-${{ matrix.architecture }}.dmg.edsig
             dist/sparkle-${{ matrix.architecture }}/*
           if-no-files-found: error
           retention-days: 7
@@ -221,6 +222,7 @@ jobs:
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           ruby scripts/create-macos-update-manifest.rb \
+            --require-signatures \
             --version "$LITHE_VERSION" \
             --repository "$GITHUB_REPOSITORY" \
             --release-tag "$RELEASE_TAG" \
