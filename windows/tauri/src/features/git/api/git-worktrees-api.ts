@@ -8,6 +8,40 @@ import {
   resolveRepositoryPathOrThrow,
 } from "./git-repo-api";
 
+interface CoreGitWorktree {
+  path: string;
+  head: string;
+  branch: string | null;
+  isCurrent: boolean;
+  isPrimary: boolean;
+  isBare: boolean;
+  isDetached: boolean;
+  isLocked: boolean;
+  lockReason: string | null;
+  isPrunable: boolean;
+  pruneReason: string | null;
+}
+
+export async function readWorktrees(repoPath: string): Promise<GitWorktree[]> {
+  const root = await resolveRepositoryPathOrThrow(repoPath);
+  const result = await runGitRead(root, "worktrees", () =>
+    tauriInvoke<{ worktrees: CoreGitWorktree[] }>("git.worktrees", { root }),
+  );
+  return result.worktrees.map((entry) => ({
+    path: entry.path,
+    head: entry.head,
+    branch: entry.branch?.replace(/^refs\/heads\//, ""),
+    is_current: entry.isCurrent,
+    is_primary: entry.isPrimary,
+    is_bare: entry.isBare,
+    is_detached: entry.isDetached,
+    is_locked: entry.isLocked,
+    is_prunable: entry.isPrunable,
+    locked_reason: entry.lockReason ?? undefined,
+    prunable_reason: entry.pruneReason ?? undefined,
+  }));
+}
+
 export const getWorktrees = async (repoPath: string): Promise<GitWorktree[]> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPath(repoPath);
@@ -15,9 +49,7 @@ export const getWorktrees = async (repoPath: string): Promise<GitWorktree[]> => 
       return [];
     }
 
-    return await runGitRead(resolvedRepoPath, "worktrees", () =>
-      tauriInvoke<GitWorktree[]>("git_get_worktrees", { repoPath: resolvedRepoPath }),
-    );
+    return await readWorktrees(resolvedRepoPath);
   } catch (error) {
     if (!isNotGitRepositoryError(error)) {
       console.error("Failed to get worktrees:", error);
@@ -26,29 +58,45 @@ export const getWorktrees = async (repoPath: string): Promise<GitWorktree[]> => 
   }
 };
 
-export const addWorktree = async (
+export type GitWorktreeMode = "newBranch" | "existingBranch" | "detached";
+
+export const createWorktree = async (
   repoPath: string,
-  path: string,
-  branch?: string,
-  createBranch: boolean = false,
-): Promise<boolean> => {
+  options: {
+    destination: string;
+    worktreeMode: GitWorktreeMode;
+    noCheckout: boolean;
+    name?: string;
+    reference?: GitReference;
+    revision?: string;
+  },
+): Promise<void> => {
+  const root = await resolveRepositoryPathOrThrow(repoPath);
   try {
-    const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-    await tauriInvoke("git_add_worktree", {
-      repoPath: resolvedRepoPath,
-      path,
-      branch,
-      createBranch,
+    await tauriInvoke("git.write", {
+      root,
+      operation: "createWorktree",
+      destination: options.destination,
+      worktreeMode: options.worktreeMode,
+      noCheckout: options.noCheckout,
+      ...(options.name ? { name: options.name } : {}),
+      ...(options.reference
+        ? {
+            gitReference: {
+              fullName: options.reference.fullName,
+              shortName: options.reference.shortName,
+              kind: options.reference.kind,
+            },
+          }
+        : {}),
+      ...(options.revision ? { revision: options.revision } : {}),
     });
+  } finally {
     emitGitChanged({
-      repoPath: resolvedRepoPath,
-      scopes: ["repository", "refs"],
+      repoPath: root,
+      scopes: ["repository", "history", "refs"],
       source: "add-worktree",
     });
-    return true;
-  } catch (error) {
-    console.error("Failed to add worktree:", error);
-    return false;
   }
 };
 
@@ -84,18 +132,20 @@ export const removeWorktree = async (
   repoPath: string,
   path: string,
   force: boolean = false,
-): Promise<boolean> => {
+): Promise<void> => {
+  const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
   try {
-    const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-    await tauriInvoke("git_remove_worktree", { repoPath: resolvedRepoPath, path, force });
+    await tauriInvoke("git.write", {
+      root: resolvedRepoPath,
+      operation: "removeWorktree",
+      destination: path,
+      force,
+    });
+  } finally {
     emitGitChanged({
       repoPath: resolvedRepoPath,
       scopes: ["repository", "refs"],
       source: "remove-worktree",
     });
-    return true;
-  } catch (error) {
-    console.error("Failed to remove worktree:", error);
-    return false;
   }
 };

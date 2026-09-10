@@ -88,7 +88,12 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   const branches = useGitStore((state) => state.branches);
   const stashes = useGitStore((state) => state.stashes);
   const { syncWorkspaceRepositories, setManualRepository } = useRepositoryStore.use.actions();
-  const { activeRepoPath, refresh: handleManualRefresh, refreshWorkingTree } = useGitDataController({
+  const {
+    activeRepoPath,
+    hasLoadError,
+    refresh: handleManualRefresh,
+    refreshWorkingTree,
+  } = useGitDataController({
     workspacePath: repoPath,
     isActive,
   });
@@ -662,6 +667,15 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     );
   }
 
+  const loadError = (
+    <div role="alert" className="flex items-center justify-between gap-2 p-3 ui-text-sm text-destructive">
+      <span>{t("git.statusLoadFailed")}</span>
+      <Button size="xs" variant="ghost" disabled={isRefreshing} onClick={() => void handleManualRefresh()}>
+        {t("git.log.retry")}
+      </Button>
+    </div>
+  );
+
   if (!gitStatus) {
     return (
       <>
@@ -669,17 +683,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
           <SidebarTitleBar title={t("workbench.sourceControl")}>
             {renderActionsButton()}
           </SidebarTitleBar>
-          <Empty className="h-full">
-            <EmptyHeader>
-              <EmptyTitle>{t("git.notAGitRepository")}</EmptyTitle>
-              {repoSelectionError ? (
-                <EmptyDescription className="text-destructive">
-                  {repoSelectionError}
-                </EmptyDescription>
-              ) : null}
-            </EmptyHeader>
-            <EmptyContent className="flex-row">{renderRepositoryEmptyActions()}</EmptyContent>
-          </Empty>
+          {loadError}
         </SidebarPanel>
         {renderGitActionsMenu({ hasGitRepo: false, onRefresh: handleManualRefresh })}
       </>
@@ -696,6 +700,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
           {renderRefreshButton()}
           {renderActionsButton()}
         </SidebarTitleBar>
+        {hasLoadError && loadError}
         <SidebarTabBar items={gitTabs} value={activeTab} onChange={setActiveTab}>
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden isolate">
             <SidebarTabPanels

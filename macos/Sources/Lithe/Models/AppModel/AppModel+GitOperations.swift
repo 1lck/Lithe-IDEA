@@ -83,9 +83,9 @@ extension AppModel {
         await gitFeature.refreshGit()
     }
 
-    func confirmDiscardHunk() async {
+    func confirmDiscardHunk(_ request: DiffHunkRequest) async {
         guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.confirmDiscardHunk()
+        await gitFeature.confirmDiscardHunk(request)
     }
 
     func cancelDiscardHunk() {
@@ -100,9 +100,9 @@ extension AppModel {
         gitFeatureIfActive?.requestDiscardChange(change)
     }
 
-    func confirmDiscardChange() async {
+    func confirmDiscardChange(_ change: GitChange) async {
         guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.confirmDiscardChange()
+        await gitFeature.confirmDiscardChange(change)
     }
 
     func cancelDiscardChange() {

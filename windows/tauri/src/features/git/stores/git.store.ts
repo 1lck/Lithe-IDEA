@@ -1,3 +1,4 @@
+import equal from "fast-deep-equal";
 import { createStore } from "zustand/vanilla";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { getGitHistory } from "../api/git-commits-api";
@@ -65,6 +66,10 @@ interface GitState {
     reset: () => void;
   };
 }
+
+// Native queries deserialize fresh objects even when nothing changed. Reuse
+// equal snapshots so status trees and history selectors avoid rebuilding.
+const reuseSnapshot = <T,>(previous: T, next: T): T => equal(previous, next) ? previous : next;
 
 const COMMITS_PER_PAGE = 50;
 const MAX_COMMITS = 5_000;
@@ -143,24 +148,28 @@ export const createGitStore = () => {
       },
 
       refreshGitData: ({ gitStatus, workingTreeVersion, branches, commits, hasMoreCommits, operationState, repoPath }) => {
-        if (get().currentRepoPath !== repoPath) {
-          return;
-        }
-
-        const publishWorkingTree = acceptWorkingTree(workingTreeVersion);
-        // A stale scoped read has nothing left to publish; avoid even a no-op
-        // store notification. Full reads may still contribute history and refs.
-        if (!publishWorkingTree && !branches && !commits) return;
-        set({
-          ...(publishWorkingTree ? { gitStatus } : {}),
-          ...(publishWorkingTree && operationState !== undefined ? { operationState } : {}),
-          ...(branches ? { branches } : {}),
-          ...(commits
-            ? {
-                commits,
-                hasMoreCommits: hasMoreCommits ?? false,
-              }
-            : {}),
+        set((state) => {
+          if (state.currentRepoPath !== repoPath) return state;
+          const publishWorkingTree = acceptWorkingTree(workingTreeVersion);
+          const next = {
+            gitStatus: publishWorkingTree
+              ? reuseSnapshot(state.gitStatus, gitStatus)
+              : state.gitStatus,
+            operationState: publishWorkingTree && operationState !== undefined
+              ? reuseSnapshot(state.operationState, operationState)
+              : state.operationState,
+            branches: branches === undefined ? state.branches : reuseSnapshot(state.branches, branches),
+            commits: commits === undefined ? state.commits : reuseSnapshot(state.commits, commits),
+            hasMoreCommits: commits === undefined ? state.hasMoreCommits : (hasMoreCommits ?? false),
+          };
+          if (
+            next.gitStatus === state.gitStatus &&
+            next.operationState === state.operationState &&
+            next.branches === state.branches &&
+            next.commits === state.commits &&
+            next.hasMoreCommits === state.hasMoreCommits
+          ) return state;
+          return next;
         });
       },
 
@@ -216,7 +225,9 @@ export const createGitStore = () => {
         }),
       setCommits: (commits) => set({ commits }),
       setBranches: (branches) => set({ branches }),
-      setStashes: (stashes) => set({ stashes }),
+      setStashes: (stashes) => set((state) =>
+        equal(state.stashes, stashes) ? state : { stashes },
+      ),
       setIsLoadingGitData: (loading) => set({ isLoadingGitData: loading }),
       setIsRefreshing: (refreshing) => set({ isRefreshing: refreshing }),
       updateSourceControlSession: (repoPath, update) =>

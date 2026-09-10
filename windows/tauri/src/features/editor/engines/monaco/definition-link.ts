@@ -27,7 +27,13 @@ interface MonacoDefinitionLinkOptions {
   model: Monaco.editor.ITextModel;
   documentTarget: LspDocumentTarget;
   workspaceScope?: WorkspaceLaunchScope;
-  enabled?: boolean;
+  /**
+   * Live gate for the gesture's affordances and semantic resolution. Read on
+   * each interaction rather than captured once, so a gesture registered while
+   * its editor surface is inactive (expensive services off) starts working as
+   * soon as the surface becomes active — without recreating the editor.
+   */
+  isEnabled?: () => boolean;
 }
 
 interface DefinitionWordRequest {
@@ -56,19 +62,23 @@ export function registerMonacoDefinitionLinkGesture({
   model,
   documentTarget,
   workspaceScope,
-  enabled = true,
+  isEnabled,
 }: MonacoDefinitionLinkOptions): MonacoDefinitionLinkGesture {
   const decorations = editor.createDecorationsCollection();
   const lspSupported = isEditorLspTargetSupported(documentTarget);
-  const gestureEnabled = enabled && Boolean(documentTarget.filePath) && lspSupported;
+  // Whether this document can ever use the gesture, independent of the live
+  // active/preview/read-only state. Listeners are registered against this so
+  // they survive active-surface transitions; individual interactions are gated
+  // by `isGestureActive()` below.
+  const structurallyCapable = Boolean(documentTarget.filePath) && lspSupported;
+  const isGestureActive = () => structurallyCapable && (isEnabled?.() ?? true);
   const isVirtualDocument = Boolean(documentTarget.documentUri);
   let hoveredPosition: Monaco.Position | null = null;
   let modifierTraceState: "idle" | "active" | "missing-target" = "idle";
 
   if (isVirtualDocument) {
     frontendTrace("info", "definition-link", "registered", {
-      enabled: gestureEnabled,
-      requested_enabled: enabled,
+      enabled: structurallyCapable,
       lsp_supported: lspSupported,
       language_id: model.getLanguageId(),
       has_session_file_path: Boolean(documentTarget.sessionFilePath),
@@ -76,7 +86,7 @@ export function registerMonacoDefinitionLinkGesture({
   }
 
   const requestAtPosition = (position: Monaco.Position): DefinitionWordRequest | null => {
-    if (!gestureEnabled || model.isDisposed()) return null;
+    if (!isGestureActive() || model.isDisposed()) return null;
     const word = model.getWordAtPosition(position);
     if (!word) return null;
     return {
@@ -237,12 +247,12 @@ export function registerMonacoDefinitionLinkGesture({
     syncLinkForModifier(event);
   };
 
-  if (gestureEnabled) {
+  if (structurallyCapable) {
     window.addEventListener("keydown", handleWindowModifierKey, true);
     window.addEventListener("keyup", handleWindowModifierKey, true);
   }
 
-  const disposables = gestureEnabled
+  const disposables = structurallyCapable
     ? [
         editor.onMouseMove((event) => {
           if (
@@ -278,12 +288,19 @@ export function registerMonacoDefinitionLinkGesture({
     : [];
 
   return {
-    enabled: gestureEnabled,
+    get enabled() {
+      return isGestureActive();
+    },
     async resolveForClick(position) {
       const request = requestAtPosition(position);
       if (!request) return null;
       const result = await scheduler.resolveNow(request);
-      if (!result || model.isDisposed() || request.modelVersion !== model.getVersionId()) {
+      if (
+        !result ||
+        model.isDisposed() ||
+        request.modelVersion !== model.getVersionId() ||
+        !isGestureActive()
+      ) {
         return null;
       }
       return {

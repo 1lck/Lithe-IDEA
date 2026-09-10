@@ -5,10 +5,14 @@ require "digest"
 require "json"
 require "optparse"
 require "pathname"
+require "time"
+require "base64"
 
 options = {
   output_directory: "dist",
-  release_tag: nil
+  release_tag: nil,
+  release_notes_path: nil,
+  release_date: nil
 }
 
 OptionParser.new do |parser|
@@ -16,7 +20,10 @@ OptionParser.new do |parser|
   parser.on("--version VERSION") { |value| options[:version] = value }
   parser.on("--repository OWNER/REPO") { |value| options[:repository] = value }
   parser.on("--release-tag TAG") { |value| options[:release_tag] = value }
+  parser.on("--release-notes-path PATH") { |value| options[:release_notes_path] = value }
+  parser.on("--release-date DATE") { |value| options[:release_date] = value }
   parser.on("--output-directory PATH") { |value| options[:output_directory] = value }
+  parser.on("--require-signatures") { options[:require_signatures] = true }
 end.parse!
 
 version = options[:version]
@@ -29,6 +36,14 @@ abort "Release tag contains unsupported characters" unless release_tag.match?(/\
 
 root = Pathname(__dir__).parent
 output_directory = root.join(options[:output_directory]).cleanpath
+release_notes = if options[:release_notes_path]
+  notes_path = root.join(options[:release_notes_path]).cleanpath
+  abort "Missing release notes: #{notes_path}" unless notes_path.file?
+
+  notes_path.read
+end
+release_date = options[:release_date] || Time.now.utc.iso8601
+abort "Release date must be ISO-8601" unless Time.iso8601(release_date)
 assets = {}
 
 %w[arm64 x86_64].each do |architecture|
@@ -48,11 +63,21 @@ assets = {}
     "url" => "https://github.com/#{repository}/releases/download/#{release_tag}/#{asset_name}",
     "sha256" => checksum
   }
+  signature_path = output_directory.join("#{asset_name}.edsig")
+  if signature_path.file?
+    signature = signature_path.read.strip
+    abort "Invalid Ed25519 signature for #{asset_name}" unless Base64.strict_decode64(signature).bytesize == 64
+    assets[architecture]["edSignature"] = signature
+  elsif options[:require_signatures]
+    abort "Missing publisher signature for #{asset_name}"
+  end
 end
 
 manifest = {
   "schemaVersion" => 1,
   "version" => version,
+  "releaseDate" => release_date,
+  "releaseNotes" => release_notes,
   "releaseURL" => "https://github.com/#{repository}/releases/tag/#{release_tag}",
   "assets" => assets
 }

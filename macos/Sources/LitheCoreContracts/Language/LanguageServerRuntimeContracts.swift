@@ -190,6 +190,8 @@ package struct LanguageServerRuntimeError: Equatable, Sendable {
 }
 
 package struct LanguageServerRuntimeEvent: Equatable, Sendable {
+    package let mavenProfileTask: String?
+    package let mavenProfileProject: MavenProfileProjectResult?
     package let type: String
     package let state: String?
     package let operationID: String?
@@ -215,8 +217,12 @@ package struct LanguageServerRuntimeEvent: Equatable, Sendable {
         serverInfo: LanguageServerInfo? = nil,
         level: String? = nil,
         message: String? = nil,
-        detail: String? = nil
+        detail: String? = nil,
+        mavenProfileTask: String? = nil,
+        mavenProfileProject: MavenProfileProjectResult? = nil
     ) {
+        self.mavenProfileTask = mavenProfileTask
+        self.mavenProfileProject = mavenProfileProject
         self.type = type
         self.state = state
         self.operationID = operationID
@@ -268,6 +274,8 @@ package protocol LanguageServerRuntimeCore: Sendable {
     ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
 
     func stopLanguageServer(sessionID: String)
+    /// Retries a failed Maven profile task without restarting the server.
+    func retryMavenProfiles(sessionID: String) -> Result<Void, LanguageServerRuntimeFailure>
     func syncLanguageServerDocument(
         sessionID: String,
         fileURL: URL,
@@ -309,6 +317,8 @@ package protocol LanguageServerRuntimeCore: Sendable {
 }
 
 package extension LanguageServerRuntimeCore {
+    func retryMavenProfiles(sessionID _: String) -> Result<Void, LanguageServerRuntimeFailure> { .success(()) }
+
     func startLanguageServer(
         providerID: String,
         executableURL: URL,

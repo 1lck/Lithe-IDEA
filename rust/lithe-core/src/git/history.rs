@@ -2,7 +2,7 @@
 
 use super::{
     command_value, execute_git_with_environment, git_process, parse_commit, parse_reference,
-    readonly_command, validate_root, GitCommandRequest,
+    readonly_command, validate_root, GitCommandRequest, INTERNAL_REF_PREFIX,
 };
 use crate::protocol::{
     cancellation, CoreError, ErrorCode, GitCommitResponse, GitHistoryCursorCloseResponse,
@@ -250,11 +250,15 @@ fn offset_history_page(
     if let Some(reference) = reference {
         arguments.push(reference);
     } else {
-        arguments.push("--all".to_string());
+        arguments.extend([
+            format!("--exclude={INTERNAL_REF_PREFIX}*"),
+            "--all".to_string(),
+        ]);
     }
     arguments.extend([
         "--topo-order".to_string(),
         "--decorate=short".to_string(),
+        format!("--decorate-refs-exclude={INTERNAL_REF_PREFIX}*"),
         "--skip".to_string(),
         offset.to_string(),
         "-n".to_string(),
@@ -381,11 +385,15 @@ impl HistorySession {
         if let Some(reference) = reference.as_deref() {
             arguments.push(reference.to_string());
         } else {
-            arguments.push("--all".to_string());
+            arguments.extend([
+                format!("--exclude={INTERNAL_REF_PREFIX}*"),
+                "--all".to_string(),
+            ]);
         }
         arguments.extend([
             "--topo-order".to_string(),
             "--decorate=short".to_string(),
+            format!("--decorate-refs-exclude={INTERNAL_REF_PREFIX}*"),
             "-n".to_string(),
             MAX_HISTORY_COMMITS.to_string(),
             "--date=format:%Y/%m/%d %H:%M".to_string(),
