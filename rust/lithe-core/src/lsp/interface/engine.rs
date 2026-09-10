@@ -25,6 +25,7 @@ use crate::lsp::languages::jdt_progress::JavaPreparationDiagnostics;
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, VecDeque};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -3763,9 +3764,11 @@ fn push_maven_profile_task_event(
 fn redacted_project_uri(uri: &str) -> String {
     let trimmed = uri.trim_end_matches('/');
     let name = trimmed.rsplit('/').next().filter(|value| !value.is_empty());
+    let digest = Sha256::digest(uri.as_bytes());
+    let suffix = format!("{:x}", digest)[..8].to_string();
     match name {
-        Some(name) => format!("file:///{name}"),
-        None => "file:///workspace".to_string(),
+        Some(name) => format!("file:///{name}-{suffix}"),
+        None => format!("file:///workspace-{suffix}"),
     }
 }
 
@@ -4535,7 +4538,7 @@ mod tests {
     #[test]
     fn maven_profile_log_redacts_absolute_project_paths() {
         let redacted = redacted_project_uri("file:///Users/alice/workspace/module-a/");
-        assert_eq!(redacted, "file:///module-a");
+        assert!(redacted.starts_with("file:///module-a-"));
         assert!(!redacted.contains("alice"));
     }
 
