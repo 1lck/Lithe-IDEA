@@ -2,6 +2,7 @@ import SwiftUI
 
 struct StandaloneEditorView: View {
     @EnvironmentObject private var model: AppModel
+    @State private var svgViewMode: DocumentPreviewMode = .split
     @State private var editorViewportStore = EditorViewportStore()
 
     var body: some View {
@@ -50,24 +51,35 @@ struct StandaloneEditorView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .loaded:
             if let document = model.activeDocument {
-                CodeEditorView(
-                    document: document,
-                    shouldFocus: true,
-                    viewportStore: editorViewportStore
-                )
-                    .overlay(alignment: .top) {
-                        if model.isFindBarVisible {
-                            FindBarView()
-                                .padding(.top, 10)
-                                .padding(.horizontal, 12)
-                        }
+                if document.url.pathExtension.lowercased() == "svg" {
+                    switch svgViewMode {
+                    case .editor:
+                        editor(document)
+                    case .split:
+                        SVGEditorSplitView(editor: editor(document), document: document)
+                    case .preview:
+                        SVGPreviewView(document: document)
                     }
+                } else {
+                    editor(document)
+                }
             } else {
                 failureView(.readFailed)
             }
         case let .failed(failure):
             failureView(failure)
         }
+    }
+
+    private func editor(_ document: EditorDocument) -> some View {
+        CodeEditorView(document: document, shouldFocus: true, viewportStore: editorViewportStore)
+            .overlay(alignment: .top) {
+                if model.isFindBarVisible {
+                    FindBarView()
+                        .padding(.top, 10)
+                        .padding(.horizontal, 12)
+                }
+            }
     }
 
     private func failureView(_ failure: StandaloneFileOpenFailure) -> some View {
@@ -118,6 +130,19 @@ struct StandaloneEditorView: View {
                         .frame(width: 6, height: 6)
                 }
                 Spacer()
+                if document.url.pathExtension.lowercased() == "svg" {
+                    Picker("SVG view mode", selection: $svgViewMode) {
+                        ForEach(DocumentPreviewMode.allCases) { mode in
+                            Image(systemName: mode.symbolName)
+                                .help(mode.title)
+                                .accessibilityLabel(mode.title)
+                                .tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 104)
+                }
                 Text(document.url.path)
                     .font(.system(size: 10.5))
                     .foregroundStyle(LitheTheme.tertiaryText)
