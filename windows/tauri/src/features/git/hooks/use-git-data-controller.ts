@@ -13,6 +13,7 @@ import {
   subscribeToGitChanges,
   type GitChangeScope,
 } from "../events/git-events";
+import { createGitRefreshQueue } from "../services/git-operation-coordinator";
 import { useRepositoryStore } from "../stores/git-repository.store";
 import { useGitStore } from "../stores/git.store";
 
@@ -32,7 +33,9 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
   const autoRefreshGitStatus = useSettingsStore((state) => state.settings.autoRefreshGitStatus);
   const workspaceFolders = useFileSystemStore((state) => state.workspaceFolders);
   const requestIdRef = useRef(0);
-  const refreshPromisesRef = useRef(new Map<string, Promise<void>>());
+  const refreshQueueRef = useRef(createGitRefreshQueue());
+  const changeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingChangeScopesRef = useRef<GitChangeScope[] | undefined>(undefined);
   const wasActiveRef = useRef(isActive);
 
   const loadInitialGitData = useCallback(async () => {
@@ -89,16 +92,13 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
   }, [activeRepoPath, availableRepoPaths, gitActions]);
 
   const refreshGitData = useCallback(
-    async (scopes?: GitChangeScope[]) => {
+    async (scopes?: GitChangeScope[], throwOnError = false) => {
       const repoPath = activeRepoPath;
       if (!repoPath) return;
 
       const refreshKey = `${repoPath}\0${scopes?.slice().sort().join(",") || "*"}`;
-      const existingRequest = refreshPromisesRef.current.get(refreshKey);
-      if (existingRequest) return existingRequest;
-
       const requestId = requestIdRef.current;
-      const request = (async () => {
+      return refreshQueueRef.current.run(refreshKey, async () => {
         try {
           const refreshAll = !scopes?.length;
           const shouldRefreshHistory = refreshAll || scopes.includes("history");
@@ -152,18 +152,29 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
           if (requestId === requestIdRef.current) {
             console.error("Failed to refresh git data:", error);
           }
+          throw error;
         }
-      })().finally(() => {
-        if (refreshPromisesRef.current.get(refreshKey) === request) {
-          refreshPromisesRef.current.delete(refreshKey);
-        }
+      }).catch((error: unknown) => {
+        if (throwOnError) throw error;
       });
-
-      refreshPromisesRef.current.set(refreshKey, request);
-      return request;
     },
     [activeRepoPath, availableRepoPaths, gitActions, loadedCommitCount],
   );
+
+  const refreshWorkingTree = useCallback(async () => {
+    // The staging API also emits a change event. Consume its pending scoped refresh
+    // so the button and the event share one read, while preserving broader events.
+    if (
+      changeRefreshTimerRef.current !== null &&
+      pendingChangeScopesRef.current?.length &&
+      pendingChangeScopesRef.current.every((scope) => scope === "working-tree")
+    ) {
+      clearTimeout(changeRefreshTimerRef.current);
+      changeRefreshTimerRef.current = null;
+      pendingChangeScopesRef.current = undefined;
+    }
+    await refreshGitData(["working-tree"], true);
+  }, [refreshGitData]);
 
   const refresh = useCallback(async () => {
     gitActions.setIsRefreshing(true);
@@ -183,7 +194,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
 
   useEffect(() => {
     requestIdRef.current += 1;
-    refreshPromisesRef.current.clear();
+    refreshQueueRef.current.clear();
     void loadInitialGitData();
 
     return () => {
@@ -201,25 +212,41 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
   useEffect(() => {
     if (!activeRepoPath) return;
 
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const unsubscribe = subscribeToGitChanges((change) => {
       const repoPaths = useRepositoryStore.getState().availableRepoPaths;
       const relevantRepoPaths = repoPaths.length > 0 ? repoPaths : [activeRepoPath];
       if (!relevantRepoPaths.some((repoPath) => isGitChangeRelevant(change, repoPath))) return;
       if (!autoRefreshGitStatus && isPassiveGitChange(change)) return;
-      if (timeoutId) clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => void refreshGitData(change.scopes), 100);
+      const hadPendingRefresh = changeRefreshTimerRef.current !== null;
+      if (changeRefreshTimerRef.current !== null) clearTimeout(changeRefreshTimerRef.current);
+      const pendingScopes = pendingChangeScopesRef.current;
+      if (!hadPendingRefresh) {
+        pendingChangeScopesRef.current = change.scopes;
+      } else if (!pendingScopes?.length || !change.scopes?.length) {
+        pendingChangeScopesRef.current = undefined;
+      } else {
+        pendingChangeScopesRef.current = [...new Set([...pendingScopes, ...change.scopes])];
+      }
+      changeRefreshTimerRef.current = setTimeout(() => {
+        const scopes = pendingChangeScopesRef.current;
+        changeRefreshTimerRef.current = null;
+        pendingChangeScopesRef.current = undefined;
+        void refreshGitData(scopes);
+      }, 100);
     });
 
     return () => {
       unsubscribe();
-      if (timeoutId) clearTimeout(timeoutId);
+      if (changeRefreshTimerRef.current !== null) clearTimeout(changeRefreshTimerRef.current);
+      changeRefreshTimerRef.current = null;
+      pendingChangeScopesRef.current = undefined;
     };
   }, [activeRepoPath, autoRefreshGitStatus, refreshGitData]);
 
   return {
     activeRepoPath,
     refreshGitData,
+    refreshWorkingTree,
     refresh,
   };
 }

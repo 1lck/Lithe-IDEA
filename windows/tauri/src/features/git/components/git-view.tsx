@@ -88,7 +88,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   const branches = useGitStore((state) => state.branches);
   const stashes = useGitStore((state) => state.stashes);
   const { syncWorkspaceRepositories, setManualRepository } = useRepositoryStore.use.actions();
-  const { activeRepoPath, refresh: handleManualRefresh } = useGitDataController({
+  const { activeRepoPath, refresh: handleManualRefresh, refreshWorkingTree } = useGitDataController({
     workspacePath: repoPath,
     isActive,
   });
@@ -731,6 +731,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                           setShowStashList(true);
                           setStashSearchQuery("");
                         }}
+                        onStagingRefresh={refreshWorkingTree}
                         onRefresh={refreshAfterAction}
                         repoPath={activeRepoPath}
                       />
