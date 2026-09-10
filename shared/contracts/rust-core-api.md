@@ -899,11 +899,33 @@ publishes `settingsPath` through
 `org.eclipse.m2e.core.selectedProfiles`. Maven Java, test, and generated source
 roots are normalized to workspace-relative `java.project.sourcePaths` during
 the same configuration flow, so JDT LS receives the selected reactor's source
-model without platform-specific POM parsing. The session becomes `ready` only after
-every command succeeds; a command error or timeout terminates the session with
-`mavenContextFailed` or `mavenContextTimeout` at the `serviceReady` stage.
-`initializeTimeoutMilliseconds` bounds only the standard LSP handshake. For a
-provider such as JDT LS that has a later readiness signal,
+model without platform-specific POM parsing. Maven profile application is a
+bounded background task: at most eight project commands are in flight, remaining
+projects are queued, and each project reports `running`, `succeeded`, or
+`failed` with optional error details. Project results use a redacted stable
+`projectUri` identifier; they never expose the user's absolute workspace path.
+The runtime event also carries the aggregate Maven task status (`running`,
+`succeeded`, `partiallySucceeded`, `failed`, `timedOut`, or `cancelled`) so hosts
+do not need to infer task completion from log text. A project failure or task timeout does not
+terminate an otherwise usable JDT LS session; the host receives a partial-failure
+event and may retry. The session reaches `ready` after JDT LS `ServiceReady`.
+Core only accepts retries for a ready Java session. A timeout sends `$/cancelRequest`
+but retains each in-flight slot until its terminal response arrives. Retry is
+rejected while the previous batch is still stopping; if JDT LS never responds,
+the user must restart the Java session. Late responses release those slots
+without changing the timed-out results.
+Hosts reset project results on the structured `mavenProfileTask: "running"`
+event and consume `mavenProfileProject` updates directly, scoped to the current
+session. Java import completion and Maven task completion use separate UI
+notifications so service readiness cannot overwrite a Maven failure.
+The session continues to expose profile progress independently. `initializeTimeoutMilliseconds`
+only bounds the standard LSP handshake. For a provider such as JDT LS that has
+a later readiness signal,
+the profile task records a deterministic digest of Maven settings, selected
+profiles, project URIs, and source paths; an unchanged successful digest skips
+reapplying the same settings, while an explicit retry invalidates that digest.
+Hosts may consume lifecycle events for the shared `serverConnected`,
+`projectImporting`, `profileApplying`, and `fullyReady` phases.
 `serviceReadyIdleTimeoutMilliseconds` bounds time without changed work-done
 progress and `serviceReadyAbsoluteTimeoutMilliseconds` is the final safety cap.
 The defaults are 45 seconds idle and 10 minutes absolute; duplicate progress

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "events": [
+    { "type": "log", "sequence": 1, "providerId": "java", "sessionId": "java-session", "mavenProfileTask": "running" },
+    { "type": "log", "sequence": 2, "providerId": "java", "sessionId": "java-session", "mavenProfileProject": { "projectUri": "file:///common-11111111", "status": "running" } },
+    { "type": "stateChanged", "sequence": 3, "providerId": "java", "sessionId": "java-session", "state": "ready" },
+    { "type": "log", "sequence": 4, "providerId": "java", "sessionId": "java-session", "mavenProfileProject": { "projectUri": "file:///common-11111111", "status": "failed", "errorDetails": "Maven profile project update failed." } },
+    { "type": "log", "sequence": 5, "providerId": "java", "sessionId": "java-session", "mavenProfileProject": { "projectUri": "file:///common-22222222", "status": "succeeded" } },
+    { "type": "log", "sequence": 6, "providerId": "java", "sessionId": "java-session", "mavenProfileTask": "partiallySucceeded" }
+  ]
+}

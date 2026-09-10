@@ -3,6 +3,22 @@ import { toast } from "sonner";
 import { createSelectors } from "@/utils/zustand-selectors";
 
 export type LspStatus = "disconnected" | "connecting" | "connected" | "error";
+export type LanguageLifecyclePhase =
+  | "starting"
+  | "serverConnected"
+  | "projectImporting"
+  | "serviceReady"
+  | "profileApplying"
+  | "fullyReady"
+  | "stopped"
+  | "failed";
+
+export interface MavenProfileProjectResult {
+  sessionId?: string;
+  projectUri: string;
+  status: string;
+  errorDetails?: string;
+}
 
 interface LspStatusInfo {
   status: LspStatus;
@@ -10,6 +26,8 @@ interface LspStatusInfo {
   lastError?: string;
   supportedLanguages?: string[];
   documentRevision: number;
+  lifecycleBySession: Record<string, LanguageLifecyclePhase>;
+  mavenProfileProjects: Record<string, MavenProfileProjectResult>;
 }
 
 interface LspState {
@@ -24,6 +42,9 @@ interface LspState {
     setLspError: (error: string) => void;
     clearLspError: () => void;
     markDocumentStateChanged: () => void;
+    updateLanguageLifecycle: (sessionId: string, phase: LanguageLifecyclePhase) => void;
+    recordMavenProfileProject: (result: MavenProfileProjectResult) => void;
+    clearMavenProfileProjects: (sessionId: string) => void;
   };
 }
 
@@ -37,6 +58,8 @@ export const useLspStore = createSelectors(
       lastError: undefined,
       supportedLanguages: undefined,
       documentRevision: 0,
+      lifecycleBySession: {},
+      mavenProfileProjects: {},
     },
     actions: {
       updateLspStatus: (status, workspaces, error, languages) => {
@@ -78,6 +101,35 @@ export const useLspStore = createSelectors(
           lspStatus: {
             ...state.lspStatus,
             documentRevision: state.lspStatus.documentRevision + 1,
+          },
+        }));
+      },
+      updateLanguageLifecycle: (sessionId, phase) => {
+        set((state) => ({
+          lspStatus: {
+            ...state.lspStatus,
+            lifecycleBySession: { ...state.lspStatus.lifecycleBySession, [sessionId]: phase },
+          },
+        }));
+      },
+      recordMavenProfileProject: (result) => {
+        set((state) => ({
+          lspStatus: {
+            ...state.lspStatus,
+            mavenProfileProjects: {
+              ...state.lspStatus.mavenProfileProjects,
+              [`${result.sessionId}:${result.projectUri}`]: result,
+            },
+          },
+        }));
+      },
+      clearMavenProfileProjects: (sessionId) => {
+        set((state) => ({
+          lspStatus: {
+            ...state.lspStatus,
+            mavenProfileProjects: Object.fromEntries(
+              Object.entries(state.lspStatus.mavenProfileProjects).filter(([, result]) => result.sessionId !== sessionId),
+            ),
           },
         }));
       },
