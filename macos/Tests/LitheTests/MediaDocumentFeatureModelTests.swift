@@ -1,3 +1,5 @@
+import AppKit
+import Combine
 import Foundation
 import Testing
 @testable import Lithe
@@ -9,8 +11,8 @@ struct MediaDocumentFeatureModelTests {
     func recognizesSupportedImageAndVideoExtensionsCaseInsensitively() {
         #expect(MediaDocumentKind.from(fileExtension: "PNG") == .image)
         #expect(MediaDocumentKind.from(url: URL(fileURLWithPath: "/tmp/preview.Mp4")) == .video)
-        #expect(MediaDocumentKind.from(fileExtension: "svg") == .image)
-        #expect(MediaDocumentKind.from(fileExtension: "SVG") == .image)
+        #expect(MediaDocumentKind.from(fileExtension: "svg") == nil)
+        #expect(MediaDocumentKind.from(fileExtension: "SVG") == nil)
         #expect(MediaDocumentKind.from(fileExtension: "bin") == nil)
     }
 
@@ -120,16 +122,72 @@ struct MediaDocumentFeatureModelTests {
         #expect(appModel.openMediaDocuments.isEmpty)
     }
 
-    @Test
-    func openFileRoutesSvgToTheMediaViewerInsteadOfTheTextEditor() throws {
+    @Test(arguments: [false, true])
+    func svgOpeningKeepsTheEditableDocument(standalone: Bool) async throws {
         let appModel = makeAppModel()
-        let svgURL = URL(fileURLWithPath: "/tmp/assets/icon.svg")
-        appModel.openFile(svgURL)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let svgURL = directory.appendingPathComponent("icon.SVG")
+        let source = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\"><rect width=\"20\" height=\"20\"/></svg>"
+        try source.write(to: svgURL, atomically: true, encoding: .utf8)
+        let opened = TestGate()
+        let subscription = appModel.documentFeature.$activeDocumentID.compactMap { $0 }.sink { _ in
+            opened.open()
+        }
+        defer {
+            subscription.cancel()
+            opened.open()
+            appModel.documentFeature.reset()
+        }
+        if standalone {
+            appModel.openStandaloneFile(svgURL)
+        } else {
+            // Seed a real text document without starting workspace watchers or language servers.
+            appModel.documentFeature.openStandaloneFile(svgURL)
+        }
+        #expect(await opened.waitUntilOpen(), "SVG text document should finish opening")
+        let document = try #require(appModel.activeDocument)
+        if !standalone {
+            appModel.openFile(svgURL)
+            #expect(appModel.activeDocument?.id == document.id)
+        }
+        #expect(document.url == svgURL)
+        #expect(document.text == source)
+        #expect(!document.isReadOnly)
+        #expect(appModel.activeMediaDocument == nil)
+        document.text = source.replacingOccurrences(of: "20", with: "30")
+        try document.save()
+        #expect(try String(contentsOf: svgURL, encoding: .utf8) == document.text)
+        #expect(!document.isDirty)
+    }
 
-        let media = try #require(appModel.activeMediaDocument)
-        #expect(media.url.standardizedFileURL == svgURL.standardizedFileURL)
-        #expect(media.kind == .image)
-        #expect(appModel.openDocuments.isEmpty)
+    @Test
+    func svgLiveEditsNotifyPreviewAfterEveryEditWithoutRepeatedPageInvalidation() {
+        let document = EditorDocument(
+            url: URL(fileURLWithPath: "/tmp/lithe-fixture/icon.svg"),
+            text: "<svg/>", modificationDate: nil
+        )
+        var previewUpdates = 0
+        var pageUpdates = 0
+        let preview = document.textDidChange.sink { previewUpdates += 1 }
+        let page = document.objectWillChange.sink { pageUpdates += 1 }
+        defer { preview.cancel(); page.cancel() }
+        document.applyLiveEditorText("<svg>first</svg>")
+        document.applyLiveEditorText("<svg>second</svg>")
+        #expect(previewUpdates == 2)
+        #expect(pageUpdates == 1)
+        #expect(document.text == "<svg>second</svg>")
+        #expect(document.isDirty)
+    }
+
+    @Test
+    func svgPreviewDecodesUnsavedSourceAndRejectsInvalidXML() throws {
+        let source = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"30\"><rect width=\"20\" height=\"30\" fill=\"red\"/></svg>"
+        let image = try #require(NSImage(data: Data(source.utf8)))
+        #expect(image.size.width == 20)
+        #expect(image.size.height == 30)
+        #expect(NSImage(data: Data("not XML".utf8)) == nil)
     }
 
     private func makeAppModel() -> AppModel {

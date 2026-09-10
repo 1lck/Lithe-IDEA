@@ -349,3 +349,16 @@ precedence, including `skipTests: false`. Unset values inherit the project
 settings. The shared Core applies the final Maven argument order for all three
 entry points. Tool-window, Run, and Debug module launches add `-am` so reactor
 dependencies are built before the selected module.
+
+## SVG document preview
+
+SVG extensions are matched case-insensitively and open as editable text in both
+workspace and standalone file flows. The default presentation is editor plus
+preview, with editor-only and preview-only modes available. All modes use the
+same document buffer and preserve normal dirty, save, undo, and read-only rules.
+Preview rendering uses the current unsaved source. Malformed source shows a
+rendering failure while the editor remains accessible; correcting the source
+restores the preview. SVG is rendered as image data, never inserted into the
+application DOM as executable markup. Rendering and resizable layout are owned
+by the platform. The behavior fixture is
+[`svg-preview-v1.json`](../fixtures/editor/svg-preview-v1.json).

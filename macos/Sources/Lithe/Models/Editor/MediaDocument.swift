@@ -21,8 +21,7 @@ enum MediaDocumentKind: String, Sendable, Equatable {
 
     static func from(fileExtension: String) -> Self? {
         switch fileExtension.lowercased() {
-        case "png", "jpg", "jpeg", "gif", "heic", "heif", "tif", "tiff", "bmp", "webp",
-             "svg":
+        case "png", "jpg", "jpeg", "gif", "heic", "heif", "tif", "tiff", "bmp", "webp":
             .image
         case "mp4", "mov", "m4v":
             .video
