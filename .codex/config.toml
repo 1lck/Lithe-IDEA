@@ -1,0 +1,11 @@
+  [mcp_servers.idea]
+    url = "http://127.0.0.1:64342/stream"
+
+[mcp_servers.idea.tools.apply_patch]
+approval_mode = "approve"
+
+[mcp_servers.idea.tools.create_new_file]
+approval_mode = "approve"
+
+[mcp_servers.idea.tools.reformat_file]
+approval_mode = "approve"

@@ -1,7 +1,6 @@
 import { editorAPI } from "@/features/editor/extensions/api";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import type { JumpListEntry } from "@/features/editor/stores/jump-list.store";
-import { useEditorStateStore } from "@/features/editor/stores/state.store";
 import { getBufferById, getBufferByPath } from "@/features/editor/utils/buffer-index";
 import { readFileContent } from "@/features/file-system/controllers/file-operations";
 import { usePaneStore } from "@/features/panes/stores/pane.store";
@@ -18,7 +17,6 @@ function waitForEditorActivation(): Promise<void> {
 
 async function navigateToJumpEntryInternal(entry: JumpListEntry): Promise<boolean> {
   const bufferStore = useBufferStore.getState();
-  const paneId = entry.paneId ?? usePaneStore.getState().activePaneId;
 
   // Try to find the buffer by ID first, then by path.
   let targetBuffer = getBufferById(bufferStore.buffers, entry.bufferId);
@@ -42,10 +40,19 @@ async function navigateToJumpEntryInternal(entry: JumpListEntry): Promise<boolea
     targetBufferId = targetBuffer.id;
   }
 
-  // Activate the pane captured with the history entry. The global active-buffer
-  // sync otherwise selects the first matching pane for buffers shown in multiple panes.
-  activateBufferInPaneAndSync(paneId, targetBufferId);
-  const targetEditorOwnerId = `${paneId}:${targetBufferId}`;
+  const paneActions = usePaneStore.getState().actions;
+  const targetPane =
+    (entry.paneId ? paneActions.getPaneById(entry.paneId) : paneActions.getActivePane()) ??
+    paneActions.getPaneByBufferId(targetBufferId) ??
+    paneActions.getActivePane();
+  if (!targetPane) return false;
+
+  // A history entry can outlive its source split pane while the buffer remains
+  // open in a different pane. Build the owner from the pane actually activated.
+  const activatedPaneId = activateBufferInPaneAndSync(targetPane.id, targetBufferId);
+  if (!activatedPaneId) return false;
+
+  const targetEditorOwnerId = `${activatedPaneId}:${targetBufferId}`;
 
   // The active editor adapter is replaced during a buffer switch. Preserve the
   // focus request until the target Monaco surface registers its adapter.
@@ -54,36 +61,32 @@ async function navigateToJumpEntryInternal(entry: JumpListEntry): Promise<boolea
   // Wait for the active Monaco surface to register after a buffer switch.
   await waitForEditorActivation();
 
-  if (typeof editorAPI.navigateToPositionForOwner === "function") {
-    editorAPI.navigateToPositionForOwner(
-      targetEditorOwnerId,
-      {
-        line: entry.line,
-        column: entry.column,
-        offset: entry.offset,
-      },
-      entry.scrollTop,
-      entry.scrollLeft,
-    );
-    await waitForEditorActivation();
-    editorAPI.focus(targetEditorOwnerId);
-    return true;
-  }
-
-  editorAPI.clearSelectionForNavigation(targetEditorOwnerId);
-  editorAPI.setCursorPosition({
+  const position = {
     line: entry.line,
     column: entry.column,
     offset: entry.offset,
-  });
+  };
+  let navigationResult = editorAPI.navigateToPositionForOwner(
+    targetEditorOwnerId,
+    position,
+    entry.scrollTop,
+    entry.scrollLeft,
+  );
 
-  useEditorStateStore
-    .getState()
-    .actions.setScroll(entry.scrollTop, entry.scrollLeft, targetEditorOwnerId);
-  editorAPI.focus(targetEditorOwnerId);
+  if (navigationResult === "pending") {
+    await waitForEditorActivation();
+    navigationResult = editorAPI.navigateToPositionForOwner(
+      targetEditorOwnerId,
+      position,
+      entry.scrollTop,
+      entry.scrollLeft,
+    );
+    if (navigationResult === "pending") {
+      editorAPI.cancelPendingOwnerNavigation(targetEditorOwnerId);
+      return false;
+    }
+  }
 
-  // Cursor/state updates can trigger another render; focus again after it so
-  // repeated history shortcuts keep the editor as the active input target.
   await waitForEditorActivation();
   editorAPI.focus(targetEditorOwnerId);
 

@@ -82,6 +82,8 @@ interface PendingOwnerNavigation {
   revision: number;
 }
 
+export type OwnerNavigationResult = "applied" | "pending";
+
 function normalizeSelectionOffsets(selection?: Range | null): OffsetRange | null {
   if (!selection || selection.start.offset === selection.end.offset) return null;
   return selection.start.offset < selection.end.offset
@@ -108,6 +110,7 @@ class EditorAPIImpl implements EditorAPI {
   private pendingFocusOwnerId: string | null = null;
   private pendingOwnerNavigation: PendingOwnerNavigation | null = null;
   private ownerNavigationRevision = 0;
+  private ownerNavigationRevisions = new Map<string, number>();
   private activeFindAdapter: ActiveFindAdapter | null = null;
   private smartSelectionHistory: OffsetRange[] = [];
 
@@ -276,7 +279,7 @@ class EditorAPIImpl implements EditorAPI {
     position: Position,
     scrollTop: number,
     scrollLeft: number,
-  ): boolean {
+  ): OwnerNavigationResult {
     const navigation = {
       ownerId,
       position,
@@ -284,21 +287,35 @@ class EditorAPIImpl implements EditorAPI {
       scrollLeft,
       revision: ++this.ownerNavigationRevision,
     };
+    this.ownerNavigationRevisions.set(ownerId, navigation.revision);
     // A newer navigation supersedes any delayed navigation for another pane.
     this.pendingOwnerNavigation = null;
     const adapter = this.activeEditorAdapter;
     if (!adapter || adapter.ownerId !== ownerId) {
       this.pendingOwnerNavigation = navigation;
-      return false;
+      return "pending";
     }
 
     this.applyOwnerNavigation(navigation);
-    return true;
+    return "applied";
+  }
+
+  getOwnerNavigationRevision(ownerId: string): number {
+    return this.ownerNavigationRevisions.get(ownerId) ?? 0;
+  }
+
+  cancelPendingOwnerNavigation(ownerId: string): void {
+    if (this.pendingOwnerNavigation?.ownerId === ownerId) {
+      this.pendingOwnerNavigation = null;
+    }
   }
 
   private applyOwnerNavigation(navigation: PendingOwnerNavigation): void {
     if (this.activeEditorAdapter?.ownerId !== navigation.ownerId) return;
-    if (this.pendingOwnerNavigation?.revision === navigation.revision) {
+    if (
+      this.pendingOwnerNavigation?.ownerId === navigation.ownerId &&
+      this.pendingOwnerNavigation.revision === navigation.revision
+    ) {
       this.pendingOwnerNavigation = null;
     }
     this.cursorPosition = navigation.position;
@@ -913,7 +930,8 @@ class EditorAPIImpl implements EditorAPI {
       if (pendingNavigation?.ownerId === adapter.ownerId) {
         requestAnimationFrame(() => {
           if (
-            this.pendingOwnerNavigation?.revision !== pendingNavigation.revision ||
+            this.pendingOwnerNavigation?.ownerId !== pendingNavigation.ownerId ||
+            this.pendingOwnerNavigation.revision !== pendingNavigation.revision ||
             this.activeEditorAdapter?.ownerId !== pendingNavigation.ownerId
           ) {
             return;

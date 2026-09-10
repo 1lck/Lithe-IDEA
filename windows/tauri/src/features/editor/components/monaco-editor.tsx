@@ -77,6 +77,7 @@ import {
 } from "../utils/mouse-cursor-history";
 import { toggleCaseText } from "../utils/text-operations";
 import { editorAPI } from "../extensions/api";
+import { scheduleCachedViewStateRestore } from "../utils/view-state-restore";
 import type { EditorModelPositionResolver } from "../view-model/view-layout";
 import { syncContainedEditorFontOptions } from "../engines/monaco/contained-editors";
 import { registerMonacoDefinitionLinkGesture } from "../engines/monaco/definition-link";
@@ -1327,106 +1328,109 @@ export function MonacoEditor({
       },
     });
 
-    if (canEdit) {
-      editorAPI.setActiveEditorAdapter({
-        ownerId: adapterOwnerId,
-        insertText: (text, position) => {
-          const editor = editorRef.current;
-          const model = modelRef.current;
-          if (!editor || !model) return;
+    editorAPI.setActiveEditorAdapter({
+      ownerId: adapterOwnerId,
+      insertText: (text, position) => {
+        if (!canEdit) return;
+        const editor = editorRef.current;
+        const model = modelRef.current;
+        if (!editor || !model) return;
 
-          if (position) {
-            const monacoPosition = toClampedMonacoPosition(model, position);
-            executeMonacoTextEdit(
-              new MonacoRange(
-                monacoPosition.lineNumber,
-                monacoPosition.column,
-                monacoPosition.lineNumber,
-                monacoPosition.column,
-              ),
-              text,
-            );
-            return;
-          }
-
-          const selection = editor.getSelection();
-          if (selection && !selection.isEmpty()) {
-            executeMonacoTextEdit(selection, text);
-            return;
-          }
-
-          const currentPosition = editor.getPosition() ?? {
-            lineNumber: 1,
-            column: 1,
-          };
+        if (position) {
+          const monacoPosition = toClampedMonacoPosition(model, position);
           executeMonacoTextEdit(
             new MonacoRange(
-              currentPosition.lineNumber,
-              currentPosition.column,
-              currentPosition.lineNumber,
-              currentPosition.column,
+              monacoPosition.lineNumber,
+              monacoPosition.column,
+              monacoPosition.lineNumber,
+              monacoPosition.column,
             ),
             text,
           );
-        },
-        deleteRange: (range) => {
-          const model = modelRef.current;
-          if (model) executeMonacoTextEdit(toMonacoRange(model, range), "");
-        },
-        replaceRange: (range, text) => {
-          const model = modelRef.current;
-          if (model) executeMonacoTextEdit(toMonacoRange(model, range), text);
-        },
-        selectAll: selectEntireModel,
-        clearSelection: () => {
-          const editor = editorRef.current;
-          const position = editor?.getPosition();
-          const currentSelection = editor?.getSelection();
-          if (!editor || !position || !currentSelection || currentSelection.isEmpty()) return;
+          return;
+        }
 
-          suppressNextCursorSelectionSyncRef.current = true;
-          editor.setSelection(
-            new MonacoRange(
-              position.lineNumber,
-              position.column,
-              position.lineNumber,
-              position.column,
-            ),
-          );
-        },
-        setCursorPosition: (position) => {
-          const editor = editorRef.current;
-          const model = modelRef.current;
-          if (!editor || !model || model.isDisposed()) return;
+        const selection = editor.getSelection();
+        if (selection && !selection.isEmpty()) {
+          executeMonacoTextEdit(selection, text);
+          return;
+        }
 
-          const monacoPosition = toClampedMonacoPosition(model, position);
-          editor.setPosition(monacoPosition);
-          editor.revealPositionInCenterIfOutsideViewport(monacoPosition);
-        },
-        setScroll: (scrollTop, scrollLeft) => {
-          editorRef.current?.setScrollPosition({ scrollTop, scrollLeft });
-        },
-        focus: () => editorRef.current?.focus(),
-        addSelectionToNextFindMatch: () =>
-          runMonacoSelectionAction("editor.action.addSelectionToNextFindMatch"),
-        addSelectionToPreviousFindMatch: () =>
-          runMonacoSelectionAction("editor.action.addSelectionToPreviousFindMatch"),
-        selectAllFindMatches: () => runMonacoSelectionAction("editor.action.selectHighlights"),
-        insertCursorAbove: () => runMonacoSelectionAction("editor.action.insertCursorAbove"),
-        insertCursorBelow: () => runMonacoSelectionAction("editor.action.insertCursorBelow"),
-        insertCursorsAtLineEnds: () =>
-          runMonacoSelectionAction("editor.action.insertCursorAtEndOfEachLineSelected"),
-        removeSecondaryCursors: () => runMonacoSelectionAction("removeSecondaryCursors"),
-        undo: () => {
-          editorRef.current?.trigger("lithe-api", "undo", null);
-          syncCursorAndSelection();
-        },
-        redo: () => {
-          editorRef.current?.trigger("lithe-api", "redo", null);
-          syncCursorAndSelection();
-        },
-      });
-    }
+        const currentPosition = editor.getPosition() ?? {
+          lineNumber: 1,
+          column: 1,
+        };
+        executeMonacoTextEdit(
+          new MonacoRange(
+            currentPosition.lineNumber,
+            currentPosition.column,
+            currentPosition.lineNumber,
+            currentPosition.column,
+          ),
+          text,
+        );
+      },
+      deleteRange: (range) => {
+        if (!canEdit) return;
+        const model = modelRef.current;
+        if (model) executeMonacoTextEdit(toMonacoRange(model, range), "");
+      },
+      replaceRange: (range, text) => {
+        if (!canEdit) return;
+        const model = modelRef.current;
+        if (model) executeMonacoTextEdit(toMonacoRange(model, range), text);
+      },
+      selectAll: selectEntireModel,
+      clearSelection: () => {
+        const editor = editorRef.current;
+        const position = editor?.getPosition();
+        const currentSelection = editor?.getSelection();
+        if (!editor || !position || !currentSelection || currentSelection.isEmpty()) return;
+
+        suppressNextCursorSelectionSyncRef.current = true;
+        editor.setSelection(
+          new MonacoRange(
+            position.lineNumber,
+            position.column,
+            position.lineNumber,
+            position.column,
+          ),
+        );
+      },
+      setCursorPosition: (position) => {
+        const editor = editorRef.current;
+        const model = modelRef.current;
+        if (!editor || !model || model.isDisposed()) return;
+
+        const monacoPosition = toClampedMonacoPosition(model, position);
+        editor.setPosition(monacoPosition);
+        editor.revealPositionInCenterIfOutsideViewport(monacoPosition);
+      },
+      setScroll: (scrollTop, scrollLeft) => {
+        editorRef.current?.setScrollPosition({ scrollTop, scrollLeft });
+      },
+      focus: () => editorRef.current?.focus(),
+      addSelectionToNextFindMatch: () =>
+        runMonacoSelectionAction("editor.action.addSelectionToNextFindMatch"),
+      addSelectionToPreviousFindMatch: () =>
+        runMonacoSelectionAction("editor.action.addSelectionToPreviousFindMatch"),
+      selectAllFindMatches: () => runMonacoSelectionAction("editor.action.selectHighlights"),
+      insertCursorAbove: () => runMonacoSelectionAction("editor.action.insertCursorAbove"),
+      insertCursorBelow: () => runMonacoSelectionAction("editor.action.insertCursorBelow"),
+      insertCursorsAtLineEnds: () =>
+        runMonacoSelectionAction("editor.action.insertCursorAtEndOfEachLineSelected"),
+      removeSecondaryCursors: () => runMonacoSelectionAction("removeSecondaryCursors"),
+      undo: () => {
+        if (!canEdit) return;
+        editorRef.current?.trigger("lithe-api", "undo", null);
+        syncCursorAndSelection();
+      },
+      redo: () => {
+        if (!canEdit) return;
+        editorRef.current?.trigger("lithe-api", "redo", null);
+        syncCursorAndSelection();
+      },
+    });
 
     const editor = editorRef.current;
     const model = modelRef.current;
@@ -1481,7 +1485,7 @@ export function MonacoEditor({
       if (benchmarkRafId !== null) cancelAnimationFrame(benchmarkRafId);
       if (benchmarkTimeoutId !== null) window.clearTimeout(benchmarkTimeoutId);
       editorAPI.clearActiveFindAdapter(adapterOwnerId);
-      if (canEdit) editorAPI.clearActiveEditorAdapter(adapterOwnerId);
+      editorAPI.clearActiveEditorAdapter(adapterOwnerId);
       if (container && editorAPI.getViewportRef() === container) {
         editorAPI.setViewportRef(null);
       }
@@ -2007,9 +2011,11 @@ export function MonacoEditor({
     // surface before paint so the pane that just became inactive keeps its own
     // viewport instead of briefly rendering at the first line; the focus
     // callback below remains limited to the active surface.
+    const viewStateKeyForRestore = viewStateKey ?? activeBufferId ?? "";
     const cached = useEditorStateStore
       .getState()
-      .actions.getCachedViewState(viewStateKey ?? activeBufferId ?? "");
+      .actions.getCachedViewState(viewStateKeyForRestore);
+    const navigationRevision = editorAPI.getOwnerNavigationRevision(viewStateKeyForRestore);
 
     restoringViewStateRef.current = true;
     editor.layout();
@@ -2025,44 +2031,24 @@ export function MonacoEditor({
       });
     }
 
-    let focusFrame: number | null = null;
-    let confirmationFrame: number | null = null;
-    focusFrame = requestAnimationFrame(() => {
-      if (editorRef.current !== editor) {
+    const cancelCachedViewStateRestore = scheduleCachedViewStateRestore({
+      editor,
+      cachedScroll: cached
+        ? { scrollTop: cached.scrollTop, scrollLeft: cached.scrollLeft }
+        : undefined,
+      isEditorCurrent: () => editorRef.current === editor,
+      isNavigationRevisionCurrent: () =>
+        editorAPI.getOwnerNavigationRevision(viewStateKeyForRestore) === navigationRevision,
+      focus: () => {
+        if (isActiveSurfaceRef.current) editor.focus();
+      },
+      onRestoreComplete: () => {
         restoringViewStateRef.current = false;
-        return;
-      }
-
-      // A previously hidden Monaco surface may not accept focus until its new
-      // layout has been applied. Focus after that layout, then confirm it once
-      // more on the following frame for reliable keyboard shortcut handling.
-      editor.layout();
-      if (cached) {
-        editor.setScrollPosition({
-          scrollTop: cached.scrollTop,
-          scrollLeft: cached.scrollLeft,
-        });
-      }
-      if (isActiveSurfaceRef.current) editor.focus();
-      confirmationFrame = requestAnimationFrame(() => {
-        if (editorRef.current === editor) {
-          if (cached) {
-            editor.setScrollPosition({
-              scrollTop: cached.scrollTop,
-              scrollLeft: cached.scrollLeft,
-            });
-          }
-          restoringViewStateRef.current = false;
-        }
-        if (editorRef.current === editor && isActiveSurfaceRef.current) {
-          editor.focus();
-        }
-      });
+      },
     });
 
     return () => {
-      if (focusFrame !== null) cancelAnimationFrame(focusFrame);
-      if (confirmationFrame !== null) cancelAnimationFrame(confirmationFrame);
+      cancelCachedViewStateRestore();
       restoringViewStateRef.current = false;
     };
   }, [activeBufferId, isActiveSurface, viewStateKey]);
