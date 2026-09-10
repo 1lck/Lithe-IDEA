@@ -162,6 +162,12 @@ else
 fi
 
 cp "$INFO_PLIST" "$APP_DIR/Contents/Info.plist"
+zsh "$ROOT_DIR/scripts/embed-sparkle.sh" "$APP_DIR"
+if [[ -n "${LITHE_SPARKLE_PUBLIC_KEY:-}" ]]; then
+    [[ "$ARCH" != "universal" ]] || { print -u2 -- "Sparkle release feeds require an architecture-specific app"; exit 1; }
+    /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $LITHE_SPARKLE_PUBLIC_KEY" "$APP_DIR/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://github.com/${GITHUB_REPOSITORY:-1lck/Lithe-IDEA}/releases/latest/download/appcast-$ARCH.xml" "$APP_DIR/Contents/Info.plist"
+fi
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_DIR/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP_DIR/Contents/Info.plist"
 "$ROOT_DIR/scripts/stamp-macos-app-build-info.sh" "$APP_DIR/Contents/Info.plist"

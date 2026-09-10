@@ -1197,9 +1197,11 @@ struct SettingsView: View {
                 }
                 Text("Downloading update \(version)…")
                     .font(LitheTheme.smallFont)
-                Text(progress.byteCountDescription)
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.tertiaryText)
+                if progress.downloadedBytes > 0 {
+                    Text(progress.byteCountDescription)
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                }
             }
             .foregroundStyle(LitheTheme.secondaryText)
         case .installing(let version):
