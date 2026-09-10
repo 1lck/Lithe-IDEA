@@ -43,7 +43,8 @@ private final class MacLanguageExecutionSession: LanguageExecutionSession {
             executablePath: request.executablePath,
             arguments: request.arguments,
             workingDirectory: request.workingDirectory,
-            environment: request.environment
+            environment: request.environment,
+            timeoutMilliseconds: request.timeoutMilliseconds
         ))
     }
 

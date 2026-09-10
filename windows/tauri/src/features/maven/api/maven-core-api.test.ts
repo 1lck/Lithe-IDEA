@@ -5,8 +5,9 @@ const executeCore = mock(async () => ({
   ok: true as const,
   data: null,
 }));
+const cancelCoreOperation = mock(async () => true);
 
-mock.module("@/core/lithe-core-client", () => ({ executeCore }));
+mock.module("@/core/lithe-core-client", () => ({ executeCore, cancelCoreOperation }));
 
 const { createMavenLaunchPlan, scanMavenProject } = await import("./maven-core-api");
 

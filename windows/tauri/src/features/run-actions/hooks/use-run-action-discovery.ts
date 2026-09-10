@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { getBufferByPath } from "@/features/editor/utils/buffer-index";
+import { canRunMavenTest } from "@/features/maven/services/maven-test-actions";
+import { useJavaTestMethods } from "@/features/maven/hooks/use-java-test-methods";
 import { useCodeLens } from "@/features/editor/lsp/use-code-lens";
 import type { RunActionItem } from "../types/run-action.types";
-import { codeLensesToRunActions, discoverProjectRunActions } from "../utils/run-action-discovery";
+import {
+  codeLensesToRunActions,
+  discoverProjectRunActions,
+  javaTestActionsForFile,
+} from "../utils/run-action-discovery";
 
 export function useRunActionDiscovery(
   workspacePath: string | undefined,
@@ -12,8 +20,18 @@ export function useRunActionDiscovery(
   const [projectActions, setProjectActions] = useState<RunActionItem[]>([]);
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
+  const [mavenTestsAvailable, setMavenTestsAvailable] = useState(false);
   const [revision, setRevision] = useState(0);
   const codeLenses = useCodeLens(activeFilePath, enabled && includeCodeLenses);
+  const activeFileContent = useBufferStore((state) => {
+    const buffer = getBufferByPath(state.buffers, activeFilePath);
+    return buffer?.type === "editor" ? buffer.content ?? "" : "";
+  });
+  const javaTestMethods = useJavaTestMethods(
+    activeFilePath ?? "",
+    activeFileContent,
+    enabled && mavenTestsAvailable,
+  );
 
   useEffect(() => {
     if (!enabled || !workspacePath) {
@@ -44,9 +62,34 @@ export function useRunActionDiscovery(
     };
   }, [enabled, revision, workspacePath]);
 
+  useEffect(() => {
+    if (!enabled || !workspacePath || !activeFilePath || !/\.java$/i.test(activeFilePath)) {
+      setMavenTestsAvailable(false);
+      return;
+    }
+
+    let cancelled = false;
+    setMavenTestsAvailable(false);
+    void canRunMavenTest(workspacePath, activeFilePath).then((available) => {
+      if (!cancelled) setMavenTestsAvailable(available);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeFilePath, enabled, workspacePath]);
+
   const lspActions = useMemo(
-    () => (activeFilePath ? codeLensesToRunActions(codeLenses, activeFilePath) : []),
-    [activeFilePath, codeLenses],
+    () =>
+      activeFilePath
+        ? [
+            ...(mavenTestsAvailable
+              ? javaTestActionsForFile(activeFilePath, javaTestMethods)
+              : []),
+            ...codeLensesToRunActions(codeLenses, activeFilePath),
+          ]
+        : [],
+    [activeFilePath, codeLenses, javaTestMethods, mavenTestsAvailable],
   );
   const refresh = useCallback(() => setRevision((current) => current + 1), []);
 

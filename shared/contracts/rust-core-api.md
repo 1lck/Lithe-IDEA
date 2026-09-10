@@ -85,6 +85,7 @@ stable error code and a user-facing message:
 | `maven.dependencyPlan` | Produce a bounded dependency-tree invocation for one Maven module |
 | `maven.dependencies` | Normalize bounded Maven dependency-plugin output into a deterministic tree |
 | `maven.diagnostics` | Parse stable Maven compiler diagnostics from build output |
+| `maven.testResults` | Parse bounded JUnit/Surefire result summaries and failure locations |
 | `debug.createSession` | Create a transport-neutral DAP session and return its initialize frame |
 | `debug.launch` | Queue a launch or attach request, including during initialization |
 | `debug.javaTestLaunch` | Normalize JUnit or TestNG launch metadata into Java DAP arguments |
@@ -130,6 +131,7 @@ stable error code and a user-facing message:
 | `java.codeVision` | Return Java declaration usage counts for editor code vision |
 | `java.className` | Resolve a Java source package and simple name into a runtime class name |
 | `java.sourceDefinition` | Locate a Java type, method, or field declaration in source text |
+| `java.testMethods` | Discover JUnit 4/5 test methods and their source ranges |
 | `java.serverPort` | Parse Spring server port settings from properties or YAML text |
 | `java.structure` | Parse Java editor folds, inlay hints, and portable syntax roles |
 | `spring.index` | Build a deterministic Spring configuration, bean, injection, and endpoint index |
@@ -177,6 +179,44 @@ stable error code and a user-facing message:
 | `github.normalizeResponse` | Normalize raw GitHub JSON and HTTP status into deterministic data or a stable error |
 | `diagnostics.redactText` | Redact credentials, tokens, and home-directory paths from diagnostic-bundle text |
 | `diagnostics.buildManifest` | Shape a deterministic diagnostic bundle manifest from host-gathered environment and file facts |
+
+### Maven test results
+
+`maven.testResults` accepts `{ "root": string, "output": string }` and parses
+the bounded text emitted by Maven Surefire or Failsafe after a JUnit 4/5 class
+or method run. `root` must be an existing workspace directory and `output` is
+limited to 500,000 characters. The response is:
+
+```json
+{
+  "testsRun": 4,
+  "failures": 1,
+  "errors": 1,
+  "skipped": 1,
+  "passed": 1,
+  "success": false,
+  "failureDetails": [
+    {
+      "name": "additionIsCorrect(com.example.CalculatorTest)",
+      "kind": "failure",
+      "message": "expected <4> but was <5>",
+      "path": "src/test/java/com/example/CalculatorTest.java",
+      "line": 42,
+      "column": null
+    }
+  ]
+}
+```
+
+`kind` is `failure` or `error`; `path` is a workspace-relative source path
+when the first matching stack frame exists, and all locations use one-based
+lines with nullable columns. `passed` is derived from the summary and never
+negative. A final `Results` summary is preferred; when Maven only prints
+per-class summaries, the counts are aggregated. Failure details retain Maven's output order and are bounded to
+10,000 entries. A parser or size violation returns the standard
+`parse_failed` error. Platform stores must associate the response with the
+launch operation and discard it after cancellation, replacement, or workspace
+change.
 
 Workspace paths in responses are relative and use `/` separators. Line numbers
 are one-based. `git.status.repositoryRoot` may be an absolute path when the
@@ -1215,6 +1255,12 @@ name.
 `java.sourceDefinition` accepts `source`, `declarationName`, and an optional
 `memberName`, returning zero-based `line` and UTF-16 `utf16Column` or `null`
 when no declaration is found.
+
+`java.testMethods` accepts Java `source` and returns `methods` in source order.
+Each method contains its `name` plus zero-based `line` and `endLine` values for
+the complete method body. The lightweight parser recognizes JUnit 4 and JUnit 5
+test annotations, ignores annotations and braces inside comments, strings,
+characters, and text blocks, and does not start a Java process or contact JDT.
 
 `java.structure` accepts Java `source` and optional `declarationSources`. It
 returns `foldRegions`, `inlayHints`, and

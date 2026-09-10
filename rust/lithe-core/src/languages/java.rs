@@ -5,7 +5,7 @@ use crate::protocol::{
     JavaClassNameResponse, JavaCodeVisionHintResponse, JavaCodeVisionResponse,
     JavaFoldRegionResponse, JavaInlayHintResponse, JavaMainClassResponse,
     JavaRunConfigurationResponse, JavaRunConfigurationsResponse, JavaServerPortResponse,
-    JavaSourceSetResponse, JavaStructureResponse,
+    JavaSourceSetResponse, JavaStructureResponse, JavaTestMethodsResponse,
 };
 use regex::Regex;
 use serde::Deserialize;
@@ -59,6 +59,13 @@ pub struct JavaSourceDefinitionRequest {
     pub declaration_name: String,
     #[serde(default)]
     pub member_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Java source inspected for JUnit test methods and their source ranges.
+pub struct JavaTestMethodsRequest {
+    pub source: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -257,6 +264,14 @@ pub fn source_definition(
         }
     }
     Ok(None)
+}
+
+/// Discovers JUnit 4 and JUnit 5 test methods without starting a language server.
+pub fn test_methods(request: JavaTestMethodsRequest) -> Result<JavaTestMethodsResponse, CoreError> {
+    crate::protocol::cancellation::check()?;
+    Ok(JavaTestMethodsResponse {
+        methods: super::java_syntax::test_methods(&request.source)?,
+    })
 }
 
 /// Reads a Spring server port from properties or YAML content.

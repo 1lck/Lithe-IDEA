@@ -350,3 +350,14 @@ precedence, including `skipTests: false`. Unset values inherit the project
 settings. The shared Core applies the final Maven argument order for all three
 entry points. Tool-window, Run, and Debug module launches add `-am` so reactor
 dependencies are built before the selected module.
+
+Java test actions use the same Maven process lifecycle for a complete JUnit 4
+or JUnit 5 test class and for an individual method. The selector is validated
+before launch and is passed through `maven.launchPlan`; no platform assembles a
+shell command. Surefire/Failsafe text is normalized through `maven.testResults`
+into passed, failed, skipped, and total counts plus ordered failure details.
+When a stack frame resolves inside the workspace, the failure links to its
+one-based source line. The active test operation owns cancellation and stop;
+late output or parsed results cannot replace a newer run. The last valid class
+or method selection remains available for an explicit rerun, while cancellation
+clears only the active result.
