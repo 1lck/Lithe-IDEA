@@ -296,6 +296,22 @@ package final class LanguageToolingSessionManager: ObservableObject,
         return languageServerOperationIDs[providerID] ?? operationID
     }
 
+    /// Reloads only Java and waits for project import, preserving other providers.
+    /// Cancellation terminates only the session created by this reload.
+    package func reloadJavaWorkspace(rootURL: URL) async throws {
+        stopLanguageServer(providerID: "java")
+        let operationID = try startLanguageServer(providerID: "java", rootURL: rootURL)
+        do {
+            try await waitUntilLanguageServerReady(providerID: "java", rootURL: rootURL)
+            try Task.checkCancellation()
+        } catch {
+            if languageServerOperationIDs["java"] == operationID {
+                stopLanguageServer(providerID: "java")
+            }
+            throw error
+        }
+    }
+
     /// Starts or reuses JDT LS, then asks its bundled Java Debug extension for
     /// the loopback DAP port. The caller remains responsible for the socket.
     package func startJavaDebugServer(rootURL: URL) async throws -> UInt16 {

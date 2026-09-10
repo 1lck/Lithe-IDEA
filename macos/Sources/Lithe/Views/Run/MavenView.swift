@@ -18,6 +18,9 @@ struct MavenView: View {
             if let error = feature.configurationSaveError {
                 configurationErrorBanner(error)
             }
+            if let error = feature.reloadError {
+                configurationErrorBanner(error)
+            }
             if feature.isReloadRequired {
                 reloadBanner
             }
@@ -103,6 +106,7 @@ struct MavenView: View {
             }
             .litheIconButton()
             .help("Reload Maven project")
+            .disabled(feature.isReloading)
 
             if feature.isRunning {
                 Button(action: model.stopMaven) {
@@ -146,23 +150,24 @@ struct MavenView: View {
     }
 
     private func refreshProject() {
-        guard let workspaceURL = model.workspaceURL else { return }
-        Task { await feature.loadProject(at: workspaceURL, files: model.projectFiles) }
+        Task { await model.reloadMavenProject(rescan: true) }
     }
 
     private var reloadBanner: some View {
         HStack(spacing: 8) {
             Image(systemName: "arrow.triangle.2.circlepath")
                 .foregroundStyle(LitheTheme.warning)
-            Text("Maven configuration changed")
+            Text(feature.isProjectReloadRequired
+                 ? String(localized: "Maven POM changed")
+                 : String(localized: "Maven configuration changed"))
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
             Spacer(minLength: 8)
-            Button("Reload JDT LS") {
-                model.restartLanguageServers()
-                feature.acknowledgeReload()
+            Button(feature.isReloading ? String(localized: "Reloading Maven...") : String(localized: "Reload")) {
+                Task { await model.reloadMavenProject(rescan: feature.isProjectReloadRequired) }
             }
             .buttonStyle(.borderless)
+            .disabled(feature.isReloading)
         }
         .padding(.horizontal, 10)
         .frame(height: 32)
