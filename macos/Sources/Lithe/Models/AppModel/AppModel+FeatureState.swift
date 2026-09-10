@@ -146,16 +146,12 @@ extension AppModel {
         gitFeatureIfActive?.gitTreeStatus ?? GitTreeStatusProjection(changes: [])
     }
     func gitChange(for url: URL) -> GitChange? {
-        guard let root = gitRepositoryRoot,
-              let relativePath = workspaceRelativePath(for: url, root: root) else { return nil }
-        return gitFeatureIfActive?.gitTreeStatus.change(relativePath: relativePath)
+        return gitFeatureIfActive?.gitTreeStatus.change(relativePath: url.standardizedFileURL.path)
     }
 
     func gitTreeStatus(for url: URL, isDirectory: Bool) -> GitChangeKind? {
-        guard let root = gitRepositoryRoot,
-              let relativePath = workspaceRelativePath(for: url, root: root) else { return nil }
         return gitFeatureIfActive?.gitTreeStatus.kind(
-            relativePath: relativePath,
+            relativePath: url.standardizedFileURL.path,
             isDirectory: isDirectory
         )
     }
@@ -336,7 +332,7 @@ extension AppModel {
         case "navigate-forward":
             canNavigateForward
         case "go-to-definition":
-            activeDocument.map { springFeature.handles($0.url) } == true
+            activeDocument.map { springFeature.handles($0.url) || mybatisFeature.handles($0.url) } == true
                 || supportsLanguageServerFeature(.definition)
         case "find-usages":
             supportsLanguageServerFeature(.references)
@@ -353,5 +349,59 @@ extension AppModel {
         default:
             false
         }
+    }
+
+    func prepareProjectRuntimeSettings() async {
+        await runtimeFeature.refreshAvailableRuntimes()
+        if workspaceURL != nil {
+            _ = await activateExecutionModule()
+        }
+        runtimeFeature.prepare(
+            workspaceName: projectName,
+            workspaceURL: workspaceURL,
+            files: projectFiles,
+            mavenProject: mavenFeatureIfActive?.project,
+            toolchain: runFeatureIfActive?.projectToolchain,
+            mavenSettingsPath: mavenFeatureIfActive?.settingsPath,
+            mavenLocalRepositoryPath: mavenFeatureIfActive?.localRepositoryPath,
+            mavenExecutablePath: mavenFeatureIfActive?.mavenExecutablePath,
+            mavenJavaHomePath: mavenFeatureIfActive?.javaHomePath
+        )
+    }
+
+    func persistProjectRuntimeSettings() {
+        let settings = runtimeFeature.settings
+        if let maven = mavenFeatureIfActive {
+            let mavenJDK = settings.mavenJavaHomePath.isEmpty
+                ? settings.javaHomePath
+                : settings.mavenJavaHomePath
+            maven.updateLocalConfiguration(
+                settingsPath: settings.mavenSettingsPath,
+                localRepositoryPath: settings.mavenLocalRepositoryPath,
+                mavenExecutablePath: settings.mavenExecutableOverride,
+                javaHomePath: mavenJDK
+            )
+        }
+        guard let run = runFeatureIfActive,
+              run.configurationStatus == .ready else { return }
+        let configuration = run.selectedConfiguration
+            ?? run.configurations.first { $0.kind.capabilities.contains(.javaRuntime) }
+            ?? run.configurations.first
+        guard let configuration else { return }
+        var options = run.options(for: configuration)
+        let previousToolchain = run.projectToolchain
+        if options.javaHomePath == previousToolchain.javaHomePath { options.javaHomePath = "" }
+        if options.mavenExecutablePath == previousToolchain.mavenExecutablePath {
+            options.mavenExecutablePath = ""
+        }
+        if options.mavenJavaHomePath == previousToolchain.mavenJavaHomePath {
+            options.mavenJavaHomePath = ""
+        }
+        _ = run.saveEditorChanges(
+            options,
+            toolchain: runtimeFeature.projectToolchainSelection,
+            for: configuration,
+            scope: .local
+        )
     }
 }

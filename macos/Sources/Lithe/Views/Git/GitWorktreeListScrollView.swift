@@ -2,6 +2,16 @@ import AppKit
 import SwiftUI
 import LitheGitModule
 
+enum GitWorktreeListAction: String {
+    case open
+    case openInNewWindow
+    case reveal
+    case copyPath
+    case toggleLock
+    case remove
+    case prune
+}
+
 /// Native worktree list surface. A single document view lets AppKit move the
 /// clip bounds without rebuilding one SwiftUI hierarchy per worktree row.
 struct GitWorktreeListScrollView: NSViewRepresentable {
@@ -11,20 +21,26 @@ struct GitWorktreeListScrollView: NSViewRepresentable {
 
     let items: [GitWorktreeListItem]
     let selectedWorktreeID: String?
+    let isPerformingWorktreeOperation: Bool
     let onSelect: (String) -> Void
+    let onContextMenuAction: (GitWorktreeListAction, GitWorktreeListItem) -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
         Self.makeScrollView(
             items: items,
             selectedWorktreeID: selectedWorktreeID,
-            onSelect: onSelect
+            isPerformingWorktreeOperation: isPerformingWorktreeOperation,
+            onSelect: onSelect,
+            onContextMenuAction: onContextMenuAction
         )
     }
 
     static func makeScrollView(
         items: [GitWorktreeListItem],
         selectedWorktreeID: String?,
-        onSelect: @escaping (String) -> Void
+        isPerformingWorktreeOperation: Bool = false,
+        onSelect: @escaping (String) -> Void,
+        onContextMenuAction: @escaping (GitWorktreeListAction, GitWorktreeListItem) -> Void = { _, _ in }
     ) -> NSScrollView {
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
@@ -40,7 +56,13 @@ struct GitWorktreeListScrollView: NSViewRepresentable {
 
         let documentView = GitWorktreeListNSView()
         documentView.autoresizingMask = [.width]
-        documentView.update(items: items, selectedWorktreeID: selectedWorktreeID, onSelect: onSelect)
+        documentView.update(
+            items: items,
+            selectedWorktreeID: selectedWorktreeID,
+            isPerformingWorktreeOperation: isPerformingWorktreeOperation,
+            onSelect: onSelect,
+            onContextMenuAction: onContextMenuAction
+        )
         scrollView.documentView = documentView
         return scrollView
     }
@@ -49,9 +71,12 @@ struct GitWorktreeListScrollView: NSViewRepresentable {
         guard let documentView = nsView.documentView as? GitWorktreeListNSView else { return }
         let previousOrigin = nsView.contentView.bounds.origin
         let contentChanged = documentView.update(
+            locale: context.environment.locale,
             items: items,
             selectedWorktreeID: selectedWorktreeID,
-            onSelect: onSelect
+            isPerformingWorktreeOperation: isPerformingWorktreeOperation,
+            onSelect: onSelect,
+            onContextMenuAction: onContextMenuAction
         )
         let layoutChanged = documentView.updateLayout(width: nsView.contentView.bounds.width)
 
@@ -79,9 +104,12 @@ struct GitWorktreeListScrollView: NSViewRepresentable {
 }
 
 final class GitWorktreeListNSView: NSView {
+    private var locale = Locale.current
     private var items: [GitWorktreeListItem] = []
     private var selectedWorktreeID: String?
+    private var isPerformingWorktreeOperation = false
     private var onSelect: ((String) -> Void)?
+    private var onContextMenuAction: ((GitWorktreeListAction, GitWorktreeListItem) -> Void)?
     private var drawingStyle: DrawingStyle?
     private var hoveredIndex: Int?
     private var lastLayoutWidth: CGFloat = -.greatestFiniteMagnitude
@@ -91,7 +119,7 @@ final class GitWorktreeListNSView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setAccessibilityRole(.list)
-        setAccessibilityLabel(String(localized: "Worktrees"))
+        setAccessibilityLabel(gitLocalizedFormat("Worktrees", locale: locale))
     }
 
     @available(*, unavailable)
@@ -99,18 +127,26 @@ final class GitWorktreeListNSView: NSView {
 
     @discardableResult
     func update(
+        locale: Locale = .current,
         items: [GitWorktreeListItem],
         selectedWorktreeID: String?,
-        onSelect: @escaping (String) -> Void
+        isPerformingWorktreeOperation: Bool = false,
+        onSelect: @escaping (String) -> Void,
+        onContextMenuAction: @escaping (GitWorktreeListAction, GitWorktreeListItem) -> Void = { _, _ in }
     ) -> Bool {
-        let dataChanged = self.items != items
+        let dataChanged = self.items != items || self.locale != locale
+        self.locale = locale
         let selectionChanged = self.selectedWorktreeID != selectedWorktreeID
+        let operationStateChanged = self.isPerformingWorktreeOperation != isPerformingWorktreeOperation
         self.items = items
         self.selectedWorktreeID = selectedWorktreeID
+        self.isPerformingWorktreeOperation = isPerformingWorktreeOperation
         self.onSelect = onSelect
-        setAccessibilityValue(String(format: String(localized: "%lld worktrees"), items.count))
-        if dataChanged || selectionChanged { needsDisplay = true }
-        return dataChanged || selectionChanged
+        self.onContextMenuAction = onContextMenuAction
+        setAccessibilityLabel(gitLocalizedFormat("Worktrees", locale: locale))
+        setAccessibilityValue(gitLocalizedFormat("%lld worktrees", items.count, locale: locale))
+        if dataChanged || selectionChanged || operationStateChanged { needsDisplay = true }
+        return dataChanged || selectionChanged || operationStateChanged
     }
 
     @discardableResult
@@ -162,12 +198,58 @@ final class GitWorktreeListNSView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.control) {
+            _ = menu(for: event)
+            return
+        }
         let point = convert(event.locationInWindow, from: nil)
         guard let index = rowIndex(at: point), items.indices.contains(index) else {
             super.mouseDown(with: event)
             return
         }
         onSelect?(items[index].id)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let window else { return nil }
+        let point = convert(event.locationInWindow, from: nil)
+        guard let index = rowIndex(at: point), items.indices.contains(index) else { return nil }
+        let item = items[index]
+        let menuItems = contextMenuItems(for: item)
+        onSelect?(item.id)
+        LitheContextMenuPresenter.shared.show(
+            items: menuItems,
+            at: window.convertPoint(toScreen: event.locationInWindow),
+            appearance: effectiveAppearance,
+            locale: locale
+        )
+        return nil
+    }
+
+    func contextMenuItems(for item: GitWorktreeListItem) -> [LitheContextMenuItem] {
+        // Capture the clicked worktree and callback before selection refreshes the list.
+        let perform = onContextMenuAction
+        let worktree = item.worktree
+        return [
+            .action("Open in Current Window", isEnabled: !worktree.isPrunable) { perform?(.open, item) },
+            .action("Open in New Window", isEnabled: !worktree.isPrunable) { perform?(.openInNewWindow, item) },
+            .action("Show in Finder", isEnabled: !worktree.isPrunable) { perform?(.reveal, item) },
+            .action("Copy Path") { perform?(.copyPath, item) },
+            .separator,
+            .action(
+                worktree.isLocked ? "Unlock Worktree" : "Lock Worktree",
+                isEnabled: !isPerformingWorktreeOperation && !worktree.isPrimary && !worktree.isPrunable
+            ) { perform?(.toggleLock, item) },
+            .action(
+                "Remove Worktree…", role: .destructive,
+                isEnabled: !isPerformingWorktreeOperation && !worktree.isPrimary
+                    && !worktree.isCurrent && !worktree.isLocked && !worktree.isPrunable
+            ) { perform?(.remove, item) },
+            .action(
+                "Prune Stale Records",
+                isEnabled: !isPerformingWorktreeOperation && items.contains { $0.worktree.isPrunable }
+            ) { perform?(.prune, item) }
+        ]
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -240,13 +322,13 @@ final class GitWorktreeListNSView: NSView {
         context: CGContext
     ) {
         let worktree = item.worktree
-        let title = worktree.isPrimary ? String(localized: "Main Worktree") : worktree.displayName
+        let title = worktree.isPrimary ? gitLocalizedFormat("Main Worktree", locale: locale) : worktree.displayName
         drawText(title, in: CGRect(x: rect.minX, y: rect.minY, width: max(0, rect.width - 175), height: 18), style: style.title)
         if worktree.isPrimary {
             drawText("♛", in: CGRect(x: rect.minX + 128, y: rect.minY, width: 16, height: 18), style: style.warning)
         }
         if worktree.isCurrent {
-            drawText(String(localized: "Current"), in: CGRect(x: max(rect.minX + 145, rect.maxX - 145), y: rect.minY, width: 64, height: 18), style: style.accent)
+            drawText(gitLocalizedFormat("Current", locale: locale), in: CGRect(x: max(rect.minX + 145, rect.maxX - 145), y: rect.minY, width: 64, height: 18), style: style.accent)
         }
         let statusTitle = statusTitle(for: item.status)
         let statusRect = CGRect(x: max(rect.minX + 150, rect.maxX - 92), y: rect.minY, width: 78, height: 18)
@@ -256,8 +338,8 @@ final class GitWorktreeListNSView: NSView {
         drawText("⋯", in: CGRect(x: rect.maxX - 17, y: rect.minY - 1, width: 17, height: 18), style: style.tertiary, alignment: .right)
 
         drawText(worktree.path, in: CGRect(x: rect.minX, y: rect.minY + 23, width: rect.width, height: 17), style: style.path, lineBreakMode: .byTruncatingMiddle)
-        let branch = worktree.branchName ?? String(localized: "Detached HEAD")
-        drawText(String(format: String(localized: "Branch: %@"), branch), in: CGRect(x: rect.minX, y: rect.minY + 45, width: rect.width, height: 17), style: style.path)
+        let branch = worktree.branchName ?? gitLocalizedFormat("Detached HEAD", locale: locale)
+        drawText(gitLocalizedFormat("Branch: %@", branch, locale: locale), in: CGRect(x: rect.minX, y: rect.minY + 45, width: rect.width, height: 17), style: style.path)
     }
 
     private func drawText(_ text: String, in rect: CGRect, style: TextStyle, lineBreakMode: NSLineBreakMode? = nil, alignment: NSTextAlignment? = nil) {
@@ -283,11 +365,11 @@ final class GitWorktreeListNSView: NSView {
 
     private func statusTitle(for status: GitWorktreeStatusKind) -> String {
         switch status {
-        case .pathMissing: String(localized: "Path Missing")
-        case .locked: String(localized: "Locked")
-        case .modified: String(localized: "Modified")
-        case .current: String(localized: "Current")
-        case .available: String(localized: "Available")
+        case .pathMissing: gitLocalizedFormat("Path Missing", locale: locale)
+        case .locked: gitLocalizedFormat("Locked", locale: locale)
+        case .modified: gitLocalizedFormat("Modified", locale: locale)
+        case .current: gitLocalizedFormat("Current", locale: locale)
+        case .available: gitLocalizedFormat("Available", locale: locale)
         }
     }
 

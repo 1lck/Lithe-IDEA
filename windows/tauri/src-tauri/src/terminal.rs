@@ -174,6 +174,8 @@ pub fn close_terminal(
 }
 
 #[tauri::command]
-pub fn list_shells() -> Vec<Shell> {
-    lithe_terminal::get_shells()
+pub async fn list_shells() -> Result<Vec<Shell>, String> {
+    tauri::async_runtime::spawn_blocking(lithe_terminal::get_shells)
+        .await
+        .map_err(|error| format!("Failed to detect installed shells: {error}"))
 }

@@ -1,31 +1,91 @@
 import AppKit
+import LitheLocalHistoryModule
 import SwiftUI
 
 enum LitheWindowID {
+    static let welcome = "welcome"
     static let settings = "settings"
+    static let project = "project"
+}
+
+private struct ProjectWindowScopeKey: EnvironmentKey {
+    static let defaultValue: ProjectWindowScope = .primary
+}
+
+extension EnvironmentValues {
+    var projectWindowScope: ProjectWindowScope {
+        get { self[ProjectWindowScopeKey.self] }
+        set { self[ProjectWindowScopeKey.self] = newValue }
+    }
+}
+
+/// Installs window present callbacks from a live SwiftUI scene environment so
+/// they are not tied to the primary window's lifetime alone.
+private struct ProjectWindowSceneBridge: View {
+    @EnvironmentObject private var projectWindowLauncher: ProjectWindowLauncher
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .onAppear(perform: installCallbacks)
+    }
+
+    private func installCallbacks() {
+        projectWindowLauncher.presentProjectWindow = { windowID in
+            openWindow(id: LitheWindowID.project, value: windowID)
+        }
+        projectWindowLauncher.dismissProjectWindow = { windowID in
+            ProjectWindowAppKitDismisser.dismiss(windowID: windowID)
+        }
+        projectWindowLauncher.presentPrimaryWindow = {
+            openWindow(id: LitheWindowID.welcome)
+        }
+    }
+}
+
+enum ProjectWindowAppKitDismisser {
+    static func dismiss(windowID: UUID) {
+        let identifier = NSUserInterfaceItemIdentifier(windowID.uuidString)
+        for window in NSApplication.shared.windows where window.identifier == identifier {
+            window.close()
+        }
+    }
 }
 
 struct RootView: View {
+    let scope: ProjectWindowScope
     @EnvironmentObject private var projectSessions: ProjectSessionManager
+    @EnvironmentObject private var projectWindowLauncher: ProjectWindowLauncher
     @EnvironmentObject private var updateChecker: UpdateChecker
+    @Environment(\.openWindow) private var openWindow
     @State private var didStartAutomaticUpdateCheck = false
+
+    init(scope: ProjectWindowScope = .primary) {
+        self.scope = scope
+    }
 
     var body: some View {
         ZStack {
-            ForEach(projectSessions.sessions) { session in
+            ForEach(visibleSessions) { session in
                 ProjectSessionContent(
                     session: session,
-                    isActive: session.id == projectSessions.activeSessionID
+                    isActive: isSessionActive(session)
                 )
             }
-            ActiveSessionChrome()
+            if let scopedModel {
+                ActiveSessionChrome(scope: scope, session: scopedModel)
+            }
         }
+        .environment(\.projectWindowScope, scope)
+        .background(ProjectWindowSceneBridge())
         .frame(
             minWidth: windowLayout.minimumContentSize.width,
             minHeight: windowLayout.minimumContentSize.height
         )
         .background(LitheTheme.window)
-        .sheet(item: $projectSessions.pendingProjectOpen) { request in
+        .sheet(item: scopedPendingProjectOpen) { request in
             OpenProjectLocationDialog(request: request) { placement, doNotAskAgain in
                 projectSessions.resolvePendingOpen(
                     request,
@@ -36,15 +96,6 @@ struct RootView: View {
         }
         .alert(item: $updateChecker.notice) { notice in
             switch notice.action {
-            case .install:
-                return Alert(
-                    title: Text(LocalizedStringKey(notice.title)),
-                    message: Text(LocalizedStringKey(notice.message)),
-                    primaryButton: .default(Text("Update")) {
-                        Task { await updateChecker.installAvailableUpdate() }
-                    },
-                    secondaryButton: .cancel()
-                )
             case .open(let url):
                 return Alert(
                     title: Text(LocalizedStringKey(notice.title)),
@@ -62,28 +113,8 @@ struct RootView: View {
                 )
             }
         }
-        .confirmationDialog(
-            updateChecker.updatePrompt?.title ?? "Update Available",
-            isPresented: updatePromptPresented,
-            titleVisibility: .visible
-        ) {
-            if let prompt = updateChecker.updatePrompt {
-                Button("Update Now") {
-                    Task { await updateChecker.installAvailableUpdate() }
-                }
-                Button("Open Release Page") {
-                    updateChecker.openRelease(prompt.releaseURL)
-                }
-                Button("Later", role: .cancel) {
-                    updateChecker.dismissUpdatePrompt()
-                }
-            }
-        } message: {
-            if let prompt = updateChecker.updatePrompt {
-                Text(LocalizedStringKey(prompt.message))
-            }
-        }
         .task {
+            guard scope == .primary else { return }
             guard !didStartAutomaticUpdateCheck else { return }
             didStartAutomaticUpdateCheck = true
             guard !LithePerformanceBaseline.isEnabled else { return }
@@ -91,22 +122,40 @@ struct RootView: View {
         }
     }
 
-    private var windowLayout: LitheWindowLayout {
-        let activeModel = projectSessions.activeModel
-        if activeModel.standaloneFileURL != nil { return .standalone }
-        return activeModel.workspaceURL == nil ? .welcome : .workspace
+    private var visibleSessions: [AppModel] {
+        projectSessions.sessions(in: scope)
     }
 
-    private var updatePromptPresented: Binding<Bool> {
+    private func isSessionActive(_ session: AppModel) -> Bool {
+        session.id == projectSessions.activeSessionID(in: scope)
+    }
+
+    private var scopedModel: AppModel? {
+        let sessions = visibleSessions
+        guard !sessions.isEmpty else { return nil }
+        return projectSessions.activeModel(in: scope)
+    }
+
+    private var windowLayout: LitheWindowLayout {
+        guard let model = scopedModel else { return .welcome }
+        if model.standaloneFileURL != nil { return .standalone }
+        return model.workspaceURL == nil ? .welcome : .workspace
+    }
+
+    private var scopedPendingProjectOpen: Binding<PendingProjectOpen?> {
         Binding(
-            get: { updateChecker.updatePrompt != nil },
-            set: { isPresented in
-                if !isPresented {
-                    updateChecker.dismissUpdatePrompt()
+            get: { projectSessions.pendingProjectOpen(in: scope) },
+            set: { newValue in
+                guard newValue == nil,
+                      let pending = projectSessions.pendingProjectOpen,
+                      projectSessions.scope(for: pending.sourceSessionID) == scope else {
+                    return
                 }
+                projectSessions.cancelPendingOpen()
             }
         )
     }
+
 }
 
 private struct ProjectSessionContent: View {
@@ -135,8 +184,9 @@ private struct ProjectSessionContent: View {
 }
 
 private struct ActiveSessionChrome: View {
+    let scope: ProjectWindowScope
+    @ObservedObject var session: AppModel
     @Environment(\.openWindow) private var openWindow
-    @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var projectSessions: ProjectSessionManager
 
     var body: some View {
@@ -146,26 +196,35 @@ private struct ActiveSessionChrome: View {
             .accessibilityHidden(true)
             .background(
                 WindowCloseGuard(
-                    projectSessions: projectSessions,
+                    windowHandler: windowHandler,
                     layout: windowLayout,
                     title: windowTitle
                 )
             )
-            .onReceive(model.workbenchFeature.$isSettingsPresented) { isPresented in
+            .onReceive(session.workbenchFeature.$isSettingsPresented) { isPresented in
                 guard isPresented else { return }
                 openWindow(id: LitheWindowID.settings)
             }
-            .sheet(isPresented: $model.isCloneRepositoryPresented) {
+            .sheet(isPresented: Binding(
+                get: { session.workbenchFeature.isCloneRepositoryPresented },
+                set: { session.workbenchFeature.isCloneRepositoryPresented = $0 }
+            )) {
                 CloneRepositoryView()
-                    .environmentObject(model)
+                    .environmentObject(session)
             }
-            .sheet(item: $model.localHistoryRequest) { request in
+            .sheet(isPresented: Binding(
+                get: { session.diagnosticsFeature.isPresented },
+                set: { session.diagnosticsFeature.isPresented = $0 }
+            )) {
+                DiagnosticsExportSheet(feature: session.diagnosticsFeature)
+            }
+            .sheet(item: scopedLocalHistoryRequest) { request in
                 LocalHistoryView(request: request)
-                    .environmentObject(model)
+                    .environmentObject(session)
             }
-            .sheet(item: $model.projectLocalHistoryRequest) { request in
+            .sheet(item: scopedProjectLocalHistoryRequest) { request in
                 ProjectLocalHistoryView(request: request)
-                    .environmentObject(model)
+                    .environmentObject(session)
             }
             .confirmationDialog(
                 "Close Running Terminal?",
@@ -173,28 +232,50 @@ private struct ActiveSessionChrome: View {
                 titleVisibility: .visible
             ) {
                 Button("Close Terminal", role: .destructive) {
-                    model.confirmTerminalClose()
+                    session.confirmTerminalClose()
                 }
                 Button("Cancel", role: .cancel) {
-                    model.cancelTerminalClose()
+                    session.cancelTerminalClose()
                 }
             } message: {
                 Text("Closing this terminal will stop its shell and any running command.")
             }
     }
 
+    private var windowHandler: any ProjectWindowSessionHandling {
+        switch scope {
+        case .primary:
+            return PrimaryProjectWindowSessions(manager: projectSessions)
+        case .dedicated(let windowID):
+            return DedicatedProjectWindowSessions(manager: projectSessions, windowID: windowID)
+        }
+    }
+
     private var windowLayout: LitheWindowLayout {
-        let activeModel = projectSessions.activeModel
-        if activeModel.standaloneFileURL != nil { return .standalone }
-        return activeModel.workspaceURL == nil ? .welcome : .workspace
+        if session.standaloneFileURL != nil { return .standalone }
+        return session.workspaceURL == nil ? .welcome : .workspace
+    }
+
+    private var scopedLocalHistoryRequest: Binding<LocalHistoryRequest?> {
+        Binding(
+            get: { session.localHistoryRequest },
+            set: { session.localHistoryRequest = $0 }
+        )
+    }
+
+    private var scopedProjectLocalHistoryRequest: Binding<ProjectLocalHistoryRequest?> {
+        Binding(
+            get: { session.projectLocalHistoryRequest },
+            set: { session.projectLocalHistoryRequest = $0 }
+        )
     }
 
     private var terminalCloseConfirmationPresented: Binding<Bool> {
         Binding(
-            get: { model.pendingTerminalCloseSessionID != nil },
+            get: { session.pendingTerminalCloseSessionID != nil },
             set: { isPresented in
                 if !isPresented {
-                    model.cancelTerminalClose()
+                    session.cancelTerminalClose()
                 }
             }
         )
@@ -202,26 +283,26 @@ private struct ActiveSessionChrome: View {
 
     private var windowTitle: String? {
         if windowLayout == .standalone {
-            return projectSessions.activeModel.standaloneFileURL?.lastPathComponent ?? "Lithe"
+            return session.standaloneFileURL?.lastPathComponent ?? "Lithe"
         }
         if windowLayout == .workspace {
-            return projectSessions.activeModel.workspaceURL?.lastPathComponent ?? "Lithe"
+            return session.workspaceURL?.lastPathComponent ?? "Lithe"
         }
         return String(
             localized: "Welcome to Lithe",
             bundle: .main,
-            locale: model.settings.language.locale
+            locale: session.settings.language.locale
         )
     }
 }
 
 private struct WindowCloseGuard: NSViewRepresentable {
-    let projectSessions: ProjectSessionManager
+    let windowHandler: any ProjectWindowSessionHandling
     let layout: LitheWindowLayout
     let title: String?
 
     func makeCoordinator() -> LitheWindowCoordinator {
-        LitheWindowCoordinator(projectSessions: projectSessions)
+        LitheWindowCoordinator(projectSessions: windowHandler)
     }
 
     func makeNSView(context: Context) -> NSView {
@@ -233,7 +314,7 @@ private struct WindowCloseGuard: NSViewRepresentable {
     }
 
     func updateNSView(_ view: NSView, context: Context) {
-        context.coordinator.projectSessions = projectSessions
+        context.coordinator.projectSessions = windowHandler
         DispatchQueue.main.async {
             context.coordinator.attach(to: view.window, layout: layout, title: title)
         }
@@ -305,20 +386,15 @@ enum LitheWindowLayout: Equatable {
 protocol ProjectWindowSessionHandling: UnsavedDocumentHandling {
     var hasActiveProject: Bool { get }
     var hasActiveStandaloneFile: Bool { get }
+    /// When true, closing the active project dismisses the window instead of
+    /// converting it into a welcome shell.
+    var shouldDismissWindowWhenClosingActiveSession: Bool { get }
+    var windowScope: ProjectWindowScope { get }
     func closeActiveProject()
     func requestCloseActiveWorkbenchItem() -> Bool
     func requestCloseActiveSession() -> Bool
     func resetForProjectWindowClose() async
-}
-
-extension ProjectSessionManager: ProjectWindowSessionHandling {
-    var hasActiveProject: Bool {
-        activeModel.workspaceURL != nil
-    }
-
-    var hasActiveStandaloneFile: Bool {
-        activeModel.standaloneFileURL != nil
-    }
+    func noteWindowBecameKey()
 }
 
 @MainActor
@@ -326,6 +402,7 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
     private enum NativeWindowCloseIntent {
         case commandW
         case projectCleanupCompleted
+        case dismissActiveSession
     }
 
     var projectSessions: any ProjectWindowSessionHandling
@@ -361,7 +438,13 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
             restoredWorkspaceFrame = nil
             startMonitoringCloseCommand()
         }
+        if case .dedicated(let windowID) = projectSessions.windowScope {
+            window.identifier = NSUserInterfaceItemIdentifier(windowID.uuidString)
+        }
         apply(layout, title: title, to: window)
+        if window.isKeyWindow {
+            projectSessions.noteWindowBecameKey()
+        }
     }
 
     func toggleWorkspaceZoom() {
@@ -385,6 +468,11 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
         window.setFrame(targetFrame, display: true, animate: window.isVisible)
     }
 
+    func windowDidBecomeKey(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
+        projectSessions.noteWindowBecameKey()
+    }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if case .projectCleanupCompleted? = pendingNativeWindowCloseIntent {
             pendingNativeWindowCloseIntent = nil
@@ -394,10 +482,19 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
         if case .commandW? = pendingNativeWindowCloseIntent {
             pendingNativeWindowCloseIntent = nil
             guard confirmUnsavedDocuments(projectSessions) else { return false }
+            // Cmd+W closes this window's sessions only. Dedicated windows always
+            // dismiss; primary windows either dismiss or tear down primary scope
+            // without touching other project windows.
             closeWindowAfterProjectCleanup(sender)
             return false
         }
         if projectSessions.hasActiveProject || projectSessions.hasActiveStandaloneFile {
+            if projectSessions.shouldDismissWindowWhenClosingActiveSession {
+                guard confirmUnsavedDocuments(projectSessions) else { return false }
+                pendingNativeWindowCloseIntent = .dismissActiveSession
+                closeWindowAfterProjectCleanup(sender)
+                return false
+            }
             return projectSessions.requestCloseActiveSession()
         }
         return true

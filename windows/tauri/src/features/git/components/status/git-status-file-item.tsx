@@ -8,6 +8,10 @@ import { FILE_TREE_BASE_INDENT } from "@/features/file-explorer/lib/file-tree-ro
 import { cn } from "@/utils/cn";
 import type { GitFile } from "../../types/git.types";
 import { getWorkingTreeStatusColorClassName } from "../../utils/git-file-status-visuals";
+import {
+  getGitFileRepositoryPath,
+  getGitFileRepositoryRelativePath,
+} from "../../utils/git-status-selection";
 
 interface GitFileItemProps {
   file: GitFile;
@@ -50,6 +54,8 @@ export const GitFileItem = ({
   const pathParts = file.path.split("/");
   const fileName = pathParts.pop() || file.path;
   const directory = pathParts.join("/");
+  const dragRepoPath = getGitFileRepositoryPath(file, repoPath);
+  const dragFilePath = getGitFileRepositoryRelativePath(file);
 
   return (
     <SidebarTreeRow
@@ -86,13 +92,13 @@ export const GitFileItem = ({
           }
         />
       }
-      draggable={!!repoPath}
+      draggable={!!dragRepoPath}
       onDragStart={(event) => {
-        if (!repoPath) return;
+        if (!dragRepoPath) return;
         writeSidebarResourceDragData(event.dataTransfer, {
           type: "git-file-diff",
-          repoPath,
-          filePath: file.path,
+          repoPath: dragRepoPath,
+          filePath: dragFilePath,
           staged: file.staged,
           status: file.status,
           name: fileName,

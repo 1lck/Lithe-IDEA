@@ -84,6 +84,10 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
         lspStopServer(sessionID: sessionID)
     }
 
+    func retryMavenProfiles(sessionID: String) -> Result<Void, LanguageServerRuntimeFailure> {
+        lspRetryMavenProfiles(sessionID: sessionID).map { _ in () }.mapError(Self.runtimeFailure)
+    }
+
     func syncLanguageServerDocument(
         sessionID: String,
         fileURL: URL,
@@ -200,7 +204,11 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
                 },
                 level: event.level,
                 message: event.message,
-                detail: event.detail
+                detail: event.detail,
+                mavenProfileTask: event.mavenProfileTask,
+                mavenProfileProject: event.mavenProfileProject.map {
+                    MavenProfileProjectResult(projectURI: $0.projectUri, status: $0.status, errorDetails: $0.errorDetails)
+                }
             )
         }
     }

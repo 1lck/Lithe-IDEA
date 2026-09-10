@@ -7,6 +7,8 @@ public final class TerminalFeatureModel: ObservableObject {
     @Published public private(set) var terminalSessions: [TerminalSession] = []
     @Published public private(set) var activeTerminalSessionID: UUID?
 
+    @Published public private(set) var availableShells: [String] = []
+
     private let terminalFactory: () -> any TerminalTransport
     private let shellDiscovery: () -> [String]
 
@@ -16,9 +18,12 @@ public final class TerminalFeatureModel: ObservableObject {
     ) {
         self.terminalFactory = terminalFactory
         self.shellDiscovery = shellDiscovery
+        refreshAvailableShells()
     }
 
-    public var availableShells: [String] { shellDiscovery() }
+    public func refreshAvailableShells() {
+        availableShells = shellDiscovery()
+    }
 
     public var activeTerminalSession: TerminalSession? {
         guard let activeTerminalSessionID else { return terminalSessions.first }
@@ -28,7 +33,7 @@ public final class TerminalFeatureModel: ObservableObject {
     public func terminalTitle(for session: TerminalSession) -> String {
         if let processTitle = session.processTitle, !processTitle.isEmpty { return processTitle }
         guard let index = terminalSessions.firstIndex(where: { $0.id == session.id }) else { return "Local" }
-        return index == 0 ? "Local" : "Local (\(index + 1))"
+        return index == 0 ? session.shellName : "\(session.shellName) (\(index + 1))"
     }
 
     @discardableResult

@@ -25,17 +25,18 @@ verification scripts are the executable source of boundary checks.
 | Workspace | visible snapshot, relative paths, file metadata, deterministic ordering | workspace root selection, native dialogs, and watchers |
 | Documents | relative-path validation, UTF-8 read/write results, dirty/save state | native file integration and external-change notifications |
 | Search | query matching, deterministic result ordering, symbols, and replacement preview | workspace lifecycle and optional index persistence |
-| Git | changes, commits, branches, diffs, history, worktree listing and safe management, worktree-aware PR publication context, validation, and mutation results | Git executable discovery, credentials, process environment, opening checkout paths |
+| Git | changes, commits, branches, diffs, reviewed history actions and recovery, worktree listing and safe management, worktree-aware PR publication context, validation, and mutation results | Git executable discovery, credentials, process environment, opening checkout paths |
 | GitHub | remote parsing, trusted request plans, normalized branch comparisons and pull requests/reviews/comments, deterministic ordering, and stable errors | OAuth configuration, HTTPS, browser opening, and operating-system credential storage |
 | Runtime | Java/Maven requirements, normalized candidates, and effective toolchain references | JDK/Maven probing and executable paths |
 | Language tooling | provider catalog, local fallback results, complete LSP process/session runtime, capabilities, diagnostics, UTF-16 edits, and normalized feature results | executable/environment discovery and UI provider routing |
 | Java/Maven/Spring | deterministic Maven-root selection, project structure, modules and profiles, bounded dependency-tree normalization; compiler diagnostic parsing; Java source structure, symbols, code vision, run-configuration detection, Spring configuration/bean/endpoint indexing, and JDTLS/Java Debug adapter policy | JDK/Maven discovery, local dependency-repository selection, Java/Maven child processes, and sockets |
 | Run/Debug | versioned configuration documents, three-layer resolution, diagnostics, platform-neutral launch plans, DAP framing/state, reverse terminal requests, breakpoint relocation, stepping filters, threads, stacks, variables, and events | project and preference persistence, native edit reporting, adapter discovery, PTY/ConPTY debuggee launch, child processes, sockets, native termination, and UI |
-| Terminal | input bytes, output bytes, lifecycle | PTY/ConPTY, shell and environment |
+| Terminal | input bytes, output bytes, lifecycle; [shell selection semantics](terminal-profiles.md) | PTY/ConPTY, shell discovery, native profile preferences, and environment |
 | Workbench background | versioned source (`none`, bundled slot `01`–`10`, or `custom`) and opacity | UI, image rendering, bundled-resource packaging, local-image access permission and persistence |
 | Local History | revision metadata, text content, restore result | persistence location and file operations |
 | Modules | stable IDs, manifests, enabled state, lifecycle snapshots, dependencies, capabilities, and contributions | native factories, processes, timers, PTY/ConPTY, watchers, connections, and UI rendering |
 | Community integrations | Discourse authorization sessions, RSA-OAEP callback verification, user API protocol models, and normalized community data | opening the system browser, receiving URL callbacks, and credential-vault persistence |
+| Updates | normalized release metadata, state names, preference semantics, and stable error codes | update feeds, package verification, download, installation, restart, and native UI |
 
 ## Module Lifecycle Contract
 
@@ -338,9 +339,11 @@ The Java language-server startup consumes that same context. Core exposes the
 selected `settings.xml` to JDT LS as
 `java.configuration.maven.userSettings`, then applies the sorted Profile set
 to the reactor and every recursively declared Maven module after JDT LS
-reports `ServiceReady`. The Java session remains `initializing` until those
-project updates all succeed; a rejected or timed-out update fails the session
-instead of silently retaining the previous Maven model.
+reports `ServiceReady`. The Java session reaches `ready` at that verified
+signal; Profile updates then run as a bounded background task with at most
+eight in-flight projects. Each project reports its own result, and a rejected
+or timed-out update preserves the usable Java session while exposing a partial
+failure that the host can retry.
 
 Maven-backed Run and Debug launch planning consumes the current project Maven
 context. A Run Configuration's explicit Profiles and toolchain paths take
@@ -349,6 +352,17 @@ precedence, including `skipTests: false`. Unset values inherit the project
 settings. The shared Core applies the final Maven argument order for all three
 entry points. Tool-window, Run, and Debug module launches add `-am` so reactor
 dependencies are built before the selected module.
+
+Java test actions use the same Maven process lifecycle for a complete JUnit 4
+or JUnit 5 test class and for an individual method. The selector is validated
+before launch and is passed through `maven.launchPlan`; no platform assembles a
+shell command. Surefire/Failsafe text is normalized through `maven.testResults`
+into passed, failed, skipped, and total counts plus ordered failure details.
+When a stack frame resolves inside the workspace, the failure links to its
+one-based source line. The active test operation owns cancellation and stop;
+late output or parsed results cannot replace a newer run. The last valid class
+or method selection remains available for an explicit rerun, while cancellation
+clears only the active result.
 
 ## SVG document preview
 

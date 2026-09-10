@@ -2,6 +2,7 @@ import SwiftUI
 import LitheGitModule
 
 struct GitWorktreesView: View {
+    @Environment(\.locale) private var locale
     private enum WorktreeSection: String, CaseIterable, Identifiable {
         case overview = "Overview"
         case changes = "Changes"
@@ -158,7 +159,7 @@ struct GitWorktreesView: View {
             await feature.refreshWorktrees()
             selectAvailableWorktree()
         }
-        .task(id: selectedWorktree?.id) {
+        .task(id: selectedWorktree.map { WorktreeSelectionInspectionIdentity(id: $0.id, head: $0.head) }) {
             guard let worktree = selectedWorktree, !worktree.isPrunable else { return }
             await feature.inspectWorktree(worktree)
         }
@@ -250,16 +251,10 @@ struct GitWorktreesView: View {
                     repositoryRoot: repositoryRoot,
                     references: feature.gitReferences,
                     currentReference: feature.gitReferences.first(where: \.isCurrent),
+                    worktrees: feature.gitWorktrees,
                     actions: actions
-                ) { name, reference, revision, destination in
-                    Task {
-                        await feature.createWorktree(
-                            named: name,
-                            from: reference,
-                            revision: revision,
-                            at: destination
-                        )
-                    }
+                ) { request in
+                    await feature.createWorktree(request)
                 }
             }
         }
@@ -304,12 +299,12 @@ struct GitWorktreesView: View {
                 switch confirmation {
                 case .removal(let worktree, force: true):
                     Text(String(
-                        format: String(localized: "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept."),
+                        format: gitLocalizedFormat("This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept.", locale: locale),
                         worktree.displayName
                     ))
                 case .removal(let worktree, force: false):
                     Text(String(
-                        format: String(localized: "Remove '%@' and its checkout directory? The branch is kept. If Git refuses because files have changed, review the force-removal warning."),
+                        format: gitLocalizedFormat("Remove '%@' and its checkout directory? The branch is kept. If Git refuses because files have changed, review the force-removal warning.", locale: locale),
                         worktree.displayName
                     ))
                 case .prune:
@@ -363,7 +358,7 @@ struct GitWorktreesView: View {
             HStack {
                 Text("Worktrees")
                     .font(Visual.section)
-                Text(String(format: String(localized: "%lld worktrees"), filteredWorktrees.count))
+                Text(String(format: gitLocalizedFormat("%lld worktrees", locale: locale), filteredWorktrees.count))
                     .font(Visual.metadata)
                     .foregroundStyle(LitheTheme.secondaryText)
                 Spacer()
@@ -393,9 +388,13 @@ struct GitWorktreesView: View {
                 GitWorktreeListScrollView(
                     items: projectedWorktrees,
                     selectedWorktreeID: selectedWorktreeID,
+                    isPerformingWorktreeOperation: feature.isPerformingWorktreeOperation,
                     onSelect: { worktreeID in
                         selectedWorktreeID = worktreeID
                         activeSection = .overview
+                    },
+                    onContextMenuAction: { action, item in
+                        handleWorktreeContextMenuAction(action, for: item.worktree)
                     }
                 )
             }
@@ -432,7 +431,7 @@ struct GitWorktreesView: View {
     private func detailHeader(_ worktree: GitWorktree) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 10) {
-                Text(worktree.isPrimary ? String(localized: "Main Worktree") : worktree.displayName)
+                Text(worktree.isPrimary ? gitLocalizedFormat("Main Worktree", locale: locale) : worktree.displayName)
                     .font(Visual.title)
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
@@ -450,8 +449,8 @@ struct GitWorktreesView: View {
                 Text("·")
                     .foregroundStyle(LitheTheme.tertiaryText)
                 Text(String(
-                    format: String(localized: "Branch: %@"),
-                    worktree.branchName ?? String(localized: "Detached HEAD")
+                    format: gitLocalizedFormat("Branch: %@", locale: locale),
+                    worktree.branchName ?? gitLocalizedFormat("Detached HEAD", locale: locale)
                 ))
                     .font(Visual.metadata)
                     .foregroundStyle(LitheTheme.secondaryText)
@@ -577,10 +576,15 @@ struct GitWorktreesView: View {
     private func actionCard(_ worktree: GitWorktree) -> some View {
         worktreeCard(title: "Actions") {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
-                worktreeAction("Open in Lithe", icon: "macwindow") {
-                    actions.openProject(worktree.url)
+                worktreeAction("Open in Current Window", icon: "macwindow") {
+                    (actions.openProjectInCurrentWindow ?? actions.openProject)(worktree.url)
                 }
                 .disabled(worktree.isPrunable)
+                .help(pathActionHelp(for: worktree))
+                worktreeAction("Open in New Window", icon: "macwindow.on.rectangle") {
+                    actions.openProjectInNewWindow?(worktree.url)
+                }
+                .disabled(worktree.isPrunable || actions.openProjectInNewWindow == nil)
                 .help(pathActionHelp(for: worktree))
                 worktreeAction("Show in Finder", icon: "folder") {
                     actions.reveal(worktree.url)
@@ -813,7 +817,7 @@ struct GitWorktreesView: View {
                 .foregroundStyle(LitheTheme.warning)
             VStack(alignment: .leading, spacing: 2) {
                 Text(String(
-                    format: String(localized: "%lld worktree records need attention"),
+                    format: gitLocalizedFormat("%lld worktree records need attention", locale: locale),
                     feature.gitWorktrees.filter(\.isPrunable).count
                 ))
                     .font(Visual.bodyMedium)
@@ -992,10 +996,10 @@ struct GitWorktreesView: View {
         } else if worktree.isCurrent {
             count = feature.gitChanges.count
         } else {
-            return "Loading…"
+            return gitLocalizedFormat("Loading…", locale: locale)
         }
-        if count == 0 { return String(localized: "No changes") }
-        return String(format: String(localized: "%lld changed files"), count)
+        if count == 0 { return gitLocalizedFormat("No changes", locale: locale) }
+        return String(format: gitLocalizedFormat("%lld changed files", locale: locale), count)
     }
 
     private func matchingInspection(for worktree: GitWorktree) -> GitWorktreeInspection? {
@@ -1032,24 +1036,24 @@ struct GitWorktreesView: View {
     }
 
     private func removalHelp(for worktree: GitWorktree) -> String {
-        if worktree.isPrimary { return String(localized: "The primary worktree cannot be removed.") }
-        if worktree.isCurrent { return String(localized: "The current worktree cannot be removed here.") }
-        if worktree.isLocked { return String(localized: "Unlock the worktree before removing it.") }
-        if worktree.isPrunable { return String(localized: "Prune the stale record instead.") }
+        if worktree.isPrimary { return gitLocalizedFormat("The primary worktree cannot be removed.", locale: locale) }
+        if worktree.isCurrent { return gitLocalizedFormat("The current worktree cannot be removed here.", locale: locale) }
+        if worktree.isLocked { return gitLocalizedFormat("Unlock the worktree before removing it.", locale: locale) }
+        if worktree.isPrunable { return gitLocalizedFormat("Prune the stale record instead.", locale: locale) }
         return ""
     }
 
     private func lockHelp(for worktree: GitWorktree) -> String {
-        if worktree.isPrimary { return String(localized: "The primary worktree cannot be locked.") }
-        if worktree.isPrunable { return String(localized: "Repair or prune the missing checkout before changing its lock.") }
+        if worktree.isPrimary { return gitLocalizedFormat("The primary worktree cannot be locked.", locale: locale) }
+        if worktree.isPrunable { return gitLocalizedFormat("Repair or prune the missing checkout before changing its lock.", locale: locale) }
         return ""
     }
 
     private func toggleLock(for worktree: GitWorktree) {
         if worktree.isPrimary {
-            worktreeActionNotice = WorktreeActionNotice(message: String(localized: "The primary worktree cannot be locked."))
+            worktreeActionNotice = WorktreeActionNotice(message: gitLocalizedFormat("The primary worktree cannot be locked.", locale: locale))
         } else if worktree.isPrunable {
-            worktreeActionNotice = WorktreeActionNotice(message: String(localized: "Repair or prune the missing checkout before changing its lock."))
+            worktreeActionNotice = WorktreeActionNotice(message: gitLocalizedFormat("Repair or prune the missing checkout before changing its lock.", locale: locale))
         } else {
             Task { await feature.setWorktreeLocked(worktree, locked: !worktree.isLocked) }
         }
@@ -1064,21 +1068,43 @@ struct GitWorktreesView: View {
         }
     }
 
+    private func handleWorktreeContextMenuAction(
+        _ action: GitWorktreeListAction,
+        for worktree: GitWorktree
+    ) {
+        switch action {
+        case .open:
+            (actions.openProjectInCurrentWindow ?? actions.openProject)(worktree.url)
+        case .openInNewWindow:
+            actions.openProjectInNewWindow?(worktree.url)
+        case .reveal:
+            actions.reveal(worktree.url)
+        case .copyPath:
+            actions.copyPath(worktree.url)
+        case .toggleLock:
+            toggleLock(for: worktree)
+        case .remove:
+            requestRemoval(for: worktree)
+        case .prune:
+            worktreeConfirmation = .prune
+        }
+    }
+
     private var worktreeConfirmationTitle: String {
         switch worktreeConfirmation {
         case .removal(_, force: true):
-            String(localized: "Force remove worktree?")
+            gitLocalizedFormat("Force remove worktree?", locale: locale)
         case .removal(_, force: false):
-            String(localized: "Remove worktree?")
+            gitLocalizedFormat("Remove worktree?", locale: locale)
         case .prune:
-            String(localized: "Prune stale worktree records?")
+            gitLocalizedFormat("Prune stale worktree records?", locale: locale)
         case nil:
-            String(localized: "Worktree action")
+            gitLocalizedFormat("Worktree action", locale: locale)
         }
     }
 
     private func pathActionHelp(for worktree: GitWorktree) -> String {
-        worktree.isPrunable ? String(localized: "The checkout path does not exist") : ""
+        worktree.isPrunable ? gitLocalizedFormat("The checkout path does not exist", locale: locale) : ""
     }
 
     private func changeColor(_ change: GitChange) -> Color {
@@ -1142,6 +1168,11 @@ private struct WorktreeListProjectionIdentity: Hashable {
     let query: String
 }
 
+private struct WorktreeSelectionInspectionIdentity: Hashable {
+    let id: String
+    let head: String
+}
+
 private struct WorktreeHistoryProjectionIdentity: Hashable {
     let worktreeID: String?
     let inspectionVersion: Int
@@ -1151,160 +1182,4 @@ private struct WorktreeHistoryProjectionIdentity: Hashable {
 private struct WorktreeChangesProjectionIdentity: Hashable {
     let worktreeID: String?
     let inspectionVersion: Int
-}
-
-private struct GitWorktreeCreateView: View {
-    @Environment(\.dismiss) private var dismiss
-    let repositoryRoot: URL
-    let references: [GitReference]
-    let currentReference: GitReference?
-    let actions: GitWorktreeActions
-    let onSubmit: (String, GitReference, String?, URL) -> Void
-
-    @State private var branchName = ""
-    @State private var selectedReferenceID = ""
-    @State private var destinationPath = ""
-    @State private var destinationWasEdited = false
-    @State private var revision = ""
-    @State private var useAIWorktreeDirectory = false
-    @FocusState private var branchFieldFocused: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("New Worktree")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(LitheTheme.primaryText)
-                Text("Create an independent checkout and a new branch from the selected reference.")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(LitheTheme.secondaryText)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Start from")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                Picker("Start from", selection: $selectedReferenceID) {
-                    ForEach(references) { reference in
-                        Text(reference.shortName).tag(reference.id)
-                    }
-                }
-                .labelsHidden()
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("New branch")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                TextField("feature/my-task", text: $branchName)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($branchFieldFocused)
-                    .onChange(of: branchName) { _ in updateSuggestedDestination() }
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Checkout path")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                HStack(spacing: 8) {
-                    TextField("Worktree destination", text: destinationBinding)
-                        .textFieldStyle(.roundedBorder)
-                    Button("Choose Parent…") {
-                        guard let parent = actions.chooseParentDirectory() else { return }
-                        destinationWasEdited = true
-                        destinationPath = parent.appendingPathComponent(suggestedDirectoryName).path
-                    }
-                    .lithePointer()
-                }
-                Toggle("Use AI worktree directory (/private/tmp)", isOn: $useAIWorktreeDirectory)
-                    .toggleStyle(.checkbox)
-                    .onChange(of: useAIWorktreeDirectory) { _ in
-                        destinationWasEdited = false
-                        updateSuggestedDestination(force: true)
-                    }
-                Text("Recommended: keep worktrees in a persistent folder next to the repository. You can choose /private/tmp manually for disposable checkouts.")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(LitheTheme.tertiaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Starting commit (optional)")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                TextField("Use the selected branch tip", text: $revision)
-                    .textFieldStyle(.roundedBorder)
-                Text("Enter a commit hash to create the new branch from that exact point.")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(LitheTheme.tertiaryText)
-            }
-
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                    .lithePointer()
-                Button("Create") {
-                    guard let selectedReference else { return }
-                    onSubmit(trimmedBranchName, selectedReference, revision.isEmpty ? nil : revision, URL(fileURLWithPath: destinationPath))
-                    dismiss()
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(LitheTheme.accent)
-                .keyboardShortcut(.defaultAction)
-                .lithePointer()
-                .disabled(trimmedBranchName.isEmpty || destinationPath.isEmpty || selectedReference == nil)
-            }
-        }
-        .padding(20)
-        .frame(width: 520)
-        .background(LitheTheme.raised)
-        .onAppear {
-            selectedReferenceID = currentReference?.id ?? references.first?.id ?? ""
-            updateSuggestedDestination(force: true)
-            branchFieldFocused = true
-        }
-    }
-
-    private var selectedReference: GitReference? {
-        references.first(where: { $0.id == selectedReferenceID })
-    }
-
-    private var destinationBinding: Binding<String> {
-        Binding(
-            get: { destinationPath },
-            set: {
-                destinationPath = $0
-                destinationWasEdited = true
-            }
-        )
-    }
-
-    private var trimmedBranchName: String {
-        branchName.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var suggestedDirectoryName: String {
-        let leaf = trimmedBranchName
-            .split(separator: "/")
-            .last
-            .map(String.init) ?? "worktree"
-        let safeLeaf = leaf.map { character in
-            character.isLetter || character.isNumber || character == "-" || character == "_"
-                ? character
-                : "-"
-        }
-        return "\(repositoryRoot.lastPathComponent)-\(String(safeLeaf))"
-    }
-
-    private func updateSuggestedDestination(force: Bool = false) {
-        guard force || !destinationWasEdited else { return }
-        let parent = useAIWorktreeDirectory
-            ? URL(fileURLWithPath: "/private/tmp", isDirectory: true)
-            : repositoryRoot.deletingLastPathComponent()
-        destinationPath = parent
-            .appendingPathComponent(suggestedDirectoryName)
-            .path
-        destinationWasEdited = false
-    }
 }

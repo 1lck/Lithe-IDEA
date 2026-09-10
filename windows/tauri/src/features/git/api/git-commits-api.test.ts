@@ -19,10 +19,7 @@ mock.module("@/platform/tauri-core", () => ({ invoke }));
 const {
   cherryPickCommit,
   commitSelectedChanges,
-  deleteCommit,
-  editCommitMessage,
   resetToCommit,
-  squashCommits,
 } = await import("./git-commits-api");
 
 beforeEach(() => {
@@ -33,30 +30,13 @@ beforeEach(() => {
 });
 
 describe("Git commit history mutations", () => {
-  test("sends typed edit, delete, squash, reset, and cherry-pick requests", async () => {
-    await editCommitMessage("C:/repo", "a1", "edited");
-    await deleteCommit("C:/repo", "b2");
-    await squashCommits("C:/repo", ["c3", "b2"], "squashed");
+  test("sends typed reset, cherry-pick, and selected commit requests", async () => {
     await resetToCommit("C:/repo", "a1", "mixed");
     await cherryPickCommit("C:/repo", "d4");
     await commitSelectedChanges("C:/repo", "selected", ["new.txt", "changed.txt"]);
 
     const writes = invoke.mock.calls.filter(([command]) => command === "git.write");
     expect(writes).toEqual([
-      [
-        "git.write",
-        { repoPath: "C:/repo", operation: "editCommitMessage", revision: "a1", message: "edited" },
-      ],
-      ["git.write", { repoPath: "C:/repo", operation: "deleteCommit", revision: "b2" }],
-      [
-        "git.write",
-        {
-          repoPath: "C:/repo",
-          operation: "squashCommits",
-          revisions: ["c3", "b2"],
-          message: "squashed",
-        },
-      ],
       ["git.write", { repoPath: "C:/repo", operation: "reset", revision: "a1", mode: "--mixed" }],
       ["git.write", { repoPath: "C:/repo", operation: "cherryPick", revision: "d4" }],
       [

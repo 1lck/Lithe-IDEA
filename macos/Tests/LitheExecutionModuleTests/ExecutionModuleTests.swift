@@ -391,6 +391,180 @@ struct ExecutionModuleTests {
     }
 
     @Test
+    func mavenTestsParseResultsAndRerunTheLastSelection() async throws {
+        let root = URL(fileURLWithPath: "/workspace/maven-tests", isDirectory: true)
+        let source = root.appendingPathComponent(
+            "src/test/java/com/example/CalculatorTest.java"
+        )
+        let pom = root.appendingPathComponent("pom.xml")
+        let firstProcess = TestStreamingProcess()
+        let secondProcess = TestStreamingProcess()
+        var factoryCall = 0
+        let parsedResults = MavenTestResults(
+            testsRun: 3,
+            failures: 1,
+            errors: 0,
+            skipped: 1,
+            passed: 1,
+            success: false,
+            failureDetails: []
+        )
+        let parser = TestResultParserRecorder(result: parsedResults)
+        let service = LanguageTestService(
+            executableResolver: TestExecutableResolver(),
+            processFactory: {
+                factoryCall += 1
+                return factoryCall == 1 ? firstProcess : secondProcess
+            },
+            resultParser: parser.parse
+        )
+
+        #expect(service.run(
+            providerID: "java",
+            scope: .file(source),
+            workspaceURL: root,
+            projectFiles: [pom, source]
+        ))
+        #expect(firstProcess.startRequests.first?.arguments == ["-Dtest=CalculatorTest", "test"])
+        #expect(firstProcess.startRequests.first?.timeoutMilliseconds == 120_000)
+        defer { service.reset() }
+
+        firstProcess.onOutput?("Tests run: 3, Failures: 1, Errors: 0, Skipped: 1\n")
+        firstProcess.onTermination?(1)
+        try await awaitTestValue(service.$state, matching: { $0 == .failed(exitCode: 1) })
+
+        #expect(service.state == .failed(exitCode: 1))
+        #expect(service.results == parsedResults)
+        #expect(parser.calls == 1)
+        #expect(parser.output.contains("Tests run: 3"))
+        #expect(!parser.ranOnMainThread)
+        #expect(service.canRerun)
+
+        #expect(service.rerun())
+        #expect(secondProcess.startRequests.first?.arguments == ["-Dtest=CalculatorTest", "test"])
+    }
+
+    @Test
+    func mavenTestTimeoutIsPreservedWhenTerminationArrivesLate() async throws {
+        let root = URL(fileURLWithPath: "/workspace/maven-timeout", isDirectory: true)
+        let source = root.appendingPathComponent(
+            "src/test/java/com/example/CalculatorTest.java"
+        )
+        let process = TestStreamingProcess()
+        let service = LanguageTestService(
+            executableResolver: TestExecutableResolver(),
+            processFactory: { process },
+            resultParser: { _, _ in nil }
+        )
+
+        #expect(service.run(
+            providerID: "java",
+            scope: .file(source),
+            workspaceURL: root,
+            projectFiles: [root.appendingPathComponent("pom.xml"), source]
+        ))
+        let request = try #require(process.startRequests.first)
+        #expect(request.timeoutMilliseconds == 120_000)
+        defer { service.reset() }
+
+        process.onStateChange?(ProcessLifecycleEvent(
+            operationID: request.operationID,
+            state: .stopping,
+            exitCode: nil,
+            message: "Process timed out"
+        ))
+        try await awaitTestValue(service.$errorMessage, matching: { $0 != nil })
+        #expect(service.state == .running)
+        #expect(service.errorMessage == "Maven test run timed out after 120 seconds.")
+
+        process.onTermination?(0)
+        try await awaitTestValue(service.$state, matching: { $0 == .timedOut })
+        #expect(service.state == .timedOut)
+        #expect(!service.isRunning)
+    }
+
+    @Test
+    func nonMavenLanguageTestsDoNotParseMavenResults() async throws {
+        let root = URL(fileURLWithPath: "/workspace/gradle-tests", isDirectory: true)
+        let source = root.appendingPathComponent(
+            "src/test/java/com/example/CalculatorTest.java"
+        )
+        let buildFile = root.appendingPathComponent("build.gradle")
+        let process = TestStreamingProcess()
+        let parser = TestResultParserRecorder(result: MavenTestResults(
+            testsRun: 1,
+            failures: 0,
+            errors: 0,
+            skipped: 0,
+            passed: 1,
+            success: true,
+            failureDetails: []
+        ))
+        let service = LanguageTestService(
+            executableResolver: TestExecutableResolver(),
+            processFactory: { process },
+            resultParser: parser.parse
+        )
+
+        #expect(service.run(
+            providerID: "java",
+            scope: .file(source),
+            workspaceURL: root,
+            projectFiles: [buildFile, source]
+        ))
+        #expect(service.activePlan?.frameworkID == "gradle")
+        defer { service.reset() }
+
+        process.onTermination?(0)
+        try await awaitTestValue(service.$state, matching: { $0 == .passed })
+
+        #expect(service.state == .passed)
+        #expect(service.results == nil)
+        #expect(parser.calls == 0)
+    }
+
+    @Test
+    func stoppingMavenTestsIgnoresLateTerminationEvents() async throws {
+        let root = URL(fileURLWithPath: "/workspace/maven-cancel", isDirectory: true)
+        let source = root.appendingPathComponent(
+            "src/test/java/com/example/CalculatorTest.java"
+        )
+        let process = TestStreamingProcess()
+        let service = LanguageTestService(
+            executableResolver: TestExecutableResolver(),
+            processFactory: { process },
+            resultParser: { _, _ in
+                MavenTestResults(
+                    testsRun: 1,
+                    failures: 0,
+                    errors: 0,
+                    skipped: 0,
+                    passed: 1,
+                    success: true,
+                    failureDetails: []
+                )
+            }
+        )
+
+        #expect(service.run(
+            providerID: "java",
+            scope: .file(source),
+            workspaceURL: root,
+            projectFiles: [root.appendingPathComponent("pom.xml"), source]
+        ))
+        service.stop()
+        #expect(service.state == .cancelled)
+        #expect(!process.isRunning)
+
+        process.onTermination?(0)
+        await Task.yield()
+        await Task.yield()
+
+        #expect(service.state == .cancelled)
+        #expect(service.results == nil)
+    }
+
+    @Test
     func mavenServiceExecutesTheSharedLaunchPlanWithLocalRuntimeOverrides() async throws {
         let workspace = URL(fileURLWithPath: "/workspace", isDirectory: true)
         let reactor = workspace.appendingPathComponent("projects/demo", isDirectory: true)
@@ -827,6 +1001,74 @@ private func dependencyState(
         group.cancelAll()
         stateTask.cancel()
         return result
+    }
+}
+
+/// Subscribe synchronously so an event between setup and suspension is buffered.
+/// The watchdog fails a missing event; elapsed time never advances the happy path.
+@MainActor
+private func awaitTestValue<Value: Sendable>(
+    _ publisher: Published<Value>.Publisher,
+    matching: @escaping @Sendable (Value) -> Bool
+) async throws {
+    let events = AsyncStream<Value>.makeStream(bufferingPolicy: .unbounded)
+    let subscription = publisher.sink { events.continuation.yield($0) }
+    let watchdog = Task {
+        // test-stability: allow(swift-real-sleep) reason: deadline ends a missing publisher event, never synchronizes successful test completion.
+        do { try await Task.sleep(for: .seconds(2)) } catch { return }
+        events.continuation.finish()
+    }
+    defer {
+        subscription.cancel()
+        watchdog.cancel()
+        events.continuation.finish()
+    }
+    for await value in events.stream {
+        if matching(value) { return }
+    }
+    throw TestObservationError.deadlineExceeded
+}
+
+private enum TestObservationError: Error {
+    case deadlineExceeded
+}
+
+private final class TestResultParserRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private let result: MavenTestResults?
+    private var recordedCalls = 0
+    private var recordedOutput = ""
+    private var recordedMainThread = false
+
+    init(result: MavenTestResults?) {
+        self.result = result
+    }
+
+    func parse(output: String, rootURL: URL) -> MavenTestResults? {
+        lock.lock()
+        recordedCalls += 1
+        recordedOutput = output
+        recordedMainThread = Thread.isMainThread
+        lock.unlock()
+        return result
+    }
+
+    var calls: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedCalls
+    }
+
+    var output: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedOutput
+    }
+
+    var ranOnMainThread: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedMainThread
     }
 }
 

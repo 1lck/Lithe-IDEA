@@ -41,6 +41,60 @@ fn git_status_returns_contract_shape() {
 }
 
 #[test]
+fn workspace_repositories_discovers_multiple_child_repositories() {
+    let root = temporary_root("workspace-repositories");
+    let first = root.join("service-a");
+    let second = root.join("service-b");
+    // Nested worktree markers must remain discoverable below dependency folders
+    // and beyond the former depth limit, even below an existing repository.
+    let nested = (0..40).fold(first.join("vendor"), |path, _| path.join("d"));
+    fs::create_dir_all(&nested).expect("nested worktree directory should be creatable");
+    fs::write(
+        nested.join(".git"),
+        "gitdir: /fixture/git/worktrees/nested\n",
+    )
+    .expect("worktree marker should be writable");
+    fs::create_dir_all(&first).expect("first repository directory should be creatable");
+    fs::create_dir_all(&second).expect("second repository directory should be creatable");
+    assert!(Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&first)
+        .output()
+        .expect("git should be available")
+        .status
+        .success());
+    assert!(Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&second)
+        .output()
+        .expect("git should be available")
+        .status
+        .success());
+
+    let request = serde_json::json!({
+        "id": "workspace-repositories",
+        "command": "workspace.repositories",
+        "payload": {"root": root}
+    });
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&request).expect("workspace repositories request should encode"),
+    ))
+    .expect("workspace repositories response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(
+        response["data"]["repositories"],
+        serde_json::json!([
+            { "path": first.canonicalize().expect("first repository should exist").to_string_lossy().replace('\\', "/") },
+            { "path": second.canonicalize().expect("second repository should exist").to_string_lossy().replace('\\', "/") },
+            { "path": nested.canonicalize().expect("nested worktree should exist").to_string_lossy().replace('\\', "/") }
+        ])
+    );
+
+    fs::remove_dir_all(root).expect("temporary workspace should be removable");
+}
+
+#[test]
 fn git_status_preserves_both_paths_of_a_staged_rename() {
     let root = temporary_root("git-status-rename");
     fs::create_dir_all(&root).expect("temporary repository should be creatable");
@@ -4282,9 +4336,28 @@ fn history_write(root: &Path, overrides: Value) -> Value {
             payload[key.as_str()] = value;
         }
     }
+    // Existing rewrite regressions now exercise the reviewed contract rather
+    // than bypassing the same eligibility snapshot required by product clients.
+    let revisions = payload
+        .get("revisions")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!([payload["revision"].clone()]));
+    let preview: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "history-write-preview",
+            "timeoutMilliseconds": 5_000,
+            "command": "git.historyRewritePreview",
+            "payload": {"root": root, "operation": payload["operation"], "revisions": revisions}
+        })
+        .to_string(),
+    ))
+    .expect("history preview should be JSON");
+    assert_eq!(preview["ok"], true, "{preview:?}");
+    payload["expectedState"] = preview["data"]["expectedState"].clone();
     serde_json::from_str(&execute_json(
         &serde_json::to_string(&serde_json::json!({
             "id": "history-write",
+            "timeoutMilliseconds": 5_000,
             "command": "git.write",
             "payload": payload
         }))

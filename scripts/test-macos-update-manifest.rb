@@ -30,12 +30,18 @@ Dir.mktmpdir("lithe-macos-manifest-") do |directory|
       }
     }
   ))
+  release_notes = output.join("release-notes.md")
+  release_notes.write("# Lithe #{version}\n\nUpdate details\n")
 
   relative_output = output.relative_path_from(root).to_s
+  relative_release_notes = release_notes.relative_path_from(root).to_s
+  release_date = "2026-01-02T00:00:00Z"
   stdout, stderr, status = Open3.capture3(
     generator.to_s,
     "--version", version,
     "--repository", "example/Lithe-IDEA",
+    "--release-date", release_date,
+    "--release-notes-path", relative_release_notes,
     "--output-directory", relative_output,
     chdir: root.to_s
   )
@@ -43,6 +49,8 @@ Dir.mktmpdir("lithe-macos-manifest-") do |directory|
 
   manifest = JSON.parse(output.join("latest-macos.json").read)
   raise "Schema version is incorrect" unless manifest["schemaVersion"] == 1
+  raise "Release date is incorrect" unless manifest["releaseDate"] == release_date
+  raise "Release notes are incorrect" unless manifest["releaseNotes"] == release_notes.read
   raise "Release URL is incorrect" unless manifest["releaseURL"] == "https://github.com/example/Lithe-IDEA/releases/tag/v#{version}"
   windows_manifest = JSON.parse(existing_manifest.read)
   raise "Windows manifest was modified" unless windows_manifest.dig("platforms", "windows-x86_64", "signature") == "test-signature"

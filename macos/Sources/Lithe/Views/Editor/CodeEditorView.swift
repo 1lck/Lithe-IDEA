@@ -2140,7 +2140,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     private var trackingArea: NSTrackingArea?
     private var hoveredFoldID: String?
     private var lineIndex = TextLineIndex(source: "" as NSString)
-    nonisolated(unsafe) private var windowResignObserver: NSObjectProtocol?
+    private var hasInputFocus = false
     private var caretVisible = true
     private var caretPresentationGeneration = 0
 
@@ -2237,6 +2237,10 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     }
 
     override func updateInsertionPointStateAndRestartTimer(_ restartFlag: Bool) {
+        guard hasInputFocus, window?.isKeyWindow == true else {
+            stopCaretBlinking()
+            return
+        }
         guard restartFlag else { return }
         caretPresentationGeneration &+= 1
         let generation = caretPresentationGeneration
@@ -2249,13 +2253,23 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     }
 
     private func startCaretBlinking(for generation: Int) {
-        guard generation == caretPresentationGeneration else { return }
+        guard generation == caretPresentationGeneration,
+              hasInputFocus, window?.isKeyWindow == true else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(500)) { [weak self] in
-            guard let self, generation == self.caretPresentationGeneration else { return }
+            guard let self, generation == self.caretPresentationGeneration,
+                  self.hasInputFocus, self.window?.isKeyWindow == true else { return }
             self.caretVisible.toggle()
             self.needsDisplay = true
             self.startCaretBlinking(for: generation)
         }
+    }
+
+    private func stopCaretBlinking() {
+        // Invalidate queued blink callbacks and erase the last painted caret
+        // immediately, even if the terminal receives no further shell output.
+        caretPresentationGeneration &+= 1
+        caretVisible = false
+        needsDisplay = true
     }
 
     override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn _: Bool) {
@@ -3083,6 +3097,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     private func drawCaret() {
         guard caretVisible,
               window?.firstResponder === self,
+              window?.isKeyWindow == true,
               selectedRange().length == 0,
               let layoutManager,
               let textContainer else { return }
@@ -3153,34 +3168,34 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if let windowResignObserver {
-            NotificationCenter.default.removeObserver(windowResignObserver)
-            self.windowResignObserver = nil
-        }
-        if let window {
-            windowResignObserver = NotificationCenter.default.addObserver(
-                forName: NSWindow.didResignKeyNotification,
-                object: window,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.clearLinkHighlight()
-                }
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            NotificationCenter.default.removeObserver(self, name: name, object: nil)
+            if let window {
+                NotificationCenter.default.addObserver(
+                    self, selector: #selector(windowFocusDidChange), name: name, object: window
+                )
             }
         }
+        if window == nil { hasInputFocus = false }
+        windowFocusDidChange()
         updateTrackingAreas()
         onWindowAttached?()
+    }
+
+    @objc private func windowFocusDidChange() {
+        if window?.isKeyWindow != true { clearLinkHighlight() }
+        updateInsertionPointStateAndRestartTimer(true)
     }
 
     override func flagsChanged(with event: NSEvent) {
         super.flagsChanged(with: event)
         guard let window,
               isEditorHitTarget(at: convert(window.mouseLocationOutsideOfEventStream, from: nil)) else {
-            NSCursor.arrow.set()
             return
         }
         guard isLanguageNavigationEnabled, hasNavigationModifier(event.modifierFlags) else {
             clearLinkHighlight()
+            NSCursor.iBeam.set()
             return
         }
         updateLinkHighlight(at: convert(window.mouseLocationOutsideOfEventStream, from: nil))
@@ -3190,7 +3205,6 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         super.mouseEntered(with: event)
         let point = convert(event.locationInWindow, from: nil)
         guard isEditorHitTarget(at: point) else {
-            NSCursor.arrow.set()
             return
         }
         let summaryRegion = foldSummaryRegion(at: point)
@@ -3203,7 +3217,6 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         guard isEditorHitTarget(at: point) else {
-            NSCursor.arrow.set()
             return
         }
         let summaryRegion = foldSummaryRegion(at: point)
@@ -3233,7 +3246,6 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     override func cursorUpdate(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         guard isEditorHitTarget(at: point) else {
-            NSCursor.arrow.set()
             return
         }
         if foldSummaryRegion(at: point) != nil {
@@ -3250,7 +3262,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     private func isEditorHitTarget(at point: NSPoint) -> Bool {
         guard let contentView = window?.contentView,
               let hitView = contentView.hitTest(convert(point, to: contentView)) else {
-            return true
+            return false
         }
         return hitView === self || hitView.isDescendant(of: self)
     }
@@ -3260,19 +3272,24 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         updateFoldHover(to: nil)
         clearLinkHighlight()
         clearDebugHover()
-        NSCursor.arrow.set()
     }
 
     override func resignFirstResponder() -> Bool {
         updateFoldHover(to: nil)
         clearLinkHighlight()
         clearDebugHover()
-        return super.resignFirstResponder()
+        let resigned = super.resignFirstResponder()
+        if resigned {
+            hasInputFocus = false
+            stopCaretBlinking()
+        }
+        return resigned
     }
 
     override func becomeFirstResponder() -> Bool {
         let becameFirstResponder = super.becomeFirstResponder()
         if becameFirstResponder {
+            hasInputFocus = true
             updateInsertionPointStateAndRestartTimer(true)
         }
         return becameFirstResponder
@@ -3295,6 +3312,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         guard isLanguageNavigationEnabled,
               let target = linkRange(at: point) else {
             clearLinkHighlight()
+            NSCursor.iBeam.set()
             return
         }
         guard linkRange != target else {
@@ -3307,13 +3325,11 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     }
 
     private func clearLinkHighlight() {
-        guard linkRange != nil else {
-            NSCursor.iBeam.set()
-            return
-        }
+        // Cleanup also runs after the pointer leaves or the window loses focus.
+        // Only pointer handlers that still own the hit target may change its cursor.
+        guard linkRange != nil else { return }
         linkRange = nil
         updateEditorDecorations()
-        NSCursor.iBeam.set()
     }
 
     private func applyLinkHighlight() {
@@ -3971,9 +3987,6 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
-        if let windowResignObserver {
-            NotificationCenter.default.removeObserver(windowResignObserver)
-        }
     }
 
     @objc private func handleFindQueryChanged(_ notification: Notification) {
@@ -4103,8 +4116,6 @@ final class LineNumberGutterView: NSView {
     private var canAddDebugBreakpoint: ((Int) -> Bool)?
     private var isRunToCursorEnabled = false
     private var areBreakpointsMuted = false
-    private var contextGutterLine: Int?
-    private var contextDebugBreakpointLine: Int?
     private var scrollRefreshScheduled = false
     private var hoveredFoldID: String?
     private var foldIndicatorOpacities: [String: CGFloat] = [:]
@@ -5081,22 +5092,28 @@ final class LineNumberGutterView: NSView {
         let localX = point.x - editorGutterOriginX
         if gutterLayout.breakpointInteractionRange.contains(localX),
            let line = editorLine(at: point) {
-            return debugBreakpointContextMenu(forLine: line)
+            guard let window else { return nil }
+            LitheContextMenuPresenter.shared.show(
+                items: debugBreakpointContextMenuItems(forLine: line),
+                at: window.convertPoint(toScreen: event.locationInWindow),
+                appearance: effectiveAppearance,
+                locale: .current
+            )
+            return nil
         }
         if gutterLayout.lineNumberRange.contains(localX),
            let line = editorLine(at: point),
            onRunToCursor != nil {
-            contextGutterLine = line
-            let menu = NSMenu(title: "Editor Line")
-            let item = NSMenuItem(
-                title: "Run to Cursor",
-                action: #selector(runToCursorFromGutterMenu),
-                keyEquivalent: ""
+            guard let window else { return nil }
+            LitheContextMenuPresenter.shared.show(
+                items: [.action("Run to Cursor", isEnabled: isRunToCursorEnabled) { [weak self] in
+                    self?.onRunToCursor?(line)
+                }],
+                at: window.convertPoint(toScreen: event.locationInWindow),
+                appearance: effectiveAppearance,
+                locale: .current
             )
-            item.target = self
-            item.isEnabled = isRunToCursorEnabled
-            menu.addItem(item)
-            return menu
+            return nil
         }
         guard gutterLayout.gitChangeRange.contains(localX),
               let line = editorLine(at: point),
@@ -5137,78 +5154,28 @@ final class LineNumberGutterView: NSView {
         return nil
     }
 
-    func debugBreakpointContextMenu(forLine line: Int) -> NSMenu? {
-        contextDebugBreakpointLine = line
+    func debugBreakpointContextMenuItems(forLine line: Int) -> [LitheContextMenuItem] {
         guard let state = debugBreakpointStatesByLine[line] else {
-            guard canAddDebugBreakpoint?(line) == true else { return nil }
-            let menu = NSMenu(title: "Breakpoint")
-            menu.addItem(
-                withTitle: "Set Breakpoint",
-                action: #selector(addDebugBreakpointFromMenu),
-                keyEquivalent: ""
-            )
-            menu.items.last?.target = self
-            return menu
+            guard canAddDebugBreakpoint?(line) == true else { return [] }
+            return [.action("Set Breakpoint") { [weak self] in self?.onToggleDebugBreakpoint?(line) }]
         }
-        let menu = NSMenu(title: "Breakpoint")
+        var items: [LitheContextMenuItem] = []
         if onEditDebugBreakpoint != nil {
-            menu.addItem(
-                withTitle: "Edit Breakpoint…",
-                action: #selector(editDebugBreakpointFromMenu),
-                keyEquivalent: ""
-            )
-            menu.items.last?.target = self
+            items.append(.action("Edit Breakpoint…") { [weak self] in self?.onEditDebugBreakpoint?(line) })
         }
-        let toggleTitle = state.enabled ? "Disable Breakpoint" : "Enable Breakpoint"
-        menu.addItem(
-            withTitle: toggleTitle,
-            action: #selector(toggleDebugBreakpointFromMenu),
-            keyEquivalent: ""
-        )
-        menu.items.last?.target = self
-        menu.addItem(
-            withTitle: "Remove Breakpoint",
-            action: #selector(removeDebugBreakpointFromMenu),
-            keyEquivalent: ""
-        )
-        menu.items.last?.target = self
+        items.append(.action(state.enabled ? "Disable Breakpoint" : "Enable Breakpoint") { [weak self] in
+            self?.onSetDebugBreakpointEnabled?(line, !state.enabled)
+        })
+        items.append(.action("Remove Breakpoint", role: .destructive) { [weak self] in
+            self?.onRemoveDebugBreakpoint?(line)
+        })
         if onToggleAllDebugBreakpoints != nil {
-            menu.addItem(.separator())
-            menu.addItem(
-                withTitle: areBreakpointsMuted
-                    ? "Unmute All Breakpoints" : "Mute All Breakpoints",
-                action: #selector(toggleAllDebugBreakpointsFromMenu),
-                keyEquivalent: ""
-            )
-            menu.items.last?.target = self
+            items.append(.separator)
+            items.append(.action(areBreakpointsMuted ? "Unmute All Breakpoints" : "Mute All Breakpoints") { [weak self] in
+                self?.onToggleAllDebugBreakpoints?()
+            })
         }
-        return menu
-    }
-
-    @objc func editDebugBreakpointFromMenu() {
-        if let line = contextDebugBreakpointLine { onEditDebugBreakpoint?(line) }
-    }
-
-    @objc func addDebugBreakpointFromMenu() {
-        if let line = contextDebugBreakpointLine { onToggleDebugBreakpoint?(line) }
-    }
-
-    @objc private func toggleDebugBreakpointFromMenu() {
-        guard let line = contextDebugBreakpointLine,
-              let state = debugBreakpointStatesByLine[line] else { return }
-        onSetDebugBreakpointEnabled?(line, !state.enabled)
-    }
-
-    @objc private func removeDebugBreakpointFromMenu() {
-        if let line = contextDebugBreakpointLine { onRemoveDebugBreakpoint?(line) }
-    }
-
-    @objc private func toggleAllDebugBreakpointsFromMenu() {
-        onToggleAllDebugBreakpoints?()
-    }
-
-    @objc private func runToCursorFromGutterMenu() {
-        if let contextGutterLine { onRunToCursor?(contextGutterLine) }
+        return items
     }
 
     private func editorLine(at point: NSPoint) -> Int? {
