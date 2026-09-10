@@ -40,7 +40,17 @@ const resolveTerminalProfile = (
   customProfiles: TerminalProfile[],
 ): TerminalProfile | undefined => {
   if (!profileId) return undefined;
-  return getAllTerminalProfiles(shells, customProfiles).find((profile) => profile.id === profileId);
+  const profile = getAllTerminalProfiles(shells, customProfiles).find(
+    (profile) => profile.id === profileId,
+  );
+  if (profile) return profile;
+  // Keep a saved shell choice while discovery is loading or an installation is missing.
+  // The native launcher can then report the missing shell instead of opening another one.
+  if (profileId.startsWith("shell:")) {
+    const shell = profileId.slice("shell:".length);
+    return { id: profileId, name: shell, shell };
+  }
+  return undefined;
 };
 
 export const resolveTerminalLaunch = ({

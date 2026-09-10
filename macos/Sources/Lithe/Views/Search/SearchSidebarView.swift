@@ -2,7 +2,13 @@ import SwiftUI
 import LitheSearchModule
 
 struct SearchSidebarView: View {
-    @EnvironmentObject private var model: AppModel
+    @ObservedObject var feature: SearchFeatureModel
+    @ObservedObject var session: SearchSessionFeatureModel
+    let openReplace: (ProjectSearchOptions) -> Void
+    let openResult: (FileSearchResult) -> Void
+    let revealInFinder: (URL) -> Void
+    let copyPath: (URL, Bool) -> Void
+    let searchProject: (ProjectSearchOptions) async -> Void
     @FocusState private var searchFocused: Bool
     @State private var searchOptions = ProjectSearchOptions.default
 
@@ -13,7 +19,7 @@ struct SearchSidebarView: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 Spacer()
-                if model.isSearching {
+                if feature.isSearching {
                     ProgressView().controlSize(.mini)
                 }
             }
@@ -23,13 +29,13 @@ struct SearchSidebarView: View {
             HStack(spacing: 7) {
                 LitheSystemIcon(systemImage: "magnifyingglass")
                     .foregroundStyle(LitheTheme.secondaryText)
-                TextField("Search files and contents", text: $model.searchQuery)
+                TextField("Search files and contents", text: $session.query)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12.5))
                     .focused($searchFocused)
-                if !model.searchQuery.isEmpty {
+                if !session.query.isEmpty {
                     Button {
-                        model.searchQuery = ""
+                        session.query = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                     }
@@ -37,7 +43,7 @@ struct SearchSidebarView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
                 }
                 Button {
-                    model.openProjectReplace(inheriting: searchOptions)
+                    openReplace(searchOptions)
                 } label: {
                     Image(systemName: "arrow.left.arrow.right")
                 }
@@ -63,7 +69,7 @@ struct SearchSidebarView: View {
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-            if model.searchQuery.isEmpty {
+            if session.query.isEmpty {
                 VStack(spacing: 9) {
                     Image(systemName: "text.magnifyingglass")
                         .font(.system(size: 28, weight: .light))
@@ -72,7 +78,7 @@ struct SearchSidebarView: View {
                 .font(LitheTheme.uiFont)
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if model.searchResults.isEmpty && !model.isSearching {
+            } else if feature.searchResults.isEmpty && !feature.isSearching {
                 Text("No matches")
                     .font(LitheTheme.uiFont)
                     .foregroundStyle(LitheTheme.secondaryText)
@@ -80,9 +86,9 @@ struct SearchSidebarView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(model.searchResults) { result in
+                        ForEach(feature.searchResults) { result in
                             Button {
-                                model.openSearchResult(result)
+                                openResult(result)
                             } label: {
                                 VStack(alignment: .leading, spacing: 3) {
                                     HStack(spacing: 6) {
@@ -111,17 +117,17 @@ struct SearchSidebarView: View {
                             .litheContextMenu {
                                 [
                                     .action("Open", systemImage: "doc.text", action: {
-                                        model.openSearchResult(result)
+                                        openResult(result)
                                     }),
                                     .action("Show in Finder", systemImage: "folder", action: {
-                                        model.revealProjectItemInFinder(result.url)
+                                            revealInFinder(result.url)
                                     }),
                                     .submenu("Copy Path / Reference", items: [
                                         .action("Copy Path", action: {
-                                            model.copyProjectItemPath(result.url, relative: false)
+                                            copyPath(result.url, false)
                                         }),
                                         .action("Copy Relative Path", action: {
-                                            model.copyProjectItemPath(result.url, relative: true)
+                                            copyPath(result.url, true)
                                         })
                                     ])
                                 ]
@@ -132,14 +138,14 @@ struct SearchSidebarView: View {
                 }
             }
         }
-        .task(id: "\(model.searchQuery)|\(searchOptions.cacheKey)") {
+        .task(id: "\(session.query)|\(searchOptions.cacheKey)") {
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
-            await model.searchProject(options: searchOptions)
+            await searchProject(searchOptions)
         }
         .onAppear { searchFocused = true }
         // 侧栏已经打开时再次按 Cmd+Shift+F，靠令牌变化把焦点移回输入框。
-        .onChange(of: model.searchSidebarFocusRequest) { _ in searchFocused = true }
+        .onChange(of: session.sidebarFocusRequest) { _ in searchFocused = true }
     }
 
     private var fileMaskField: some View {

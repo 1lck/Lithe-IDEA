@@ -1,3 +1,4 @@
+import equal from "fast-deep-equal";
 import { createStore } from "zustand/vanilla";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { getGitHistory } from "../api/git-commits-api";
@@ -63,6 +64,10 @@ interface GitState {
   };
 }
 
+// Native queries deserialize fresh objects even when nothing changed. Reuse
+// equal snapshots so status trees and history selectors avoid rebuilding.
+const reuseSnapshot = <T,>(previous: T, next: T): T => equal(previous, next) ? previous : next;
+
 const COMMITS_PER_PAGE = 50;
 const MAX_COMMITS = 5_000;
 
@@ -125,20 +130,24 @@ export const createGitStore = () =>
       },
 
       refreshGitData: ({ gitStatus, branches, commits, hasMoreCommits, operationState, repoPath }) => {
-        if (get().currentRepoPath !== repoPath) {
-          return;
-        }
-
-        set({
-          gitStatus,
-          ...(operationState !== undefined ? { operationState } : {}),
-          ...(branches ? { branches } : {}),
-          ...(commits
-            ? {
-                commits,
-                hasMoreCommits: hasMoreCommits ?? false,
-              }
-            : {}),
+        set((state) => {
+          if (state.currentRepoPath !== repoPath) return state;
+          const next = {
+            gitStatus: reuseSnapshot(state.gitStatus, gitStatus),
+            operationState: operationState === undefined
+              ? state.operationState : reuseSnapshot(state.operationState, operationState),
+            branches: branches === undefined ? state.branches : reuseSnapshot(state.branches, branches),
+            commits: commits === undefined ? state.commits : reuseSnapshot(state.commits, commits),
+            hasMoreCommits: commits === undefined ? state.hasMoreCommits : (hasMoreCommits ?? false),
+          };
+          if (
+            next.gitStatus === state.gitStatus &&
+            next.operationState === state.operationState &&
+            next.branches === state.branches &&
+            next.commits === state.commits &&
+            next.hasMoreCommits === state.hasMoreCommits
+          ) return state;
+          return next;
         });
       },
 
@@ -194,7 +203,9 @@ export const createGitStore = () =>
         }),
       setCommits: (commits) => set({ commits }),
       setBranches: (branches) => set({ branches }),
-      setStashes: (stashes) => set({ stashes }),
+      setStashes: (stashes) => set((state) =>
+        equal(state.stashes, stashes) ? state : { stashes },
+      ),
       setIsLoadingGitData: (loading) => set({ isLoadingGitData: loading }),
       setIsRefreshing: (refreshing) => set({ isRefreshing: refreshing }),
       updateSourceControlSession: (repoPath, update) =>

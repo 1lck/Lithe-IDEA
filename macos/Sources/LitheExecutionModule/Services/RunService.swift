@@ -1297,7 +1297,12 @@ package final class RunService: ObservableObject {
         for configuration: RunConfiguration,
         mavenContext: MavenLaunchContext?
     ) -> RunOptions {
-        var options = self.options(for: configuration)
+        let stored = self.options(for: configuration)
+        var options = runtime.overlayProjectRuntime(
+            onto: stored,
+            modulePath: configuration.modulePath,
+            workingDirectory: stored.workingDirectoryPath
+        )
         guard let mavenContext else { return options }
         if options.mavenExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             options.mavenExecutablePath = mavenContext.mavenExecutablePath ?? ""

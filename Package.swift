@@ -25,9 +25,11 @@ let package = Package(
         .library(name: "LitheGoSupportModule", targets: ["LitheGoSupportModule"]),
         .executable(name: "LitheCoreVerifier", targets: ["LitheCoreVerifier"]),
         .executable(name: "LitheGitGraphVerifier", targets: ["LitheGitGraphVerifier"]),
+        .executable(name: "LitheGitPerformanceVerifier", targets: ["LitheGitPerformanceVerifier"]),
         .executable(name: "LitheOfficialPluginVerifier", targets: ["LitheOfficialPluginVerifier"])
     ],
     dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle.git", exact: "2.9.6"),
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.15.0"),
         .package(url: "https://github.com/swiftlang/swift-testing.git", exact: "6.2.4")
     ],
@@ -105,7 +107,8 @@ let package = Package(
                 "LitheLanguageIntelligenceModule",
                 "LitheWorkspaceModule",
                 "LitheRustCore",
-                .product(name: "SwiftTerm", package: "SwiftTerm")
+                .product(name: "SwiftTerm", package: "SwiftTerm"),
+                .product(name: "Sparkle", package: "Sparkle")
             ],
             path: "macos/Sources/Lithe",
             resources: [
@@ -115,6 +118,9 @@ let package = Package(
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5)
+            ],
+            linkerSettings: [
+                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])
             ]
         ),
         .testTarget(
@@ -164,6 +170,23 @@ let package = Package(
             name: "LitheGitModuleTests",
             dependencies: ["LitheGitModule", "LitheApplicationKernel", .product(name: "Testing", package: "swift-testing")],
             path: "macos/Tests/LitheGitModuleTests",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .target(
+            name: "LitheGitPerformanceSupport",
+            dependencies: ["LitheGitModule"],
+            path: "macos/Tests/LitheGitPerformanceSupport",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "LitheGitPerformanceTests",
+            dependencies: [
+                "Lithe",
+                "LitheGitModule",
+                "LitheGitPerformanceSupport",
+                .product(name: "Testing", package: "swift-testing")
+            ],
+            path: "macos/Tests/LitheGitPerformanceTests",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
@@ -217,6 +240,12 @@ let package = Package(
             name: "LitheGitGraphVerifier",
             dependencies: ["LitheGitModule"],
             path: "macos/Tests/LitheGitGraphVerifier",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .executableTarget(
+            name: "LitheGitPerformanceVerifier",
+            dependencies: ["LitheGitModule", "LitheGitPerformanceSupport"],
+            path: "macos/Tests/LitheGitPerformanceVerifier",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .executableTarget(

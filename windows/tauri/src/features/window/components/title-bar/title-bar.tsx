@@ -43,10 +43,19 @@ import WindowMenuBar from "../window-menu-bar";
 
 interface TitleBarProps {
   showMinimal?: boolean;
+  showUpdateControl: boolean;
   onOpenProjectPicker: (mode?: ProjectPickerMode) => void;
 }
 
-const TitleBar = ({ showMinimal = false, onOpenProjectPicker }: TitleBarProps) => {
+export function TitleBarUpdateControl({ visible }: { visible: boolean }) {
+  return visible ? <AppUpdateControl /> : null;
+}
+
+export const TitleBar = ({
+  showMinimal = false,
+  showUpdateControl,
+  onOpenProjectPicker,
+}: TitleBarProps) => {
   const { t } = useTranslation();
   const nativeMenuBar = useSettingsStore((state) => state.settings.nativeMenuBar);
   const compactMenuBar = useSettingsStore((state) => state.settings.compactMenuBar);
@@ -335,7 +344,7 @@ const TitleBar = ({ showMinimal = false, onOpenProjectPicker }: TitleBarProps) =
         </ChromeGroup>
         <ChromeGroup className="pointer-events-auto z-20">
           {quickOpenAction}
-          {isWindows ? <AppUpdateControl /> : null}
+          {isWindows ? <TitleBarUpdateControl visible={showUpdateControl} /> : null}
 
           {showAppWindowControls && (
             <WindowControls
@@ -353,27 +362,30 @@ const TitleBar = ({ showMinimal = false, onOpenProjectPicker }: TitleBarProps) =
 
 const TitleBarWithSettings = ({
   showMinimal = false,
+  showUpdateControl,
 }: Omit<TitleBarProps, "onOpenProjectPicker">) => {
   const isSettingsDialogVisible = useUIState((state) => state.isSettingsDialogVisible);
   const isProjectPickerVisible = useUIState((state) => state.isProjectPickerVisible);
   const setIsSettingsDialogVisible = useUIState((state) => state.setIsSettingsDialogVisible);
   const setIsProjectPickerVisible = useUIState((state) => state.setIsProjectPickerVisible);
-  const [projectPickerMode, setProjectPickerMode] = useState<ProjectPickerMode>("picker");
+  const projectPickerMode = useUIState((state) => state.projectPickerMode);
   const openProjectPicker = useCallback(
     (mode: ProjectPickerMode = "picker") => {
-      setProjectPickerMode(mode);
-      setIsProjectPickerVisible(true);
+      setIsProjectPickerVisible(true, mode);
     },
     [setIsProjectPickerVisible],
   );
   const closeProjectPicker = useCallback(() => {
-    setProjectPickerMode("picker");
     setIsProjectPickerVisible(false);
   }, [setIsProjectPickerVisible]);
 
   return (
     <>
-      <TitleBar showMinimal={showMinimal} onOpenProjectPicker={openProjectPicker} />
+      <TitleBar
+        showMinimal={showMinimal}
+        showUpdateControl={showUpdateControl}
+        onOpenProjectPicker={openProjectPicker}
+      />
       <SettingsDialog
         isOpen={isSettingsDialogVisible}
         onClose={() => setIsSettingsDialogVisible(false)}

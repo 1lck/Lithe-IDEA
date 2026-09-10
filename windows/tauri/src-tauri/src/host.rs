@@ -1,14 +1,15 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs::{self, File};
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{AppHandle, Emitter, Manager, Theme, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_opener::OpenerExt;
 
 static WINDOW_ID: AtomicU64 = AtomicU64::new(1);
+static PATCH_SAVE_ID: AtomicU64 = AtomicU64::new(1);
 
 // Windows 11 taskbar downscales a 256-only ICO into an empty pill. Use the 32px
 // asset after window creation so frameless windows keep a readable app icon.
@@ -307,8 +308,8 @@ pub async fn create_app_window(app: AppHandle, request: Option<Value>) -> Result
 #[cfg(test)]
 mod tests {
     use super::{
-        cli_payloads, copy_path, create_app_window, read_bounded, read_local_file_bounded,
-        unique_destination, WINDOW_TASKBAR_ICON,
+        WINDOW_TASKBAR_ICON, cli_payloads, copy_path, create_app_window, read_bounded,
+        read_local_file_bounded, unique_destination,
     };
     use std::fs;
     use std::future::Future;
@@ -340,6 +341,38 @@ mod tests {
     #[test]
     fn creates_app_windows_outside_the_synchronous_ipc_handler() {
         assert_async_window_command(create_app_window);
+    }
+
+    #[test]
+    fn patch_save_replaces_exact_bytes_and_cleans_up_after_replacement_failure() {
+        struct TemporaryRoot(PathBuf);
+        impl Drop for TemporaryRoot {
+            fn drop(&mut self) {
+                if let Err(error) = fs::remove_dir_all(&self.0) {
+                    eprintln!("Could not remove patch-save test directory: {error}");
+                }
+            }
+        }
+        let root = TemporaryRoot(std::env::temp_dir().join(format!(
+            "lithe-patch-save-{}-{}",
+            std::process::id(),
+            super::WINDOW_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        )));
+        fs::create_dir(&root.0).unwrap();
+        let destination = root.0.join("changes.patch");
+        fs::write(&destination, "previous patch").unwrap();
+        let contents = "\u{feff}diff --git a/a b/a\r\ncomplete UTF-8 内容\r\n";
+        super::write_patch_file(destination.clone(), contents.into()).unwrap();
+        assert_eq!(fs::read(&destination).unwrap(), contents.as_bytes());
+
+        // Replacing a non-empty directory fails on both native platforms. The
+        // destination and its child must survive and the owned temp must go.
+        let protected = root.0.join("protected.patch");
+        fs::create_dir(&protected).unwrap();
+        fs::write(protected.join("original"), "keep").unwrap();
+        assert!(super::write_patch_file(protected.clone(), "replacement".into()).is_err());
+        assert_eq!(fs::read(protected.join("original")).unwrap(), b"keep");
+        assert_eq!(fs::read_dir(&root.0).unwrap().count(), 2);
     }
 
     #[test]
@@ -644,6 +677,51 @@ pub fn read_file_custom(path: PathBuf) -> Result<String, String> {
 #[tauri::command]
 pub fn write_file(path: PathBuf, contents: String) -> Result<(), String> {
     fs::write(path, contents).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn write_patch_file(path: PathBuf, contents: String) -> Result<(), String> {
+    if !path.is_absolute() {
+        return Err("Patch destination must be an absolute path".into());
+    }
+    let name = path.file_name().ok_or("Patch destination must be a file")?;
+    for _ in 0..8 {
+        let mut temporary_name = name.to_os_string();
+        temporary_name.push(format!(
+            ".lithe-patch-{}-{}.tmp",
+            std::process::id(),
+            PATCH_SAVE_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let temporary = path.with_file_name(temporary_name);
+        let mut file = match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.to_string()),
+        };
+        let result = (|| {
+            file.write_all(contents.as_bytes())
+                .map_err(|error| error.to_string())?;
+            file.sync_all().map_err(|error| error.to_string())?;
+            drop(file);
+            crate::run::replace_run_document(&temporary, &path)
+        })();
+        if let Err(error) = result {
+            return match fs::remove_file(&temporary) {
+                Ok(()) => Err(error),
+                Err(cleanup) if cleanup.kind() == io::ErrorKind::NotFound => Err(error),
+                Err(cleanup) => Err(format!(
+                    "{error}; could not remove temporary patch {}: {cleanup}",
+                    temporary.display()
+                )),
+            };
+        }
+        return Ok(());
+    }
+    Err("Could not allocate a temporary patch file".into())
 }
 
 #[tauri::command]

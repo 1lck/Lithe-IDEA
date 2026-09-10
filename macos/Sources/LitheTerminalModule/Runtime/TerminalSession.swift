@@ -7,6 +7,7 @@ public final class TerminalSession: ObservableObject, Identifiable {
     @Published public private(set) var isRunning = false
     @Published public private(set) var isReady = false
     @Published public private(set) var isManagedProcess = false
+    @Published public private(set) var launchError: String?
     @Published public private(set) var shellName = "Shell"
     @Published public private(set) var processTitle: String?
     @Published public private(set) var currentDirectory: URL?
@@ -57,6 +58,7 @@ public final class TerminalSession: ObservableObject, Identifiable {
         stop()
         self.workspaceURL = workspaceURL
         isManagedProcess = false
+        launchError = nil
         currentDirectory = workspaceURL.standardizedFileURL
         processTitle = nil; lastExitCode = nil; startedAt = Date(); endedAt = nil
         let shell = shellPath ?? selectedShellPath ?? transport.defaultShellPath()
@@ -67,6 +69,7 @@ public final class TerminalSession: ObservableObject, Identifiable {
             try transport.start(workingDirectory: workspaceURL.path, shellPath: shell, environment: environment)
             isRunning = transport.isRunning; isReady = isRunning
         } catch {
+            launchError = error.localizedDescription
             isRunning = false; isReady = false; startedAt = nil; endedAt = Date()
         }
     }
@@ -81,6 +84,7 @@ public final class TerminalSession: ObservableObject, Identifiable {
         workspaceURL = workingDirectory
         selectedShellPath = nil
         isManagedProcess = true
+        launchError = nil
         currentDirectory = workingDirectory
         processTitle = launch.title?.trimmingCharacters(in: .whitespacesAndNewlines)
         if processTitle?.isEmpty == true { processTitle = nil }
@@ -98,6 +102,7 @@ public final class TerminalSession: ObservableObject, Identifiable {
             isReady = isRunning
             return processID
         } catch {
+            launchError = error.localizedDescription
             isRunning = false
             isReady = false
             startedAt = nil

@@ -5,6 +5,54 @@ import Testing
 @MainActor
 struct TerminalModuleTests {
     @Test
+    func unavailableShellReportsFailureAndCanRetryWithoutSelectingAnotherShell() {
+        let transport = TestTransport()
+        transport.startError = NSError(domain: "TerminalTest", code: 1, userInfo: [NSLocalizedDescriptionKey: "Shell is missing"])
+        let session = TerminalSession(transport: transport)
+        defer { session.stop() }
+        session.start(in: URL(fileURLWithPath: "/workspace"), shellPath: "/tools/fish")
+        #expect(session.launchError == "Shell is missing")
+        #expect(!session.isRunning)
+        transport.startError = nil
+        session.restart()
+        #expect(session.launchError == nil)
+        #expect(session.isRunning)
+        #expect(transport.shellStarts == ["/tools/fish", "/tools/fish"])
+    }
+
+    @Test
+    func shellDiscoveryRefreshesOnlyOnRequestAndKeepsExistingSessions() {
+        var detected = ["/bin/zsh"]
+        var discoveryCount = 0
+        var transports: [TestTransport] = []
+        let feature = TerminalFeatureModel(terminalFactory: {
+            let transport = TestTransport()
+            transports.append(transport)
+            return transport
+        }, shellDiscovery: {
+            discoveryCount += 1
+            return detected
+        })
+        defer { feature.stopAllSessions() }
+        let first = feature.createSession(in: URL(fileURLWithPath: "/workspace"), shellPath: "/bin/zsh")
+        #expect(feature.availableShells == ["/bin/zsh"])
+        #expect(feature.availableShells == ["/bin/zsh"])
+        #expect(discoveryCount == 1)
+
+        detected.append("/tools/fish")
+        feature.refreshAvailableShells()
+        #expect(feature.availableShells == ["/bin/zsh", "/tools/fish"])
+        #expect(feature.terminalSessions.count == 1)
+        #expect(feature.activeTerminalSessionID == first.id)
+        let second = feature.createSession(in: URL(fileURLWithPath: "/workspace"), shellPath: "/tools/fish")
+        #expect(feature.activeTerminalSessionID == second.id)
+        #expect(first.isRunning)
+        #expect(second.isRunning)
+        #expect(transports.map(\.shellStarts) == [["/bin/zsh"], ["/tools/fish"]])
+        #expect(transports.allSatisfy { $0.stopCount == 0 })
+    }
+
+    @Test
     func sessionOwnsTransportAndStopReleasesIt() {
         let transport = TestTransport()
         let feature = TerminalFeatureModel(terminalFactory: { transport })
@@ -118,6 +166,8 @@ private final class TestTransport: TerminalTransport {
     var isRunning = false
     var processID: Int32? { isRunning ? 1234 : nil }
     var shellName = "Shell"
+    var shellStarts: [String] = []
+    var startError: Error?
     var onTermination: ((Int32?) -> Void)?
     var onOutput: ((Data) -> Void)?
     var onTitle: ((String) -> Void)?
@@ -130,7 +180,11 @@ private final class TestTransport: TerminalTransport {
     var outputOnStart: String?
     func defaultShellPath() -> String { "/bin/zsh" }
     func defaultEnvironment() -> [String: String] { ["REMOVE_ME": "old"] }
-    func start(workingDirectory: String, shellPath: String, environment: [String: String]) throws { isRunning = true }
+    func start(workingDirectory: String, shellPath: String, environment: [String: String]) throws {
+        shellStarts.append(shellPath)
+        if let startError { throw startError }
+        isRunning = true
+    }
     func startProcess(
         _ launch: TerminalProcessLaunch,
         environment: [String: String]

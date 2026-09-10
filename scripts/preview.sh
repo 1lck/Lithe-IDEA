@@ -24,6 +24,13 @@ mkdir -p "$PREVIEW_ROOT"
 # project tree and tool windows.
 INSTANCE_DIR=$(mktemp -d "$PREVIEW_ROOT/instance.XXXXXX")
 APP_DIR="$INSTANCE_DIR/Lithe.app"
+WATCHER_OWNS_INSTANCE_CLEANUP=false
+cleanup_instance_dir() {
+    [[ -n "${INSTANCE_DIR:-}" && -d "$INSTANCE_DIR" ]] || return 0
+    rm -rf -- "$INSTANCE_DIR"
+}
+trap '[[ "${WATCHER_OWNS_INSTANCE_CLEANUP:-false}" == true ]] || cleanup_instance_dir' EXIT HUP INT TERM
+
 mkdir -p \
     "$APP_DIR/Contents/MacOS" \
     "$APP_DIR/Contents/Resources/LanguageServers" \
@@ -55,6 +62,7 @@ MACOSX_DEPLOYMENT_TARGET=13.0 \
     cargo build --manifest-path "$ROOT_DIR/rust/Cargo.toml" -p lithe-db-mcp --target "$RUST_TARGET"
 cp "rust/target/macos/$RUST_TARGET/debug/lithe-db-mcp" "$APP_DIR/Contents/Helpers/lithe-db-mcp"
 cp macos/Resources/Info.plist "$APP_DIR/Contents/Info.plist"
+zsh "$ROOT_DIR/scripts/embed-sparkle.sh" "$APP_DIR"
 "$ROOT_DIR/scripts/stamp-macos-app-build-info.sh" "$APP_DIR/Contents/Info.plist"
 cp macos/Resources/AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns"
 cp -R macos/Resources/IDEAIcons "$APP_DIR/Contents/Resources/IDEAIcons"
@@ -67,5 +75,18 @@ for localization in en.lproj zh-Hans.lproj; do
 done
 codesign --force --deep --sign - "$APP_DIR"
 
-open -n -W "$APP_DIR"
-rm -rf "$INSTANCE_DIR"
+# Keep the launcher non-blocking while a watcher owns cleanup. The
+# watcher waits for this specific app instance to exit, then removes its bundle.
+(
+    trap 'rm -rf -- "$INSTANCE_DIR"' EXIT HUP INT TERM
+    set +e
+    open -n -W "$APP_DIR" </dev/null >/dev/null 2>&1
+    open_status=$?
+    rm -rf -- "$INSTANCE_DIR"
+    trap - EXIT HUP INT TERM
+    exit "$open_status"
+) &!
+WATCHER_OWNS_INSTANCE_CLEANUP=true
+trap - EXIT HUP INT TERM
+print "Preview launched: $APP_DIR"
+print "This command returns immediately; the instance directory is removed after the app exits."

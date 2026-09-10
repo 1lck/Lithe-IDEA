@@ -209,6 +209,125 @@ struct KeyboardShortcutTests {
     }
 }
 
+@Suite("Shortcut session coordination")
+@MainActor
+struct ShortcutSessionCoordinatorTests {
+    @Test
+    func settingsAndRecordingUpdateTheDetectorSynchronously() throws {
+        let settings = AppSettings(store: KeyboardShortcutTestStore())
+        let feature = KeyboardShortcutFeatureModel(settings: settings)
+        let factory = RecordingShortcutDetectorFactory()
+        var publications = 0
+        let coordinator = ShortcutSessionCoordinator(
+            settings: settings, feature: feature, factory: factory,
+            onRegistrationsChanged: { publications += 1 }, onCommand: { _ in }
+        )
+        defer { coordinator.shutdown() }
+        #expect(factory.detector.registrations == feature.registrations)
+        #expect(publications == 1)
+        let replacement = KeyboardShortcutBinding.keyPress(key: "k", modifiers: [.command, .option])
+
+        try feature.replaceBindings(for: "run", with: [replacement])
+
+        #expect(factory.detector.registrations.first { $0.commandID == "run" }?.bindings == [replacement])
+        #expect(publications == 2)
+        feature.beginRecording(commandID: "run")
+        #expect(factory.detector.isSuspended)
+        feature.endRecording()
+        #expect(!factory.detector.isSuspended)
+    }
+
+    @Test
+    func inactiveRecordingAndShutdownSessionsRejectQueuedCommands() {
+        let settings = AppSettings(store: KeyboardShortcutTestStore())
+        let feature = KeyboardShortcutFeatureModel(settings: settings)
+        let factory = RecordingShortcutDetectorFactory()
+        var commands: [String] = []
+        let coordinator = ShortcutSessionCoordinator(
+            settings: settings, feature: feature, factory: factory,
+            onRegistrationsChanged: {}, onCommand: { commands.append($0) }
+        )
+        defer { coordinator.shutdown() }
+        factory.deliverQueuedCommand("inactive")
+        coordinator.setActive(true)
+        coordinator.setActive(true)
+        factory.deliverQueuedCommand("active")
+        feature.beginRecording(commandID: "run")
+        factory.deliverQueuedCommand("recording")
+        feature.endRecording()
+        coordinator.setActive(false)
+        coordinator.setActive(false)
+        factory.deliverQueuedCommand("deactivated")
+        coordinator.setActive(true)
+        factory.deliverQueuedCommand("reactivated")
+        coordinator.shutdown()
+        coordinator.shutdown()
+        coordinator.setActive(true)
+        factory.deliverQueuedCommand("shutdown")
+
+        #expect(commands == ["active", "reactivated"])
+        #expect(factory.detector.lifecycle == ["start", "stop", "start", "stop"])
+        let updates = factory.detector.updateCount
+        settings.setKeyboardShortcutOverrides(["run": []])
+        feature.beginRecording(commandID: "run")
+        #expect(factory.detector.updateCount == updates)
+        #expect(!factory.detector.isSuspended)
+    }
+
+    @Test
+    func releasingActiveCoordinatorStopsMonitoringAndDisconnectsCallbacks() {
+        let settings = AppSettings(store: KeyboardShortcutTestStore())
+        let feature = KeyboardShortcutFeatureModel(settings: settings)
+        let factory = RecordingShortcutDetectorFactory()
+        var commands: [String] = []
+        var coordinator: ShortcutSessionCoordinator? = ShortcutSessionCoordinator(
+            settings: settings, feature: feature, factory: factory,
+            onRegistrationsChanged: {}, onCommand: { commands.append($0) }
+        )
+        coordinator?.setActive(true)
+        coordinator = nil
+        #expect(factory.detector.lifecycle == ["start", "stop"])
+        let updates = factory.detector.updateCount
+        settings.setKeyboardShortcutOverrides(["run": []])
+        feature.beginRecording(commandID: "run")
+        factory.deliverQueuedCommand("released")
+        #expect(factory.detector.updateCount == updates)
+        #expect(!factory.detector.isSuspended)
+        #expect(commands.isEmpty)
+    }
+}
+
+@MainActor
+private final class RecordingShortcutDetectorFactory: ShortcutDetectorFactory {
+    let detector = RecordingShortcutDetector()
+    private var onCommand: (@MainActor @Sendable (String) -> Void)?
+
+    func make(onCommand: @escaping @MainActor @Sendable (String) -> Void) -> any ShortcutDetector {
+        self.onCommand = onCommand
+        return detector
+    }
+
+    // Native events already queued on the main actor can arrive after stop().
+    func deliverQueuedCommand(_ commandID: String) {
+        onCommand?(commandID)
+    }
+}
+
+private final class RecordingShortcutDetector: ShortcutDetector {
+    var registrations: [KeyboardShortcutRegistration] = []
+    var isSuspended = false
+    var lifecycle: [String] = []
+    var updateCount = 0
+
+    func start() { lifecycle.append("start") }
+    func stop() { lifecycle.append("stop") }
+    func setSuspended(_ suspended: Bool) { isSuspended = suspended }
+    func update(registrations: [KeyboardShortcutRegistration]) {
+        self.registrations = registrations
+        updateCount += 1
+    }
+}
+
 private final class KeyboardShortcutTestStore: KeyValueStore, @unchecked Sendable {
     private var values: [String: Any] = [:]
 

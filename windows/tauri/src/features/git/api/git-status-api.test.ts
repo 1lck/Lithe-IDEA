@@ -1,22 +1,53 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import * as tauriCore from "@/platform/tauri-core";
 
-const invoke = mock(async (command: string): Promise<unknown> =>
-  command === "git_discover_repo" ? "C:/repo" : null,
-);
+let unavailableRepo: string | null = null;
+let statusFailure: Error | null = null;
 
-mock.module("@/platform/tauri-core", () => ({ invoke }));
+const invoke = mock(async (command: string, args?: Record<string, unknown>): Promise<unknown> => {
+  if (command === "git_discover_repo") {
+    const path = String(args?.path ?? "");
+    return path.startsWith("C:/workspace/") ? path : "C:/repo";
+  }
+  if (command === "git_status") {
+    const repoPath = String(args?.repoPath ?? "");
+    if (statusFailure) throw statusFailure;
+    if (repoPath === unavailableRepo) return null;
+    return {
+      branch: repoPath.endsWith("service-a") ? "main" : "develop",
+      ahead: repoPath.endsWith("service-a") ? 1 : 0,
+      behind: repoPath.endsWith("service-b") ? 2 : 0,
+      files: [
+        {
+          path: "src/App.tsx",
+          status: "modified",
+          staged: repoPath.endsWith("service-b"),
+        },
+      ],
+    };
+  }
+  return null;
+});
+
+let invokeSpy: ReturnType<typeof spyOn<typeof tauriCore, "invoke">>;
 
 const {
   addPathsToGitignore,
   addPathsToLocalGitExclude,
   rollbackFilesChanges,
   setFilesStaged,
+  getWorkspaceGitStatus,
+  getGitStatus,
 } = await import("./git-status-api");
 const { getWorkingTreePathDiff } = await import("./git-diff-api");
 
 beforeEach(() => {
+  invokeSpy = spyOn(tauriCore, "invoke").mockImplementation(invoke as typeof tauriCore.invoke);
   invoke.mockClear();
+  unavailableRepo = null;
+  statusFailure = null;
 });
+afterEach(() => invokeSpy.mockRestore());
 
 describe("Git status batch mutations", () => {
   const expectSingleGitWrite = () => {
@@ -95,6 +126,36 @@ describe("Git status batch mutations", () => {
   });
 });
 
+describe("Workspace Git status", () => {
+  test("aggregates changed files from every discovered repository", async () => {
+    await expect(
+      getWorkspaceGitStatus(["C:/workspace/service-a", "C:/workspace/service-b"], "C:/workspace/service-b"),
+    ).resolves.toEqual({
+      branch: "develop",
+      ahead: 0,
+      behind: 2,
+      files: [
+        {
+          path: "service-a/src/App.tsx",
+          status: "modified",
+          staged: false,
+          repositoryPath: "C:/workspace/service-a",
+          repositoryRelativePath: "src/App.tsx",
+          repositoryOriginalRelativePath: undefined,
+        },
+        {
+          path: "service-b/src/App.tsx",
+          status: "modified",
+          staged: true,
+          repositoryPath: "C:/workspace/service-b",
+          repositoryRelativePath: "src/App.tsx",
+          repositoryOriginalRelativePath: undefined,
+        },
+      ],
+    });
+  });
+});
+
 describe("Git status review diffs", () => {
   test("reviews a partially staged path against HEAD before selected-path commit", async () => {
     await expect(
@@ -106,5 +167,37 @@ describe("Git status review diffs", () => {
       filePath: "src/partially-staged.ts",
       worktreeSnapshot: true,
     });
+  });
+});
+
+
+describe("Git status query failures", () => {
+  test("rejects an empty snapshot for a selected repository and recovers on retry", async () => {
+    unavailableRepo = "C:/repo";
+    await expect(getWorkspaceGitStatus(["C:/repo"])).rejects.toThrow("no snapshot");
+    unavailableRepo = null;
+    expect((await getWorkspaceGitStatus(["C:/repo"]))?.files).toHaveLength(1);
+  });
+
+  test("does not return a partial workspace when one repository is unavailable", async () => {
+    unavailableRepo = "C:/workspace/service-b";
+    await expect(getWorkspaceGitStatus([
+      "C:/workspace/service-a", "C:/workspace/service-b",
+    ])).rejects.toThrow("no snapshot");
+  });
+
+  test("propagates native query failures to workspace refresh", async () => {
+    statusFailure = new Error("Git status unavailable");
+    await expect(getWorkspaceGitStatus(["C:/repo"])).rejects.toThrow("Git status unavailable");
+  });
+
+  test("keeps the nullable API for optional status consumers", async () => {
+    unavailableRepo = "C:/repo";
+    await expect(getGitStatus("C:/repo")).resolves.toBeNull();
+  });
+
+  test("keeps an empty repository list distinct from a failed query", async () => {
+    await expect(getWorkspaceGitStatus([])).resolves.toBeNull();
+    expect(invoke).not.toHaveBeenCalled();
   });
 });

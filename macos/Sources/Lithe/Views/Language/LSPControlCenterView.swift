@@ -61,6 +61,12 @@ struct LSPControlCenterView: View {
     private func languageRow(_ descriptor: LanguageProviderDescriptor) -> some View {
         let status = serverStatus(for: descriptor)
         let isEnabled = !model.isLanguageServerDisabledInCurrentWorkspace(providerID: descriptor.id)
+        let mavenResults: [MavenProfileProjectResult]? = model.languageToolingSessionsIfActive.map {
+            Array($0.mavenProfileProjectResults.values)
+        }
+        let mavenState = descriptor.id == "java"
+            ? LSPControlCenterPresenter.mavenProfileState(mavenResults ?? [])
+            : .idle
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
@@ -86,6 +92,15 @@ struct LSPControlCenterView: View {
                         ? "启用 \(descriptor.displayName) 语言服务器"
                         : "Enable \(descriptor.displayName) language server")
                 )
+            }
+            if descriptor.id == "java", case .partiallyFailed = mavenState,
+               let sessions = model.languageToolingSessionsIfActive
+            {
+                Button(usesChinese ? "重试 Maven 配置" : "Retry Maven configuration") {
+                    sessions.retryMavenProfiles(providerID: descriptor.id)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
 
         }
@@ -142,6 +157,21 @@ struct LSPControlCenterView: View {
         for descriptor: LanguageProviderDescriptor,
         status: LSPServerStatus
     ) -> String {
+        if descriptor.id == "java", let manager = model.languageToolingSessionsIfActive {
+            let mavenState = LSPControlCenterPresenter.mavenProfileState(
+                Array(manager.mavenProfileProjectResults.values)
+            )
+            switch mavenState {
+            case .applying:
+                return usesChinese ? "语言服务已连接，Maven 配置应用中" : "Language service connected; applying Maven configuration"
+            case .partiallyFailed(let failed, let total):
+                return usesChinese
+                    ? "部分模块失败（\(failed)/\(total)），语言服务仍可用"
+                    : "Some modules failed (\(failed)/\(total)); language service remains available"
+            case .idle, .complete:
+                break
+            }
+        }
         switch status {
         case .starting: return usesChinese ? "正在启动" : "Starting"
         case .initializing: return usesChinese ? "正在初始化项目索引" : "Initializing project index"
