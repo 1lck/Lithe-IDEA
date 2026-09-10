@@ -1899,6 +1899,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let level: String?
         let message: String?
         let detail: String?
+        let mavenProfileTask: String?
+        let mavenProfileProject: MavenProfileProjectPayload?
+    }
+
+    struct MavenProfileProjectPayload: Decodable, Sendable {
+        let projectUri: URL
+        let status: String
+        let errorDetails: String?
     }
 
     struct LspRuntimeErrorPayload: Decodable, Sendable {
@@ -3581,7 +3589,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     }
 
     /// Retries Maven Profile application while retaining the running JDTLS process.
-    func lspRetryMavenProfiles(sessionID: String) {
+    func lspRetryMavenProfiles(sessionID: String) -> Result<Void, CoreCallError> {
         executeVoid(
             command: "lsp.retryMavenProfiles",
             payload: LspSessionIdentifierRequest(sessionId: sessionID)

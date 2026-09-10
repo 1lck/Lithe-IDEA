@@ -10,9 +10,11 @@ export type LanguageLifecyclePhase =
   | "serviceReady"
   | "profileApplying"
   | "fullyReady"
+  | "stopped"
   | "failed";
 
 export interface MavenProfileProjectResult {
+  sessionId?: string;
   projectUri: string;
   status: string;
   errorDetails?: string;
@@ -42,7 +44,7 @@ interface LspState {
     markDocumentStateChanged: () => void;
     updateLanguageLifecycle: (sessionId: string, phase: LanguageLifecyclePhase) => void;
     recordMavenProfileProject: (result: MavenProfileProjectResult) => void;
-    clearMavenProfileProjects: () => void;
+    clearMavenProfileProjects: (sessionId: string) => void;
   };
 }
 
@@ -116,14 +118,19 @@ export const useLspStore = createSelectors(
             ...state.lspStatus,
             mavenProfileProjects: {
               ...state.lspStatus.mavenProfileProjects,
-              [result.projectUri]: result,
+              [`${result.sessionId}:${result.projectUri}`]: result,
             },
           },
         }));
       },
-      clearMavenProfileProjects: () => {
+      clearMavenProfileProjects: (sessionId) => {
         set((state) => ({
-          lspStatus: { ...state.lspStatus, mavenProfileProjects: {} },
+          lspStatus: {
+            ...state.lspStatus,
+            mavenProfileProjects: Object.fromEntries(
+              Object.entries(state.lspStatus.mavenProfileProjects).filter(([, result]) => result.sessionId !== sessionId),
+            ),
+          },
         }));
       },
     },

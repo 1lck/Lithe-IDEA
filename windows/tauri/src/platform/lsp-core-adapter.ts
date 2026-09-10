@@ -346,37 +346,7 @@ async function dispatchRuntimeEvent(event: RuntimeEvent, workspacePath?: string)
       providerId: event.providerId,
       sessionId: event.sessionId,
     });
-    if (event.message === "Maven profile project update completed" && structuredDetail) {
-      await emit("lsp://maven-profile-project", {
-        providerId: event.providerId,
-        sessionId: event.sessionId,
-        workspacePath,
-        ...structuredDetail,
-      });
-    }
-    if (event.message === "Java language service applied Maven profiles") {
-      await emit("lsp://language-lifecycle", {
-        providerId: event.providerId,
-        sessionId: event.sessionId,
-        workspacePath,
-        phase: "fullyReady",
-      });
-    } else if (event.message === "Java language service partially applied Maven profiles") {
-      await emit("lsp://language-lifecycle", {
-        providerId: event.providerId,
-        sessionId: event.sessionId,
-        workspacePath,
-        phase: "profileApplying",
-        status: "partiallySucceeded",
-      });
-    } else if (event.message === "Java language service applying Maven profiles") {
-      await emit("lsp://language-lifecycle", {
-        providerId: event.providerId,
-        sessionId: event.sessionId,
-        workspacePath,
-        phase: "profileApplying",
-      });
-    } else if (event.message === "Java language service protocol initialized") {
+    if (event.message === "Java language service protocol initialized") {
       await emit("lsp://language-lifecycle", {
         providerId: event.providerId,
         sessionId: event.sessionId,
@@ -399,11 +369,10 @@ async function dispatchRuntimeEvent(event: RuntimeEvent, workspacePath?: string)
       });
     }
     if (event.mavenProfileTask) {
-      await emit("lsp://language-lifecycle", {
+      await emit("lsp://maven-profile-task", {
         providerId: event.providerId,
         sessionId: event.sessionId,
         workspacePath,
-        phase: event.mavenProfileTask === "running" ? "profileApplying" : "serviceReady",
         status: event.mavenProfileTask,
       });
     }

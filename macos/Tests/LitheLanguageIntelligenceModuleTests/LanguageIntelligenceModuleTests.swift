@@ -148,6 +148,31 @@ struct LanguageIntelligenceModuleTests {
     }
 
     @Test
+    func mavenResultsResetOnTaskStartAndRejectStoppedSessionCallbacks() throws {
+        let root = URL(fileURLWithPath: "/workspace/java", isDirectory: true)
+        let source = root.appendingPathComponent("Main.java")
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: source))
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)]
+        )
+        defer { manager.stopLanguageServer(providerID: "java") }
+        try manager.synchronizeLanguageServer(for: source, text: "class Main {}", rootURL: root)
+        let failed = MavenProfileProjectResult(projectURI: URL(string: "file:///common-a")!, status: "failed")
+        session.onMavenProfileProject?(failed)
+        #expect(manager.mavenProfileProjectResults.count == 1)
+        session.onMavenProfileTask?("running")
+        #expect(manager.mavenProfileProjectResults.isEmpty)
+        session.onMavenProfileProject?(MavenProfileProjectResult(projectURI: failed.projectURI, status: "running"))
+        #expect(manager.mavenProfileProjectResults[failed.projectURI]?.status == "running")
+        let oldCallback = session.onMavenProfileProject
+        manager.stopLanguageServer(providerID: "java")
+        oldCallback?(failed)
+        #expect(manager.mavenProfileProjectResults.isEmpty)
+    }
+
+    @Test
     func javaSessionReceivesTheCurrentMavenContext() throws {
         let root = URL(fileURLWithPath: "/workspace/java", isDirectory: true)
         let source = root.appendingPathComponent("src/Main.java")
@@ -928,6 +953,8 @@ private final class WorkspaceStateLanguageProviderRuntime: LanguageProviderRunti
 
 @MainActor
 private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
+    var onMavenProfileTask: ((String) -> Void)?
+    var onMavenProfileProject: ((MavenProfileProjectResult) -> Void)?
     var isRunning = false
     var javaTestRunnerURL: URL?
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)?

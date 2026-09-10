@@ -3,18 +3,6 @@ import Foundation
 import LitheCoreContracts
 import LitheModuleAPI
 
-private struct MavenProfileProjectPayload: Decodable {
-    let projectURI: String
-    let status: String
-    let errorDetails: String?
-
-    private enum CodingKeys: String, CodingKey {
-        case projectURI = "projectUri"
-        case status
-        case errorDetails
-    }
-}
-
 package enum LanguageToolingSessionError: LocalizedError, Equatable, Sendable {
     case noProvider(fileExtension: String)
     case providerNotInstalled(String)
@@ -114,7 +102,6 @@ package final class LanguageToolingSessionManager: ObservableObject,
 
     package func retryMavenProfiles(providerID: String) {
         guard let session = languageServers[providerID] else { return }
-        mavenProfileProjectResults.removeAll()
         session.retryMavenProfiles()
     }
 
@@ -843,7 +830,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             )
         }
         clearDiagnostics(providerID: providerID)
-        mavenProfileProjectResults.removeAll()
+        if providerID == "java" { mavenProfileProjectResults.removeAll() }
         languageServerSessionIdentities[providerID] = nil
         languageServers.removeValue(forKey: providerID)?.stop()
         languageServerRoots[providerID] = nil
@@ -1397,6 +1384,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
         stop: Bool
     ) {
         guard languageServerSessionIdentities[providerID] == sessionIdentity else { return }
+        if providerID == "java" { mavenProfileProjectResults.removeAll() }
         clearDiagnostics(providerID: providerID)
         languageServerSessionIdentities[providerID] = nil
         let session = languageServers.removeValue(forKey: providerID)
@@ -1622,19 +1610,17 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 self.languageServerInfos[providerID] = info
             }
         }
+        session.onMavenProfileTask = { [weak self] status in
+            guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
+            if status == "running" { self.mavenProfileProjectResults.removeAll() }
+        }
+        session.onMavenProfileProject = { [weak self] result in
+            guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
+            self.mavenProfileProjectResults[result.projectURI] = result
+        }
         session.onLog = { [weak self] level, message, detail, operationID in
-            if message == "Maven profile project update completed",
-               let data = detail?.data(using: .utf8),
-               let payload = try? JSONDecoder().decode(MavenProfileProjectPayload.self, from: data),
-               let uri = URL(string: payload.projectURI)
-            {
-                self?.mavenProfileProjectResults[uri] = MavenProfileProjectResult(
-                    projectURI: uri,
-                    status: payload.status,
-                    errorDetails: payload.errorDetails
-                )
-            }
-            self?.recordLanguageServerLog(
+            guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
+            self.recordLanguageServerLog(
                 providerID: providerID,
                 operationID: operationID,
                 level: level,

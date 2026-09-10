@@ -537,6 +537,8 @@ package struct LanguageServerCodeAction: Identifiable, Equatable, Sendable {
 
 @MainActor
 package protocol LanguageServerSession: AnyObject {
+    var onMavenProfileTask: ((String) -> Void)? { get set }
+    var onMavenProfileProject: ((MavenProfileProjectResult) -> Void)? { get set }
     var isRunning: Bool { get }
     /// Packaged Java Test runner, if this JDT LS session was launched with one.
     var javaTestRunnerURL: URL? { get }
@@ -631,6 +633,14 @@ package protocol LanguageServerSession: AnyObject {
 }
 
 package extension LanguageServerSession {
+    var onMavenProfileTask: ((String) -> Void)? {
+        get { nil }
+        set {}
+    }
+    var onMavenProfileProject: ((MavenProfileProjectResult) -> Void)? {
+        get { nil }
+        set {}
+    }
     func retryMavenProfiles() {}
 
     func start(

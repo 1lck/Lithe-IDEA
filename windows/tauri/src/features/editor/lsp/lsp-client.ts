@@ -6,6 +6,7 @@ import {
 } from "@/platform/lsp-core-adapter";
 import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
+import { presentMavenProfileTask } from "./maven-profile-task";
 import type {
   CompletionItem,
   Hover,
@@ -570,20 +571,23 @@ export class LspClient {
   }
 
   private async setupLanguageLifecycleListener() {
-    const lifecycleToastId = "java-language-lifecycle";
     try {
       await listen<{ sessionId?: string; phase?: import("./stores/lsp.store").LanguageLifecyclePhase; status?: string }>(
         "lsp://language-lifecycle",
         ({ payload }) => {
           if (!payload.sessionId || !payload.phase) return;
+          const lifecycleToastId = `java-language-lifecycle:${payload.sessionId}`;
           useLspStore.getState().actions.updateLanguageLifecycle(payload.sessionId, payload.phase);
+          if (payload.phase === "stopped" || payload.phase === "failed") {
+            useLspStore.getState().actions.clearMavenProfileProjects(payload.sessionId);
+            toast.dismiss(`java-maven-profiles:${payload.sessionId}`);
+            toast.dismiss(lifecycleToastId);
+            return;
+          }
           if (payload.phase === "projectImporting") {
             toast.loading("Language service connected; importing project", {
               id: lifecycleToastId,
             });
-          } else if (payload.phase === "profileApplying" && payload.status !== "partiallySucceeded") {
-            useLspStore.getState().actions.clearMavenProfileProjects();
-            toast.loading("Applying Maven configuration", { id: lifecycleToastId });
           } else if (payload.phase === "fullyReady") {
             toast.success("Java language service is ready", {
               id: lifecycleToastId,
@@ -597,28 +601,22 @@ export class LspClient {
           }
         },
       );
+      await listen<{ sessionId: string; status: string }>(
+        "lsp://maven-profile-task",
+        ({ payload }) => {
+          if (!payload.sessionId) return;
+          presentMavenProfileTask(payload, {
+            toast,
+            clearProjects: (sessionId) => useLspStore.getState().actions.clearMavenProfileProjects(sessionId),
+            retry: (sessionId) => invoke("lsp_retry_maven_profiles", { sessionId }),
+          });
+        },
+      );
       await listen<import("./stores/lsp.store").MavenProfileProjectResult & { workspacePath?: string; sessionId?: string }>(
         "lsp://maven-profile-project",
         ({ payload }) => {
-          if (!payload?.projectUri) return;
+          if (!payload?.projectUri || !payload.sessionId) return;
           useLspStore.getState().actions.recordMavenProfileProject(payload);
-          if (payload.status === "failed" || payload.status === "timedOut") {
-            toast.warning("Some Maven modules failed to update; the language service remains available", {
-              id: lifecycleToastId,
-              duration: 8000,
-              action: {
-                label: "Retry",
-                onClick: () => {
-                  const workspacePath = payload.workspacePath;
-                  if (payload.sessionId) {
-                    void invoke("lsp_retry_maven_profiles", { sessionId: payload.sessionId });
-                  } else if (workspacePath) {
-                    void invoke("lsp_retry_maven_profiles", { workspacePath, languageId: "java" });
-                  }
-                },
-              },
-            });
-          }
         },
       );
     } catch (error) {

@@ -152,11 +152,12 @@ const executeCore = mock(
                       type: "log",
                       level: "error",
                       message: "Maven profile project update completed",
-                      detail: JSON.stringify({
+                      mavenProfileProject: {
                         projectUri: "file:///C:/work/module-a",
                         status: "failed",
                         errorDetails: "profile resolution failed",
-                      }),
+                      },
+                      mavenProfileTask: "partiallySucceeded",
                       providerId: "java",
                       sessionId,
                     },
@@ -525,6 +526,12 @@ describe("Rust Core LSP adapter failures", () => {
       projectUri: "file:///C:/work/module-a",
       status: "failed",
       errorDetails: "profile resolution failed",
+    });
+    expect(emit).toHaveBeenCalledWith("lsp://maven-profile-task", {
+      providerId: "java",
+      sessionId: "java-session",
+      workspacePath: "C:/work",
+      status: "partiallySucceeded",
     });
   });
 

@@ -492,6 +492,10 @@ struct SessionState {
     maven_profile_queue: VecDeque<Value>,
     maven_profile_deadline: Option<Instant>,
     maven_profile_applied_fingerprint: Option<String>,
+    // Request IDs retain their owning task generation until a terminal response
+    // arrives, including responses to advisory cancellation after a timeout.
+    maven_profile_generation: u64,
+    maven_profile_request_generations: BTreeMap<String, u64>,
 }
 
 struct RuntimeSession {
@@ -553,27 +557,43 @@ pub fn stop_server(request: SessionRequest) -> Result<(), CoreError> {
 /// Retries the selected Maven profile application without restarting JDTLS.
 pub fn retry_maven_profiles(request: SessionRequest) -> Result<(), CoreError> {
     let session = engine().session(&request.session_id)?;
-    let state = session.lock_state()?;
-    if session.provider_id != "java" || state.lifecycle != LspLifecycleState::Ready {
-        return Err(CoreError::new(
-            ErrorCode::InvalidRequest,
-            "Maven profile retry requires a ready Java language session.",
-        ));
+    session.retry_maven_profiles()
+}
+
+impl RuntimeSession {
+    fn retry_maven_profiles(&self) -> Result<(), CoreError> {
+        let outbound_order = self.lock_outbound_order()?;
+        let state = self.lock_state()?;
+        if self.provider_id != "java" || state.lifecycle != LspLifecycleState::Ready {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Maven profile retry requires a ready Java language session.",
+            ));
+        }
+        if state.maven_profile_status == MavenProfileTaskStatus::Running {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Maven profile application is already running.",
+            ));
+        }
+        if state
+            .pending
+            .values()
+            .any(|pending| pending.kind == PendingKind::JdtMavenProfiles)
+        {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Previous Maven requests are still stopping. Retry after they finish, or restart the Java language session.",
+            ));
+        }
+        drop(state);
+        self.lock_state()?.maven_profile_applied_fingerprint = None;
+        let (messages, pending) = self.maven_profile_requests()?;
+        if pending {
+            self.send_messages_or_fail(&outbound_order, messages, "mavenProfileRetry")?;
+        }
+        Ok(())
     }
-    if state.maven_profile_status == MavenProfileTaskStatus::Running {
-        return Err(CoreError::new(
-            ErrorCode::InvalidRequest,
-            "Maven profile application is already running.",
-        ));
-    }
-    drop(state);
-    session.lock_state()?.maven_profile_applied_fingerprint = None;
-    let outbound_order = session.lock_outbound_order()?;
-    let (messages, pending) = session.maven_profile_requests()?;
-    if pending {
-        session.send_messages_or_fail(&outbound_order, messages, "mavenProfileRetry")?;
-    }
-    Ok(())
 }
 
 /// Opens or replaces the synchronized contents of one document.
@@ -939,6 +959,8 @@ impl LspEngine {
                 maven_profile_queue: VecDeque::new(),
                 maven_profile_deadline: None,
                 maven_profile_applied_fingerprint: None,
+                maven_profile_generation: 0,
+                maven_profile_request_generations: BTreeMap::new(),
             }),
             event_signal: Condvar::new(),
             process: process.handle,
@@ -1545,6 +1567,7 @@ impl RuntimeSession {
                 for id in cancelled_maven_ids {
                     state.pending.remove(&id);
                     state.client.pending_requests.remove(&id);
+                    state.maven_profile_request_generations.remove(&id);
                 }
                 push_log_event(
                     self,
@@ -2091,6 +2114,13 @@ impl RuntimeSession {
                         .get("error")
                         .map(|_| "Maven profile project update failed.".to_string());
                     let request_key = response_id.as_ref().cloned().unwrap_or_default();
+                    let response_generation =
+                        state.maven_profile_request_generations.remove(&request_key);
+                    if response_generation != Some(state.maven_profile_generation)
+                        || state.maven_profile_status != MavenProfileTaskStatus::Running
+                    {
+                        return Ok(());
+                    }
                     let mut completed_result = None;
                     if let Some(result) = state.maven_profile_results.get_mut(&request_key) {
                         result.status = if server_error.is_some() {
@@ -2153,6 +2183,10 @@ impl RuntimeSession {
                                 deadline: next_deadline,
                             },
                         );
+                        let generation = state.maven_profile_generation;
+                        state
+                            .maven_profile_request_generations
+                            .insert(next_id.clone(), generation);
                         if let Some(uri) = project_uri {
                             if let Some((queued_id, _)) = state
                                 .maven_profile_results
@@ -2175,15 +2209,6 @@ impl RuntimeSession {
                             push_maven_profile_project_event(self, &mut state, project_result);
                         }
                         outbound.extend(response.messages);
-                    }
-                    if server_error.is_some() && state.lifecycle == LspLifecycleState::Initializing
-                    {
-                        // A failed module must not hold the whole session behind
-                        // the profile barrier; remaining queued updates continue
-                        // in the background while the verified JDTLS service is usable.
-                        transition_locked(self, &mut state, LspLifecycleState::Ready, None);
-                        let capabilities = state.client.server_capabilities.clone();
-                        push_features_event(self, &mut state, capabilities);
                     }
                     if !state
                         .pending
@@ -2427,22 +2452,6 @@ impl RuntimeSession {
             }
             outbound.extend(profile_requests);
         }
-        if !service_ready
-            && matches!(
-                pending_before.as_ref().map(|pending| pending.kind),
-                Some(PendingKind::JdtMavenProfiles)
-            )
-        {
-            let state = self.lock_state()?;
-            if !state
-                .pending
-                .values()
-                .any(|pending| pending.kind == PendingKind::JdtMavenProfiles)
-                && state.maven_profile_queue.is_empty()
-            {
-                service_ready = true;
-            }
-        }
         self.send_messages_or_fail(&outbound_order, outbound, "serverResponse")?;
         if service_ready {
             let queued_messages = {
@@ -2552,6 +2561,8 @@ impl RuntimeSession {
             .extend(requests.iter().skip(MAX_IN_FLIGHT).cloned());
         state.maven_profile_status = MavenProfileTaskStatus::Running;
         push_maven_profile_task_event(self, &mut state, MavenProfileTaskStatus::Running);
+        state.maven_profile_generation = state.maven_profile_generation.wrapping_add(1);
+        state.maven_profile_request_generations.clear();
         state.maven_profile_results.clear();
         // Register queued projects up front so a task timeout still emits a
         // terminal result for every project, not only the first batch.
@@ -2596,6 +2607,10 @@ impl RuntimeSession {
                     deadline,
                 },
             );
+            let generation = state.maven_profile_generation;
+            state
+                .maven_profile_request_generations
+                .insert(request_id.clone(), generation);
             if let Some(uri) = project_uri {
                 let project_result = MavenProfileProjectResult {
                     project_uri: uri,
@@ -2630,7 +2645,6 @@ impl RuntimeSession {
         let mut initialize_timeout = false;
         let mut service_ready_timeout = None;
         let mut maven_context_timeout = false;
-        let mut timeout_queued_messages = Vec::new();
         let mut shutdown_timeout = false;
         if let Ok(mut state) = self.lock_state() {
             if state.lifecycle == LspLifecycleState::Initializing
@@ -2704,7 +2718,9 @@ impl RuntimeSession {
                 .pending
                 .iter()
                 .filter(|(_, pending)| {
-                    pending.kind == PendingKind::JdtMavenProfiles && now >= pending.deadline
+                    state.maven_profile_status == MavenProfileTaskStatus::Running
+                        && pending.kind == PendingKind::JdtMavenProfiles
+                        && now >= pending.deadline
                 })
                 .map(|(id, _)| id.clone())
                 .collect();
@@ -2770,14 +2786,10 @@ impl RuntimeSession {
                 let task_status = state.maven_profile_status;
                 push_maven_profile_task_event(self, &mut state, task_status);
                 state.maven_profile_applied_fingerprint = None;
-                if state.lifecycle == LspLifecycleState::Initializing {
-                    timeout_queued_messages =
-                        flush_queued_documents_locked(&mut state).unwrap_or_default();
-                }
                 for request_id in expired_maven_requests {
-                    cancellations.push(request_id.clone());
-                    state.pending.remove(&request_id);
-                    state.client.pending_requests.remove(&request_id);
+                    // Cancellation is advisory. Retain the in-flight slot until
+                    // the server responds so retry cannot overlap the old batch.
+                    cancellations.push(request_id);
                 }
             }
             if state.lifecycle == LspLifecycleState::Stopping
@@ -2825,16 +2837,6 @@ impl RuntimeSession {
                     "JDT LS Maven profile application timed out; session remains available",
                     None,
                 );
-                if state.lifecycle == LspLifecycleState::Initializing {
-                    transition_locked(self, &mut state, LspLifecycleState::Ready, None);
-                    let capabilities = state.client.server_capabilities.clone();
-                    push_features_event(self, &mut state, capabilities);
-                }
-            }
-            if !timeout_queued_messages.is_empty() {
-                if let Ok(outbound_order) = self.lock_outbound_order() {
-                    let _ = self.send_messages(&outbound_order, timeout_queued_messages);
-                }
             }
             if !cancellations.is_empty() {
                 let messages = cancellations
@@ -4540,6 +4542,96 @@ mod tests {
         let redacted = redacted_project_uri("file:///Users/alice/workspace/module-a/");
         assert!(redacted.starts_with("file:///module-a-"));
         assert!(!redacted.contains("alice"));
+        assert_ne!(
+            redacted_project_uri("file:///workspace/service-a/common/"),
+            redacted_project_uri("file:///workspace/service-b/common/")
+        );
+    }
+
+    #[test]
+    fn maven_profile_retry_waits_for_ready_and_cancelled_responses() {
+        let workspace = TemporaryMavenWorkspace::recursive("maven-retry");
+        let mut modules = String::new();
+        for index in 0..9 {
+            let name = format!("module-{index}");
+            let directory = workspace.root.join("reactor").join(&name);
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::write(
+                directory.join("pom.xml"),
+                format!("<project><artifactId>{name}</artifactId></project>"),
+            )
+            .unwrap();
+            modules.push_str(&format!("<module>{name}</module>"));
+        }
+        std::fs::write(
+            workspace.root.join("reactor/pom.xml"),
+            format!(
+                "<project><artifactId>reactor</artifactId><modules>{modules}</modules></project>"
+            ),
+        )
+        .unwrap();
+        let mut harness = Harness::start(|request| workspace.configure(request));
+        harness.server.complete_initialize(ready_capabilities());
+        assert!(harness.server.await_notification("initialized"));
+        let session = harness.session();
+        assert!(session.retry_maven_profiles().is_err());
+        assert_eq!(harness.snapshot().state, LspLifecycleState::Initializing);
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "method": "language/status",
+            "params": { "type": "ServiceReady" }
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+        let ids: Vec<_> = (0..8)
+            .map(|index| {
+                harness
+                    .server
+                    .await_request_at("workspace/executeCommand", index)
+                    .unwrap()
+            })
+            .collect();
+        assert!(session.retry_maven_profiles().is_err());
+        {
+            let mut state = session.lock_state().unwrap();
+            for pending in state.pending.values_mut() {
+                if pending.kind == PendingKind::JdtMavenProfiles {
+                    pending.deadline = Instant::now();
+                }
+            }
+        }
+        session.expire_deadlines();
+        assert!(harness.server.await_notification("$/cancelRequest"));
+        assert!(session.retry_maven_profiles().is_err());
+        let cancelled_ids: Vec<_> = harness
+            .server
+            .messages()
+            .iter()
+            .filter(|message| message["method"] == "$/cancelRequest")
+            .map(|message| message["params"]["id"].clone())
+            .collect();
+        assert_eq!(cancelled_ids.len(), 8);
+        assert!(ids.iter().all(|id| cancelled_ids.contains(&json!(id))));
+        // Feed terminal responses synchronously: cancellation must keep every
+        // old slot occupied until its response arrives, without updating results.
+        for (index, id) in ids.iter().enumerate() {
+            session.handle_server_message(json!({
+                "jsonrpc": "2.0", "id": id, "error": { "code": -32800, "message": "cancelled" }
+            }).to_string()).unwrap();
+            if index < ids.len() - 1 {
+                assert!(session.retry_maven_profiles().is_err());
+            }
+        }
+        assert!(session
+            .lock_state()
+            .unwrap()
+            .maven_profile_results
+            .values()
+            .all(|result| result.status == MavenProfileTaskStatus::TimedOut));
+        session.retry_maven_profiles().unwrap();
+        assert!(harness
+            .server
+            .await_request_at("workspace/executeCommand", 15)
+            .is_some());
+        assert_eq!(harness.snapshot().state, LspLifecycleState::Ready);
     }
 
     #[test]
