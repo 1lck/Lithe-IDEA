@@ -1,14 +1,14 @@
-import { beforeEach, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
+import * as repoApi from "../api/git-repo-api";
 
 const discoverWorkspaceRepositories = mock(async (): Promise<string[]> => ["C:/repo"]);
-mock.module("../api/git-repo-api", () => ({
-  discoverWorkspaceRepositories,
-  normalizeRepositoryPath: (path: string) => path.replace(/\\/g, "/"),
-}));
 const { createGitRepositoryStore } = await import("./git-repository.store");
+let discoverySpy: ReturnType<typeof spyOn<typeof repoApi, "discoverWorkspaceRepositories">>;
 beforeEach(() => {
   discoverWorkspaceRepositories.mockReset().mockImplementation(async () => ["C:/repo"]);
+  discoverySpy = spyOn(repoApi, "discoverWorkspaceRepositories").mockImplementation(discoverWorkspaceRepositories);
 });
+afterEach(() => discoverySpy.mockRestore());
 
 test("unchanged rescans do not notify repository-list consumers", async () => {
   const store = createGitRepositoryStore();

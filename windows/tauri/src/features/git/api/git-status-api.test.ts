@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import * as tauriCore from "@/platform/tauri-core";
 
 let unavailableRepo: string | null = null;
 let statusFailure: Error | null = null;
@@ -28,7 +29,7 @@ const invoke = mock(async (command: string, args?: Record<string, unknown>): Pro
   return null;
 });
 
-mock.module("@/platform/tauri-core", () => ({ invoke }));
+let invokeSpy: ReturnType<typeof spyOn<typeof tauriCore, "invoke">>;
 
 const {
   addPathsToGitignore,
@@ -41,10 +42,12 @@ const {
 const { getWorkingTreePathDiff } = await import("./git-diff-api");
 
 beforeEach(() => {
+  invokeSpy = spyOn(tauriCore, "invoke").mockImplementation(invoke as typeof tauriCore.invoke);
   invoke.mockClear();
   unavailableRepo = null;
   statusFailure = null;
 });
+afterEach(() => invokeSpy.mockRestore());
 
 describe("Git status batch mutations", () => {
   const expectSingleGitWrite = () => {

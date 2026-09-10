@@ -1,11 +1,12 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { GitCommit, GitHistorySnapshot, GitStatus } from "../types/git.types";
+import * as historyApi from "../api/git-commits-api";
 
 const getGitHistory = mock(
-  async (_repoPath: string, _limit: number): Promise<GitHistorySnapshot | null> => null,
+  async (_repoPath: string, _limit = 50): Promise<GitHistorySnapshot | null> => null,
 );
 
-mock.module("../api/git-commits-api", () => ({ getGitHistory }));
+let historySpy: ReturnType<typeof spyOn<typeof historyApi, "getGitHistory">>;
 
 const { createGitStore } = await import("./git.store");
 
@@ -41,7 +42,9 @@ const loadInitialHistory = (
 
 beforeEach(() => {
   getGitHistory.mockReset();
+  historySpy = spyOn(historyApi, "getGitHistory").mockImplementation(getGitHistory);
 });
+afterEach(() => historySpy.mockRestore());
 
 describe("Git history pagination", () => {
   test("requests a larger cumulative snapshot instead of an ignored offset", async () => {

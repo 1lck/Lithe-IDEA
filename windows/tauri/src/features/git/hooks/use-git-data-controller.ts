@@ -33,6 +33,10 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
   const autoRefreshGitStatus = useSettingsStore((state) => state.settings.autoRefreshGitStatus);
   const workspaceFolders = useFileSystemStore((state) => state.workspaceFolders);
   const [failedRepoPath, setFailedRepoPath] = useState<string | null>(null);
+  const [failedHistoryRepoPath, setFailedHistoryRepoPath] = useState<string | null>(null);
+  const hasLoadError = activeRepoPath !== null && (
+    failedRepoPath === activeRepoPath || failedHistoryRepoPath === activeRepoPath
+  );
   const requestIdRef = useRef(0);
   const refreshPromisesRef = useRef(new Map<string, Promise<void>>());
   const wasActiveRef = useRef(isActive);
@@ -74,7 +78,8 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
       // History can fail independently (for example before the first commit).
       // Keep its last snapshot while still allowing working-tree status to load.
       const previous = useGitStore.getState();
-      setFailedRepoPath(history ? null : repoPath);
+      setFailedRepoPath(null);
+      setFailedHistoryRepoPath(history ? null : repoPath);
       gitActions.loadFreshGitData({
         gitStatus: status,
         commits: history?.commits ?? previous.commits,
@@ -87,6 +92,8 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
     } catch (error) {
       if (requestId === requestIdRef.current) {
         setFailedRepoPath(repoPath);
+        // No part of the initial snapshot was committed after a failed batch.
+        setFailedHistoryRepoPath(repoPath);
         console.error("Failed to load initial git data:", error);
       }
     } finally {
@@ -141,7 +148,9 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
           }
 
           if (!status) throw new Error("Git status query returned no snapshot");
-          setFailedRepoPath(shouldRefreshHistory && !history ? repoPath : null);
+          setFailedRepoPath(null);
+          // A working-tree-only refresh cannot recover a failed history query.
+          if (shouldRefreshHistory) setFailedHistoryRepoPath(history ? null : repoPath);
           gitActions.refreshGitData({
             gitStatus: status,
             branches,
@@ -161,6 +170,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
         } catch (error) {
           if (requestId === requestIdRef.current) {
             setFailedRepoPath(repoPath);
+            if (!scopes?.length || scopes.includes("history")) setFailedHistoryRepoPath(repoPath);
             console.error("Failed to refresh git data:", error);
           }
         }
@@ -178,14 +188,14 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
 
   const refresh = useCallback(async () => {
     // An explicit retry must not reuse a cached negative repository discovery.
-    if (failedRepoPath && failedRepoPath === activeRepoPath) clearRepositoryDiscoveryCache();
+    if (hasLoadError) clearRepositoryDiscoveryCache();
     gitActions.setIsRefreshing(true);
     try {
       await Promise.all([refreshGitData(), refreshWorkspaceRepositories()]);
     } finally {
       gitActions.setIsRefreshing(false);
     }
-  }, [activeRepoPath, failedRepoPath, gitActions, refreshGitData, refreshWorkspaceRepositories]);
+  }, [gitActions, hasLoadError, refreshGitData, refreshWorkspaceRepositories]);
 
   useEffect(() => {
     const workspaceRootPaths = normalizeWorkspaceFolders(workspacePath ?? undefined, workspaceFolders).map(
@@ -197,6 +207,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
   useEffect(() => {
     requestIdRef.current += 1;
     setFailedRepoPath(null);
+    setFailedHistoryRepoPath(null);
     refreshPromisesRef.current.clear();
     void loadInitialGitData();
 
@@ -233,7 +244,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
 
   return {
     activeRepoPath,
-    hasLoadError: failedRepoPath !== null && failedRepoPath === activeRepoPath,
+    hasLoadError,
     refreshGitData,
     refresh,
   };
