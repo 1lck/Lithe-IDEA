@@ -21,7 +21,6 @@ import Command, {
   CommandList,
 } from "@/ui/command";
 import Input from "@/ui/input";
-import { cn } from "@/utils/cn";
 
 interface ProviderApiKeyCommandProps {
   isOpen: boolean;
@@ -246,10 +245,13 @@ function ProviderApiKeyCommandContent({
                   setStatus("idle");
                   setErrorMessage("");
                 }}
+                onBlur={() => {
+                  void handleSave();
+                }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
                     event.preventDefault();
-                    void handleSave();
+                    event.currentTarget.blur();
                   }
                 }}
                 placeholder={placeholder}
@@ -295,15 +297,6 @@ function ProviderApiKeyCommandContent({
                       <span>{t("ai.remove")}</span>
                     </Button>
                   )}
-                  <Button
-                    type="button"
-                    variant="accent"
-                    onClick={() => void handleSave()}
-                    disabled={!apiKey.trim() || isValidating || apiKey.startsWith("•")}
-                    className={cn(isValidating && "opacity-70")}
-                  >
-                    <span>{isValidating ? t("ai.validating") : t("ai.saveKey")}</span>
-                  </Button>
                 </div>
               </div>
             </div>
