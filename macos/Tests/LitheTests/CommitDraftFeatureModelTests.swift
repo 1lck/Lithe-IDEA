@@ -4,6 +4,22 @@ import Testing
 @Suite("Commit draft")
 @MainActor
 struct CommitDraftFeatureModelTests {
+    @Test
+    func undoRestoresTheFullMessageOnlyIntoAnEmptyDraft() {
+        let draft = CommitDraftFeatureModel()
+        draft.amend = true
+        draft.prepareForUndoneCommit(message: "Title\n\nOriginal description\n")
+        #expect(draft.message == "Title\n\nOriginal description\n")
+        #expect(!draft.amend)
+        #expect(draft.commitEditorRequestVersion == 1)
+        draft.message = "An existing draft"
+        draft.amend = true
+        draft.prepareForUndoneCommit(message: "Another undone message")
+        #expect(draft.message == "An existing draft")
+        #expect(!draft.amend)
+        #expect(draft.commitEditorRequestVersion == 2)
+    }
+
     @Test(arguments: ["", " \n "])
     func generationFillsAnEmptyDraft(_ initial: String) async throws {
         let draft = CommitDraftFeatureModel()

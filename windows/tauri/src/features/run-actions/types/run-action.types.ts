@@ -2,6 +2,7 @@ import type { CodeLensItem } from "@/features/editor/lsp/use-code-lens";
 
 export type RunActionSource =
   | "custom"
+  | "maven"
   | "package"
   | "cargo"
   | "make"
@@ -19,6 +20,10 @@ export interface RunActionItem {
   sourceLabel: string;
   workingDirectory?: string;
   codeLens?: CodeLensItem;
+  mavenTest?: {
+    filePath: string;
+    method?: string;
+  };
 }
 
 export interface CustomRunAction {

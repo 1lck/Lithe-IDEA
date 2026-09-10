@@ -39,6 +39,7 @@ final class AppServices {
     let secureStore: any SecureStore
     let databaseSecureStore: any SecureStore
     let discourseCommunityService: DiscourseCommunityService
+    let diagnosticsExportService: DiagnosticsExportService
     let credentialResolver: any AIProviderCredentialResolver
     let aiConfigurationSources: [any AIConfigurationSource]
     let recentProjectsStore: RecentProjectsStore
@@ -75,6 +76,7 @@ final class AppServices {
         secureStore: any SecureStore,
         databaseSecureStore: any SecureStore,
         discourseCommunityService: DiscourseCommunityService,
+        diagnosticsExportService: DiagnosticsExportService,
         credentialResolver: any AIProviderCredentialResolver,
         aiConfigurationSources: [any AIConfigurationSource],
         recentProjectsStore: RecentProjectsStore,
@@ -119,6 +121,7 @@ final class AppServices {
         self.secureStore = secureStore
         self.databaseSecureStore = databaseSecureStore
         self.discourseCommunityService = discourseCommunityService
+        self.diagnosticsExportService = diagnosticsExportService
         self.credentialResolver = credentialResolver
         self.aiConfigurationSources = aiConfigurationSources
         self.recentProjectsStore = recentProjectsStore

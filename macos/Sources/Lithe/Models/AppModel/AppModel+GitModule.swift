@@ -29,6 +29,11 @@ extension AppModel {
                 },
                 operationEnded: { [weak self] in
                     await self?.workspaceFeature.endGitOperationFreeze()
+                },
+                commitUndone: { [weak self] message in
+                    guard let self else { return }
+                    self.commitDraftFeature.prepareForUndoneCommit(message: message)
+                    self.selectedSidebar = .changes
                 }
             )
         )

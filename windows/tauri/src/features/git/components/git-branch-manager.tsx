@@ -36,7 +36,8 @@ import {
 } from "@/ui/dropdown";
 import { resolveRepositoryPath } from "../api/git-repo-api";
 import { createStash } from "../api/git-stash-api";
-import { addWorktree, getWorktrees } from "../api/git-worktrees-api";
+import { getWorktrees } from "../api/git-worktrees-api";
+import { showGitWorktreeDialog } from "../services/git-worktree-dialog-service";
 import { useRepositoryStore } from "../stores/git-repository.store";
 import { useGitBlameStore } from "../stores/git-blame.store";
 import type { GitWorktree } from "../types/git.types";
@@ -465,20 +466,9 @@ const GitBranchManager = ({
   };
 
   const handleCreateWorktree = async (worktreePath: string) => {
-    if (!repoPath || !worktreePath.trim()) return;
-
-    setIsLoadingWorktrees(true);
-    try {
-      const success = await addWorktree(repoPath, worktreePath.trim());
-      if (!success) return;
-
-      await loadWorktrees();
-      setBranchQuery("");
-      setIsDropdownOpen(false);
-      onWorktreeChange?.(worktreePath.trim());
-    } finally {
-      setIsLoadingWorktrees(false);
-    }
+    if (!repoPath) return;
+    setIsDropdownOpen(false);
+    await showGitWorktreeDialog(repoPath, { destination: worktreePath.trim() || undefined });
   };
 
   const handleSelectRepositoryPath = (nextRepoPath: string) => {
@@ -821,11 +811,11 @@ const GitBranchManager = ({
             <>
               <CommandFooterAction
                 type="button"
-                onClick={() => createWorktreePath && void handleCreateWorktree(createWorktreePath)}
-                disabled={!createWorktreePath || isLoadingWorktrees}
+                onClick={() => void handleCreateWorktree(createWorktreePath ?? "")}
+                disabled={isLoadingWorktrees}
               >
                 <Plus />
-                {isLoadingWorktrees ? t("git.adding") : t("git.add")}
+                {t("git.worktreeDialog.manage")}
               </CommandFooterAction>
               <CommandFooterAction
                 type="button"

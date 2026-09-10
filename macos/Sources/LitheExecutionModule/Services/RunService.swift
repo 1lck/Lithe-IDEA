@@ -165,8 +165,6 @@ package final class RunService: ObservableObject {
         return roots
     }
 
-    /// Loads run state for a workspace.
-    ///
     /// Applies an accepted Maven model without replacing the file snapshot or
     /// reloading run configuration from disk. The execution graph owns delivery.
     package func acceptMavenProject(_ project: MavenProject, at workspace: URL) {
@@ -179,6 +177,8 @@ package final class RunService: ObservableObject {
         mavenProfiles = project.profiles
     }
 
+    /// Loads run state for a workspace.
+    ///
     /// `snapshotID` identifies the workspace snapshot `files` came from. Passing
     /// `nil` means no snapshot has been applied yet, which binds the service so
     /// existing configuration can be read while generation stays blocked.
