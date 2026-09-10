@@ -549,6 +549,12 @@ pub fn stop_server(request: SessionRequest) -> Result<(), CoreError> {
 /// Retries the selected Maven profile application without restarting JDTLS.
 pub fn retry_maven_profiles(request: SessionRequest) -> Result<(), CoreError> {
     let session = engine().session(&request.session_id)?;
+    if session.lock_state()?.maven_profile_status == MavenProfileTaskStatus::Running {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Maven profile application is already running.",
+        ));
+    }
     session.lock_state()?.maven_profile_applied_fingerprint = None;
     let outbound_order = session.lock_outbound_order()?;
     let (messages, pending) = session.maven_profile_requests()?;
@@ -2072,6 +2078,7 @@ impl RuntimeSession {
                         .get("error")
                         .map(|_| "Maven profile project update failed.".to_string());
                     let request_key = response_id.as_ref().cloned().unwrap_or_default();
+                    let mut completed_result = None;
                     if let Some(result) = state.maven_profile_results.get_mut(&request_key) {
                         result.status = if server_error.is_some() {
                             MavenProfileTaskStatus::Failed
@@ -2082,6 +2089,7 @@ impl RuntimeSession {
                         let project_uri = redacted_project_uri(&result.project_uri);
                         let status = result.status;
                         let error_details = result.error_details.clone();
+                        completed_result = Some(result.clone());
                         let detail = serde_json::to_string(&json!({
                             "projectUri": project_uri,
                             "status": status,
@@ -2099,6 +2107,9 @@ impl RuntimeSession {
                             "Maven profile project update completed",
                             detail,
                         );
+                    }
+                    if let Some(result) = completed_result {
+                        push_maven_profile_project_event(self, &mut state, result);
                     }
                     if let Some(params) = state.maven_profile_queue.pop_front() {
                         let project_uri = params
@@ -2140,14 +2151,15 @@ impl RuntimeSession {
                             {
                                 state.maven_profile_results.remove(&queued_id);
                             }
-                            state.maven_profile_results.insert(
-                                next_id,
-                                MavenProfileProjectResult {
-                                    project_uri: uri,
-                                    status: MavenProfileTaskStatus::Running,
-                                    error_details: None,
-                                },
-                            );
+                            let project_result = MavenProfileProjectResult {
+                                project_uri: uri,
+                                status: MavenProfileTaskStatus::Running,
+                                error_details: None,
+                            };
+                            state
+                                .maven_profile_results
+                                .insert(next_id, project_result.clone());
+                            push_maven_profile_project_event(self, &mut state, project_result);
                         }
                         outbound.extend(response.messages);
                     }
@@ -2569,14 +2581,15 @@ impl RuntimeSession {
                 },
             );
             if let Some(uri) = project_uri {
-                state.maven_profile_results.insert(
-                    request_id,
-                    MavenProfileProjectResult {
-                        project_uri: uri.to_string(),
-                        status: MavenProfileTaskStatus::Running,
-                        error_details: None,
-                    },
-                );
+                let project_result = MavenProfileProjectResult {
+                    project_uri: uri,
+                    status: MavenProfileTaskStatus::Running,
+                    error_details: None,
+                };
+                state
+                    .maven_profile_results
+                    .insert(request_id, project_result.clone());
+                push_maven_profile_project_event(self, &mut state, project_result);
             }
             messages.extend(response.messages);
         }
@@ -2710,6 +2723,15 @@ impl RuntimeSession {
                         "error",
                         "Maven profile project update completed",
                         detail,
+                    );
+                    push_maven_profile_project_event(
+                        self,
+                        &mut state,
+                        MavenProfileProjectResult {
+                            project_uri,
+                            status: MavenProfileTaskStatus::TimedOut,
+                            error_details,
+                        },
                     );
                 }
                 let succeeded = state
@@ -3617,6 +3639,44 @@ fn push_log_event(
             message: Some(message.to_string()),
             detail: detail.filter(|value| !value.is_empty()),
             maven_profile_project: None,
+        },
+    );
+}
+
+fn push_maven_profile_project_event(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    result: MavenProfileProjectResult,
+) {
+    let sequence = take_sequence(state);
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "log".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: None,
+            method: None,
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: None,
+            error: None,
+            capabilities: None,
+            server_info: None,
+            level: Some(
+                match result.status {
+                    MavenProfileTaskStatus::Succeeded => "info",
+                    _ => "error",
+                }
+                .to_string(),
+            ),
+            message: Some("Maven profile project update completed".to_string()),
+            detail: None,
+            maven_profile_project: Some(result),
         },
     );
 }

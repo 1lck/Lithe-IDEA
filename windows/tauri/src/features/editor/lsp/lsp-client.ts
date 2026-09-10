@@ -582,6 +582,7 @@ export class LspClient {
               id: lifecycleToastId,
             });
           } else if (payload.phase === "profileApplying" && payload.status !== "partiallySucceeded") {
+            useLspStore.getState().actions.clearMavenProfileProjects();
             toast.loading("Applying Maven configuration", { id: lifecycleToastId });
           } else if (payload.phase === "fullyReady") {
             toast.success("Java language service is ready", {

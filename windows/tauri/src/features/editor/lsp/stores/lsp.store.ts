@@ -42,6 +42,7 @@ interface LspState {
     markDocumentStateChanged: () => void;
     updateLanguageLifecycle: (sessionId: string, phase: LanguageLifecyclePhase) => void;
     recordMavenProfileProject: (result: MavenProfileProjectResult) => void;
+    clearMavenProfileProjects: () => void;
   };
 }
 
@@ -118,6 +119,11 @@ export const useLspStore = createSelectors(
               [result.projectUri]: result,
             },
           },
+        }));
+      },
+      clearMavenProfileProjects: () => {
+        set((state) => ({
+          lspStatus: { ...state.lspStatus, mavenProfileProjects: {} },
         }));
       },
     },
