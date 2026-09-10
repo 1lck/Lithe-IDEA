@@ -102,6 +102,46 @@ pub(crate) struct JdtMavenConfiguration {
     pub source_paths: Vec<String>,
 }
 
+/// Lifecycle of the post-ServiceReady Maven profile task.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum MavenProfileTaskStatus {
+    Idle,
+    Running,
+    PartiallySucceeded,
+    Succeeded,
+    Failed,
+    TimedOut,
+    Cancelled,
+}
+
+/// Stable result for one Maven project handled by the profile task.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MavenProfileProjectResult {
+    pub project_uri: String,
+    pub status: MavenProfileTaskStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_details: Option<String>,
+}
+
+/// Produces a stable digest for the inputs that affect Maven profile updates.
+/// The digest lets a warm session skip an identical update while retaining the
+/// explicit retry path for failed or cancelled tasks.
+pub(crate) fn maven_profile_fingerprint(
+    configuration: Option<&JdtMavenConfiguration>,
+) -> Option<String> {
+    let configuration = configuration?;
+    let payload = serde_json::to_vec(&json!({
+        "settingsPath": configuration.settings_path,
+        "profiles": configuration.profiles,
+        "projectUris": configuration.project_uris,
+        "sourcePaths": configuration.source_paths,
+    }))
+    .ok()?;
+    Some(format!("{:x}", Sha256::digest(payload)))
+}
+
 /// Platform-resolved files required to launch JDT LS without a shell wrapper.
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -314,9 +354,14 @@ pub(crate) fn maven_profile_update_requests(
         return Vec::new();
     };
     let profiles = configuration.profiles.join(",");
+    // Maven reactors can report the same project through both the root and a
+    // nested module scan. Preserve first-seen order while coalescing those
+    // duplicates so one project receives at most one update request.
+    let mut seen = std::collections::BTreeSet::new();
     configuration
         .project_uris
         .iter()
+        .filter(|uri| seen.insert(uri.as_str()))
         .map(|uri| {
             json!({
                 "command": "java.project.updateSettings",
@@ -940,6 +985,27 @@ fn hex_value(value: u8) -> Option<u8> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn maven_profile_project_results_have_stable_wire_shape() {
+        let result = MavenProfileProjectResult {
+            project_uri: "file:///workspace/module-a/".to_string(),
+            status: MavenProfileTaskStatus::PartiallySucceeded,
+            error_details: Some("profile update failed".to_string()),
+        };
+        assert_eq!(
+            serde_json::to_value(result).unwrap(),
+            json!({
+                "projectUri": "file:///workspace/module-a/",
+                "status": "partiallySucceeded",
+                "errorDetails": "profile update failed"
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(MavenProfileTaskStatus::TimedOut).unwrap(),
+            json!("timedOut")
+        );
+    }
+
     fn java_start_context() -> JdtStartContext {
         JdtStartContext {
             provider_id: "java".to_string(),
@@ -1394,6 +1460,27 @@ mod tests {
                 }),
             ]
         );
+
+        let mut duplicated = configuration.clone();
+        duplicated
+            .project_uris
+            .insert(1, duplicated.project_uris[0].clone());
+        let requests = maven_profile_update_requests(Some(&duplicated));
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[0]["arguments"][0], "file:///workspace/reactor/");
+    }
+
+    #[test]
+    fn maven_profile_fingerprint_changes_when_selected_inputs_change() {
+        let mut configuration = JdtMavenConfiguration {
+            settings_path: Some("/settings.xml".to_string()),
+            profiles: vec!["dev".to_string()],
+            project_uris: vec!["file:///workspace".to_string()],
+            source_paths: vec!["src/main/java".to_string()],
+        };
+        let first = maven_profile_fingerprint(Some(&configuration));
+        configuration.profiles.push("test".to_string());
+        assert_ne!(first, maven_profile_fingerprint(Some(&configuration)));
     }
 
     #[test]
