@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import Foundation
 import Testing
+import SwiftUI
 @testable import Lithe
 
 @Suite("Media document tabs")
@@ -188,6 +189,55 @@ struct MediaDocumentFeatureModelTests {
         #expect(image.size.width == 20)
         #expect(image.size.height == 30)
         #expect(NSImage(data: Data("not XML".utf8)) == nil)
+    }
+
+    @Test(arguments: [false, true])
+    func svgPreviewMountsImageAndKeepsEditorHeaderAtTop(split: Bool) async throws {
+        let appModel = makeAppModel()
+        let document = EditorDocument(
+            url: URL(fileURLWithPath: "/tmp/lithe-fixture/execute.svg"),
+            text: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\"><path d=\"M3 2L14 8L3 14Z\" fill=\"green\"/></svg>",
+            modificationDate: nil
+        )
+        let hosting = NSHostingView(rootView: VStack(spacing: 0) {
+            Text("Editor tabs").frame(height: 30)
+            if split {
+                SVGEditorSplitView(editor: Color.clear, document: document)
+            } else {
+                SVGPreviewView(document: document)
+            }
+        }.environmentObject(appModel))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        func imageView(in view: NSView) -> NSImageView? {
+            if let image = view as? NSImageView, image.image != nil { return image }
+            return view.subviews.lazy.compactMap { imageView(in: $0) }.first
+        }
+        let image = try #require(imageView(in: hosting), "Preview must mount a native image on its first layout")
+        #expect(image.image?.size == NSSize(width: 16, height: 16))
+        let scroll = try #require(image.enclosingScrollView)
+        #expect(scroll.bounds.height > 400, "Preview must fill the area below the editor tabs")
+        let source = document.text
+        var previousPixels = try #require(image.image?.tiffRepresentation)
+        for color in ["red", "blue"] {
+            document.applyLiveEditorText(source.replacingOccurrences(of: "green", with: color))
+            // The native image update is the observable rendering boundary. Bound
+            // polling by a monotonic deadline; no sleep is used to synchronize it.
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(2))
+            while imageView(in: hosting)?.image?.tiffRepresentation == previousPixels,
+                  clock.now < deadline {
+                await Task.yield()
+                hosting.layoutSubtreeIfNeeded()
+            }
+            let pixels = try #require(imageView(in: hosting)?.image?.tiffRepresentation)
+            #expect(pixels != previousPixels, "Successive unsaved edits must update the native image")
+            previousPixels = pixels
+        }
     }
 
     private func makeAppModel() -> AppModel {
