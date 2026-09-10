@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import MetalKit
 import SwiftTerm
 import LitheTerminalModule
 
@@ -47,6 +48,21 @@ final class LitheTerminalView: LocalProcessTerminalView {
         // Lithe the same workload shape while its paused MTKView remains
         // event-driven instead of running a continuous display loop.
         metalBufferingMode = .perRowPersistent
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hitView = super.hitTest(point)
+        // SwiftTerm's Metal surface only renders pixels. Returning it as the
+        // mouse target leaves keyboard focus in the previously active editor.
+        // Preserve interactive children such as the scrollbar and find field.
+        return hitView is MTKView ? self : hitView
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        // Reclaim input before SwiftTerm handles selection or mouse reporting,
+        // including when this persistent session has lost focus to an editor.
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
