@@ -32,7 +32,12 @@ struct SVGPreviewView: View {
     var body: some View {
         Group {
             if let media {
-                MediaViewerView(media: media, imageData: imageData, imageRevision: imageRevision)
+                MediaViewerView(
+                    media: media,
+                    imageData: imageData,
+                    imageRevision: imageRevision,
+                    showsFileActions: false
+                )
             }
         }
         .onAppear {

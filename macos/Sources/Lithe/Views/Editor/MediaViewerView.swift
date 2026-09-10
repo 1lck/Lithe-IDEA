@@ -7,6 +7,7 @@ struct MediaViewerView: View {
     let media: MediaDocument
     var imageData: Data? = nil
     var imageRevision: Int = 0
+    var showsFileActions = true
     private let imageContentPadding: CGFloat = 24
     @State private var imageScale: CGFloat?
     @State private var imageFitScale: CGFloat = 1
@@ -208,24 +209,26 @@ struct MediaViewerView: View {
                 .litheIconButton()
                 .help("Zoom in")
             }
-            Button("Open in Default App") {
-                model.openMediaInDefaultApplication(media)
+            if showsFileActions {
+                Button("Open in Default App") {
+                    model.openMediaInDefaultApplication(media)
+                }
+                .buttonStyle(LitheSecondaryButtonStyle())
+                Button {
+                    model.revealProjectItemInFinder(media.url)
+                } label: {
+                    Image(systemName: "folder")
+                }
+                .litheIconButton()
+                .help("Show in Finder")
+                Button {
+                    model.closeMediaDocument(media)
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .litheIconButton()
+                .help("Close")
             }
-            .buttonStyle(LitheSecondaryButtonStyle())
-            Button {
-                model.revealProjectItemInFinder(media.url)
-            } label: {
-                Image(systemName: "folder")
-            }
-            .litheIconButton()
-            .help("Show in Finder")
-            Button {
-                model.closeMediaDocument(media)
-            } label: {
-                Image(systemName: "xmark")
-            }
-            .litheIconButton()
-            .help("Close")
         }
         .padding(.horizontal, 12)
         .frame(height: 34)
