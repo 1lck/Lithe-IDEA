@@ -296,7 +296,11 @@ credential is passed to Core only for the duration of one command.
 `git.watchContext` accepts `{ "root": string }`. When `root` is not inside a
 Git repository, it returns `null`. Otherwise it returns
 `{ "repositoryRoot": string, "gitDirectory": string, "gitCommonDirectory": string }`;
-all three fields are absolute filesystem paths.
+all three fields are absolute filesystem paths. When a repository is present,
+Core also ensures built-in local exclude patterns, currently `.factorypath`,
+are recorded in the worktree-aware `info/exclude` file. That write does not
+edit `.gitignore`, does not move the generated files, and must not fail the
+watch-context command if the exclude file is not writable.
 
 `git.pullRequestContext` accepts `{ "root": string }` and returns
 `currentBranch`, `suggestedBaseBranch`, `suggestedPublishBranch`,
@@ -453,7 +457,9 @@ the legacy behavior of committing the existing index. `ignore` appends root-anch
 repository's top-level `.gitignore`; `exclude` appends the same patterns to the
 worktree-aware Git metadata path for `info/exclude`. Both ignore operations
 preserve existing content, escape Git pattern characters, de-duplicate rules,
-and interpret a trailing `/` as a directory rule.
+and interpret a trailing `/` as a directory rule. `git.watchContext` and
+`git.initialize` also ensure built-in unanchored local exclude patterns,
+currently `.factorypath`, so generated JDTLS metadata is not Git-managed.
 
 `editCommitMessage` rebuilds the selected commit and its later first-parent
 descendants with the new `message`. `squashCommits` requires at least two

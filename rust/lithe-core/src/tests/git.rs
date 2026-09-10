@@ -796,6 +796,103 @@ fn git_write_appends_shared_and_local_ignore_patterns_without_duplicates() {
 }
 
 #[test]
+fn git_watch_context_excludes_jdtls_factorypath_from_status() {
+    // JDTLS writes `.factorypath` beside each Maven module. Lithe keeps the
+    // file on disk and records an unanchored local exclude so Git does not
+    // manage it, including nested modules, without editing `.gitignore`.
+    let root = temporary_root("git-exclude-factorypath");
+    fs::create_dir_all(root.join("services/alpha")).expect("module directory should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    fs::write(root.join("keep.txt"), "tracked-candidate\n")
+        .expect("visible file should be writable");
+    fs::write(root.join(".factorypath"), "<factorypath />")
+        .expect("root factorypath should be writable");
+    fs::write(root.join("services/alpha/.factorypath"), "<factorypath />")
+        .expect("module factorypath should be writable");
+
+    let watch = serde_json::from_str::<Value>(&execute_json(
+        &serde_json::json!({
+            "id": "factorypath-watch",
+            "command": "git.watchContext",
+            "payload": {"root": root}
+        })
+        .to_string(),
+    ))
+    .expect("watch context response should be JSON");
+    assert_eq!(watch["ok"], true, "{watch:?}");
+
+    let exclude = fs::read_to_string(root.join(".git/info/exclude"))
+        .expect("local exclude should be readable");
+    assert_eq!(
+        exclude
+            .lines()
+            .filter(|line| *line == ".factorypath")
+            .count(),
+        1,
+        "{exclude}"
+    );
+
+    let repeated = serde_json::from_str::<Value>(&execute_json(
+        &serde_json::json!({
+            "id": "factorypath-watch-again",
+            "command": "git.watchContext",
+            "payload": {"root": root}
+        })
+        .to_string(),
+    ))
+    .expect("repeated watch context should be JSON");
+    assert_eq!(repeated["ok"], true, "{repeated:?}");
+    let exclude_again = fs::read_to_string(root.join(".git/info/exclude"))
+        .expect("local exclude should remain readable");
+    assert_eq!(
+        exclude_again
+            .lines()
+            .filter(|line| *line == ".factorypath")
+            .count(),
+        1,
+        "{exclude_again}"
+    );
+
+    assert!(run(&["check-ignore", "-q", ".factorypath"])
+        .status
+        .success());
+    assert!(run(&["check-ignore", "-q", "services/alpha/.factorypath"])
+        .status
+        .success());
+    assert!(!run(&["check-ignore", "-q", "keep.txt"]).status.success());
+
+    let status: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "factorypath-status",
+            "command": "git.status",
+            "payload": {"root": root}
+        })
+        .to_string(),
+    ))
+    .expect("status response should be JSON");
+    assert_eq!(status["ok"], true, "{status:?}");
+    let paths = status["data"]["changes"]
+        .as_array()
+        .expect("status should list changes")
+        .iter()
+        .map(|change| change["path"].as_str().unwrap_or_default().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(paths, vec!["keep.txt"], "{status:?}");
+    assert!(root.join(".factorypath").is_file());
+    assert!(root.join("services/alpha/.factorypath").is_file());
+    assert!(!root.join(".gitignore").exists());
+
+    fs::remove_dir_all(root).expect("temporary workspace should be removable");
+}
+
+#[test]
 fn git_write_edits_a_local_commit_message_and_rebuilds_descendants() {
     let root = history_rewrite_repository("git-edit-commit-message");
     commit_history_file(&root, "story.txt", "one\n", "one");

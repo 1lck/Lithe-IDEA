@@ -3,7 +3,10 @@
 `git.repositorySetup` and `git.initialize` accept `{root, scope: "local" | "global"}`.
 `root` is an existing workspace directory. Initialization rejects directories already
 inside a working tree or bare repository; it neither stages files nor creates a
-commit. Git's configured initial branch is respected.
+commit. Git's configured initial branch is respected. After a successful `git init`,
+Core records built-in local exclude patterns, currently `.factorypath`, in
+`.git/info/exclude` so generated JDTLS metadata stays untracked without editing
+`.gitignore`.
 
 The response distinguishes `isRepository`, `hasCommits`, and nullable `branch` from
 history filtering. It also returns `scope`, nullable `configuredName` / `configuredEmail`

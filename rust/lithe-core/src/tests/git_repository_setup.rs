@@ -60,6 +60,12 @@ fn initialization_distinguishes_uninitialized_and_unborn_without_staging_files()
         fs::read_to_string(directory.0.join("new.txt")).unwrap(),
         "uncommitted"
     );
+    let exclude = fs::read_to_string(directory.0.join(".git/info/exclude"))
+        .expect("local exclude should be readable after initialize");
+    assert!(
+        exclude.lines().any(|line| line == ".factorypath"),
+        "initialize should exclude JDTLS .factorypath files locally: {exclude}"
+    );
     assert_eq!(directory.call("git.initialize", json!({}))["ok"], false);
     let nested = directory.0.join("nested");
     fs::create_dir(&nested).unwrap();
