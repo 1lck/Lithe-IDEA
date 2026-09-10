@@ -5,8 +5,12 @@ package struct FileVisibilityRules: Hashable, Sendable {
         ".git", ".worktree", ".worktrees", ".build", ".swiftpm", "node_modules", "target", "build",
         "DerivedData", ".gradle", ".next", "dist", "coverage", "design-qa-artifacts"
     ]
+    /// Names and globs omitted from the project tree, search index, watchers,
+    /// and Local History. `.factorypath` is Eclipse m2e-apt metadata written by
+    /// JDTLS; it stays on disk so annotation processing can keep using it.
     package static let builtInHiddenFilePatterns = [
         ".DS_Store",
+        ".factorypath",
         ".lithe/run/local.json",
     ]
 

@@ -37,6 +37,46 @@ fn workspace_snapshot_hides_nested_worktree_checkouts() {
 }
 
 #[test]
+fn workspace_snapshot_hides_jdtls_factorypath_files() {
+    // JDTLS/m2e-apt writes `.factorypath` beside each Maven module. The tree
+    // should hide those files without deleting or relocating them.
+    let root = temporary_root("snapshot-factorypath");
+    fs::create_dir_all(root.join("services/alpha")).expect("module directory should be creatable");
+    fs::write(root.join("pom.xml"), "<project />").expect("root pom should be writable");
+    fs::write(root.join(".factorypath"), "<factorypath />")
+        .expect("root factorypath should be writable");
+    fs::write(root.join("services/alpha/pom.xml"), "<project />")
+        .expect("module pom should be writable");
+    fs::write(root.join("services/alpha/.factorypath"), "<factorypath />")
+        .expect("module factorypath should be writable");
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "snapshot-factorypath",
+            "command": "workspace.snapshot",
+            "payload": {"root": root}
+        })
+        .to_string(),
+    ))
+    .expect("snapshot response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response}");
+    let files = response["data"]["files"]
+        .as_array()
+        .expect("snapshot files should be an array");
+    let mut names: Vec<&str> = files
+        .iter()
+        .map(|value| value.as_str().expect("file path should be text"))
+        .collect();
+    names.sort_unstable();
+    assert_eq!(names, vec!["pom.xml", "services/alpha/pom.xml"]);
+    assert!(root.join(".factorypath").is_file());
+    assert!(root.join("services/alpha/.factorypath").is_file());
+
+    fs::remove_dir_all(root).expect("temporary fixture should be removable");
+}
+
+#[test]
 fn markdown_render_command_returns_sanitized_html() {
     let request = serde_json::json!({
         "id": "markdown-1",

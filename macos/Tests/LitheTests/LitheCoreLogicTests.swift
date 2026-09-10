@@ -2234,6 +2234,27 @@ struct LitheCoreLogicTests {
             )
         )
         #expect(
+            rules.isHidden(
+                root.appendingPathComponent(".factorypath"),
+                relativeTo: root,
+                isDirectory: false
+            )
+        )
+        #expect(
+            rules.isHidden(
+                root.appendingPathComponent("services/alpha/.factorypath"),
+                relativeTo: root,
+                isDirectory: false
+            )
+        )
+        #expect(
+            !rules.isHidden(
+                root.appendingPathComponent("services/alpha/pom.xml"),
+                relativeTo: root,
+                isDirectory: false
+            )
+        )
+        #expect(
             !rules.isHidden(
                 root.appendingPathComponent(".lithe/run/configurations.json"),
                 relativeTo: root,
@@ -4485,6 +4506,10 @@ struct EditorDocumentTests {
             atPath: hiddenWorktree.appendingPathComponent("App.swift").path,
             contents: Data("print(2)".utf8)
         )
+        let factorypath = workspace.appendingPathComponent(".factorypath")
+        let nestedFactorypath = sources.appendingPathComponent(".factorypath")
+        fileManager.createFile(atPath: factorypath.path, contents: Data("<factorypath />".utf8))
+        fileManager.createFile(atPath: nestedFactorypath.path, contents: Data("<factorypath />".utf8))
         defer { try? fileManager.removeItem(at: workspace) }
 
         let snapshot = try #require(
@@ -4496,8 +4521,11 @@ struct EditorDocumentTests {
 
         #expect(snapshot.root.children?.map(\.name) == ["Sources", "README.md"])
         #expect(snapshot.files.map(\.lastPathComponent).sorted() == ["App.swift", "README.md"])
+        #expect(!snapshot.files.contains { $0.lastPathComponent == ".factorypath" })
         #expect(!snapshot.files.contains { $0.path.contains("/.git/") })
         #expect(!snapshot.files.contains { $0.path.contains("/.worktree/") })
+        #expect(fileManager.fileExists(atPath: factorypath.path))
+        #expect(fileManager.fileExists(atPath: nestedFactorypath.path))
     }
 
     @Test

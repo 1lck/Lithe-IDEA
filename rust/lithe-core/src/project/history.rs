@@ -549,7 +549,8 @@ impl VisibilityRules {
             .map(String::from)
             .collect::<Vec<_>>();
         directories.extend(hidden_directories);
-        let mut files = vec![".DS_Store".to_string()];
+        // Keep generated JDTLS `.factorypath` files out of local history.
+        let mut files = vec![".DS_Store".to_string(), ".factorypath".to_string()];
         files.extend(hidden_files);
         Self { directories, files }
     }
