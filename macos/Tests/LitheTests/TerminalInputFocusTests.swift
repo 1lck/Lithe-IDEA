@@ -211,18 +211,24 @@ private final class CursorInvalidationRecordingView: MTKView {
     }
 }
 
+// Tests invoke these delegate callbacks synchronously on the main actor.
+// Older SDKs expose MTKViewDelegate without actor isolation.
 @MainActor
 private final class CursorDrawingRecorder: NSObject, MTKViewDelegate {
     var onDraw: () -> Void = {}
     var drawCount = 0
     var drawableSize: CGSize?
 
-    func draw(in view: MTKView) {
-        drawCount += 1
-        onDraw()
+    nonisolated func draw(in view: MTKView) {
+        MainActor.assumeIsolated {
+            drawCount += 1
+            onDraw()
+        }
     }
 
-    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
-        drawableSize = size
+    nonisolated func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
+        MainActor.assumeIsolated {
+            drawableSize = size
+        }
     }
 }
