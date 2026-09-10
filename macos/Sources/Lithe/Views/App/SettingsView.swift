@@ -1107,6 +1107,7 @@ struct SettingsView: View {
 
             group("Update status") {
                 updateStatusDescription
+                StableRollbackControl()
 
                 HStack(spacing: 10) {
                     Button {

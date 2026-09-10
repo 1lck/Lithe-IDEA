@@ -54,6 +54,8 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     var recordCleanPluginShutdown: (() -> Void)?
+    var prepareStableRollbackTermination: (() -> Bool)?
+    var cancelStableRollbackTermination: (() -> Bool)?
     var authorizationCallbackRouter: MacExternalAuthorizationCallbackRouter?
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -92,7 +94,9 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let projectSessions else { return .terminateNow }
+        guard let projectSessions else {
+            return (prepareStableRollbackTermination?() ?? true) ? .terminateNow : .terminateCancel
+        }
 
         // AppKit may ask more than once while a previous asynchronous reply is
         // pending. Do not show another confirmation dialog or start a second
@@ -109,8 +113,15 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
 
         if isUpdateInstallTermination {
             guard Self.confirmUnsavedDocuments(for: projectSessions, context: .applicationTermination) else {
+                if cancelStableRollbackTermination?() == true {
+                    isUpdateInstallTermination = false
+                }
                 // Sparkle only announces relaunch once, even if the user retries
                 // after cancelling termination. Keep the pending-update marker.
+                return .terminateCancel
+            }
+            guard prepareStableRollbackTermination?() ?? true else {
+                isUpdateInstallTermination = false
                 return .terminateCancel
             }
             boundUpdateTermination()
@@ -360,6 +371,16 @@ struct LitheApp: App {
         updateChecker.didFinishUpdateCycle = { [weak appDelegate] in
             appDelegate?.finishUpdateCycle()
         }
+        updateChecker.stableRollback.requestTermination = { [weak appDelegate] in
+            appDelegate?.prepareForUpdateRelaunch()
+            NSApp.terminate(nil)
+        }
+        appDelegate.prepareStableRollbackTermination = { [weak updateChecker] in
+            updateChecker?.stableRollback.prepareConfirmedTermination() ?? true
+        }
+        appDelegate.cancelStableRollbackTermination = { [weak updateChecker] in
+            updateChecker?.stableRollback.terminationCancelled() ?? false
+        }
     }
 
     private static func redirectApplicationLogs(
@@ -473,7 +494,7 @@ struct LitheApp: App {
                 Button("Check for Updates…") {
                     Task { await updateChecker.checkForUpdates(manual: true) }
                 }
-                .disabled(updateChecker.isChecking)
+                .disabled(updateChecker.isBusy)
 
                 Button("Export Diagnostics Bundle…") {
                     model.diagnosticsFeature.presentExport()

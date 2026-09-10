@@ -1,6 +1,7 @@
 import AppKit
 import Sparkle
 import Foundation
+import Combine
 
 struct UpdateNotice: Identifiable {
     let id = UUID()
@@ -147,7 +148,14 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     var versionDescription: String {
         isPreview ? "\(currentVersion) Preview (\(buildIdentity.build))" : currentVersion
     }
-    var isBusy: Bool { isChecking || (isInstalling && status != .waitingForTermination) }
+    let stableRollback = MacStableRollback()
+    private var rollbackObservation: AnyCancellable?
+    private var rollbackRequested = false
+    var canReturnToStable: Bool {
+        isPreview && !isChecking && !isInstalling && !stableRollback.state.isActive && !rollbackRequested
+            && (updater?.sessionInProgress != true || userDriver?.hasPendingReply == true)
+    }
+    var isBusy: Bool { stableRollback.state.isActive || rollbackRequested || isChecking || (isInstalling && status != .waitingForTermination) }
     var willRelaunchForUpdate: (() -> Void)?
     var didFinishUpdateCycle: (() -> Void)?
     private let bundle: Bundle
@@ -162,9 +170,11 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
         buildIdentity = UpdateBuildIdentity(info: bundle.infoDictionary ?? [:])
         currentVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
         super.init()
+        rollbackObservation = stableRollback.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
     }
 
     func checkForUpdates(manual: Bool = false) async {
+        guard !stableRollback.state.isActive, !rollbackRequested else { return }
         // Local builds deliberately omit both values. Malformed or partial
         // configurations still surface an error instead of silently disabling updates.
         if !manual, bundle.object(forInfoDictionaryKey: "SUFeedURL") == nil,
@@ -201,6 +211,7 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     func installAvailableUpdate() async {
+        guard !stableRollback.state.isActive, !rollbackRequested else { return }
         if let reply = userDriver?.takeReply() { reply(.install) }
         else { await checkForUpdates(manual: true) }
     }
@@ -208,6 +219,16 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     func remindLater() { userDriver?.takeReply()?(.dismiss) }
     func skipVersion() { userDriver?.takeReply()?(.skip) }
     func retryInstallation() async { await checkForUpdates(manual: true) }
+
+    func returnToStable() {
+        guard canReturnToStable else { return }
+        if let reply = userDriver?.takeReply() {
+            rollbackRequested = true
+            reply(.dismiss)
+        } else if updater?.sessionInProgress != true {
+            stableRollback.download(bundle: bundle)
+        }
+    }
 
     func installationWaitingForTermination(_ waiting: Bool) {
         isChecking = false
@@ -235,6 +256,10 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     func updater(_ updater: SPUUpdater, mayPerform updateCheck: SPUUpdateCheck) throws {
+        guard !stableRollback.state.isActive, !rollbackRequested else {
+            throw NSError(domain: "app.lithe.updates", code: 2,
+                userInfo: [NSLocalizedDescriptionKey: String(localized: "A stable release installation is already in progress.")])
+        }
         isChecking = true
         status = .checking
     }
@@ -277,6 +302,12 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
+        defer {
+            if rollbackRequested {
+                rollbackRequested = false
+                stableRollback.download(bundle: bundle)
+            }
+        }
         didFinishUpdateCycle?()
         updateInfo = nil
         isChecking = false
@@ -306,6 +337,7 @@ final class LitheSparkleUserDriver: SPUStandardUserDriver {
     var downloadProgress: ((UpdateDownloadProgress) -> Void)?
     var installationWaiting: ((Bool) -> Void)?
     private var updateReply: ((SPUUserUpdateChoice) -> Void)?
+    var hasPendingReply: Bool { updateReply != nil }
     private var receivedBytes: Int64 = 0
     private var expectedBytes: Int64?
 

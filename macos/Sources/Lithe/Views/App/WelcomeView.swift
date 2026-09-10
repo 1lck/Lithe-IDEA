@@ -83,7 +83,10 @@ struct WelcomeView: View {
 
     @ViewBuilder
     private var updatePrompt: some View {
-        UpdateControl()
+        VStack(alignment: .leading, spacing: 8) {
+            UpdateControl()
+            StableRollbackControl(compact: true)
+        }
     }
 
     private var projectsContent: some View {

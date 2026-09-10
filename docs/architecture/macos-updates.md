@@ -94,7 +94,8 @@ change the workflow definition used by the schedule.
 Preview apps embed `LitheUpdateChannel=preview` and use
 `appcast-preview-<architecture>.xml` under the rolling Preview release tag.
 Stable apps continue to use the stable feed; no update-channel selector or
-automatic channel switch is introduced. Sparkle uses the embedded feed instead
+automatic channel switch is introduced. Preview users can explicitly return to
+stable using the full-package workflow below. Sparkle uses the embedded feed instead
 of a persisted feed override. Both channels use the same configured EdDSA key.
 
 The update offer shows **Preview Update**, the current and target build numbers,
@@ -132,12 +133,47 @@ Subsequent Preview builds can use in-app differential updates. The first run
 still needs `SPARKLE_PUBLIC_KEY` and `SPARKLE_PRIVATE_KEY` configured; it does not
 require an Apple Developer account.
 
+## Return from Preview to stable
+
+Preview builds expose Return to Stable in Settings and Welcome. Confirmation
+downloads the latest stable `latest-macos.json` and the architecture-specific full
+DMG over HTTPS. This path intentionally accepts a lower version and never requests
+a delta. It supports stable releases published before the Sparkle migration.
+
+The installer verifies the manifest SHA-256, app code signature, bundle identifier,
+display version, executable architecture, stable channel (or legacy missing channel),
+and minimum macOS version. It stages the app on the destination volume. Native
+copying, mounting and verification run on a worker queue with bounded processes.
+Download cancellation or preparation failure leaves the installed app intact.
+
+Install and Restart uses the same unsaved-document confirmation and bounded
+shutdown as application updates. The independent helper starts only after that
+confirmation succeeds; cancellation returns to the prepared state without a
+helper. Sparkle cannot install downgrades, so its installer is not used here.
+Normal Sparkle checks/install actions are blocked while rollback is active; a
+pending Preview offer is dismissed before starting the full download.
+
+The helper waits at most 120 seconds for the original process to exit and never
+kills it. It renames the original app to `previous.app` inside the private sibling
+directory `.lithe-stable-<id>`, then moves the staged app into place. Replacement
+or launch-command failure restores the original when possible. The previous app
+and `installation.log` remain in that directory for recovery. A successful launch
+command does not prove the new app cannot later crash; real downgrade acceptance
+testing remains required. Gatekeeper recovery instructions still apply.
+
+The current app's parent directory must be writable. Protected locations fail
+before exiting and offer the stable Release page for manual installation; this
+path does not request administrator privileges. No project, setting or workspace
+data is deleted or migrated backward. Users are warned that Preview-only settings
+may not be understood by the older stable app. The installed stable app resumes
+its own update channel (Sparkle or the legacy updater, depending on its version).
+
 ## Verify before release
 
 Run the focused Swift timing harness, the full macOS suite, and package checks:
 
 ```sh
-./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'UpdateCheckerTests|UpdateManifestTests'
+./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'StableRollbackTests|UpdateCheckerTests|UpdateManifestTests'
 ./scripts/test-macos.sh
 ./scripts/verify-macos-package.sh
 sparkle_tools=$(zsh scripts/prepare-sparkle-tools.sh)
