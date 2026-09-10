@@ -40,10 +40,10 @@ struct UpdateBuildIdentity: Equatable {
     }
 
     func updateInfo(version: String, targetVersion: String, targetBuild: String,
-                    date: Date?, notes: String?) -> UpdateInfo {
+                    date: Date?, notes: String?, infoURL: URL? = nil) -> UpdateInfo {
         UpdateInfo(currentVersion: version, targetVersion: targetVersion,
             releaseDate: date.map { ISO8601DateFormatter().string(from: $0) },
-            releaseNotes: isPreview ? nil : notes, releaseURL: releaseURL,
+            releaseNotes: isPreview ? nil : notes, releaseURL: infoURL ?? releaseURL,
             isPreview: isPreview, currentBuild: build, targetBuild: targetBuild)
     }
 }
@@ -83,6 +83,7 @@ enum UpdateStatus: Equatable {
     case available(version: String, url: URL)
     case downloading(version: String, progress: UpdateDownloadProgress)
     case installing(version: String)
+    case waitingForTermination
     case upToDate(version: String)
     case failed(code: UpdateErrorCode, message: String)
 }
@@ -146,7 +147,7 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     var versionDescription: String {
         isPreview ? "\(currentVersion) Preview (\(buildIdentity.build))" : currentVersion
     }
-    var isBusy: Bool { isChecking || isInstalling }
+    var isBusy: Bool { isChecking || (isInstalling && status != .waitingForTermination) }
     var willRelaunchForUpdate: (() -> Void)?
     var didFinishUpdateCycle: (() -> Void)?
     private let bundle: Bundle
@@ -164,11 +165,18 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     func checkForUpdates(manual: Bool = false) async {
+        // Local builds deliberately omit both values. Malformed or partial
+        // configurations still surface an error instead of silently disabling updates.
+        if !manual, bundle.object(forInfoDictionaryKey: "SUFeedURL") == nil,
+           bundle.object(forInfoDictionaryKey: "SUPublicEDKey") == nil { return }
         do {
             if !started {
                 try Self.validateConfiguration(bundle.infoDictionary ?? [:])
                 let driver = LitheSparkleUserDriver(hostBundle: bundle, delegate: nil)
                 driver.presentUpdate = { [weak self] item in self?.present(item) }
+                driver.installationWaiting = { [weak self] waiting in
+                    self?.installationWaitingForTermination(waiting)
+                }
                 driver.downloadProgress = { [weak self] progress in
                     guard let self, let info = self.updateInfo else { return }
                     self.status = .downloading(version: info.targetVersion, progress: progress)
@@ -201,10 +209,16 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     func skipVersion() { userDriver?.takeReply()?(.skip) }
     func retryInstallation() async { await checkForUpdates(manual: true) }
 
+    func installationWaitingForTermination(_ waiting: Bool) {
+        isChecking = false
+        isInstalling = true
+        status = waiting ? .waitingForTermination : .installing(version: updateInfo?.targetVersion ?? currentVersion)
+    }
+
     private func present(_ item: SUAppcastItem) {
         updateInfo = buildIdentity.updateInfo(version: currentVersion, targetVersion: item.displayVersionString,
-            targetBuild: item.versionString, date: item.date, notes: item.itemDescription)
-        status = .available(version: item.displayVersionString, url: buildIdentity.releaseURL)
+            targetBuild: item.versionString, date: item.date, notes: item.itemDescription, infoURL: item.infoURL)
+        status = .available(version: item.displayVersionString, url: item.infoURL ?? buildIdentity.releaseURL)
     }
 
     func openRelease(_ url: URL?) { if let url { NSWorkspace.shared.open(url) } }
@@ -233,7 +247,7 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
 
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
         isChecking = false
-        status = .available(version: item.displayVersionString, url: buildIdentity.releaseURL)
+        status = .available(version: item.displayVersionString, url: item.infoURL ?? buildIdentity.releaseURL)
     }
 
     func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
@@ -290,12 +304,22 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
 final class LitheSparkleUserDriver: SPUStandardUserDriver {
     var presentUpdate: ((SUAppcastItem) -> Void)?
     var downloadProgress: ((UpdateDownloadProgress) -> Void)?
+    var installationWaiting: ((Bool) -> Void)?
     private var updateReply: ((SPUUserUpdateChoice) -> Void)?
     private var receivedBytes: Int64 = 0
     private var expectedBytes: Int64?
 
     override func showUserInitiatedUpdateCheck(cancellation: @escaping () -> Void) {
         // Lithe already displays checking state. No separate checking window is needed.
+    }
+
+    override func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool,
+                                      retryTerminatingApplication: @escaping () -> Void) {
+        super.showInstallingUpdate(withApplicationTerminated: applicationTerminated,
+            retryTerminatingApplication: retryTerminatingApplication)
+        // Keep Sparkle's retry callback and active installation intact. A manual
+        // check brings its existing retry window into focus without downloading again.
+        installationWaiting?(!applicationTerminated)
     }
 
     override func showDownloadInitiated(cancellation: @escaping () -> Void) {

@@ -120,6 +120,53 @@ struct UpdateManifestTests {
 @MainActor
 struct UpdateCheckerTests {
     @Test
+    func automaticUnconfiguredBuildRemainsIdle() async {
+        let checker = UpdateChecker(bundle: Bundle(for: BundleMarker.self))
+        await checker.checkForUpdates()
+        #expect(checker.status == .idle)
+        #expect(checker.notice == nil)
+        #expect(!checker.isBusy)
+    }
+
+    @Test
+    func releaseDetailsPreferTheOfferedVersionLink() {
+        let identity = UpdateBuildIdentity(info: [:])
+        let url = URL(string: "https://example.com/releases/v0.4.0")!
+        let info = identity.updateInfo(version: "0.3.0", targetVersion: "0.4.0", targetBuild: "43",
+            date: nil, notes: "Release notes", infoURL: url)
+        #expect(info.releaseURL == url)
+    }
+
+    @Test
+    func waitingForTerminationKeepsInstallationActiveAndRestoresEntryPoints() {
+        let checker = UpdateChecker()
+        let driver = LitheSparkleUserDriver(hostBundle: .main, delegate: nil)
+        let controller = SPUStandardUpdaterController(
+            startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
+        var cyclesFinished = 0
+        checker.didFinishUpdateCycle = { cyclesFinished += 1 }
+        driver.installationWaiting = { checker.installationWaitingForTermination($0) }
+        defer { driver.dismissUpdateInstallation() }
+
+        // Sparkle reports that the application remains alive after requesting
+        // termination. Cancellation does not finish the installation cycle.
+        checker.installationWaitingForTermination(false)
+        #expect(checker.isBusy)
+        driver.showInstallingUpdate(withApplicationTerminated: false, retryTerminatingApplication: {})
+        #expect(checker.status == .waitingForTermination)
+        #expect(checker.isInstalling)
+        #expect(!checker.isBusy)
+        #expect(cyclesFinished == 0)
+        // A repeated request may also be cancelled; the same entry stays usable.
+        driver.showInstallingUpdate(withApplicationTerminated: false, retryTerminatingApplication: {})
+        #expect(!checker.isBusy)
+        checker.updater(controller.updater, didFinishUpdateCycleFor: .updates, error: nil)
+        #expect(!checker.isInstalling)
+        #expect(checker.status == .idle)
+        #expect(cyclesFinished == 1)
+    }
+
+    @Test
     func previewIdentityHidesNotesAndKeepsBuildNumbersWhenVersionIsUnchanged() {
         let identity = UpdateBuildIdentity(info: [
             "LitheUpdateChannel": "preview", "CFBundleVersion": "142.1",

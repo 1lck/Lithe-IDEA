@@ -7,6 +7,9 @@ installation after the user chooses Install. Sparkle owns
 scheduled checks, skipped versions, download progress, cancellation, archive
 validation, installation, and relaunch. Lithe confirms unsaved documents when
 Sparkle requests application termination and bounds shutdown after confirmation.
+If termination is cancelled or delayed, the original update entries offer
+Continue Installation, which reopens Sparkle's existing retry window. The active
+installation and unsaved-document confirmation remain in effect.
 
 ## Configure a stable release
 
@@ -41,6 +44,8 @@ steps. Do not automatically clear quarantine as part of the updater.
 Local builds without `LITHE_SPARKLE_PUBLIC_KEY` have no update feed.
 A manual check offers the published Release page. They still embed the framework
 so the executable can launch. Windows update configuration is unchanged.
+Automatic startup checks remain idle when both feed and key are absent; partial
+or invalid configuration still reports an error.
 
 ## Publish full and differential updates
 
@@ -55,6 +60,9 @@ The app embeds its architecture-specific feed URL and public key during packagin
 It requires a signed feed and verifies archives before extraction. Sparkle also
 validates Apple code signatures during installation. The workflow checks that
 every enclosure has a signature and an existing asset of the declared length.
+Stable feeds embed `docs/releases/v<version>.md` as plain-text descriptions before
+signing, matching Lithe's native details view. Details open the offered item's
+version-specific Release URL, falling back to the installed channel's Release URL.
 
 The generator selects at most three earlier stable versions with matching ZIP
 assets from GitHub releases, ordered by semantic version. It

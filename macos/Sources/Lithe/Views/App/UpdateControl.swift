@@ -49,6 +49,13 @@ struct UpdateControl: View {
                     }
                 }
                 .foregroundStyle(LitheTheme.secondaryText)
+            case .waitingForTermination:
+                Button {
+                    Task { await updateChecker.retryInstallation() }
+                } label: {
+                    Label("Continue Installation", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(LitheSecondaryButtonStyle())
             case .installing(let version):
                 HStack(spacing: 5) {
                     ProgressView()
@@ -224,6 +231,12 @@ private struct UpdateDetailsView: View {
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
             }
+        case .waitingForTermination:
+            Button("Continue Installation") {
+                dismiss()
+                Task { await updateChecker.retryInstallation() }
+            }
+            .buttonStyle(LitheSecondaryButtonStyle())
         case .installing:
             HStack(spacing: 6) {
                 ProgressView()

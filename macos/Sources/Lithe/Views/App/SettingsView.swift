@@ -1123,6 +1123,14 @@ struct SettingsView: View {
                     ))
                     .disabled(updateChecker.isBusy)
 
+                    if case .waitingForTermination = updateChecker.status {
+                        Button {
+                            Task { await updateChecker.retryInstallation() }
+                        } label: {
+                            Label("Continue Installation", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(LitheSecondaryButtonStyle())
+                    }
                     if case .available(let version, _) = updateChecker.status {
                         Button {
                             Task { await updateChecker.installAvailableUpdate() }
@@ -1208,6 +1216,9 @@ struct SettingsView: View {
                 }
             }
             .foregroundStyle(LitheTheme.secondaryText)
+        case .waitingForTermination:
+            Text("Waiting to quit to complete the update.")
+                .foregroundStyle(LitheTheme.secondaryText)
         case .installing(let version):
             HStack(spacing: 8) {
                 ProgressView()

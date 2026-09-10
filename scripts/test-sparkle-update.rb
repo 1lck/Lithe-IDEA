@@ -76,8 +76,10 @@ Dir.mktmpdir("lithe-sparkle-test-") do |root|
   end
   feed = File.join(archives, "appcast.xml")
   target_build = preview ? "2.1" : "2"
+  notes = "# Changes\n\nOpening files is faster. A & B < C.\n"
+  File.write(File.join(archives, "Lithe-2.txt"), notes) unless preview
   File.delete(feed) # Release jobs reconstruct the feed from archived ZIPs.
-  run(File.join(tools, "generate_appcast"), "--ed-key-file", "-", "--versions", target_build, "--maximum-versions", "1", "--download-url-prefix", "https://example.com/", archives, input: key + "\n")
+  run(File.join(tools, "generate_appcast"), "--embed-release-notes", "--ed-key-file", "-", "--versions", target_build, "--maximum-versions", "1", "--download-url-prefix", "https://example.com/", archives, input: key + "\n")
   verify_sparkle_appcast(feed, target_build)
   run("ruby", File.join(__dir__, "name-sparkle-deltas.rb"), feed, "arm64")
   run(File.join(tools, "sign_update"), "--ed-key-file", "-", feed, input: key + "\n")
@@ -91,6 +93,8 @@ Dir.mktmpdir("lithe-sparkle-test-") do |root|
   run("diff", "-rq", originals.last, patched)
   run("codesign", "--verify", "--deep", "--strict", patched)
   item = REXML::Document.new(File.read(feed)).root.elements["channel/item"]
+  description = item.elements["description"]&.text
+  expect(preview ? description.nil? : description == notes, "Stable notes must survive feed signing as plain text; previews must omit them")
   enclosure = item.elements["sparkle:deltas/enclosure"]
   signature = enclosure.attributes["sparkle:edSignature"]
   run(File.join(tools, "sign_update"), "--verify", "--ed-key-file", "-", delta, signature, input: key + "\n")

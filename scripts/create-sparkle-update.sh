@@ -42,7 +42,14 @@ while IFS=$'\t' read -r tag name; do
     gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern "$name" --dir "$archives"
 done < "$temporary/baselines"
 
+if [[ "$channel" == stable ]]; then
+    notes="docs/releases/v$LITHE_VERSION.md"
+    test -s "$notes" || { print -u2 -- "Missing release notes: $notes"; exit 1; }
+    # The native details view consumes plain text, not rendered HTML.
+    cp "$notes" "$archives/${archive%.zip}.txt"
+fi
 print -r -- "$LITHE_SPARKLE_PRIVATE_KEY" | "$tools/generate_appcast" \
+    --embed-release-notes \
     --ed-key-file - --versions "$LITHE_BUILD_NUMBER" \
     --maximum-versions 1 --maximum-deltas 3 \
     --download-url-prefix "https://github.com/$GITHUB_REPOSITORY/releases/download/$release_tag/" \

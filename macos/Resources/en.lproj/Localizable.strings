@@ -752,6 +752,8 @@
 "Preview Update" = "Preview Update";
 "Install Preview" = "Install Preview";
 "Skip Build" = "Skip Build";
+"Continue Installation" = "Continue Installation";
+"Waiting to quit to complete the update." = "Waiting to quit to complete the update.";
 "Build %@ → %@" = "Build %@ → %@";
 "Built %@" = "Built %@";
 "This preview contains changes that have not been officially released and may be unstable." = "This preview contains changes that have not been officially released and may be unstable.";
