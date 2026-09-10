@@ -862,7 +862,11 @@ the same configuration flow, so JDT LS receives the selected reactor's source
 model without platform-specific POM parsing. Maven profile application is a
 bounded background task: at most eight project commands are in flight, remaining
 projects are queued, and each project reports `running`, `succeeded`, or
-`failed` with optional error details. A project failure or task timeout does not
+`failed` with optional error details. Project results use a redacted stable
+`projectUri` identifier; they never expose the user's absolute workspace path.
+The runtime event also carries the aggregate Maven task status (`running`,
+`succeeded`, `partiallySucceeded`, `failed`, `timedOut`, or `cancelled`) so hosts
+do not need to infer task completion from log text. A project failure or task timeout does not
 terminate an otherwise usable JDT LS session; the host receives a partial-failure
 event and may retry. The session reaches `ready` after JDT LS `ServiceReady` and
 continues to expose profile progress independently. `initializeTimeoutMilliseconds`
