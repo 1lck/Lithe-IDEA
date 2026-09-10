@@ -27,10 +27,12 @@ impl Repository {
     fn request(&self, command: &str, mut payload: Value) -> Value {
         payload["root"] = json!(self.0);
         // Each real Git subprocess is governed by Core's local deadline; tests
-        // do not synchronize using sleeps or depend on a network remote.
+        // do not synchronize using sleeps or depend on a network remote. A rewrite
+        // starts many Git processes on Windows, so allow ten seconds within the
+        // outer 15-second per-test watchdog.
         serde_json::from_str(&execute_json(&json!({
             "id": format!("history-integration-{}", REQUEST_SEQUENCE.fetch_add(1, Ordering::Relaxed)),
-            "timeoutMilliseconds": 5_000,
+            "timeoutMilliseconds": 10_000,
             "command": command,
             "payload": payload,
         }).to_string())).unwrap()
@@ -850,7 +852,7 @@ fn native_rebase_large_escaped_manifest_remains_readable_through_abort() {
         "expectedState":preview["data"]["expectedState"],
         "steps":[{"hash":first,"action":"edit"}, {"hash":head,"action":"reword","message":message}]
     }));
-    assert_eq!(result["ok"], true);
+    assert_eq!(result["ok"], true, "{result}");
     assert_eq!(result["data"]["session"]["status"], "edit");
     let session = repo.request("git.rebaseSession", json!({}));
     assert_eq!(session["ok"], true);

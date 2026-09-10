@@ -4342,10 +4342,12 @@ fn history_write(root: &Path, overrides: Value) -> Value {
         .get("revisions")
         .cloned()
         .unwrap_or_else(|| serde_json::json!([payload["revision"].clone()]));
+    // A reviewed rewrite starts several real Git processes. Windows runners can
+    // exceed five seconds; keep each request bounded below the 15-second test watchdog.
     let preview: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
             "id": "history-write-preview",
-            "timeoutMilliseconds": 5_000,
+            "timeoutMilliseconds": 10_000,
             "command": "git.historyRewritePreview",
             "payload": {"root": root, "operation": payload["operation"], "revisions": revisions}
         })
@@ -4357,7 +4359,7 @@ fn history_write(root: &Path, overrides: Value) -> Value {
     serde_json::from_str(&execute_json(
         &serde_json::to_string(&serde_json::json!({
             "id": "history-write",
-            "timeoutMilliseconds": 5_000,
+            "timeoutMilliseconds": 10_000,
             "command": "git.write",
             "payload": payload
         }))

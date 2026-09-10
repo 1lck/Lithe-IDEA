@@ -240,6 +240,11 @@ jobs:
           bun test src/features/run
           bun test src/features/file-explorer/lib/java-clipboard-class.test.ts src/features/file-explorer/lib/paste-java-class-from-clipboard.test.ts
 
+      - name: Test SVG editor preview modes and live updates
+        if: needs.changes.outputs.windows == 'true'
+        shell: pwsh
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/editor/components/svg-editor.test.tsx
+
       - name: Test welcome clone and modal isolation
         if: needs.changes.outputs.windows == 'true'
         shell: pwsh
