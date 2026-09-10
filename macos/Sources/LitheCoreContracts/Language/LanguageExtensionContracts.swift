@@ -38,19 +38,22 @@ public struct LanguageExecutionProcessRequest: Sendable {
     public let arguments: [String]
     public let workingDirectory: String?
     public let environment: [String: String]?
+    public let timeoutMilliseconds: Int?
 
     public init(
         operationID: String? = nil,
         executablePath: String,
         arguments: [String] = [],
         workingDirectory: String? = nil,
-        environment: [String: String]? = nil
+        environment: [String: String]? = nil,
+        timeoutMilliseconds: Int? = nil
     ) {
         self.operationID = operationID
         self.executablePath = executablePath
         self.arguments = arguments
         self.workingDirectory = workingDirectory
         self.environment = environment
+        self.timeoutMilliseconds = timeoutMilliseconds
     }
 }
 

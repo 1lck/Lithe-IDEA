@@ -1,7 +1,8 @@
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
 import { emitGitChanged } from "../events/git-events";
 import { registerGitCacheInvalidator } from "../runtime/git-cache-registry";
-import type { GitHunk, GitStatus } from "../types/git.types";
+import { initializeGitRepository } from "./git-setup-api";
+import type { GitFile, GitHunk, GitStatus } from "../types/git.types";
 import {
   isNotGitRepositoryError,
   resolveRepositoryPath,
@@ -25,16 +26,18 @@ registerGitCacheInvalidator(({ repoPath }) => {
 });
 
 export const getGitStatus = async (repoPath: string): Promise<GitStatus | null> => {
-  let resolvedRepoPath: string | null;
-
   try {
-    resolvedRepoPath = await resolveRepositoryPath(repoPath);
+    return await queryGitStatus(repoPath);
   } catch (error) {
-    if (!isNotGitRepositoryError(error)) {
-      console.error("Failed to get git status:", error);
-    }
+    if (!isNotGitRepositoryError(error)) console.error("Failed to get git status:", error);
     return null;
   }
+};
+
+// Keep failures distinct from a missing repository for workspace refreshes.
+// Optional status consumers retain the nullable getGitStatus API.
+const queryGitStatus = async (repoPath: string): Promise<GitStatus | null> => {
+  const resolvedRepoPath = await resolveRepositoryPath(repoPath);
 
   if (!resolvedRepoPath) {
     return null;
@@ -52,15 +55,9 @@ export const getGitStatus = async (repoPath: string): Promise<GitStatus | null> 
   const request = tauriInvoke<GitStatus>("git_status", { repoPath: resolvedRepoPath })
     .then((status) => {
       if (generation !== (gitStatusGenerations.get(resolvedRepoPath) ?? 0)) {
-        return getGitStatus(resolvedRepoPath);
+        return queryGitStatus(resolvedRepoPath);
       }
       return status;
-    })
-    .catch((error) => {
-      if (!isNotGitRepositoryError(error)) {
-        console.error("Failed to get git status:", error);
-      }
-      return null;
     })
     .finally(() => {
       if (inFlightGitStatusRequests.get(resolvedRepoPath) === request) {
@@ -70,6 +67,72 @@ export const getGitStatus = async (repoPath: string): Promise<GitStatus | null> 
 
   inFlightGitStatusRequests.set(resolvedRepoPath, request);
   return request;
+};
+
+function normalizeStatusRepoPaths(repoPaths: readonly string[]): string[] {
+  return [...new Set(repoPaths.map((repoPath) => repoPath.trim()).filter(Boolean))];
+}
+
+function getRepoLabel(repoPath: string): string {
+  const normalized = repoPath.replace(/\\/g, "/").replace(/\/+$/, "");
+  return normalized.split("/").pop() || normalized || "repository";
+}
+
+function decorateWorkspaceFile(file: GitFile, repoPath: string, prefix: string): GitFile {
+  return {
+    ...file,
+    path: `${prefix}/${file.path}`,
+    originalPath: file.originalPath ? `${prefix}/${file.originalPath}` : undefined,
+    repositoryPath: repoPath,
+    repositoryRelativePath: file.path,
+    repositoryOriginalRelativePath: file.originalPath,
+  };
+}
+
+export const getWorkspaceGitStatus = async (
+  repoPaths: readonly string[],
+  activeRepoPath?: string,
+): Promise<GitStatus | null> => {
+  const normalizedRepoPaths = normalizeStatusRepoPaths(repoPaths);
+  if (normalizedRepoPaths.length === 0) return null;
+  // These paths are already discovered/selected repositories. A null response
+  // is an unavailable snapshot, not evidence that the workspace has no changes.
+  const readStatus = async (repoPath: string): Promise<GitStatus> => {
+    const status = await queryGitStatus(repoPath);
+    if (!status) throw new Error("Git status query returned no snapshot");
+    return status;
+  };
+  if (normalizedRepoPaths.length === 1) return readStatus(normalizedRepoPaths[0]!);
+
+  const statuses = await Promise.all(
+    normalizedRepoPaths.map(async (repoPath) => ({
+      repoPath,
+      status: await readStatus(repoPath),
+    })),
+  );
+  const duplicateLabels = new Set<string>();
+  const seenLabels = new Set<string>();
+  for (const repoPath of normalizedRepoPaths) {
+    const label = getRepoLabel(repoPath);
+    if (seenLabels.has(label)) duplicateLabels.add(label);
+    seenLabels.add(label);
+  }
+
+  const files = statuses.flatMap(({ repoPath, status }) => {
+    const label = getRepoLabel(repoPath);
+    const prefix = duplicateLabels.has(label) ? repoPath.replace(/\\/g, "/") : label;
+    return status.files.map((file) => decorateWorkspaceFile(file, repoPath, prefix));
+  });
+
+  const activeStatus =
+    statuses.find((entry) => entry.repoPath === activeRepoPath)?.status ??
+    statuses[0]!.status;
+  return {
+    branch: activeStatus.branch,
+    ahead: activeStatus.ahead,
+    behind: activeStatus.behind,
+    files,
+  };
 };
 
 export const stageFile = async (repoPath: string, filePath: string): Promise<boolean> => {
@@ -292,13 +355,8 @@ export const addPathsToLocalGitExclude = (
 
 export const initRepository = async (repoPath: string): Promise<boolean> => {
   try {
-    await tauriInvoke("git_init", { repoPath });
-    emitGitChanged({
-      repoPath,
-      scopes: ["repository", "working-tree", "refs"],
-      source: "initialize-repository",
-    });
-    return true;
+    const result = await initializeGitRepository(repoPath);
+    return result.isRepository;
   } catch (error) {
     console.error("Failed to initialize repository:", error);
     return false;

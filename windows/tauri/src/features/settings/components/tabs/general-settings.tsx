@@ -181,7 +181,7 @@ export const GeneralSettings = () => {
                 : installing
                   ? t("settings.general.installing")
                   : t("settings.general.installUpdate", {
-                      version: updateInfo?.version ?? t("settings.general.update"),
+                      version: updateInfo?.targetVersion ?? t("settings.general.update"),
                     })}
             </Button>
           ) : (
@@ -208,7 +208,7 @@ export const GeneralSettings = () => {
             : available
               ? t("settings.general.updateAvailable", {
                   version: appVersion || "...",
-                  availableVersion: updateInfo?.version ?? "",
+                  availableVersion: updateInfo?.targetVersion ?? "",
                 })
               : error
                 ? t("settings.general.updateCheckFailed", { version: appVersion || "..." })

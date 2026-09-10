@@ -22,6 +22,14 @@ const IGNORED_DIRECTORIES: &[&str] = &[
     "vendor",
 ];
 
+/// Directory depth at which a build descriptor or Java source still describes the
+/// opened project rather than sample, fixture, or vendored content.
+///
+/// A real project declares its build at the root, or one or two levels down in a
+/// monorepo. A descriptor buried deeper almost always belongs to test data checked
+/// into a repository of some other ecosystem.
+const MAX_ACTIVATION_DEPTH: usize = 2;
+
 const BUILD_FILE_NAMES: &[&str] = &[
     "build.gradle",
     "build.gradle.kts",
@@ -51,7 +59,12 @@ pub(crate) struct JavaWorkspacePolicyRequest {
 #[serde(rename_all = "camelCase")]
 /// Shared Java workspace activation and change plan.
 pub(crate) struct JavaWorkspacePolicyResponse {
-    /// Whether at least one non-ignored Java source exists in the workspace.
+    /// Whether the workspace is a Java project that JDT LS should be started for.
+    ///
+    /// Requires a Java source *and* evidence that Java is what the workspace is
+    /// for: a build descriptor near the root, or a Java source near the root for
+    /// projects that have no build system at all. A lone Java file deep inside a
+    /// repository of another ecosystem does not qualify.
     pub should_start: bool,
     /// Deterministically selected Java source used only to attach the session.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -162,6 +175,18 @@ pub(crate) fn java_workspace_policy(
         .iter()
         .find(|path| !is_ignored(path) && is_java_source(path))
         .cloned();
+    // A stray `.java` file does not make a Java project. Fixtures, samples, and
+    // vendored snippets appear routinely in repositories of other ecosystems, and
+    // starting JDT LS for one costs a JVM, a full workspace import, and a cache
+    // directory retained for `JDT_CACHE_RETENTION_DAYS`. Require positive evidence
+    // instead. Opening a Java file in the editor stays extension-based on the host
+    // side, so an unrecognized project still gets language support on demand.
+    let describes_java_project = workspace_paths.iter().any(|path| {
+        is_activating_build_file(path)
+            || (!is_ignored(path)
+                && is_java_source(path)
+                && directory_depth(path) <= MAX_ACTIVATION_DEPTH)
+    });
     let changes = changed_paths
         .into_iter()
         .map(|path| JavaWorkspaceChange {
@@ -171,7 +196,7 @@ pub(crate) fn java_workspace_policy(
         .collect();
 
     Ok(JavaWorkspacePolicyResponse {
-        should_start: representative_java_path.is_some(),
+        should_start: representative_java_path.is_some() && describes_java_project,
         representative_java_path,
         changes,
     })
@@ -342,6 +367,31 @@ fn is_java_source(path: &str) -> bool {
         .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("java"))
 }
 
+/// Number of directories between the workspace root and `path`.
+///
+/// Root-level files are depth zero, matching the workspace-relative path format
+/// that every host normalizes to before calling in.
+fn directory_depth(path: &str) -> usize {
+    path.matches('/').count()
+}
+
+/// Whether `path` is a build descriptor close enough to the root to describe the
+/// opened project.
+///
+/// Only file names count. `is_build_configuration` additionally treats any `.mvn`
+/// or `gradle` directory component as build configuration, which is correct for
+/// invalidating a cached project model but too loose for activation: an unrelated
+/// `docs/gradle/` directory would otherwise start JDT LS.
+fn is_activating_build_file(path: &str) -> bool {
+    if is_ignored(path) || directory_depth(path) > MAX_ACTIVATION_DEPTH {
+        return false;
+    }
+    path.rsplit('/')
+        .next()
+        .map(|name| name.to_ascii_lowercase())
+        .is_some_and(|name| BUILD_FILE_NAMES.contains(&name.as_str()))
+}
+
 fn is_build_configuration(path: &str) -> bool {
     let components: Vec<_> = path.split('/').collect();
     let file_name = components
@@ -357,6 +407,70 @@ fn is_build_configuration(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn should_start(paths: &[&str]) -> bool {
+        java_workspace_policy(JavaWorkspacePolicyRequest {
+            workspace_paths: paths.iter().map(|path| path.to_string()).collect(),
+            changed_paths: Vec::new(),
+        })
+        .expect("valid workspace paths must produce a policy")
+        .should_start
+    }
+
+    #[test]
+    fn starts_for_projects_that_declare_a_java_build_near_the_root() {
+        // Conventional source layouts put sources well below MAX_ACTIVATION_DEPTH,
+        // so activation has to come from the descriptor rather than the sources.
+        assert!(should_start(&[
+            "pom.xml",
+            "src/main/java/com/example/demo/DemoApplication.java",
+        ]));
+        assert!(should_start(&[
+            "services/backend/build.gradle.kts",
+            "services/backend/src/main/java/com/example/App.java",
+        ]));
+    }
+
+    #[test]
+    fn does_not_start_for_java_fixtures_checked_into_another_ecosystem() {
+        // Regression for this repository: a Swift, Rust, and TypeScript product
+        // that checks a sample Maven project into `shared/fixtures/`. Every such
+        // workspace used to start JDT LS and import the fixture as a real project.
+        assert!(!should_start(&[
+            "Package.swift",
+            "Cargo.toml",
+            "shared/fixtures/projects/demo/pom.xml",
+            "shared/fixtures/projects/demo/src/main/java/com/example/demo/DemoApplication.java",
+        ]));
+    }
+
+    #[test]
+    fn starts_for_java_sources_that_have_no_build_system() {
+        // Single-file programs and standalone `main` classes are supported by the
+        // run configuration layer, so language support must not require Maven or
+        // Gradle to be present.
+        assert!(should_start(&["Main.java"]));
+        assert!(should_start(&["src/Main.java"]));
+    }
+
+    #[test]
+    fn ignores_build_descriptors_and_sources_under_ignored_directories() {
+        // Build output carries copies of both descriptors and sources. Treating
+        // them as evidence would reactivate on exactly the trees the ignore list
+        // exists to exclude.
+        assert!(!should_start(&[
+            "target/pom.xml",
+            "target/classes/Main.java"
+        ]));
+        assert!(!should_start(&["node_modules/pkg/pom.xml"]));
+    }
+
+    #[test]
+    fn requires_a_java_source_even_when_a_build_descriptor_exists() {
+        // A Gradle or Maven build in a Kotlin-only or resources-only repository
+        // has nothing for JDT LS to open.
+        assert!(!should_start(&["pom.xml", "src/main/kotlin/App.kt"]));
+    }
 
     #[test]
     fn rejects_paths_that_escape_or_replace_the_workspace_root() {

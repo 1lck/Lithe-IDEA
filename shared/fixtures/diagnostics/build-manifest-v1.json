@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "request": {
+    "command": "diagnostics.buildManifest",
+    "payload": {
+      "environment": {
+        "appVersion": "1.2.3",
+        "osName": "macOS",
+        "osVersion": "15.0",
+        "cpuCoreCount": 8,
+        "memoryRssBytes": 123456789,
+        "diskFreeBytes": 987654321
+      },
+      "files": [
+        {
+          "relativePath": "logs/lithe.2.log",
+          "sizeBytes": 10,
+          "description": "Rotated application log"
+        },
+        {
+          "relativePath": "environment.json",
+          "sizeBytes": 5,
+          "description": "Environment snapshot"
+        },
+        {
+          "relativePath": "logs/lithe.log",
+          "sizeBytes": 20,
+          "description": "Current application log"
+        }
+      ],
+      "generatedAtEpochMilliseconds": 1700000000000
+    }
+  },
+  "expected": {
+    "schemaVersion": 1,
+    "generatedAtEpochMilliseconds": 1700000000000,
+    "orderedRelativePaths": [
+      "environment.json",
+      "logs/lithe.2.log",
+      "logs/lithe.log"
+    ]
+  }
+}

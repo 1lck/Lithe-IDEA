@@ -33,7 +33,7 @@
     <a href="./LICENSE"><img src="https://img.shields.io/github/license/1lck/Lithe-IDEA?style=flat&label=license" alt="Apache License 2.0"></a>
   </p>
   <p>
-    <img src="https://img.shields.io/badge/Java-JDK%2017%2B-E76F00?style=flat&logo=openjdk&logoColor=white" alt="JDK 17+">
+    <img src="https://img.shields.io/badge/Java-Development-E76F00?style=flat&logo=openjdk&logoColor=white" alt="Java 开发">
     <img src="https://img.shields.io/badge/Spring%20Boot-Projects-6DB33F?style=flat&logo=springboot&logoColor=white" alt="支持 Spring Boot 项目">
     <img src="https://img.shields.io/badge/Maven-Management-C71A36?style=flat&logo=apachemaven&logoColor=white" alt="Maven 管理">
     <img src="https://img.shields.io/badge/Debugger-Breakpoints-D32F2F?style=flat" alt="断点调试">
@@ -217,7 +217,19 @@ open dist/Lithe.app
 
 ## 项目支持
 
-### ❤️ 赞助商 <sup><a href="mailto:2188718831@qq.com">成为赞助商</a></sup>
+### ❤️ 赞助商
+
+<p align="center">
+  <a href="https://www.fastaitoken.com/">
+    <img src="./docs/assets/sponsors/fastai-qrcode.png" width="480" alt="FastAI Token 交流群二维码">
+  </a>
+</p>
+<p align="center">
+  <a href="https://www.fastaitoken.com/"><strong>FastAI</strong></a><br>
+  FastAI 提供多款主流大模型的便捷中转服务，让开发者可以更轻松地把 AI 能力接入日常开发流程。其支持也帮助 Lithe 持续完善 AI 辅助体验。感谢 FastAI 对本项目的支持！欢迎扫码加入 FastAI Token 交流群②（群号：1073874006）。
+</p>
+
+<a href="mailto:2188718831@qq.com">想显示在下方？</a>
 
 <table>
   <tr>
@@ -232,12 +244,12 @@ open dist/Lithe.app
   </tr>
   <tr>
     <td width="112" align="center">
-      <a href="https://codezsy.com">
-        <img src="https://raw.githubusercontent.com/zwenooo/z/main/logo/codez-logo-bq.png" width="64" alt="CodeZ 中转站">
+      <a href="https://torchai.ai/sign-up?aff=FdkE">
+        <img src="./docs/assets/sponsors/torchai.jpg" width="64" alt="TorchAI">
       </a>
     </td>
     <td>
-      <a href="https://codezsy.com"><strong>CodeZ</strong></a> 专注于 GPT 系列模型的稳定中转，为开发者在工具和项目中集成模型 API 提供简单直接的选择。其赞助为 Lithe 的持续开发与维护提供了助力。感谢 CodeZ 对本项目的支持！
+      <a href="https://torchai.ai/sign-up?aff=FdkE"><strong>TorchAI</strong></a> 面向开发者提供大模型中转服务，便于在编程、内容生成和自动化等不同场景中调用模型 API。其支持帮助 Lithe 保持持续开发，并探索更实用的 AI 工具体验。感谢 TorchAI 对本项目的支持！
     </td>
   </tr>
   <tr>
@@ -252,12 +264,12 @@ open dist/Lithe.app
   </tr>
   <tr>
     <td width="112" align="center">
-      <a href="https://torchai.ai">
-        <img src="./docs/assets/sponsors/torchai.jpg" width="64" alt="TorchAI">
+      <a href="https://codezsy.com/register?aff=fDyA">
+        <img src="https://raw.githubusercontent.com/zwenooo/z/main/logo/codez-logo-bq.png" width="64" alt="CodeZ 中转站">
       </a>
     </td>
     <td>
-      <a href="https://torchai.ai"><strong>TorchAI</strong></a> 面向开发者提供大模型中转服务，便于在编程、内容生成和自动化等不同场景中调用模型 API。其支持帮助 Lithe 保持持续开发，并探索更实用的 AI 工具体验。感谢 TorchAI 对本项目的支持！
+      <a href="https://codezsy.com/register?aff=fDyA"><strong>CodeZ</strong></a> 专注于 GPT 系列模型的稳定中转，为开发者在工具和项目中集成模型 API 提供简单直接的选择。其赞助为 Lithe 的持续开发与维护提供了助力。感谢 CodeZ 对本项目的支持！
     </td>
   </tr>
 </table>

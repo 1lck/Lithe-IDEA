@@ -1,11 +1,12 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-import type { GitCommit, GitHistorySnapshot } from "../types/git.types";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import type { GitCommit, GitHistorySnapshot, GitStatus } from "../types/git.types";
+import * as historyApi from "../api/git-commits-api";
 
 const getGitHistory = mock(
-  async (_repoPath: string, _limit: number): Promise<GitHistorySnapshot | null> => null,
+  async (_repoPath: string, _limit = 50): Promise<GitHistorySnapshot | null> => null,
 );
 
-mock.module("../api/git-commits-api", () => ({ getGitHistory }));
+let historySpy: ReturnType<typeof spyOn<typeof historyApi, "getGitHistory">>;
 
 const { createGitStore } = await import("./git.store");
 
@@ -41,7 +42,9 @@ const loadInitialHistory = (
 
 beforeEach(() => {
   getGitHistory.mockReset();
+  historySpy = spyOn(historyApi, "getGitHistory").mockImplementation(getGitHistory);
 });
+afterEach(() => historySpy.mockRestore());
 
 describe("Git history pagination", () => {
   test("requests a larger cumulative snapshot instead of an ignored offset", async () => {
@@ -180,5 +183,64 @@ describe("Git source control session", () => {
     const store = createGitStore();
 
     expect(store.getState().sourceControlSessions).toEqual({});
+  });
+});
+
+describe("Git refresh notifications", () => {
+  const snapshot: GitStatus = {
+    branch: "main", ahead: 0, behind: 0,
+    files: [{ path: "draft.ts", status: "modified", staged: false }],
+  };
+
+  test("ten identical refreshes produce no store notifications", () => {
+    const store = createGitStore();
+    loadInitialHistory(store, "C:/repo", commits(50));
+    store.getState().actions.setGitStatus(snapshot);
+    const previous = store.getState();
+    let notifications = 0;
+    const unsubscribe = store.subscribe(() => { notifications++; });
+    try {
+      for (let index = 0; index < 10; index++) {
+        store.getState().actions.refreshGitData({
+          repoPath: "C:/repo", gitStatus: structuredClone(snapshot),
+          commits: commits(50), hasMoreCommits: true, branches: [], operationState: null,
+        });
+        store.getState().actions.setStashes([]);
+      }
+      expect(notifications).toBe(0);
+      expect(store.getState()).toBe(previous);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  test("a staging change updates status while retaining unchanged history", () => {
+    const store = createGitStore();
+    loadInitialHistory(store, "C:/repo", commits(50));
+    store.getState().actions.setGitStatus(snapshot);
+    const previous = store.getState();
+    store.getState().actions.refreshGitData({
+      repoPath: "C:/repo",
+      gitStatus: { ...snapshot, files: [{ ...snapshot.files[0]!, staged: true }] },
+      commits: commits(50), hasMoreCommits: true,
+    });
+    expect(store.getState().gitStatus?.files[0]?.staged).toBe(true);
+    expect(store.getState().gitStatus).not.toBe(previous.gitStatus);
+    expect(store.getState().commits).toBe(previous.commits);
+  });
+
+  test("pagination and operation changes are not lost when status is unchanged", () => {
+    const store = createGitStore();
+    loadInitialHistory(store, "C:/repo", commits(50));
+    store.getState().actions.setGitStatus(snapshot);
+    store.getState().actions.refreshGitData({
+      repoPath: "C:/repo", gitStatus: structuredClone(snapshot),
+      commits: commits(50), hasMoreCommits: false, branches: ["main"],
+      operationState: { kind: "rebase", reference: "main", step: 1, total: 2, conflictedPaths: [] },
+    });
+    expect(store.getState().gitStatus).toBe(snapshot);
+    expect(store.getState().hasMoreCommits).toBe(false);
+    expect(store.getState().branches).toEqual(["main"]);
+    expect(store.getState().operationState?.kind).toBe("rebase");
   });
 });

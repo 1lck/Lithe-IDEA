@@ -27,7 +27,12 @@ import { showGitPushDialog } from "../services/git-push-dialog-service";
 import { useGitBlameStore } from "../stores/git-blame.store";
 import { useGitStore } from "../stores/git.store";
 import type { GitDiff, GitFile } from "../types/git.types";
-import { resolveGitFileMutationPaths } from "../utils/git-status-selection";
+import {
+  getGitFileOriginalRepositoryRelativePath,
+  getGitFileRepositoryPath,
+  getGitFileRepositoryRelativePath,
+  resolveGitFileMutationPaths,
+} from "../utils/git-status-selection";
 
 interface GitCommitPanelProps {
   selectedFiles: GitFile[];
@@ -121,10 +126,10 @@ async function buildCommitMessageContext({
     Promise.all(
       diffFilesForContext.map((file) =>
         getWorkingTreePathDiff(
-          repoPath,
-          file.path,
+          getGitFileRepositoryPath(file, repoPath) ?? repoPath,
+          getGitFileRepositoryRelativePath(file),
           file.status === "untracked",
-          file.originalPath,
+          getGitFileOriginalRepositoryRelativePath(file),
         ),
       ),
     ),
@@ -299,6 +304,13 @@ const GitCommitPanel = ({
       return;
     }
     if (!repoPath || !commitMessage.trim()) return;
+    const selectedRepoPaths = new Set(
+      selectedFiles.map((file) => getGitFileRepositoryPath(file, repoPath) ?? repoPath),
+    );
+    if (selectedRepoPaths.size > 1 || !selectedRepoPaths.has(repoPath)) {
+      setError(t("git.selectSingleRepositoryForCommit"));
+      return;
+    }
 
     // A conflicted merge/rebase must be resolved before the merge commit can
     // be finalized; guard here so Git's raw refusal never reaches the user.

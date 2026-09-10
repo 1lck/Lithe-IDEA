@@ -38,12 +38,15 @@ const categories: CategoryItem[] = [
   { id: "terminal", labelKey: "settings.tabs.terminal", icon: TerminalWindowIcon },
   { id: "lsp", labelKey: "settings.tabs.lsp", icon: DatabaseIcon },
   { id: "ai", labelKey: "settings.tabs.aiCommit", icon: MagicWandIcon },
+  { id: "git", labelKey: "settings.tabs.git", icon: CodeBlockIcon },
   { id: "logs", labelKey: "settings.tabs.logs", icon: FileTextIcon },
   { id: "updates", labelKey: "settings.tabs.updates", icon: ArrowClockwiseIcon },
 ];
 
 function categoryFromRequestedTab(tab: SettingsTab | null): MacSettingsCategory {
   switch (tab) {
+    case "git":
+      return "git";
     case "editor":
     case "keyboard":
     case "terminal":

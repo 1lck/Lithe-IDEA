@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceScopeMatchesRoot } from "@/features/workspace/types/workspace-launch-scope";
 import { useTranslation } from "@/i18n/locale-provider";
@@ -31,7 +32,6 @@ import { Spinner } from "@/ui/spinner";
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
 import { joinPath } from "@/utils/path-helpers";
-import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { openMavenRunPane } from "../actions/maven-tool-window-actions";
 import { ensureMavenProcessListeners } from "../hooks/use-maven-process-events";
 import { availableMavenProfiles, useMavenStore } from "../stores/maven.store";
@@ -243,6 +243,7 @@ function MavenSettingsDialog({
 export default function MavenPane({ onClose }: MavenPaneProps) {
   const { t } = useTranslation();
   const workspaceId = useActiveWorkspaceId();
+  const handleFileSelect = useFileSystemStore((state) => state.handleFileSelect);
   const root = useMavenStore((state) => state.root);
   const visiblePaths = useMavenStore((state) => state.visiblePaths);
   const projectStatus = useMavenStore((state) => state.projectStatus);
@@ -257,9 +258,9 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
   const javaHomePath = useMavenStore((state) => state.javaHomePath);
   const configurationSaveError = useMavenStore((state) => state.configurationSaveError);
   const reloadRequired = useMavenStore((state) => state.reloadRequired);
+  const projectReloadRequired = useMavenStore((state) => state.projectReloadRequired);
   const taskStatus = useMavenStore((state) => state.taskStatus);
   const taskError = useMavenStore((state) => state.taskError);
-  const handleFileSelect = useFileSystemStore((state) => state.handleFileSelect);
   const output = useMavenStore((state) => state.output);
   const issues = useMavenStore((state) => state.issues);
   const lastExitCode = useMavenStore((state) => state.lastExitCode);
@@ -646,21 +647,28 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
         </div>
       </div>
 
-      {reloadRequired || configurationSaveError || reloadError ? (
+      {reloadRequired || configurationSaveError || reloadError || (project && projectError) ? (
         <div className="flex min-h-9 shrink-0 items-center gap-2 border-border/70 border-b bg-warning/10 px-3">
           <WarningIcon className="size-3.5 text-warning" />
           <span className="min-w-0 flex-1 truncate ui-text-sm">
-            {configurationSaveError ?? reloadError ?? t("maven.configurationChanged")}
+            {configurationSaveError ??
+              reloadError ??
+              projectError ??
+              t("maven.configurationChanged")}
           </span>
           {reloadRequired || reloadError ? (
-            <Button size="xs" variant="ghost" onClick={() => void reloadJava()}>
-              {t("maven.reloadJdt")}
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() => void (projectReloadRequired ? reloadProjects() : reloadJava())}
+            >
+              {t(projectReloadRequired ? "maven.reloadProjects" : "maven.reloadJdt")}
             </Button>
           ) : null}
         </div>
       ) : null}
 
-      {projectStatus === "failed" ? (
+      {!project && projectStatus === "failed" ? (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
           <WarningIcon className="size-7 text-destructive" />
           <div className="font-medium">{t("maven.loadFailed")}</div>

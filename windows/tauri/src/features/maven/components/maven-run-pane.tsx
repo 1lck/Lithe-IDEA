@@ -2,7 +2,17 @@ import { useFileSystemStore } from "@/features/file-system/stores/file-system.st
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
-import { MinusIcon, PackageIcon, StopIcon, TrashIcon, WarningIcon } from "@/ui/icons";
+import {
+  CheckCircleIcon,
+  MinusCircleIcon,
+  MinusIcon,
+  PackageIcon,
+  RefreshIcon,
+  StopIcon,
+  TrashIcon,
+  WarningIcon,
+  XCircleIcon,
+} from "@/ui/icons";
 import { ScrollArea } from "@/ui/scroll-area";
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
@@ -19,12 +29,19 @@ export default function MavenRunPane() {
   const output = useMavenStore((state) => state.output);
   const issues = useMavenStore((state) => state.issues);
   const lastExitCode = useMavenStore((state) => state.lastExitCode);
+  const testResults = useMavenStore((state) => state.testResults);
+  const lastTestRun = useMavenStore((state) => state.lastTestRun);
   const actions = useMavenStore((state) => state.actions);
   const handleFileSelect = useFileSystemStore((state) => state.handleFileSelect);
   const setIsBottomPaneVisible = useUIState((state) => state.setIsBottomPaneVisible);
   const isRunning = taskStatus === "running" || taskStatus === "stopping";
   const canClear =
-    output.length > 0 || issues.length > 0 || lastExitCode !== null || taskStatus === "cancelled";
+    output.length > 0 ||
+    issues.length > 0 ||
+    testResults !== null ||
+    lastTestRun !== null ||
+    lastExitCode !== null ||
+    taskStatus === "cancelled";
 
   const openIssue = (path: string, line: number, column?: number | null) => {
     if (!root || !path) return;
@@ -67,6 +84,17 @@ export default function MavenRunPane() {
             <StopIcon className="text-warning" />
           </Button>
         </Tooltip>
+        <Tooltip content={t("maven.rerunTest")} side="bottom">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            disabled={!lastTestRun || isRunning}
+            onClick={() => void actions.rerunLastTest()}
+            aria-label={t("maven.rerunTest")}
+          >
+            <RefreshIcon />
+          </Button>
+        </Tooltip>
         <Tooltip content={t("maven.clearOutput")} side="bottom">
           <Button
             variant="ghost"
@@ -100,40 +128,105 @@ export default function MavenRunPane() {
         </div>
       ) : null}
 
+      {testResults ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-border/70 border-b px-3 py-2 ui-text-sm">
+          <span className="inline-flex items-center gap-1.5 text-success">
+            <CheckCircleIcon className="size-3.5" />
+            {t("maven.testsPassed", { count: testResults.passed })}
+          </span>
+          <span className="inline-flex items-center gap-1.5 text-destructive">
+            <XCircleIcon className="size-3.5" />
+            {t("maven.testsFailed", { count: testResults.failures + testResults.errors })}
+          </span>
+          <span className="inline-flex items-center gap-1.5 text-warning">
+            <MinusCircleIcon className="size-3.5" />
+            {t("maven.testsSkipped", { count: testResults.skipped })}
+          </span>
+          <span className="text-subtle-foreground">
+            {t("maven.testsRun", { count: testResults.testsRun })}
+          </span>
+        </div>
+      ) : null}
+
       <div className="flex min-h-0 flex-1">
-        {issues.length > 0 ? (
+        {issues.length > 0 || (testResults?.failureDetails.length ?? 0) > 0 ? (
           <ScrollArea className="w-72 max-w-[38%] shrink-0 border-border/70 border-r bg-sidebar">
-            <div className="border-border/70 border-b px-3 py-2 font-medium text-subtle-foreground ui-text-sm">
-              {t("maven.buildOutput")} ({issues.length})
-            </div>
-            <div className="py-1">
-              {issues.map((issue, index) => (
-                <button
-                  key={`${issue.path}:${issue.line}:${index}`}
-                  type="button"
-                  className="flex w-full items-start gap-2 px-3 py-1.5 text-left hover:bg-hover disabled:cursor-default"
-                  onClick={() => openIssue(issue.path, issue.line, issue.column)}
-                  disabled={!issue.path}
-                >
-                  <WarningIcon
-                    className={cn(
-                      "mt-0.5 size-3.5 shrink-0",
-                      issue.severity === "error" ? "text-destructive" : "text-warning",
-                    )}
-                  />
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium ui-text-sm">
-                      {issue.path
-                        ? `${issue.path}:${issue.line}${issue.column ? `:${issue.column}` : ""}`
-                        : t("maven.buildOutput")}
-                    </span>
-                    <span className="block truncate text-subtle-foreground ui-text-sm">
-                      {issue.message}
-                    </span>
-                  </span>
-                </button>
-              ))}
-            </div>
+            {testResults?.failureDetails.length ? (
+              <>
+                <div className="border-border/70 border-b px-3 py-2 font-medium text-subtle-foreground ui-text-sm">
+                  {t("maven.testFailures")} ({testResults.failureDetails.length})
+                </div>
+                <div className="border-border/70 border-b py-1">
+                  {testResults.failureDetails.map((failure, index) => {
+                    const location = failure.path
+                      ? `${failure.path}${failure.line ? `:${failure.line}` : ""}${failure.column ? `:${failure.column}` : ""}`
+                      : null;
+                    return (
+                      <button
+                        key={`${failure.name}:${index}`}
+                        type="button"
+                        className="flex w-full items-start gap-2 px-3 py-1.5 text-left hover:bg-hover disabled:cursor-default"
+                        onClick={() =>
+                          failure.path &&
+                          openIssue(failure.path, failure.line ?? 1, failure.column)
+                        }
+                        disabled={!failure.path}
+                      >
+                        <XCircleIcon className="mt-0.5 size-3.5 shrink-0 text-destructive" />
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium ui-text-sm">
+                            {failure.name}
+                          </span>
+                          <span className="block truncate text-subtle-foreground ui-text-sm">
+                            {location ?? failure.message ?? t("maven.testLocationUnknown")}
+                          </span>
+                          {location && failure.message ? (
+                            <span className="block truncate text-subtle-foreground ui-text-sm">
+                              {failure.message}
+                            </span>
+                          ) : null}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            ) : null}
+            {issues.length > 0 ? (
+              <>
+                <div className="border-border/70 border-b px-3 py-2 font-medium text-subtle-foreground ui-text-sm">
+                  {t("maven.buildOutput")} ({issues.length})
+                </div>
+                <div className="py-1">
+                  {issues.map((issue, index) => (
+                    <button
+                      key={`${issue.path}:${issue.line}:${index}`}
+                      type="button"
+                      className="flex w-full items-start gap-2 px-3 py-1.5 text-left hover:bg-hover disabled:cursor-default"
+                      onClick={() => openIssue(issue.path, issue.line, issue.column)}
+                      disabled={!issue.path}
+                    >
+                      <WarningIcon
+                        className={cn(
+                          "mt-0.5 size-3.5 shrink-0",
+                          issue.severity === "error" ? "text-destructive" : "text-warning",
+                        )}
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium ui-text-sm">
+                          {issue.path
+                            ? `${issue.path}:${issue.line}${issue.column ? `:${issue.column}` : ""}`
+                            : t("maven.buildOutput")}
+                        </span>
+                        <span className="block truncate text-subtle-foreground ui-text-sm">
+                          {issue.message}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : null}
           </ScrollArea>
         ) : null}
         <ScrollArea className="min-w-0 flex-1" orientation="both">
