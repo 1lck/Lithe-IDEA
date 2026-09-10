@@ -273,7 +273,10 @@ jobs:
           # Temporary: capture disk image state around create-dmg.sh while the
           # intermittent "hdiutil: create failed - Resource busy" is diagnosed.
           LITHE_DMG_DIAGNOSTICS: "1"
-        run: ./scripts/verify-macos-package.sh
+        run: |
+          ./scripts/verify-macos-package.sh
+          sparkle_tools=$(zsh scripts/prepare-sparkle-tools.sh)
+          ruby scripts/test-sparkle-update.rb "$sparkle_tools"
 
   gate:
     name: macOS CI gate
