@@ -61,6 +61,7 @@ describe("Windows display language", () => {
     expect(translate("diagnostics.problemCount", { count: 0 })).toBe("0 个问题");
     expect(translate("files.open")).toBe("打开");
     expect(translate("files.copyContent")).toBe("复制内容");
+    expect(translate("terminal.copySelection")).toBe("复制所选内容");
     expect(translate("files.reveal")).toBe("在资源管理器中显示");
     expect(createTranslator("en-US")("files.reveal")).toBe("Reveal in File Explorer");
     expect(translate("quickOpen.searchFiles")).toBe("输入以搜索文件...");

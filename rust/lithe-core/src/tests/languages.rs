@@ -542,6 +542,114 @@ fn maven_dependencies_reject_bounded_output_node_and_depth_overflow() {
 }
 
 #[test]
+fn maven_test_results_match_the_shared_compatibility_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/maven/test-results-v1.json"
+    ))
+    .expect("Maven test-results fixture should be valid JSON");
+    for case in fixture["cases"]
+        .as_array()
+        .expect("Maven test-results fixture should contain cases")
+    {
+        let root = temporary_root("maven-test-results");
+        fs::create_dir_all(&root).expect("Maven test workspace should be creatable");
+        for source in case["sourceFiles"]
+            .as_array()
+            .expect("source files should be an array")
+        {
+            let path = root.join(source.as_str().expect("source path should be text"));
+            fs::create_dir_all(path.parent().expect("source should have a parent"))
+                .expect("source directory should be creatable");
+            fs::write(path, "class CalculatorTest {}").expect("source should be writable");
+        }
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": case["name"],
+                "command": "maven.testResults",
+                "payload": {"root": root, "output": case["output"]}
+            })
+            .to_string(),
+        ))
+        .expect("Maven test-results response should be JSON");
+        assert_eq!(response["ok"], true, "case {}: {response}", case["name"]);
+        assert_eq!(response["data"], case["expected"], "case {}", case["name"]);
+        fs::remove_dir_all(root).expect("Maven test fixture should be removable");
+    }
+}
+
+#[test]
+fn maven_test_results_aggregate_class_summaries_without_results_footer() {
+    let root = temporary_root("maven-test-results-aggregate");
+    fs::create_dir_all(&root).expect("Maven aggregate workspace should be creatable");
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "maven-test-results-aggregate",
+            "command": "maven.testResults",
+            "payload": {
+                "root": root,
+                "output": "[INFO] Tests run: 2, Failures: 1, Errors: 0, Skipped: 0, Time elapsed: 0.12 s - in FirstTest\n[INFO] Tests run: 3, Failures: 0, Errors: 1, Skipped: 1, Time elapsed: 0.08 s <<< FAILURE! -- in SecondTest\n"
+            }
+        })
+        .to_string(),
+    ))
+    .expect("aggregate Maven test-results response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(response["data"]["testsRun"], 5);
+    assert_eq!(response["data"]["failures"], 1);
+    assert_eq!(response["data"]["errors"], 1);
+    assert_eq!(response["data"]["skipped"], 1);
+    assert_eq!(response["data"]["passed"], 2);
+    assert_eq!(response["data"]["success"], false);
+    fs::remove_dir_all(root).expect("Maven aggregate fixture should be removable");
+}
+
+#[test]
+fn maven_test_results_aggregate_all_module_footers_and_ignore_reactor_lines() {
+    let root = temporary_root("maven-test-results-footers");
+    fs::create_dir_all(&root).expect("Maven footer workspace should be creatable");
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "maven-test-results-footers",
+            "command": "maven.testResults",
+            "payload": {
+                "root": root,
+                "output": "[INFO] Tests run: 2, Failures: 1, Errors: 0, Skipped: 0\n[INFO] Tests run: 3, Failures: 0, Errors: 1, Skipped: 1\n[INFO] Reactor Summary for reactor 1.0-SNAPSHOT:\n[INFO] base ................................ SUCCESS\n[INFO] app ................................ FAILURE\n"
+            }
+        })
+        .to_string(),
+    ))
+    .expect("footer Maven test-results response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(response["data"]["testsRun"], 5);
+    assert_eq!(response["data"]["failures"], 1);
+    assert_eq!(response["data"]["errors"], 1);
+    assert_eq!(response["data"]["skipped"], 1);
+    assert_eq!(response["data"]["passed"], 2);
+    assert_eq!(response["data"]["failureDetails"], serde_json::json!([]));
+    fs::remove_dir_all(root).expect("Maven footer fixture should be removable");
+}
+
+#[test]
+fn maven_test_results_reject_oversized_output_and_bound_failure_details() {
+    let root = temporary_root("maven-test-results-bounds");
+    fs::create_dir_all(&root).expect("Maven bounds workspace should be creatable");
+    let oversized = serde_json::from_str::<Value>(&execute_json(
+        &serde_json::json!({
+            "id": "oversized",
+            "command": "maven.testResults",
+            "payload": {"root": root, "output": "x".repeat(500_001)}
+        })
+        .to_string(),
+    ))
+    .expect("oversized test-results response should be JSON");
+    assert_eq!(oversized["ok"], false);
+    assert_eq!(oversized["error"]["code"], "parse_failed");
+    fs::remove_dir_all(root).expect("Maven bounds fixture should be removable");
+}
+
+#[test]
 fn maven_launch_plan_rejects_unknown_modules_and_invalid_invocation_tokens() {
     let root = temporary_root("maven-launch-invalid");
     fs::create_dir_all(&root).expect("invalid Maven fixture should be creatable");
@@ -839,4 +947,49 @@ fn java_core_commands_return_shared_runtime_and_structure_data() {
     .expect("server port response should be JSON");
     assert_eq!(port_response["data"]["port"], 8080);
     fs::remove_dir_all(root).expect("Java fixture should be removable");
+}
+
+#[test]
+fn java_test_methods_handle_inline_annotations_and_ignore_non_code_text() {
+    // Build the Java block comment at runtime so repository lint does not parse fixture text as Rust.
+    let java_block_comment = ["/", "* @Test void commentMethod() {} *", "/"].concat();
+    let source = r#"class CalculatorTest {
+    String example = "@Test void stringMethod() {}";
+    String textBlock = """
+        @Test void textBlockMethod() {}
+        """;
+    <java-block-comment>
+    @example.Test void customAnnotation() {}
+    @org.junit.Test public void inlineJUnit4() { helper(); }
+
+    @org.junit.jupiter.params.ParameterizedTest(name = "case {0}")
+    @ValueSource(ints = {1, 2})
+    void parameterized(int value) {
+        String braces = "}";
+        helper();
+    }
+
+    @Test
+    int field = 1;
+    void helper() {}
+}"#
+    .replace("<java-block-comment>", &java_block_comment);
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "java-test-methods",
+            "command": "java.testMethods",
+            "payload": {"source": source}
+        })
+        .to_string(),
+    ))
+    .expect("Java test methods response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["data"]["methods"],
+        serde_json::json!([
+            {"name": "inlineJUnit4", "line": 7, "endLine": 7},
+            {"name": "parameterized", "line": 11, "endLine": 14}
+        ])
+    );
 }

@@ -178,6 +178,62 @@ package struct MavenBuildIssue: Identifiable, Hashable, Sendable {
     }
 }
 
+package struct MavenTestFailureDetail: Identifiable, Hashable, Sendable {
+    package let id: String
+    package let name: String
+    package let kind: String
+    package let message: String?
+    package let fileURL: URL?
+    package let line: Int?
+    package let column: Int?
+
+    package init(
+        id: String,
+        name: String,
+        kind: String,
+        message: String?,
+        fileURL: URL?,
+        line: Int?,
+        column: Int?
+    ) {
+        self.id = id
+        self.name = name
+        self.kind = kind
+        self.message = message
+        self.fileURL = fileURL
+        self.line = line
+        self.column = column
+    }
+}
+
+package struct MavenTestResults: Equatable, Sendable {
+    package let testsRun: Int
+    package let failures: Int
+    package let errors: Int
+    package let skipped: Int
+    package let passed: Int
+    package let success: Bool
+    package let failureDetails: [MavenTestFailureDetail]
+
+    package init(
+        testsRun: Int,
+        failures: Int,
+        errors: Int,
+        skipped: Int,
+        passed: Int,
+        success: Bool,
+        failureDetails: [MavenTestFailureDetail]
+    ) {
+        self.testsRun = testsRun
+        self.failures = failures
+        self.errors = errors
+        self.skipped = skipped
+        self.passed = passed
+        self.success = success
+        self.failureDetails = failureDetails
+    }
+}
+
 package enum MavenProjectLoadState: Equatable, Sendable {
     case idle
     case loading
@@ -426,6 +482,7 @@ package protocol MavenProjectOperations: Sendable {
     ) throws -> MavenLaunchPlan
     func mavenDependencies(modulePath: String, output: String) throws -> MavenDependencyTree
     func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue]
+    func mavenTestResults(output: String, projectRoot: URL) -> MavenTestResults?
 }
 
 extension MavenProjectOperations {
@@ -449,6 +506,8 @@ extension MavenProjectOperations {
             message: "Maven dependency parsing is unavailable."
         )
     }
+
+    package func mavenTestResults(output _: String, projectRoot _: URL) -> MavenTestResults? { nil }
 }
 
 package protocol MavenConfigurationStoring: Sendable {
