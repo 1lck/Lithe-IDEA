@@ -3646,8 +3646,11 @@ fn push_log_event(
 fn push_maven_profile_project_event(
     session: &RuntimeSession,
     state: &mut SessionState,
-    result: MavenProfileProjectResult,
+    mut result: MavenProfileProjectResult,
 ) {
+    // The structured event is consumed by both hosts and may be persisted by
+    // UI state, so keep the same redacted project identity as ordinary logs.
+    result.project_uri = redacted_project_uri(&result.project_uri);
     let sequence = take_sequence(state);
     enqueue_runtime_event(
         session,
@@ -4445,6 +4448,12 @@ mod tests {
                 .map(|result| result.status),
             Some(MavenProfileTaskStatus::Failed)
         );
+        let project_uri = project_event
+            .maven_profile_project
+            .as_ref()
+            .map(|result| result.project_uri.as_str())
+            .unwrap_or_default();
+        assert!(!project_uri.contains("/Users/") && !project_uri.contains("\\Users\\"));
         harness.await_state(LspLifecycleState::Ready);
         assert_eq!(harness.snapshot().state, LspLifecycleState::Ready);
     }
