@@ -411,7 +411,8 @@ struct RunEntryPointTests {
         let configurationB = ReadyRunConfigurationOperations.serviceEntryPoint
 
         model.openProjectDirectly(workspaceA.root)
-        model.startRunConfiguration(configurationA)
+        let earlierStart = Task { await model.performStartRunConfiguration(configurationA) }
+        defer { earlierStart.cancel() }
         #expect(await runConfigurations.inspectionEntered(1))
 
         model.openProjectDirectly(workspaceB.root)
@@ -430,13 +431,7 @@ struct RunEntryPointTests {
         // A's in-flight ensure finishes after the switch. It must be treated as
         // stale: no re-defer against B, and B's pending must survive.
         runConfigurations.release(1)
-        let corruptedByStaleA = await awaitChange(on: model, timeout: .seconds(1)) {
-            model.pendingRunAction?.kind == .startConfiguration(configurationA)
-        }
-        #expect(
-            !corruptedByStaleA,
-            "a stale entry task for A must not re-defer its configuration onto B"
-        )
+        #expect(await waitForRunEntryCompletion(earlierStart), "the stale entry task must finish")
         #expect(
             model.pendingRunAction?.kind == .startConfiguration(configurationB)
                 && model.pendingRunAction?.identity.url == workspaceB.root.standardizedFileURL,
@@ -472,7 +467,8 @@ struct RunEntryPointTests {
         let earlierConfiguration = ReadyRunConfigurationOperations.entryPoint
 
         model.openProjectDirectly(workspace.root)
-        model.startRunConfiguration(earlierConfiguration)
+        let earlierStart = Task { await model.performStartRunConfiguration(earlierConfiguration) }
+        defer { earlierStart.cancel() }
         #expect(
             await runConfigurations.inspectionEntered(1),
             "the direct start never began its own load"
@@ -498,26 +494,18 @@ struct RunEntryPointTests {
         // The earlier opening's task finishes last. Its captured URL still
         // matches, so only the generation can reject it.
         runConfigurations.release(1)
-        #expect(
-            await runConfigurations.launchPlanNotRequested(within: .seconds(1)),
-            "a task from the previous opening must not launch into the current one"
-        )
+        #expect(await waitForRunEntryCompletion(earlierStart), "the earlier opening's entry task must finish")
+        #expect(runConfigurations.launchPlanCallCount == 0,
+                "a task from the previous opening must not launch into the current one")
         #expect(
             model.pendingRunAction == nil,
             "a discarded task must not record a pending action either"
         )
-        // The discarded task completes on the run service's utility queue. Wait
-        // for its final publication before asserting the current inventory so a
-        // slow CI worker cannot observe the brief transition while that task is
-        // unwinding after its generation check.
-        let currentInventorySurvived = await awaitChange(on: model, timeout: .seconds(1)) {
+        #expect(
             model.runFeatureIfActive?.isProjectReady(
                 for: workspace.root,
                 snapshotID: currentSnapshotID
-            ) == true
-        }
-        #expect(
-            currentInventorySurvived,
+            ) == true,
             "the current opening's inventory must survive the discarded task"
         )
     }
@@ -866,12 +854,6 @@ private final class InspectionGatedRunConfigurationOperations: RunConfigurationO
         await launchPlanRequests[ordinal - 1].waitUntilOpen(timeout: .seconds(30))
     }
 
-    /// Asserting that no launch happens needs a short deadline: the whole wait is
-    /// paid on the passing path, so it must not carry a load-sized one.
-    func launchPlanNotRequested(within duration: Duration) async -> Bool {
-        await !launchPlanRequests[0].waitUntilOpen(timeout: duration)
-    }
-
     var resolveCallCount: Int {
         lock.lock()
         defer { lock.unlock() }
@@ -1072,4 +1054,15 @@ private final class RunEntryPointTestStore: KeyValueStore, @unchecked Sendable {
     func string(forKey key: String) -> String? { values[key] as? String }
     func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
     func set(_ value: Any?, forKey key: String) { values[key] = value }
+}
+
+@MainActor
+private func waitForRunEntryCompletion(_ task: Task<Void, Never>) async -> Bool {
+    let completed = TestGate()
+    let observer = Task {
+        await task.value
+        completed.open()
+    }
+    defer { observer.cancel() }
+    return await completed.waitUntilOpen(timeout: .seconds(5))
 }

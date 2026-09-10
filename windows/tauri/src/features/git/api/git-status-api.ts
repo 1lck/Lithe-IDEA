@@ -1,6 +1,7 @@
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
 import { emitGitChanged } from "../events/git-events";
 import { registerGitCacheInvalidator } from "../runtime/git-cache-registry";
+import { initializeGitRepository } from "./git-setup-api";
 import type { GitFile, GitHunk, GitStatus } from "../types/git.types";
 import {
   isNotGitRepositoryError,
@@ -73,13 +74,7 @@ export const getGitStatus = async (repoPath: string): Promise<GitStatus | null> 
 };
 
 function normalizeStatusRepoPaths(repoPaths: readonly string[]): string[] {
-  return [
-    ...new Set(
-      repoPaths
-        .map((repoPath) => repoPath.trim())
-        .filter(Boolean),
-    ),
-  ];
+  return [...new Set(repoPaths.map((repoPath) => repoPath.trim()).filter(Boolean))];
 }
 
 function getRepoLabel(repoPath: string): string {
@@ -131,8 +126,9 @@ export const getWorkspaceGitStatus = async (
     return status.files.map((file) => decorateWorkspaceFile(file, repoPath, prefix));
   });
 
-  const activeStatus = availableStatuses.find((entry) => entry.repoPath === activeRepoPath)?.status
-    ?? availableStatuses[0]!.status;
+  const activeStatus =
+    availableStatuses.find((entry) => entry.repoPath === activeRepoPath)?.status ??
+    availableStatuses[0]!.status;
   return {
     branch: activeStatus.branch,
     ahead: activeStatus.ahead,
@@ -361,13 +357,8 @@ export const addPathsToLocalGitExclude = (
 
 export const initRepository = async (repoPath: string): Promise<boolean> => {
   try {
-    await tauriInvoke("git_init", { repoPath });
-    emitGitChanged({
-      repoPath,
-      scopes: ["repository", "working-tree", "refs"],
-      source: "initialize-repository",
-    });
-    return true;
+    const result = await initializeGitRepository(repoPath);
+    return result.isRepository;
   } catch (error) {
     console.error("Failed to initialize repository:", error);
     return false;

@@ -206,34 +206,6 @@ export const getCommitFiles = async (
   }
 };
 
-export const editCommitMessage = (
-  repoPath: string,
-  revision: string,
-  message: string,
-): Promise<void> =>
-  runHistoryMutation(repoPath, "edit-commit-message", {
-    operation: "editCommitMessage",
-    revision,
-    message,
-  }).then(() => undefined);
-
-export const deleteCommit = (repoPath: string, revision: string): Promise<void> =>
-  runHistoryMutation(repoPath, "delete-commit", {
-    operation: "deleteCommit",
-    revision,
-  }).then(() => undefined);
-
-export const squashCommits = (
-  repoPath: string,
-  revisions: string[],
-  message: string,
-): Promise<void> =>
-  runHistoryMutation(repoPath, "squash-commits", {
-    operation: "squashCommits",
-    revisions,
-    message,
-  }).then(() => undefined);
-
 export const resetToCommit = (
   repoPath: string,
   revision: string,

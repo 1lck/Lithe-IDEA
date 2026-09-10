@@ -200,6 +200,9 @@ export interface GitWorktree {
   locked_reason?: string;
   prunable_reason?: string;
   is_current: boolean;
+  is_primary?: boolean;
+  is_locked?: boolean;
+  is_prunable?: boolean;
 }
 
 export interface GitBlame {

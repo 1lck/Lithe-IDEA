@@ -67,6 +67,7 @@ import {
 } from "../../utils/git-status-selection";
 import { StashMessageModal } from "../stash/git-stash-modal";
 import { GitFileItem } from "./git-status-file-item";
+import { showGitPatchDialog } from "../../services/git-patch-dialog-service";
 
 interface GitStatusPanelProps {
   files: GitFile[];
@@ -975,6 +976,7 @@ const GitStatusPanel = ({
   const contextMenuTarget = contextMenuEntries.length === 1 ? contextMenuEntries[0] : null;
   const contextMenuHasTrackedFiles = contextMenuFiles.some((file) => file.status !== "untracked");
   const contextMenuHasUntrackedFiles = contextMenuFiles.some((file) => file.status === "untracked");
+  const contextMenuRepositories = groupGitFilesByRepository(contextMenuFiles, repoPath);
   const openScopedDiff = useCallback(
     (scope: GitStatusDiffScope) => {
       setIsDiffMenuOpen(false);
@@ -1197,6 +1199,16 @@ const GitStatusPanel = ({
                 },
               ]
             : [
+                {
+                  id: "create-patch-selection",
+                  label: contextMenuRepositories.length === 1 ? t("git.patch.create") : t("git.patch.singleRepository"),
+                  icon: <GitDiff />,
+                  disabled: isLoading || contextMenuRepositories.length !== 1,
+                  onClick: () => {
+                    const repository = contextMenuRepositories[0];
+                    if (repository) void showGitPatchDialog(repository.repoPath, { mode: "export", paths: getRepoRelativePaths(repository.files) });
+                  },
+                },
                 {
                   id: "commit-selection",
                   label: t("git.commit"),

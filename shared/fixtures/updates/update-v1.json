@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "states": [
+    "idle",
+    "checking",
+    "available",
+    "downloading",
+    "installing",
+    "upToDate",
+    "failed"
+  ],
+  "errorCodes": [
+    "app_not_found_in_disk_image",
+    "checksum_mismatch",
+    "connection_failed",
+    "download_failed",
+    "http_status",
+    "install_failed",
+    "invalid_manifest",
+    "invalid_response",
+    "no_compatible_asset",
+    "no_published_release",
+    "not_app_bundle",
+    "rate_limited",
+    "timed_out",
+    "tls_or_proxy_failure",
+    "unsupported_schema"
+  ],
+  "preferenceSemantics": {
+    "laterHours": 24,
+    "skipClearsWhenTargetChanges": true,
+    "manualChecksIgnoreSuppression": true
+  },
+  "availableState": {
+    "schemaVersion": 1,
+    "currentVersion": "0.3.0",
+    "targetVersion": "0.3.1",
+    "releaseDate": "2026-01-02T00:00:00Z",
+    "releaseNotes": "Bug fixes and improvements.",
+    "releaseURL": "https://github.com/1lck/Lithe-IDEA/releases/tag/v0.3.1",
+    "status": "available",
+    "downloadProgress": null,
+    "errorCode": null
+  }
+}
