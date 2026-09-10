@@ -77,6 +77,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         }
     }
 
+    struct WorkspaceRepositoryPayload: Decodable, Sendable {
+        let path: String
+    }
+
+    struct WorkspaceRepositoriesPayload: Decodable, Sendable {
+        let repositories: [WorkspaceRepositoryPayload]
+    }
+
     private struct SearchIndexStatusPayload: Decodable {
         let fileCount: Int
         let symbolCount: Int
@@ -357,6 +365,25 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let issues: [Issue]
     }
 
+    struct MavenTestResultsPayload: Decodable, Sendable {
+        struct Failure: Decodable, Sendable {
+            let name: String
+            let kind: String
+            let message: String?
+            let path: String?
+            let line: Int?
+            let column: Int?
+        }
+
+        let testsRun: Int
+        let failures: Int
+        let errors: Int
+        let skipped: Int
+        let passed: Int
+        let success: Bool
+        let failureDetails: [Failure]
+    }
+
     struct MavenLaunchPlanPayload: Decodable, Sendable {
         struct Executable: Decodable, Sendable {
             let toolchain: String
@@ -529,6 +556,26 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let beans: [Bean]
         let injections: [Injection]
         let endpoints: [Endpoint]
+    }
+
+    struct MybatisIndexPayload: Decodable, Sendable {
+        struct Statement: Decodable, Sendable {
+            let id: String
+            let namespace: String
+            let statementId: String
+            let kind: String
+            let javaPath: String
+            let javaLine: Int
+            let javaColumn: Int
+            let javaEndLine: Int
+            let javaEndColumn: Int
+            let xmlPath: String
+            let xmlLine: Int
+            let xmlColumn: Int
+            let xmlEndColumn: Int
+        }
+
+        let statements: [Statement]
     }
 
     struct RunConfigurationPayload: Codable, Sendable {
@@ -968,6 +1015,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let tagDeletion: TagDeletion?
         let branchDeletion: BranchDeletion?
         let warnings: [Warning]?
+        let historyRewrite: GitHistoryRewriteResult?
     }
 
     struct GitDiffPayload: Decodable, Sendable {
@@ -1894,6 +1942,11 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let output: String
     }
 
+    private struct MavenTestResultsRequest: Encodable {
+        let root: String
+        let output: String
+    }
+
     private struct MavenDependenciesRequest: Encodable {
         let modulePath: String
         let output: String
@@ -1960,6 +2013,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let textOverrides: [String: String]
     }
 
+    private struct MybatisIndexRequest: Encodable {
+        let root: String
+        let paths: [String]
+        let textOverrides: [String: String]
+    }
+
     private struct JavaCodeVisionRequest: Encodable {
         let root: String
         let targetPath: String
@@ -1983,6 +2042,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     }
 
     private struct GitStatusRequest: Encodable {
+        let root: String
+    }
+
+    private struct WorkspaceRepositoriesRequest: Encodable {
         let root: String
     }
 
@@ -2684,6 +2747,19 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
+    func mavenTestResults(
+        at rootURL: URL,
+        output: String
+    ) -> Result<MavenTestResultsPayload, CoreCallError> {
+        executeResult(
+            command: "maven.testResults",
+            payload: MavenTestResultsRequest(
+                root: rootURL.standardizedFileURL.path,
+                output: output
+            )
+        )
+    }
+
     func scanJavaRunConfigurations(
         at rootURL: URL,
         paths: [String],
@@ -2897,10 +2973,32 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
+    func mybatisIndex(
+        at rootURL: URL,
+        paths: [String],
+        textOverrides: [String: String] = [:]
+    ) -> MybatisIndexPayload? {
+        execute(
+            command: "mybatis.index",
+            payload: MybatisIndexRequest(
+                root: rootURL.standardizedFileURL.path,
+                paths: paths,
+                textOverrides: textOverrides
+            )
+        )
+    }
+
     func gitStatus(at rootURL: URL) -> GitStatusPayload? {
         execute(
             command: "git.status",
             payload: GitStatusRequest(root: rootURL.standardizedFileURL.path)
+        )
+    }
+
+    func workspaceRepositories(at rootURL: URL) -> WorkspaceRepositoriesPayload? {
+        execute(
+            command: "workspace.repositories",
+            payload: WorkspaceRepositoriesRequest(root: rootURL.standardizedFileURL.path)
         )
     }
 
@@ -3865,6 +3963,15 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             }
             return .success(value)
         }
+    }
+
+    /// Session queries intentionally return JSON null when no owned operation exists.
+    func executeNullableResult<Payload: Encodable, Data: Decodable>(
+        command: String,
+        payload: Payload
+    ) -> Result<Data?, CoreCallError> {
+        let outcome: Result<Envelope<Data>, CoreCallError> = decodeEnvelope(command: command, payload: payload)
+        return outcome.map(\.data)
     }
 
     /// Performs the call and reports the envelope's own verdict. Whether a

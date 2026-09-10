@@ -2,11 +2,11 @@ import { getVersion } from "@tauri-apps/api/app";
 import { useEffect, useMemo, useState } from "react";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useRecentFoldersStore } from "@/features/file-system/stores/recent-folders.store";
+import { AppUpdateControl } from "./app-update-control";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import {
-  ArrowClockwiseIcon,
   FolderIcon,
   FolderOpenIcon,
   GearIcon,
@@ -80,14 +80,9 @@ export function WelcomeScreen() {
             <div className="mt-0.5 ui-text-caption text-subtle-foreground">
               {appVersion ? `${appVersion} · Windows` : "Windows"}
             </div>
-            <button
-              type="button"
-              className="mt-0.5 inline-flex items-center gap-1.5 whitespace-nowrap ui-text-caption font-medium text-subtle-foreground hover:text-foreground"
-              onClick={() => openSettingsDialog("general")}
-            >
-              <ArrowClockwiseIcon className="size-3" />
-              {t("welcome.checkUpdates")}
-            </button>
+            <div className="mt-1">
+              <AppUpdateControl showWhenIdle />
+            </div>
           </div>
         </div>
 
@@ -131,7 +126,7 @@ export function WelcomeScreen() {
               variant="default"
               size="sm"
               className="min-w-17"
-              onClick={() => setIsProjectPickerVisible(true)}
+              onClick={() => setIsProjectPickerVisible(true, "clone-repository")}
             >
               <GitBranchIcon className="size-4" />
               {t("welcome.clone")}

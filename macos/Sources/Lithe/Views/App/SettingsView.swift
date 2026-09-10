@@ -11,6 +11,7 @@ final class SettingsViewState: ObservableObject {
     @Published var hiddenFilePatternsDraft = ""
     @Published var aiAPIKeyDraft = ""
     @Published var isFormatPickerPresented = false
+    @Published var detectedTerminalShells: [String] = []
 
     init(initialCategory: SettingsCategory) {
         selection = initialCategory
@@ -157,12 +158,16 @@ struct SettingsView: View {
             ["Editor", "Display", "Editor tabs", "Font size", "File tree row height", "Indentation", "Tab width"]
         case .keymap:
             ["Keymap", "Keyboard shortcuts", "Shortcuts", "Actions"]
+        case .project:
+            ["Project", "Java SDK", "JDK", "Project JDK", "Maven", "Maven Home", "Maven Wrapper", "Maven JDK"]
         case .terminal:
             ["Terminal", "Shell", "Default shell"]
         case .lsp:
-            ["LSP", "Language server", "Java SDK", "JDK", "Maven"]
+            ["LSP", "Language server"]
         case .ai:
             ["AI & Commit", "AI provider", "Model", "API key", "Commit message"]
+        case .git:
+            ["Git", "Commit identity", "Committer name", "Committer email", "Configuration scope", "user.name", "user.email"]
         case .updates:
             ["Updates", "Application version", "Update status", "Check for Updates"]
         case .diagnostics:
@@ -194,6 +199,9 @@ struct SettingsView: View {
         } else if viewState.selection == .lsp {
             LSPControlCenterView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if viewState.selection == .project {
+            ProjectRuntimeSettingsView(feature: model.runtimeFeature)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if viewState.selection == .keymap {
             KeyboardShortcutSettingsView(
                 feature: model.keyboardShortcutFeature,
@@ -214,7 +222,9 @@ struct SettingsView: View {
                     case .keymap: EmptyView()
                     case .terminal: terminalSettings
                     case .lsp: EmptyView()
+                    case .project: EmptyView()
                     case .ai: aiSettings
+                    case .git: GitIdentitySettingsView()
                     case .updates: updatesSettings
                     case .diagnostics: diagnosticsSettings
                     }
@@ -552,21 +562,36 @@ struct SettingsView: View {
         group("Shell") {
             row("Default shell") {
                 LitheSettingsSelect(
-                    selection: $settings.terminalShell,
-                    options: TerminalShell.allCases,
-                    width: 180,
+                    selection: Binding(
+                        get: { settings.terminalShellPath ?? "" },
+                        set: { settings.selectTerminalShell(path: $0) }
+                    ),
+                    options: terminalShellOptions,
+                    width: 320,
                     accessibilityLabel: "Default shell",
-                    title: \TerminalShell.title
+                    title: { path in
+                        path.isEmpty ? "System default" : "\(URL(fileURLWithPath: path).lastPathComponent) (\(path))"
+                    }
                 )
-                .onChange(of: settings.terminalShell) { _ in
-                    guard model.activeTerminalSession?.isRunning == true else { return }
-                    model.restartActiveTerminal(using: model.activeTerminalShellPath)
-                }
+            }
+            Button("Detect Installed Shells") {
+                model.terminalFeature?.refreshAvailableShells()
+                viewState.detectedTerminalShells = model.availableTerminalShells
             }
             Text("Used for new terminal sessions.")
                 .font(LitheTheme.smallFont)
                 .foregroundStyle(LitheTheme.secondaryText)
         }
+        .task {
+            guard await model.activateTerminalModule() else { return }
+            viewState.detectedTerminalShells = model.availableTerminalShells
+        }
+    }
+
+    private var terminalShellOptions: [String] {
+        var options = [""] + viewState.detectedTerminalShells
+        if let selected = settings.terminalShellPath, !options.contains(selected) { options.append(selected) }
+        return options
     }
 
     private var aiSettings: some View {
@@ -1187,10 +1212,7 @@ struct SettingsView: View {
         case .upToDate(let version):
             Label("Lithe is up to date at version \(version).", systemImage: "checkmark.circle.fill")
                 .foregroundStyle(LitheTheme.success)
-        case .noRelease:
-            Text("No published release is available yet.")
-                .foregroundStyle(LitheTheme.secondaryText)
-        case .failed(let message):
+        case .failed(_, let message):
             Label(message, systemImage: "exclamationmark.triangle")
                 .foregroundStyle(LitheTheme.warning)
                 .fixedSize(horizontal: false, vertical: true)

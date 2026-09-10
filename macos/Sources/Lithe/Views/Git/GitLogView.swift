@@ -6,9 +6,12 @@ struct GitLogNavigation {
     let compareWithWorkingTree: (GitReference) async -> Void
     let compareReferences: (GitReference, GitReference) async -> Void
     let openCommitDiff: (GitCommitFile) -> Void
+    var openGitSettings: () -> Void = {}
+    var openChanges: () -> Void = {}
 }
 
 struct GitLogView: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var feature: GitFeatureModel
     @ObservedObject var workbench: WorkbenchFeatureModel
     @ObservedObject var background: WorkbenchBackgroundFeatureModel
@@ -165,7 +168,7 @@ struct GitLogView: View {
             Text("This sends the selected local branch to its configured remote.")
         }
         .confirmationDialog(
-            pendingCommitOperation?.kind.title ?? "Git operation",
+            LocalizedStringKey(pendingCommitOperation?.kind.title ?? "Git operation"),
             isPresented: Binding(
                 get: { pendingCommitOperation != nil },
                 set: { if !$0 { pendingCommitOperation = nil } }
@@ -173,7 +176,7 @@ struct GitLogView: View {
             titleVisibility: .visible
         ) {
             if let operation = pendingCommitOperation {
-                Button(operation.kind.actionTitle) {
+                Button(LocalizedStringKey(operation.kind.actionTitle)) {
                     pendingCommitOperation = nil
                     Task {
                         switch operation.kind {
@@ -199,7 +202,7 @@ struct GitLogView: View {
             }
         }
         .confirmationDialog(
-            pendingBranchOperation?.kind.title ?? "Git branch operation",
+            LocalizedStringKey(pendingBranchOperation?.kind.title ?? "Git branch operation"),
             isPresented: Binding(
                 get: { pendingBranchOperation != nil },
                 set: { if !$0 { pendingBranchOperation = nil } }
@@ -207,7 +210,7 @@ struct GitLogView: View {
             titleVisibility: .visible
         ) {
             if let operation = pendingBranchOperation {
-                Button(operation.kind.actionTitle, role: operation.kind == .delete ? .destructive : nil) {
+                Button(LocalizedStringKey(operation.kind.actionTitle), role: operation.kind == .delete ? .destructive : nil) {
                     pendingBranchOperation = nil
                     Task {
                         switch operation.kind {
@@ -243,6 +246,9 @@ struct GitLogView: View {
             tagDialogRequest: $tagDialogRequest,
             pendingTagDeletion: $pendingTagDeletion
         ))
+        .modifier(GitHistoryEditingPresentation(editor: feature.historyEditing))
+        .modifier(GitInteractiveRebasePresentation(editor: feature.interactiveRebase))
+        .modifier(GitPatchPresentation(editor: feature.patchExchange, surface: .log))
     }
 
     /// The tab split lives outside `body` because the main expression is
@@ -262,6 +268,12 @@ struct GitLogView: View {
     private var logTabContent: some View {
         Group {
             primaryActionBar
+            GitInteractiveRebaseStatusView(editor: feature.interactiveRebase) { name, session in
+                await feature.createHistoryRecoveryBranch(named: name, from: session)
+            }
+            GitHistoryRewriteOutcomeView(editor: feature.historyEditing) { name, rewrite in
+                await feature.createHistoryRecoveryBranch(named: name, from: rewrite)
+            }
             if let deletedBranch = feature.recentlyDeletedBranch {
                 deletedReferenceBanner(
                     icon: "arrow.triangle.branch",
@@ -352,7 +364,7 @@ struct GitLogView: View {
 
             gitToolTabButton(
                 .log,
-                title: "Log: \(feature.isShowingAllGitReferences ? "All References" : (feature.selectedGitReference?.shortName ?? feature.currentBranch))"
+                title: "Log: \(feature.isShowingAllGitReferences ? Text("All References") : Text(verbatim: feature.selectedGitReference?.shortName ?? feature.currentBranch))"
             )
             gitToolTabButton(
                 .worktrees,
@@ -491,7 +503,7 @@ struct GitLogView: View {
                 }
                 .litheIconButton()
                 .foregroundStyle(gitConsoleWrapsLines ? LitheTheme.accent : LitheTheme.secondaryText)
-                .help(gitConsoleWrapsLines ? "Disable soft wraps" : "Use soft wraps")
+                .help(LocalizedStringKey(gitConsoleWrapsLines ? "Disable soft wraps" : "Use soft wraps"))
 
                 Button {
                     gitConsoleAutoScrolls.toggle()
@@ -500,7 +512,7 @@ struct GitLogView: View {
                 }
                 .litheIconButton()
                 .foregroundStyle(gitConsoleAutoScrolls ? LitheTheme.accent : LitheTheme.secondaryText)
-                .help(gitConsoleAutoScrolls ? "Disable automatic scrolling" : "Scroll to new Git output")
+                .help(LocalizedStringKey(gitConsoleAutoScrolls ? "Disable automatic scrolling" : "Scroll to new Git output"))
 
                 Button(action: feature.clearGitConsole) {
                     Image(systemName: "trash")
@@ -705,7 +717,7 @@ struct GitLogView: View {
     /// in session state, so closing the banner ends the restore opportunity.
     private func deletedReferenceBanner(
         icon: String,
-        message: String,
+        message: LocalizedStringKey,
         onRestore: @escaping () async -> Void,
         onDismiss: @escaping () -> Void
     ) -> some View {
@@ -952,129 +964,119 @@ struct GitLogView: View {
         }
         .buttonStyle(.plain)
         .lithePointer()
-        .contextMenu {
-            Button("New Branch from '\(reference.shortName)'…") {
+        .litheContextMenu {
+            var items: [LitheContextMenuItem] = []
+            items.append(.action(gitNewBranchMenuTitle(reference.shortName, locale: locale), action: {
                 branchDialogRequest = GitBranchDialogRequest(kind: .create, reference: reference)
-            }
+            }))
 
-            Button("Show Diff with Working Tree") {
+            items.append(.action("Show Diff with Working Tree", action: {
                 Task { await navigation.compareWithWorkingTree(reference) }
-            }
+            }))
 
             if let currentReference, currentReference.id != reference.id {
-                Button("Compare with Current Branch") {
+                items.append(.action("Compare with Current Branch", action: {
                     Task { await navigation.compareReferences(reference, currentReference) }
-                }
+                }))
             }
 
             if let source = comparisonSourceReference, source.id != reference.id {
-                Button("Compare '\(source.shortName)' with '\(reference.shortName)'") {
+                items.append(.action(gitLocalizedFormat("Compare '%@' with '%@'", source.shortName, reference.shortName, locale: locale), action: {
                     comparisonSourceReference = nil
                     Task { await navigation.compareReferences(source, reference) }
-                }
+                }))
             } else {
-                Button("Select for Compare") {
+                items.append(.action("Select for Compare", action: {
                     comparisonSourceReference = reference
-                }
+                }))
             }
 
             if !reference.isCurrent {
-                Divider()
+                items.append(.separator)
 
-                Button("Checkout") {
+                items.append(.action("Checkout", isEnabled: !(feature.isPerformingBranchOperation), action: {
                     Task { await feature.checkoutReference(reference) }
-                }
-                .disabled(feature.isPerformingBranchOperation)
+                }))
 
                 if reference.kind != .tag {
-                    Button("Checkout and Rebase onto Current Branch") {
+                    items.append(.action("Checkout and Rebase onto Current Branch", isEnabled: !(feature.isPerformingBranchOperation), action: {
                         pendingBranchOperation = GitBranchOperationRequest(
                             kind: .checkoutAndRebase,
                             reference: reference
                         )
-                    }
-                    .disabled(feature.isPerformingBranchOperation)
+                    }))
 
-                    Button("Merge into Current Branch") {
+                    items.append(.action("Merge into Current Branch", isEnabled: !(feature.isPerformingBranchOperation), action: {
                         pendingBranchOperation = GitBranchOperationRequest(
                             kind: .merge,
                             reference: reference
                         )
-                    }
-                    .disabled(feature.isPerformingBranchOperation)
-                    Button("Rebase Current Branch onto…") {
+                    }))
+                    items.append(.action("Rebase Current Branch onto…", isEnabled: !(feature.isPerformingBranchOperation), action: {
                         pendingBranchOperation = GitBranchOperationRequest(
                             kind: .rebase,
                             reference: reference
                         )
-                    }
-                    .disabled(feature.isPerformingBranchOperation)
+                    }))
                 }
             }
 
             if reference.kind == .remote {
-                Divider()
+                items.append(.separator)
 
-                Button("Pull with Rebase") {
+                items.append(.action("Pull with Rebase", isEnabled: !(feature.isPerformingBranchOperation), action: {
                     pendingBranchOperation = GitBranchOperationRequest(
                         kind: .pullRebase,
                         reference: reference
                     )
-                }
-                .disabled(feature.isPerformingBranchOperation)
-                Button("Pull with Merge") {
+                }))
+                items.append(.action("Pull with Merge", isEnabled: !(feature.isPerformingBranchOperation), action: {
                     pendingBranchOperation = GitBranchOperationRequest(
                         kind: .pullMerge,
                         reference: reference
                     )
-                }
-                .disabled(feature.isPerformingBranchOperation)
+                }))
             }
 
             if reference.kind == .local {
-                Divider()
+                items.append(.separator)
 
-                Button("Update") {
+                items.append(.action("Update", isEnabled: !(!reference.isCurrent || feature.isPerformingBranchOperation), action: {
                     Task { await feature.updateCurrentBranch(reference) }
-                }
-                .disabled(!reference.isCurrent || feature.isPerformingBranchOperation)
+                }))
 
-                Button("Push…") {
+                items.append(.action("Push…", isEnabled: !(feature.isPerformingBranchOperation), action: {
                     pendingPushReference = reference
-                }
-                .disabled(feature.isPerformingBranchOperation)
+                }))
 
                 if !reference.isCurrent {
-                    Button("Delete Branch", role: .destructive) {
+                    items.append(.action("Delete Branch", role: .destructive, isEnabled: !(feature.isPerformingBranchOperation), action: {
                         pendingBranchOperation = GitBranchOperationRequest(
                             kind: .delete,
                             reference: reference
                         )
-                    }
-                    .disabled(feature.isPerformingBranchOperation)
+                    }))
                 }
 
-                Divider()
+                items.append(.separator)
 
-                Button("Rename…") {
+                items.append(.action("Rename…", isEnabled: !(feature.isPerformingBranchOperation), action: {
                     branchDialogRequest = GitBranchDialogRequest(kind: .rename, reference: reference)
-                }
-                .disabled(feature.isPerformingBranchOperation)
+                }))
             }
 
             if reference.kind == .tag {
-                Divider()
+                items.append(.separator)
 
                 if reference.supportsTagDeletion {
-                    Button("Delete Tag…", role: .destructive) {
+                    items.append(.action("Delete Tag…", role: .destructive, isEnabled: !(feature.isPerformingBranchOperation), action: {
                         pendingTagDeletion = reference
-                    }
-                    .disabled(feature.isPerformingBranchOperation)
+                    }))
                 } else {
-                    Button("Delete Tag… (target is not a commit)") {}
-                        .disabled(true)
+                    items.append(.action("Delete Tag… (target is not a commit)", isEnabled: !(true), action: {}))
                 }
             }
+            return items
         }
     }
 
@@ -1140,21 +1142,16 @@ struct GitLogView: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
             if (visibleCommitHashes?.isEmpty == true || (visibleCommitHashes == nil && feature.gitCommits.isEmpty)) && !feature.isLoadingGitHistory {
-                VStack(spacing: 8) {
-                    LitheSystemIcon(systemImage: "point.3.connected.trianglepath.dotted")
-                        .font(.system(size: 27, weight: .light))
-                    Text("No commits match this view")
-                }
-                .font(LitheTheme.uiFont)
-                .foregroundStyle(LitheTheme.secondaryText)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                GitRepositoryEmptyView(feature: feature, setup: feature.repositorySetup,
+                                       openSettings: navigation.openGitSettings, openChanges: navigation.openChanges)
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(spacing: 0) {
-                            GitGraphView(
+                            GitHistorySelectionGraphView(
+                                editor: feature.historyEditing,
                                 presentation: graphPresentation,
-                                selectedHash: feature.selectedGitCommit?.hash,
+                                focusedHash: feature.selectedGitCommit?.hash,
                                 showCommitDecorations: showCommitDecorations,
                                 actions: graphRowActions
                             )
@@ -1167,7 +1164,7 @@ struct GitLogView: View {
                                         if feature.isLoadingMoreGitHistory {
                                             ProgressView().controlSize(.small)
                                         }
-                                        Text(feature.isLoadingMoreGitHistory ? "Loading commits…" : "Load more commits")
+                                        Text(LocalizedStringKey(feature.isLoadingMoreGitHistory ? "Loading commits…" : "Load more commits"))
                                     }
                                     .font(.system(size: 11.5, weight: .medium))
                                     .foregroundStyle(LitheTheme.accent)
@@ -1344,6 +1341,12 @@ struct GitLogView: View {
             selectedHash: feature.selectedGitCommit?.hash,
             offset: offset
         ) else { return }
+        feature.historyEditing.select(
+            commit.hash,
+            visibleHashes: filteredCommits.map(\.hash),
+            additive: false,
+            range: NSEvent.modifierFlags.contains(.shift)
+        )
         feature.previewGitCommitSelection(commit)
         scheduleGitCommitFileLoad(for: commit)
     }
@@ -1367,8 +1370,10 @@ struct GitLogView: View {
         return reference
     }
 
-    private var primaryComparisonDescription: String {
-        guard let currentReference else { return "No current branch" }
+    private var primaryComparisonDescription: LocalizedStringKey {
+        guard let currentReference else {
+            return feature.gitRepositoryRoot != nil ? "\(feature.currentBranch)" : "No current branch"
+        }
         if let target = feature.selectedGitReference, target.id != currentReference.id {
             return "\(currentReference.shortName) → \(target.shortName)"
         }
@@ -1405,6 +1410,27 @@ struct GitLogView: View {
             },
             onCreateTag: { commit in
                 tagDialogRequest = GitTagDialogRequest(commit: commit)
+            },
+            onSelectWithModifiers: { commit, modifiers in
+                gitLogCommitListFocused = true
+                feature.historyEditing.select(
+                    commit.hash,
+                    visibleHashes: feature.gitCommits.filter {
+                        feature.gitLogMatchedCommitHashes?.contains($0.hash) ?? true
+                    }.map(\.hash),
+                    additive: modifiers.contains(.command),
+                    range: modifiers.contains(.shift)
+                )
+                feature.previewGitCommitSelection(commit)
+                scheduleGitCommitFileLoad(for: commit)
+            },
+            onContextSelect: { commit in
+                feature.historyEditing.selectForContextMenu(commit.hash)
+                feature.previewGitCommitSelection(commit)
+                scheduleGitCommitFileLoad(for: commit)
+            },
+            additionalContextMenuItems: { commit in
+                GitHistoryRewriteMenu.items(feature: feature, commit: commit)
             }
         )
     }
@@ -1526,7 +1552,7 @@ struct GitLogView: View {
                 Button {
                     showsGitLogAuthorFilterPopover = true
                 } label: {
-                    gitLogFilterLabel(title: "User", selection: selectedGitLogAuthor?.displayName)
+                    gitLogFilterLabel(title: "User", selection: selectedGitLogAuthor?.displayName, localizeSelection: selectedGitLogAuthor == .currentUser)
                 }
                 .buttonStyle(.plain)
                 .lithePointer()
@@ -1570,7 +1596,7 @@ struct GitLogView: View {
                         }
                     }
                 } label: {
-                    gitLogFilterLabel(title: "Date", selection: selectedGitLogDatePreset.filterTitle)
+                    gitLogFilterLabel(title: "Date", selection: selectedGitLogDatePreset.filterTitle, localizeSelection: true)
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
@@ -1640,9 +1666,16 @@ struct GitLogView: View {
         .frame(width: 300)
     }
 
-    private func gitLogFilterLabel(title: String, selection: String?) -> some View {
+    private func gitLogFilterLabel(title: LocalizedStringKey, selection: String?, localizeSelection: Bool = false) -> some View {
         HStack(spacing: 3) {
-            Text(selection.map { "\(title): \($0)" } ?? title)
+            Group {
+                if let selection {
+                    let value = localizeSelection ? Text(LocalizedStringKey(selection)) : Text(verbatim: selection)
+                    Text("\(Text(title)): \(value)")
+                } else {
+                    Text(title)
+                }
+            }
                 .font(GitVisual.toolbar)
                 .foregroundStyle(LitheTheme.secondaryText)
             if selection == nil {
@@ -1677,7 +1710,7 @@ struct GitLogView: View {
             if let systemImage {
                 Image(systemName: systemImage)
             }
-            Text(title)
+            Text(LocalizedStringKey(title))
             Spacer()
             if selected { Image(systemName: "checkmark") }
         }
@@ -1906,7 +1939,7 @@ private enum GitCommitOperationKind {
         }
     }
 
-    func message(for commit: GitCommit) -> String {
+    func message(for commit: GitCommit) -> LocalizedStringKey {
         switch self {
         case .cherryPick:
             "Apply \(commit.shortHash) to the current branch."
@@ -1966,7 +1999,7 @@ private enum GitBranchOperationKind {
         }
     }
 
-    func message(for reference: GitReference) -> String {
+    func message(for reference: GitReference) -> LocalizedStringKey {
         switch self {
         case .delete:
             return "Delete the local branch \(reference.shortName)? Git will refuse if it contains unmerged work."
@@ -2035,7 +2068,7 @@ private struct GitBranchNameDialog: View {
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
                     .lithePointer()
-                Button(actionTitle, action: submit)
+                Button(LocalizedStringKey(actionTitle), action: submit)
                     .buttonStyle(.borderedProminent)
                     .lithePointer()
                     .tint(LitheTheme.accent)
@@ -2056,7 +2089,7 @@ private struct GitBranchNameDialog: View {
         }
     }
 
-    private var message: String {
+    private var message: LocalizedStringKey {
         switch request.kind {
         case .create: "Create from '\(request.reference.shortName)'."
         case .rename: "Rename '\(request.reference.shortName)'."
@@ -2124,7 +2157,7 @@ private struct GitTagNameDialog: View {
             }
 
             if let error = validationError ?? submitError {
-                Text(error)
+                Text(LocalizedStringKey(error))
                     .font(.system(size: 11.5))
                     .foregroundStyle(LitheTheme.error)
                     .fixedSize(horizontal: false, vertical: true)
@@ -2308,25 +2341,13 @@ struct GitIntegrationConflictDialog: View {
         }
     }
 
-    private var explanation: String {
-        // A rebase refuses over any uncommitted change; the others only over the
-        // files they would write. Saying which keeps the list from looking arbitrary.
+    private var explanation: LocalizedStringKey {
+        // Rebase blocks on all uncommitted changes; other operations only block
+        // on files they would overwrite. Preserve the interpolated target name.
         if request.blocksEntirely {
-            return String(
-                format: NSLocalizedString(
-                    "A rebase cannot start with any uncommitted changes, including these unrelated to '%@':",
-                    comment: "Rebase preflight explanation"
-                ),
-                request.target.displayName
-            )
+            return "A rebase cannot start with any uncommitted changes, including these unrelated to '\(request.target.displayName)':"
         }
-        return String(
-            format: NSLocalizedString(
-                "Your changes to these files would be overwritten by '%@':",
-                comment: "Merge preflight explanation"
-            ),
-            request.target.displayName
-        )
+        return "Your changes to these files would be overwritten by '\(request.target.displayName)':"
     }
 }
 
@@ -2428,13 +2449,14 @@ struct GitPullStrategyDialog: View {
 /// A compact IDEA-style push review. The branch row is deliberately separate
 /// from the action so the user can verify the destination before pushing.
 struct GitPushDialog: View {
+    @Environment(\.locale) private var locale
     @Environment(\.dismiss) private var dismiss
     let projectName: String
     let reference: GitReference
     let onPush: () -> Void
 
     var body: some View {
-        let presentation = GitPushDialogPresentation(reference: reference)
+        let presentation = GitPushDialogPresentation(reference: reference, locale: locale)
 
         VStack(spacing: 0) {
             HStack {
@@ -2525,7 +2547,7 @@ struct GitPushDialog: View {
                 .keyboardShortcut(.cancelAction)
                 .lithePointer()
 
-                Button(presentation.actionTitle) {
+                Button(LocalizedStringKey(presentation.actionTitle)) {
                     onPush()
                     dismiss()
                 }
@@ -2545,12 +2567,12 @@ struct GitPushDialogPresentation {
     let destination: String
     let actionTitle: String
 
-    init(reference: GitReference) {
+    init(reference: GitReference, locale: Locale = .current, bundle: Bundle = .main) {
         if let upstream = reference.upstreamShortName {
-            destination = "Tracking \(upstream)"
+            destination = gitLocalizedFormat("Tracking %@", upstream, locale: locale, bundle: bundle)
             actionTitle = "Push"
         } else {
-            destination = "Publish \(reference.shortName) (Core selects default remote)"
+            destination = gitLocalizedFormat("Publish %@ (Core selects default remote)", reference.shortName, locale: locale, bundle: bundle)
             actionTitle = "Publish Branch"
         }
     }
@@ -2649,6 +2671,7 @@ private struct GitReferenceRowActions {
 }
 
 private struct GitReferenceRowView: View, Equatable {
+    @Environment(\.locale) private var locale
     let row: GitReferenceRow
     let isSelected: Bool
     let isPerformingBranchOperation: Bool
@@ -2732,99 +2755,91 @@ private struct GitReferenceRowView: View, Equatable {
         }
         .buttonStyle(.plain)
         .lithePointer()
-        .contextMenu {
-            Button("New Branch from '\(reference.shortName)'…") {
+        .litheContextMenu {
+            var items: [LitheContextMenuItem] = []
+            items.append(.action(gitNewBranchMenuTitle(reference.shortName, locale: locale), action: {
                 actions.newBranch(reference)
-            }
+            }))
 
-            Button("Show Diff with Working Tree") {
+            items.append(.action("Show Diff with Working Tree", action: {
                 actions.showDiffWithWorkingTree(reference)
-            }
+            }))
 
             if let currentReferenceID, currentReferenceID != reference.id {
-                Button("Compare with Current Branch") {
+                items.append(.action("Compare with Current Branch", action: {
                     actions.compareWithCurrent(reference)
-                }
+                }))
             }
 
             if let comparisonSourceID, comparisonSourceID != reference.id,
                let sourceName = actions.comparisonSourceName {
-                Button("Compare '\(sourceName)' with '\(reference.shortName)'") {
+                items.append(.action(gitLocalizedFormat("Compare '%@' with '%@'", sourceName, reference.shortName, locale: locale), action: {
                     actions.compareWithSelectedSource(reference)
-                }
+                }))
             } else {
-                Button("Select for Compare") {
+                items.append(.action("Select for Compare", action: {
                     actions.selectForCompare(reference)
-                }
+                }))
             }
 
             if !reference.isCurrent {
-                Divider()
+                items.append(.separator)
 
-                Button("Checkout") {
+                items.append(.action("Checkout", isEnabled: !(isPerformingBranchOperation), action: {
                     actions.checkout(reference)
-                }
-                .disabled(isPerformingBranchOperation)
+                }))
 
                 if reference.kind != .tag {
-                    Button("Checkout and Rebase onto Current Branch") {
+                    items.append(.action("Checkout and Rebase onto Current Branch", isEnabled: !(isPerformingBranchOperation), action: {
                         actions.branchOperation(.checkoutAndRebase, reference)
-                    }
-                    .disabled(isPerformingBranchOperation)
+                    }))
 
-                    Button("Merge into Current Branch") {
+                    items.append(.action("Merge into Current Branch", isEnabled: !(isPerformingBranchOperation), action: {
                         actions.branchOperation(.merge, reference)
-                    }
-                    .disabled(isPerformingBranchOperation)
+                    }))
 
-                    Button("Rebase Current Branch onto…") {
+                    items.append(.action("Rebase Current Branch onto…", isEnabled: !(isPerformingBranchOperation), action: {
                         actions.branchOperation(.rebase, reference)
-                    }
-                    .disabled(isPerformingBranchOperation)
+                    }))
                 }
             }
 
             if reference.kind == .remote {
-                Divider()
+                items.append(.separator)
 
-                Button("Pull with Rebase") {
+                items.append(.action("Pull with Rebase", isEnabled: !(isPerformingBranchOperation), action: {
                     actions.branchOperation(.pullRebase, reference)
-                }
-                .disabled(isPerformingBranchOperation)
+                }))
 
-                Button("Pull with Merge") {
+                items.append(.action("Pull with Merge", isEnabled: !(isPerformingBranchOperation), action: {
                     actions.branchOperation(.pullMerge, reference)
-                }
-                .disabled(isPerformingBranchOperation)
+                }))
             }
 
             if reference.kind == .local {
-                Divider()
+                items.append(.separator)
 
-                Button("Update") {
+                items.append(.action("Update", isEnabled: !(!reference.isCurrent || isPerformingBranchOperation), action: {
                     actions.updateCurrentBranch(reference)
-                }
-                .disabled(!reference.isCurrent || isPerformingBranchOperation)
+                }))
 
-                Button("Push…") {
+                items.append(.action("Push…", isEnabled: !(isPerformingBranchOperation), action: {
                     actions.push(reference)
-                }
-                .disabled(isPerformingBranchOperation)
+                }))
 
                 if !reference.isCurrent {
-                    Button("Delete Branch", role: .destructive) {
+                    items.append(.action("Delete Branch", role: .destructive, isEnabled: !(isPerformingBranchOperation), action: {
                         actions.branchOperation(.delete, reference)
-                    }
-                    .disabled(isPerformingBranchOperation)
+                    }))
                 }
 
-                Divider()
+                items.append(.separator)
 
-                Button("Rename…") {
+                items.append(.action("Rename…", isEnabled: !(isPerformingBranchOperation), action: {
                     actions.renameBranch(reference)
-                }
-                .disabled(isPerformingBranchOperation)
+                }))
             }
+            return items
         }
     }
 
@@ -2911,4 +2926,17 @@ private struct GitLogThreePaneLayout<ReferencePane: View, CommitPane: View, Deta
             }
         )
     }
+}
+
+func gitNewBranchMenuTitle(_ name: String, locale: Locale, bundle: Bundle = .main) -> String {
+    gitLocalizedFormat("New Branch from '%@'…", name, locale: locale, bundle: bundle)
+}
+
+/// Resolve native UI text with the app locale, independently of the system language.
+func gitLocalizedFormat(_ key: String, _ arguments: CVarArg..., locale: Locale, bundle: Bundle = .main) -> String {
+    let localizedBundle = bundle.url(forResource: locale.identifier, withExtension: "lproj")
+        .flatMap(Bundle.init(url:)) ?? bundle
+    let format = localizedBundle.localizedString(forKey: key, value: key, table: nil)
+    guard !arguments.isEmpty else { return format }
+    return String(format: format, locale: locale, arguments: arguments)
 }

@@ -33,10 +33,7 @@ struct ChangesSidebarView: View {
             tabHeader
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-            if let operation = feature.gitOperationState {
-                GitOperationBanner(feature: feature, operation: operation)
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            }
+            GitChangesOperationStatus(feature: feature, editor: feature.interactiveRebase)
 
             if let conflict = feature.pendingStashRestoreConflict {
                 if feature.isStashRestoreConflictNoticeVisible {
@@ -72,6 +69,8 @@ struct ChangesSidebarView: View {
         }
         .background(hasBackgroundImage ? Color.clear : LitheTheme.sidebar)
         .onAppear { selectRequestedStashIfNeeded() }
+        .onChange(of: draft.commitEditorRequestVersion) { _ in selectedTab = .commit }
+        .modifier(GitPatchPresentation(editor: feature.patchExchange, surface: .changes))
         .onChange(of: feature.requestedStashReference) { _ in
             selectRequestedStashIfNeeded()
         }
@@ -154,6 +153,7 @@ struct ChangesSidebarView: View {
                 .lithePointer()
             }
             Spacer()
+            GitPatchToolbar(feature: feature)
         }
         .padding(.horizontal, 10)
         .frame(height: 40)
@@ -453,6 +453,21 @@ struct ChangesSidebarView: View {
                 .lithePointer()
             }
 
+            if feature.availableRepositoryRoots.count > 1 {
+                Menu {
+                    ForEach(feature.availableRepositoryRoots, id: \.self) { root in
+                        Button(root.path) {
+                            Task { await feature.selectRepository(root) }
+                        }
+                    }
+                } label: {
+                    Label(feature.gitRepositoryRoot?.lastPathComponent ?? "Repository", systemImage: "externaldrive")
+                        .lineLimit(1)
+                }
+                .menuStyle(.borderlessButton)
+                .help("Select repository for commits and branch operations")
+            }
+
             Text(feature.currentBranch)
                 .font(.system(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
@@ -555,7 +570,7 @@ struct ChangesSidebarView: View {
                         Text(LocalizedStringKey(title))
                             .font(.system(size: 12.5, weight: .semibold))
                             .foregroundStyle(LitheTheme.primaryText)
-                        Text(changes.count == 1 ? "1 file" : "\(changes.count) files")
+                        Text("\(changes.count) files")
                             .font(.system(size: 11))
                             .foregroundStyle(LitheTheme.secondaryText)
                         Spacer()
@@ -828,7 +843,7 @@ struct ChangesSidebarView: View {
     }
 
     private var stagedChanges: [GitChange] {
-        changeSections.staged
+        feature.activeRepositoryChanges.filter(\.isStaged)
     }
 
     private var canCommit: Bool {
@@ -838,11 +853,11 @@ struct ChangesSidebarView: View {
     }
 
     private var canStash: Bool {
-        !feature.gitChanges.isEmpty && !feature.isPerformingStashOperation
+        !feature.activeRepositoryChanges.isEmpty && !feature.isPerformingStashOperation
     }
 
     private var canShelf: Bool {
-        !feature.gitChanges.isEmpty && !feature.isPerformingShelfOperation
+        !feature.activeRepositoryChanges.isEmpty && !feature.isPerformingShelfOperation
     }
 
     private func statusColor(_ change: GitChange) -> Color {
@@ -874,10 +889,12 @@ struct ChangesSidebarView: View {
 
     private func parentPathText(_ change: GitChange) -> String {
         let parent = (change.path as NSString).deletingLastPathComponent
-        guard let originalPath = change.originalPath else { return parent }
+        let prefix = feature.availableRepositoryRoots.count > 1
+            ? change.repositoryRoot.path + "/" : ""
+        guard let originalPath = change.originalPath else { return prefix + parent }
         let originalParent = (originalPath as NSString).deletingLastPathComponent
-        guard originalParent != parent else { return parent }
-        return "\(originalParent) → \(parent)"
+        guard originalParent != parent else { return prefix + parent }
+        return "\(prefix)\(originalParent) → \(parent)"
     }
 
     private func constrained(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {
@@ -888,6 +905,23 @@ struct ChangesSidebarView: View {
 /// Persistent banner for a merge, rebase, cherry-pick, or revert that Git stopped
 /// partway through. Deliberately not a dialog: resolving conflicts means editing
 /// files, so the controls have to stay reachable rather than block the window.
+private struct GitChangesOperationStatus: View {
+    @ObservedObject var feature: GitFeatureModel
+    @ObservedObject var editor: GitInteractiveRebaseFeatureModel
+
+    var body: some View {
+        if editor.session?.isActive == true || (editor.session != nil && feature.gitOperationState == nil) {
+            GitInteractiveRebaseStatusView(editor: editor) { name, session in
+                await feature.createHistoryRecoveryBranch(named: name, from: session)
+            }
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+        } else if let operation = feature.gitOperationState {
+            GitOperationBanner(feature: feature, operation: operation)
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+        }
+    }
+}
+
 private struct GitOperationBanner: View {
     @ObservedObject var feature: GitFeatureModel
     let operation: GitOperationState
@@ -974,7 +1008,7 @@ private struct GitStashRestoreConflictBanner: View {
                 Spacer(minLength: 0)
             }
 
-            Text("Your local changes are safe in \(conflict.stashReference). The \(conflict.operationTitle) is incomplete. Resolve the conflicts, then drop this stash manually.")
+            Text("Your local changes are safe in \(conflict.stashReference). The \(Text(LocalizedStringKey(conflict.operationTitle))) is incomplete. Resolve the conflicts, then drop this stash manually.")
                 .font(.system(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)

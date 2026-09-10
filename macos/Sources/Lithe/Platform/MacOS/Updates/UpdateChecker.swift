@@ -9,17 +9,17 @@ struct UpdateNotice: Identifiable {
     let action: UpdateNoticeAction
 }
 
-struct UpdatePrompt: Identifiable {
-    let id = UUID()
-    let title: String
-    let message: String
-    let releaseURL: URL
-}
-
 enum UpdateNoticeAction {
-    case install
     case open(URL)
     case dismiss
+}
+
+struct UpdateInfo: Equatable, Sendable {
+    let currentVersion: String
+    let targetVersion: String
+    let releaseDate: String?
+    let releaseNotes: String?
+    let releaseURL: URL
 }
 
 struct UpdateDownloadProgress: Equatable, Sendable {
@@ -58,8 +58,25 @@ enum UpdateStatus: Equatable {
     case downloading(version: String, progress: UpdateDownloadProgress)
     case installing(version: String)
     case upToDate(version: String)
-    case noRelease
-    case failed(message: String)
+    case failed(code: UpdateErrorCode, message: String)
+}
+
+enum UpdateErrorCode: String, Equatable, Sendable {
+    case noPublishedRelease = "no_published_release"
+    case invalidResponse = "invalid_response"
+    case rateLimited = "rate_limited"
+    case httpStatus = "http_status"
+    case timedOut = "timed_out"
+    case tlsOrProxyFailure = "tls_or_proxy_failure"
+    case connectionFailed = "connection_failed"
+    case invalidManifest = "invalid_manifest"
+    case unsupportedSchema = "unsupported_schema"
+    case noCompatibleAsset = "no_compatible_asset"
+    case checksumMismatch = "checksum_mismatch"
+    case downloadFailed = "download_failed"
+    case installFailed = "install_failed"
+    case notAppBundle = "not_app_bundle"
+    case appNotFoundInDiskImage = "app_not_found_in_disk_image"
 }
 
 struct UpdateEndpointConfiguration: Equatable {
@@ -95,11 +112,15 @@ final class UpdateChecker: ObservableObject {
     @Published private(set) var isChecking = false
     @Published private(set) var isInstalling = false
     @Published var notice: UpdateNotice?
-    @Published private(set) var updatePrompt: UpdatePrompt?
     @Published private(set) var status: UpdateStatus = .idle
+    @Published private(set) var updateInfo: UpdateInfo?
 
     private static let automaticCheckInterval: TimeInterval = 24 * 60 * 60
     private static let lastAutomaticCheckKey = "lithe.update.lastAutomaticCheck"
+    private static let skippedVersionKey = "lithe.update.skippedVersion"
+    private static let remindVersionKey = "lithe.update.remindVersion"
+    private static let remindUntilKey = "lithe.update.remindUntil"
+    private static let remindLaterInterval: TimeInterval = 24 * 60 * 60
     private static let releasePageURL = URL(string: "https://github.com/1lck/Lithe-IDEA/releases/latest")!
 
     let currentVersion: String
@@ -151,7 +172,7 @@ final class UpdateChecker: ObservableObject {
         status = .checking
         availableManifest = nil
         availableAsset = nil
-        updatePrompt = nil
+        updateInfo = nil
         if manual { notice = nil }
         defer { isChecking = false }
 
@@ -164,15 +185,21 @@ final class UpdateChecker: ObservableObject {
                 preferences.set(now(), forKey: Self.lastAutomaticCheckKey)
             }
 
-            if UpdateVersion.isNewer(manifest.version, than: currentVersion) {
+            let info = UpdateInfo(
+                currentVersion: currentVersion,
+                targetVersion: manifest.version,
+                releaseDate: manifest.releaseDate,
+                releaseNotes: manifest.releaseNotes,
+                releaseURL: manifest.releaseURL
+            )
+            clearPreferencesForNewerVersion(manifest.version)
+
+            if UpdateVersion.isNewer(manifest.version, than: currentVersion),
+               manual || !shouldSuppress(version: manifest.version) {
                 availableManifest = manifest
                 availableAsset = asset
+                updateInfo = info
                 status = .available(version: manifest.version, url: manifest.releaseURL)
-                updatePrompt = UpdatePrompt(
-                    title: "Lithe \(manifest.version) is available",
-                    message: "Lithe will download the update and restart after replacing the current app.",
-                    releaseURL: manifest.releaseURL
-                )
             } else if manual {
                 status = .upToDate(version: currentVersion)
                 notice = UpdateNotice(
@@ -184,7 +211,10 @@ final class UpdateChecker: ObservableObject {
                 status = .upToDate(version: currentVersion)
             }
         } catch UpdateCheckError.noPublishedRelease {
-            status = .noRelease
+            status = .failed(
+                code: UpdateCheckError.noPublishedRelease.code,
+                message: UpdateCheckError.noPublishedRelease.userMessage
+            )
             if manual {
                 notice = UpdateNotice(
                     title: "No release is available yet",
@@ -194,7 +224,7 @@ final class UpdateChecker: ObservableObject {
             }
         } catch {
             let updateError = normalizedError(error)
-            status = .failed(message: updateError.userMessage)
+            status = .failed(code: updateError.code, message: updateError.userMessage)
             if manual {
                 notice = UpdateNotice(
                     title: "Could not check for updates",
@@ -207,7 +237,7 @@ final class UpdateChecker: ObservableObject {
 
     func installAvailableUpdate() async {
         guard !isBusy,
-              let manifest = availableManifest,
+              availableManifest != nil,
               let asset = availableAsset,
               case .available(let version, _) = status else { return }
 
@@ -219,7 +249,6 @@ final class UpdateChecker: ObservableObject {
 
         isInstalling = true
         status = .downloading(version: version, progress: .initial)
-        updatePrompt = nil
         notice = nil
         defer { isInstalling = false }
 
@@ -242,24 +271,43 @@ final class UpdateChecker: ObservableObject {
             try scheduleReplacement(with: downloadedURL, version: version)
         } catch {
             let updateError = normalizedError(error, fallback: .downloadFailed)
-            status = .failed(message: updateError.userMessage)
-            notice = UpdateNotice(
-                title: "Could not install update",
-                message: updateError.userMessage,
-                action: .open(manifest.releaseURL)
-            )
+            status = .failed(code: updateError.code, message: updateError.userMessage)
         }
     }
 
     func openRelease(_ url: URL?) {
         guard let url else { return }
         notice = nil
-        updatePrompt = nil
         NSWorkspace.shared.open(url)
     }
 
-    func dismissUpdatePrompt() {
-        updatePrompt = nil
+    func remindLater() {
+        guard let updateInfo else { return }
+        preferences.set(updateInfo.targetVersion, forKey: Self.remindVersionKey)
+        preferences.set(
+            now().addingTimeInterval(Self.remindLaterInterval),
+            forKey: Self.remindUntilKey
+        )
+        clearAvailableUpdate()
+        status = .upToDate(version: currentVersion)
+    }
+
+    func skipVersion() {
+        guard let updateInfo else { return }
+        preferences.set(updateInfo.targetVersion, forKey: Self.skippedVersionKey)
+        preferences.removeObject(forKey: Self.remindVersionKey)
+        preferences.removeObject(forKey: Self.remindUntilKey)
+        clearAvailableUpdate()
+        status = .upToDate(version: currentVersion)
+    }
+
+    func retryInstallation() async {
+        guard let updateInfo,
+              availableManifest != nil,
+              availableAsset != nil,
+              case .failed = status else { return }
+        status = .available(version: updateInfo.targetVersion, url: updateInfo.releaseURL)
+        await installAvailableUpdate()
     }
 
     private func fetchLatestManifest() async throws -> UpdateManifest {
@@ -481,6 +529,36 @@ final class UpdateChecker: ObservableObject {
             return true
         }
         return now().timeIntervalSince(lastCheck) >= Self.automaticCheckInterval
+    }
+
+    private func shouldSuppress(version: String) -> Bool {
+        if preferences.string(forKey: Self.skippedVersionKey) == version {
+            return true
+        }
+
+        guard preferences.string(forKey: Self.remindVersionKey) == version,
+              let remindUntil = preferences.object(forKey: Self.remindUntilKey) as? Date else {
+            return false
+        }
+        return remindUntil > now()
+    }
+
+    private func clearPreferencesForNewerVersion(_ version: String) {
+        if let skippedVersion = preferences.string(forKey: Self.skippedVersionKey),
+           skippedVersion != version {
+            preferences.removeObject(forKey: Self.skippedVersionKey)
+        }
+        if let remindVersion = preferences.string(forKey: Self.remindVersionKey),
+           remindVersion != version {
+            preferences.removeObject(forKey: Self.remindVersionKey)
+            preferences.removeObject(forKey: Self.remindUntilKey)
+        }
+    }
+
+    private func clearAvailableUpdate() {
+        availableManifest = nil
+        availableAsset = nil
+        updateInfo = nil
     }
 
     private func normalizedError(

@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "exportRequest": {
+    "root": ".",
+    "source": "workingTree",
+    "paths": [
+      "example.txt"
+    ]
+  },
+  "exportResponse": {
+    "patch": "diff --git a/example.txt b/example.txt\nnew file mode 100644\n--- /dev/null\n+++ b/example.txt\n@@ -0,0 +1 @@\n+hello\n",
+    "files": [
+      {
+        "path": "example.txt",
+        "originalPath": null,
+        "additions": 1,
+        "deletions": 0
+      }
+    ],
+    "byteLength": 113
+  },
+  "previewRequest": {
+    "root": ".",
+    "patch": "diff --git a/example.txt b/example.txt\nnew file mode 100644\n--- /dev/null\n+++ b/example.txt\n@@ -0,0 +1 @@\n+hello\n",
+    "target": "worktree"
+  },
+  "previewResponse": {
+    "applicable": true,
+    "files": [
+      {
+        "path": "example.txt",
+        "originalPath": null,
+        "additions": 1,
+        "deletions": 0
+      }
+    ],
+    "diagnostic": "",
+    "expectedState": "opaque-state-from-preview",
+    "byteLength": 113
+  },
+  "metadataRequest": {
+    "root": ".",
+    "source": "workingTree",
+    "paths": [],
+    "metadataOnly": true
+  },
+  "metadataResponse": {
+    "patch": "",
+    "files": [
+      {
+        "path": "example.txt",
+        "originalPath": null,
+        "additions": 1,
+        "deletions": 0
+      }
+    ],
+    "byteLength": 0
+  }
+}

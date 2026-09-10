@@ -63,7 +63,7 @@ enum WorkspaceProjectionComposition {
                 await model.loadProjectServicesForAppliedSnapshot(at: workspaceURL)
             },
             refreshGit: { [weak model] in
-                await model?.gitFeatureIfActive?.refreshGit()
+                await model?.gitFeatureIfActive?.refreshGitFromMetadataChange()
             },
             updateHistoryVisibilityRules: { [weak model] rules in
                 guard let feature = await model?.activateHistoryModule() else { return }

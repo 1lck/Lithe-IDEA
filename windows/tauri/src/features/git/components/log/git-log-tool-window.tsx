@@ -1,4 +1,3 @@
-import { open } from "@tauri-apps/plugin-dialog";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -28,7 +27,8 @@ import {
   type IntegrationOutcome,
 } from "../../api/git-integration-api";
 import { deleteRemoteBranch } from "../../api/git-remotes-api";
-import { addWorktreeFromReference } from "../../api/git-worktrees-api";
+import { showGitRebaseDialog } from "../../services/git-rebase-dialog-service";
+import { showGitWorktreeDialog } from "../../services/git-worktree-dialog-service";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import { useRepositoryStore } from "../../stores/git-repository.store";
 import type { GitCommit, GitFile, GitReference } from "../../types/git.types";
@@ -39,11 +39,9 @@ import {
   selectedCommitsInHistoryOrder,
   updateGitHistorySelection,
 } from "../../utils/git-history-selection";
-import {
-  suggestWorktreeBranchName,
-  type GitReferenceAction,
-} from "../../utils/git-reference-actions";
+import { type GitReferenceAction } from "../../utils/git-reference-actions";
 import { showGitPushDialog } from "../../services/git-push-dialog-service";
+import { showGitPatchDialog } from "../../services/git-patch-dialog-service";
 import type {
   WorkingTreeDiffEntry,
   WorkingTreeDiffScope,
@@ -53,6 +51,7 @@ import { GitCommitTable } from "./git-commit-table";
 import { GitLogTitleBar } from "./git-log-title-bar";
 import { GitReferenceTree } from "./git-reference-tree";
 import GitRemoteManager from "../git-remote-manager";
+import { GitRepositoryEmptyState } from "../git-repository-empty-state";
 
 type DirectReferenceAction = Extract<
   GitReferenceAction,
@@ -113,6 +112,8 @@ export function GitLogToolWindow() {
   }, [refresh]);
   const {
     isMutatingHistory,
+    historyDialog,
+    undoCommit,
     editMessage,
     removeCommit,
     squashSelectedCommits,
@@ -178,8 +179,7 @@ export function GitLogToolWindow() {
       if (outcome.warnings?.some((warning) => warning.code === "git_stash_drop_failed")) {
         toast.warning(t("git.log.autoStashCleanupFailed"));
       }
-    }
-    else if (outcome.status === "conflicts") {
+    } else if (outcome.status === "conflicts") {
       if (outcome.stashRestore) {
         toast.warning(
           t("git.log.autoStashRestoreConflicts", {
@@ -322,30 +322,7 @@ export function GitLogToolWindow() {
   };
 
   const createWorktreeFromReference = async (reference: GitReference) => {
-    if (!repoPath) return;
-    const branchName = await showPromptDialog(
-      t("git.log.newWorktreeBranchPrompt", { branch: reference.shortName }),
-      {
-        title: t("git.log.newWorktreeFrom", { branch: reference.shortName }),
-        confirmLabel: t("git.create"),
-        defaultValue: suggestWorktreeBranchName(reference),
-      },
-    );
-    if (!branchName?.trim()) return;
-    const selectedPath = await open({
-      directory: true,
-      multiple: false,
-      title: t("git.log.chooseWorktreeDirectory"),
-    });
-    if (!selectedPath || Array.isArray(selectedPath)) return;
-    await runReferenceMutation(t("git.worktrees"), async () => {
-      await addWorktreeFromReference(
-        repoPath,
-        selectedPath,
-        branchName.trim(),
-        reference,
-      );
-    });
+    if (repoPath) await showGitWorktreeDialog(repoPath, { reference });
   };
 
   const checkoutAndUpdateReference = async (reference: GitReference) => {
@@ -518,6 +495,7 @@ export function GitLogToolWindow() {
       className="flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground"
       onContextMenu={handleEmptyContextMenu}
     >
+      {historyDialog}
       <GitLogTitleBar
         referenceName={selectedReference?.shortName ?? t("git.log.all")}
         isRefreshing={loadState === "loading"}
@@ -565,12 +543,7 @@ export function GitLogToolWindow() {
           {t("git.log.loading")}
         </div>
       ) : loadState === "failed" && history.commits.length === 0 ? (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-          <div className="text-destructive">{error ?? t("git.log.unableToLoad")}</div>
-          <Button type="button" variant="ghost" size="xs" onClick={() => void refresh()}>
-            {t("git.log.tryAgain")}
-          </Button>
-        </div>
+        <GitRepositoryEmptyState root={repoPath} historyError={error} onRefresh={refresh} />
       ) : (
         <ResizablePanelGroup
           orientation="horizontal"
@@ -597,6 +570,7 @@ export function GitLogToolWindow() {
           <ResizableHandle />
           <ResizablePanel id="commits" defaultSize="57" minSize={320}>
             <GitCommitTable
+              emptyState={<GitRepositoryEmptyState root={repoPath} onRefresh={refresh} />}
               commits={history.commits}
               selectedCommit={selectedCommit}
               selectedCommitHashes={selectedCommitHashes}
@@ -615,6 +589,13 @@ export function GitLogToolWindow() {
                 )
               }
               onEditMessage={(commit) => void editMessage(commit)}
+              onUndo={(commit) => void undoCommit(commit)}
+              onInteractiveRebase={(commit) => {
+                if (repoPath) showGitRebaseDialog(repoPath, commit.hash);
+              }}
+              onExportPatch={(commits) => {
+                if (repoPath) void showGitPatchDialog(repoPath, { mode: "export", commits });
+              }}
               onDelete={(commit) => void removeCommit(commit)}
               onSquash={(commits) => void squashSelectedCommits(commits)}
               onReset={(commit) => void resetBranchToCommit(commit)}

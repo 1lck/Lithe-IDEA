@@ -120,6 +120,7 @@ final class AppModel: ObservableObject, Identifiable {
     private var featureObservationBinder: AppModelObservationBinder?
     private var fileVisibilityRulesObserverID: UUID?
     private var requestProjectOpen: ((URL) -> Void)?
+    private var requestProjectOpenAtPlacement: ((URL, ProjectOpenPlacement) -> Void)?
     private var didCloseProject: (() -> Void)?
     var javaTestWorkflowState: JavaTestWorkflowState {
         featureGraph.javaTestWorkflow
@@ -265,6 +266,7 @@ final class AppModel: ObservableObject, Identifiable {
     var documentFeature: DocumentFeatureModel { featureGraph.document }
     var javaFeature: JavaFeatureModel { featureGraph.java }
     var springFeature: SpringFeatureModel { featureGraph.spring }
+    var mybatisFeature: MybatisFeatureModel { featureGraph.mybatis }
     private var activeDatabaseFeature: DatabaseFeatureModel? {
         let capability: LitheDatabaseModule.DatabaseModuleCapability? = cachedModuleCapability(.databaseWorkspace)
         return capability?.feature
@@ -339,6 +341,7 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     private var springFeatureObservation: AnyCancellable?
+    private var mybatisFeatureObservation: AnyCancellable?
     private var isObjectWillChangeRelayScheduled = false
     private var languageToolingObservation: AnyCancellable?
 
@@ -488,6 +491,9 @@ final class AppModel: ObservableObject, Identifiable {
             self?.refreshEditorDiagnosticsStore()
             self?.scheduleObjectWillChangeRelay()
         }
+        mybatisFeatureObservation = mybatisFeature.objectWillChange.sink { [weak self] _ in
+            self?.scheduleObjectWillChangeRelay()
+        }
         fileVisibilityRulesObserverID = settings.addFileVisibilityRulesObserver { [weak self] in
             guard let self else { return }
             self.workspaceFeature.updateVisibilityRules(self.settings.fileVisibilityRules)
@@ -578,10 +584,12 @@ final class AppModel: ObservableObject, Identifiable {
 
     func configureProjectSession(
         requestOpen: @escaping (URL) -> Void,
-        didClose: @escaping () -> Void
+        didClose: @escaping () -> Void,
+        requestOpenAtPlacement: ((URL, ProjectOpenPlacement) -> Void)? = nil
     ) {
         requestProjectOpen = requestOpen
         didCloseProject = didClose
+        requestProjectOpenAtPlacement = requestOpenAtPlacement
     }
 
     func setProjectSessionActive(_ isActive: Bool) {
@@ -640,6 +648,7 @@ final class AppModel: ObservableObject, Identifiable {
         languageToolingSessionsIfActive?.stopLanguageServer(providerID: "java")
         javaFeature.stop()
         springFeature.reset()
+        mybatisFeature.reset()
         if let workspaceURL {
             if let document = activeDocument,
                document.url.pathExtension.lowercased() == "java" {
@@ -794,6 +803,16 @@ final class AppModel: ObservableObject, Identifiable {
         openProjectDirectly(url)
     }
 
+    func openProject(_ url: URL, placement: ProjectOpenPlacement) {
+        if let requestProjectOpenAtPlacement {
+            requestProjectOpenAtPlacement(url.standardizedFileURL, placement)
+        } else if placement == .thisWindow {
+            openProjectDirectly(url)
+        } else {
+            showNotification("Project window management is unavailable.")
+        }
+    }
+
     func openProjectDirectly(_ url: URL) {
         workspaceSessionCoordinator.openWorkspace(at: url)
     }
@@ -823,6 +842,7 @@ final class AppModel: ObservableObject, Identifiable {
         clearLanguageNavigationProjection()
         javaFeature.stop()
         springFeature.reset()
+        mybatisFeature.reset()
         workspaceSessionCoordinator.resetWorkspaceFeature()
         searchModuleCoordinator.resetFeature(searchFeatureIfActive)
         workbenchFeature.hideAllToolWindows()
@@ -883,6 +903,7 @@ final class AppModel: ObservableObject, Identifiable {
         debugBreakpointPresentation.reset()
         javaFeature.stop()
         springFeature.reset()
+        mybatisFeature.reset()
         editorChrome.reset()
         editorNavigationTarget = nil
         navigationHistoryFeature.reset()

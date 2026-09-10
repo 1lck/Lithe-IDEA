@@ -72,6 +72,8 @@ const nativeCommands = new Set([
   "set_project_root",
   "start_watching",
   "stop_watching",
+  "watch_git_repository",
+  "unwatch_git_repository",
   "store_secure_secret",
   "terminal_resize",
   "terminal_set_paused",
@@ -80,6 +82,7 @@ const nativeCommands = new Set([
   "warm_terminal_environment",
   "validate_font",
   "write_file",
+  "write_patch_file",
 ]);
 
 export function invoke<T>(command: string, args?: InvokeArgs, options?: InvokeOptions): Promise<T> {

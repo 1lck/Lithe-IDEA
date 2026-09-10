@@ -1,9 +1,12 @@
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
-import { readDirectory } from "@/features/file-system/controllers/platform";
 
 interface RepositoryDiscoveryCacheEntry {
   discoveredAt: number;
   repoPath: string | null;
+}
+
+interface WorkspaceRepositoriesResponse {
+  repositories?: Array<{ path?: string | null }>;
 }
 
 const repoDiscoveryCache = new Map<string, RepositoryDiscoveryCacheEntry>();
@@ -23,33 +26,6 @@ const NOT_REPO_PATTERNS = [
 const WORKSPACE_REPO_CACHE_TTL_MS = 5 * 60_000;
 const REPO_CACHE_TTL_MS = 5 * 60_000;
 const NEGATIVE_REPO_CACHE_TTL_MS = 5_000;
-const MAX_REPO_SCAN_DIRECTORIES = 10_000;
-const MAX_REPO_SCAN_DEPTH = 8;
-const REPO_SCAN_SKIP_DIRS = new Set([
-  ".git",
-  ".svn",
-  ".hg",
-  ".bzr",
-  "node_modules",
-  ".next",
-  ".nuxt",
-  ".turbo",
-  ".yarn",
-  ".pnpm",
-  ".cache",
-  "dist",
-  "build",
-  "out",
-  "target",
-  "coverage",
-  "vendor",
-  "__pycache__",
-  ".venv",
-  "venv",
-  ".idea",
-  ".vscode",
-]);
-
 function normalizePath(path: string): string {
   if (path.startsWith("wsl://") || path.startsWith("remote://")) {
     const [scheme, rest] = path.split("://");
@@ -104,27 +80,6 @@ function toRelativePath(from: string, to: string): string {
   return normalizedTo;
 }
 
-function sortWorkspaceRepositories(repoPaths: string[], workspaceRoot: string): string[] {
-  const normalizedRoot = normalizePath(workspaceRoot);
-
-  return [...new Set(repoPaths.map((path) => normalizePath(path)))].sort((a, b) => {
-    const aIsRoot = a === normalizedRoot;
-    const bIsRoot = b === normalizedRoot;
-    if (aIsRoot && !bIsRoot) return -1;
-    if (!aIsRoot && bIsRoot) return 1;
-
-    const aIsInsideWorkspace = a.startsWith(`${normalizedRoot}/`);
-    const bIsInsideWorkspace = b.startsWith(`${normalizedRoot}/`);
-    if (aIsInsideWorkspace && !bIsInsideWorkspace) return -1;
-    if (!aIsInsideWorkspace && bIsInsideWorkspace) return 1;
-
-    const depthA = a.split("/").length;
-    const depthB = b.split("/").length;
-    if (depthA !== depthB) return depthA - depthB;
-
-    return a.localeCompare(b);
-  });
-}
 
 export function normalizeRepositoryPath(path: string): string {
   return normalizePath(path);
@@ -251,11 +206,16 @@ export async function resolveRepositoryForFile(
 }
 
 export async function discoverWorkspaceRepositories(
-  workspacePath: string,
+  workspacePath: string | readonly string[],
   options?: { force?: boolean },
 ): Promise<string[]> {
-  const normalizedWorkspacePath = normalizePath(workspacePath);
-  if (!normalizedWorkspacePath) return [];
+  const normalizedWorkspacePaths = [...new Set((
+    Array.isArray(workspacePath) ? workspacePath : [workspacePath]
+  )
+    .map((path) => normalizePath(path))
+    .filter(Boolean))];
+  if (normalizedWorkspacePaths.length === 0) return [];
+  const normalizedWorkspacePath = [...new Set(normalizedWorkspacePaths)].join("\0");
 
   const force = options?.force ?? false;
   if (!force) {
@@ -271,7 +231,13 @@ export async function discoverWorkspaceRepositories(
   }
 
   const generation = discoveryGeneration;
-  const request = scanWorkspaceRepositories(normalizedWorkspacePath, generation).finally(() => {
+  const request = discoverWorkspaceRepositoriesFromCore(normalizedWorkspacePaths).then((repos) => {
+    // An older forced scan must not overwrite the newest result in the cache.
+    if (generation === discoveryGeneration && inFlightWorkspaceDiscoveries.get(normalizedWorkspacePath) === request) {
+      workspaceRepoDiscoveryCache.set(normalizedWorkspacePath, { discoveredAt: Date.now(), repos });
+    }
+    return repos;
+  }).finally(() => {
     if (inFlightWorkspaceDiscoveries.get(normalizedWorkspacePath) === request) {
       inFlightWorkspaceDiscoveries.delete(normalizedWorkspacePath);
     }
@@ -280,100 +246,41 @@ export async function discoverWorkspaceRepositories(
   return request;
 }
 
-async function scanWorkspaceRepositories(
-  normalizedWorkspacePath: string,
-  generation: number,
+async function discoverWorkspaceRepositoriesFromCore(
+  normalizedWorkspacePaths: readonly string[],
 ): Promise<string[]> {
-  const discoveredRepos = new Set<string>();
-  const visitedDirectories = new Set<string>();
-  const queue: string[] = [normalizedWorkspacePath];
-  let queueCursor = 0;
-  const containingRepoPath = await discoverRepo(normalizedWorkspacePath);
-
-  if (containingRepoPath) {
-    discoveredRepos.add(containingRepoPath);
-  }
-
-  while (queueCursor < queue.length) {
-    if (visitedDirectories.size >= MAX_REPO_SCAN_DIRECTORIES) {
-      break;
-    }
-
-    const batchEnd = Math.min(queueCursor + 8, queue.length);
-    const batch = queue.slice(queueCursor, batchEnd);
-    queueCursor = batchEnd;
-    const directoryResults = await Promise.all(
-      batch.map(async (currentPath) => {
-        const directoryPath = normalizePath(currentPath);
-        if (visitedDirectories.has(directoryPath)) {
-          return null;
-        }
-        visitedDirectories.add(directoryPath);
-
-        try {
-          return { directoryPath, entries: await readDirectory(directoryPath) };
-        } catch {
-          return null;
-        }
-      }),
-    );
-
-    for (const result of directoryResults) {
-      if (!result) {
-        continue;
-      }
-
-      const hasGitMetadata = result.entries.some((entry) => entry?.name === ".git");
-      if (hasGitMetadata) {
-        discoveredRepos.add(result.directoryPath);
-      }
-
-      for (const entry of result.entries) {
-        const isDirectory = entry?.isDirectory ?? entry?.is_dir;
-        if (!isDirectory || !entry.name) {
-          continue;
-        }
-
-        const directoryName = entry.name.toLowerCase();
-        if (REPO_SCAN_SKIP_DIRS.has(directoryName)) {
-          continue;
-        }
-
-        const childPath = normalizePath(`${result.directoryPath}/${entry.name}`);
-        const relativeChildPath = toRelativePath(normalizedWorkspacePath, childPath);
-        const childDepth = relativeChildPath.split("/").filter(Boolean).length;
-        if (childDepth > MAX_REPO_SCAN_DEPTH) {
-          continue;
-        }
-
-        if (!visitedDirectories.has(childPath)) {
-          queue.push(childPath);
-        }
-      }
-    }
-  }
-
-  let repositories = sortWorkspaceRepositories(
-    Array.from(discoveredRepos),
-    normalizedWorkspacePath,
+  const repositoryPaths = new Set<string>();
+  const repositoriesByWorkspace = await Promise.all(
+    normalizedWorkspacePaths.map(async (workspacePath) => {
+      const response = await tauriInvoke<WorkspaceRepositoriesResponse>(
+        "git_discover_workspace_repos",
+        {
+          workspacePath,
+        },
+      );
+      const paths = Array.isArray(response.repositories)
+        ? response.repositories
+            .map((repository) =>
+              typeof repository?.path === "string" ? normalizePath(repository.path) : null,
+            )
+            .filter((path): path is string => !!path)
+        : [];
+      return paths;
+    }),
   );
 
-  if (containingRepoPath) {
-    repositories = [
-      containingRepoPath,
-      ...repositories.filter((repoPath) => repoPath !== containingRepoPath),
-    ];
+  const orderedRepositories: string[] = [];
+  for (const repositories of repositoriesByWorkspace) {
+    for (const repositoryPath of repositories) {
+      if (!repositoryPaths.has(repositoryPath)) {
+        repositoryPaths.add(repositoryPath);
+        orderedRepositories.push(repositoryPath);
+      }
+    }
   }
-
-  if (generation === discoveryGeneration) {
-    workspaceRepoDiscoveryCache.set(normalizedWorkspacePath, {
-      discoveredAt: Date.now(),
-      repos: repositories,
-    });
-  }
-
-  return repositories;
+  return orderedRepositories;
 }
+
 
 export function clearRepositoryDiscoveryCache(): void {
   discoveryGeneration += 1;

@@ -17,7 +17,7 @@ export interface GitChange {
   source?: string;
 }
 
-const PASSIVE_GIT_CHANGE_SOURCES = new Set(["save", "auto-save", "external-file-change"]);
+const PASSIVE_GIT_CHANGE_SOURCES = new Set(["save", "auto-save", "external-file-change", "external-git-change"]);
 
 export function emitGitChanged(change: GitChange = {}): void {
   invalidateGitCaches(change);
