@@ -1,4 +1,5 @@
-import { useDeferredValue, useState, type ReactNode } from "react";
+import { useDeferredValue, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useGroupRef, type Layout } from "react-resizable-panels";
 import { useBufferStore } from "../stores/buffer.store";
 import { getBufferById } from "../utils/buffer-index";
 import { hasTextContent } from "@/features/panes/types/pane-content.types";
@@ -27,6 +28,26 @@ export function SvgEditor({
 function SvgEditorSurface({ bufferId, children }: { bufferId?: string; children: ReactNode }) {
   const { t } = useTranslation();
   const [mode, setMode] = useState<ViewMode>("split");
+  const groupRef = useGroupRef();
+  const splitLayout = useRef<Layout>({ editor: 50, preview: 50 });
+  useLayoutEffect(() => {
+    groupRef.current?.setLayout(
+      mode === "split"
+        ? splitLayout.current
+        : {
+            editor: mode === "editor" ? 100 : 0,
+            preview: mode === "preview" ? 100 : 0,
+          },
+    );
+  }, [mode, groupRef]);
+  function selectMode(next: ViewMode) {
+    if (next === mode) return;
+    if (mode === "split" && groupRef.current) {
+      const layout = groupRef.current.getLayout();
+      if (layout.editor > 0 && layout.preview > 0) splitLayout.current = layout;
+    }
+    setMode(next);
+  }
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div
@@ -40,28 +61,33 @@ function SvgEditorSurface({ bufferId, children }: { bufferId?: string; children:
             type="button"
             aria-pressed={mode === value}
             className={`rounded px-2 py-1 text-xs hover:bg-hover ${mode === value ? "bg-hover text-foreground" : "text-muted-foreground"}`}
-            onClick={() => setMode(value)}
+            onClick={() => selectMode(value)}
           >
             {t(`svg.${value}`)}
           </button>
         ))}
       </div>
       <div className="relative min-h-0 flex-1">
-        {mode === "editor" ? (
-          children
-        ) : mode === "preview" ? (
-          <SvgPreview bufferId={bufferId} />
-        ) : (
-          <ResizablePanelGroup orientation="horizontal">
-            <ResizablePanel defaultSize="50%" minSize="20%">
-              <div className="relative h-full">{children}</div>
-            </ResizablePanel>
-            <ResizableHandle aria-label={t("svg.resize")} />
-            <ResizablePanel defaultSize="50%" minSize="20%">
-              <SvgPreview bufferId={bufferId} />
-            </ResizablePanel>
-          </ResizablePanelGroup>
-        )}
+        {/* Keep Monaco mounted: releasing its last model owner discards undo history. */}
+        <ResizablePanelGroup
+          orientation="horizontal"
+          groupRef={groupRef}
+          disabled={mode !== "split"}
+        >
+          <ResizablePanel id="editor" defaultSize="50%" minSize={mode === "split" ? "20%" : "0%"}>
+            <div className="relative h-full" hidden={mode === "preview"}>
+              {children}
+            </div>
+          </ResizablePanel>
+          <ResizableHandle
+            aria-label={t("svg.resize")}
+            disabled={mode !== "split"}
+            style={mode === "split" ? undefined : { display: "none" }}
+          />
+          <ResizablePanel id="preview" defaultSize="50%" minSize={mode === "split" ? "20%" : "0%"}>
+            {mode !== "editor" && <SvgPreview bufferId={bufferId} />}
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </div>
     </div>
   );

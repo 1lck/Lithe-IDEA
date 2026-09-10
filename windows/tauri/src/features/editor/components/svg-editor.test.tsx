@@ -1,5 +1,5 @@
 import { afterAll, afterEach, expect, mock, test } from "bun:test";
-import { act } from "react";
+import { act, useEffect, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { create } from "zustand";
 import { installHappyDom } from "@/test-utils/happy-dom";
@@ -38,14 +38,14 @@ const { SvgEditor } = await import("./svg-editor");
 let root: Root | undefined;
 let container: HTMLDivElement | undefined;
 
-async function mount(enabled = true) {
+async function mount(enabled = true, child: ReactNode = <textarea defaultValue={source} />) {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
   await act(async () => {
     root!.render(
       <SvgEditor enabled={enabled} bufferId={buffer.id}>
-        <textarea defaultValue={source} />
+        {child}
       </SvgEditor>,
     );
   });
@@ -91,7 +91,7 @@ test("switches between split, editor, and preview without changing the buffer", 
   expect(container!.querySelector("textarea")).not.toBeNull();
   expect(container!.querySelector("img")).toBeNull();
   await selectMode("preview");
-  expect(container!.querySelector("textarea")).toBeNull();
+  expect(container!.querySelector("textarea")!.closest("[hidden]")).not.toBeNull();
   expect(container!.querySelector("img")).not.toBeNull();
   expect(store.getState().buffers[0]!.content).toBe(source);
 });
@@ -121,4 +121,54 @@ test("ordinary source files keep their original editor surface", async () => {
   await mount(false);
   expect(container!.querySelector("textarea")).not.toBeNull();
   expect(container!.querySelector("button")).toBeNull();
+});
+
+test("mode switches retain the Monaco model and its undo/redo history", async () => {
+  // Use Monaco's real model API without loading browser language contributions.
+  const monaco = await import("monaco-editor/esm/vs/editor/editor.api.js");
+  mock.module("monaco-editor", () => monaco);
+  const { Uri } = monaco;
+  const { acquireMonacoModel } = await import("../engines/monaco/model-lifecycle");
+  let owned: ReturnType<typeof acquireMonacoModel> | undefined;
+  let releases = 0;
+  function ModelOwner() {
+    useEffect(() => {
+      const acquired = acquireMonacoModel(
+        source,
+        "xml",
+        Uri.parse("inmemory://svg-mode-test/icon.svg"),
+      );
+      owned = acquired;
+      return () => {
+        releases += 1;
+        acquired.release();
+      };
+    }, []);
+    return <textarea defaultValue={source} />;
+  }
+  await mount(true, <ModelOwner />);
+  const initialOwner = owned!;
+  const model = initialOwner.model;
+  model.pushEditOperations(
+    [],
+    [{ range: model.getFullModelRange(), text: source.replace("original", "edited") }],
+    () => null,
+  );
+  model.pushStackElement();
+  for (const mode of ["editor", "split", "preview", "split"]) {
+    await selectMode(mode);
+    expect(releases).toBe(0);
+    expect(owned).toBe(initialOwner);
+    expect(model.isDisposed()).toBe(false);
+    await model.undo();
+    expect(model.getValue()).toBe(source);
+    await model.redo();
+    expect(model.getValue()).toContain("edited");
+  }
+  await act(async () => {
+    root!.unmount();
+  });
+  root = undefined;
+  expect(releases).toBe(1);
+  expect(model.isDisposed()).toBe(true);
 });
