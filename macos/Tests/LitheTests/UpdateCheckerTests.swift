@@ -120,6 +120,33 @@ struct UpdateManifestTests {
 @MainActor
 struct UpdateCheckerTests {
     @Test
+    func previewIdentityHidesNotesAndKeepsBuildNumbersWhenVersionIsUnchanged() {
+        let identity = UpdateBuildIdentity(info: [
+            "LitheUpdateChannel": "preview", "CFBundleVersion": "142.1",
+            "LitheBuildTimestamp": "2026-01-02T00:00:00Z",
+            "LitheUpdateReleaseURL": "https://example.com/releases/preview"
+        ])
+        let info = identity.updateInfo(version: "0.3.0", targetVersion: "0.3.0", targetBuild: "143.1",
+            date: Date(timeIntervalSince1970: 0), notes: "Internal technical changes")
+        #expect(info.isPreview)
+        #expect(info.currentBuild == "142.1")
+        #expect(info.targetBuild == "143.1")
+        #expect(info.releaseNotes == nil)
+        #expect(info.releaseDate == "1970-01-01T00:00:00Z")
+        #expect(info.releaseURL.absoluteString == "https://example.com/releases/preview")
+    }
+
+    @Test
+    func stableIdentityRetainsReleaseNotesAndDoesNotInferPreviewFromBranch() {
+        let identity = UpdateBuildIdentity(info: ["LitheBuildGitBranch": "preview", "CFBundleVersion": "42"])
+        let info = identity.updateInfo(version: "0.3.0", targetVersion: "0.4.0", targetBuild: "43",
+            date: nil, notes: "User-facing release notes")
+        #expect(!info.isPreview)
+        #expect(info.releaseNotes == "User-facing release notes")
+        #expect(info.releaseURL == UpdateChecker.releasePageURL)
+    }
+
+    @Test
     func requiresHTTPSFeedAndEd25519PublicKey() throws {
         let valid: [String: Any] = [
             "SUFeedURL": "https://example.com/appcast-arm64.xml",

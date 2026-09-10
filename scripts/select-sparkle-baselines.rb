@@ -15,8 +15,30 @@ def sparkle_baselines(releases, version, architecture)
   end.compact.sort_by(&:first).reverse.first(3).map { |_, tag, name| [tag, name] }
 end
 
+def preview_sparkle_baselines(releases, build, architecture, tag)
+  raise "Invalid architecture" unless %w[arm64 x86_64].include?(architecture)
+  raise "Invalid preview build" unless build.match?(/\A\d+\.\d+\z/)
+  current = Gem::Version.new(build)
+  release = releases.find { |item| item["tag_name"] == tag && item["prerelease"] && !item["draft"] }
+  return [] unless release
+  candidates = release.fetch("assets").map do |asset|
+    match = /\ALithe-preview-(\d+\.\d+)-#{Regexp.escape(architecture)}\.zip\z/.match(asset["name"])
+    next unless match
+    version = Gem::Version.new(match[1])
+    raise "Preview build must be newer than every published build" if version >= current
+    [version, tag, asset["name"]]
+  end.compact
+  candidates.sort_by(&:first).reverse.first(3).map { |_, release_tag, name| [release_tag, name] }
+end
+
 if $PROGRAM_NAME == __FILE__
-  sparkle_baselines(JSON.parse(File.read(ARGV.fetch(0))), ARGV.fetch(1), ARGV.fetch(2)).each do |entry|
+  releases = JSON.parse(File.read(ARGV.fetch(0)))
+  entries = if ARGV[3] == "preview"
+    preview_sparkle_baselines(releases, ARGV.fetch(1), ARGV.fetch(2), ARGV.fetch(4))
+  else
+    sparkle_baselines(releases, ARGV.fetch(1), ARGV.fetch(2))
+  end
+  entries.each do |entry|
     puts entry.join("\t")
   end
 end

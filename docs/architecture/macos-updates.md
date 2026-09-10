@@ -38,7 +38,7 @@ Gatekeeper trust or guarantee that macOS launch warnings disappear. A newly
 downloaded DMG may still require the existing trusted-source Gatekeeper recovery
 steps. Do not automatically clear quarantine as part of the updater.
 
-Local and preview builds without `LITHE_SPARKLE_PUBLIC_KEY` have no update feed.
+Local builds without `LITHE_SPARKLE_PUBLIC_KEY` have no update feed.
 A manual check offers the published Release page. They still embed the framework
 so the executable can launch. Windows update configuration is unchanged.
 
@@ -57,7 +57,7 @@ validates Apple code signatures during installation. The workflow checks that
 every enclosure has a signature and an existing asset of the declared length.
 
 The generator selects at most three earlier stable versions with matching ZIP
-assets from the latest 100 GitHub releases, ordered by semantic version. It
+assets from GitHub releases, ordered by semantic version. It
 excludes previews, drafts, the current version, and newer versions. GitHub
 Release ZIPs are the persistent baseline archive; retain them after publication.
 Sparkle may omit a delta if it cannot generate a useful patch. Missing baselines
@@ -67,6 +67,47 @@ The first Sparkle-enabled version is a full update through the legacy manifest.
 Later versions can use deltas. Sparkle falls back to the full archive when a delta
 is unavailable or cannot be applied. `brew upgrade --cask lithe` continues to
 download the full DMG.
+
+## Follow the preview channel
+
+The scheduled macOS Preview workflow builds the `preview` branch daily. It pins
+one source revision and build timestamp for both architectures. The build number
+is `<workflow run number>.<run attempt>`, so rebuilding a failed run produces a
+new identity even when the display version stays the same. Re-running only the
+publish job after partially uploading assets is not supported; re-run all jobs
+to allocate a new identity. A stale or duplicate build cannot replace the feed.
+
+GitHub executes scheduled workflows from the default branch (`main`). After
+review on `preview`, the updated workflow must also reach `main` for the daily
+schedule to use it. A manual dispatch using this workflow revision can exercise
+the new path earlier. Changing only the checked-out application source does not
+change the workflow definition used by the schedule.
+
+Preview apps embed `LitheUpdateChannel=preview` and use
+`appcast-preview-<architecture>.xml` under the rolling Preview release tag.
+Stable apps continue to use the stable feed; no update-channel selector or
+automatic channel switch is introduced. Sparkle uses the embedded feed instead
+of a persisted feed override. Both channels use the same configured EdDSA key.
+
+The update offer shows **Preview Update**, the current and target build numbers,
+the new build's date, and a short instability notice. It has **Install Preview**,
+**Later**, and **Skip Build** actions. Preview release notes are neither displayed
+nor downloaded. The installed version in Welcome and Settings includes Preview
+and the build number. Stable release-note presentation is unchanged.
+
+Preview ZIPs use immutable names such as `Lithe-preview-142.1-arm64.zip`. The
+latest three matching ZIPs on the rolling release are differential baselines.
+Full archives and deltas are uploaded before either appcast is replaced.
+Historical assets are retained so cached feeds remain usable; automated pruning
+is not implemented. The rolling DMGs retain their existing filenames for manual
+downloads. If storage cleanup is needed, preserve current feed assets and any
+archives needed for future baselines, allowing for clients with cached feeds.
+
+An old Preview build that predates this integration must be updated manually
+once using the rolling DMG. It does not already know about the new preview feed.
+Subsequent Preview builds can use in-app differential updates. The first run
+still needs `SPARKLE_PUBLIC_KEY` and `SPARKLE_PRIVATE_KEY` configured; it does not
+require an Apple Developer account.
 
 ## Verify before release
 
@@ -78,7 +119,7 @@ Run the focused Swift timing harness, the full macOS suite, and package checks:
 ./scripts/verify-macos-package.sh
 sparkle_tools=$(zsh scripts/prepare-sparkle-tools.sh)
 ruby scripts/test-sparkle-update.rb "$sparkle_tools"
-actionlint .github/workflows/release-macos.yml .github/workflows/ci-macos.yml
+actionlint .github/workflows/release-macos.yml .github/workflows/release-preview-macos.yml .github/workflows/ci-macos.yml
 ```
 
 The local Sparkle integration check creates disposable ad-hoc-signed fixtures.

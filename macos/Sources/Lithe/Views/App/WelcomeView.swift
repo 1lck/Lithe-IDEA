@@ -27,7 +27,7 @@ struct WelcomeView: View {
                     Text("Lithe")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
-                    Text("\(updateChecker.currentVersion) · macOS")
+                    Text("\(updateChecker.versionDescription) · macOS")
                         .font(LitheTheme.smallFont)
                         .foregroundStyle(LitheTheme.secondaryText)
                     updatePrompt

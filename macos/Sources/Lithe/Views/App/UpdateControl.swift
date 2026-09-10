@@ -17,10 +17,12 @@ struct UpdateControl: View {
                 Button {
                     isDetailsPresented = true
                 } label: {
-                    Label(
-                        compact ? "Update \(version)" : "Update to \(version)",
-                        systemImage: "arrow.down.circle.fill"
-                    )
+                    if updateChecker.isPreview {
+                        Label("Preview Update", systemImage: "arrow.down.circle.fill")
+                    } else {
+                        Label(compact ? "Update \(version)" : "Update to \(version)",
+                              systemImage: "arrow.down.circle.fill")
+                    }
                 }
                 .buttonStyle(LitheSecondaryButtonStyle())
             case .checking:
@@ -98,16 +100,28 @@ private struct UpdateDetailsView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Software Update")
+                    Text(LocalizedStringKey(updateChecker.isPreview ? "Preview Update" : "Software Update"))
                         .font(.system(size: 16, weight: .semibold))
                     if let updateInfo = updateChecker.updateInfo {
-                        Text("Lithe \(updateInfo.currentVersion) → \(updateInfo.targetVersion)")
-                            .font(LitheTheme.smallFont)
-                            .foregroundStyle(LitheTheme.secondaryText)
-                        if let releaseDate = updateInfo.releaseDate {
-                            Text("Released \(releaseDate)")
+                        if updateInfo.isPreview {
+                            Text("Build \(updateInfo.currentBuild ?? "") → \(updateInfo.targetBuild ?? "")")
                                 .font(LitheTheme.smallFont)
-                                .foregroundStyle(LitheTheme.tertiaryText)
+                                .foregroundStyle(LitheTheme.secondaryText)
+                        } else {
+                            Text("Lithe \(updateInfo.currentVersion) → \(updateInfo.targetVersion)")
+                                .font(LitheTheme.smallFont)
+                                .foregroundStyle(LitheTheme.secondaryText)
+                        }
+                        if let releaseDate = updateInfo.releaseDate {
+                            Group {
+                                if updateInfo.isPreview {
+                                    Text("Built \(formattedDate(releaseDate))")
+                                } else {
+                                    Text("Released \(formattedDate(releaseDate))")
+                                }
+                            }
+                            .font(LitheTheme.smallFont)
+                            .foregroundStyle(LitheTheme.tertiaryText)
                         }
                     }
                 }
@@ -129,62 +143,75 @@ private struct UpdateDetailsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if let updateInfo = updateChecker.updateInfo {
-                        let releaseNotes = updateInfo.releaseNotes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                        Text("Release notes")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(LitheTheme.secondaryText)
-                        Text(releaseNotes.isEmpty ? "Release notes are not included with this update." : releaseNotes)
-                            .font(.system(size: 12.5))
-                            .foregroundStyle(LitheTheme.primaryText)
-                            .textSelection(.enabled)
+                        if updateInfo.isPreview {
+                            Text("This preview contains changes that have not been officially released and may be unstable.")
+                                .font(.system(size: 12.5))
+                                .foregroundStyle(LitheTheme.secondaryText)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            let releaseNotes = updateInfo.releaseNotes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                            Text("Release notes")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(LitheTheme.secondaryText)
+                            Text(releaseNotes.isEmpty ? "Release notes are not included with this update." : releaseNotes)
+                                .font(.system(size: 12.5))
+                                .foregroundStyle(LitheTheme.primaryText)
+                                .textSelection(.enabled)
+                        }
 
                         statusContent()
                     }
                 }
                 .padding(16)
             }
-            .frame(minHeight: 180, maxHeight: 360)
+            .frame(minHeight: updateChecker.isPreview ? 64 : 180, maxHeight: updateChecker.isPreview ? 100 : 360)
 
             Rectangle()
                 .fill(LitheTheme.divider)
                 .frame(height: 1)
 
-            HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 12) {
                 Button("Open Release Page") {
                     updateChecker.openRelease(updateChecker.updateInfo?.releaseURL)
                 }
                 .buttonStyle(LitheSecondaryButtonStyle())
 
-                Spacer()
-
-                if case .available = updateChecker.status {
-                    Button("Later") {
-                        updateChecker.remindLater()
-                        dismiss()
+                HStack(spacing: 10) {
+                    Spacer()
+                    if case .available = updateChecker.status {
+                        Button("Later") {
+                            updateChecker.remindLater()
+                            dismiss()
+                        }
+                        .buttonStyle(LitheSecondaryButtonStyle())
+                        Button(LocalizedStringKey(updateChecker.isPreview ? "Skip Build" : "Skip Version")) {
+                            updateChecker.skipVersion()
+                            dismiss()
+                        }
+                        .buttonStyle(LitheSecondaryButtonStyle())
+                        Button(LocalizedStringKey(updateChecker.isPreview ? "Install Preview" : "Install")) {
+                            dismiss()
+                            Task { await updateChecker.installAvailableUpdate() }
+                        }
+                        .buttonStyle(LithePrimaryButtonStyle())
+                    } else if case .failed = updateChecker.status {
+                        Button("Retry") {
+                            dismiss()
+                            Task { await updateChecker.retryInstallation() }
+                        }
+                        .buttonStyle(LithePrimaryButtonStyle())
                     }
-                    .buttonStyle(LitheSecondaryButtonStyle())
-                    Button("Skip Version") {
-                        updateChecker.skipVersion()
-                        dismiss()
-                    }
-                    .buttonStyle(LitheSecondaryButtonStyle())
-                    Button("Install") {
-                        dismiss()
-                        Task { await updateChecker.installAvailableUpdate() }
-                    }
-                    .buttonStyle(LithePrimaryButtonStyle())
-                } else if case .failed = updateChecker.status {
-                    Button("Retry") {
-                        dismiss()
-                        Task { await updateChecker.retryInstallation() }
-                    }
-                    .buttonStyle(LithePrimaryButtonStyle())
                 }
             }
             .padding(16)
         }
         .frame(width: 560)
         .background(LitheTheme.popupBackground)
+    }
+
+    private func formattedDate(_ value: String) -> String {
+        guard let date = ISO8601DateFormatter().date(from: value) else { return value }
+        return date.formatted(date: .abbreviated, time: .shortened)
     }
 
     @ViewBuilder

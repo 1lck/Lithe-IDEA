@@ -1759,3 +1759,10 @@
 "rebase" = "变基";
 "cherry-pick" = "拣选";
 "revert" = "反向提交";
+
+"Preview Update" = "预览版更新";
+"Install Preview" = "安装预览版";
+"Skip Build" = "跳过此构建";
+"Build %@ → %@" = "构建 %@ → %@";
+"Built %@" = "构建于 %@";
+"This preview contains changes that have not been officially released and may be unstable." = "此预览版包含尚未正式发布的改动，可能不稳定。";

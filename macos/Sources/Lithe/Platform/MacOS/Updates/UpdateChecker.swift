@@ -20,6 +20,32 @@ struct UpdateInfo: Equatable, Sendable {
     let releaseDate: String?
     let releaseNotes: String?
     let releaseURL: URL
+    var isPreview = false
+    var currentBuild: String? = nil
+    var targetBuild: String? = nil
+}
+
+struct UpdateBuildIdentity: Equatable {
+    let isPreview: Bool
+    let build: String
+    let buildDate: String?
+    let releaseURL: URL
+
+    init(info: [String: Any]) {
+        isPreview = info["LitheUpdateChannel"] as? String == "preview"
+        build = info["CFBundleVersion"] as? String ?? "0"
+        buildDate = info["LitheBuildTimestamp"] as? String
+        releaseURL = (info["LitheUpdateReleaseURL"] as? String).flatMap(URL.init(string:))
+            ?? URL(string: "https://github.com/1lck/Lithe-IDEA/releases/latest")!
+    }
+
+    func updateInfo(version: String, targetVersion: String, targetBuild: String,
+                    date: Date?, notes: String?) -> UpdateInfo {
+        UpdateInfo(currentVersion: version, targetVersion: targetVersion,
+            releaseDate: date.map { ISO8601DateFormatter().string(from: $0) },
+            releaseNotes: isPreview ? nil : notes, releaseURL: releaseURL,
+            isPreview: isPreview, currentBuild: build, targetBuild: targetBuild)
+    }
 }
 
 struct UpdateDownloadProgress: Equatable, Sendable {
@@ -115,6 +141,11 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     @Published private(set) var status: UpdateStatus = .idle
 
     let currentVersion: String
+    let buildIdentity: UpdateBuildIdentity
+    var isPreview: Bool { buildIdentity.isPreview }
+    var versionDescription: String {
+        isPreview ? "\(currentVersion) Preview (\(buildIdentity.build))" : currentVersion
+    }
     var isBusy: Bool { isChecking || isInstalling }
     var willRelaunchForUpdate: (() -> Void)?
     var didFinishUpdateCycle: (() -> Void)?
@@ -127,6 +158,7 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
 
     init(bundle: Bundle = .main) {
         self.bundle = bundle
+        buildIdentity = UpdateBuildIdentity(info: bundle.infoDictionary ?? [:])
         currentVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
         super.init()
     }
@@ -155,7 +187,7 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
             status = .failed(code: .installFailed, message: error.localizedDescription)
             if manual {
                 notice = UpdateNotice(title: "Could not check for updates",
-                    message: error.localizedDescription, action: .open(Self.releasePageURL))
+                    message: error.localizedDescription, action: .open(buildIdentity.releaseURL))
             }
         }
     }
@@ -170,10 +202,9 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     func retryInstallation() async { await checkForUpdates(manual: true) }
 
     private func present(_ item: SUAppcastItem) {
-        updateInfo = UpdateInfo(currentVersion: currentVersion, targetVersion: item.displayVersionString,
-            releaseDate: item.date.map { ISO8601DateFormatter().string(from: $0) },
-            releaseNotes: item.itemDescription, releaseURL: Self.releasePageURL)
-        status = .available(version: item.displayVersionString, url: Self.releasePageURL)
+        updateInfo = buildIdentity.updateInfo(version: currentVersion, targetVersion: item.displayVersionString,
+            targetBuild: item.versionString, date: item.date, notes: item.itemDescription)
+        status = .available(version: item.displayVersionString, url: buildIdentity.releaseURL)
     }
 
     func openRelease(_ url: URL?) { if let url { NSWorkspace.shared.open(url) } }
@@ -194,14 +225,24 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
         status = .checking
     }
 
+    func feedURLString(for updater: SPUUpdater) -> String? {
+        // The installed build owns its channel. Do not inherit a persisted feed
+        // override when the user manually installs another distribution.
+        bundle.object(forInfoDictionaryKey: "SUFeedURL") as? String
+    }
+
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
         isChecking = false
-        status = .available(version: item.displayVersionString, url: Self.releasePageURL)
+        status = .available(version: item.displayVersionString, url: buildIdentity.releaseURL)
     }
 
     func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
         isChecking = false
         status = .upToDate(version: currentVersion)
+    }
+
+    func updater(_ updater: SPUUpdater, shouldDownloadReleaseNotesForUpdate item: SUAppcastItem) -> Bool {
+        !isPreview
     }
 
     func updater(_ updater: SPUUpdater, willDownloadUpdate item: SUAppcastItem, with request: NSMutableURLRequest) {

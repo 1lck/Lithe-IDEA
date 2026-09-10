@@ -1096,7 +1096,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 18) {
             group("Application version") {
                 row("Current version") {
-                    Text(updateChecker.currentVersion)
+                    Text(updateChecker.versionDescription)
                         .foregroundStyle(LitheTheme.secondaryText)
                         .monospacedDigit()
                 }
@@ -1127,7 +1127,11 @@ struct SettingsView: View {
                         Button {
                             Task { await updateChecker.installAvailableUpdate() }
                         } label: {
-                            Label("Update \(version)", systemImage: "arrow.down.circle.fill")
+                            if updateChecker.isPreview {
+                                Label("Install Preview", systemImage: "arrow.down.circle.fill")
+                            } else {
+                                Label("Update \(version)", systemImage: "arrow.down.circle.fill")
+                            }
                         }
                         .buttonStyle(LitheSecondaryButtonStyle())
                         .disabled(updateChecker.isBusy)
