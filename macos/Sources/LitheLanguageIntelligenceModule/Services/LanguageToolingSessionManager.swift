@@ -114,6 +114,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
 
     package func retryMavenProfiles(providerID: String) {
         guard let session = languageServers[providerID] else { return }
+        mavenProfileProjectResults.removeAll()
         session.retryMavenProfiles()
     }
 
@@ -842,6 +843,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             )
         }
         clearDiagnostics(providerID: providerID)
+        mavenProfileProjectResults.removeAll()
         languageServerSessionIdentities[providerID] = nil
         languageServers.removeValue(forKey: providerID)?.stop()
         languageServerRoots[providerID] = nil
