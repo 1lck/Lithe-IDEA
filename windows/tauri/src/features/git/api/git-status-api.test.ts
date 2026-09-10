@@ -4,7 +4,10 @@ import * as tauriCore from "@/platform/tauri-core";
 let unavailableRepo: string | null = null;
 let statusFailure: Error | null = null;
 
+let interceptWrite: ((args: Record<string, unknown>) => Promise<unknown>) | undefined;
+
 const invoke = mock(async (command: string, args?: Record<string, unknown>): Promise<unknown> => {
+  if (command === "git.write" && interceptWrite) return interceptWrite(args ?? {});
   if (command === "git_discover_repo") {
     const path = String(args?.path ?? "");
     return path.startsWith("C:/workspace/") ? path : "C:/repo";
@@ -44,6 +47,7 @@ const { getWorkingTreePathDiff } = await import("./git-diff-api");
 beforeEach(() => {
   invokeSpy = spyOn(tauriCore, "invoke").mockImplementation(invoke as typeof tauriCore.invoke);
   invoke.mockClear();
+  interceptWrite = undefined;
   unavailableRepo = null;
   statusFailure = null;
 });
@@ -170,6 +174,95 @@ describe("Git status review diffs", () => {
   });
 });
 
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+describe("Git staging write coordination", () => {
+  test("queues a second file and a bulk action behind a pending file", async () => {
+    const started = deferred();
+    const release = deferred();
+    const writes: string[][] = [];
+    interceptWrite = async (args) => {
+      writes.push(args.paths as string[]);
+      if (writes.length === 1) {
+        started.resolve();
+        await release.promise;
+      }
+    };
+    const first = setFilesStaged("C:/repo", ["a.ts"], true);
+    const operations: Promise<boolean>[] = [first];
+    try {
+      await started.promise;
+      operations.push(setFilesStaged("C:/repo", ["b.ts"], true));
+      operations.push(setFilesStaged("C:/repo", ["a.ts", "b.ts"], false));
+      // Cross the repository-resolution and queue-enqueue microtask boundaries.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(writes).toEqual([["a.ts"]]);
+      release.resolve();
+      expect(await Promise.all(operations)).toEqual([true, true, true]);
+      expect(writes).toEqual([["a.ts"], ["b.ts"], ["a.ts", "b.ts"]]);
+    } finally {
+      release.resolve();
+      await Promise.allSettled(operations);
+      interceptWrite = undefined;
+    }
+  }, 1000);
+
+  test("allows another repository to finish while the first is pending", async () => {
+    const started = deferred();
+    const release = deferred();
+    interceptWrite = async (args) => {
+      if (args.repoPath === "C:/workspace/service-a") {
+        started.resolve();
+        await release.promise;
+      }
+    };
+    const operations = [setFilesStaged("C:/workspace/service-a", ["a.ts"], true)];
+    try {
+      await started.promise;
+      const other = setFilesStaged("C:/workspace/service-b", ["b.ts"], true);
+      operations.push(other);
+      expect(await other).toBe(true);
+    } finally {
+      release.resolve();
+      await Promise.allSettled(operations);
+      interceptWrite = undefined;
+    }
+  }, 1000);
+
+  test("returns the write failure and keeps queued and later staging usable", async () => {
+    const started = deferred();
+    const release = deferred();
+    const failure = new Error("index.lock is held by another Git process");
+    let writes = 0;
+    interceptWrite = async () => {
+      if (++writes === 1) {
+        started.resolve();
+        await release.promise;
+        throw failure;
+      }
+    };
+    const failed = setFilesStaged("C:/repo", ["a.ts"], true).catch((error: unknown) => error);
+    const operations: Promise<unknown>[] = [failed];
+    try {
+      await started.promise;
+      const queued = setFilesStaged("C:/repo", ["b.ts"], true);
+      operations.push(queued);
+      release.resolve();
+      expect(await failed).toBe(failure);
+      expect(await queued).toBe(true);
+      expect(await setFilesStaged("C:/repo", ["c.ts"], true)).toBe(true);
+    } finally {
+      release.resolve();
+      await Promise.allSettled(operations);
+      interceptWrite = undefined;
+    }
+  }, 1000);
+});
 
 describe("Git status query failures", () => {
   test("rejects an empty snapshot for a selected repository and recovers on retry", async () => {
