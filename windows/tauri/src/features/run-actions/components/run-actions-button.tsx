@@ -7,6 +7,9 @@ import { LspClient } from "@/features/editor/lsp/lsp-client";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { openMavenRunPane } from "@/features/maven/actions/maven-tool-window-actions";
+import { runMavenTestAction } from "@/features/maven/services/maven-test-actions";
+import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
@@ -19,6 +22,7 @@ import { SearchField } from "@/ui/search";
 import { Spinner } from "@/ui/spinner";
 import Tooltip from "@/ui/tooltip";
 import { matchesSearchQuery } from "@/utils/search-match";
+import { toast } from "sonner";
 import { useRunActionDiscovery } from "../hooks/use-run-action-discovery";
 import { useRunActionsStore } from "../stores/run-actions.store";
 import type { CustomRunAction, RunActionDraft, RunActionItem } from "../types/run-action.types";
@@ -88,6 +92,7 @@ function RunActionSection({
 export default function RunActionsButton() {
   const { t } = useTranslation();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
+  const workspaceId = useActiveWorkspaceId();
   const projectTabs = useWorkspaceTabsStore.use.projectTabs();
   const allCustomActions = useRunActionsStore.use.runActions();
   const activeFilePath = useBufferStore((state) => {
@@ -173,6 +178,17 @@ export default function RunActionsButton() {
   };
 
   const runAction = (action: RunActionItem) => {
+    if (action.mavenTest && workspacePath) {
+      openMavenRunPane();
+      void runMavenTestAction(action.mavenTest.filePath, action.mavenTest.method, workspaceId)
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : t("maven.testRunFailed");
+          toast.error(message);
+        });
+      closeMenu();
+      return;
+    }
+
     if (action.codeLens && activeFilePath) {
       const lens = action.codeLens;
       if (lens.command) {

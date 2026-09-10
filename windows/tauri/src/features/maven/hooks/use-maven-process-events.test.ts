@@ -21,7 +21,7 @@ mock.module("@tauri-apps/api/webviewWindow", () => ({
   }),
 }));
 mock.module("@tauri-apps/api/event", () => ({ listen: globalListen }));
-mock.module("../stores/maven.store", () => ({
+mock.module("./maven-process-session", () => ({
   mavenStoreForSession: () => ({
     getState: () => ({
       actions: {

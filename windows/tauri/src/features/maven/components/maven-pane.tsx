@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceScopeMatchesRoot } from "@/features/workspace/types/workspace-launch-scope";
 import { useTranslation } from "@/i18n/locale-provider";
@@ -243,6 +243,7 @@ function MavenSettingsDialog({
 export default function MavenPane({ onClose }: MavenPaneProps) {
   const { t } = useTranslation();
   const workspaceId = useActiveWorkspaceId();
+  const handleFileSelect = useFileSystemStore((state) => state.handleFileSelect);
   const root = useMavenStore((state) => state.root);
   const visiblePaths = useMavenStore((state) => state.visiblePaths);
   const projectStatus = useMavenStore((state) => state.projectStatus);
@@ -265,7 +266,6 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
   const lastExitCode = useMavenStore((state) => state.lastExitCode);
   const dependencyLoads = useMavenStore((state) => state.dependencyLoads);
   const actions = useMavenStore((state) => state.actions);
-  const handleFileSelect = useFileSystemStore((state) => state.handleFileSelect);
   const [selectedModule, setSelectedModule] = useState<string | null>(null);
   const [selectedPhase, setSelectedPhase] = useState<MavenLifecyclePhase>("compile");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());

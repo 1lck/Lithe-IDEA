@@ -230,6 +230,42 @@ struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
         }
     }
 
+    func mavenTestResults(output: String, projectRoot: URL) -> MavenTestResults? {
+        guard let payload = try? core.mavenTestResults(at: projectRoot, output: output).get() else {
+            return nil
+        }
+        let root = projectRoot.standardizedFileURL
+        let details = payload.failureDetails.map { detail in
+            let fileURL: URL?
+            if let path = detail.path, !path.isEmpty {
+                fileURL = path.hasPrefix("/")
+                    ? URL(fileURLWithPath: path).standardizedFileURL
+                    : root.appendingPathComponent(path).standardizedFileURL
+            } else {
+                fileURL = nil
+            }
+            return MavenTestFailureDetail(
+                id: [detail.kind, detail.name, detail.path ?? "", String(detail.line ?? 0)]
+                    .joined(separator: ":"),
+                name: detail.name,
+                kind: detail.kind,
+                message: detail.message,
+                fileURL: fileURL,
+                line: detail.line,
+                column: detail.column
+            )
+        }
+        return MavenTestResults(
+            testsRun: payload.testsRun,
+            failures: payload.failures,
+            errors: payload.errors,
+            skipped: payload.skipped,
+            passed: payload.passed,
+            success: payload.success,
+            failureDetails: details
+        )
+    }
+
     func codeVision(
         at rootURL: URL,
         targetPath: String,
