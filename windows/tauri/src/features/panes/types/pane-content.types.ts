@@ -19,6 +19,15 @@ export interface EditorLspDocumentBinding {
   languageId: string;
 }
 
+// ── Markdown display mode ───────────────────────────────────────────
+
+/**
+ * Session-only display mode for Markdown editor buffers. Mirrors the macOS
+ * editor/split/preview picker; `undefined` behaves as "source" and is never
+ * persisted to workspace sessions.
+ */
+export type MarkdownViewMode = "source" | "split" | "preview";
+
 // ── Content type discriminant ───────────────────────────────────────
 
 export type PaneContentType =
@@ -79,6 +88,8 @@ export interface EditorContent extends PaneContentBase {
    * to recover the latest document text when a Monaco surface is rebuilt.
    */
   contentRevision?: number;
+  /** Markdown display mode for .md/.markdown/.rmd buffers; omitted means "source". */
+  markdownViewMode?: MarkdownViewMode;
 }
 
 export interface TerminalContent extends PaneContentBase {
