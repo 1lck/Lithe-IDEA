@@ -255,6 +255,23 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
+      - name: Test Git query recovery and isolation
+        if: needs.changes.outputs.windows == 'true'
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          $gitTests = @(
+            "src/features/git/api/git-status-api.test.ts",
+            "src/features/git/hooks/use-git-data-controller.integration.test.tsx",
+            "src/features/git/stores/git-repository.store.test.ts",
+            "src/features/git/stores/git.store.test.ts"
+          )
+          foreach ($seed in @(1, 3, 7)) {
+            node $runner --suite-timeout-ms 60000 --report ".artifacts/test-stability/windows-git-isolation-$seed.json" -- --randomize "--seed=$seed" @gitTests
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
       - name: Test terminal discovery and profile selection
         if: needs.changes.outputs.windows == 'true'
         shell: pwsh

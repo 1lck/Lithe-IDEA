@@ -1,4 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import * as tauriCore from "@/platform/tauri-core";
+
+let unavailableRepo: string | null = null;
+let statusFailure: Error | null = null;
 
 const invoke = mock(async (command: string, args?: Record<string, unknown>): Promise<unknown> => {
   if (command === "git_discover_repo") {
@@ -7,6 +11,8 @@ const invoke = mock(async (command: string, args?: Record<string, unknown>): Pro
   }
   if (command === "git_status") {
     const repoPath = String(args?.repoPath ?? "");
+    if (statusFailure) throw statusFailure;
+    if (repoPath === unavailableRepo) return null;
     return {
       branch: repoPath.endsWith("service-a") ? "main" : "develop",
       ahead: repoPath.endsWith("service-a") ? 1 : 0,
@@ -23,7 +29,7 @@ const invoke = mock(async (command: string, args?: Record<string, unknown>): Pro
   return null;
 });
 
-mock.module("@/platform/tauri-core", () => ({ invoke }));
+let invokeSpy: ReturnType<typeof spyOn<typeof tauriCore, "invoke">>;
 
 const {
   addPathsToGitignore,
@@ -31,12 +37,17 @@ const {
   rollbackFilesChanges,
   setFilesStaged,
   getWorkspaceGitStatus,
+  getGitStatus,
 } = await import("./git-status-api");
 const { getWorkingTreePathDiff } = await import("./git-diff-api");
 
 beforeEach(() => {
+  invokeSpy = spyOn(tauriCore, "invoke").mockImplementation(invoke as typeof tauriCore.invoke);
   invoke.mockClear();
+  unavailableRepo = null;
+  statusFailure = null;
 });
+afterEach(() => invokeSpy.mockRestore());
 
 describe("Git status batch mutations", () => {
   const expectSingleGitWrite = () => {
@@ -156,5 +167,37 @@ describe("Git status review diffs", () => {
       filePath: "src/partially-staged.ts",
       worktreeSnapshot: true,
     });
+  });
+});
+
+
+describe("Git status query failures", () => {
+  test("rejects an empty snapshot for a selected repository and recovers on retry", async () => {
+    unavailableRepo = "C:/repo";
+    await expect(getWorkspaceGitStatus(["C:/repo"])).rejects.toThrow("no snapshot");
+    unavailableRepo = null;
+    expect((await getWorkspaceGitStatus(["C:/repo"]))?.files).toHaveLength(1);
+  });
+
+  test("does not return a partial workspace when one repository is unavailable", async () => {
+    unavailableRepo = "C:/workspace/service-b";
+    await expect(getWorkspaceGitStatus([
+      "C:/workspace/service-a", "C:/workspace/service-b",
+    ])).rejects.toThrow("no snapshot");
+  });
+
+  test("propagates native query failures to workspace refresh", async () => {
+    statusFailure = new Error("Git status unavailable");
+    await expect(getWorkspaceGitStatus(["C:/repo"])).rejects.toThrow("Git status unavailable");
+  });
+
+  test("keeps the nullable API for optional status consumers", async () => {
+    unavailableRepo = "C:/repo";
+    await expect(getGitStatus("C:/repo")).resolves.toBeNull();
+  });
+
+  test("keeps an empty repository list distinct from a failed query", async () => {
+    await expect(getWorkspaceGitStatus([])).resolves.toBeNull();
+    expect(invoke).not.toHaveBeenCalled();
   });
 });
