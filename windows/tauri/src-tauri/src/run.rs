@@ -513,7 +513,7 @@ fn ensure_lithe_gitignore(path: &Path) -> Result<(), String> {
 }
 
 #[cfg(target_os = "windows")]
-fn replace_run_document(source: &Path, destination: &Path) -> Result<(), String> {
+pub(crate) fn replace_run_document(source: &Path, destination: &Path) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{
         MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
@@ -546,7 +546,7 @@ fn replace_run_document(source: &Path, destination: &Path) -> Result<(), String>
 }
 
 #[cfg(not(target_os = "windows"))]
-fn replace_run_document(source: &Path, destination: &Path) -> Result<(), String> {
+pub(crate) fn replace_run_document(source: &Path, destination: &Path) -> Result<(), String> {
     fs::rename(source, destination).map_err(|error| error.to_string())
 }
 

@@ -2140,7 +2140,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     private var trackingArea: NSTrackingArea?
     private var hoveredFoldID: String?
     private var lineIndex = TextLineIndex(source: "" as NSString)
-    nonisolated(unsafe) private var windowResignObserver: NSObjectProtocol?
+    private var hasInputFocus = false
     private var caretVisible = true
     private var caretPresentationGeneration = 0
 
@@ -2237,6 +2237,10 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     }
 
     override func updateInsertionPointStateAndRestartTimer(_ restartFlag: Bool) {
+        guard hasInputFocus, window?.isKeyWindow == true else {
+            stopCaretBlinking()
+            return
+        }
         guard restartFlag else { return }
         caretPresentationGeneration &+= 1
         let generation = caretPresentationGeneration
@@ -2249,13 +2253,23 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     }
 
     private func startCaretBlinking(for generation: Int) {
-        guard generation == caretPresentationGeneration else { return }
+        guard generation == caretPresentationGeneration,
+              hasInputFocus, window?.isKeyWindow == true else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(500)) { [weak self] in
-            guard let self, generation == self.caretPresentationGeneration else { return }
+            guard let self, generation == self.caretPresentationGeneration,
+                  self.hasInputFocus, self.window?.isKeyWindow == true else { return }
             self.caretVisible.toggle()
             self.needsDisplay = true
             self.startCaretBlinking(for: generation)
         }
+    }
+
+    private func stopCaretBlinking() {
+        // Invalidate queued blink callbacks and erase the last painted caret
+        // immediately, even if the terminal receives no further shell output.
+        caretPresentationGeneration &+= 1
+        caretVisible = false
+        needsDisplay = true
     }
 
     override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn _: Bool) {
@@ -3083,6 +3097,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     private func drawCaret() {
         guard caretVisible,
               window?.firstResponder === self,
+              window?.isKeyWindow == true,
               selectedRange().length == 0,
               let layoutManager,
               let textContainer else { return }
@@ -3153,23 +3168,23 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if let windowResignObserver {
-            NotificationCenter.default.removeObserver(windowResignObserver)
-            self.windowResignObserver = nil
-        }
-        if let window {
-            windowResignObserver = NotificationCenter.default.addObserver(
-                forName: NSWindow.didResignKeyNotification,
-                object: window,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.clearLinkHighlight()
-                }
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            NotificationCenter.default.removeObserver(self, name: name, object: nil)
+            if let window {
+                NotificationCenter.default.addObserver(
+                    self, selector: #selector(windowFocusDidChange), name: name, object: window
+                )
             }
         }
+        if window == nil { hasInputFocus = false }
+        windowFocusDidChange()
         updateTrackingAreas()
         onWindowAttached?()
+    }
+
+    @objc private func windowFocusDidChange() {
+        if window?.isKeyWindow != true { clearLinkHighlight() }
+        updateInsertionPointStateAndRestartTimer(true)
     }
 
     override func flagsChanged(with event: NSEvent) {
@@ -3263,12 +3278,18 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         updateFoldHover(to: nil)
         clearLinkHighlight()
         clearDebugHover()
-        return super.resignFirstResponder()
+        let resigned = super.resignFirstResponder()
+        if resigned {
+            hasInputFocus = false
+            stopCaretBlinking()
+        }
+        return resigned
     }
 
     override func becomeFirstResponder() -> Bool {
         let becameFirstResponder = super.becomeFirstResponder()
         if becameFirstResponder {
+            hasInputFocus = true
             updateInsertionPointStateAndRestartTimer(true)
         }
         return becameFirstResponder
@@ -3966,9 +3987,6 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
-        if let windowResignObserver {
-            NotificationCenter.default.removeObserver(windowResignObserver)
-        }
     }
 
     @objc private func handleFindQueryChanged(_ notification: Notification) {

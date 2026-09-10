@@ -29,6 +29,7 @@ let package = Package(
         .executable(name: "LitheOfficialPluginVerifier", targets: ["LitheOfficialPluginVerifier"])
     ],
     dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle.git", exact: "2.9.6"),
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.15.0"),
         .package(url: "https://github.com/swiftlang/swift-testing.git", exact: "6.2.4")
     ],
@@ -106,7 +107,8 @@ let package = Package(
                 "LitheLanguageIntelligenceModule",
                 "LitheWorkspaceModule",
                 "LitheRustCore",
-                .product(name: "SwiftTerm", package: "SwiftTerm")
+                .product(name: "SwiftTerm", package: "SwiftTerm"),
+                .product(name: "Sparkle", package: "Sparkle")
             ],
             path: "macos/Sources/Lithe",
             resources: [
@@ -116,6 +118,9 @@ let package = Package(
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5)
+            ],
+            linkerSettings: [
+                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])
             ]
         ),
         .testTarget(

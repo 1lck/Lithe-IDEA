@@ -1,3 +1,4 @@
+import { showGitRebaseDialog } from "../services/git-rebase-dialog-service";
 import {
   ArrowCounterClockwiseIcon as Reset,
   FunnelIcon as Funnel,
@@ -31,6 +32,8 @@ import type { GitCommit } from "../types/git.types";
 import { useGitStore } from "../stores/git.store";
 import { getGitAuthorAvatarUrl } from "../utils/git-author-avatar";
 import { useGitHistoryMutations } from "../hooks/use-git-history-mutations";
+import { isGitHeadCommit } from "../utils/git-history-message";
+import { showGitPatchDialog } from "../services/git-patch-dialog-service";
 import {
   isContiguousGitHistorySelection,
   resolveGitHistoryContextSelection,
@@ -168,6 +171,8 @@ const GitCommitHistory = ({
   }, []);
   const {
     isMutatingHistory,
+    historyDialog,
+    undoCommit,
     editMessage,
     removeCommit,
     squashSelectedCommits,
@@ -251,10 +256,16 @@ const GitCommitHistory = ({
       return [
         {
           id: "squash-commits",
-          label: t("git.squashCommits"),
+          label: contextSelectionIsContiguous ? t("git.squashCommits") : t("git.historyReview.contiguousRequired"),
           icon: <Squash />,
           disabled: isMutatingHistory || !contextSelectionIsContiguous,
           onClick: () => void squashSelectedCommits(contextMenuCommits),
+        },
+        {
+          id: "create-patch",
+          label: t("git.patch.create"),
+          disabled: isMutatingHistory || contextMenuCommits.length !== 2,
+          onClick: () => { if (repoPath) void showGitPatchDialog(repoPath, { mode: "export", commits: contextMenuCommits }); },
         },
       ];
     }
@@ -262,6 +273,19 @@ const GitCommitHistory = ({
     const commit = contextMenuCommits[0];
     if (!commit) return [];
     return [
+      {
+        id: "undo-commit",
+        label: isGitHeadCommit(commit) ? t("git.undoCommit") : t("git.historyReview.headRequired"),
+        icon: <Reset />,
+        disabled: isMutatingHistory || !isGitHeadCommit(commit),
+        onClick: () => undoCommit(commit),
+      },
+      {
+        id: "interactive-rebase",
+        label: t("git.rebasePlan.fromHere"),
+        disabled: isMutatingHistory,
+        onClick: () => { if (repoPath) showGitRebaseDialog(repoPath, commit.hash); },
+      },
       {
         id: "edit-commit-message",
         label: t("git.editCommitMessage"),
@@ -379,6 +403,7 @@ const GitCommitHistory = ({
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden select-none">
+      {historyDialog}
       <SidebarHeader className="px-3">
         <SidebarSearchPopover
           value={historySearchQuery}

@@ -6,9 +6,11 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case general = "General"
     case editor = "Editor"
     case keymap = "Keymap"
+    case project = "Project"
     case terminal = "Terminal"
     case lsp = "LSP"
     case ai = "AI & Commit"
+    case git = "Git"
     case updates = "Updates"
     case diagnostics = "Diagnostics"
 
@@ -19,9 +21,11 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .general: "gearshape"
         case .editor: "textformat"
         case .keymap: "keyboard"
+        case .project: "shippingbox"
         case .terminal: "terminal"
         case .lsp: "server.rack"
         case .ai: "wand.and.stars"
+        case .git: "arrow.triangle.branch"
         case .updates: "arrow.down.circle"
         case .diagnostics: "stethoscope"
         }

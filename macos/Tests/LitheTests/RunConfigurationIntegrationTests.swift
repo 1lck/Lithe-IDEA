@@ -962,8 +962,10 @@ struct RunConfigurationIntegrationTests {
 
         processFactory.processes[0].onOutput?("ok\n")
         processFactory.processes[0].onTermination?(0)
-        await Task.yield()
-        await Task.yield()
+        #expect(
+            await awaitChange(on: service) { service.state == .passed },
+            "Language test completion was not published before the local deadline"
+        )
 
         #expect(service.state == .passed)
         #expect(service.output.contains("ok"))

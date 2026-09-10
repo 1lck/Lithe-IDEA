@@ -1,3 +1,4 @@
+import equal from "fast-deep-equal";
 import { createStore } from "zustand/vanilla";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { getGitHistory } from "../api/git-commits-api";
@@ -28,9 +29,11 @@ interface GitState {
   sourceControlSessions: Record<string, GitSourceControlSession>;
 
   actions: {
+    beginWorkingTreeRefresh: () => number;
     prepareRepositoryLoad: (repoPath: string) => void;
     loadFreshGitData: (data: {
       gitStatus: GitStatus | null;
+      workingTreeVersion?: number;
       commits: GitCommit[];
       hasMoreCommits: boolean;
       branches: string[];
@@ -40,6 +43,7 @@ interface GitState {
     }) => void;
     refreshGitData: (data: {
       gitStatus: GitStatus | null;
+      workingTreeVersion?: number;
       branches?: string[];
       commits?: GitCommit[];
       hasMoreCommits?: boolean;
@@ -63,11 +67,26 @@ interface GitState {
   };
 }
 
+// Native queries deserialize fresh objects even when nothing changed. Reuse
+// equal snapshots so status trees and history selectors avoid rebuilding.
+const reuseSnapshot = <T,>(previous: T, next: T): T => equal(previous, next) ? previous : next;
+
 const COMMITS_PER_PAGE = 50;
 const MAX_COMMITS = 5_000;
 
-export const createGitStore = () =>
-  createStore<GitState>()((set, get) => ({
+export const createGitStore = () => {
+  // Request bookkeeping stays outside observable state: starting a read must not
+  // render the file list. Versions span all refresh scopes in this workspace.
+  let nextWorkingTreeVersion = 0;
+  let publishedWorkingTreeVersion = 0;
+  const acceptWorkingTree = (version?: number) => {
+    if (version === undefined) return true;
+    if (version < publishedWorkingTreeVersion) return false;
+    publishedWorkingTreeVersion = version;
+    return true;
+  };
+
+  return createStore<GitState>()((set, get) => ({
     gitStatus: null,
     workspaceGitStatus: null,
     commits: [],
@@ -84,9 +103,12 @@ export const createGitStore = () =>
     sourceControlSessions: {},
 
     actions: {
+      beginWorkingTreeRefresh: () => ++nextWorkingTreeVersion,
+
       prepareRepositoryLoad: (repoPath) => {
         const state = get();
         if (state.currentRepoPath === repoPath) return;
+        publishedWorkingTreeVersion = ++nextWorkingTreeVersion;
 
         set({
           gitStatus: null,
@@ -102,6 +124,7 @@ export const createGitStore = () =>
 
       loadFreshGitData: ({
         gitStatus,
+        workingTreeVersion,
         commits,
         hasMoreCommits,
         branches,
@@ -113,32 +136,40 @@ export const createGitStore = () =>
           return;
         }
 
+        const publishWorkingTree = acceptWorkingTree(workingTreeVersion);
         set({
-          gitStatus,
+          ...(publishWorkingTree ? { gitStatus, operationState } : {}),
           commits,
           branches,
           stashes,
-          operationState,
           hasMoreCommits,
           currentRepoPath: repoPath,
         });
       },
 
-      refreshGitData: ({ gitStatus, branches, commits, hasMoreCommits, operationState, repoPath }) => {
-        if (get().currentRepoPath !== repoPath) {
-          return;
-        }
-
-        set({
-          gitStatus,
-          ...(operationState !== undefined ? { operationState } : {}),
-          ...(branches ? { branches } : {}),
-          ...(commits
-            ? {
-                commits,
-                hasMoreCommits: hasMoreCommits ?? false,
-              }
-            : {}),
+      refreshGitData: ({ gitStatus, workingTreeVersion, branches, commits, hasMoreCommits, operationState, repoPath }) => {
+        set((state) => {
+          if (state.currentRepoPath !== repoPath) return state;
+          const publishWorkingTree = acceptWorkingTree(workingTreeVersion);
+          const next = {
+            gitStatus: publishWorkingTree
+              ? reuseSnapshot(state.gitStatus, gitStatus)
+              : state.gitStatus,
+            operationState: publishWorkingTree && operationState !== undefined
+              ? reuseSnapshot(state.operationState, operationState)
+              : state.operationState,
+            branches: branches === undefined ? state.branches : reuseSnapshot(state.branches, branches),
+            commits: commits === undefined ? state.commits : reuseSnapshot(state.commits, commits),
+            hasMoreCommits: commits === undefined ? state.hasMoreCommits : (hasMoreCommits ?? false),
+          };
+          if (
+            next.gitStatus === state.gitStatus &&
+            next.operationState === state.operationState &&
+            next.branches === state.branches &&
+            next.commits === state.commits &&
+            next.hasMoreCommits === state.hasMoreCommits
+          ) return state;
+          return next;
         });
       },
 
@@ -194,7 +225,9 @@ export const createGitStore = () =>
         }),
       setCommits: (commits) => set({ commits }),
       setBranches: (branches) => set({ branches }),
-      setStashes: (stashes) => set({ stashes }),
+      setStashes: (stashes) => set((state) =>
+        equal(state.stashes, stashes) ? state : { stashes },
+      ),
       setIsLoadingGitData: (loading) => set({ isLoadingGitData: loading }),
       setIsRefreshing: (refreshing) => set({ isRefreshing: refreshing }),
       updateSourceControlSession: (repoPath, update) =>
@@ -213,7 +246,8 @@ export const createGitStore = () =>
           };
         }),
 
-      reset: () =>
+      reset: () => {
+        publishedWorkingTreeVersion = ++nextWorkingTreeVersion;
         set({
           gitStatus: null,
           commits: [],
@@ -228,8 +262,10 @@ export const createGitStore = () =>
           currentWorkspaceRepoPath: null,
           workspaceGitStatus: null,
           workspaceGitStatusUpdatedAt: 0,
-        }),
+        });
+      },
     },
   }));
+};
 
 export const useGitStore = createWorkspaceScopedStore("git", createGitStore);
