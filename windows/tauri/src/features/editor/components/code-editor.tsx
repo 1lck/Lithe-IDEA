@@ -52,6 +52,7 @@ import {
 import type { EditorContentChangeOptions, Position, Range } from "../types/editor.types";
 import { ScrollDebugOverlay } from "./debug/scroll-debug-overlay";
 import { HtmlPreview } from "./html/html-preview";
+import { SvgEditor } from "./svg-editor";
 import { MonacoEditor } from "./monaco-editor";
 import { EditorStylesheet } from "./stylesheet";
 import { ExternalConflictBanner } from "./external-conflict-banner";
@@ -670,25 +671,30 @@ const CodeEditor = ({
             ) : showNotebookEditor ? (
               <NotebookEditor />
             ) : (
-              <MonacoEditor
+              <SvgEditor
                 bufferId={activeBufferId ?? undefined}
-                viewStateKey={editorViewKey ?? undefined}
-                isActiveSurface={isActiveSurface}
-                isPreviewMode={isPreviewBuffer}
-                enableExpensiveServices={enableRichEditorServices}
-                readOnly={readOnly}
-                scrollable={scrollable}
-                alwaysConsumeMouseWheel={alwaysConsumeMouseWheel}
-                backgroundLayer={backgroundLayer}
-                onReadonlySurfaceClick={onReadonlySurfaceClick}
-                highlightMatches={highlightMatches}
-                currentHighlightIndex={currentHighlightIndex}
-                lineNumberStart={lineNumberStart}
-                lineNumberMap={lineNumberMap}
-                onContentChange={handleEditorContentChange}
-                onScrollOffsetChange={syncLspOverlayTransform}
-                onModelPositionResolverChange={handleModelPositionResolverChange}
-              />
+                enabled={activeBuffer?.type === "editor" && filePath.toLowerCase().endsWith(".svg")}
+              >
+                <MonacoEditor
+                  bufferId={activeBufferId ?? undefined}
+                  viewStateKey={editorViewKey ?? undefined}
+                  isActiveSurface={isActiveSurface}
+                  isPreviewMode={isPreviewBuffer}
+                  enableExpensiveServices={enableRichEditorServices}
+                  readOnly={readOnly}
+                  scrollable={scrollable}
+                  alwaysConsumeMouseWheel={alwaysConsumeMouseWheel}
+                  backgroundLayer={backgroundLayer}
+                  onReadonlySurfaceClick={onReadonlySurfaceClick}
+                  highlightMatches={highlightMatches}
+                  currentHighlightIndex={currentHighlightIndex}
+                  lineNumberStart={lineNumberStart}
+                  lineNumberMap={lineNumberMap}
+                  onContentChange={handleEditorContentChange}
+                  onScrollOffsetChange={syncLspOverlayTransform}
+                  onModelPositionResolverChange={handleModelPositionResolverChange}
+                />
+              </SvgEditor>
             )}
           </div>
         </div>
