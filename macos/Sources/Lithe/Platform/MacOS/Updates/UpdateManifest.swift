@@ -62,6 +62,7 @@ struct UpdateManifest: Decodable, Sendable {
 struct UpdateManifestAsset: Decodable, Equatable, Sendable {
     let url: URL
     let sha256: String
+    var edSignature: String? = nil
 
     var normalizedSHA256: String {
         sha256.lowercased()

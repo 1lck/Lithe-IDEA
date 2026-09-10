@@ -99,6 +99,7 @@ prepare_baseline_app() {
     mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
     cp "$binary_path" "$app_dir/Contents/MacOS/Lithe"
     cp "$project_root/macos/Resources/Info.plist" "$app_dir/Contents/Info.plist"
+    zsh "$project_root/scripts/embed-sparkle.sh" "$app_dir"
     cp -R "$build_root/Lithe_Lithe.bundle" \
         "$app_dir/Contents/Resources/Lithe_Lithe.bundle"
     cp -R "$build_root/SwiftTerm_SwiftTerm.bundle" \
