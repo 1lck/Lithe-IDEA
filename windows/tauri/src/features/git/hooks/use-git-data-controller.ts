@@ -178,14 +178,14 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
 
   const refresh = useCallback(async () => {
     // An explicit retry must not reuse a cached negative repository discovery.
-    clearRepositoryDiscoveryCache();
+    if (failedRepoPath && failedRepoPath === activeRepoPath) clearRepositoryDiscoveryCache();
     gitActions.setIsRefreshing(true);
     try {
       await Promise.all([refreshGitData(), refreshWorkspaceRepositories()]);
     } finally {
       gitActions.setIsRefreshing(false);
     }
-  }, [gitActions, refreshGitData, refreshWorkspaceRepositories]);
+  }, [activeRepoPath, failedRepoPath, gitActions, refreshGitData, refreshWorkspaceRepositories]);
 
   useEffect(() => {
     const workspaceRootPaths = normalizeWorkspaceFolders(workspacePath ?? undefined, workspaceFolders).map(

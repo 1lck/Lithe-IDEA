@@ -22,6 +22,8 @@ const history: GitHistorySnapshot = {
 };
 const getWorkspaceGitStatus = mock(async (): Promise<GitStatus | null> => status);
 const getGitHistory = mock(async (): Promise<GitHistorySnapshot | null> => history);
+const clearRepositoryDiscoveryCache = mock(() => {});
+mock.module("../api/git-repo-api", () => ({ clearRepositoryDiscoveryCache }));
 const paths = ["C:/repo"];
 const repository = {
   activeRepoPath: paths[0],
@@ -82,6 +84,7 @@ async function mount() {
   });
 }
 beforeEach(() => {
+  clearRepositoryDiscoveryCache.mockClear();
   useGitStore.getState().actions.reset();
   getWorkspaceGitStatus.mockReset().mockResolvedValue(status);
   getGitHistory.mockReset().mockResolvedValue(history);
@@ -169,4 +172,18 @@ test("a failed history query does not block working-tree status on initial load"
   expect(useGitStore.getState().gitStatus).toEqual(status);
   expect(useGitStore.getState().commits).toEqual([]);
   expect(controller.hasLoadError).toBe(true);
+});
+
+
+test("successful refreshes retain discovery caches; error retries clear them", async () => {
+  await mount();
+  await act(async () => { await controller.refresh(); });
+  expect(clearRepositoryDiscoveryCache).not.toHaveBeenCalled();
+  getWorkspaceGitStatus.mockResolvedValue(null);
+  await act(async () => { await controller.refresh(); });
+  expect(clearRepositoryDiscoveryCache).not.toHaveBeenCalled();
+  getWorkspaceGitStatus.mockResolvedValue(status);
+  await act(async () => { await controller.refresh(); });
+  expect(clearRepositoryDiscoveryCache).toHaveBeenCalledTimes(1);
+  expect(controller.hasLoadError).toBe(false);
 });
