@@ -203,6 +203,23 @@ package protocol RunRuntimePort: AnyObject {
         javaHomeOverride: String?,
         mavenExecutableOverride: String?
     ) -> [ProjectToolchainCandidate]
+    /// Applies workspace and subproject JDK/Maven defaults when a run
+    /// configuration does not set its own explicit toolchain paths.
+    func overlayProjectRuntime(
+        onto options: RunOptions,
+        modulePath: String?,
+        workingDirectory: String?
+    ) -> RunOptions
+}
+
+package extension RunRuntimePort {
+    func overlayProjectRuntime(
+        onto options: RunOptions,
+        modulePath _: String?,
+        workingDirectory _: String?
+    ) -> RunOptions {
+        options
+    }
 }
 
 package protocol RunFileAccess: Sendable {
