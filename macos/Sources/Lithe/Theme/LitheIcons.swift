@@ -28,6 +28,7 @@ enum LitheIconKind: Hashable {
     case cppSource
     case csharpSource
     case scriptSource
+    case powershellSource
     case javaScript
     case css
     case html
@@ -88,6 +89,7 @@ enum LitheIcons {
         .cppSource: "fileTypes/cpp.svg",
         .csharpSource: "fileTypes/csharp.svg",
         .scriptSource: "fileTypes/shell.svg",
+        .powershellSource: "fileTypes/powershell.svg",
         .javaScript: "fileTypes/javaScript.svg",
         .css: "fileTypes/css.svg",
         .html: "fileTypes/html.svg",
@@ -289,6 +291,7 @@ enum LitheIcons {
         case "cs": return .csharpSource
         case "js", "jsx", "mjs", "cjs", "ts", "tsx": return .javaScript
         case "sh", "zsh", "bash", "fish": return .scriptSource
+        case "ps1", "psm1", "psd1", "ps1xml", "psc1", "pssc": return .powershellSource
         case "css", "scss", "sass", "less": return .css
         case "html", "htm", "xhtml", "vue", "svelte": return .html
         case "toml": return .toml
@@ -413,6 +416,7 @@ enum LitheIcons {
         case .cppSource: .document(accent: Color(red: 0.71, green: 0.54, blue: 0.93), mark: .letter("C"))
         case .csharpSource: .document(accent: Color(red: 0.37, green: 0.68, blue: 0.40), mark: .letter("C"))
         case .scriptSource: .document(accent: Color(red: 0.85, green: 0.76, blue: 0.32), mark: .braces)
+        case .powershellSource: .document(accent: Color(red: 0.33, green: 0.63, blue: 0.86), mark: .none)
         case .javaScript: .document(accent: Color(red: 0.95, green: 0.77, blue: 0.36), mark: .letter("J"))
         case .css: .document(accent: Color(red: 0.33, green: 0.54, blue: 0.97), mark: .letter("C"))
         case .html: .document(accent: Color(red: 0.34, green: 0.59, blue: 0.36), mark: .angleBrackets)
