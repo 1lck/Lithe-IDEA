@@ -552,12 +552,20 @@ pub fn stop_server(request: SessionRequest) -> Result<(), CoreError> {
 /// Retries the selected Maven profile application without restarting JDTLS.
 pub fn retry_maven_profiles(request: SessionRequest) -> Result<(), CoreError> {
     let session = engine().session(&request.session_id)?;
-    if session.lock_state()?.maven_profile_status == MavenProfileTaskStatus::Running {
+    let state = session.lock_state()?;
+    if session.provider_id != "java" || state.lifecycle != LspLifecycleState::Ready {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Maven profile retry requires a ready Java language session.",
+        ));
+    }
+    if state.maven_profile_status == MavenProfileTaskStatus::Running {
         return Err(CoreError::new(
             ErrorCode::InvalidRequest,
             "Maven profile application is already running.",
         ));
     }
+    drop(state);
     session.lock_state()?.maven_profile_applied_fingerprint = None;
     let outbound_order = session.lock_outbound_order()?;
     let (messages, pending) = session.maven_profile_requests()?;
@@ -2766,6 +2774,7 @@ impl RuntimeSession {
                         flush_queued_documents_locked(&mut state).unwrap_or_default();
                 }
                 for request_id in expired_maven_requests {
+                    cancellations.push(request_id.clone());
                     state.pending.remove(&request_id);
                     state.client.pending_requests.remove(&request_id);
                 }
@@ -2824,6 +2833,22 @@ impl RuntimeSession {
             if !timeout_queued_messages.is_empty() {
                 if let Ok(outbound_order) = self.lock_outbound_order() {
                     let _ = self.send_messages(&outbound_order, timeout_queued_messages);
+                }
+            }
+            if !cancellations.is_empty() {
+                let messages = cancellations
+                    .into_iter()
+                    .map(|id| {
+                        json!({
+                            "jsonrpc": "2.0",
+                            "method": "$/cancelRequest",
+                            "params": { "id": id }
+                        })
+                        .to_string()
+                    })
+                    .collect();
+                if let Ok(outbound_order) = self.lock_outbound_order() {
+                    let _ = self.send_messages(&outbound_order, messages);
                 }
             }
         } else if shutdown_timeout {
