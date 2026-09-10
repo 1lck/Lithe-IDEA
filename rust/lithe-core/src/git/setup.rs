@@ -198,9 +198,6 @@ pub fn initialize(request: GitSetupRequest) -> Result<GitSetupResponse, CoreErro
     if result.exit_code != 0 {
         return Err(failed(&result));
     }
-    // Local exclude keeps generated JDTLS `.factorypath` files untracked
-    // without changing a committed `.gitignore`.
-    let _ = super::ensure_built_in_local_excludes(&root);
     inspect(request)
 }
 

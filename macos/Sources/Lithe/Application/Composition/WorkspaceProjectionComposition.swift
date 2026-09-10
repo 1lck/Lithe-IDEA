@@ -71,6 +71,9 @@ enum WorkspaceProjectionComposition {
             },
             onSnapshotLoaded: { [weak model] snapshot, isInitialLoad in
                 guard let model else { return }
+                if isInitialLoad {
+                    await model.synchronizeLSPGeneratedArtifactGitExclude(at: snapshot.root.url)
+                }
                 // Loading a ready inventory also resumes deferred run actions.
                 await model.loadProjectServices(
                     at: snapshot.root.url,

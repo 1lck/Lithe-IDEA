@@ -153,7 +153,7 @@ struct SettingsView: View {
     private func searchTerms(for category: SettingsCategory) -> [String] {
         switch category {
         case .general:
-            ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control", "Logs", "Log directory"]
+            ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control", "Logs", "Log directory", "Hidden paths", "LSP generated"]
         case .editor:
             ["Editor", "Display", "Editor tabs", "Font size", "File tree row height", "Indentation", "Tab width"]
         case .keymap:
@@ -391,6 +391,15 @@ struct SettingsView: View {
             }
 
             group("Hidden paths") {
+                LitheSettingsCheckbox(
+                    isOn: $settings.hideLSPGeneratedArtifacts,
+                    title: "Hide LSP generated artifacts"
+                )
+                Text("When enabled, Lithe adds those files to Hidden paths and the Git local exclude list. Turn it off to remove them again.")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 Text("One entry per line. Directory names hide matching folders; file entries support * and ?.")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
@@ -1334,6 +1343,7 @@ struct SettingsView: View {
     private func applyVisibilityDrafts() {
         settings.hiddenDirectoryNames = entries(from: viewState.hiddenDirectoriesDraft)
         settings.hiddenFilePatterns = entries(from: viewState.hiddenFilePatternsDraft)
+        settings.synchronizeLSPGeneratedArtifactPatterns()
     }
 
     private func entries(from text: String) -> [String] {

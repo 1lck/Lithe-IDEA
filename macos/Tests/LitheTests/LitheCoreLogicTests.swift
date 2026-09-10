@@ -2234,14 +2234,14 @@ struct LitheCoreLogicTests {
             )
         )
         #expect(
-            rules.isHidden(
+            !rules.isHidden(
                 root.appendingPathComponent(".factorypath"),
                 relativeTo: root,
                 isDirectory: false
             )
         )
         #expect(
-            rules.isHidden(
+            !rules.isHidden(
                 root.appendingPathComponent("services/alpha/.factorypath"),
                 relativeTo: root,
                 isDirectory: false
@@ -4519,13 +4519,151 @@ struct EditorDocumentTests {
             )
         )
 
-        #expect(snapshot.root.children?.map(\.name) == ["Sources", "README.md"])
-        #expect(snapshot.files.map(\.lastPathComponent).sorted() == ["App.swift", "README.md"])
-        #expect(!snapshot.files.contains { $0.lastPathComponent == ".factorypath" })
+        let names = snapshot.root.children?.map(\.name) ?? []
+        #expect(names.contains("Sources"))
+        #expect(names.contains("README.md"))
+        #expect(names.contains(".factorypath"))
+        #expect(snapshot.files.contains { $0.lastPathComponent == "App.swift" })
+        #expect(snapshot.files.contains { $0.lastPathComponent == "README.md" })
+        #expect(snapshot.files.contains { $0.lastPathComponent == ".factorypath" })
         #expect(!snapshot.files.contains { $0.path.contains("/.git/") })
         #expect(!snapshot.files.contains { $0.path.contains("/.worktree/") })
         #expect(fileManager.fileExists(atPath: factorypath.path))
         #expect(fileManager.fileExists(atPath: nestedFactorypath.path))
+    }
+
+    @Test
+    func hidingLSPGeneratedArtifactsIsOptInAndLeavesFilesOnDisk() throws {
+        let fileManager = FileManager.default
+        let workspace = fileManager.temporaryDirectory
+            .appendingPathComponent("lithe-factorypath-search-\(UUID().uuidString)")
+        let module = workspace.appendingPathComponent("services/alpha")
+        try fileManager.createDirectory(at: module, withIntermediateDirectories: true)
+        let uniqueToken = "jdtlsFactorypathToken589"
+        let factorypath = workspace.appendingPathComponent(".factorypath")
+        let nestedFactorypath = module.appendingPathComponent(".factorypath")
+        fileManager.createFile(atPath: factorypath.path, contents: Data("\(uniqueToken)\n".utf8))
+        fileManager.createFile(
+            atPath: nestedFactorypath.path,
+            contents: Data("\(uniqueToken)\n".utf8)
+        )
+        fileManager.createFile(
+            atPath: workspace.appendingPathComponent("README.md").path,
+            contents: Data("visible\n".utf8)
+        )
+        defer { try? fileManager.removeItem(at: workspace) }
+
+        let defaultSnapshot = try #require(
+            FileSystemWorkspaceSnapshotBuilder().snapshot(
+                at: workspace,
+                visibilityRules: .default
+            )
+        )
+        #expect(fileNodeContains(defaultSnapshot.root, named: ".factorypath"))
+        #expect(fileManager.fileExists(atPath: factorypath.path))
+        #expect(fileManager.fileExists(atPath: nestedFactorypath.path))
+        #expect(!FileVisibilityRules.default.isHidden(factorypath, relativeTo: workspace, isDirectory: false))
+
+        let hiddenRules = FileVisibilityRules(
+            hiddenDirectoryNames: [],
+            hiddenFilePatterns: LSPGeneratedArtifactVisibility.inserting(into: [])
+        )
+        let hiddenSnapshot = try #require(
+            FileSystemWorkspaceSnapshotBuilder().snapshot(
+                at: workspace,
+                visibilityRules: hiddenRules
+            )
+        )
+        #expect(!fileNodeContains(hiddenSnapshot.root, named: ".factorypath"))
+        #expect(hiddenSnapshot.files.contains { $0.lastPathComponent == "README.md" })
+        #expect(hiddenRules.isHidden(factorypath, relativeTo: workspace, isDirectory: false))
+        #expect(hiddenRules.isHidden(nestedFactorypath, relativeTo: workspace, isDirectory: false))
+        #expect(fileManager.fileExists(atPath: factorypath.path))
+
+        guard RustCoreBridge().isAvailable else { return }
+        let visibleMatches = try #require(
+            RustCoreBridge().search(
+                at: workspace,
+                query: uniqueToken,
+                caseSensitive: true,
+                wholeWords: false,
+                regularExpression: false,
+                hiddenDirectoryNames: FileVisibilityRules.default.hiddenDirectoryNames,
+                hiddenFilePatterns: FileVisibilityRules.default.hiddenFilePatterns
+            )?.matches
+        )
+        #expect(visibleMatches.contains { $0.path == ".factorypath" })
+        #expect(visibleMatches.contains { $0.path == "services/alpha/.factorypath" })
+
+        let hiddenMatches = try #require(
+            RustCoreBridge().search(
+                at: workspace,
+                query: uniqueToken,
+                caseSensitive: true,
+                wholeWords: false,
+                regularExpression: false,
+                hiddenDirectoryNames: hiddenRules.hiddenDirectoryNames,
+                hiddenFilePatterns: hiddenRules.hiddenFilePatterns
+            )?.matches
+        )
+        #expect(!hiddenMatches.contains { $0.path == ".factorypath" })
+        #expect(!hiddenMatches.contains { $0.path == "services/alpha/.factorypath" })
+    }
+
+    @Test
+    func gitIgnoreFileTextInsertsAndRemovesManagedLSPPatterns() {
+        let enabled = GitIgnoreFileText.applying(
+            patterns: LSPGeneratedArtifactVisibility.filePatterns,
+            enabled: true,
+            to: "# gitignore\n*.log\n"
+        )
+        #expect(enabled.contains(".factorypath"))
+        #expect(enabled.contains("*.log"))
+
+        let disabled = GitIgnoreFileText.applying(
+            patterns: LSPGeneratedArtifactVisibility.filePatterns,
+            enabled: false,
+            to: enabled
+        )
+        #expect(!disabled.contains(".factorypath"))
+        #expect(disabled.contains("*.log"))
+        #expect(disabled.contains("# gitignore"))
+    }
+
+    @Test
+    func gitLocalExcludeSynchronizerWritesAndRemovesManagedPatterns() async throws {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-exclude-sync")
+        let gitDirectory = workspace.appendingPathComponent(".git")
+        let excludeURL = gitDirectory.appendingPathComponent("info/exclude")
+        let files = MemoryWorkspaceFileOperations()
+        files.texts[excludeURL] = "# local\n"
+        let provider = SequencedGitWatchContextProvider([
+            GitWatchContext(
+                repositoryRoot: workspace,
+                gitDirectory: gitDirectory,
+                gitCommonDirectory: gitDirectory
+            )
+        ])
+        let synchronizer = GitLocalExcludeSynchronizer(
+            fileOperations: files,
+            gitWatchContextProvider: provider
+        )
+
+        try await synchronizer.synchronize(
+            enabled: true,
+            patterns: LSPGeneratedArtifactVisibility.filePatterns,
+            at: workspace
+        )
+        #expect(files.texts[excludeURL]?.contains(".factorypath") == true)
+        #expect(files.texts[excludeURL]?.contains("# local") == true)
+
+        try await synchronizer.synchronize(
+            enabled: false,
+            patterns: LSPGeneratedArtifactVisibility.filePatterns,
+            at: workspace
+        )
+        #expect(files.texts[excludeURL]?.contains(".factorypath") != true)
+        #expect(files.texts[excludeURL]?.contains("# local") == true)
     }
 
     @Test
@@ -5197,6 +5335,13 @@ struct EditorDocumentTests {
         #expect(store.state(for: retainedID).selectionLocation == 18)
         #expect(store.state(for: closedID) == EditorViewportState())
     }
+}
+
+private func fileNodeContains(_ node: FileNode, named name: String) -> Bool {
+    if node.url.lastPathComponent == name {
+        return true
+    }
+    return node.children?.contains { fileNodeContains($0, named: name) } ?? false
 }
 
 @MainActor
@@ -5906,6 +6051,24 @@ private struct ExistingWorkspaceFileOperations: WorkspaceFileOperations {
     func trashItem(at url: URL) throws {}
     func writeText(_ text: String, to url: URL) throws {}
     func readText(from url: URL) throws -> String { throw CocoaError(.fileReadNoSuchFile) }
+}
+
+private final class MemoryWorkspaceFileOperations: WorkspaceFileOperations, @unchecked Sendable {
+    var texts: [URL: String] = [:]
+
+    func fileExists(at url: URL) -> Bool { texts[url] != nil }
+    func isDirectory(at url: URL) -> Bool { false }
+    func createFile(at url: URL) throws {}
+    func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {}
+    func copyItem(at sourceURL: URL, to destinationURL: URL) throws {}
+    func moveItem(at sourceURL: URL, to destinationURL: URL) throws {}
+    func removeItem(at url: URL) throws { texts[url] = nil }
+    func trashItem(at url: URL) throws { texts[url] = nil }
+    func writeText(_ text: String, to url: URL) throws { texts[url] = text }
+    func readText(from url: URL) throws -> String {
+        guard let text = texts[url] else { throw CocoaError(.fileReadNoSuchFile) }
+        return text
+    }
 }
 
 private struct EmptyWorkspaceFileOperations: WorkspaceFileOperations {

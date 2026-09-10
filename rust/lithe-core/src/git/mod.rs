@@ -65,11 +65,6 @@ static TEMPORARY_INDEX_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static AUTO_STASH_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 const REPOSITORY_SCAN_SKIP_DIRS: &[&str] = &[".git"];
-/// Unanchored names written to `.git/info/exclude` so generated files stay
-/// untracked without editing the project's committed `.gitignore`.
-/// `.factorypath` is Eclipse m2e-apt metadata created by JDTLS beside each
-/// Maven module; omitting the leading `/` matches every directory.
-const BUILT_IN_LOCAL_EXCLUDE_PATTERNS: &[&str] = &[".factorypath"];
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -3114,17 +3109,6 @@ enum GitIgnoreTarget {
     LocalExclude,
 }
 
-fn ensure_built_in_local_excludes(root: &str) -> Result<(), CoreError> {
-    append_ignore_file_patterns(
-        git_path(root, "info/exclude")?,
-        BUILT_IN_LOCAL_EXCLUDE_PATTERNS
-            .iter()
-            .map(|pattern| (*pattern).to_string())
-            .collect(),
-    )
-    .map(|_| ())
-}
-
 fn append_git_ignore_patterns(
     root: &str,
     paths: &[String],
@@ -3135,13 +3119,6 @@ fn append_git_ignore_patterns(
         GitIgnoreTarget::Repository => repository_root(root)?.join(".gitignore"),
         GitIgnoreTarget::LocalExclude => git_path(root, "info/exclude")?,
     };
-    append_ignore_file_patterns(target_path, patterns)
-}
-
-fn append_ignore_file_patterns(
-    target_path: PathBuf,
-    patterns: Vec<String>,
-) -> Result<GitCommandResponse, CoreError> {
     let existing = match std::fs::read(&target_path) {
         Ok(content) => content,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
@@ -5918,14 +5895,8 @@ pub fn watch_context(
         &["rev-parse", "--path-format=absolute", "--git-common-dir"],
     )?;
 
-    let repository_root = canonical_git_output(repository_root, "repository root")?;
-    // Generated JDTLS `.factorypath` files stay on disk but must not become
-    // untracked Git changes. A read-only metadata directory must not block
-    // watcher setup.
-    let _ = ensure_built_in_local_excludes(&repository_root);
-
     Ok(Some(GitWatchContextResponse {
-        repository_root,
+        repository_root: canonical_git_output(repository_root, "repository root")?,
         git_directory: canonical_git_output(git_directory, "Git directory")?,
         git_common_directory: canonical_git_output(git_common_directory, "Git common directory")?,
     }))

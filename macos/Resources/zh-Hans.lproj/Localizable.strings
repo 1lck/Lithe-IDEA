@@ -195,6 +195,9 @@
 "Restore Default" = "恢复默认";
 "Save after" = "保存延迟";
 "Hidden paths" = "隐藏路径";
+"Hide LSP generated artifacts" = "隐藏 LSP 生成产物";
+"When enabled, Lithe adds those files to Hidden paths and the Git local exclude list. Turn it off to remove them again." = "开启后会自动写入隐藏路径和 Git 本地排除列表；关闭后会自动删除。当前仅包含 LSP 生成产物。";
+"Could not update the Git local exclude list for LSP generated artifacts." = "无法更新 LSP 生成产物的 Git 本地排除列表。";
 "One entry per line. Directory names hide matching folders; file entries support * and ?." = "每行输入一项。目录名用于隐藏匹配的文件夹；文件条目支持 * 和 ?。";
 "Directories" = "目录";
 "File patterns" = "文件模式";

@@ -20,6 +20,7 @@ final class AppSettings: ObservableObject {
         static let terminalShellPathOverride = "settings.terminalShellPathOverride"
         static let hiddenDirectories = "settings.hiddenDirectories"
         static let hiddenFilePatterns = "settings.hiddenFilePatterns"
+        static let hideLSPGeneratedArtifacts = "settings.hideLSPGeneratedArtifacts"
         static let gitSaveChangesPolicy = "settings.gitSaveChangesPolicy"
         static let projectOpenBehavior = "settings.projectOpenBehavior"
         static let commitMessageAI = "settings.commitMessageAI"
@@ -71,6 +72,14 @@ final class AppSettings: ObservableObject {
         didSet {
             defaults.set(hiddenFilePatterns, forKey: Key.hiddenFilePatterns)
             notifyFileVisibilityRulesObservers()
+        }
+    }
+    /// Off by default. When enabled, managed LSP artifact names are inserted
+    /// into Hidden paths; turning it off removes those same names again.
+    @Published var hideLSPGeneratedArtifacts: Bool {
+        didSet {
+            defaults.set(hideLSPGeneratedArtifacts, forKey: Key.hideLSPGeneratedArtifacts)
+            synchronizeLSPGeneratedArtifactPatterns()
         }
     }
     @Published var gitSaveChangesPolicy: GitSaveChangesPolicy {
@@ -127,8 +136,17 @@ final class AppSettings: ObservableObject {
         terminalShell = TerminalShell(rawValue: defaults.string(forKey: Key.terminalShell) ?? "") ?? .system
         hiddenDirectoryNames = defaults.stringArray(forKey: Key.hiddenDirectories)
             ?? FileVisibilityRules.default.hiddenDirectoryNames
-        hiddenFilePatterns = defaults.stringArray(forKey: Key.hiddenFilePatterns)
+        let loadedHideLSPGeneratedArtifacts = defaults.object(forKey: Key.hideLSPGeneratedArtifacts) as? Bool ?? false
+        let loadedHiddenFilePatterns = defaults.stringArray(forKey: Key.hiddenFilePatterns)
             ?? FileVisibilityRules.default.hiddenFilePatterns
+        let reconciledHiddenFilePatterns = loadedHideLSPGeneratedArtifacts
+            ? LSPGeneratedArtifactVisibility.inserting(into: loadedHiddenFilePatterns)
+            : loadedHiddenFilePatterns
+        if reconciledHiddenFilePatterns != loadedHiddenFilePatterns {
+            defaults.set(reconciledHiddenFilePatterns, forKey: Key.hiddenFilePatterns)
+        }
+        hiddenFilePatterns = reconciledHiddenFilePatterns
+        hideLSPGeneratedArtifacts = loadedHideLSPGeneratedArtifacts
         gitSaveChangesPolicy = GitSaveChangesPolicy(
             rawValue: defaults.string(forKey: Key.gitSaveChangesPolicy) ?? ""
         ) ?? .stash
@@ -227,6 +245,18 @@ final class AppSettings: ObservableObject {
         fileVisibilityRulesObservers[id] = nil
     }
 
+    func synchronizeLSPGeneratedArtifactPatterns() {
+        let updated = LSPGeneratedArtifactVisibility.applying(
+            enabled: hideLSPGeneratedArtifacts,
+            to: hiddenFilePatterns
+        )
+        if updated != hiddenFilePatterns {
+            hiddenFilePatterns = updated
+        } else {
+            notifyFileVisibilityRulesObservers()
+        }
+    }
+
     private func notifyFileVisibilityRulesObservers() {
         for observer in fileVisibilityRulesObservers.values {
             observer()
@@ -246,6 +276,7 @@ final class AppSettings: ObservableObject {
         autoSaveDelay = 1.5
         terminalShell = .system
         terminalShellPathOverride = ""
+        hideLSPGeneratedArtifacts = false
         hiddenDirectoryNames = FileVisibilityRules.default.hiddenDirectoryNames
         hiddenFilePatterns = FileVisibilityRules.default.hiddenFilePatterns
         gitSaveChangesPolicy = .stash

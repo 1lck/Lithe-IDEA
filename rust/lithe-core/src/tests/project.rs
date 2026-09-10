@@ -37,39 +37,50 @@ fn workspace_snapshot_hides_nested_worktree_checkouts() {
 }
 
 #[test]
-fn workspace_snapshot_hides_jdtls_factorypath_files() {
-    // JDTLS/m2e-apt writes `.factorypath` beside each Maven module. The tree
-    // should hide those files without deleting or relocating them.
-    let root = temporary_root("snapshot-factorypath");
+fn search_can_match_unique_content_inside_jdtls_factorypath_files() {
+    // Shared visibility rules must not hide `.factorypath`, otherwise search
+    // cannot reach the unique annotation-processor metadata on disk.
+    let root = temporary_root("search-factorypath");
     fs::create_dir_all(root.join("services/alpha")).expect("module directory should be creatable");
-    fs::write(root.join("pom.xml"), "<project />").expect("root pom should be writable");
-    fs::write(root.join(".factorypath"), "<factorypath />")
+    fs::write(root.join("README.md"), "visible\n").expect("readme should be writable");
+    fs::write(root.join(".factorypath"), "jdtlsFactorypathToken589\n")
         .expect("root factorypath should be writable");
-    fs::write(root.join("services/alpha/pom.xml"), "<project />")
-        .expect("module pom should be writable");
-    fs::write(root.join("services/alpha/.factorypath"), "<factorypath />")
-        .expect("module factorypath should be writable");
+    fs::write(
+        root.join("services/alpha/.factorypath"),
+        "jdtlsFactorypathToken589\n",
+    )
+    .expect("module factorypath should be writable");
 
     let response: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
-            "id": "snapshot-factorypath",
-            "command": "workspace.snapshot",
-            "payload": {"root": root}
+            "id": "search-factorypath",
+            "command": "workspace.search",
+            "payload": {
+                "root": root,
+                "query": "jdtlsFactorypathToken589",
+                "caseSensitive": true,
+                "maxResults": 20
+            }
         })
         .to_string(),
     ))
-    .expect("snapshot response should be JSON");
+    .expect("search response should be JSON");
 
     assert_eq!(response["ok"], true, "{response}");
-    let files = response["data"]["files"]
+    let paths = response["data"]["matches"]
         .as_array()
-        .expect("snapshot files should be an array");
-    let mut names: Vec<&str> = files
+        .expect("matches should be an array")
         .iter()
-        .map(|value| value.as_str().expect("file path should be text"))
-        .collect();
-    names.sort_unstable();
-    assert_eq!(names, vec!["pom.xml", "services/alpha/pom.xml"]);
+        .map(|value| value["path"].as_str().expect("path should be text"))
+        .collect::<Vec<_>>();
+    assert!(
+        paths.contains(&".factorypath"),
+        "root factorypath should remain searchable: {response}"
+    );
+    assert!(
+        paths.contains(&"services/alpha/.factorypath"),
+        "nested factorypath should remain searchable: {response}"
+    );
     assert!(root.join(".factorypath").is_file());
     assert!(root.join("services/alpha/.factorypath").is_file());
 

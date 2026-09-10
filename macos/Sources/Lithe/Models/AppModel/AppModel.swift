@@ -342,6 +342,7 @@ final class AppModel: ObservableObject, Identifiable {
 
     private var springFeatureObservation: AnyCancellable?
     private var mybatisFeatureObservation: AnyCancellable?
+    private var lspGeneratedArtifactVisibilityObservation: AnyCancellable?
     private var isObjectWillChangeRelayScheduled = false
     private var languageToolingObservation: AnyCancellable?
 
@@ -498,6 +499,11 @@ final class AppModel: ObservableObject, Identifiable {
             guard let self else { return }
             self.workspaceFeature.updateVisibilityRules(self.settings.fileVisibilityRules)
         }
+        lspGeneratedArtifactVisibilityObservation = settings.$hideLSPGeneratedArtifacts
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.synchronizeLSPGeneratedArtifactGitExclude()
+            }
         detectedAIConfigurations = loadAIConfigurations()
         let activeProviderHasAPIKey = settings.activeCommitMessageProvider
             .flatMap { services.credentialResolver.readAPIKey(for: $0) }
@@ -858,6 +864,30 @@ final class AppModel: ObservableObject, Identifiable {
         selectedSidebar = .project
         projectItemEditRequest = nil
         pendingProjectItemDeletion = nil
+    }
+
+    func synchronizeLSPGeneratedArtifactGitExclude() {
+        guard let workspaceURL else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.synchronizeLSPGeneratedArtifactGitExclude(at: workspaceURL)
+            await self.gitFeatureIfActive?.refreshGitFromMetadataChange()
+        }
+    }
+
+    func synchronizeLSPGeneratedArtifactGitExclude(at workspaceURL: URL) async {
+        do {
+            try await GitLocalExcludeSynchronizer(
+                fileOperations: services.fileOperations,
+                gitWatchContextProvider: services.gitWatchContextProvider
+            ).synchronize(
+                enabled: settings.hideLSPGeneratedArtifacts,
+                patterns: LSPGeneratedArtifactVisibility.filePatterns,
+                at: workspaceURL
+            )
+        } catch {
+            showNotification("Could not update the Git local exclude list for LSP generated artifacts.")
+        }
     }
 
     func resumeGitObservationAfterActivation() async {
