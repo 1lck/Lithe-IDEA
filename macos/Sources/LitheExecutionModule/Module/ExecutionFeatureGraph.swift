@@ -24,6 +24,9 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
         run.configureMavenContextProvider { [weak maven] in
             maven?.launchContext
         }
+        maven.onProjectReloaded = { [weak run] workspace, project in
+            run?.acceptMavenProject(project, at: workspace)
+        }
     }
 
     package var isActive: Bool {

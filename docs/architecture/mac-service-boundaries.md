@@ -231,6 +231,13 @@ restarts only the workspace Java session, awaits readiness, and cancels its
 owned session on failure or the reload's 60-second deadline. Reload holds the
 execution module's activity lease until it finishes.
 
+Inventory scans validate the captured Reload revision before committing models,
+configuration, or fingerprints, including scans already running when a POM
+changes. After a successful Reload, `ExecutionFeatureGraph` synchronously
+delivers the accepted model to the workspace-bound `RunService`. This updates
+Maven profiles without rescanning or replacing Run's file snapshot. Run
+inspection suspended across that delivery must retain the newer Maven model.
+
 The current boundary is usable and enforced, but it is not a claim that every
 workflow has moved into Rust. Language provider routing remains an application
 workflow, while the LSP process lifecycle and protocol state are shared Rust
