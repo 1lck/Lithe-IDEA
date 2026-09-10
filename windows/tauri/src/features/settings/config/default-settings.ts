@@ -25,7 +25,6 @@ export const DEFAULT_HIDDEN_FILE_PATTERNS = [
   "*.yarb",
   "*~",
   ".DS_Store",
-  ".factorypath",
   "vssver.scc",
   "vssver2.scc",
 ] as const;

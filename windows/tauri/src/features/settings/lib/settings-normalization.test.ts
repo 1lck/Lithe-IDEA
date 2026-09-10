@@ -16,7 +16,6 @@ describe("default settings", () => {
     expect(settings.hiddenDirectoryPatterns).toContain(".git");
     expect(settings.hiddenDirectoryPatterns).toContain(".idea");
     expect(settings.hiddenFilePatterns).toContain(".DS_Store");
-    expect(settings.hiddenFilePatterns).toContain(".factorypath");
   });
 });
 
