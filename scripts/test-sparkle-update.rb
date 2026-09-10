@@ -3,9 +3,11 @@ require "tmpdir"
 require "fileutils"
 require "open3"
 require "timeout"
+require "time"
 require "base64"
 require_relative "select-sparkle-baselines"
 require_relative "verify-sparkle-appcast"
+require_relative "preview-asset-retention"
 
 # Integration test: uses the pinned Sparkle tools and local macOS signing tools.
 # No network, Keychain access, installed application, or production key is used.
@@ -46,6 +48,7 @@ Dir.mktmpdir("lithe-sparkle-test-") do |root|
   archives = File.join(root, "archives")
   FileUtils.mkdir_p(archives)
   originals = []
+  pinned_timestamp = "2026-01-02T03:04:05Z"
   [1, 2].each do |version|
     build = preview ? "#{version}.1" : version.to_s
     app = File.join(root, "v#{version}", "Lithe.app")
@@ -58,6 +61,7 @@ Dir.mktmpdir("lithe-sparkle-test-") do |root|
       "CFBundleVersion" => build, "CFBundleShortVersionString" => preview ? "0.3.0" : "1.0.#{version}",
       "LSMinimumSystemVersion" => "13.0", "SUPublicEDKey" => public_key,
       "SUFeedURL" => "https://example.com/appcast.xml"}
+    plist["LitheBuildTimestamp"] = pinned_timestamp if preview
     document = REXML::Document.new('<plist version="1.0"><dict/></plist>')
     plist.each do |name, value|
       document.root.elements["dict"].add_element("key").text = name
@@ -82,6 +86,18 @@ Dir.mktmpdir("lithe-sparkle-test-") do |root|
   run(File.join(tools, "generate_appcast"), "--embed-release-notes", "--ed-key-file", "-", "--versions", target_build, "--maximum-versions", "1", "--download-url-prefix", "https://example.com/", archives, input: key + "\n")
   verify_sparkle_appcast(feed, target_build)
   run("ruby", File.join(__dir__, "name-sparkle-deltas.rb"), feed, "arm64")
+  if preview
+    bundle_timestamp = run("/usr/libexec/PlistBuddy", "-c", "Print :LitheBuildTimestamp",
+      File.join(originals.last, "Contents", "Info.plist")).strip
+    %w[arm64 x86_64].each do |architecture|
+      architecture_feed = File.join(root, "appcast-#{architecture}.xml")
+      FileUtils.cp(feed, architecture_feed)
+      run("ruby", File.join(__dir__, "set-preview-appcast-date.rb"), architecture_feed, pinned_timestamp)
+      date = REXML::Document.new(File.read(architecture_feed)).root.elements["channel/item/pubDate"].text
+      expect(Time.rfc2822(date).utc.iso8601 == bundle_timestamp, "Both architectures must use the app's pinned build timestamp")
+    end
+    run("ruby", File.join(__dir__, "set-preview-appcast-date.rb"), feed, pinned_timestamp)
+  end
   run(File.join(tools, "sign_update"), "--ed-key-file", "-", feed, input: key + "\n")
   run(File.join(tools, "sign_update"), "--verify", "--ed-key-file", "-", feed, input: key + "\n")
   verify_sparkle_appcast(feed, target_build)
@@ -142,3 +158,43 @@ rescue RuntimeError
 end
 expect(rejected_old_build, "Reject publication of an older or duplicate preview build")
 puts "Preview channel packaging, fixed-version deltas, reruns and baseline isolation passed"
+
+# A nearly full rolling release must regain capacity without breaking current
+# or recently cached feeds, even when a failed upload left an orphan delta.
+assets = (1..120).flat_map do |build|
+  %w[arm64 x86_64].flat_map do |architecture|
+    ["Lithe-preview-#{build}.1-#{architecture}.zip"] + (1..3).map do |offset|
+      "Lithe#{build}.1-#{[build - offset, 0].max}.1-#{architecture}.delta"
+    end
+  end
+end
+assets += ["Windows.zip", "appcast-preview-arm64.xml", "appcast-preview-x86_64.xml",
+           "Lithe3.2-1.1-arm64.delta"]
+assets = assets.each_with_index.map { |name, index| {"id" => index + 1, "name" => name} }
+current_names = ["Lithe-preview-2.1-arm64.zip", "Lithe2.1-0.1-arm64.delta"]
+feed = '<rss><channel><item>' + current_names.map { |name| "<enclosure url=\"https://example.com/#{name}\"/>" }.join + '</item></channel></rss>'
+incoming = %w[Lithe-preview-121.1-arm64.zip Lithe-preview-121.1-x86_64.zip]
+deleted = preview_asset_deletions(assets, [feed], incoming)
+remaining = (assets - deleted).map { |asset| asset.fetch("name") }
+expect((remaining + incoming).size < 300, "Cleanup must leave ample capacity below GitHub's 1000-asset limit")
+expect(current_names.all? { |name| remaining.include?(name) }, "Protect the current feed even outside the cache window")
+expect(remaining.include?("Windows.zip"), "Never delete another publisher's assets")
+expect(!remaining.include?("Lithe3.2-1.1-arm64.delta"), "Old orphan assets must be cleaned up")
+%w[arm64 x86_64].each do |architecture|
+  (118..120).each { |build| expect(remaining.include?("Lithe-preview-#{build}.1-#{architecture}.zip"), "Protect three baselines") }
+end
+expect(remaining.include?("Lithe91.1-88.1-arm64.delta"), "Protect deltas targeting the oldest retained cached build")
+expect(preview_asset_deletions(assets - deleted, [feed], incoming).empty?, "Cleanup must be idempotent")
+orphan_assets = (121..160).map { |build| {"id" => build + 2000, "name" => "Lithe#{build}.1-1.1-arm64.delta"} }
+orphan_history = assets + orphan_assets
+orphan_remaining = orphan_history - preview_asset_deletions(orphan_history, [feed], incoming)
+expect(orphan_remaining.any? { |asset| asset["name"] == "Lithe-preview-118.1-x86_64.zip" },
+  "Baseline ZIPs must survive even when failed attempts fill the recent-build window")
+blocked = false
+begin
+  preview_asset_deletions((1..901).map { |id| {"id" => id, "name" => "foreign-#{id}.zip"} }, [], incoming)
+rescue RuntimeError
+  blocked = true
+end
+expect(blocked, "Fail safely when unrelated assets consume the capacity reserve")
+puts "Preview asset retention, cached feeds, baselines, orphan cleanup and capacity checks passed"

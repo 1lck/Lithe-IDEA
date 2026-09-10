@@ -106,10 +106,25 @@ and the build number. Stable release-note presentation is unchanged.
 Preview ZIPs use immutable names such as `Lithe-preview-142.1-arm64.zip`. The
 latest three matching ZIPs on the rolling release are differential baselines.
 Full archives and deltas are uploaded before either appcast is replaced.
-Historical assets are retained so cached feeds remain usable; automated pruning
-is not implemented. The rolling DMGs retain their existing filenames for manual
-downloads. If storage cleanup is needed, preserve current feed assets and any
-archives needed for future baselines, allowing for clients with cached feeds.
+Before uploads, the publisher enumerates all release assets and retains the most
+recent 30 build identities (including failed attempts), all files referenced by
+the currently published and incoming feeds, and the latest three ZIP baselines
+per architecture. Older macOS Preview ZIPs and deltas, including orphan uploads,
+are removed. Unrelated assets such as Windows packages are never deleted.
+This bounds cached-feed compatibility to 30 builds, not 30 days; clients holding
+older offers may need to check again for the latest feed. Current published feed
+references remain protected even if they fall outside that window.
+
+Cleanup runs before any DMG or update upload and rejects the publication if the
+remaining assets plus incoming filenames would exceed 900, leaving headroom
+below GitHub's 1000-asset limit. Download or parse failures stop cleanup before
+deletion. If unrelated or protected assets exhaust the reserve, maintainers must
+review those assets rather than automatically evicting them. The rolling DMGs
+retain their existing filenames for manual downloads.
+
+Both architecture appcasts use the pinned build timestamp for `pubDate`, written
+before the final feed signature, so the Preview update's Built date matches the
+timestamp embedded in the app.
 
 An old Preview build that predates this integration must be updated manually
 once using the rolling DMG. It does not already know about the new preview feed.

@@ -56,6 +56,9 @@ print -r -- "$LITHE_SPARKLE_PRIVATE_KEY" | "$tools/generate_appcast" \
     --link "https://github.com/$GITHUB_REPOSITORY/releases/tag/$release_tag" \
     -o "$archives/$feed_name" "$archives"
 ruby scripts/name-sparkle-deltas.rb "$archives/$feed_name" "$LITHE_ARCH"
+if [[ "$channel" == preview ]]; then
+    ruby scripts/set-preview-appcast-date.rb "$archives/$feed_name" "${LITHE_BUILD_TIMESTAMP:?}"
+fi
 print -r -- "$LITHE_SPARKLE_PRIVATE_KEY" | "$tools/sign_update" \
     --ed-key-file - "$archives/$feed_name"
 mkdir -p "dist/sparkle-$LITHE_ARCH"

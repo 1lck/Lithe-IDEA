@@ -127,6 +127,7 @@ jobs:
           LITHE_ARCH: ${{ matrix.architecture }}
           LITHE_VERSION: ${{ env.PREVIEW_VERSION }}
           LITHE_BUILD_NUMBER: ${{ needs.prepare.outputs.build }}
+          LITHE_BUILD_TIMESTAMP: ${{ needs.prepare.outputs.timestamp }}
           LITHE_UPDATE_CHANNEL: preview
           LITHE_PREVIEW_TAG: ${{ env.PREVIEW_TAG }}
           LITHE_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
@@ -202,6 +203,8 @@ jobs:
               --prerelease
           fi
 
+          bash scripts/prune-preview-assets.sh
+
           gh release upload "$RELEASE_TAG" \
             "dist/Lithe-${LITHE_VERSION}-arm64.dmg" \
             "dist/Lithe-${LITHE_VERSION}-arm64.dmg.sha256" \
@@ -210,8 +213,8 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --clobber
 
-          # Versioned archives remain immutable, including while clients use an
-          # older cached feed. Publish every archive before replacing either feed.
+          # Publish every archive before replacing either feed. Retention protects
+          # the current feed and the most recent 30 builds for cached clients.
           for architecture in arm64 x86_64; do
             for asset in dist/sparkle-"$architecture"/*; do
               [[ "$asset" == *.xml ]] && continue
