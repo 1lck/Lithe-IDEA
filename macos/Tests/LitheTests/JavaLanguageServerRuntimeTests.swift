@@ -5,6 +5,23 @@ import Testing
 @Suite("Java language server runtime")
 struct JavaLanguageServerRuntimeTests {
     @Test
+    func mavenRuntimeFixtureDecodesStructuredTaskAndDistinctProjects() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        struct Fixture: Decodable {
+            let events: [RustCoreBridge.LspRuntimeEventPayload]
+        }
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf:
+            root.appendingPathComponent("shared/fixtures/lsp/maven-profile-events-v1.json")))
+        #expect(fixture.events.first?.mavenProfileTask == "running")
+        #expect(fixture.events.last?.mavenProfileTask == "partiallySucceeded")
+        let results = fixture.events.compactMap(\.mavenProfileProject)
+        #expect(results.map(\.status) == ["running", "failed", "succeeded"])
+        #expect(Set(results.map(\.projectUri)).count == 2)
+    }
+
+    @Test
     func coreInitializationTimeoutCodesRemainUserVisibleTimeouts() {
         #expect(LanguageServerSessionFailure(code: "timed_out").isTimedOut)
         #expect(LanguageServerSessionFailure(code: "initializeTimeout").isTimedOut)

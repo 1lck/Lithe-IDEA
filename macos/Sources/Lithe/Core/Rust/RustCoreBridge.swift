@@ -365,6 +365,25 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let issues: [Issue]
     }
 
+    struct MavenTestResultsPayload: Decodable, Sendable {
+        struct Failure: Decodable, Sendable {
+            let name: String
+            let kind: String
+            let message: String?
+            let path: String?
+            let line: Int?
+            let column: Int?
+        }
+
+        let testsRun: Int
+        let failures: Int
+        let errors: Int
+        let skipped: Int
+        let passed: Int
+        let success: Bool
+        let failureDetails: [Failure]
+    }
+
     struct MavenLaunchPlanPayload: Decodable, Sendable {
         struct Executable: Decodable, Sendable {
             let toolchain: String
@@ -996,6 +1015,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let tagDeletion: TagDeletion?
         let branchDeletion: BranchDeletion?
         let warnings: [Warning]?
+        let historyRewrite: GitHistoryRewriteResult?
     }
 
     struct GitDiffPayload: Decodable, Sendable {
@@ -1898,6 +1918,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let level: String?
         let message: String?
         let detail: String?
+        let mavenProfileTask: String?
+        let mavenProfileProject: MavenProfileProjectPayload?
+    }
+
+    struct MavenProfileProjectPayload: Decodable, Sendable {
+        let projectUri: URL
+        let status: String
+        let errorDetails: String?
     }
 
     struct LspRuntimeErrorPayload: Decodable, Sendable {
@@ -1918,6 +1946,11 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     }
 
     private struct MavenDiagnosticsRequest: Encodable {
+        let root: String
+        let output: String
+    }
+
+    private struct MavenTestResultsRequest: Encodable {
         let root: String
         let output: String
     }
@@ -2716,6 +2749,19 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         execute(
             command: "maven.diagnostics",
             payload: MavenDiagnosticsRequest(
+                root: rootURL.standardizedFileURL.path,
+                output: output
+            )
+        )
+    }
+
+    func mavenTestResults(
+        at rootURL: URL,
+        output: String
+    ) -> Result<MavenTestResultsPayload, CoreCallError> {
+        executeResult(
+            command: "maven.testResults",
+            payload: MavenTestResultsRequest(
                 root: rootURL.standardizedFileURL.path,
                 output: output
             )
@@ -3579,6 +3625,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
+    /// Retries Maven Profile application while retaining the running JDTLS process.
+    func lspRetryMavenProfiles(sessionID: String) -> Result<Void, CoreCallError> {
+        executeVoid(
+            command: "lsp.retryMavenProfiles",
+            payload: LspSessionIdentifierRequest(sessionId: sessionID)
+        )
+    }
+
     /// Publishes the current text of a document. Rust decides whether that means
     /// an open or a change, and assigns the version.
     func lspSyncDocument(
@@ -3925,6 +3979,15 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             }
             return .success(value)
         }
+    }
+
+    /// Session queries intentionally return JSON null when no owned operation exists.
+    func executeNullableResult<Payload: Encodable, Data: Decodable>(
+        command: String,
+        payload: Payload
+    ) -> Result<Data?, CoreCallError> {
+        let outcome: Result<Envelope<Data>, CoreCallError> = decodeEnvelope(command: command, payload: payload)
+        return outcome.map(\.data)
     }
 
     /// Performs the call and reports the envelope's own verdict. Whether a

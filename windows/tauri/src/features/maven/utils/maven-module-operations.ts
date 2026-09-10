@@ -1,4 +1,4 @@
-import type { RunConfiguration } from "@/features/run/types/run.types";
+import { CURRENT_FILE_ID, type RunConfiguration } from "@/features/run/types/run.types";
 
 export type MavenModuleExecutionMode = "run" | "debug";
 
@@ -11,7 +11,12 @@ function eligibleConfiguration(
   configuration: RunConfiguration,
   mode: MavenModuleExecutionMode,
 ): boolean {
-  if (configuration.disabled || !["application", "service"].includes(configuration.execution)) {
+  if (
+    configuration.id === CURRENT_FILE_ID ||
+    configuration.provider === "java.current-file" ||
+    configuration.disabled ||
+    !["application", "service"].includes(configuration.execution)
+  ) {
     return false;
   }
   return mode === "run" || configuration.debugAdapter === "jdwp";
@@ -39,9 +44,12 @@ export function findMavenModuleRunConfiguration(args: {
   mode: MavenModuleExecutionMode;
 }): RunConfiguration | null {
   const modulePath = normalizedPath(args.moduleRelativePath);
+  const reactorPath = normalizedPath(args.projectRelativePath);
   const candidates = args.configurations.filter(
     (configuration) =>
       eligibleConfiguration(configuration, args.mode) &&
+      configuration.mavenReactorPath !== undefined &&
+      normalizedPath(configuration.mavenReactorPath) === reactorPath &&
       normalizedPath(configuration.modulePath) === modulePath,
   );
   if (candidates.length === 0) return null;
@@ -51,13 +59,7 @@ export function findMavenModuleRunConfiguration(args: {
   );
   if (configuredDefault) return configuredDefault;
 
-  const reactorPath = normalizedPath(args.projectRelativePath);
-  const reactorCandidates = candidates.filter(
-    (configuration) => normalizedPath(configuration.cwd) === reactorPath,
-  );
-  return selectUnambiguousConfiguration(
-    reactorCandidates.length > 0 ? reactorCandidates : candidates,
-  );
+  return selectUnambiguousConfiguration(candidates);
 }
 
 export function findMavenModuleJavaPath(

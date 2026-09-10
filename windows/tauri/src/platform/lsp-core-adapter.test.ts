@@ -149,6 +149,19 @@ const executeCore = mock(
                       providerId: "java",
                       sessionId,
                     },
+                    {
+                      type: "log",
+                      level: "error",
+                      message: "Maven profile project update completed",
+                      mavenProfileProject: {
+                        projectUri: "file:///C:/work/module-a",
+                        status: "failed",
+                        errorDetails: "profile resolution failed",
+                      },
+                      mavenProfileTask: "partiallySucceeded",
+                      providerId: "java",
+                      sessionId,
+                    },
                     ...readyEvents(sessionId),
                   ]
                 : [],
@@ -325,6 +338,7 @@ mock.module("@/utils/frontend-trace", () => ({ frontendTrace }));
 const {
   getLspSessionSnapshot,
   getLspWorkspaceSessionSnapshot,
+  ownsLspSession,
   invokeLsp,
   LSP_EXPLICITLY_UNAVAILABLE_COMMANDS,
   LSP_OPERATION_BY_COMMAND,
@@ -507,6 +521,20 @@ describe("Rust Core LSP adapter failures", () => {
         downloadedBytes: 1024,
       }),
     );
+    expect(emit).toHaveBeenCalledWith("lsp://maven-profile-project", {
+      providerId: "java",
+      sessionId: "java-session",
+      workspacePath: "C:/work",
+      projectUri: "file:///C:/work/module-a",
+      status: "failed",
+      errorDetails: "profile resolution failed",
+    });
+    expect(emit).toHaveBeenCalledWith("lsp://maven-profile-task", {
+      providerId: "java",
+      sessionId: "java-session",
+      workspacePath: "C:/work",
+      status: "partiallySucceeded",
+    });
   });
 
   test("starts and exposes a workspace-owned Java session before a file attaches", async () => {
@@ -523,11 +551,14 @@ describe("Rust Core LSP adapter failures", () => {
       getLspWorkspaceSessionSnapshot({ workspacePath: "C:\\work", languageId: "java" }),
     ).toEqual(expect.objectContaining({ id: "java-session", phase: "ready" }));
     expect(getLspSessionSnapshot({ filePath: "C:/work/Main.java" })).toBeNull();
+    expect(ownsLspSession("java-session")).toBe(true);
+    expect(ownsLspSession("other-window-session")).toBe(false);
 
     await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
     expect(
       getLspWorkspaceSessionSnapshot({ workspacePath: "C:/work", languageId: "java" }),
     ).toBeNull();
+    expect(ownsLspSession("java-session")).toBe(false);
   });
 
   test("starts the Java Debug Server through the ready workspace session", async () => {
@@ -802,6 +833,7 @@ describe("Rust Core LSP adapter failures", () => {
       "lsp_stop",
       "lsp_stop_for_file",
       "lsp_workspace_files_changed",
+      "lsp_retry_maven_profiles",
     ]);
     const clientSource = readFileSync(
       new URL("../features/editor/lsp/lsp-client.ts", import.meta.url),

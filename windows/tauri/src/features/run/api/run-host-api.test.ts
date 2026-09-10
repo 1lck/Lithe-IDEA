@@ -53,4 +53,24 @@ describe("run host API window scoping", () => {
       input: "input\n",
     });
   });
+
+  test("binds owned process start and stop to the same execution", async () => {
+    await startRunProcess({
+      sessionId: "primary",
+      executionId: "execution-one",
+      executable: "java.exe",
+      arguments: [],
+      workingDirectory: "D:/demo",
+      environment: {},
+    });
+    await stopRunProcess("primary", "execution-one");
+    expect(invoke).toHaveBeenNthCalledWith(1, "run_start_process", {
+      args: expect.objectContaining({ sessionId: "primary", executionId: "execution-one" }),
+    });
+    expect(invoke).toHaveBeenNthCalledWith(2, "run_stop_process", {
+      windowLabel: "project-window",
+      sessionId: "primary",
+      executionId: "execution-one",
+    });
+  });
 });

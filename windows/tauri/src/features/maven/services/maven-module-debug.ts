@@ -17,7 +17,7 @@ import type {
 import { getJavaWorkspaceLanguageServerOwner } from "@/features/editor/lsp/java-workspace-language-server";
 import { ensureRunProcessListeners } from "@/features/run/hooks/use-run-process-events";
 import { useRunStore } from "@/features/run/stores/run.store";
-import type { RunConfiguration } from "@/features/run/types/run.types";
+import type { RunConfiguration, RunProcessInstance } from "@/features/run/types/run.types";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import type { WorkspaceLaunchScope } from "@/features/workspace/types/workspace-launch-scope";
 import { invokeLsp } from "@/platform/lsp-core-adapter";
@@ -38,7 +38,7 @@ export interface MavenModuleDebugDependencies {
     workspaceId: string,
     configurationId: string,
     debugPort: number,
-  ): Promise<string | null>;
+  ): Promise<RunProcessInstance | null>;
   waitForDebugPort(port: number, timeoutMilliseconds: number): Promise<void>;
   startJavaDebugServer(workspacePath: string): Promise<number>;
   initializeDebuggerEvents(): Promise<void>;
@@ -53,7 +53,7 @@ export interface MavenModuleDebugDependencies {
   startDebuggerSession(session: DebugSession): void;
   registerSessionCleanup(sessionId: string, cleanup: () => Promise<void>): void;
   stopAdapterSession(sessionId: string): Promise<void>;
-  stopRunSession(workspaceId: string, sessionId: string): Promise<void>;
+  stopRunSession(workspaceId: string, instance: RunProcessInstance): Promise<void>;
   breakpoints(): DebugBreakpoint[];
   hasActiveDebugSession(): boolean;
   isCurrentWorkspace(scope: WorkspaceLaunchScope): boolean;
@@ -68,7 +68,7 @@ const defaultDependencies: MavenModuleDebugDependencies = {
     useRunStore
       .getStore(workspaceId)
       .getState()
-      .actions.runConfiguration(configurationId, undefined, debugPort),
+      .actions.runConfigurationInstance(configurationId, undefined, debugPort),
   waitForDebugPort: waitForJvmDebugPort,
   startJavaDebugServer: (workspacePath) =>
     invokeLsp<number>("java_start_debug_session", { workspacePath }),
@@ -100,8 +100,11 @@ const defaultDependencies: MavenModuleDebugDependencies = {
   startDebuggerSession: (session) => useDebuggerStore.getState().actions.startSession(session),
   registerSessionCleanup: registerDebugSessionCleanup,
   stopAdapterSession: stopDebugAdapterSession,
-  stopRunSession: (workspaceId, sessionId) =>
-    useRunStore.getStore(workspaceId).getState().actions.stop(sessionId),
+  stopRunSession: (workspaceId, instance) =>
+    useRunStore
+      .getStore(workspaceId)
+      .getState()
+      .actions.stop(instance.sessionId, instance.executionId),
   breakpoints: () => useDebuggerStore.getState().breakpoints,
   hasActiveDebugSession: () => {
     const status = useDebuggerStore.getState().activeSession?.status;
@@ -143,7 +146,7 @@ export async function startMavenModuleDebug(
     configurationId: configuration.id,
     modulePath: configuration.modulePath ?? ".",
   });
-  let runSessionId: string | null = null;
+  let runInstance: RunProcessInstance | null = null;
   let adapterSessionId: string | null = null;
   try {
     assertCurrentWorkspace(scope, dependencies);
@@ -157,12 +160,12 @@ export async function startMavenModuleDebug(
     await dependencies.initializeRunEvents();
     assertCurrentWorkspace(scope, dependencies);
     assertNoActiveDebugSession(dependencies);
-    runSessionId = await dependencies.startRunConfiguration(
+    runInstance = await dependencies.startRunConfiguration(
       scope.workspaceId,
       configuration.id,
       targetPort,
     );
-    if (!runSessionId) {
+    if (!runInstance) {
       throw new Error(`Could not start the Run configuration ${configuration.name}.`);
     }
     assertCurrentWorkspace(scope, dependencies);
@@ -173,7 +176,7 @@ export async function startMavenModuleDebug(
     const adapterPort = await dependencies.startJavaDebugServer(scope.root);
     assertCurrentWorkspace(scope, dependencies);
     await dependencies.initializeDebuggerEvents();
-    const ownedRunSessionId = runSessionId;
+    const ownedRunInstance = runInstance;
     const session = await dependencies.startAdapterSession(
       configuration,
       targetPort,
@@ -185,7 +188,7 @@ export async function startMavenModuleDebug(
         assertCurrentWorkspace(scope, dependencies);
         assertNoActiveDebugSession(dependencies);
         dependencies.registerSessionCleanup(started.id, () =>
-          dependencies.stopRunSession(scope.workspaceId, ownedRunSessionId),
+          dependencies.stopRunSession(scope.workspaceId, ownedRunInstance),
         );
         dependencies.startDebuggerSession({
           id: started.id,
@@ -203,9 +206,9 @@ export async function startMavenModuleDebug(
       workspaceId: scope.workspaceId,
       configurationId: configuration.id,
       sessionId: session.id,
-      runSessionId: ownedRunSessionId,
+      runSessionId: ownedRunInstance.sessionId,
     });
-    return { kind: "started", sessionId: session.id, runSessionId: ownedRunSessionId };
+    return { kind: "started", sessionId: session.id, runSessionId: ownedRunInstance.sessionId };
   } catch (error) {
     const cleanupFailures: string[] = [];
     if (adapterSessionId) {
@@ -215,8 +218,8 @@ export async function startMavenModuleDebug(
         );
       });
     }
-    if (runSessionId) {
-      await dependencies.stopRunSession(scope.workspaceId, runSessionId).catch((cleanupError) => {
+    if (runInstance) {
+      await dependencies.stopRunSession(scope.workspaceId, runInstance).catch((cleanupError) => {
         cleanupFailures.push(
           `run: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
         );
@@ -227,7 +230,7 @@ export async function startMavenModuleDebug(
         workspaceId: scope.workspaceId,
         configurationId: configuration.id,
         adapterSessionId,
-        runSessionId,
+        runSessionId: runInstance?.sessionId,
         error: cleanupFailures.join("; "),
       });
     }

@@ -96,6 +96,12 @@ interface RuntimeEvent {
   level?: string;
   message?: string;
   detail?: string;
+  mavenProfileProject?: {
+    projectUri: string;
+    status: string;
+    errorDetails?: string;
+  };
+  mavenProfileTask?: string;
   capabilities?: string[];
 }
 
@@ -112,6 +118,7 @@ const sessions = new Map<string, Session>();
 const fileSessions = new Map<string, FileAttachment>();
 const sessionStarts = new Map<string, Promise<Session>>();
 const sessionStops = new Map<string, Promise<void>>();
+const stoppingSessionIds = new Set<string>();
 const pendingFileSessions = new Map<string, PendingFileAttachment>();
 const SESSION_STORAGE_KEY = "lithe:lsp-core-sessions:v1";
 
@@ -331,7 +338,7 @@ function normalizeCoreValue(value: unknown): unknown {
   return normalized;
 }
 
-async function dispatchRuntimeEvent(event: RuntimeEvent): Promise<void> {
+async function dispatchRuntimeEvent(event: RuntimeEvent, workspacePath?: string): Promise<void> {
   if (event.type === "log") {
     const level = event.level === "error" ? "error" : event.level === "warning" ? "warn" : "info";
     const structuredDetail = parseStructuredRuntimeDetail(event.detail);
@@ -340,6 +347,36 @@ async function dispatchRuntimeEvent(event: RuntimeEvent): Promise<void> {
       providerId: event.providerId,
       sessionId: event.sessionId,
     });
+    if (event.message === "Java language service protocol initialized") {
+      await emit("lsp://language-lifecycle", {
+        providerId: event.providerId,
+        sessionId: event.sessionId,
+        workspacePath,
+        phase: "serverConnected",
+      });
+      await emit("lsp://language-lifecycle", {
+        providerId: event.providerId,
+        sessionId: event.sessionId,
+        workspacePath,
+        phase: "projectImporting",
+      });
+    }
+    if (event.mavenProfileProject) {
+      await emit("lsp://maven-profile-project", {
+        providerId: event.providerId,
+        sessionId: event.sessionId,
+        workspacePath,
+        ...event.mavenProfileProject,
+      });
+    }
+    if (event.mavenProfileTask) {
+      await emit("lsp://maven-profile-task", {
+        providerId: event.providerId,
+        sessionId: event.sessionId,
+        workspacePath,
+        status: event.mavenProfileTask,
+      });
+    }
   }
   if (event.type === "diagnostics" && event.uri) {
     await emit("lsp://diagnostics", {
@@ -371,8 +408,19 @@ function isInitializationTimeout(reason: unknown): boolean {
 }
 
 async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Promise<void> {
-  await dispatchRuntimeEvent(event);
+  await dispatchRuntimeEvent(event, session.workspacePath);
   if (event.type === "stateChanged" && event.state) {
+    const phase = event.state === "processStarting"
+      ? "starting"
+      : event.state === "initializing"
+        ? event.providerId === "java" ? "projectImporting" : "starting"
+        : event.state === "ready" ? "serviceReady" : event.state;
+    await emit("lsp://language-lifecycle", {
+      providerId: event.providerId,
+      sessionId: event.sessionId,
+      workspacePath: session.workspacePath,
+      phase,
+    });
     // Core events are consumptive. Synchronize every state transition here so
     // any poller (startup, recovery, or the long-lived pump) leaves a durable
     // readiness snapshot for the rest of the frontend.
@@ -579,6 +627,7 @@ async function cleanupFailedStart(
   session: Session,
   operationId: string,
 ): Promise<void> {
+  stoppingSessionIds.add(session.id);
   if (sessions.get(key) === session) sessions.delete(key);
   removeSessionMappings(session);
   persistSessions();
@@ -590,6 +639,8 @@ async function cleanupFailedStart(
       sessionId: session.id,
       error: reason instanceof Error ? reason.message : String(reason),
     });
+  } finally {
+    stoppingSessionIds.delete(session.id);
   }
 }
 
@@ -874,6 +925,7 @@ async function start(args: JsonRecord): Promise<void> {
 
 async function stopSession(session: Session): Promise<void> {
   const key = sessionKey(session.workspacePath, session.languageId);
+  stoppingSessionIds.add(session.id);
   removeSessionMappings(session);
   persistSessions();
 
@@ -897,6 +949,7 @@ async function stopSession(session: Session): Promise<void> {
         throw reason;
       })
       .finally(() => {
+        stoppingSessionIds.delete(session.id);
         if (sessionStops.get(key) === stopPromise) sessionStops.delete(key);
       });
     sessionStops.set(key, stopPromise);
@@ -1163,6 +1216,10 @@ async function closeDocument(session: Session, filePath: string): Promise<void> 
   }
 }
 
+export function ownsLspSession(sessionId: string): boolean {
+  return stoppingSessionIds.has(sessionId) || [...sessions.values()].some((session) => session.id === sessionId);
+}
+
 export function getLspSessionSnapshot(args: {
   filePath: string;
   sessionFilePath?: string;
@@ -1205,6 +1262,21 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
         normalizedPathKey(session.workspacePath) === normalizedPathKey(args.workspacePath),
     );
     await Promise.all(matches.map(stopSession));
+    return undefined as T;
+  }
+  if (command === "lsp_retry_maven_profiles") {
+    const requestedSessionId = typeof args.sessionId === "string" ? args.sessionId : undefined;
+    const session = requestedSessionId
+      ? [...sessions.values()].find(
+          (candidate) => candidate.id === requestedSessionId && candidate.languageId === "java",
+        )
+      : [...sessions.values()].find(
+          (candidate) =>
+            candidate.languageId === "java" &&
+            normalizedPathKey(candidate.workspacePath) === normalizedPathKey(args.workspacePath),
+        );
+    if (!session) throw new Error("No active Java language session for this workspace.");
+    await core("lsp.retryMavenProfiles", { sessionId: session.id }, crypto.randomUUID());
     return undefined as T;
   }
   if (command === "lsp_stop_for_file") {
