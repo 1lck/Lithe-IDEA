@@ -293,6 +293,10 @@ struct MavenView: View {
         )
     }
 
+    private var dependencyLocalization: MavenDependencyLocalization {
+        MavenDependencyLocalization(language: model.settings.language)
+    }
+
     private func dependencyNode(ownerID: String, modulePath: String) -> AnyView {
         let nodeID = childNodeID(ownerID: ownerID, name: "dependencies")
         let toggle = {
@@ -305,7 +309,7 @@ struct MavenView: View {
         return AnyView(
             treeNode(
                 id: nodeID,
-                title: "Dependencies",
+                title: dependencyLocalization.text("Dependencies"),
                 systemImage: "shippingbox",
                 onToggleAction: toggle,
                 onLabelAction: toggle
@@ -331,10 +335,10 @@ struct MavenView: View {
             return AnyView(
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini)
-                    Text("Resolving dependencies...")
+                    Text(dependencyLocalization.text("Resolving dependencies..."))
                         .lineLimit(1)
                     Spacer(minLength: 4)
-                    Button("Cancel") {
+                    Button(dependencyLocalization.text("Cancel")) {
                         feature.cancelDependencies(for: modulePath)
                     }
                     .buttonStyle(.borderless)
@@ -347,11 +351,11 @@ struct MavenView: View {
         case .failed(let message):
             return AnyView(
                 VStack(alignment: .leading, spacing: 4) {
-                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                    Label(dependencyLocalization.error(message), systemImage: "exclamationmark.triangle.fill")
                         .font(.system(size: 11.5))
                         .foregroundStyle(LitheTheme.error)
                         .lineLimit(2)
-                    Button("Retry") {
+                    Button(dependencyLocalization.text("Retry")) {
                         feature.loadDependencies(for: modulePath)
                     }
                     .buttonStyle(.borderless)
@@ -362,10 +366,10 @@ struct MavenView: View {
         case .cancelled:
             return AnyView(
                 HStack(spacing: 6) {
-                    Text("Dependency resolution cancelled")
+                    Text(dependencyLocalization.text("Dependency resolution cancelled"))
                         .lineLimit(1)
                     Spacer(minLength: 4)
-                    Button("Retry") {
+                    Button(dependencyLocalization.text("Retry")) {
                         feature.loadDependencies(for: modulePath)
                     }
                     .buttonStyle(.borderless)
@@ -378,7 +382,7 @@ struct MavenView: View {
         case .ready(let dependencies):
             if dependencies.isEmpty {
                 return AnyView(
-                    Text("No dependencies")
+                    Text(dependencyLocalization.text("No dependencies"))
                         .font(.system(size: 11.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .padding(.horizontal, 4)
@@ -419,6 +423,7 @@ struct MavenView: View {
                     )
                 }
             }
+            .help(dependencyLocalization.text("Open module pom.xml"))
         )
     }
 
@@ -455,21 +460,11 @@ struct MavenView: View {
         .buttonStyle(.plain)
         .lithePointer()
         .padding(.leading, 16)
-        .help("Open module pom.xml")
+        .help(dependencyLocalization.text("Open module pom.xml"))
     }
 
     private func dependencySubtitle(_ dependency: MavenDependency) -> String {
-        let classifier = dependency.classifier.map { ":" + $0 } ?? ""
-        let marker = switch dependency.resolution {
-        case .resolved:
-            ""
-        case .omittedDuplicate:
-            " (duplicate omitted)"
-        case .omittedConflict:
-            " (conflict -> " + (dependency.selectedVersion ?? "selected") + ")"
-        }
-        return dependency.groupID + ":" + dependency.version + ":" + dependency.type
-            + classifier + " [" + dependency.scope + "]" + marker
+        dependencyLocalization.subtitle(dependency)
     }
 
     private func openDependencyPom(_ dependency: MavenDependency) {
