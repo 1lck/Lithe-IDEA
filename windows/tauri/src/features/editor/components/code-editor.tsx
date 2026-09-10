@@ -65,6 +65,7 @@ import {
   markdownScrollRatio,
   type MarkdownScrollMetrics,
 } from "../markdown/scroll-sync";
+import { SvgEditor } from "./svg-editor";
 import { EditorStylesheet } from "./stylesheet";
 import { ExternalConflictBanner } from "./external-conflict-banner";
 import Breadcrumb, { type BreadcrumbProps } from "./toolbar/breadcrumb";
@@ -714,7 +715,12 @@ const CodeEditor = ({
             ) : showNotebookEditor ? (
               <NotebookEditor />
             ) : (
-              <MonacoEditor {...monacoEditorProps} />
+              <SvgEditor
+                bufferId={activeBufferId ?? undefined}
+                enabled={activeBuffer?.type === "editor" && filePath.toLowerCase().endsWith(".svg")}
+              >
+                <MonacoEditor {...monacoEditorProps} />
+              </SvgEditor>
             )}
           </div>
         </div>

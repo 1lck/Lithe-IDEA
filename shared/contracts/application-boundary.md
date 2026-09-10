@@ -363,3 +363,16 @@ one-based source line. The active test operation owns cancellation and stop;
 late output or parsed results cannot replace a newer run. The last valid class
 or method selection remains available for an explicit rerun, while cancellation
 clears only the active result.
+
+## SVG document preview
+
+SVG extensions are matched case-insensitively and open as editable text in both
+workspace and standalone file flows. The default presentation is editor plus
+preview, with editor-only and preview-only modes available. All modes use the
+same document buffer and preserve normal dirty, save, undo, and read-only rules.
+Preview rendering uses the current unsaved source. Malformed source shows a
+rendering failure while the editor remains accessible; correcting the source
+restores the preview. SVG is rendered as image data, never inserted into the
+application DOM as executable markup. Rendering and resizable layout are owned
+by the platform. The behavior fixture is
+[`svg-preview-v1.json`](../fixtures/editor/svg-preview-v1.json).

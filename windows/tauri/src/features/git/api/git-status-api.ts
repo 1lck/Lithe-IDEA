@@ -1,5 +1,6 @@
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
 import { emitGitChanged } from "../events/git-events";
+import { createRepositoryWriteQueue } from "../services/git-operation-coordinator";
 import { registerGitCacheInvalidator } from "../runtime/git-cache-registry";
 import { initializeGitRepository } from "./git-setup-api";
 import type { GitFile, GitHunk, GitStatus } from "../types/git.types";
@@ -8,6 +9,8 @@ import {
   resolveRepositoryPath,
   resolveRepositoryPathOrThrow,
 } from "./git-repo-api";
+
+const enqueueStagingWrite = createRepositoryWriteQueue();
 
 const inFlightGitStatusRequests = new Map<string, Promise<GitStatus | null>>();
 const gitStatusGenerations = new Map<string, number>();
@@ -169,6 +172,7 @@ export const unstageFile = async (repoPath: string, filePath: string): Promise<b
   }
 };
 
+/** Rejects with the Core failure so callers can show the reason and reconcile status. */
 export const setFilesStaged = async (
   repoPath: string,
   filePaths: string[],
@@ -177,8 +181,8 @@ export const setFilesStaged = async (
   const uniqueFilePaths = [...new Set(filePaths)];
   if (uniqueFilePaths.length === 0) return true;
 
-  try {
-    const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+  const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+  return enqueueStagingWrite(resolvedRepoPath, async () => {
     await tauriInvoke("git.write", {
       repoPath: resolvedRepoPath,
       operation: staged ? "stage" : "unstage",
@@ -190,10 +194,7 @@ export const setFilesStaged = async (
       source: staged ? "stage-files" : "unstage-files",
     });
     return true;
-  } catch (error) {
-    console.error(`Failed to ${staged ? "stage" : "unstage"} files:`, error);
-    return false;
-  }
+  });
 };
 
 export const stageAllFiles = async (repoPath: string): Promise<boolean> => {
