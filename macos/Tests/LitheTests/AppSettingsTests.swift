@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 import Testing
 @testable import Lithe
 
@@ -33,32 +34,42 @@ struct AppSettingsTests {
     }
 
     @Test
-    func hideLSPGeneratedArtifactsDefaultsOffAndFillsHiddenFilePatterns() {
+    func lspGeneratedArtifactHiddenPatternsCanBeAddedAndRemovedOnce() {
         let store = AppSettingsTestStore()
         let settings = AppSettings(store: store)
 
-        #expect(!settings.hideLSPGeneratedArtifacts)
         #expect(!settings.hiddenFilePatterns.contains(".factorypath"))
 
-        settings.hideLSPGeneratedArtifacts = true
+        settings.hiddenFilePatterns = LSPGeneratedArtifactVisibility.inserting(
+            into: settings.hiddenFilePatterns
+        )
         #expect(settings.hiddenFilePatterns.contains(".factorypath"))
         #expect(settings.hiddenFilePatterns.filter { $0 == ".factorypath" }.count == 1)
-        #expect(AppSettings(store: store).hideLSPGeneratedArtifacts)
         #expect(AppSettings(store: store).hiddenFilePatterns.contains(".factorypath"))
 
-        settings.hideLSPGeneratedArtifacts = true
+        settings.hiddenFilePatterns = LSPGeneratedArtifactVisibility.inserting(
+            into: settings.hiddenFilePatterns
+        )
         #expect(settings.hiddenFilePatterns.filter { $0 == ".factorypath" }.count == 1)
 
         settings.hiddenFilePatterns.append("*.generated.swift")
-        settings.hideLSPGeneratedArtifacts = false
+        settings.hiddenFilePatterns = LSPGeneratedArtifactVisibility.removing(
+            from: settings.hiddenFilePatterns
+        )
         #expect(!settings.hiddenFilePatterns.contains(".factorypath"))
         #expect(settings.hiddenFilePatterns.contains("*.generated.swift"))
 
-        settings.hideLSPGeneratedArtifacts = true
-        settings.restoreDefaults()
-        #expect(!settings.hideLSPGeneratedArtifacts)
+        settings.hiddenFilePatterns = LSPGeneratedArtifactVisibility.removing(
+            from: settings.hiddenFilePatterns
+        )
         #expect(!settings.hiddenFilePatterns.contains(".factorypath"))
-        #expect(AppSettings(store: store).hideLSPGeneratedArtifacts == false)
+
+        settings.hiddenFilePatterns = LSPGeneratedArtifactVisibility.inserting(
+            into: settings.hiddenFilePatterns
+        )
+        settings.restoreDefaults()
+        #expect(!settings.hiddenFilePatterns.contains(".factorypath"))
+        #expect(!AppSettings(store: store).hiddenFilePatterns.contains(".factorypath"))
     }
 
     @Test

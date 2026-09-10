@@ -130,6 +130,13 @@ package struct GitWatchContext: Equatable, Sendable {
         self.gitDirectory = gitDirectory
         self.gitCommonDirectory = gitCommonDirectory
     }
+
+    /// Worktree-aware `info/exclude` path, matching `git rev-parse --git-path info/exclude`.
+    /// Linked worktrees share the common Git directory; `$GIT_DIR/worktrees/<name>/info/exclude`
+    /// is not the file Git reads.
+    package var localExcludeFileURL: URL {
+        gitCommonDirectory.appendingPathComponent("info/exclude")
+    }
 }
 
 public enum LocalHistoryReason: String, Codable, Sendable {

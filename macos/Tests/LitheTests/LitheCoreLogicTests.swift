@@ -4612,22 +4612,29 @@ struct EditorDocumentTests {
 
     @Test
     func gitIgnoreFileTextInsertsAndRemovesManagedLSPPatterns() {
-        let enabled = GitIgnoreFileText.applying(
+        let added = GitIgnoreFileText.applying(
             patterns: LSPGeneratedArtifactVisibility.filePatterns,
-            enabled: true,
+            adding: true,
             to: "# gitignore\n*.log\n"
         )
-        #expect(enabled.contains(".factorypath"))
-        #expect(enabled.contains("*.log"))
+        #expect(added.contains(".factorypath"))
+        #expect(added.contains("*.log"))
 
-        let disabled = GitIgnoreFileText.applying(
+        let removed = GitIgnoreFileText.applying(
             patterns: LSPGeneratedArtifactVisibility.filePatterns,
-            enabled: false,
-            to: enabled
+            adding: false,
+            to: added
         )
-        #expect(!disabled.contains(".factorypath"))
-        #expect(disabled.contains("*.log"))
-        #expect(disabled.contains("# gitignore"))
+        #expect(!removed.contains(".factorypath"))
+        #expect(removed.contains("*.log"))
+        #expect(removed.contains("# gitignore"))
+
+        let missingRemove = GitIgnoreFileText.applying(
+            patterns: LSPGeneratedArtifactVisibility.filePatterns,
+            adding: false,
+            to: "# only user rules\n*.tmp\n"
+        )
+        #expect(missingRemove == "# only user rules\n*.tmp\n")
     }
 
     @Test
@@ -4642,6 +4649,16 @@ struct EditorDocumentTests {
                 repositoryRoot: workspace,
                 gitDirectory: gitDirectory,
                 gitCommonDirectory: gitDirectory
+            ),
+            GitWatchContext(
+                repositoryRoot: workspace,
+                gitDirectory: gitDirectory,
+                gitCommonDirectory: gitDirectory
+            ),
+            GitWatchContext(
+                repositoryRoot: workspace,
+                gitDirectory: gitDirectory,
+                gitCommonDirectory: gitDirectory
             )
         ])
         let synchronizer = GitLocalExcludeSynchronizer(
@@ -4649,21 +4666,60 @@ struct EditorDocumentTests {
             gitWatchContextProvider: provider
         )
 
-        try await synchronizer.synchronize(
-            enabled: true,
+        try await synchronizer.applyManagedPatterns(
+            adding: true,
             patterns: LSPGeneratedArtifactVisibility.filePatterns,
             at: workspace
         )
         #expect(files.texts[excludeURL]?.contains(".factorypath") == true)
         #expect(files.texts[excludeURL]?.contains("# local") == true)
 
-        try await synchronizer.synchronize(
-            enabled: false,
+        try await synchronizer.applyManagedPatterns(
+            adding: false,
             patterns: LSPGeneratedArtifactVisibility.filePatterns,
             at: workspace
         )
         #expect(files.texts[excludeURL]?.contains(".factorypath") != true)
         #expect(files.texts[excludeURL]?.contains("# local") == true)
+
+        try await synchronizer.applyManagedPatterns(
+            adding: false,
+            patterns: LSPGeneratedArtifactVisibility.filePatterns,
+            at: workspace
+        )
+        #expect(files.texts[excludeURL]?.contains(".factorypath") != true)
+        #expect(files.texts[excludeURL]?.contains("# local") == true)
+    }
+
+    @Test
+    func gitLocalExcludeSynchronizerWritesLinkedWorktreeExcludeToTheCommonGitDirectory() async throws {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-linked-worktree")
+        let commonGitDirectory = workspace.appendingPathComponent(".git")
+        let worktreeGitDirectory = commonGitDirectory.appendingPathComponent("worktrees/feature")
+        let commonExcludeURL = commonGitDirectory.appendingPathComponent("info/exclude")
+        let wrongExcludeURL = worktreeGitDirectory.appendingPathComponent("info/exclude")
+        let files = MemoryWorkspaceFileOperations()
+        files.texts[commonExcludeURL] = "# shared\n"
+        let provider = SequencedGitWatchContextProvider([
+            GitWatchContext(
+                repositoryRoot: workspace,
+                gitDirectory: worktreeGitDirectory,
+                gitCommonDirectory: commonGitDirectory
+            )
+        ])
+        let synchronizer = GitLocalExcludeSynchronizer(
+            fileOperations: files,
+            gitWatchContextProvider: provider
+        )
+
+        try await synchronizer.applyManagedPatterns(
+            adding: true,
+            patterns: LSPGeneratedArtifactVisibility.filePatterns,
+            at: workspace
+        )
+        #expect(files.texts[commonExcludeURL]?.contains(".factorypath") == true)
+        #expect(files.texts[commonExcludeURL]?.contains("# shared") == true)
+        #expect(files.texts[wrongExcludeURL] == nil)
     }
 
     @Test

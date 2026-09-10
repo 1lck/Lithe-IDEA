@@ -1,16 +1,13 @@
 import Foundation
 
-/// Opt-in names for language-server generated clutter.
+/// Recommended names for language-server generated clutter.
 ///
-/// The settings toggle stays generic so later artifact types can be added here
-/// without coupling the UI to a single filename. `.factorypath` is the current
-/// JDTLS / m2e-apt output; files remain on disk either way.
+/// Settings offers one-shot add/remove actions against this list; Lithe does not
+/// keep a persistent toggle or re-sync after the user edits the resulting
+/// rules. `.factorypath` is the current JDTLS / m2e-apt output; files remain on
+/// disk either way. Add future LSP artifact names here.
 package enum LSPGeneratedArtifactVisibility {
     package static let filePatterns = [".factorypath"]
-
-    package static func applying(enabled: Bool, to patterns: [String]) -> [String] {
-        enabled ? inserting(into: patterns) : removing(from: patterns)
-    }
 
     package static func inserting(into patterns: [String]) -> [String] {
         var result = patterns
@@ -32,7 +29,7 @@ package enum LSPGeneratedArtifactVisibility {
 
 /// Inserts or removes managed Git ignore lines while preserving unrelated rules.
 package enum GitIgnoreFileText {
-    package static func applying(patterns: [String], enabled: Bool, to existing: String) -> String {
+    package static func applying(patterns: [String], adding: Bool, to existing: String) -> String {
         let managed = Set(
             patterns
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -46,7 +43,7 @@ package enum GitIgnoreFileText {
             lines.removeLast()
         }
 
-        if enabled {
+        if adding {
             var present = Set(lines.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) })
             for pattern in patterns {
                 let normalized = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -55,6 +52,7 @@ package enum GitIgnoreFileText {
                 present.insert(normalized)
             }
         } else {
+            // Explicit remove only. Missing managed lines are a no-op.
             lines.removeAll { managed.contains($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
         }
 
@@ -65,7 +63,7 @@ package enum GitIgnoreFileText {
     }
 }
 
-/// Writes managed ignore patterns into `.git/info/exclude` for the current checkout.
+/// One-shot writes of managed ignore patterns into the worktree-aware `info/exclude`.
 package struct GitLocalExcludeSynchronizer: Sendable {
     private let fileOperations: any WorkspaceFileOperations
     private let gitWatchContextProvider: any GitWatchContextProviding
@@ -78,22 +76,25 @@ package struct GitLocalExcludeSynchronizer: Sendable {
         self.gitWatchContextProvider = gitWatchContextProvider
     }
 
-    package func synchronize(
-        enabled: Bool,
+    package func applyManagedPatterns(
+        adding: Bool,
         patterns: [String],
         at workspaceURL: URL
     ) async throws {
         guard let context = await gitWatchContextProvider.watchContext(for: workspaceURL) else {
             return
         }
-        let excludeURL = context.gitDirectory.appendingPathComponent("info/exclude")
+        let excludeURL = context.localExcludeFileURL
         let existing: String
         if fileOperations.fileExists(at: excludeURL) {
             existing = try fileOperations.readText(from: excludeURL)
+        } else if !adding {
+            // Remove is a no-op when the exclude file is absent.
+            return
         } else {
             existing = ""
         }
-        let updated = GitIgnoreFileText.applying(patterns: patterns, enabled: enabled, to: existing)
+        let updated = GitIgnoreFileText.applying(patterns: patterns, adding: adding, to: existing)
         guard updated != existing else { return }
         try fileOperations.createDirectory(
             at: excludeURL.deletingLastPathComponent(),

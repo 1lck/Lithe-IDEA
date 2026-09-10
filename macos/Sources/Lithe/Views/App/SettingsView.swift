@@ -153,7 +153,7 @@ struct SettingsView: View {
     private func searchTerms(for category: SettingsCategory) -> [String] {
         switch category {
         case .general:
-            ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control", "Logs", "Log directory", "Hidden paths", "LSP generated"]
+            ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control", "Logs", "Log directory", "Hidden paths", "LSP generated", "recommended rules"]
         case .editor:
             ["Editor", "Display", "Editor tabs", "Font size", "File tree row height", "Indentation", "Tab width"]
         case .keymap:
@@ -391,15 +391,6 @@ struct SettingsView: View {
             }
 
             group("Hidden paths") {
-                LitheSettingsCheckbox(
-                    isOn: $settings.hideLSPGeneratedArtifacts,
-                    title: "Hide LSP generated artifacts"
-                )
-                Text("When enabled, Lithe adds those files to Hidden paths and the Git local exclude list. Turn it off to remove them again.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-
                 Text("One entry per line. Directory names hide matching folders; file entries support * and ?.")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
@@ -428,7 +419,24 @@ struct SettingsView: View {
                             .stroke(LitheTheme.inputBorder, lineWidth: 1)
                     }
 
-                HStack {
+                Text("LSP generated artifacts")
+                    .font(.system(size: 11.5, weight: .medium))
+                Text("Adds or removes the recommended LSP generated artifact rules from Hidden paths and the Git local exclude list. Lithe does not keep managing those rules afterward.")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 8) {
+                    Button("Add recommended rules") {
+                        applyLSPGeneratedArtifactRules(adding: true)
+                    }
+                    .buttonStyle(LitheSecondaryButtonStyle())
+
+                    Button("Remove recommended rules") {
+                        applyLSPGeneratedArtifactRules(adding: false)
+                    }
+                    .buttonStyle(LitheSecondaryButtonStyle())
+
                     Spacer()
                     Button("Apply") { applyVisibilityDrafts() }
                         .buttonStyle(LithePrimaryButtonStyle(
@@ -1343,7 +1351,17 @@ struct SettingsView: View {
     private func applyVisibilityDrafts() {
         settings.hiddenDirectoryNames = entries(from: viewState.hiddenDirectoriesDraft)
         settings.hiddenFilePatterns = entries(from: viewState.hiddenFilePatternsDraft)
-        settings.synchronizeLSPGeneratedArtifactPatterns()
+    }
+
+    /// One-shot shortcut: updates Hidden paths (settings + draft) and Git local exclude once.
+    private func applyLSPGeneratedArtifactRules(adding: Bool) {
+        let current = entries(from: viewState.hiddenFilePatternsDraft)
+        let updated = adding
+            ? LSPGeneratedArtifactVisibility.inserting(into: current)
+            : LSPGeneratedArtifactVisibility.removing(from: current)
+        settings.hiddenFilePatterns = updated
+        viewState.hiddenFilePatternsDraft = updated.joined(separator: "\n")
+        model.applyLSPGeneratedArtifactGitExcludeRules(adding: adding)
     }
 
     private func entries(from text: String) -> [String] {
