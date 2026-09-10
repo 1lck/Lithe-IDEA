@@ -28,9 +28,11 @@ interface GitState {
   sourceControlSessions: Record<string, GitSourceControlSession>;
 
   actions: {
+    beginWorkingTreeRefresh: () => number;
     prepareRepositoryLoad: (repoPath: string) => void;
     loadFreshGitData: (data: {
       gitStatus: GitStatus | null;
+      workingTreeVersion?: number;
       commits: GitCommit[];
       hasMoreCommits: boolean;
       branches: string[];
@@ -40,6 +42,7 @@ interface GitState {
     }) => void;
     refreshGitData: (data: {
       gitStatus: GitStatus | null;
+      workingTreeVersion?: number;
       branches?: string[];
       commits?: GitCommit[];
       hasMoreCommits?: boolean;
@@ -66,8 +69,19 @@ interface GitState {
 const COMMITS_PER_PAGE = 50;
 const MAX_COMMITS = 5_000;
 
-export const createGitStore = () =>
-  createStore<GitState>()((set, get) => ({
+export const createGitStore = () => {
+  // Request bookkeeping stays outside observable state: starting a read must not
+  // render the file list. Versions span all refresh scopes in this workspace.
+  let nextWorkingTreeVersion = 0;
+  let publishedWorkingTreeVersion = 0;
+  const acceptWorkingTree = (version?: number) => {
+    if (version === undefined) return true;
+    if (version < publishedWorkingTreeVersion) return false;
+    publishedWorkingTreeVersion = version;
+    return true;
+  };
+
+  return createStore<GitState>()((set, get) => ({
     gitStatus: null,
     workspaceGitStatus: null,
     commits: [],
@@ -84,9 +98,12 @@ export const createGitStore = () =>
     sourceControlSessions: {},
 
     actions: {
+      beginWorkingTreeRefresh: () => ++nextWorkingTreeVersion,
+
       prepareRepositoryLoad: (repoPath) => {
         const state = get();
         if (state.currentRepoPath === repoPath) return;
+        publishedWorkingTreeVersion = ++nextWorkingTreeVersion;
 
         set({
           gitStatus: null,
@@ -102,6 +119,7 @@ export const createGitStore = () =>
 
       loadFreshGitData: ({
         gitStatus,
+        workingTreeVersion,
         commits,
         hasMoreCommits,
         branches,
@@ -113,25 +131,29 @@ export const createGitStore = () =>
           return;
         }
 
+        const publishWorkingTree = acceptWorkingTree(workingTreeVersion);
         set({
-          gitStatus,
+          ...(publishWorkingTree ? { gitStatus, operationState } : {}),
           commits,
           branches,
           stashes,
-          operationState,
           hasMoreCommits,
           currentRepoPath: repoPath,
         });
       },
 
-      refreshGitData: ({ gitStatus, branches, commits, hasMoreCommits, operationState, repoPath }) => {
+      refreshGitData: ({ gitStatus, workingTreeVersion, branches, commits, hasMoreCommits, operationState, repoPath }) => {
         if (get().currentRepoPath !== repoPath) {
           return;
         }
 
+        const publishWorkingTree = acceptWorkingTree(workingTreeVersion);
+        // A stale scoped read has nothing left to publish; avoid even a no-op
+        // store notification. Full reads may still contribute history and refs.
+        if (!publishWorkingTree && !branches && !commits) return;
         set({
-          gitStatus,
-          ...(operationState !== undefined ? { operationState } : {}),
+          ...(publishWorkingTree ? { gitStatus } : {}),
+          ...(publishWorkingTree && operationState !== undefined ? { operationState } : {}),
           ...(branches ? { branches } : {}),
           ...(commits
             ? {
@@ -213,7 +235,8 @@ export const createGitStore = () =>
           };
         }),
 
-      reset: () =>
+      reset: () => {
+        publishedWorkingTreeVersion = ++nextWorkingTreeVersion;
         set({
           gitStatus: null,
           commits: [],
@@ -228,8 +251,10 @@ export const createGitStore = () =>
           currentWorkspaceRepoPath: null,
           workspaceGitStatus: null,
           workspaceGitStatusUpdatedAt: 0,
-        }),
+        });
+      },
     },
   }));
+};
 
 export const useGitStore = createWorkspaceScopedStore("git", createGitStore);

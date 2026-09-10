@@ -47,6 +47,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
     const requestId = ++requestIdRef.current;
     gitActions.prepareRepositoryLoad(repoPath);
     gitActions.setIsLoadingGitData(true);
+    const workingTreeVersion = gitActions.beginWorkingTreeRefresh();
 
     try {
       const repoPaths = useRepositoryStore.getState().availableRepoPaths;
@@ -73,6 +74,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
 
       gitActions.loadFreshGitData({
         gitStatus: status,
+        workingTreeVersion,
         commits: history?.commits ?? [],
         hasMoreCommits: history?.hasMore ?? false,
         branches,
@@ -99,6 +101,9 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
       const refreshKey = `${repoPath}\0${scopes?.slice().sort().join(",") || "*"}`;
       const requestId = requestIdRef.current;
       return refreshQueueRef.current.run(refreshKey, async () => {
+        // Allocate per actual read, including trailing reads, rather than per
+        // caller joining a coalesced request.
+        const workingTreeVersion = gitActions.beginWorkingTreeRefresh();
         try {
           const refreshAll = !scopes?.length;
           const shouldRefreshHistory = refreshAll || scopes.includes("history");
@@ -134,6 +139,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
 
           gitActions.refreshGitData({
             gitStatus: status,
+            workingTreeVersion,
             branches,
             commits: history?.commits,
             hasMoreCommits: history?.hasMore,
