@@ -350,4 +350,58 @@ extension AppModel {
             false
         }
     }
+
+    func prepareProjectRuntimeSettings() async {
+        await runtimeFeature.refreshAvailableRuntimes()
+        if workspaceURL != nil {
+            _ = await activateExecutionModule()
+        }
+        runtimeFeature.prepare(
+            workspaceName: projectName,
+            workspaceURL: workspaceURL,
+            files: projectFiles,
+            mavenProject: mavenFeatureIfActive?.project,
+            toolchain: runFeatureIfActive?.projectToolchain,
+            mavenSettingsPath: mavenFeatureIfActive?.settingsPath,
+            mavenLocalRepositoryPath: mavenFeatureIfActive?.localRepositoryPath,
+            mavenExecutablePath: mavenFeatureIfActive?.mavenExecutablePath,
+            mavenJavaHomePath: mavenFeatureIfActive?.javaHomePath
+        )
+    }
+
+    func persistProjectRuntimeSettings() {
+        let settings = runtimeFeature.settings
+        if let maven = mavenFeatureIfActive {
+            let mavenJDK = settings.mavenJavaHomePath.isEmpty
+                ? settings.javaHomePath
+                : settings.mavenJavaHomePath
+            maven.updateLocalConfiguration(
+                settingsPath: settings.mavenSettingsPath,
+                localRepositoryPath: settings.mavenLocalRepositoryPath,
+                mavenExecutablePath: settings.mavenExecutableOverride,
+                javaHomePath: mavenJDK
+            )
+        }
+        guard let run = runFeatureIfActive,
+              run.configurationStatus == .ready else { return }
+        let configuration = run.selectedConfiguration
+            ?? run.configurations.first { $0.kind.capabilities.contains(.javaRuntime) }
+            ?? run.configurations.first
+        guard let configuration else { return }
+        var options = run.options(for: configuration)
+        let previousToolchain = run.projectToolchain
+        if options.javaHomePath == previousToolchain.javaHomePath { options.javaHomePath = "" }
+        if options.mavenExecutablePath == previousToolchain.mavenExecutablePath {
+            options.mavenExecutablePath = ""
+        }
+        if options.mavenJavaHomePath == previousToolchain.mavenJavaHomePath {
+            options.mavenJavaHomePath = ""
+        }
+        _ = run.saveEditorChanges(
+            options,
+            toolchain: runtimeFeature.projectToolchainSelection,
+            for: configuration,
+            scope: .local
+        )
+    }
 }
