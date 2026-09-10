@@ -4432,6 +4432,19 @@ mod tests {
             "id": request_id,
             "error": { "code": -32603, "message": "Maven project update failed" }
         }));
+        let project_event = harness.await_event(|event| {
+            event
+                .maven_profile_project
+                .as_ref()
+                .is_some_and(|result| result.status == MavenProfileTaskStatus::Failed)
+        });
+        assert_eq!(
+            project_event
+                .maven_profile_project
+                .as_ref()
+                .map(|result| result.status),
+            Some(MavenProfileTaskStatus::Failed)
+        );
         harness.await_state(LspLifecycleState::Ready);
         assert_eq!(harness.snapshot().state, LspLifecycleState::Ready);
     }
