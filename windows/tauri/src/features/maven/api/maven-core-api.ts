@@ -1,10 +1,12 @@
 import { executeCore } from "@/core/lithe-core-client";
 import type {
+  JavaTestMethod,
   MavenDependenciesResponse,
   MavenDiagnostic,
   MavenLaunchContext,
   MavenLaunchPlan,
   MavenProject,
+  MavenTestResults,
 } from "../types/maven.types";
 
 let requestSequence = 0;
@@ -75,4 +77,13 @@ export async function parseMavenDiagnostics(root: string, output: string) {
     output,
   });
   return result.issues ?? [];
+}
+
+export function parseMavenTestResults(root: string, output: string) {
+  return mavenCore<MavenTestResults>("maven.testResults", { root, output });
+}
+
+export async function parseJavaTestMethods(source: string) {
+  const result = await mavenCore<{ methods: JavaTestMethod[] }>("java.testMethods", { source });
+  return result.methods ?? [];
 }

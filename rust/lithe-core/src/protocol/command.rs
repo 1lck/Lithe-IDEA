@@ -89,6 +89,8 @@ pub enum CoreCommand {
     MavenDependencies,
     /// Normalizes diagnostics from Maven output (`maven.diagnostics`).
     MavenDiagnostics,
+    /// Normalizes JUnit/Surefire results from Maven output (`maven.testResults`).
+    MavenTestResults,
     /// Renders and sanitizes shared Markdown (`markdown.render`).
     MarkdownRender,
     /// Creates one transport-neutral Debug Adapter Protocol session (`debug.createSession`).
@@ -193,6 +195,8 @@ pub enum CoreCommand {
     JavaClassName,
     /// Finds a Java type or member declaration (`java.sourceDefinition`).
     JavaSourceDefinition,
+    /// Discovers JUnit test methods and source ranges (`java.testMethods`).
+    JavaTestMethods,
     /// Reads a Spring server port from configuration (`java.serverPort`).
     JavaServerPort,
     /// Computes lightweight Java structure features (`java.structure`).
@@ -316,6 +320,7 @@ impl CoreCommand {
             "maven.dependencyPlan" => Some(Self::MavenDependencyPlan),
             "maven.dependencies" => Some(Self::MavenDependencies),
             "maven.diagnostics" => Some(Self::MavenDiagnostics),
+            "maven.testResults" => Some(Self::MavenTestResults),
             "markdown.render" => Some(Self::MarkdownRender),
             "debug.createSession" => Some(Self::DebugCreateSession),
             "debug.launch" => Some(Self::DebugLaunch),
@@ -367,6 +372,7 @@ impl CoreCommand {
             "java.codeVision" => Some(Self::JavaCodeVision),
             "java.className" => Some(Self::JavaClassName),
             "java.sourceDefinition" => Some(Self::JavaSourceDefinition),
+            "java.testMethods" => Some(Self::JavaTestMethods),
             "java.serverPort" => Some(Self::JavaServerPort),
             "java.structure" => Some(Self::JavaStructure),
             "java.navigationMarkers" => Some(Self::JavaNavigationMarkers),
@@ -456,6 +462,22 @@ mod tests {
     #[test]
     fn parses_document_lifecycle_command() {
         assert!(CoreCommand::parse("document.lifecycle").is_some());
+    }
+
+    #[test]
+    fn parses_maven_test_results_command() {
+        assert!(matches!(
+            CoreCommand::parse("maven.testResults"),
+            Some(CoreCommand::MavenTestResults)
+        ));
+    }
+
+    #[test]
+    fn parses_java_test_methods_command() {
+        assert!(matches!(
+            CoreCommand::parse("java.testMethods"),
+            Some(CoreCommand::JavaTestMethods)
+        ));
     }
 
     #[test]
