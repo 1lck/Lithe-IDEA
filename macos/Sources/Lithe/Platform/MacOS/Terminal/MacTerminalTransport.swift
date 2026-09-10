@@ -11,6 +11,8 @@ final class LitheTerminalView: LocalProcessTerminalView {
     var onProcessOutput: ((Data) -> Void)?
     private var showsWorkbenchBackground = false
     private weak var metalActivationFailedWindow: NSWindow?
+    private var metalFocusDelegates: [TerminalMetalFocusDelegate] = []
+    private var shellShowsCursor = true
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -24,6 +26,15 @@ final class LitheTerminalView: LocalProcessTerminalView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            NotificationCenter.default.removeObserver(self, name: name, object: nil)
+            if let window {
+                NotificationCenter.default.addObserver(
+                    self, selector: #selector(windowFocusDidChange), name: name, object: window
+                )
+            }
+        }
+        windowFocusDidChange()
         guard let currentWindow = window,
               !isUsingMetalRenderer,
               currentWindow !== metalActivationFailedWindow else { return }
@@ -31,6 +42,7 @@ final class LitheTerminalView: LocalProcessTerminalView {
         do {
             try setUseMetal(true)
             metalActivationFailedWindow = nil
+            invalidateCursorSurface()
         } catch {
             // A different window gets one fresh attempt because SwiftTerm's
             // CAMetalLayer must be rebound when the persistent terminal moves.
@@ -63,6 +75,55 @@ final class LitheTerminalView: LocalProcessTerminalView {
         // including when this persistent session has lost focus to an editor.
         window?.makeFirstResponder(self)
         super.mouseDown(with: event)
+    }
+
+    override var hasFocus: Bool {
+        // AppKit's actual responder is authoritative; SwiftTerm's cached flag
+        // can outlive a responder transition while a persistent surface moves.
+        get { window?.isKeyWindow == true && window?.firstResponder === self }
+        set {
+            super.hasFocus = newValue
+            setNativeCursorVisible(newValue && window?.isKeyWindow == true && shellShowsCursor)
+            invalidateCursorSurface()
+        }
+    }
+
+    private func setNativeCursorVisible(_ visible: Bool) {
+        if visible { super.showCursor(source: terminal) }
+        else { super.hideCursor(source: terminal) }
+    }
+
+    @objc private func windowFocusDidChange() {
+        setNativeCursorVisible(hasFocus && shellShowsCursor)
+        invalidateCursorSurface()
+    }
+
+    override func showCursor(source: Terminal) {
+        shellShowsCursor = true
+        if hasFocus { super.showCursor(source: source) }
+        else { super.hideCursor(source: source) }
+    }
+
+    override func hideCursor(source: Terminal) {
+        shellShowsCursor = false
+        super.hideCursor(source: source)
+    }
+
+    @objc private func invalidateCursorSurface() {
+        // SwiftTerm invalidates its Core Graphics caret on focus changes, but
+        // its paused Metal surface also needs a frame when no output arrives.
+        needsDisplay = true
+        for case let renderer as MTKView in subviews {
+            if !(renderer.delegate is TerminalMetalFocusDelegate), let delegate = renderer.delegate {
+                let focusDelegate = TerminalMetalFocusDelegate(
+                    view: renderer, terminalView: self, renderer: delegate
+                )
+                metalFocusDelegates.append(focusDelegate)
+                renderer.delegate = focusDelegate
+            }
+            renderer.setNeedsDisplay(renderer.bounds)
+        }
+        metalFocusDelegates.removeAll { $0.view?.superview !== self }
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -115,9 +176,50 @@ final class LitheTerminalView: LocalProcessTerminalView {
         onProcessOutput?(Data(slice))
         super.dataReceived(slice: slice)
     }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
 }
 
 extension LitheTerminalView: WorkbenchBackgroundRendering {}
+
+/// SwiftTerm 1.15's Metal blink timer ignores focus. Draw the inactive cursor
+/// transparently with a steady style, preserving shell state while hiding both
+/// the caret and its blink animation outside the actual keyboard owner.
+final class TerminalMetalFocusDelegate: NSObject, MTKViewDelegate {
+    weak var view: MTKView?
+    private weak var terminalView: LitheTerminalView?
+    private let renderer: MTKViewDelegate
+
+    init(view: MTKView, terminalView: LitheTerminalView, renderer: MTKViewDelegate) {
+        self.view = view
+        self.terminalView = terminalView
+        self.renderer = renderer
+    }
+
+    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
+        renderer.mtkView(view, drawableSizeWillChange: size)
+    }
+
+    func draw(in view: MTKView) {
+        guard let terminalView, !terminalView.hasFocus else {
+            renderer.draw(in: view)
+            return
+        }
+        let requestedStyle = terminalView.terminal.options.cursorStyle
+        let requestedColor = terminalView.caretColor
+        terminalView.terminal.options.cursorStyle = .steadyBlock
+        terminalView.caretColor = .clear
+        defer {
+            terminalView.terminal.options.cursorStyle = requestedStyle
+            terminalView.caretColor = requestedColor
+        }
+        // MTKView's paused, event-driven draw is synchronous on the main thread;
+        // restore the protocol state before any subsequent shell input is parsed.
+        renderer.draw(in: view)
+    }
+}
 
 /// Owns one persistent SwiftTerm surface and the local PTY process connected to it.
 /// The surface intentionally lives with the session instead of the SwiftUI view so
