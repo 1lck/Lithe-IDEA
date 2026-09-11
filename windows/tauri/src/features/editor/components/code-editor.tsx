@@ -276,31 +276,39 @@ const CodeEditor = ({
     });
   }, [isActiveSurface, setRefs]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isActiveSurface) return;
     setActiveEditorViewKey(editorViewKey ?? null);
   }, [editorViewKey, isActiveSurface, setActiveEditorViewKey]);
 
-  // Focus editor when active buffer changes
+  // Focus editor when the active surface or buffer changes
   useEffect(() => {
     if (!enableInteractiveServices) return;
+    if (!isActiveSurface) return;
     if (!activeBufferId || !editorRef.current) return;
 
-    const focusTarget =
-      editorRef.current
-        .querySelector<HTMLElement>("[data-monaco-editor-scroll]")
-        ?.querySelector<HTMLTextAreaElement>("textarea") ??
-      editorRef.current.querySelector<HTMLTextAreaElement>("textarea");
+    const focusEditor = () => {
+      const editorContainer = editorRef.current;
+      if (!editorContainer) return;
 
-    if (!focusTarget) return;
+      const focusTarget =
+        editorContainer
+          .querySelector<HTMLElement>("[data-monaco-editor-scroll]")
+          ?.querySelector<HTMLTextAreaElement>("textarea") ??
+        editorContainer.querySelector<HTMLTextAreaElement>("textarea");
 
-    // Small delay to ensure the editor surface is mounted.
-    const focusTimer = setTimeout(() => {
-      focusTarget.focus();
-    }, 0);
+      focusTarget?.focus();
+    };
 
-    return () => clearTimeout(focusTimer);
-  }, [activeBufferId, enableInteractiveServices]);
+    // Wait for the active Monaco surface to finish rendering after a tab switch.
+    const animationFrame = requestAnimationFrame(focusEditor);
+    const focusTimer = setTimeout(focusEditor, 0);
+
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      clearTimeout(focusTimer);
+    };
+  }, [activeBufferId, enableInteractiveServices, isActiveSurface]);
 
   // Sync content and file info with editor instance store
   useEffect(() => {
@@ -601,6 +609,7 @@ const CodeEditor = ({
 
   const monacoEditorProps: MonacoEditorProps = {
     bufferId: activeBufferId ?? undefined,
+    paneId,
     viewStateKey: editorViewKey ?? undefined,
     isActiveSurface,
     isPreviewMode: isPreviewBuffer,
@@ -716,8 +725,8 @@ const CodeEditor = ({
               <NotebookEditor />
             ) : (
               <SvgEditor
-                bufferId={activeBufferId ?? undefined}
                 enabled={activeBuffer?.type === "editor" && filePath.toLowerCase().endsWith(".svg")}
+                bufferId={activeBufferId ?? undefined}
               >
                 <MonacoEditor {...monacoEditorProps} />
               </SvgEditor>
