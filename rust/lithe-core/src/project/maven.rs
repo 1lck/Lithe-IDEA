@@ -1198,8 +1198,11 @@ impl MavenTestSourceIndex {
             for (path, is_directory) in children.into_iter().rev() {
                 if is_directory {
                     directories.push(path);
-                } else if let Some(relative) = workspace_relative_path(root, &path) {
-                    paths.push(relative);
+                } else if let Ok(relative) = path.strip_prefix(root) {
+                    // Traversal starts at root and excludes symlinks via file_type,
+                    // so lexical paths avoid two canonicalizations per source file.
+                    // Absolute paths from process output still require containment checks.
+                    paths.push(relative.to_string_lossy().replace('\\', "/"));
                 } else {
                     complete = false;
                 }
