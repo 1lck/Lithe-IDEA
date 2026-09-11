@@ -28,6 +28,18 @@ export function useActiveWorkspaceId() {
   );
 }
 
+export function useWorkspaceReady(workspaceId: string) {
+  const getSnapshot = useMemo(
+    () => () => workspaceRuntimeRegistry.isWorkspaceReady(workspaceId),
+    [workspaceId],
+  );
+  return useSyncExternalStore(
+    workspaceRuntimeRegistry.subscribe,
+    getSnapshot,
+    getSnapshot,
+  );
+}
+
 export function createWorkspaceScopedStore<T extends object>(
   key: string,
   factory: (workspaceId: string) => StoreApi<T>,

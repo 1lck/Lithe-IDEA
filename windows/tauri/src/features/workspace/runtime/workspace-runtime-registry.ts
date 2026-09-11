@@ -68,6 +68,10 @@ export class WorkspaceRuntimeRegistry {
 
     runtime.status = status;
     runtime.error = error;
+    // Workspace-scoped controllers (Git, watchers, and language tooling) use
+    // readiness as a lifecycle barrier. Notify subscribers when that barrier
+    // changes so they can start or invalidate work for the correct runtime.
+    this.emitChange();
   }
 
   removeWorkspace(id: string) {
