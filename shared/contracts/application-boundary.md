@@ -372,3 +372,16 @@ such as Current File are not module launch candidates.
 On Windows, Debug cleanup owns a Run execution ID in addition to its reusable
 output slot. The host checks that ID atomically when stopping the process so a
 late adapter shutdown cannot terminate a replacement Run in the same slot.
+
+## SVG document preview
+
+SVG extensions are matched case-insensitively and open as editable text in both
+workspace and standalone file flows. The default presentation is editor plus
+preview, with editor-only and preview-only modes available. All modes use the
+same document buffer and preserve normal dirty, save, undo, and read-only rules.
+Preview rendering uses the current unsaved source. Malformed source shows a
+rendering failure while the editor remains accessible; correcting the source
+restores the preview. SVG is rendered as image data, never inserted into the
+application DOM as executable markup. Rendering and resizable layout are owned
+by the platform. The behavior fixture is
+[`svg-preview-v1.json`](../fixtures/editor/svg-preview-v1.json).

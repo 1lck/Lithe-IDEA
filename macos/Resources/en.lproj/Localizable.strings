@@ -250,6 +250,13 @@
 "Unlock the worktree before removing it." = "Unlock the worktree before removing it.";
 "Prune the stale record instead." = "Prune the stale record instead.";
 "Loading…" = "Loading…";
+"Maven POM changed" = "Maven POM changed";
+"Maven configuration changed" = "Maven configuration changed";
+"Reloading Maven..." = "Reloading Maven...";
+"Reload" = "Reload";
+"Maven reload was cancelled or timed out." = "Maven reload was cancelled or timed out.";
+"The Maven project could not be reloaded. The previous model is still available." = "The Maven project could not be reloaded. The previous model is still available.";
+"Java runtime is not ready. Retry Maven reload." = "Java runtime is not ready. Retry Maven reload.";
 "Dependencies" = "Dependencies";
 "Resolving dependencies..." = "Resolving dependencies...";
 "Dependency resolution cancelled" = "Dependency resolution cancelled";

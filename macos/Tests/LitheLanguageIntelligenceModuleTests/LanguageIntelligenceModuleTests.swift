@@ -7,6 +7,34 @@ import Testing
 
 @MainActor
 struct LanguageIntelligenceModuleTests {
+    @Test(arguments: [false, true])
+    func mavenReloadWaitsForJavaImportAndCleansUpCancellation(cancel: Bool) async throws {
+        let root = URL(fileURLWithPath: "/workspace/java-reload", isDirectory: true)
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(
+            for: root.appendingPathComponent("Main.java")
+        ))
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)]
+        )
+        let task = Task { try await manager.reloadJavaWorkspace(rootURL: root) }
+        defer { task.cancel(); manager.stopLanguageServer(providerID: "java") }
+        try await session.waitUntilStarted()
+        #expect(session.executedCommands.isEmpty)
+        if cancel {
+            task.cancel()
+            await #expect(throws: CancellationError.self) { try await task.value }
+            #expect(!session.isRunning)
+            #expect(manager.languageServerOperationIDs["java"] == nil)
+        } else {
+            session.publish(.ready)
+            try await task.value
+            #expect(session.isRunning)
+            #expect(manager.languageServerStates["java"] == .ready)
+        }
+    }
+
     @Test
     func disabledModuleDoesNotConstructFactoryOrServiceGraph() async throws {
         let recorder = Recorder()
