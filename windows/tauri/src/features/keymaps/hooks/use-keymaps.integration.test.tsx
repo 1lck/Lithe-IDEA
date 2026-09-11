@@ -3,6 +3,13 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { installHappyDom } from "@/test-utils/happy-dom";
 
+let nativeMenuBar = false;
+
+mock.module("@tauri-apps/plugin-os", () => ({
+  arch: () => "x86_64",
+  platform: () => "windows",
+}));
+
 const restoreDom = installHappyDom();
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -12,7 +19,7 @@ mock.module("@/features/settings/stores/settings.store", () => ({
     getState: () => ({
       settings: {
         vimMode: false,
-        nativeMenuBar: false,
+        nativeMenuBar,
         keybindingPreset: "none",
       },
     }),
@@ -29,6 +36,7 @@ mock.module("@/features/window/stores/ui-state.store", () => ({
 
 const { useKeymaps } = await import("./use-keymaps");
 const { useKeymapStore } = await import("../stores/keymaps.store");
+const { registerDefaultKeymaps } = await import("../defaults/register-defaults");
 const { keymapRegistry } = await import("../utils/registry");
 
 let root: Root;
@@ -49,7 +57,14 @@ beforeAll(async () => {
 });
 
 afterEach(() => {
+  nativeMenuBar = false;
   keymapRegistry.clear();
+  useKeymapStore.getState().actions.resetToDefaults();
+  useKeymapStore.getState().actions.setContexts({
+    editorFocus: false,
+    terminalFocus: false,
+    isRecordingKeybinding: false,
+  });
   document.body.querySelector(".monaco-editor")?.remove();
 });
 
@@ -61,6 +76,100 @@ afterAll(async () => {
 });
 
 describe("keymap input routing", () => {
+  test("routes Ctrl+Alt+Left and Ctrl+Alt+Right to history navigation in the Monaco editor", async () => {
+    const goBack = mock(() => undefined);
+    const goForward = mock(() => undefined);
+    const previousTab = mock(() => undefined);
+    const nextTab = mock(() => undefined);
+    keymapRegistry.registerCommand({
+      id: "navigation.goBack",
+      title: "Go Back",
+      execute: goBack,
+    });
+    keymapRegistry.registerCommand({
+      id: "navigation.goForward",
+      title: "Go Forward",
+      execute: goForward,
+    });
+    keymapRegistry.registerCommand({
+      id: "workbench.previousTab",
+      title: "Previous Tab",
+      execute: previousTab,
+    });
+    keymapRegistry.registerCommand({
+      id: "workbench.nextTab",
+      title: "Next Tab",
+      execute: nextTab,
+    });
+    registerDefaultKeymaps();
+
+    const monaco = document.createElement("div");
+    monaco.className = "monaco-editor";
+    const editorInput = document.createElement("textarea");
+    editorInput.className = "inputarea";
+    monaco.append(editorInput);
+    document.body.append(monaco);
+    editorInput.focus();
+
+    const goBackEvent = new KeyboardEvent("keydown", {
+      key: "ArrowLeft",
+      code: "ArrowLeft",
+      ctrlKey: true,
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      editorInput.dispatchEvent(goBackEvent);
+    });
+
+    expect(goBackEvent.defaultPrevented).toBe(true);
+    expect(goBack).toHaveBeenCalledTimes(1);
+    expect(previousTab).not.toHaveBeenCalled();
+
+    const goForwardEvent = new KeyboardEvent("keydown", {
+      key: "ArrowRight",
+      code: "ArrowRight",
+      ctrlKey: true,
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      editorInput.dispatchEvent(goForwardEvent);
+    });
+
+    expect(goForwardEvent.defaultPrevented).toBe(true);
+    expect(goForward).toHaveBeenCalledTimes(1);
+    expect(nextTab).not.toHaveBeenCalled();
+  });
+
+  test("keeps history navigation in the frontend when the Windows native menu setting is enabled", async () => {
+    nativeMenuBar = true;
+    const goBack = mock(() => undefined);
+    keymapRegistry.registerCommand({
+      id: "navigation.goBack",
+      title: "Go Back",
+      execute: goBack,
+    });
+    registerDefaultKeymaps();
+
+    const event = new KeyboardEvent("keydown", {
+      key: "ArrowLeft",
+      code: "ArrowLeft",
+      ctrlKey: true,
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      document.body.dispatchEvent(event);
+    });
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(goBack).toHaveBeenCalledTimes(1);
+  });
+
   test("leaves paste native in Monaco find input and routes it in the editor input area", async () => {
     const pasteIntoEditor = mock(() => undefined);
     keymapRegistry.registerCommand({

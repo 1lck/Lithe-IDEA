@@ -19,7 +19,7 @@ private enum ActivityBarMetrics {
 
 private enum WorkbenchWorkspaceMetrics {
     static let paneInset: CGFloat = 0
-    static let paneSpacing: CGFloat = 6
+    static let paneSpacing: CGFloat = SplitHandleView.thickness
     static let paneCornerRadius: CGFloat = 10
 }
 
@@ -68,6 +68,7 @@ struct WorkbenchView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var projectSessions: ProjectSessionManager
     @EnvironmentObject private var settings: AppSettings
+    @Environment(\.projectWindowScope) private var projectWindowScope
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var linuxDoWebSession = LinuxDoAnonymousWebSession()
     @State private var sidebarWidth: CGFloat = 320
@@ -88,13 +89,14 @@ struct WorkbenchView: View {
     @State private var hoveredProjectTabID: UUID?
     @State private var workbenchBackgroundImage: NSImage?
     @State private var isBackgroundPickerPresented = false
+    @State private var isRunConfigurationPickerPresented = false
 
     var body: some View {
         let _ = LitheSignpost.bodyEvaluated("WorkbenchView")
         VStack(spacing: 0) {
             topBar
 
-            if projectSessions.openProjects.count > 1 {
+            if projectSessions.openProjects(in: projectWindowScope).count > 1 {
                 projectTabBar
             }
 
@@ -172,6 +174,8 @@ struct WorkbenchView: View {
             GitCheckoutConflictDialog(
                 request: request,
                 savePolicy: model.gitSaveChangesPolicy,
+                changes: model.gitChanges,
+                onShowDiff: { model.showGitConflictDiff(path: $0) },
                 onResolve: { strategy in
                     Task { await model.resolveCheckoutConflict(request, strategy: strategy) }
                 },
@@ -190,6 +194,8 @@ struct WorkbenchView: View {
             GitIntegrationConflictDialog(
                 request: request,
                 savePolicy: model.gitSaveChangesPolicy,
+                changes: model.gitChanges,
+                onShowDiff: { model.showGitConflictDiff(path: $0) },
                 onStash: { Task { await model.resolveIntegrationConflict(request) } },
                 onRollback: { path in
                     model.requestConflictRollback(
@@ -226,7 +232,8 @@ struct WorkbenchView: View {
             titleVisibility: .visible
         ) {
             Button(model.pendingDiscardChange?.isUntracked == true ? "Delete File" : "Discard Changes", role: .destructive) {
-                Task { await model.confirmDiscardChange() }
+                guard let change = model.pendingDiscardChange else { return }
+                Task { await model.confirmDiscardChange(change) }
             }
             .lithePointer()
             Button("Cancel", role: .cancel) { model.cancelDiscardChange() }
@@ -261,7 +268,8 @@ struct WorkbenchView: View {
             titleVisibility: .visible
         ) {
             Button("Discard Block", role: .destructive) {
-                Task { await model.confirmDiscardHunk() }
+                guard let request = model.pendingDiscardHunk else { return }
+                Task { await model.confirmDiscardHunk(request) }
             }
             .lithePointer()
             Button("Cancel", role: .cancel) { model.cancelDiscardHunk() }
@@ -364,17 +372,58 @@ struct WorkbenchView: View {
             }
         }
         .overlay {
-            if model.isSearchEverywhereVisible {
-                SearchEverywhereView()
-                    .environmentObject(model)
+            if model.isSearchEverywhereVisible, let feature = model.searchFeatureIfActive {
+                SearchEverywhereView(
+                    feature: feature,
+                    session: model.searchSessionFeature,
+                    actionMatches: { model.searchEverywhereActionMatches(query: $0) },
+                    search: { await model.searchEverywhere(query: $0, options: $1) },
+                    dismiss: { model.dismissSearchEverywhere() },
+                    openResult: { model.openSearchEverywhereResult($0) },
+                    performAction: { model.performSearchEverywhereAction($0) },
+                    revealInFinder: { model.revealProjectItemInFinder($0) },
+                    copyPath: { model.copyProjectItemPath($0, relative: $1) },
+                    relativePath: { model.relativePath(for: $0) },
+                    moduleLabel: { url in
+                        let path = url.standardizedFileURL.path
+                        if let project = model.mavenFeatureIfActive?.project {
+                            let owning = project.allModules
+                                .filter { path.hasPrefix($0.url.standardizedFileURL.path + "/") }
+                                .max { $0.url.standardizedFileURL.path.count < $1.url.standardizedFileURL.path.count }
+                            if let owning { return owning.displayName }
+                            if path.hasPrefix(project.rootURL.standardizedFileURL.path + "/") {
+                                return project.displayName
+                            }
+                        }
+                        return model.relativePath(for: url).components(separatedBy: "/").first ?? ""
+                    }
+                )
                     .transition(.opacity)
             }
         }
         .animation(.easeOut(duration: 0.12), value: model.isSearchEverywhereVisible)
         // Replace in Files 挂在工作台层：搜索侧栏未打开时快捷键也能直接弹出。
         .sheet(isPresented: $model.isProjectReplaceVisible) {
-            ProjectReplaceView()
-                .environmentObject(model)
+            if let feature = model.searchFeatureIfActive {
+                ProjectReplaceView(
+                    feature: feature,
+                    session: model.searchSessionFeature,
+                    previewReplacement: { await model.previewProjectReplacement(query: $0, replacement: $1, options: $2) },
+                    applyReplacement: { await model.applyProjectReplacement(query: $0) },
+                    close: { model.isProjectReplaceVisible = false },
+                    openFile: { model.openFile($0, displayPath: $1) },
+                    revealInFinder: { model.revealProjectItemInFinder($0) },
+                    copyPath: { model.copyProjectItemPath($0, relative: $1) }
+                )
+            } else {
+                WorkbenchModuleUIRegistry.moduleLoadingView
+                    .frame(minWidth: 780, minHeight: 560)
+                    .task {
+                        if await model.activateSearchModule() == nil {
+                            model.isProjectReplaceVisible = false
+                        }
+                    }
+            }
         }
         .onAppear {
             restoreLayout()
@@ -385,12 +434,16 @@ struct WorkbenchView: View {
         }
     }
 
+    private var scopedOpenProjects: [AppModel] {
+        projectSessions.openProjects(in: projectWindowScope)
+    }
+
     private var projectTabBar: some View {
         GeometryReader { geometry in
             let horizontalPadding: CGFloat = 6
             let tabSpacing: CGFloat = 6
             let minimumTabWidth: CGFloat = 180
-            let projectCount = CGFloat(max(projectSessions.openProjects.count, 1))
+            let projectCount = CGFloat(max(scopedOpenProjects.count, 1))
             let availableWidth = geometry.size.width
                 - horizontalPadding * 2
                 - tabSpacing * (projectCount - 1)
@@ -399,7 +452,7 @@ struct WorkbenchView: View {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: tabSpacing) {
-                        ForEach(projectSessions.openProjects) { projectModel in
+                        ForEach(scopedOpenProjects) { projectModel in
                             projectTab(projectModel, width: tabWidth)
                                 .id(projectModel.id)
                         }
@@ -408,11 +461,14 @@ struct WorkbenchView: View {
                     .frame(minWidth: geometry.size.width, alignment: .leading)
                 }
                 .onAppear {
-                    proxy.scrollTo(projectSessions.activeSessionID, anchor: .center)
+                    proxy.scrollTo(projectSessions.activeSessionID(in: projectWindowScope), anchor: .center)
                 }
-                .onChange(of: projectSessions.activeSessionID) { id in
+                .onChange(of: projectSessions.activeSessionIDs) { _ in
                     withAnimation(.easeOut(duration: 0.12)) {
-                        proxy.scrollTo(id, anchor: .center)
+                        proxy.scrollTo(
+                            projectSessions.activeSessionID(in: projectWindowScope),
+                            anchor: .center
+                        )
                     }
                 }
             }
@@ -422,7 +478,7 @@ struct WorkbenchView: View {
     }
 
     private func projectTab(_ projectModel: AppModel, width: CGFloat) -> some View {
-        let isActive = projectModel.id == projectSessions.activeSessionID
+        let isActive = projectModel.id == projectSessions.activeSessionID(in: projectWindowScope)
         let isHovered = projectModel.id == hoveredProjectTabID
 
         return ZStack(alignment: .trailing) {
@@ -538,9 +594,6 @@ struct WorkbenchView: View {
                     project: false,
                     branch: !isBranchSwitcherPresented
                 )
-                if isBranchSwitcherPresented {
-                    Task { await model.refreshGitHistory() }
-                }
             } label: {
                 HStack(spacing: 7) {
                     LitheIDEAIcon(
@@ -583,6 +636,7 @@ struct WorkbenchView: View {
                 }
             }
 
+            UpdateControl(compact: true)
             backgroundPickerButton
 
         }
@@ -685,38 +739,51 @@ struct WorkbenchView: View {
                     .frame(width: chromeMetrics.arrowWidth, height: chromeMetrics.arrowHeight)
                     .offset(x: placement.arrowCenterX - (chromeMetrics.arrowWidth / 2))
 
-                BranchSwitcherPopover(
-                    isPresented: instantBranchSwitcherPresentation,
-                    onCommit: {
-                        updateSwitcherPresentation(branch: false)
-                        model.selectedSidebar = .changes
-                    },
-                    onPush: { reference in
-                        updateSwitcherPresentation(branch: false)
-                        pendingTopBarPushReference = reference
-                    },
-                    onDelete: { reference in
-                        updateSwitcherPresentation(branch: false)
-                        pendingTopBarDeleteReference = reference
-                    },
-                    onNewBranch: { reference in
-                        updateSwitcherPresentation(branch: false)
-                        newBranchReference = reference
-                    },
-                    onCheckoutRevision: {
-                        updateSwitcherPresentation(branch: false)
-                        isCheckoutRevisionPresented = true
-                    },
-                    onManageBranches: {
-                        updateSwitcherPresentation(branch: false)
-                        if !model.isGitLogVisible {
-                            model.selectedSidebar = .changes
-                            Task { await model.toggleGitLog() }
+                if let feature = model.gitFeatureIfActive {
+                    BranchSwitcherPopover(
+                        feature: feature,
+                        isPresented: instantBranchSwitcherPresentation,
+                        onCommit: {
+                            updateSwitcherPresentation(branch: false)
+                            model.workbenchFeature.selectedSidebar = .changes
+                        },
+                        onPush: { reference in
+                            updateSwitcherPresentation(branch: false)
+                            pendingTopBarPushReference = reference
+                        },
+                        onDelete: { reference in
+                            updateSwitcherPresentation(branch: false)
+                            pendingTopBarDeleteReference = reference
+                        },
+                        onNewBranch: { reference in
+                            updateSwitcherPresentation(branch: false)
+                            newBranchReference = reference
+                        },
+                        onCheckoutRevision: {
+                            updateSwitcherPresentation(branch: false)
+                            isCheckoutRevisionPresented = true
+                        },
+                        onManageBranches: {
+                            updateSwitcherPresentation(branch: false)
+                            if !model.workbenchFeature.isVisible(.gitLog) {
+                                model.workbenchFeature.selectedSidebar = .changes
+                                Task { await model.toggleGitLog() }
+                            }
+                        },
+                        onCompareWithWorkingTree: { [weak model] in
+                            await model?.showComparisonWithWorkingTree(for: $0)
+                        },
+                        onCompareReferences: { [weak model] in
+                            await model?.showComparison(from: $0, to: $1)
                         }
-                    }
-                )
-                .environmentObject(model)
-                .padding(.top, chromeMetrics.arrowHeight - 1)
+                    )
+                    .padding(.top, chromeMetrics.arrowHeight - 1)
+                } else {
+                    ProgressView()
+                        .frame(width: popupMetrics.popupWidth, height: popupMetrics.branchListHeight)
+                        .lithePopupChrome()
+                        .padding(.top, chromeMetrics.arrowHeight - 1)
+                }
             }
             .offset(x: placement.popupX, y: buttonFrame.maxY)
         }
@@ -725,6 +792,15 @@ struct WorkbenchView: View {
             transaction.disablesAnimations = true
         }
         .onExitCommand { updateSwitcherPresentation(branch: false) }
+        .task {
+            let feature = await model.activateGitModule()
+            guard !Task.isCancelled else { return }
+            guard let feature else {
+                updateSwitcherPresentation(branch: false)
+                return
+            }
+            await feature.refreshGitHistory()
+        }
     }
 
     private func workbenchPopoverPlacement(
@@ -778,18 +854,18 @@ struct WorkbenchView: View {
 
     private var runLaunchButton: some View {
         Button {
-            if model.runFeatureIfActive?.isRunning == true {
+            if model.runFeatureIfActive?.isSelectedConfigurationRunning == true {
                 model.restartSelectedRun()
             } else {
                 model.runSelectedConfiguration()
             }
         } label: {
             LitheIDEAIcon(
-                resourcePath: model.runFeatureIfActive?.isRunning == true
+                resourcePath: model.runFeatureIfActive?.isSelectedConfigurationRunning == true
                     ? "debugger/rerun.svg"
                     : "debugger/run.svg",
                 size: 16,
-                fallbackSystemImage: model.runFeatureIfActive?.isRunning == true
+                fallbackSystemImage: model.runFeatureIfActive?.isSelectedConfigurationRunning == true
                     ? "arrow.clockwise"
                     : "play.fill",
                 preservesOriginalColors: true
@@ -799,8 +875,8 @@ struct WorkbenchView: View {
         }
         .buttonStyle(.plain)
         .lithePointer()
-        .help(model.runFeatureIfActive?.isRunning == true ? "Rerun selected configuration" : "Run selected configuration")
-        .accessibilityLabel(model.runFeatureIfActive?.isRunning == true ? "Rerun selected configuration" : "Run selected configuration")
+        .help(model.runFeatureIfActive?.isSelectedConfigurationRunning == true ? "Rerun selected configuration" : "Run selected configuration")
+        .accessibilityLabel(model.runFeatureIfActive?.isSelectedConfigurationRunning == true ? "Rerun selected configuration" : "Run selected configuration")
         .accessibilityIdentifier("run-selected-run-configuration")
     }
 
@@ -855,32 +931,12 @@ struct WorkbenchView: View {
     }
 
     private var hasActiveExecution: Bool {
-        isDebugSessionActive || model.runFeatureIfActive?.isRunning == true
+        isDebugSessionActive || model.runFeatureIfActive?.isSelectedConfigurationRunning == true
     }
 
     private var runConfigurationPicker: some View {
-        Menu {
-            if let runFeature = model.runFeatureIfActive,
-               !runFeature.configurations.isEmpty {
-                ForEach(runFeature.configurations) { configuration in
-                    Button {
-                        model.selectRunConfiguration(configuration)
-                    } label: {
-                        HStack {
-                            RunConfigurationIcon(kind: configuration.kind, size: 14)
-                            Text(configuration.name)
-                            if configuration.id == runFeature.selectedConfiguration?.id {
-                                Spacer()
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            } else {
-                Button("Current File") {
-                    model.selectRunConfiguration(.currentFile)
-                }
-            }
+        Button {
+            isRunConfigurationPickerPresented.toggle()
         } label: {
             HStack(spacing: 8) {
                 RunConfigurationIcon(
@@ -892,6 +948,9 @@ struct WorkbenchView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(LitheTheme.secondaryText)
             }
             .foregroundStyle(LitheTheme.primaryText)
             .padding(.horizontal, 4)
@@ -899,14 +958,72 @@ struct WorkbenchView: View {
             .frame(height: 30)
             .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.visible)
+        .buttonStyle(.plain)
         .frame(minWidth: 160, maxWidth: 190, alignment: .leading)
         .frame(height: 30)
         .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
         .help("Select run configuration for Run or Debug")
         .accessibilityLabel("Select run configuration for Run or Debug")
         .accessibilityIdentifier("run-configuration-picker")
+        .popover(isPresented: $isRunConfigurationPickerPresented, arrowEdge: .bottom) {
+            runConfigurationSelectionPanel
+        }
+    }
+
+    private var runConfigurationSelectionPanel: some View {
+        let configurations = model.runFeatureIfActive?.configurations ?? [.currentFile]
+        let services = configurations.filter { $0.execution == .service }
+        let visibleConfigurations = [RunConfiguration.currentFile] + services
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("Run configurations")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .padding(.horizontal, 10)
+                .padding(.top, 6)
+            ScrollView {
+                VStack(spacing: 3) {
+                    ForEach(visibleConfigurations) { configuration in
+                        if configuration.id == services.first?.id {
+                            Divider().padding(.vertical, 3)
+                            Text("Services")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(LitheTheme.secondaryText)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 10)
+                        }
+                        let isSelected = configuration.id == model.runFeatureIfActive?.selectedConfiguration?.id
+                        Button {
+                            model.selectRunConfiguration(configuration)
+                            isRunConfigurationPickerPresented = false
+                        } label: {
+                            HStack(spacing: 10) {
+                                RunConfigurationIcon(kind: configuration.kind, size: 16)
+                                Text(configuration.name)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Spacer(minLength: 12)
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .opacity(isSelected ? 1 : 0)
+                            }
+                            .foregroundStyle(LitheTheme.primaryText)
+                            .padding(.horizontal, 10)
+                            .frame(height: 34)
+                            .contentShape(Rectangle())
+                            .litheRowHover(isActive: isSelected, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
+                        }
+                        .buttonStyle(.plain)
+                        .help(configuration.name)
+                        .accessibilityAddTraits(isSelected ? .isSelected : [])
+                    }
+                }
+            }
+            .frame(height: min(CGFloat(visibleConfigurations.count) * 37 + (services.isEmpty ? 0 : 28), 296))
+        }
+        .padding(8)
+        .frame(width: 280)
+        .background(LitheTheme.editor)
     }
 
     private var backgroundPickerButton: some View {
@@ -946,7 +1063,7 @@ struct WorkbenchView: View {
                             if destination == .database {
                                 Task { await model.activateDatabaseModule() }
                             } else {
-                                model.selectedSidebar = destination
+                                model.workbenchFeature.selectedSidebar = destination
                             }
                         } label: {
                             Group {
@@ -966,7 +1083,7 @@ struct WorkbenchView: View {
                                     height: ActivityBarMetrics.buttonHeight
                                 )
                                 .litheRowHover(
-                                    isActive: model.selectedSidebar == destination,
+                                    isActive: model.workbenchFeature.selectedSidebar == destination,
                                     cornerRadius: 4,
                                     activeBackground: LitheTheme.subtleSelection
                                 )
@@ -974,7 +1091,7 @@ struct WorkbenchView: View {
                         .buttonStyle(.plain)
                         .lithePointer()
                         .disabled(!destination.isAvailable)
-                        .foregroundStyle(model.selectedSidebar == destination ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                        .foregroundStyle(model.workbenchFeature.selectedSidebar == destination ? LitheTheme.primaryText : LitheTheme.secondaryText)
                         .help(
                             destination.isAvailable
                                 ? LocalizedStringKey(destination.title)
@@ -1012,7 +1129,7 @@ struct WorkbenchView: View {
                             systemImage: "gearshape",
                             ideaAssetPath: "general/gear.svg",
                             help: "Settings",
-                            isSelected: model.isSettingsPresented
+                            isSelected: model.workbenchFeature.isSettingsPresented
                         ) {
                             model.showSettings()
                         }
@@ -1283,7 +1400,7 @@ struct WorkbenchView: View {
                     model.closeGitLog()
                 }
             ),
-            showsBottomToolMinimize: model.isGitLogVisible,
+            showsBottomToolMinimize: model.workbenchFeature.isVisible(.gitLog),
             hasWorkbenchBackground: model.workbenchBackgroundFeature.hasImage,
             sidebar: {
                 activeSidebar(projectTreeRowHeight: settings.projectTreeRowHeight)
@@ -1293,7 +1410,7 @@ struct WorkbenchView: View {
                     if isPluginPanelPresented {
                         PluginManagementView()
                             .environmentObject(model)
-                    } else if model.selectedSidebar == .pullRequests {
+                    } else if model.workbenchFeature.selectedSidebar == .pullRequests {
                         if LitheFeatureAvailability.githubPullRequests {
                             GitHubPullRequestDetailView()
                         } else {
@@ -1306,9 +1423,9 @@ struct WorkbenchView: View {
             },
             bottomTool: {
                 Group {
-                    if model.isReferencesVisible {
+                    if model.workbenchFeature.isVisible(.references) {
                         LanguageReferencesView()
-                    } else if model.isSpringVisible {
+                    } else if model.workbenchFeature.isVisible(.spring) {
                         SpringEndpointsView()
                     } else {
                         moduleUIRegistry.selectedToolContent(
@@ -1325,11 +1442,29 @@ struct WorkbenchView: View {
     @ViewBuilder
     private func activeSidebar(projectTreeRowHeight: CGFloat) -> some View {
         Group {
-            switch model.selectedSidebar {
+            switch model.workbenchFeature.selectedSidebar {
             case .project:
                 ProjectSidebarView(rowHeight: projectTreeRowHeight)
             case .changes:
-                ChangesSidebarView()
+                if let feature = model.gitFeatureIfActive {
+                    ChangesSidebarView(
+                        feature: feature, draft: model.commitDraftFeature,
+                        commitWorkflow: model.commitWorkflow,
+                        workbench: model.workbenchFeature,
+                        hasBackgroundImage: model.workbenchBackgroundFeature.hasImage,
+                        selectChange: { model.selectChange($0) },
+                        toggleStaging: { model.toggleStaging($0) },
+                        setStaging: { model.setStaging($0, staged: $1) },
+                        openFile: { model.openFile($0, displayPath: $1) },
+                        showLocalHistory: { model.showLocalHistory(for: $0) },
+                        revealInFinder: { model.revealProjectItemInFinder($0) },
+                        copyPath: { model.copyProjectItemPath($0, relative: $1) },
+                        showSettings: { model.showSettings(category: $0) }
+                    )
+                } else {
+                    WorkbenchModuleUIRegistry.moduleLoadingView
+                        .task { _ = await model.activateGitModule() }
+                }
             case .pullRequests:
                 if LitheFeatureAvailability.githubPullRequests {
                     GitHubPullRequestsSidebarView()
@@ -1337,7 +1472,20 @@ struct WorkbenchView: View {
                     GitHubFeatureUnavailableView()
                 }
             case .search:
-                SearchSidebarView()
+                if let feature = model.searchFeatureIfActive {
+                    SearchSidebarView(
+                        feature: feature,
+                        session: model.searchSessionFeature,
+                        openReplace: { model.openProjectReplace(inheriting: $0) },
+                        openResult: { model.openSearchResult($0) },
+                        revealInFinder: { model.revealProjectItemInFinder($0) },
+                        copyPath: { model.copyProjectItemPath($0, relative: $1) },
+                        searchProject: { await model.searchProject(options: $0) }
+                    )
+                } else {
+                    WorkbenchModuleUIRegistry.moduleLoadingView
+                        .task { _ = await model.activateSearchModule() }
+                }
             case .database:
                 if model.isDatabaseModuleActive {
                     DatabaseSidebarView()
@@ -1351,7 +1499,7 @@ struct WorkbenchView: View {
     }
 
     private var isBottomToolVisible: Bool {
-        model.isGitLogVisible || model.isTerminalVisible || model.isReferencesVisible || model.isProblemsVisible || model.isMavenVisible || model.isSpringVisible || model.isDebugVisible || model.isRunVisible || model.isTestsVisible
+        model.workbenchFeature.activeToolWindow != nil
     }
 
     private var statusBar: some View {
@@ -1484,7 +1632,7 @@ struct WorkbenchView: View {
 
     private var gitStatus: some View {
         HStack(spacing: 7) {
-            if model.isReferencesVisible {
+            if model.workbenchFeature.isVisible(.references) {
                 Label("\(model.languageNavigationResults.count) usages", systemImage: "scope")
             }
             Text(model.gitChanges.isEmpty ? "No changes" : "\(model.gitChanges.count) changes")
@@ -1634,9 +1782,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
     let bottomTool: BottomTool
 
     @State private var liveSidebarWidth: CGFloat
-    @State private var sidebarDragStart: CGFloat
     @State private var liveTopPaneHeight: CGFloat?
-    @State private var topPaneDragStart: CGFloat = 0
 
     init(
         sidebarWidth: CGFloat,
@@ -1659,7 +1805,6 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
         self.editor = editor()
         self.bottomTool = bottomTool()
         _liveSidebarWidth = State(initialValue: sidebarWidth)
-        _sidebarDragStart = State(initialValue: sidebarWidth)
         _liveTopPaneHeight = State(initialValue: topPaneHeight)
     }
 
@@ -1698,17 +1843,25 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                 maximum: maximumTopPaneHeight
             )
 
-            ZStack(alignment: .topLeading) {
-                VStack(spacing: isBottomToolVisible ? WorkbenchWorkspaceMetrics.paneSpacing : 0) {
-                    HStack(spacing: WorkbenchWorkspaceMetrics.paneSpacing) {
+            let topContent: AnyView = AnyView(
+                LitheSplitPaneView(
+                    axis: .horizontal,
+                    placement: .leading,
+                    defaultSize: resolvedSidebarWidth,
+                    minimum: minimumSidebarWidth,
+                    maximum: maximumSidebarWidth,
+                    showsIdleDivider: false,
+                    onCommit: actions.onSidebarWidthCommitted,
+                    sized: {
                         sidebar
-                            .frame(width: resolvedSidebarWidth)
                             .frame(maxHeight: .infinity)
                             .workbenchPaneChrome(
                                 background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
                                 surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
                                 roundsCorners: !hasWorkbenchBackground
                             )
+                    },
+                    flexible: {
                         editor
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .workbenchPaneChrome(
@@ -1717,67 +1870,40 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                                 roundsCorners: !hasWorkbenchBackground
                             )
                     }
-                    .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
-                    .padding(.top, WorkbenchWorkspaceMetrics.paneInset)
-                    .padding(
-                        .bottom,
-                        isBottomToolVisible ? 0 : WorkbenchWorkspaceMetrics.paneInset
-                    )
-                    .overlay(alignment: .topLeading) {
-                        sidebarResizeHandle(
-                            resolvedSidebarWidth: resolvedSidebarWidth,
-                            minimumSidebarWidth: minimumSidebarWidth,
-                            maximumSidebarWidth: maximumSidebarWidth,
-                            bottomInset: isBottomToolVisible ? 0 : WorkbenchWorkspaceMetrics.paneInset
-                        )
-                    }
-                    .frame(height: isBottomToolVisible ? resolvedTopPaneHeight : geometry.size.height)
+                )
+            )
 
-                    if isBottomToolVisible {
-                        bottomTool
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .workbenchPaneChrome(
-                                background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
-                                surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
-                                roundsCorners: !hasWorkbenchBackground
-                            )
-                            .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
-                            .padding(.bottom, WorkbenchWorkspaceMetrics.paneInset)
-                            .frame(maxHeight: .infinity)
-                    }
-                }
-
+            Group {
                 if isBottomToolVisible {
-                    Rectangle()
-                        .fill(LitheTheme.titlebar)
-                        .frame(height: WorkbenchWorkspaceMetrics.paneSpacing)
-                        .position(
-                            x: geometry.size.width / 2,
-                            y: resolvedTopPaneHeight
-                                + WorkbenchWorkspaceMetrics.paneSpacing / 2
-                        )
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-
-                    topPaneResizeHandle(
-                        resolvedTopPaneHeight: resolvedTopPaneHeight,
-                        minimumTopPaneHeight: minimumTopPaneHeight,
-                        maximumTopPaneHeight: maximumTopPaneHeight
+                    LitheSplitPaneView(
+                        axis: .vertical,
+                        placement: .leading,
+                        defaultSize: resolvedTopPaneHeight,
+                        minimum: minimumTopPaneHeight,
+                        maximum: maximumTopPaneHeight,
+                        showsIdleDivider: false,
+                        onCommit: actions.onTopPaneHeightCommitted,
+                        sized: {
+                            topContent
+                                .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
+                                .padding(.top, WorkbenchWorkspaceMetrics.paneInset)
+                        },
+                        flexible: {
+                            bottomTool
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .workbenchPaneChrome(
+                                    background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
+                                    surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
+                                    roundsCorners: !hasWorkbenchBackground
+                                )
+                                .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
+                                .padding(.bottom, WorkbenchWorkspaceMetrics.paneInset)
+                        }
                     )
-                }
-
-                if isBottomToolVisible, showsBottomToolMinimize {
-                    Button(action: actions.onBottomToolMinimize) {
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    .litheIconButton()
-                    .help("Collapse tool window")
-                    .accessibilityLabel("Collapse tool window")
-                    .position(
-                        x: geometry.size.width - ActivityBarMetrics.rightWidth - 20,
-                        y: resolvedTopPaneHeight + WorkbenchWorkspaceMetrics.paneSpacing + 16
-                    )
+                } else {
+                    topContent
+                        .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
+                        .padding(.vertical, WorkbenchWorkspaceMetrics.paneInset)
                 }
             }
             .frame(
@@ -1802,81 +1928,6 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
             guard newHeight != liveTopPaneHeight else { return }
             liveTopPaneHeight = newHeight
         }
-    }
-
-    private func sidebarResizeHandle(
-        resolvedSidebarWidth: CGFloat,
-        minimumSidebarWidth: CGFloat,
-        maximumSidebarWidth: CGFloat,
-        bottomInset: CGFloat
-    ) -> some View {
-        SplitHandleView(
-            axis: .horizontal,
-            showsIdleDivider: false,
-            onDragStarted: {
-                sidebarDragStart = resolvedSidebarWidth
-            },
-            onDragChanged: { translation in
-                liveSidebarWidth = constrained(
-                    sidebarDragStart + translation,
-                    minimum: minimumSidebarWidth,
-                    maximum: maximumSidebarWidth
-                )
-            },
-            onDragEnded: { translation in
-                let finalWidth = constrained(
-                    sidebarDragStart + translation,
-                    minimum: minimumSidebarWidth,
-                    maximum: maximumSidebarWidth
-                )
-                liveSidebarWidth = finalWidth
-                actions.onSidebarWidthCommitted(finalWidth)
-            }
-        )
-        .padding(.top, WorkbenchWorkspaceMetrics.paneInset)
-        .padding(.bottom, bottomInset)
-        .offset(
-            x: WorkbenchWorkspaceMetrics.paneInset
-                + resolvedSidebarWidth
-                + WorkbenchWorkspaceMetrics.paneSpacing / 2
-                - SplitHandleView.thickness / 2
-        )
-    }
-
-    private func topPaneResizeHandle(
-        resolvedTopPaneHeight: CGFloat,
-        minimumTopPaneHeight: CGFloat,
-        maximumTopPaneHeight: CGFloat
-    ) -> some View {
-        SplitHandleView(
-            axis: .vertical,
-            showsIdleDivider: false,
-            onDragStarted: {
-                topPaneDragStart = resolvedTopPaneHeight
-            },
-            onDragChanged: { translation in
-                liveTopPaneHeight = constrained(
-                    topPaneDragStart + translation,
-                    minimum: minimumTopPaneHeight,
-                    maximum: maximumTopPaneHeight
-                )
-            },
-            onDragEnded: { translation in
-                let finalHeight = constrained(
-                    topPaneDragStart + translation,
-                    minimum: minimumTopPaneHeight,
-                    maximum: maximumTopPaneHeight
-                )
-                liveTopPaneHeight = finalHeight
-                actions.onTopPaneHeightCommitted(finalHeight)
-            }
-        )
-        .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
-        .offset(
-            y: resolvedTopPaneHeight
-                + WorkbenchWorkspaceMetrics.paneSpacing / 2
-                - SplitHandleView.thickness / 2
-        )
     }
 
     private func constrained(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {

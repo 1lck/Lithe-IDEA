@@ -28,6 +28,7 @@ const BUILT_IN_HIDDEN_DIRECTORIES: &[&str] = &[
     "coverage",
     "design-qa-artifacts",
 ];
+/// File names omitted from workspace snapshots, search, and related scans.
 const BUILT_IN_HIDDEN_FILE_PATTERNS: &[&str] = &[".DS_Store"];
 const MAX_FILE_SIZE: u64 = 2 * 1024 * 1024;
 const MAX_OPEN_FILE_SIZE: u64 = 32 * 1024 * 1024;

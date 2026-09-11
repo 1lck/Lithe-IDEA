@@ -6,6 +6,7 @@ import { createTranslator } from "@/i18n/locale";
 import { joinPath } from "@/utils/path-helpers";
 import type { CodeLensItem } from "@/features/editor/lsp/use-code-lens";
 import type { RunActionItem, RunActionSource } from "../types/run-action.types";
+import type { JavaTestMethod } from "@/features/maven/types/maven.types";
 
 type ManifestContents = Map<string, string>;
 
@@ -26,6 +27,7 @@ const SCRIPT_PRIORITY = new Map([
 
 const SOURCE_PRIORITY: Record<RunActionSource, number> = {
   lsp: 0,
+  maven: 1,
   custom: 1,
   package: 2,
   cargo: 3,
@@ -34,6 +36,32 @@ const SOURCE_PRIORITY: Record<RunActionSource, number> = {
   go: 6,
   python: 7,
 };
+
+export function javaTestActionsForFile(
+  filePath: string,
+  methods: readonly JavaTestMethod[],
+  translate: (key: string) => string = getCurrentTranslator(),
+): RunActionItem[] {
+  if (!/\.java$/i.test(filePath)) return [];
+  return [
+    {
+      id: `maven:test-class:${filePath}`,
+      name: translate("maven.runTestClass"),
+      description: filePath.split(/[\\/]/).pop() ?? filePath,
+      source: "maven",
+      sourceLabel: "Maven",
+      mavenTest: { filePath },
+    },
+    ...methods.map((method) => ({
+      id: `maven:test-method:${filePath}:${method.name}`,
+      name: method.name,
+      description: `${filePath.split(/[\\/]/).pop() ?? filePath}:${method.line + 1}`,
+      source: "maven" as const,
+      sourceLabel: "Maven",
+      mavenTest: { filePath, method: method.name },
+    })),
+  ];
+}
 
 const MANIFEST_NAMES = [
   "package.json",

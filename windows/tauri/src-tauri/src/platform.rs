@@ -1,4 +1,4 @@
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -6,6 +6,7 @@ static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 #[tauri::command]
 pub async fn platform_invoke(command: String, args: Value) -> Result<Value, String> {
+    let preserve_history_rewrite = is_reviewed_history_rewrite(&command, &args);
     let preserve_stash_restore = command == "git_pull"
         && args
             .get("autoStash")
@@ -33,8 +34,21 @@ pub async fn platform_invoke(command: String, args: Value) -> Result<Value, Stri
     let envelope: Value = serde_json::from_str(&response)
         .map_err(|error| format!("Shared core returned invalid JSON: {error}"))?;
 
+    core_response(&envelope, preserve_history_rewrite, preserve_stash_restore)
+}
+
+fn core_response(
+    envelope: &Value,
+    preserve_history_rewrite: bool,
+    preserve_stash_restore: bool,
+) -> Result<Value, String> {
     if envelope.get("ok").and_then(Value::as_bool) == Some(true) {
         let data = envelope.get("data").cloned().unwrap_or(Value::Null);
+        // Reviewed history operations render partial failures, warnings, and
+        // recovery references together instead of losing them to a string error.
+        if preserve_history_rewrite {
+            return Ok(data);
+        }
         if let Some(error) = command_data_error(&data, preserve_stash_restore) {
             return Err(error);
         }
@@ -42,11 +56,23 @@ pub async fn platform_invoke(command: String, args: Value) -> Result<Value, Stri
     }
 
     let error = envelope.get("error").unwrap_or(&Value::Null);
+    if preserve_history_rewrite {
+        return Ok(json!({ "exitCode": -1, "operationError": error, "warnings": [] }));
+    }
     Err(error
         .get("message")
         .and_then(Value::as_str)
         .unwrap_or("Shared core operation failed")
         .to_string())
+}
+
+fn is_reviewed_history_rewrite(command: &str, args: &Value) -> bool {
+    command == "git.write"
+        && args.get("expectedState").is_some_and(Value::is_object)
+        && matches!(
+            args.get("operation").and_then(Value::as_str),
+            Some("undoCommit" | "editCommitMessage" | "squashCommits" | "deleteCommit")
+        )
 }
 
 /// Converts logical Git command failures carried in a successful Core envelope
@@ -318,6 +344,10 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             payload.insert("arguments".into(), json!(["rev-parse", "--show-toplevel"]));
             "git.command"
         }
+        "git_discover_workspace_repos" => {
+            move_field(&mut payload, "workspacePath", "root");
+            "workspace.repositories"
+        }
         "git_fetch" | "git_pull" | "git_push" => {
             payload.insert(
                 "operation".into(),
@@ -449,22 +479,11 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
         }
         "git_remove_worktree" => {
             let path = take_text(&mut payload, "path")?;
-            let force = payload
-                .remove("force")
-                .and_then(|value| value.as_bool())
-                .unwrap_or(false);
-            let mut arguments = vec!["worktree".to_string(), "remove".into()];
-            if force {
-                arguments.push("--force".into());
-            }
-            arguments.extend(["--".into(), path]);
-            payload.insert("arguments".into(), json!(arguments));
-            "git.command"
+            payload.insert("operation".into(), json!("removeWorktree"));
+            payload.insert("destination".into(), json!(path));
+            "git.write"
         }
-        "git_init" => {
-            payload.insert("arguments".into(), json!(["init"]));
-            "git.command"
-        }
+        "git_init" => "git.initialize",
         "git_clone" => {
             let remote = take_text(&mut payload, "repositoryUrl")?;
             let destination = take_text(&mut payload, "destinationPath")?;
@@ -507,7 +526,7 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
         _ => {
             return Err(format!(
                 "Windows platform command is not implemented: {command}"
-            ))
+            ));
         }
     };
 
@@ -637,8 +656,36 @@ fn take_text(payload: &mut Map<String, Value>, field: &str) -> Result<String, St
 
 #[cfg(test)]
 mod tests {
-    use super::{command_data_error, local_branch_reference, translate};
+    use super::{
+        command_data_error, core_response, is_reviewed_history_rewrite, local_branch_reference,
+        translate,
+    };
     use serde_json::json;
+
+    #[test]
+    fn reviewed_history_keeps_partial_mutation_recovery_and_stable_failures() {
+        let args = json!({ "operation": "deleteCommit", "expectedState": { "head": "abc" } });
+        let preserve = is_reviewed_history_rewrite("git.write", &args);
+        let data = json!({
+            "exitCode": 1,
+            "operationError": { "code": "process_failed", "message": "Replay stopped" },
+            "warnings": [{ "code": "recovery_available", "message": "Previous HEAD is preserved" }],
+            "historyRewrite": {
+                "mutationApplied": true,
+                "outcomeKnown": true,
+                "recoveryReference": "refs/lithe/history-recovery/example"
+            }
+        });
+        let envelope = json!({ "ok": true, "data": data });
+        assert_eq!(core_response(&envelope, preserve, false).unwrap(), data);
+        assert!(core_response(&envelope, false, false).is_err());
+
+        let failure = json!({ "ok": false, "error": { "code": "git_history_state_changed", "message": "Review again" } });
+        assert_eq!(
+            core_response(&failure, preserve, false).unwrap()["operationError"]["code"],
+            "git_history_state_changed"
+        );
+    }
 
     #[test]
     fn rejects_logical_git_failures_after_successful_subprocesses() {
@@ -674,6 +721,18 @@ mod tests {
         let (command, payload) = translate("git_status", json!({ "repoPath": "C:/work" })).unwrap();
 
         assert_eq!(command, "git.status");
+        assert_eq!(payload, json!({ "root": "C:/work" }));
+    }
+
+    #[test]
+    fn translates_workspace_repository_discovery() {
+        let (command, payload) = translate(
+            "git_discover_workspace_repos",
+            json!({ "workspacePath": "C:/work" }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "workspace.repositories");
         assert_eq!(payload, json!({ "root": "C:/work" }));
     }
 
@@ -824,6 +883,29 @@ mod tests {
                 "untracked": true
             })
         );
+    }
+
+    #[test]
+    fn preserves_typed_update_branch_write() {
+        let reference = json!({
+            "fullName": "refs/heads/feature/demo",
+            "shortName": "feature/demo",
+            "kind": "local"
+        });
+        let (command, payload) = translate(
+            "git.write",
+            json!({
+                "repoPath": "C:/work",
+                "operation": "updateBranch",
+                "gitReference": reference
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.write");
+        assert_eq!(payload["root"], "C:/work");
+        assert_eq!(payload["operation"], "updateBranch");
+        assert_eq!(payload["gitReference"], reference);
     }
 
     #[test]

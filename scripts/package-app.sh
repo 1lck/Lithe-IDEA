@@ -162,11 +162,14 @@ else
 fi
 
 cp "$INFO_PLIST" "$APP_DIR/Contents/Info.plist"
+zsh "$ROOT_DIR/scripts/embed-sparkle.sh" "$APP_DIR"
+zsh "$ROOT_DIR/scripts/configure-sparkle-app.sh" "$APP_DIR/Contents/Info.plist" "$ARCH"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_DIR/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP_DIR/Contents/Info.plist"
 "$ROOT_DIR/scripts/stamp-macos-app-build-info.sh" "$APP_DIR/Contents/Info.plist"
 cp "$ROOT_DIR/macos/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 cp -R "$ROOT_DIR/macos/Resources/IDEAIcons" "$APP_DIR/Contents/Resources/IDEAIcons"
+cp -R "$ROOT_DIR/macos/Resources/GitGraph" "$APP_DIR/Contents/Resources/GitGraph"
 cp -R "$ROOT_DIR/macos/Resources/DatabaseIcons" "$APP_DIR/Contents/Resources/DatabaseIcons"
 cp -R "$ROOT_DIR/macos/Resources/Fonts" "$APP_DIR/Contents/Resources/Fonts"
 for localization in en.lproj zh-Hans.lproj; do

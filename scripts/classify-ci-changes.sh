@@ -290,7 +290,7 @@ while IFS=$'\t' read -r status first_path _; do
         windows/*)
             windows=true
             ;;
-        scripts/test-macos.sh)
+        scripts/test-macos.sh|scripts/test-git-performance-baseline.sh|scripts/run-git-performance-verifier.mjs)
             swift=true
             plugins=true
             swift_database=true
@@ -309,7 +309,7 @@ while IFS=$'\t' read -r status first_path _; do
         scripts/database-sidecar-smoke.sh|scripts/database-validation-smoke.sh)
             rust_database=true
             ;;
-        scripts/build-macos.sh|scripts/verify-macos-app-build-safety.sh|scripts/verify-macos-package.sh|scripts/macos13sdkcompatibility.h|scripts/ld-macos13-compat.sh|scripts/package-app.sh|scripts/preview.sh|scripts/stamp-macos-app-build-info.sh|scripts/create-dmg.sh|scripts/create-macos-update-manifest.rb|scripts/test-macos-update-manifest.rb|scripts/prepare-jdtls.sh|scripts/prepare-jdk.sh)
+        scripts/*sparkle*|scripts/import-macos-signing.sh|scripts/build-macos.sh|scripts/verify-macos-app-build-safety.sh|scripts/verify-macos-package.sh|scripts/macos13sdkcompatibility.h|scripts/ld-macos13-compat.sh|scripts/package-app.sh|scripts/preview.sh|scripts/stamp-macos-app-build-info.sh|scripts/create-dmg.sh|scripts/create-macos-update-manifest.rb|scripts/test-macos-update-manifest.rb|scripts/prepare-jdtls.sh|scripts/prepare-jdk.sh)
             macos_release=true
             ;;
         scripts/verify-download-cache.mjs|scripts/test-verify-download-cache.mjs)

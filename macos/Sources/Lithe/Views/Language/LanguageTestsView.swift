@@ -14,9 +14,21 @@ struct LanguageTestsView: View {
     @State private var liveItemListWidth: CGFloat?
     @State private var itemListDragStart: CGFloat = 250
 
+    private var localization: LanguageTestLocalization {
+        LanguageTestLocalization(language: model.settings.language)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             toolWindowHeader
+
+            if let message = service.errorMessage {
+                Text(localization.error(message))
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(LitheTheme.error)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+            }
 
             if model.workspaceURL == nil {
                 emptyState("Open a project to discover tests.")
@@ -65,7 +77,7 @@ struct LanguageTestsView: View {
             title: "Tests",
             systemImage: "checkmark.seal",
             subtitle: testCount > 0 ? String(testCount) : nil,
-            onMinimize: { model.isTestsVisible = false }
+            onMinimize: { model.workbenchFeature.setVisibility(.tests, isVisible: false) }
         ) {
             statusView
 
@@ -75,6 +87,14 @@ struct LanguageTestsView: View {
             .litheIconButton()
             .help("Refresh discovered tests")
             .disabled(service.isRunning)
+
+            if service.canRerun {
+                Button(action: { _ = service.rerun() }) {
+                    LitheSystemIcon(systemImage: "arrow.counterclockwise")
+                }
+                .litheIconButton()
+                .help(localization.text("Rerun last test"))
+            }
 
             if service.isRunning {
                 Button(action: model.stopTests) {
@@ -99,19 +119,23 @@ struct LanguageTestsView: View {
         case .idle:
             EmptyView()
         case .running:
-            Label("Running", systemImage: "circle.fill")
+            Label(localization.text("Running"), systemImage: "circle.fill")
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.success)
         case .passed:
-            Label("Passed", systemImage: "checkmark.circle.fill")
+            Label(localization.text("Passed"), systemImage: "checkmark.circle.fill")
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.success)
         case .failed:
-            Label("Failed", systemImage: "xmark.circle.fill")
+            Label(localization.text("Failed"), systemImage: "xmark.circle.fill")
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(LitheTheme.error)
+        case .timedOut:
+            Label(localization.text("Timed Out"), systemImage: "clock.badge.exclamationmark")
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.error)
         case .cancelled:
-            Label("Cancelled", systemImage: "stop.circle.fill")
+            Label(localization.text("Cancelled"), systemImage: "stop.circle.fill")
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.warning)
         }
@@ -339,6 +363,13 @@ struct LanguageTestsView: View {
                     .lineLimit(1)
             }
 
+            if let results = service.results {
+                testResultSummary(results)
+                if !results.failureDetails.isEmpty {
+                    testFailureList(results.failureDetails)
+                }
+            }
+
             if let plan = service.activePlan,
                plan.providerID == item.providerID,
                plan.label == item.label {
@@ -357,6 +388,71 @@ struct LanguageTestsView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func testResultSummary(_ results: LanguageTestResults) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(localization.text("Results"))
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .frame(width: 90, alignment: .trailing)
+            HStack(spacing: 8) {
+                resultCount("Passed", results.passed, color: LitheTheme.success)
+                resultCount("Failed", results.failures + results.errors, color: LitheTheme.error)
+                resultCount("Skipped", results.skipped, color: LitheTheme.warning)
+            }
+            .font(.system(size: 11.5, design: .monospaced))
+        }
+    }
+
+    private func resultCount(_ label: String, _ count: Int, color: Color) -> some View {
+        Label(localization.count(label, count), systemImage: "circle.fill")
+            .foregroundStyle(color)
+    }
+
+    private func testFailureList(_ failures: [LanguageTestFailureDetail]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(localization.text("Failures"))
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(LitheTheme.secondaryText)
+            ForEach(failures) { failure in
+                Button {
+                    guard let fileURL = failure.fileURL else { return }
+                    model.openSourceLocation(
+                        url: fileURL,
+                        line: failure.line ?? 1,
+                        column: failure.column
+                    )
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Image(systemName: failure.kind == "error" ? "exclamationmark.triangle.fill" : "xmark.circle.fill")
+                            .foregroundStyle(failure.kind == "error" ? LitheTheme.warning : LitheTheme.error)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(failure.name)
+                                .font(.system(size: 11.5, weight: .medium))
+                                .lineLimit(1)
+                            if let message = failure.message, !message.isEmpty {
+                                Text(message)
+                                    .font(.system(size: 10.5))
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                                    .lineLimit(2)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                        if let fileURL = failure.fileURL {
+                            Text(fileURL.lastPathComponent + (failure.line.map { ":\($0)" } ?? ""))
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(LitheTheme.secondaryText)
+                                .lineLimit(1)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 3)
+                }
+                .buttonStyle(.plain)
+                .disabled(failure.fileURL == nil)
+            }
+        }
     }
 
     private func scope(for item: LanguageTestItem) -> LanguageTestScope {

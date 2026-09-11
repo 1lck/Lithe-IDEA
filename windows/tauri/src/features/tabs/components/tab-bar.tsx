@@ -16,6 +16,7 @@ import { useJumpListStore } from "@/features/editor/stores/jump-list.store";
 import { useEditorStateStore } from "@/features/editor/stores/state.store";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
 import { navigateToJumpEntry } from "@/features/editor/utils/jump-navigation";
+import { MarkdownModePicker } from "@/features/editor/components/toolbar/markdown-mode-picker";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { formatDiffBufferLabel } from "@/features/git/utils/diff-buffer-label";
 import { writeClipboardText } from "@/utils/clipboard";
@@ -191,6 +192,7 @@ const TabBar = ({
         ? {
             bufferId: currentActiveBufferId,
             filePath: currentActiveBuffer.path,
+            paneId,
             line: editorState.cursorPosition.line,
             column: editorState.cursorPosition.column,
             offset: editorState.cursorPosition.offset,
@@ -203,7 +205,7 @@ const TabBar = ({
     if (entry) {
       await navigateToJumpEntry(entry);
     }
-  }, [activeWebViewerNavigation, jumpListActions, usesWebViewerNavigation]);
+  }, [activeWebViewerNavigation, jumpListActions, paneId, usesWebViewerNavigation]);
 
   const handleJumpForward = useCallback(async () => {
     if (usesWebViewerNavigation) {
@@ -796,6 +798,9 @@ const TabBar = ({
           </SortableContext>
 
           <div className="flex h-8 shrink-0 items-center gap-1 pl-0.5">
+            {activeBuffer?.type === "editor" && (
+              <MarkdownModePicker bufferId={activeBufferId ?? undefined} />
+            )}
             {paneId && !isBottomPane && (
               <Button
                 type="button"

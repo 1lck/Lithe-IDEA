@@ -148,7 +148,7 @@ struct GenericDebugView: View {
             }
             Spacer(minLength: 8)
             debugOptionsMenu
-            Button { model.isDebugVisible = false } label: {
+            Button { model.workbenchFeature.setVisibility(.debug, isVisible: false) } label: {
                 Image(systemName: "minus")
             }
             .litheIconButton()
@@ -662,23 +662,25 @@ struct GenericDebugView: View {
                                     }
                                 }
                                 .opacity(frame.isFiltered ? 0.58 : 1)
-                                .contextMenu {
-                                    Button("Copy Method Name") {
+                                .litheContextMenu {
+                                    var items: [LitheContextMenuItem] = []
+                                    items.append(.action("Copy Method Name", action: {
                                         copyToPasteboard(frame.name)
-                                    }
+                                    }))
                                     if let sourceURL = frame.sourceURL {
-                                        Divider()
-                                        Button("Copy Source Location") {
+                                        items.append(.separator)
+                                        items.append(.action("Copy Source Location", action: {
                                             copyToPasteboard(
                                                 "\(sourceURL.path):\(frame.line):\(frame.column)"
                                             )
-                                        }
-                                        Button("Copy Relative Location") {
+                                        }))
+                                        items.append(.action("Copy Relative Location", action: {
                                             copyToPasteboard(
                                                 "\(sourceURL.lastPathComponent):\(frame.line):\(frame.column)"
                                             )
-                                        }
+                                        }))
                                     }
+                                    return items
                                 }
                             } else {
                                 Button {
@@ -763,19 +765,20 @@ struct GenericDebugView: View {
         }
         .menuStyle(.borderlessButton)
         .accessibilityLabel("Debugger thread")
-        .contextMenu {
+        .litheContextMenu {
+            var items: [LitheContextMenuItem] = []
             if let thread = selectedThread {
-                Button("Copy Thread Name") { copyToPasteboard(thread.name) }
+                items.append(.action("Copy Thread Name", action: { copyToPasteboard(thread.name) }))
                 if feature.capabilities.supportsSingleThreadExecutionRequests {
-                    Button(feature.state == .paused ? "Resume Thread" : "Pause Thread") {
+                    items.append(.action(feature.state == .paused ? "Resume Thread" : "Pause Thread", isEnabled: !(feature.state != .paused && feature.state != .running), action: {
                         feature.executeThread(
                             feature.state == .paused ? .continueExecution : .pause,
                             thread: thread
                         )
-                    }
-                    .disabled(feature.state != .paused && feature.state != .running)
+                    }))
                 }
             }
+            return items
         }
     }
 
@@ -834,30 +837,32 @@ struct GenericDebugView: View {
                                 .padding(.leading, 10 + CGFloat(row.depth * 14))
                                 .padding(.trailing, 10)
                                 .padding(.vertical, 5)
-                                .contextMenu {
+                                .litheContextMenu {
+                                    var items: [LitheContextMenuItem] = []
                                     if feature.capabilities.supportsSetVariable,
                                        variable.containerReference != nil {
-                                        Button("Set Value…") { editingVariable = variable }
+                                        items.append(.action("Set Value…", action: { editingVariable = variable }))
                                     }
                                     if feature.capabilities.supportsDataBreakpoints,
                                        variable.containerReference != nil {
-                                        Button("Break on Field Access…") {
+                                        items.append(.action("Break on Field Access…", action: {
                                             feature.requestDataBreakpoint(for: variable)
-                                        }
+                                        }))
                                     }
-                                    Divider()
-                                    Button("Copy Value") { copyToPasteboard(variable.value) }
-                                    Button("Copy Expression") {
+                                    items.append(.separator)
+                                    items.append(.action("Copy Value", action: { copyToPasteboard(variable.value) }))
+                                    items.append(.action("Copy Expression", action: {
                                         copyToPasteboard(variable.evaluateName ?? variable.name)
-                                    }
-                                    Button("Copy Name") { copyToPasteboard(variable.name) }
+                                    }))
+                                    items.append(.action("Copy Name", action: { copyToPasteboard(variable.name) }))
                                     if let expression = variable.evaluateName,
                                        !expression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                        Divider()
-                                        Button("Add to Watches") {
+                                        items.append(.separator)
+                                        items.append(.action("Add to Watches", action: {
                                             feature.addWatch(expression)
-                                        }
+                                        }))
                                     }
+                                    return items
                                 }
                             case .loadMore(let parentVariableID, let nextCount, let remainingCount):
                                 variableLoadMoreRow(
@@ -911,16 +916,17 @@ struct GenericDebugView: View {
                             }
                             .padding(.horizontal, 10)
                             .padding(.vertical, 5)
-                            .contextMenu {
-                                Button("Refresh") { feature.refreshWatches() }
-                                    .disabled(feature.state != .paused)
-                                Button("Edit…") {
+                            .litheContextMenu {
+                                var items: [LitheContextMenuItem] = []
+                                items.append(.action("Refresh", isEnabled: !(feature.state != .paused), action: { feature.refreshWatches() }))
+                                items.append(.action("Edit…", action: {
                                     watchEditor = WatchEditorContext(watch: watch)
-                                }
-                                Divider()
-                                Button("Remove", role: .destructive) {
+                                }))
+                                items.append(.separator)
+                                items.append(.action("Remove", role: .destructive, action: {
                                     feature.removeWatch(watch)
-                                }
+                                }))
+                                return items
                             }
                         }
                     }
@@ -1165,7 +1171,7 @@ struct GenericDebugView: View {
                                         .accessibilityIdentifier("debug-error-retry")
                                     }
 
-                                    if !model.isRunVisible {
+                                    if !model.workbenchFeature.isVisible(.run) {
                                         Button {
                                             model.toggleRun()
                                         } label: {
@@ -1767,13 +1773,15 @@ struct DebugBreakpointManagerView: View {
         .padding(.horizontal, 10)
         .frame(minHeight: 33)
         .opacity(breakpoint.enabled && !feature.areBreakpointsMuted ? 1 : 0.55)
-        .contextMenu {
-            Button("Edit…") { editingBreakpoint = breakpoint }
-            Button(breakpoint.enabled ? "Disable" : "Enable") {
+        .litheContextMenu {
+            var items: [LitheContextMenuItem] = []
+            items.append(.action("Edit…", action: { editingBreakpoint = breakpoint }))
+            items.append(.action(breakpoint.enabled ? "Disable" : "Enable", action: {
                 feature.setBreakpointEnabled(breakpoint, enabled: !breakpoint.enabled)
-            }
-            Divider()
-            Button("Remove", role: .destructive) { feature.removeBreakpoint(breakpoint) }
+            }))
+            items.append(.separator)
+            items.append(.action("Remove", role: .destructive, action: { feature.removeBreakpoint(breakpoint) }))
+            return items
         }
     }
 

@@ -23,6 +23,14 @@ import {
   type TerminalFileDropDetail,
 } from "@/features/file-system/utils/file-system-drop-controller";
 import { showConfirmDialog } from "@/ui/dialog";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuShortcut,
+  ContextMenuTrigger,
+} from "@/ui/context-menu";
+import { ClipboardIcon, CopyIcon } from "@/ui/icons";
 import { readClipboardText, writeClipboardText } from "@/utils/clipboard";
 import { currentPlatform } from "@/utils/platform";
 import {
@@ -37,6 +45,11 @@ import { useTerminalConnection } from "../hooks/use-terminal-connection";
 import { useTerminalTheme } from "../hooks/use-terminal-theme";
 import { useTerminalStore } from "../stores/terminal.store";
 import { formatDroppedPathsForTerminal } from "../utils/terminal-file-drop";
+import {
+  copyTerminalSelection,
+  hasTerminalSelection,
+  pasteTerminalText,
+} from "../utils/terminal-clipboard";
 import { resolveTerminalFont } from "../utils/resolve-font";
 import { getTerminalKeyAction } from "../utils/terminal-keyboard";
 import { getTerminalCompatibilityOptions } from "../utils/terminal-options";
@@ -45,9 +58,6 @@ import { getFrontendTerminalSessionArgs } from "../utils/frontend-terminal-sessi
 import { TerminalSearch, type TerminalSearchOptions } from "./terminal-search";
 import "@xterm/xterm/css/xterm.css";
 import "../styles/terminal.css";
-
-const MULTILINE_PASTE_LINE_THRESHOLD = 5;
-const LARGE_PASTE_CHAR_THRESHOLD = 1000;
 
 interface XtermTerminalProps {
   sessionId: string;
@@ -80,6 +90,7 @@ export const XtermTerminal = ({
   const addonsRef = useRef<TerminalAddons | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [isSearchVisible, setIsSearchVisible] = useState(false);
+  const [hasSelection, setHasSelection] = useState(false);
   const [searchResults, setSearchResults] = useState({ current: 0, total: 0 });
   const isInitializingRef = useRef(false);
   const fitFrameRef = useRef<number | null>(null);
@@ -204,25 +215,37 @@ export const XtermTerminal = ({
     event.dataTransfer.dropEffect = "copy";
   }, []);
 
-  const pasteIntoTerminal = useCallback(async (terminal: Terminal, text: string) => {
-    if (!text) return;
+  const pasteIntoTerminal = useCallback(
+    (terminal: Terminal, text: string) =>
+      pasteTerminalText({
+        terminal,
+        text,
+        isConnected: () => Boolean(currentConnectionIdRef.current),
+        confirmPaste: (lineCount) =>
+          showConfirmDialog(t("terminal.pasteLinesConfirm", { count: lineCount }), {
+            title: t("terminal.pasteIntoTerminal"),
+            confirmLabel: t("terminal.paste"),
+          }),
+      }),
+    [currentConnectionIdRef, t],
+  );
 
-    const lineCount = text.replace(/\r\n/g, "\n").split("\n").length;
-    const requiresConfirmation =
-      lineCount >= MULTILINE_PASTE_LINE_THRESHOLD || text.length >= LARGE_PASTE_CHAR_THRESHOLD;
+  const copySelectionFromTerminal = useCallback((terminal: Terminal) => {
+    void copyTerminalSelection(terminal, writeClipboardText).catch((error) =>
+      console.error("Failed to copy terminal selection:", error),
+    );
+  }, []);
 
-    if (
-      requiresConfirmation &&
-      !(await showConfirmDialog(
-        t("terminal.pasteLinesConfirm", { count: lineCount }),
-        { title: t("terminal.pasteIntoTerminal"), confirmLabel: t("terminal.paste") },
-      ))
-    ) {
-      return;
-    }
+  const pasteClipboardIntoTerminal = useCallback(
+    (terminal: Terminal) => {
+      if (!currentConnectionIdRef.current) return;
 
-    terminal.paste(text);
-  }, [t]);
+      void readClipboardText()
+        .then((text) => pasteIntoTerminal(terminal, text))
+        .catch((error) => console.error("Failed to paste into terminal:", error));
+    },
+    [currentConnectionIdRef, pasteIntoTerminal],
+  );
 
   const initializeTerminal = useCallback(async () => {
     const container = terminalContainerRef.current;
@@ -284,20 +307,13 @@ export const XtermTerminal = ({
 
         if (action.type === "copy") {
           event.preventDefault();
-          const selection = terminal.getSelection();
-          if (selection) {
-            void writeClipboardText(selection).catch((error) =>
-              console.error("Failed to copy terminal selection:", error),
-            );
-          }
+          copySelectionFromTerminal(terminal);
           return false;
         }
 
         if (action.type === "paste") {
           event.preventDefault();
-          void readClipboardText()
-            .then((text) => pasteIntoTerminal(terminal, text))
-            .catch((error) => console.error("Failed to paste into terminal:", error));
+          pasteClipboardIntoTerminal(terminal);
           return false;
         }
 
@@ -441,6 +457,7 @@ export const XtermTerminal = ({
     }
   }, [
     currentConnectionIdRef,
+    copySelectionFromTerminal,
     fitTerminal,
     getSession,
     getTerminalTheme,
@@ -448,6 +465,7 @@ export const XtermTerminal = ({
     onReady,
     onTerminalRef,
     pasteIntoTerminal,
+    pasteClipboardIntoTerminal,
     rootFolderPath,
     remoteConnectionId,
     shell,
@@ -850,18 +868,52 @@ export const XtermTerminal = ({
         totalMatches={searchResults.total}
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col pl-4">
-        <div
-          ref={terminalContainerRef}
-          id={`terminal-${sessionId}`}
-          data-terminal-drop-target
-          data-terminal-session-id={sessionId}
-          className={`xterm-container flex h-full min-h-0 min-w-0 flex-1 text-foreground ${!isActive ? "opacity-60" : ""}`}
-          onDragOver={handleTerminalDragOver}
-          onDrop={handleTerminalFileDrop}
-          onMouseDown={() => {
-            requestAnimationFrame(() => xtermRef.current?.focus());
+        <ContextMenu
+          onOpenChange={(open) => {
+            if (open) setHasSelection(hasTerminalSelection(xtermRef.current));
           }}
-        />
+        >
+          <ContextMenuTrigger className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div
+              ref={terminalContainerRef}
+              id={`terminal-${sessionId}`}
+              data-terminal-drop-target
+              data-terminal-session-id={sessionId}
+              className={`xterm-container flex h-full min-h-0 min-w-0 flex-1 text-foreground ${!isActive ? "opacity-60" : ""}`}
+              onDragOver={handleTerminalDragOver}
+              onDrop={handleTerminalFileDrop}
+              onMouseDown={() => {
+                requestAnimationFrame(() => xtermRef.current?.focus());
+              }}
+            />
+          </ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem
+              disabled={!hasSelection}
+              aria-label={t("terminal.copySelection")}
+              onClick={() => {
+                const terminal = xtermRef.current;
+                if (terminal) copySelectionFromTerminal(terminal);
+              }}
+            >
+              <CopyIcon />
+              {t("terminal.copySelection")}
+              <ContextMenuShortcut>Ctrl+Shift+C</ContextMenuShortcut>
+            </ContextMenuItem>
+            <ContextMenuItem
+              disabled={!connectionId}
+              aria-label={t("terminal.paste")}
+              onClick={() => {
+                const terminal = xtermRef.current;
+                if (terminal) pasteClipboardIntoTerminal(terminal);
+              }}
+            >
+              <ClipboardIcon />
+              {t("terminal.paste")}
+              <ContextMenuShortcut>Ctrl+Shift+V</ContextMenuShortcut>
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
       </div>
     </div>
   );

@@ -126,14 +126,14 @@ struct EditorGutterLayoutTests {
             onEdit: { editedLine = $0 }
         )
 
-        let menu = try #require(gutter.debugBreakpointContextMenu(forLine: 6))
-        #expect(menu.items.map(\.title) == [
+        let items = gutter.debugBreakpointContextMenuItems(forLine: 6)
+        #expect(items.map(\.title) == [
             "Edit Breakpoint…",
             "Disable Breakpoint",
             "Remove Breakpoint"
         ])
 
-        gutter.editDebugBreakpointFromMenu()
+        try #require(items.first).action()
         #expect(editedLine == 6)
     }
 
@@ -148,9 +148,9 @@ struct EditorGutterLayoutTests {
             canAdd: { $0 == 4 }
         )
 
-        let menu = try #require(gutter.debugBreakpointContextMenu(forLine: 4))
-        #expect(menu.items.map(\.title) == ["Set Breakpoint"])
-        gutter.addDebugBreakpointFromMenu()
+        let items = gutter.debugBreakpointContextMenuItems(forLine: 4)
+        #expect(items.map(\.title) == ["Set Breakpoint"])
+        try #require(items.first).action()
         #expect(toggledLine == 4)
     }
 

@@ -4,6 +4,7 @@ import { useTranslation } from "@/i18n/locale-provider";
 import Section, { SETTINGS_CONTROL_WIDTHS, SettingsView, SettingRow } from "../settings-section";
 import Select from "@/ui/select";
 import Switch from "@/ui/switch";
+import { GitIdentitySettings } from "../git-identity-settings";
 
 export const GitSettings = () => {
   const { t } = useTranslation();
@@ -34,6 +35,7 @@ export const GitSettings = () => {
 
   return (
     <SettingsView>
+      <GitIdentitySettings />
       <Section title={t("settings.git.integration")}>
         <SettingRow
           label={t("settings.git.gitIntegration")}

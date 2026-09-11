@@ -5,14 +5,15 @@ use crate::protocol::{
     MavenDependenciesResponse, MavenDependencyResolutionResponse, MavenDependencyResponse,
     MavenDiagnosticResponse, MavenDiagnosticsResponse, MavenLaunchExecutableResponse,
     MavenLaunchPlanResponse, MavenModuleResponse, MavenProfileResponse, MavenScanResponse,
-    MavenSourceRootKind, MavenSourceRootResponse,
+    MavenSourceRootKind, MavenSourceRootResponse, MavenTestFailureResponse,
+    MavenTestResultsResponse,
 };
 use quick_xml::events::Event;
 use quick_xml::Reader;
 use regex::Regex;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -33,12 +34,23 @@ pub struct MavenDiagnosticsRequest {
     pub output: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Maven Surefire/Failsafe output to normalize into JUnit result data.
+pub struct MavenTestResultsRequest {
+    pub root: String,
+    pub output: String,
+}
+
 const MAVEN_CONTEXT_VERSION: u32 = 1;
 const MAVEN_DEPENDENCY_PLUGIN_GOAL: &str =
     "org.apache.maven.plugins:maven-dependency-plugin:3.8.1:tree";
 const MAX_MAVEN_DEPENDENCY_OUTPUT_CHARACTERS: usize = 500_000;
 const MAX_MAVEN_DEPENDENCY_NODES: usize = 10_000;
 const MAX_MAVEN_DEPENDENCY_DEPTH: usize = 64;
+const MAX_MAVEN_TEST_OUTPUT_CHARACTERS: usize = 500_000;
+const MAX_MAVEN_TEST_FAILURES: usize = 10_000;
+const MAX_MAVEN_TEST_SOURCE_SEARCH_DIRECTORIES: usize = 10_000;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -699,6 +711,616 @@ pub fn diagnostics(
         })
         .collect();
     Ok(MavenDiagnosticsResponse { issues })
+}
+
+#[derive(Clone, Copy)]
+enum MavenTestFailureKind {
+    Failure,
+    Error,
+}
+
+impl MavenTestFailureKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Failure => "failure",
+            Self::Error => "error",
+        }
+    }
+}
+
+/// Parses the common text reporter used by Maven Surefire and Failsafe.
+///
+/// The parser deliberately consumes only bounded process output. XML report
+/// files remain platform-owned, while this command provides enough structure
+/// for both products to show counts and navigate the first useful stack frame.
+pub fn test_results(
+    request: MavenTestResultsRequest,
+) -> Result<MavenTestResultsResponse, CoreError> {
+    let workspace_root = existing_root(&request.root)?;
+    if request
+        .output
+        .chars()
+        .nth(MAX_MAVEN_TEST_OUTPUT_CHARACTERS)
+        .is_some()
+    {
+        return Err(CoreError::new(
+            ErrorCode::ParseFailed,
+            "Maven test output exceeds the supported limit",
+        )
+        .with_details(format!(
+            "maximumCharacters={MAX_MAVEN_TEST_OUTPUT_CHARACTERS}"
+        )));
+    }
+
+    let ansi =
+        Regex::new(r"\x1b\[[0-?]*[ -/]*[@-~]").expect("static ANSI escape expression is valid");
+    let summary_expression = Regex::new(
+        r"(?i)^Tests\s+run:\s*(\d+)\s*,\s*Failures:\s*(\d+)\s*,\s*Errors:\s*(\d+)\s*,\s*(?:Skipped|Ignored):\s*(\d+)(?:\s+-+\s+in\s+(.+)|,\s*Time elapsed:.*)?\s*$",
+    )
+    .expect("static Maven test summary expression is valid");
+    let failure_expression =
+        Regex::new(r#"^(?:\d+\)\s*)?([A-Za-z_$][A-Za-z0-9_.$#<>$\[\]'\" ()-]*?)(?:\s*:\s*(.*))?$"#)
+            .expect("static Maven test failure expression is valid");
+    let detailed_failure_expression = Regex::new(
+        r#"^([A-Za-z_$][A-Za-z0-9_.$#<>$\[\]'\" ()-]*?)\s+(?:--\s+)?Time elapsed:.*<<<\s+(FAILURE|ERROR)!\s*$"#,
+    )
+    .expect("static Maven detailed failure expression is valid");
+    let stack_expression = Regex::new(
+        r"^at\s+([A-Za-z_$][A-Za-z0-9_.$]*)(?:\.[A-Za-z_$][A-Za-z0-9_$<>]*)?\((.*?\.java):(\d+)\)$",
+    )
+    .expect("static Maven test stack expression is valid");
+
+    let mut footer_summary = (0_usize, 0_usize, 0_usize, 0_usize);
+    let mut class_summary = (0_usize, 0_usize, 0_usize, 0_usize);
+    let mut saw_footer_summary = false;
+    let mut saw_class_summary = false;
+    let mut section = None;
+    let mut current_failure = None;
+    let mut failure_details: Vec<MavenTestFailureResponse> = Vec::new();
+    let mut source_index = None;
+    let mut source_cache = HashMap::new();
+
+    for raw_line in request.output.lines() {
+        crate::protocol::cancellation::check()?;
+        let clean_line = ansi.replace_all(raw_line, "");
+        let line = strip_maven_log_prefix(clean_line.as_ref());
+        let trimmed = line.trim();
+        if trimmed.eq_ignore_ascii_case("Results:") {
+            section = None;
+            current_failure = None;
+            continue;
+        }
+        if let Some(captures) = summary_expression.captures(line.trim()) {
+            let parsed = (
+                captures[1].parse::<usize>().unwrap_or(0),
+                captures[2].parse::<usize>().unwrap_or(0),
+                captures[3].parse::<usize>().unwrap_or(0),
+                captures[4].parse::<usize>().unwrap_or(0),
+            );
+            let is_class_summary = captures.get(5).is_some() || trimmed.contains(", Time elapsed:");
+            if is_class_summary {
+                class_summary.0 = class_summary.0.saturating_add(parsed.0);
+                class_summary.1 = class_summary.1.saturating_add(parsed.1);
+                class_summary.2 = class_summary.2.saturating_add(parsed.2);
+                class_summary.3 = class_summary.3.saturating_add(parsed.3);
+                saw_class_summary = true;
+            } else {
+                footer_summary.0 = footer_summary.0.saturating_add(parsed.0);
+                footer_summary.1 = footer_summary.1.saturating_add(parsed.1);
+                footer_summary.2 = footer_summary.2.saturating_add(parsed.2);
+                footer_summary.3 = footer_summary.3.saturating_add(parsed.3);
+                saw_footer_summary = true;
+            }
+            // A summary terminates both the failure list and any preceding
+            // detailed failure. Do not let reactor diagnostics inherit it.
+            section = None;
+            current_failure = None;
+            continue;
+        }
+
+        if let Some(captures) = detailed_failure_expression.captures(trimmed) {
+            let name = captures
+                .get(1)
+                .map(|value| value.as_str())
+                .unwrap_or_default();
+            if looks_like_test_name(name) {
+                let kind = match captures.get(2).map(|value| value.as_str()) {
+                    Some("ERROR") => MavenTestFailureKind::Error,
+                    _ => MavenTestFailureKind::Failure,
+                };
+                current_failure = Some(record_maven_failure(
+                    &mut failure_details,
+                    name,
+                    kind,
+                    None,
+                )?);
+            }
+            continue;
+        }
+
+        if trimmed.eq_ignore_ascii_case("Failures:")
+            || trimmed.eq_ignore_ascii_case("Failed tests:")
+        {
+            section = Some(MavenTestFailureKind::Failure);
+            current_failure = None;
+            continue;
+        }
+        if trimmed.eq_ignore_ascii_case("Errors:") {
+            section = Some(MavenTestFailureKind::Error);
+            current_failure = None;
+            continue;
+        }
+        if trimmed.eq_ignore_ascii_case("Tests run:") || trimmed.starts_with("Tests run:") {
+            section = None;
+            current_failure = None;
+            continue;
+        }
+
+        if let Some(captures) = stack_expression.captures(trimmed) {
+            if let Some(index) = current_failure {
+                if failure_details
+                    .get(index)
+                    .is_some_and(|detail| detail.path.is_some())
+                {
+                    continue;
+                }
+                let line_number = captures[3].parse::<usize>().ok();
+                let location = if let Some(line_number) = line_number {
+                    resolve_test_source_path(
+                        &workspace_root,
+                        captures
+                            .get(1)
+                            .map(|value| value.as_str())
+                            .unwrap_or_default(),
+                        captures
+                            .get(2)
+                            .map(|value| value.as_str())
+                            .unwrap_or_default(),
+                        &mut source_index,
+                        &mut source_cache,
+                    )?
+                    .map(|path| (path, line_number))
+                } else {
+                    None
+                };
+                if let Some(detail) = failure_details.get_mut(index) {
+                    let detail: &mut MavenTestFailureResponse = detail;
+                    if let Some((path, line_number)) = location {
+                        detail.path = Some(path);
+                        detail.line = Some(line_number);
+                    }
+                }
+            }
+            continue;
+        }
+
+        let Some(kind) = section else { continue };
+        let Some(captures) = failure_expression.captures(trimmed) else {
+            continue;
+        };
+        let name = captures
+            .get(1)
+            .map(|value| value.as_str().trim())
+            .unwrap_or_default();
+        if !looks_like_test_name(name) {
+            continue;
+        }
+        let raw_message = captures
+            .get(2)
+            .map(|value| value.as_str().trim())
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        // Surefire's compact footer encodes the source line as
+        // `TestName:line message`. Preserve a detailed entry's location, or use
+        // the footer line when legacy output provides no usable stack frame.
+        let (footer_line, message) = raw_message.map_or((None, None), |value| {
+            let mut parts = value.splitn(2, char::is_whitespace);
+            match parts.next() {
+                Some(token) if token.parse::<usize>().is_ok() => (
+                    token.parse::<usize>().ok(),
+                    parts
+                        .next()
+                        .map(str::trim)
+                        .filter(|rest| !rest.is_empty())
+                        .map(str::to_string),
+                ),
+                _ => (None, Some(value)),
+            }
+        });
+        let index = record_maven_failure(&mut failure_details, name, kind, message)?;
+        if let Some(line_number) = footer_line {
+            resolve_footer_source_location(
+                &workspace_root,
+                &mut failure_details[index],
+                name,
+                line_number,
+                &mut source_index,
+                &mut source_cache,
+            )?;
+        }
+        current_failure = Some(index);
+    }
+
+    let (tests_run, failures, errors, skipped) = if saw_footer_summary {
+        footer_summary
+    } else if saw_class_summary {
+        class_summary
+    } else {
+        let failures = failure_details
+            .iter()
+            .filter(|detail| detail.kind == "failure")
+            .count();
+        let errors = failure_details
+            .iter()
+            .filter(|detail| detail.kind == "error")
+            .count();
+        (failures + errors, failures, errors, 0)
+    };
+    let passed = tests_run.saturating_sub(failures + errors + skipped);
+    Ok(MavenTestResultsResponse {
+        tests_run,
+        failures,
+        errors,
+        skipped,
+        passed,
+        success: failures == 0 && errors == 0,
+        failure_details,
+    })
+}
+
+fn strip_maven_log_prefix(raw_line: &str) -> &str {
+    let mut line = raw_line.trim_start();
+    loop {
+        let Some(rest) = line.strip_prefix('[') else {
+            break;
+        };
+        let Some(end) = rest.find(']') else { break };
+        let prefix = &rest[..end];
+        if !matches!(prefix, "INFO" | "ERROR" | "WARNING" | "DEBUG") {
+            break;
+        }
+        line = rest[end + 1..].trim_start();
+    }
+    line
+}
+
+fn looks_like_test_name(name: &str) -> bool {
+    !name.is_empty()
+        && (name.contains('(')
+            || name.contains('#')
+            || name.contains('.')
+            || name.ends_with("Test")
+            || name.ends_with("Tests"))
+        && !name.ends_with("Exception")
+        && !name.ends_with("Error")
+}
+
+fn same_maven_test_name(left: &str, right: &str) -> bool {
+    let left = normalized_maven_test_name(left);
+    let right = normalized_maven_test_name(right);
+    left == right
+        || left
+            .strip_suffix(&right)
+            .is_some_and(|prefix| prefix.ends_with('.'))
+        || right
+            .strip_suffix(&left)
+            .is_some_and(|prefix| prefix.ends_with('.'))
+}
+
+fn normalized_maven_test_name(name: &str) -> String {
+    let Some(opening) = name.rfind('(') else {
+        return name.to_string();
+    };
+    if !name.ends_with(')') {
+        return name.to_string();
+    }
+    let class_name = &name[(opening + 1)..name.len() - 1];
+    if !class_name.contains('.') || class_name.chars().any(char::is_whitespace) {
+        return name.to_string();
+    }
+    format!("{class_name}.{}", &name[..opening])
+}
+
+fn record_maven_failure(
+    details: &mut Vec<MavenTestFailureResponse>,
+    name: &str,
+    kind: MavenTestFailureKind,
+    message: Option<String>,
+) -> Result<usize, CoreError> {
+    if let Some(index) = details
+        .iter()
+        .position(|detail| same_maven_test_name(&detail.name, name))
+    {
+        if let Some(message) = message {
+            if details[index].message.is_none() {
+                details[index].message = Some(message);
+            }
+        }
+        return Ok(index);
+    }
+    if details.len() >= MAX_MAVEN_TEST_FAILURES {
+        return Err(CoreError::new(
+            ErrorCode::ParseFailed,
+            "Maven test failure count exceeds the supported limit",
+        )
+        .with_details(format!("maximumFailures={MAX_MAVEN_TEST_FAILURES}")));
+    }
+    details.push(MavenTestFailureResponse {
+        name: name.to_string(),
+        kind: kind.as_str().to_string(),
+        message,
+        path: None,
+        line: None,
+        column: None,
+    });
+    Ok(details.len() - 1)
+}
+
+fn resolve_test_source_path(
+    root: &Path,
+    class_name: &str,
+    file_name: &str,
+    source_index: &mut Option<MavenTestSourceIndex>,
+    source_cache: &mut HashMap<(String, String), Option<String>>,
+) -> Result<Option<String>, CoreError> {
+    crate::protocol::cancellation::check()?;
+    let cache_key = (class_name.to_string(), file_name.to_string());
+    if let Some(cached) = source_cache.get(&cache_key) {
+        return Ok(cached.clone());
+    }
+    let file_path = Path::new(file_name);
+    if file_path.is_absolute() {
+        if let Some(path) = workspace_relative_path(root, file_path) {
+            source_cache.insert(cache_key, Some(path.clone()));
+            return Ok(Some(path));
+        }
+    }
+
+    let class_name = class_name
+        .rsplit_once('.')
+        .map(|(class_name, _)| class_name)
+        .unwrap_or(class_name)
+        .split('$')
+        .next()
+        .unwrap_or(class_name);
+    let class_path = class_name.replace('.', "/") + ".java";
+    let simple_file_name = Path::new(file_name)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(file_name);
+    if source_index.is_none() {
+        *source_index = Some(MavenTestSourceIndex::build(root)?);
+    }
+    let index = source_index
+        .as_ref()
+        .expect("source index should exist after construction");
+    let resolved = index.resolve(&class_path, simple_file_name);
+    source_cache.insert(cache_key, resolved.clone());
+    Ok(resolved)
+}
+
+fn resolve_footer_source_location(
+    root: &Path,
+    detail: &mut MavenTestFailureResponse,
+    name: &str,
+    line_number: usize,
+    source_index: &mut Option<MavenTestSourceIndex>,
+    source_cache: &mut HashMap<(String, String), Option<String>>,
+) -> Result<(), CoreError> {
+    if detail.path.is_some() {
+        return Ok(());
+    }
+    let normalized = normalized_maven_test_name(name);
+    let Some((class_name, _)) = normalized.rsplit_once('.') else {
+        return Ok(());
+    };
+    let simple_class = class_name
+        .rsplit('.')
+        .next()
+        .unwrap_or(class_name)
+        .split('$')
+        .next()
+        .unwrap_or(class_name);
+    let file_name = format!("{simple_class}.java");
+    if let Some(path) =
+        resolve_test_source_path(root, &normalized, &file_name, source_index, source_cache)?
+    {
+        detail.path = Some(path);
+        detail.line = Some(line_number);
+    }
+    Ok(())
+}
+
+/// One lazily built, parse-wide index bounds source traversal to 10,000
+/// directories total instead of repeating that cost for every stack frame.
+struct MavenTestSourceIndex {
+    paths: Vec<String>,
+    complete: bool,
+}
+
+impl MavenTestSourceIndex {
+    fn build(root: &Path) -> Result<Self, CoreError> {
+        let mut directories = vec![root.to_path_buf()];
+        let mut paths = Vec::new();
+        let mut visited = 0;
+        let mut complete = true;
+        while let Some(directory) = directories.pop() {
+            crate::protocol::cancellation::check()?;
+            if visited >= MAX_MAVEN_TEST_SOURCE_SEARCH_DIRECTORIES {
+                complete = false;
+                break;
+            }
+            visited += 1;
+            let entries = match fs::read_dir(&directory) {
+                Ok(entries) => entries,
+                Err(_) => {
+                    complete = false;
+                    continue;
+                }
+            };
+            let mut children = Vec::new();
+            for entry in entries {
+                crate::protocol::cancellation::check()?;
+                let entry = match entry {
+                    Ok(entry) => entry,
+                    Err(_) => {
+                        complete = false;
+                        continue;
+                    }
+                };
+                let file_type = match entry.file_type() {
+                    Ok(file_type) => file_type,
+                    Err(_) => {
+                        complete = false;
+                        continue;
+                    }
+                };
+                if file_type.is_dir() {
+                    if !should_skip_test_source_directory(&entry.path()) {
+                        children.push((entry.path(), true));
+                    }
+                } else if file_type.is_file()
+                    && matches!(
+                        entry.path().extension().and_then(|value| value.to_str()),
+                        Some("java" | "kt")
+                    )
+                {
+                    children.push((entry.path(), false));
+                }
+            }
+            children.sort_by(|left, right| {
+                left.0
+                    .to_string_lossy()
+                    .to_ascii_lowercase()
+                    .cmp(&right.0.to_string_lossy().to_ascii_lowercase())
+                    .then_with(|| left.0.cmp(&right.0))
+            });
+            for (path, is_directory) in children.into_iter().rev() {
+                if is_directory {
+                    directories.push(path);
+                } else if let Ok(relative) = path.strip_prefix(root) {
+                    // Traversal starts at root and excludes symlinks via file_type,
+                    // so lexical paths avoid two canonicalizations per source file.
+                    // Absolute paths from process output still require containment checks.
+                    paths.push(relative.to_string_lossy().replace('\\', "/"));
+                } else {
+                    complete = false;
+                }
+            }
+        }
+        paths.sort_by(|left, right| {
+            left.to_ascii_lowercase()
+                .cmp(&right.to_ascii_lowercase())
+                .then_with(|| left.cmp(right))
+        });
+        Ok(Self { paths, complete })
+    }
+
+    fn resolve(&self, class_path: &str, simple_file_name: &str) -> Option<String> {
+        // A partial index cannot prove uniqueness, so returning any candidate
+        // would risk navigating to a same-named source in another module.
+        if !self.complete {
+            return None;
+        }
+
+        let mut exact_matches = self
+            .paths
+            .iter()
+            .filter(|path| path_has_suffix(path, class_path));
+        if let Some(path) = exact_matches.next() {
+            return exact_matches.next().is_none().then(|| path.clone());
+        }
+
+        let mut file_name_matches = self.paths.iter().filter(|path| {
+            Path::new(path).file_name().and_then(|value| value.to_str()) == Some(simple_file_name)
+        });
+        let path = file_name_matches.next()?;
+        file_name_matches.next().is_none().then(|| path.clone())
+    }
+}
+
+fn path_has_suffix(path: &str, suffix: &str) -> bool {
+    path == suffix
+        || path
+            .strip_suffix(suffix)
+            .is_some_and(|prefix| prefix.ends_with('/'))
+}
+
+#[cfg(test)]
+mod test_source_index_tests {
+    use super::MavenTestSourceIndex;
+
+    #[test]
+    fn source_index_prefers_the_unique_package_path() {
+        let index = MavenTestSourceIndex {
+            paths: vec![
+                "src/test/java/AppTest.java".to_string(),
+                "service/src/test/java/com/example/AppTest.java".to_string(),
+            ],
+            complete: true,
+        };
+
+        assert_eq!(
+            index.resolve("com/example/AppTest.java", "AppTest.java"),
+            Some("service/src/test/java/com/example/AppTest.java".to_string())
+        );
+    }
+
+    #[test]
+    fn source_index_rejects_ambiguous_or_incomplete_results() {
+        let duplicate_index = MavenTestSourceIndex {
+            paths: vec![
+                "service-one/src/test/java/com/example/AppTest.java".to_string(),
+                "service-two/src/test/java/com/example/AppTest.java".to_string(),
+            ],
+            complete: true,
+        };
+        let incomplete_index = MavenTestSourceIndex {
+            paths: vec!["service/src/test/java/com/example/AppTest.java".to_string()],
+            complete: false,
+        };
+
+        assert_eq!(
+            duplicate_index.resolve("com/example/AppTest.java", "AppTest.java"),
+            None
+        );
+        assert_eq!(
+            incomplete_index.resolve("com/example/AppTest.java", "AppTest.java"),
+            None
+        );
+    }
+
+    #[test]
+    fn source_index_requires_a_path_boundary_and_unique_filename_fallback() {
+        let mut index = MavenTestSourceIndex {
+            paths: vec!["src/test/java/notcom/example/AppTest.java".to_string()],
+            complete: true,
+        };
+        assert_eq!(
+            index.resolve("com/example/AppTest.java", "AppTest.java"),
+            Some("src/test/java/notcom/example/AppTest.java".to_string())
+        );
+        index.paths.push("other/AppTest.java".to_string());
+        // The partial package suffix must not bypass ambiguous filename fallback.
+        assert_eq!(
+            index.resolve("com/example/AppTest.java", "AppTest.java"),
+            None
+        );
+    }
+}
+
+fn should_skip_test_source_directory(path: &Path) -> bool {
+    matches!(
+        path.file_name().and_then(|value| value.to_str()),
+        Some(".git" | ".gradle" | "node_modules" | "target" | "dist")
+    )
+}
+
+fn workspace_relative_path(root: &Path, path: &Path) -> Option<String> {
+    let canonical_root = root.canonicalize().ok()?;
+    let canonical_path = path.canonicalize().ok()?;
+    let relative = canonical_path.strip_prefix(canonical_root).ok()?;
+    Some(relative.to_string_lossy().replace('\\', "/"))
 }
 
 #[derive(Clone)]

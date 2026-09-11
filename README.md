@@ -19,11 +19,6 @@
   </p>
 
   <p>
-    <a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="https://img.shields.io/badge/QQ_Group-163027877-EB1923?style=for-the-badge&logo=qq&logoColor=white" alt="Join the Lithe QQ group 163027877"></a>
-    <a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="https://img.shields.io/badge/WeChat_Group-Join_Now-07C160?style=for-the-badge&logo=wechat&logoColor=white" alt="Join the Lithe WeChat group"></a>
-  </p>
-
-  <p>
     <a href="https://github.com/1lck/Lithe-IDEA/releases/latest"><img src="https://img.shields.io/github/v/release/1lck/Lithe-IDEA?style=flat&label=release&logo=github&logoColor=white" alt="Latest release"></a>
     <a href="https://github.com/1lck/Lithe-IDEA/releases"><img src="https://img.shields.io/github/downloads/1lck/Lithe-IDEA/total?style=flat&label=downloads&logo=github&logoColor=white" alt="Total downloads"></a>
     <img src="https://img.shields.io/badge/macOS-13%2B-111827?style=flat&logo=apple&logoColor=white" alt="macOS 13+">
@@ -32,15 +27,26 @@
     <a href="#download-and-install"><img src="https://img.shields.io/badge/Homebrew-Install-FBB040?style=flat&logo=homebrew&logoColor=black" alt="Install with Homebrew"></a>
     <a href="./LICENSE"><img src="https://img.shields.io/github/license/1lck/Lithe-IDEA?style=flat&label=license" alt="Apache License 2.0"></a>
   </p>
-  <p>
-    <img src="https://img.shields.io/badge/Java-JDK%2017%2B-E76F00?style=flat&logo=openjdk&logoColor=white" alt="JDK 17+">
-    <img src="https://img.shields.io/badge/Spring%20Boot-Projects-6DB33F?style=flat&logo=springboot&logoColor=white" alt="Spring Boot projects">
-    <img src="https://img.shields.io/badge/Maven-Management-C71A36?style=flat&logo=apachemaven&logoColor=white" alt="Maven management">
-    <img src="https://img.shields.io/badge/Debugger-Breakpoints-D32F2F?style=flat" alt="Breakpoint debugging">
-    <img src="https://img.shields.io/badge/Git-Diff%20Review-F05032?style=flat&logo=git&logoColor=white" alt="Git diff review">
-    <img src="https://img.shields.io/badge/Database-SQL%20Workspace-336791?style=flat" alt="Database SQL workspace">
-  </p>
 </div>
+
+## Join the community
+
+Welcome to join the Lithe community, share your experience, ask questions, and follow the latest updates.
+
+<div align="center">
+<table>
+  <tr>
+    <th>QQ group</th>
+    <th>WeChat group</th>
+  </tr>
+  <tr>
+    <td align="center"><a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="./docs/assets/contact/qq-group-qr.png" width="280" alt="QR code for the Lithe QQ group"></a></td>
+    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr.png" width="280" alt="QR code for the Lithe WeChat group"></a></td>
+  </tr>
+</table>
+</div>
+
+If you cannot scan the WeChat QR code, [click here to join through Feishu](https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink).
 
 ## Why Lithe
 
@@ -54,7 +60,28 @@ The Lithe application typically uses about **300–400 MB of baseline memory** a
 
 > **AI writes the code. Lithe helps you understand it, run it, and review it.**
 
+## If macOS says it cannot open `Lithe.app`
+
+If macOS says that Apple cannot verify whether `Lithe.app` contains malware, the manually downloaded package may not yet be notarized by Apple. First confirm that the app came from the trusted [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest), then use one of these methods:
+
+<p align="center">
+  <img src="./docs/assets/screenshots/macos-app-verification-warning.png" width="492" alt="macOS warning that Lithe.app cannot be opened">
+</p>
+
+1. In **Applications**, Control-click `Lithe.app`, choose **Open**, and choose **Open** again in the confirmation dialog.
+2. If macOS still blocks it, open **System Settings > Privacy & Security**, click **Open Anyway** next to the security warning, and launch the app again.
+3. You can also remove the quarantine attribute in Terminal:
+
+   ```bash
+   sudo xattr -dr com.apple.quarantine /Applications/Lithe.app
+   ```
+
+Only use these steps for an app whose source you trust. Homebrew installations usually do not require manual quarantine removal.
+
 ## Core features
+
+<details>
+<summary>Expand core features</summary>
 
 1. Built for Spring Boot projects and Java development.
 2. Maven management, breakpoint debugging, and custom run configurations.
@@ -74,6 +101,8 @@ The Lithe application typically uses about **300–400 MB of baseline memory** a
 16. Multi-line editor tabs for keeping more files visible in the same workspace.
 17. Database connection workspace with multiple database types, connection management, SQL history, table browsing, and database operations.
 18. Ongoing bug fixes and user experience improvements.
+
+</details>
 
 ## Product tour
 
@@ -132,24 +161,6 @@ brew install --cask 1lck/lithe/lithe
 brew upgrade --cask lithe
 ```
 
-### If macOS says it cannot open `Lithe.app`
-
-If macOS says that Apple cannot verify whether `Lithe.app` contains malware, the manually downloaded package may not yet be notarized by Apple. First confirm that the app came from the trusted [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest), then use one of these methods:
-
-<p align="center">
-  <img src="./docs/assets/screenshots/macos-app-verification-warning.png" width="492" alt="macOS warning that Lithe.app cannot be opened">
-</p>
-
-1. In **Applications**, Control-click `Lithe.app`, choose **Open**, and choose **Open** again in the confirmation dialog.
-2. If macOS still blocks it, open **System Settings > Privacy & Security**, click **Open Anyway** next to the security warning, and launch the app again.
-3. You can also remove the quarantine attribute in Terminal:
-
-   ```bash
-   sudo xattr -dr com.apple.quarantine /Applications/Lithe.app
-   ```
-
-Only use these steps for an app whose source you trust. Homebrew installations usually do not require manual quarantine removal.
-
 ## Architecture Overview
 
 macOS is the current reference product. Windows is an independent React/Tauri implementation. Both products share deterministic commands and contracts through Rust Core while keeping native UI and platform integrations separate.
@@ -203,6 +214,7 @@ Before submitting a change, run:
 
 ```bash
 ./scripts/test-macos.sh
+./scripts/test-git-performance-baseline.sh
 ./scripts/verify-core.sh
 ./scripts/verify-git-graph.sh
 ./scripts/verify-service-boundaries.sh
@@ -211,13 +223,28 @@ Before submitting a change, run:
 ./scripts/verify-rust-core.sh
 ```
 
+`test-git-performance-baseline.sh` runs deterministic Git graph work gates and
+records an optimized multi-sample timing baseline under `.artifacts/`.
+
 See [Repository layout and shared boundaries](./docs/architecture/repository-layout.md) for directory ownership, cross-platform boundaries, sharing rules, and the required Rust Core comment standard. Include your verification steps and known limitations when submitting a change.
 
 </details>
 
 ## Project support
 
-### ❤️ Sponsors <sup><a href="mailto:2188718831@qq.com">Become a sponsor</a></sup>
+### ❤️ Sponsors
+
+<p align="center">
+  <a href="https://www.fastaitoken.com/">
+    <img src="./docs/assets/sponsors/fastai-qrcode.png" width="480" alt="FastAI Token community chat group QR code">
+  </a>
+</p>
+<p align="center">
+  <a href="https://www.fastaitoken.com/"><strong>FastAI</strong></a><br>
+  FastAI provides convenient relay access to a range of leading large language models, making it easier to connect AI capabilities to everyday development workflows. Its support helps Lithe continue improving its AI-assisted experience. Thank you to FastAI for supporting this project! Scan the QR code above to join the FastAI Token community chat group #2 (group ID: 1073874006).
+</p>
+
+<a href="mailto:2188718831@qq.com">Want to be featured below?</a>
 
 <table>
   <tr>
@@ -232,12 +259,12 @@ See [Repository layout and shared boundaries](./docs/architecture/repository-lay
   </tr>
   <tr>
     <td width="112" align="center">
-      <a href="https://codezsy.com">
-        <img src="https://raw.githubusercontent.com/zwenooo/z/main/logo/codez-logo-bq.png" width="64" alt="CodeZ relay service">
+      <a href="https://torchai.ai/sign-up?aff=FdkE">
+        <img src="./docs/assets/sponsors/torchai.jpg" width="64" alt="TorchAI">
       </a>
     </td>
     <td>
-      <a href="https://codezsy.com"><strong>CodeZ</strong></a> focuses on stable relay access to GPT-family models, offering developers a straightforward way to integrate model APIs into their tools and projects. Its sponsorship contributes to the ongoing development and maintenance of Lithe. Thank you to CodeZ for supporting this project!
+      <a href="https://torchai.ai/sign-up?aff=FdkE"><strong>TorchAI</strong></a> provides large language model relay services for developers who need convenient API access across coding, content, and automation scenarios. Its support helps sustain Lithe's development and exploration of practical AI-powered tools. Thank you to TorchAI for supporting this project!
     </td>
   </tr>
   <tr>
@@ -252,12 +279,12 @@ See [Repository layout and shared boundaries](./docs/architecture/repository-lay
   </tr>
   <tr>
     <td width="112" align="center">
-      <a href="https://torchai.ai">
-        <img src="./docs/assets/sponsors/torchai.jpg" width="64" alt="TorchAI">
+      <a href="https://codezsy.com/register?aff=fDyA">
+        <img src="https://raw.githubusercontent.com/zwenooo/z/main/logo/codez-logo-bq.png" width="64" alt="CodeZ relay service">
       </a>
     </td>
     <td>
-      <a href="https://torchai.ai"><strong>TorchAI</strong></a> provides large language model relay services for developers who need convenient API access across coding, content, and automation scenarios. Its support helps sustain Lithe's development and exploration of practical AI-powered tools. Thank you to TorchAI for supporting this project!
+      <a href="https://codezsy.com/register?aff=fDyA"><strong>CodeZ</strong></a> focuses on stable relay access to GPT-family models, offering developers a straightforward way to integrate model APIs into their tools and projects. Its sponsorship contributes to the ongoing development and maintenance of Lithe. Thank you to CodeZ for supporting this project!
     </td>
   </tr>
 </table>

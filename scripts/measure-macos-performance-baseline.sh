@@ -99,6 +99,7 @@ prepare_baseline_app() {
     mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
     cp "$binary_path" "$app_dir/Contents/MacOS/Lithe"
     cp "$project_root/macos/Resources/Info.plist" "$app_dir/Contents/Info.plist"
+    zsh "$project_root/scripts/embed-sparkle.sh" "$app_dir"
     cp -R "$build_root/Lithe_Lithe.bundle" \
         "$app_dir/Contents/Resources/Lithe_Lithe.bundle"
     cp -R "$build_root/SwiftTerm_SwiftTerm.bundle" \
@@ -106,6 +107,7 @@ prepare_baseline_app() {
     cp "$project_root/macos/Resources/AppIcon.icns" "$app_dir/Contents/Resources/AppIcon.icns"
     cp -R "$project_root/macos/Resources/Fonts" "$app_dir/Contents/Resources/Fonts"
     cp -R "$project_root/macos/Resources/IDEAIcons" "$app_dir/Contents/Resources/IDEAIcons"
+    cp -R "$project_root/macos/Resources/GitGraph" "$app_dir/Contents/Resources/GitGraph"
     cp -R "$project_root/macos/Resources/DatabaseIcons" "$app_dir/Contents/Resources/DatabaseIcons"
     for localization in en.lproj zh-Hans.lproj; do
         if [[ -d "$project_root/macos/Resources/$localization" ]]; then

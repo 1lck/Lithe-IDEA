@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import LitheGitModule
 import Testing
 @testable import Lithe
 
@@ -137,6 +139,33 @@ struct AppLocalizationTests {
     }
 
     @Test
+    func simplifiedChineseResourcesCoverGitHistoryPagination() throws {
+        let translations = try simplifiedChineseTranslations()
+
+        #expect(translations["Load more commits"] == "加载更多提交")
+        #expect(translations["Loading commits…"] == "正在加载提交…")
+        #expect(translations["Older commits are outside the loaded history"] == "更早的提交不在当前加载的历史范围内")
+        #expect(translations["Copy Commit Hash"] == "复制提交哈希")
+        #expect(translations["Copy Short Hash"] == "复制短哈希")
+        #expect(translations["New Tag…"] == "新建标签…")
+        #expect(translations["Cherry-pick Commit…"] == "拣选提交…")
+        #expect(translations["Revert Commit…"] == "反向提交（保留历史）…")
+        #expect(translations["Reset Current Branch to Here…"] == "将当前分支重置到这里…")
+        #expect(translations["Undo Commit…"] == "撤销最近一次提交（保留更改）…")
+        #expect(translations["Edit Commit Message…"] == "编辑提交消息…")
+        #expect(translations["Squash Commits…"] == "合并所选提交…")
+        #expect(translations["Drop Commit…"] == "从历史中移除提交…")
+        #expect(translations["Interactively Rebase from Here…"] == "从此处交互式变基…")
+        #expect(translations["Create Patch Between Commits…"] == "导出两次提交间的补丁…")
+
+        // Dynamic dialog labels must resolve through the same language resources as the menu.
+        for operation in GitHistoryRewriteOperation.allCases {
+            #expect(translations[operation.menuTitle.replacingOccurrences(of: "…", with: "")] != nil)
+            #expect(translations[operation.actionTitle] != nil)
+        }
+    }
+
+    @Test
     func simplifiedChineseResourcesCoverKeymapControls() throws {
         let translations = try simplifiedChineseTranslations()
 
@@ -244,4 +273,107 @@ private final class LocalizationTestKeyValueStore: KeyValueStore, @unchecked Sen
     func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
     func data(forKey key: String) -> Data? { values[key] as? Data }
     func set(_ value: Any?, forKey key: String) { values[key] = value }
+}
+
+@Suite("Git localization")
+struct GitLocalizationTests {
+    @Test(arguments: ["en", "zh-Hans"])
+    func gitControlsHaveTranslationsWithMatchingPlaceholders(language: String) throws {
+        let bundle = try resourceBundle(language)
+        let keys = [
+            "Revert this commit?", "Revert", "Create a new commit that reverses %@.",
+            "Cherry-pick this commit?", "Apply %@ to the current branch.",
+            "Reset current branch?", "Reset (Mixed)",
+            "Move the current branch to %@ and keep changes unstaged.",
+            "Delete branch?", "Merge branch?", "Rebase branch?",
+            "Checkout and rebase branch?", "Pull remote branch with rebase?",
+            "Pull remote branch with merge?", "New Tag", "Tag name",
+            "Delete tag '%@'?", "Deleted tag '%@'", "Deleted branch '%@'",
+            "Branch", "User", "Date", "Path", "HEAD (Current Branch)",
+            "Text, me, author:, branch:, path:", "Any Time", "Today", "Yesterday",
+            "Last 7 Days", "Last 30 Days", "Loading commits…", "Load more commits",
+            "Clear Git console", "Git exited with code %d", "%lld files",
+            "%lld worktrees", "Worktree action unavailable", "Invalid Git tag name."
+        ]
+        let pattern = try NSRegularExpression(pattern: #"%(?:\d+\$)?(?:lld|ld|d|@)"#)
+        for key in keys {
+            let value = bundle.localizedString(forKey: key, value: "MISSING", table: nil)
+            #expect(value != "MISSING", "Missing \(language) translation for \(key)")
+            if language == "zh-Hans" {
+                #expect(value != key, "Untranslated Git control: \(key)")
+            }
+            func placeholders(_ text: String) -> [String] {
+                pattern.matches(in: text, range: NSRange(text.startIndex..., in: text)).map {
+                    (text as NSString).substring(with: $0.range)
+                }.sorted()
+            }
+            #expect(placeholders(key) == placeholders(value), "Format mismatch: \(key)")
+        }
+    }
+
+    @Test(arguments: ["en", "zh-Hans"])
+    func formattedMenusPreserveReferenceNamesAndExplicitLanguage(language: String) throws {
+        let bundle = try resourceBundle(language)
+        let locale = Locale(identifier: language)
+        // Reference names that resemble translation keys, contain Unicode, or
+        // include percent signs must remain data when formatting translated UI.
+        let source = "Today"
+        let target = "feature/中文-100%"
+        let title = gitLocalizedFormat("Compare '%@' with '%@'", source, target, locale: locale, bundle: bundle)
+        #expect(title == (language == "en"
+            ? "Compare 'Today' with 'feature/中文-100%'"
+            : "比较“Today”与“feature/中文-100%”"))
+        let revert = gitLocalizedFormat("Create a new commit that reverses %@.", "8c8286c", locale: locale, bundle: bundle)
+        #expect(revert == (language == "en"
+            ? "Create a new commit that reverses 8c8286c."
+            : "创建一个新提交，撤销提交 8c8286c 的更改。"))
+    }
+
+    @Test(arguments: ["en", "zh-Hans"])
+    func pushDestinationUsesTheRequestedLanguage(language: String) throws {
+        let bundle = try resourceBundle(language)
+        for upstream in [nil, "origin/Today"] as [String?] {
+            let reference = GitReference(fullName: "refs/heads/Today", shortName: "Today", kind: .local,
+                                         isCurrent: true, upstreamShortName: upstream)
+            let presentation = GitPushDialogPresentation(reference: reference, locale: Locale(identifier: language), bundle: bundle)
+            let expected: String
+            if upstream != nil {
+                expected = language == "en" ? "Tracking origin/Today" : "跟踪 origin/Today"
+            } else {
+                expected = language == "en" ? "Publish Today (Core selects default remote)" : "发布 Today（自动选择默认远程仓库）"
+            }
+            #expect(presentation.destination == expected)
+        }
+    }
+
+    @Test @MainActor
+    func nativeRowsRefreshOnlyWhenContentOrLanguageChanges() {
+        let view = GitWorktreeRowsNSView()
+        let snapshot = GitWorktreeRowsSnapshot(identity: .changes(inspectionVersion: 1), rows: [])
+        let english = Locale(identifier: "en")
+        let chinese = Locale(identifier: "zh-Hans")
+        #expect(view.update(snapshot: snapshot, rowHeight: 35, locale: english))
+        #expect(!view.update(snapshot: snapshot, rowHeight: 35, locale: english))
+        #expect(view.update(snapshot: snapshot, rowHeight: 35, locale: chinese))
+        #expect(!view.update(snapshot: snapshot, rowHeight: 35, locale: chinese))
+    }
+
+    @Test @MainActor
+    func nativeFileTreeRefreshesCachedLabelsWhenLanguageChanges() {
+        let view = GitCommitFileTreeNSView()
+        func update(_ language: String) -> Bool {
+            view.update(locale: Locale(identifier: language), items: [], selectedFileID: nil,
+                        rootSubtitle: nil, collapsedFolderIDs: [], onToggleFolder: { _ in }, onSelectFile: { _ in })
+        }
+        _ = update("en")
+        #expect(!update("en"))
+        #expect(update("zh-Hans"))
+        #expect(!update("zh-Hans"))
+    }
+
+    private func resourceBundle(_ language: String) throws -> Bundle {
+        let resources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources")
+        return try #require(Bundle(url: resources.appendingPathComponent("\(language).lproj")))
+    }
 }

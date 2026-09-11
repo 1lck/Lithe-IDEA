@@ -122,6 +122,16 @@ struct RunEntryPointTests {
         let relaunched = await runConfigurations.launchPlanRequested(1)
         #expect(relaunched, "the deferred Run was never actually re-issued")
         #expect(model.pendingRunAction == nil)
+        // Toolbar Run must publish the application's output to the same session
+        // selected by the sidebar, without starting a separate primary process.
+        let configurationID = ReadyRunConfigurationOperations.entryPoint.id
+        #expect(runFeature.selectedProjectSessionID == configurationID)
+        #expect(runFeature.moduleSessions.count == 1)
+        #expect(runFeature.moduleSessions.first?.configurationID == configurationID)
+        #expect(runFeature.moduleSessions.first?.output.contains("Launching is out of scope") == true)
+        #expect(runFeature.output.isEmpty)
+        #expect(!runFeature.isRunning)
+        #expect(runConfigurations.launchPlanCallCount == 1)
         #expect(
             runFeature.isProjectReady(
                 for: workspace.root,
@@ -306,6 +316,38 @@ struct RunEntryPointTests {
         #expect(model.pendingRunAction == nil)
     }
 
+    /// A selected-service batch must remain one deferred action so a snapshot
+    /// arriving later cannot overwrite one launch with another.
+    @Test
+    func selectedServicesDeferAndResumeAsOneBatch() async throws {
+        let workspace = try JavaWorkspaceFixture()
+        defer { workspace.remove() }
+        let workspaceOperations = SequencedWorkspaceOperations.unavailableThenReady(workspace.snapshot)
+        let runConfigurations = ReadyRunConfigurationOperations()
+        let model = makeAppModel(
+            workspaceOperations: workspaceOperations,
+            runConfigurationOperations: runConfigurations
+        )
+
+        model.openProjectDirectly(workspace.root)
+        let services = [
+            ReadyRunConfigurationOperations.serviceEntryPoint,
+            ReadyRunConfigurationOperations.serviceEntryPointB,
+        ]
+        model.startSelectedServiceConfigurations(services)
+
+        let deferred = await awaitLoadDrivenChange(on: model) {
+            model.pendingRunAction?.kind == .startSelectedServices(services)
+        }
+        #expect(deferred)
+        #expect(runConfigurations.launchPlanCallCount == 0)
+
+        await model.workspaceFeature.refreshCurrent()
+        let relaunched = await runConfigurations.launchPlanRequested(2)
+        #expect(relaunched)
+        #expect(model.pendingRunAction == nil)
+    }
+
     /// Restart must use the same readiness funnel as direct start. A published
     /// but not-yet-consumed refresh still leaves the run service on the old
     /// inventory; restarting then would rebuild a launch plan from that stale
@@ -339,7 +381,7 @@ struct RunEntryPointTests {
             gitWatchContextProvider: watchContext
         )
 
-        // Establish lastConfiguration through the same deferred-run path the
+        // Establish an application session through the same deferred-run path the
         // existing entry tests already cover, then refresh to a newer snapshot
         // without letting the run service consume it.
         model.openProjectDirectly(workspace.root)
@@ -355,7 +397,7 @@ struct RunEntryPointTests {
         watchContext.release(1)
         let launched = await runConfigurations.launchPlanRequested(1)
         #expect(launched, "the initial run never requested a launch plan")
-        #expect(model.runFeatureIfActive?.lastConfiguration != nil)
+        #expect(model.runFeatureIfActive?.moduleSessions.first?.configurationID == ReadyRunConfigurationOperations.entryPoint.id)
         #expect(model.pendingRunAction == nil)
         _ = await firstRefresh.value
 
@@ -372,7 +414,7 @@ struct RunEntryPointTests {
 
         model.restartSelectedRun()
         let deferredRestart = await awaitLoadDrivenChange(on: model) {
-            model.pendingRunAction?.kind == .restart
+            model.pendingRunAction?.kind == .startConfiguration(ReadyRunConfigurationOperations.entryPoint)
         }
         #expect(deferredRestart, "Restart must defer while the newer snapshot is unpublished to the run service")
         #expect(
@@ -411,7 +453,8 @@ struct RunEntryPointTests {
         let configurationB = ReadyRunConfigurationOperations.serviceEntryPoint
 
         model.openProjectDirectly(workspaceA.root)
-        model.startRunConfiguration(configurationA)
+        let earlierStart = Task { await model.performStartRunConfiguration(configurationA) }
+        defer { earlierStart.cancel() }
         #expect(await runConfigurations.inspectionEntered(1))
 
         model.openProjectDirectly(workspaceB.root)
@@ -430,13 +473,7 @@ struct RunEntryPointTests {
         // A's in-flight ensure finishes after the switch. It must be treated as
         // stale: no re-defer against B, and B's pending must survive.
         runConfigurations.release(1)
-        let corruptedByStaleA = await awaitChange(on: model, timeout: .seconds(1)) {
-            model.pendingRunAction?.kind == .startConfiguration(configurationA)
-        }
-        #expect(
-            !corruptedByStaleA,
-            "a stale entry task for A must not re-defer its configuration onto B"
-        )
+        #expect(await waitForRunEntryCompletion(earlierStart), "the stale entry task must finish")
         #expect(
             model.pendingRunAction?.kind == .startConfiguration(configurationB)
                 && model.pendingRunAction?.identity.url == workspaceB.root.standardizedFileURL,
@@ -472,7 +509,8 @@ struct RunEntryPointTests {
         let earlierConfiguration = ReadyRunConfigurationOperations.entryPoint
 
         model.openProjectDirectly(workspace.root)
-        model.startRunConfiguration(earlierConfiguration)
+        let earlierStart = Task { await model.performStartRunConfiguration(earlierConfiguration) }
+        defer { earlierStart.cancel() }
         #expect(
             await runConfigurations.inspectionEntered(1),
             "the direct start never began its own load"
@@ -498,10 +536,9 @@ struct RunEntryPointTests {
         // The earlier opening's task finishes last. Its captured URL still
         // matches, so only the generation can reject it.
         runConfigurations.release(1)
-        #expect(
-            await runConfigurations.launchPlanNotRequested(within: .seconds(1)),
-            "a task from the previous opening must not launch into the current one"
-        )
+        #expect(await waitForRunEntryCompletion(earlierStart), "the earlier opening's entry task must finish")
+        #expect(runConfigurations.launchPlanCallCount == 0,
+                "a task from the previous opening must not launch into the current one")
         #expect(
             model.pendingRunAction == nil,
             "a discarded task must not record a pending action either"
@@ -792,6 +829,15 @@ private final class ReadyRunConfigurationOperations: RunConfigurationOperations,
         mainClass: "demo.App"
     )
 
+    static let serviceEntryPointB = RunConfiguration(
+        id: "spring-boot:demo.OtherApp",
+        name: "Other Service",
+        kind: .mavenFramework(.springBoot),
+        execution: .service,
+        modulePath: nil,
+        mainClass: "demo.OtherApp"
+    )
+
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
         RunConfigurationResolution(
             configurations: [
@@ -801,6 +847,10 @@ private final class ReadyRunConfigurationOperations: RunConfigurationOperations,
                 ),
                 EffectiveRunConfiguration(
                     configuration: Self.serviceEntryPoint,
+                    options: RunOptions()
+                ),
+                EffectiveRunConfiguration(
+                    configuration: Self.serviceEntryPointB,
                     options: RunOptions()
                 ),
             ],
@@ -857,12 +907,6 @@ private final class InspectionGatedRunConfigurationOperations: RunConfigurationO
     /// deadline spans a whole snapshot-driven load, like the gates above.
     func launchPlanRequested(_ ordinal: Int) async -> Bool {
         await launchPlanRequests[ordinal - 1].waitUntilOpen(timeout: .seconds(30))
-    }
-
-    /// Asserting that no launch happens needs a short deadline: the whole wait is
-    /// paid on the passing path, so it must not carry a load-sized one.
-    func launchPlanNotRequested(within duration: Duration) async -> Bool {
-        await !launchPlanRequests[0].waitUntilOpen(timeout: duration)
     }
 
     var resolveCallCount: Int {
@@ -1065,4 +1109,15 @@ private final class RunEntryPointTestStore: KeyValueStore, @unchecked Sendable {
     func string(forKey key: String) -> String? { values[key] as? String }
     func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
     func set(_ value: Any?, forKey key: String) { values[key] = value }
+}
+
+@MainActor
+private func waitForRunEntryCompletion(_ task: Task<Void, Never>) async -> Bool {
+    let completed = TestGate()
+    let observer = Task {
+        await task.value
+        completed.open()
+    }
+    defer { observer.cancel() }
+    return await completed.waitUntilOpen(timeout: .seconds(5))
 }

@@ -46,6 +46,7 @@ package final class RunService: ObservableObject {
     private var projectURL: URL?
     private var projectFiles: [URL] = []
     private var mavenProject: MavenProject?
+    private var mavenModelRevision = 0
     private var projectLoadID = UUID()
     private var selectedConfigurationIDsByProject: [String: String] = [:]
     private var lastRunConfiguration: RunConfiguration?
@@ -164,6 +165,18 @@ package final class RunService: ObservableObject {
         return roots
     }
 
+    /// Applies an accepted Maven model without replacing the file snapshot or
+    /// reloading run configuration from disk. The execution graph owns delivery.
+    package func acceptMavenProject(_ project: MavenProject, at workspace: URL) {
+        let workspace = workspace.standardizedFileURL
+        guard projectURL == workspace else { return }
+        if case .loading(let pendingWorkspace) = projectLoadState,
+           pendingWorkspace != workspace { return }
+        mavenModelRevision += 1
+        mavenProject = project
+        mavenProfiles = project.profiles
+    }
+
     /// Loads run state for a workspace.
     ///
     /// `snapshotID` identifies the workspace snapshot `files` came from. Passing
@@ -176,6 +189,7 @@ package final class RunService: ObservableObject {
         snapshotID: UUID? = nil
     ) async {
         let loadID = UUID()
+        let modelRevision = mavenModelRevision
         projectLoadID = loadID
         let workspace = projectURL.standardizedFileURL
         isLoadingProject = true
@@ -203,8 +217,12 @@ package final class RunService: ObservableObject {
         projectLoadState = snapshotID
             .map { .ready(workspace: workspace, snapshotID: $0) }
             ?? .bound(workspace: workspace)
-        self.mavenProject = mavenProject
-        mavenProfiles = mavenProject?.profiles ?? []
+        // A Reload may commit while inspection is suspended. Preserve that
+        // accepted model instead of restoring the caller's earlier snapshot.
+        if mavenModelRevision == modelRevision {
+            self.mavenProject = mavenProject
+        }
+        mavenProfiles = self.mavenProject?.profiles ?? []
         self.projectFiles = files
         configurationStatus = inspection.status
         configurationDiagnostics = inspection.diagnostics
@@ -220,7 +238,7 @@ package final class RunService: ObservableObject {
                 let resolution = try resolveWithServiceToolchains(
                     operations: operations,
                     projectURL: projectURL,
-                    mavenProject: mavenProject,
+                    mavenProject: self.mavenProject,
                     preferredConfigurationID: preferredID
                 )
                 configurationDiagnostics += resolution.diagnostics
@@ -1297,7 +1315,12 @@ package final class RunService: ObservableObject {
         for configuration: RunConfiguration,
         mavenContext: MavenLaunchContext?
     ) -> RunOptions {
-        var options = self.options(for: configuration)
+        let stored = self.options(for: configuration)
+        var options = runtime.overlayProjectRuntime(
+            onto: stored,
+            modulePath: configuration.modulePath,
+            workingDirectory: stored.workingDirectoryPath
+        )
         guard let mavenContext else { return options }
         if options.mavenExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             options.mavenExecutablePath = mavenContext.mavenExecutablePath ?? ""
