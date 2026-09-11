@@ -1,3 +1,4 @@
+import { IS_MAC } from "@/utils/platform";
 import { eventToKey, keysMatch } from "./matcher";
 import { parseKeybinding } from "./parser";
 
@@ -42,8 +43,7 @@ const NATIVE_MENU_ACCELERATORS = [
   "f12",
   "shift+f12",
   "f2",
-  "cmd+alt+right",
-  "cmd+alt+left",
+  ...(IS_MAC ? ["cmd+alt+right", "cmd+alt+left"] : []),
   "f5",
   "shift+f5",
   "f9",

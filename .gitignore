@@ -14,3 +14,4 @@ design-qa-artifacts/
 docs/visual-qa/
 .reasonix/
 reasonix.toml
+.codex/

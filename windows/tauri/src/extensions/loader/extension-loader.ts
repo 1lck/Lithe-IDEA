@@ -28,6 +28,8 @@ function createDummyEditorAPI(): EditorAPI {
     setSelection: () => {},
     getCursorPosition: () => ({ line: 0, column: 0, offset: 0 }),
     setCursorPosition: () => {},
+    focus: () => {},
+    focusWhenReady: () => {},
     insertText: () => {},
     deleteRange: () => {},
     replaceRange: () => {},
