@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { useDebuggerStore } from "@/features/debugger/stores/debugger.store";
+import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { ensureRunProcessListeners } from "@/features/run/hooks/use-run-process-events";
+import { useRunStore } from "@/features/run/stores/run.store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceScopeMatchesRoot } from "@/features/workspace/types/workspace-launch-scope";
@@ -39,6 +43,7 @@ import {
   reloadJavaForMavenWorkspace,
   reloadMavenWorkspaceProjects,
 } from "../services/reload-maven-workspace";
+import { startMavenModuleDebug } from "../services/maven-module-debug";
 import {
   MAVEN_LIFECYCLE_PHASES,
   type MavenDependency,
@@ -47,6 +52,15 @@ import {
   type MavenSettings,
 } from "../types/maven.types";
 import { MavenSourceRootRows } from "./maven-source-root-rows";
+import {
+  MavenLifecycleContextMenu,
+  MavenModuleContextMenu,
+  resolveMavenModuleMenuAvailability,
+} from "./maven-node-context-menu";
+import {
+  findMavenModuleJavaPath,
+  findMavenModuleRunConfiguration,
+} from "../utils/maven-module-operations";
 
 interface TreeNodeProps {
   id: string;
@@ -57,6 +71,7 @@ interface TreeNodeProps {
   expanded: boolean;
   onToggle: (id: string) => void;
   onSelect?: () => void;
+  renderHeader?: (header: ReactNode) => ReactNode;
   children?: ReactNode;
 }
 
@@ -73,44 +88,48 @@ function TreeNode({
   expanded,
   onToggle,
   onSelect,
+  renderHeader,
   children,
 }: TreeNodeProps) {
   const hasChildren = children !== undefined && children !== null;
-  return (
-    <div>
-      <div className={cn("flex min-h-7 items-center rounded-sm", selected && "bg-selected")}>
-        {hasChildren ? (
-          <button
-            type="button"
-            className="flex size-6 shrink-0 items-center justify-center text-subtle-foreground"
-            onClick={() => onToggle(id)}
-            aria-label={expanded ? "Collapse" : "Expand"}
-          >
-            {expanded ? (
-              <CaretDownIcon className="size-3" />
-            ) : (
-              <CaretRightIcon className="size-3" />
-            )}
-          </button>
-        ) : (
-          <span className="size-6 shrink-0" />
-        )}
+  const header = (
+    <div className={cn("flex min-h-7 items-center rounded-sm", selected && "bg-selected")}>
+      {hasChildren ? (
         <button
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-1.5 py-1 pr-2 text-left"
-          onClick={onSelect ?? (() => onToggle(id))}
+          className="flex size-6 shrink-0 items-center justify-center text-subtle-foreground"
+          onClick={() => onToggle(id)}
+          aria-label={expanded ? "Collapse" : "Expand"}
         >
-          <span className="shrink-0 text-primary">
-            {icon ?? <PackageIcon className="size-3.5" />}
-          </span>
-          <span className="min-w-0 truncate ui-text-sm">{title}</span>
-          {subtitle ? (
-            <span className="min-w-0 truncate font-mono text-subtle-foreground ui-text-xs">
-              {subtitle}
-            </span>
-          ) : null}
+          {expanded ? (
+            <CaretDownIcon className="size-3" />
+          ) : (
+            <CaretRightIcon className="size-3" />
+          )}
         </button>
-      </div>
+      ) : (
+        <span className="size-6 shrink-0" />
+      )}
+      <button
+        type="button"
+        className="flex min-w-0 flex-1 items-center gap-1.5 py-1 pr-2 text-left"
+        onClick={onSelect ?? (() => onToggle(id))}
+      >
+        <span className="shrink-0 text-primary">
+          {icon ?? <PackageIcon className="size-3.5" />}
+        </span>
+        <span className="min-w-0 truncate ui-text-sm">{title}</span>
+        {subtitle ? (
+          <span className="min-w-0 truncate font-mono text-subtle-foreground ui-text-xs">
+            {subtitle}
+          </span>
+        ) : null}
+      </button>
+    </div>
+  );
+  return (
+    <div>
+      {renderHeader ? renderHeader(header) : header}
       {expanded && hasChildren ? (
         <div className="ml-4 border-border/60 border-l pl-1">{children}</div>
       ) : null}
@@ -243,6 +262,7 @@ function MavenSettingsDialog({
 export default function MavenPane({ onClose }: MavenPaneProps) {
   const { t } = useTranslation();
   const workspaceId = useActiveWorkspaceId();
+  const handleFileSelect = useFileSystemStore((state) => state.handleFileSelect);
   const root = useMavenStore((state) => state.root);
   const visiblePaths = useMavenStore((state) => state.visiblePaths);
   const projectStatus = useMavenStore((state) => state.projectStatus);
@@ -257,6 +277,7 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
   const javaHomePath = useMavenStore((state) => state.javaHomePath);
   const configurationSaveError = useMavenStore((state) => state.configurationSaveError);
   const reloadRequired = useMavenStore((state) => state.reloadRequired);
+  const projectReloadRequired = useMavenStore((state) => state.projectReloadRequired);
   const taskStatus = useMavenStore((state) => state.taskStatus);
   const taskError = useMavenStore((state) => state.taskError);
   const runningTitle = useMavenStore((state) => state.taskTitle);
@@ -266,6 +287,9 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
   const lastExitCode = useMavenStore((state) => state.lastExitCode);
   const dependencyLoads = useMavenStore((state) => state.dependencyLoads);
   const actions = useMavenStore((state) => state.actions);
+  const runConfigurations = useRunStore((state) => state.configurations);
+  const defaultRunConfigurationId = useRunStore((state) => state.defaultConfigurationId);
+  const activeDebugSession = useDebuggerStore.use.activeSession();
   const [selectedModule, setSelectedModule] = useState<string | null>(null);
   const [selectedPhase, setSelectedPhase] = useState<MavenLifecyclePhase>("compile");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -275,12 +299,17 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
   const [customGoal, setCustomGoal] = useState("");
   const [customProfile, setCustomProfile] = useState("");
   const [reloadError, setReloadError] = useState<string | null>(null);
+  const [moduleOperationError, setModuleOperationError] = useState<string | null>(null);
+  const [moduleOperationPending, setModuleOperationPending] = useState(false);
 
   const profiles = useMemo(
     () => availableMavenProfiles({ project, customProfiles }),
     [customProfiles, project],
   );
   const isRunning = taskStatus === "running" || taskStatus === "stopping";
+  const isDebugging =
+    activeDebugSession?.status === "running" || activeDebugSession?.status === "paused";
+  const isModuleOperationBusy = isRunning || moduleOperationPending;
 
   useEffect(() => {
     void ensureMavenProcessListeners();
@@ -288,6 +317,8 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
 
   useEffect(() => {
     setReloadError(null);
+    setModuleOperationError(null);
+    setModuleOperationPending(false);
   }, [root, workspaceId]);
 
   useEffect(() => {
@@ -309,6 +340,7 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
   };
 
   const runPhase = (phase: MavenLifecyclePhase, module: MavenModule | null) => {
+    if (isModuleOperationBusy) return;
     setSelectedModule(module?.relativePath ?? null);
     setSelectedPhase(phase);
     const target = module?.artifactId ?? project?.artifactId ?? t("maven.project");
@@ -322,6 +354,7 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
   };
 
   const runCustomGoal = () => {
+    if (isModuleOperationBusy) return;
     const goals = customGoal.trim().split(/\s+/).filter(Boolean);
     if (goals.length === 0) return;
     const module = findMavenModule(project?.modules ?? [], selectedModule);
@@ -329,6 +362,74 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
     setGoalDialogOpen(false);
     openMavenRunPane();
     void actions.runGoals(goals, module?.relativePath ?? null, `${customGoal.trim()} · ${target}`);
+  };
+
+  const isCurrentScope = (scope: { workspaceId: string; root: string }) =>
+    workspaceRuntimeRegistry.getActiveWorkspaceId() === scope.workspaceId &&
+    workspaceScopeMatchesRoot(scope, useMavenStore.getStore(scope.workspaceId).getState().root);
+
+  const runModuleConfiguration = async (module: MavenModule | null, configurationId: string) => {
+    if (!root || isModuleOperationBusy) return;
+    const scope = { workspaceId, root };
+    setSelectedModule(module?.relativePath ?? null);
+    setModuleOperationError(null);
+    setModuleOperationPending(true);
+    try {
+      await ensureRunProcessListeners();
+      const sessionId = await useRunStore
+        .getStore(workspaceId)
+        .getState()
+        .actions.runConfiguration(configurationId);
+      if (!sessionId && isCurrentScope(scope)) {
+        setModuleOperationError(t("maven.runStartFailed"));
+      }
+    } catch (error) {
+      if (isCurrentScope(scope)) {
+        setModuleOperationError(error instanceof Error ? error.message : String(error));
+      }
+    } finally {
+      if (isCurrentScope(scope)) setModuleOperationPending(false);
+    }
+  };
+
+  const debugModuleConfiguration = async (
+    module: MavenModule | null,
+    configurationId: string,
+    representativeJavaPath: string,
+  ) => {
+    if (!root || isModuleOperationBusy) return;
+    const scope = { workspaceId, root };
+    const configuration = runConfigurations.find((item) => item.id === configurationId);
+    if (!configuration) return;
+    setSelectedModule(module?.relativePath ?? null);
+    setModuleOperationError(null);
+    setModuleOperationPending(true);
+    try {
+      await startMavenModuleDebug(scope, configuration, joinPath(root, representativeJavaPath));
+    } catch (error) {
+      if (isCurrentScope(scope)) {
+        setModuleOperationError(error instanceof Error ? error.message : String(error));
+      }
+    } finally {
+      if (isCurrentScope(scope)) setModuleOperationPending(false);
+    }
+  };
+
+  const runModuleGoal = (goal: "test" | "package", module: MavenModule | null) => {
+    if (isModuleOperationBusy) return;
+    setSelectedModule(module?.relativePath ?? null);
+    setModuleOperationError(null);
+    const target = module?.artifactId ?? project?.artifactId ?? t("maven.project");
+    const title = goal === "test" ? t("maven.test") : t("maven.package");
+    openMavenRunPane();
+    void actions.runGoals([goal], module?.relativePath ?? null, `${title} · ${target}`);
+  };
+
+  const openGoalDialogForModule = (module: MavenModule | null) => {
+    setSelectedModule(module?.relativePath ?? null);
+    setModuleOperationError(null);
+    setCustomGoal("");
+    setGoalDialogOpen(true);
   };
 
   const reloadJava = async () => {
@@ -388,6 +489,69 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
       "pom.xml",
     );
     void handleFileSelect(path, false, undefined, undefined, undefined, false);
+  };
+
+  const withModuleContextMenu = (module: MavenModule | null, node: ReactNode) => {
+    if (!project) return node;
+    const modulePath = module?.relativePath ?? ".";
+    const selection = {
+      configurations: runConfigurations,
+      defaultConfigurationId: defaultRunConfigurationId,
+      projectRelativePath: project.relativePath,
+      moduleRelativePath: modulePath,
+    };
+    const runConfiguration = findMavenModuleRunConfiguration({ ...selection, mode: "run" });
+    const debugConfiguration = findMavenModuleRunConfiguration({
+      ...selection,
+      mode: "debug",
+    });
+    const representativeJavaPath = findMavenModuleJavaPath(
+      visiblePaths,
+      project.relativePath,
+      modulePath,
+    );
+    const availability = resolveMavenModuleMenuAvailability({
+      busy: isModuleOperationBusy,
+      canRun: Boolean(runConfiguration),
+      canDebug: Boolean(debugConfiguration && representativeJavaPath),
+      debugging: isDebugging,
+      reloading: projectStatus === "loading",
+    });
+    const debugUnavailableReason = isDebugging
+      ? t("maven.debugAlreadyRunning")
+      : !debugConfiguration
+        ? t("maven.debugConfigurationUnavailable")
+        : !representativeJavaPath
+          ? t("maven.javaSourceUnavailable")
+          : undefined;
+
+    return (
+      <MavenModuleContextMenu
+        availability={availability}
+        runUnavailableReason={runConfiguration ? undefined : t("maven.runConfigurationUnavailable")}
+        debugUnavailableReason={debugUnavailableReason}
+        onRun={() => {
+          if (runConfiguration) {
+            void runModuleConfiguration(module, runConfiguration.id);
+          }
+        }}
+        onDebug={() => {
+          if (debugConfiguration && representativeJavaPath) {
+            void debugModuleConfiguration(module, debugConfiguration.id, representativeJavaPath);
+          }
+        }}
+        onTest={() => runModuleGoal("test", module)}
+        onPackage={() => runModuleGoal("package", module)}
+        onExecuteGoal={() => openGoalDialogForModule(module)}
+        onOpenPom={() => {
+          setSelectedModule(module?.relativePath ?? null);
+          openModulePom(modulePath);
+        }}
+        onReload={() => void reloadProjects()}
+      >
+        {node}
+      </MavenModuleContextMenu>
+    );
   };
 
   const renderDependency = (dependency: MavenDependency, id: string): ReactNode => {
@@ -506,22 +670,29 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
           const selected =
             selectedModule === (module?.relativePath ?? null) && selectedPhase === phase;
           return (
-            <button
+            <MavenLifecycleContextMenu
               key={phase}
-              type="button"
-              className={cn(
-                "flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left ui-text-sm",
-                selected ? "bg-selected text-foreground" : "text-subtle-foreground hover:bg-hover",
-              )}
-              onClick={() => {
-                setSelectedModule(module?.relativePath ?? null);
-                setSelectedPhase(phase);
-              }}
-              onDoubleClick={() => !isRunning && runPhase(phase, module)}
+              disabled={isModuleOperationBusy}
+              onRun={() => runPhase(phase, module)}
             >
-              <PlayIcon className={cn("size-3", selected && "text-success")} />
-              <span className="truncate">{phase}</span>
-            </button>
+              <button
+                type="button"
+                className={cn(
+                  "flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left ui-text-sm",
+                  selected
+                    ? "bg-selected text-foreground"
+                    : "text-subtle-foreground hover:bg-hover",
+                )}
+                onClick={() => {
+                  setSelectedModule(module?.relativePath ?? null);
+                  setSelectedPhase(phase);
+                }}
+                onDoubleClick={() => !isModuleOperationBusy && runPhase(phase, module)}
+              >
+                <PlayIcon className={cn("size-3", selected && "text-success")} />
+                <span className="truncate">{phase}</span>
+              </button>
+            </MavenLifecycleContextMenu>
           );
         })}
       </TreeNode>
@@ -540,6 +711,7 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
         expanded={expanded.has(id)}
         onToggle={toggleExpanded}
         onSelect={() => setSelectedModule(module.relativePath)}
+        renderHeader={(header) => withModuleContextMenu(module, header)}
       >
         {renderSourceRoots(id, module.sourceRoots)}
         {renderLifecycle(id, module)}
@@ -577,7 +749,7 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
               <Button
                 variant="ghost"
                 size="icon-xs"
-                disabled={!project}
+                disabled={!project || moduleOperationPending}
                 onClick={isRunning ? () => void actions.stop() : runSelected}
                 aria-label={isRunning ? t("maven.stop") : t("maven.runSelected")}
               >
@@ -592,7 +764,7 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
               <Button
                 variant="ghost"
                 size="icon-xs"
-                disabled={!project || isRunning}
+                disabled={!project || isModuleOperationBusy}
                 onClick={() => {
                   setCustomGoal("");
                   setGoalDialogOpen(true);
@@ -606,7 +778,7 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
               <Button
                 variant="ghost"
                 size="icon-xs"
-                disabled={!root || isRunning || projectStatus === "loading"}
+                disabled={!root || isModuleOperationBusy || projectStatus === "loading"}
                 onClick={() => void reloadProjects()}
                 aria-label={t("maven.reloadProjects")}
               >
@@ -647,21 +819,33 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
         </div>
       </div>
 
-      {reloadRequired || configurationSaveError || reloadError ? (
+      {reloadRequired ||
+      configurationSaveError ||
+      moduleOperationError ||
+      reloadError ||
+      (project && projectError) ? (
         <div className="flex min-h-9 shrink-0 items-center gap-2 border-border/70 border-b bg-warning/10 px-3">
           <WarningIcon className="size-3.5 text-warning" />
           <span className="min-w-0 flex-1 truncate ui-text-sm">
-            {configurationSaveError ?? reloadError ?? t("maven.configurationChanged")}
+            {configurationSaveError ??
+              moduleOperationError ??
+              reloadError ??
+              projectError ??
+              t("maven.configurationChanged")}
           </span>
           {reloadRequired || reloadError ? (
-            <Button size="xs" variant="ghost" onClick={() => void reloadJava()}>
-              {t("maven.reloadJdt")}
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() => void (projectReloadRequired ? reloadProjects() : reloadJava())}
+            >
+              {t(projectReloadRequired ? "maven.reloadProjects" : "maven.reloadJdt")}
             </Button>
           ) : null}
         </div>
       ) : null}
 
-      {projectStatus === "failed" ? (
+      {!project && projectStatus === "failed" ? (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
           <WarningIcon className="size-7 text-destructive" />
           <div className="font-medium">{t("maven.loadFailed")}</div>
@@ -735,6 +919,7 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
                 expanded={expanded.has(`project:${project.relativePath}`)}
                 onToggle={toggleExpanded}
                 onSelect={() => setSelectedModule(null)}
+                renderHeader={(header) => withModuleContextMenu(null, header)}
               >
                 {renderSourceRoots(`project:${project.relativePath}`, project.sourceRoots)}
                 {renderLifecycle(`project:${project.relativePath}`, null)}
@@ -760,7 +945,10 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
               <Button variant="ghost" onClick={() => setGoalDialogOpen(false)}>
                 {t("ui.cancel")}
               </Button>
-              <Button disabled={!customGoal.trim()} onClick={runCustomGoal}>
+              <Button
+                disabled={!customGoal.trim() || isModuleOperationBusy}
+                onClick={runCustomGoal}
+              >
                 {t("run.run")}
               </Button>
             </>

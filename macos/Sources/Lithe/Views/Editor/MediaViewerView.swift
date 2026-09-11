@@ -5,6 +5,9 @@ import SwiftUI
 struct MediaViewerView: View {
     @EnvironmentObject private var model: AppModel
     let media: MediaDocument
+    var imageData: Data? = nil
+    var imageRevision: Int = 0
+    var showsFileActions = true
     private let imageContentPadding: CGFloat = 24
     @State private var imageScale: CGFloat?
     @State private var imageFitScale: CGFloat = 1
@@ -53,9 +56,16 @@ struct MediaViewerView: View {
         }
     }
 
+    private var previewImage: NSImage? {
+        if let imageData {
+            return NSImage(data: imageData)
+        }
+        return NSImage(contentsOf: media.url)
+    }
+
     private var imageViewer: some View {
         Group {
-            if let image = NSImage(contentsOf: media.url) {
+            if let image = previewImage {
                 GeometryReader { geometry in
                     let fitScale = imageFitScale(for: image, in: geometry.size)
                     let renderedScale = clampedImageScale(
@@ -66,6 +76,7 @@ struct MediaViewerView: View {
                     MediaImageScrollView(
                         image: image,
                         imageID: media.id,
+                        imageRevision: imageRevision,
                         scale: $imageScale,
                         targetScale: renderedScale,
                         minimumScale: min(0.25, fitScale),
@@ -74,6 +85,9 @@ struct MediaViewerView: View {
                     )
                     .background(checkerboard)
                     .onAppear {
+                        updateImageFitScale(fitScale)
+                    }
+                    .onChange(of: fitScale) { _ in
                         updateImageFitScale(fitScale)
                     }
                     .onChange(of: geometry.size) { _ in
@@ -195,24 +209,26 @@ struct MediaViewerView: View {
                 .litheIconButton()
                 .help("Zoom in")
             }
-            Button("Open in Default App") {
-                model.openMediaInDefaultApplication(media)
+            if showsFileActions {
+                Button("Open in Default App") {
+                    model.openMediaInDefaultApplication(media)
+                }
+                .buttonStyle(LitheSecondaryButtonStyle())
+                Button {
+                    model.revealProjectItemInFinder(media.url)
+                } label: {
+                    Image(systemName: "folder")
+                }
+                .litheIconButton()
+                .help("Show in Finder")
+                Button {
+                    model.closeMediaDocument(media)
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .litheIconButton()
+                .help("Close")
             }
-            .buttonStyle(LitheSecondaryButtonStyle())
-            Button {
-                model.revealProjectItemInFinder(media.url)
-            } label: {
-                Image(systemName: "folder")
-            }
-            .litheIconButton()
-            .help("Show in Finder")
-            Button {
-                model.closeMediaDocument(media)
-            } label: {
-                Image(systemName: "xmark")
-            }
-            .litheIconButton()
-            .help("Close")
         }
         .padding(.horizontal, 12)
         .frame(height: 34)
@@ -242,6 +258,7 @@ private struct MediaVideoPlayerView: NSViewRepresentable {
 private struct MediaImageScrollView: NSViewRepresentable {
     let image: NSImage
     let imageID: UUID
+    let imageRevision: Int
     @Binding var scale: CGFloat?
     let targetScale: CGFloat
     let minimumScale: CGFloat
@@ -258,6 +275,7 @@ private struct MediaImageScrollView: NSViewRepresentable {
         scrollView.configure(
             image: image,
             imageID: imageID,
+            imageRevision: imageRevision,
             contentPadding: contentPadding
         )
         scrollView.updateMagnificationRange(
@@ -275,6 +293,7 @@ private struct MediaImageScrollView: NSViewRepresentable {
         let imageChanged = scrollView.configure(
             image: image,
             imageID: imageID,
+            imageRevision: imageRevision,
             contentPadding: contentPadding
         )
         scrollView.updateMagnificationRange(
@@ -307,6 +326,7 @@ private struct MediaImageScrollView: NSViewRepresentable {
 private final class NativeImageScrollView: NSScrollView {
     private let imageDocumentView = ImageDocumentView()
     private var representedImageID: UUID?
+    private var representedImageRevision: Int?
     private var isLiveMagnifying = false
     private var magnificationObservers: [NSObjectProtocol] = []
     var onMagnificationEnded: ((CGFloat) -> Void)?
@@ -341,14 +361,20 @@ private final class NativeImageScrollView: NSScrollView {
     func configure(
         image: NSImage,
         imageID: UUID,
+        imageRevision: Int,
         contentPadding: CGFloat
     ) -> Bool {
-        guard representedImageID != imageID else { return false }
+        let isNewDocument = representedImageID != imageID
+        guard isNewDocument || representedImageRevision != imageRevision else { return false }
         representedImageID = imageID
+        representedImageRevision = imageRevision
+        // Live SVG edits replace the image without resetting the user's zoom and pan.
         imageDocumentView.configure(image: image, contentPadding: contentPadding)
-        contentView.scroll(to: imageDocumentView.bounds.origin)
+        if isNewDocument {
+            contentView.scroll(to: imageDocumentView.bounds.origin)
+        }
         reflectScrolledClipView(contentView)
-        return true
+        return isNewDocument
     }
 
     func updateMagnificationRange(minimum: CGFloat, maximum: CGFloat) {

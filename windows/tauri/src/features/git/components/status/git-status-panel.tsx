@@ -20,6 +20,7 @@ import { ThemedFileIcon } from "@/extensions/icon-themes/components/themed-file-
 import { useFileTreePresentation } from "@/features/file-explorer/hooks/use-file-tree-presentation";
 import { FILE_TREE_BASE_INDENT } from "@/features/file-explorer/lib/file-tree-row";
 import "@/features/file-explorer/styles/file-explorer-tree.css";
+import { submitFrontendLog } from "@/features/logging/frontend-log-runtime";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { writeSidebarResourceDragData } from "@/features/sidebar/utils/sidebar-resource-drag";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
@@ -38,7 +39,6 @@ import {
   type PathTreeBranch,
   type PathTreeNode,
 } from "@/features/sidebar/lib/path-tree";
-import { cn } from "@/utils/cn";
 import { getBaseName, joinPath } from "@/utils/path-helpers";
 import { createStash } from "../../api/git-stash-api";
 import {
@@ -46,8 +46,6 @@ import {
   addPathsToLocalGitExclude,
   rollbackFilesChanges,
   setFilesStaged,
-  stageAllFiles,
-  unstageAllFiles,
 } from "../../api/git-status-api";
 import type { GitFile } from "../../types/git.types";
 import {
@@ -60,13 +58,17 @@ import {
 import { deleteGitStatusPaths } from "../../utils/git-status-deletion";
 import {
   buildGitIgnorePaths,
+  getGitFileRepositoryPath,
+  getGitFileRepositoryRelativePath,
   resolveGitFileMutationPaths,
+  resolveGitFilesForStagedState,
   resolveGitStatusDeletionPaths,
   resolveGitStatusContextSelection,
   updateGitStatusSelection,
 } from "../../utils/git-status-selection";
 import { StashMessageModal } from "../stash/git-stash-modal";
 import { GitFileItem } from "./git-status-file-item";
+import { showGitPatchDialog } from "../../services/git-patch-dialog-service";
 
 interface GitStatusPanelProps {
   files: GitFile[];
@@ -77,7 +79,7 @@ interface GitStatusPanelProps {
   collapsedSections: ReadonlySet<string>;
   onCollapsedSectionsChange: (sections: Set<string>) => void;
   onFileSelect?: (path: string, staged: boolean) => void;
-  onOpenPath?: (path: string, isDirectory: boolean) => void;
+  onOpenPath?: (path: string, isDirectory: boolean, repositoryPath?: string) => void;
   onViewDiff?: (scope?: GitStatusDiffScope) => void;
   onViewFilesDiff?: (filePaths: string[]) => void;
   onCommitSelection?: (filePaths: string[]) => void;
@@ -85,6 +87,7 @@ interface GitStatusPanelProps {
   onShowBranchDiffPicker?: () => void;
   onShowStashDiffPicker?: () => void;
   onRefresh?: () => void;
+  onStagingRefresh: () => Promise<void>;
   repoPath?: string;
 }
 
@@ -142,6 +145,64 @@ const getFileEntryId = (filePath: string) => `file:${filePath}`;
 const getFolderEntryId = (section: StatusSection, folderPath: string) =>
   `folder:${section}:${folderPath}`;
 
+function groupGitFilesByRepository(
+  files: readonly GitFile[],
+  fallbackRepoPath?: string,
+): Array<{ repoPath: string; files: GitFile[] }> {
+  const filesByRepository = new Map<string, GitFile[]>();
+
+  for (const file of files) {
+    const fileRepoPath = getGitFileRepositoryPath(file, fallbackRepoPath);
+    if (!fileRepoPath) continue;
+    const repositoryFiles = filesByRepository.get(fileRepoPath) ?? [];
+    repositoryFiles.push(file);
+    filesByRepository.set(fileRepoPath, repositoryFiles);
+  }
+
+  return [...filesByRepository.entries()].map(([fileRepoPath, repositoryFiles]) => ({
+    repoPath: fileRepoPath,
+    files: repositoryFiles,
+  }));
+}
+
+function getRepoRelativePaths(files: readonly GitFile[]): string[] {
+  return [
+    ...new Set(files.map(getGitFileRepositoryRelativePath).filter(Boolean)),
+  ].sort((left, right) => left.localeCompare(right));
+}
+
+function logStagingFailure(
+  message: string,
+  staged: boolean,
+  phase: "write" | "refresh",
+  fileCount: number,
+  repositoryCount: number,
+  repositoryIndex?: number,
+) {
+  // Only fixed categories leave this boundary. Git stderr may contain absolute
+  // paths, filter output or credentials, so never attach the original error.
+  const category = /index\.lock/i.test(message)
+    ? "index_lock"
+    : /permission denied|access is denied|operation not permitted/i.test(message)
+      ? "permission_denied"
+      : /timed? out|timeout/i.test(message)
+        ? "timeout"
+        : "operation_failed";
+  void submitFrontendLog({
+    level: "error",
+    scope: "git.staging",
+    message: "Git staging action failed",
+    payload: {
+      operation: staged ? "stage" : "unstage",
+      phase,
+      category,
+      fileCount,
+      repositoryCount,
+      ...(repositoryIndex !== undefined ? { repositoryIndex } : {}),
+    },
+  });
+}
+
 const GitStatusPanel = ({
   files,
   commitSelectedPaths,
@@ -159,6 +220,7 @@ const GitStatusPanel = ({
   onShowBranchDiffPicker,
   onShowStashDiffPicker,
   onRefresh,
+  onStagingRefresh,
   repoPath,
 }: GitStatusPanelProps) => {
   const { t } = useTranslation();
@@ -172,6 +234,8 @@ const GitStatusPanel = ({
   const [isLoading, setIsLoading] = useState(false);
   const [isDiffMenuOpen, setIsDiffMenuOpen] = useState(false);
   const [optimisticStageMap, setOptimisticStageMap] = useState<Record<string, boolean>>({});
+  const stagingOperationsRef = useRef(new Map<string, Set<symbol>>());
+  const [stagePendingPaths, setStagePendingPaths] = useState<Set<string>>(new Set());
   const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(new Set());
 
   const [stashModal, setStashModal] = useState<{
@@ -179,13 +243,16 @@ const GitStatusPanel = ({
     type: "selection" | "all";
     filePaths?: string[];
     includeUntracked?: boolean;
+    repoPath?: string;
   }>({
     isOpen: false,
     type: "selection",
   });
 
   useEffect(() => {
-    setOptimisticStageMap({});
+    setOptimisticStageMap((current) => Object.fromEntries(
+      Object.entries(current).filter(([path]) => stagingOperationsRef.current.has(path)),
+    ));
   }, [files]);
 
   const displayFiles = useMemo(() => {
@@ -382,67 +449,63 @@ const GitStatusPanel = ({
     });
   };
 
-  const handleSetFilesStaged = async (filePaths: string[], staged: boolean): Promise<boolean> => {
-    if (!repoPath || filePaths.length === 0) return false;
-
-    setOptimisticStage(filePaths, staged);
-    setIsLoading(true);
+  const handleSetFilesStaged = async (filesToStage: GitFile[], staged: boolean): Promise<boolean> => {
+    const repositoryGroups = groupGitFilesByRepository(filesToStage, repoPath);
+    if (repositoryGroups.length === 0) return false;
+    const displayFilePaths = [...new Set(filesToStage.map((file) => file.path))];
+    const operation = Symbol("staging");
+    for (const path of displayFilePaths) {
+      const operations = stagingOperationsRef.current.get(path) ?? new Set<symbol>();
+      operations.add(operation);
+      stagingOperationsRef.current.set(path, operations);
+    }
+    setOptimisticStage(displayFilePaths, staged);
+    setStagePendingPaths(new Set(stagingOperationsRef.current.keys()));
     try {
-      const success = await setFilesStaged(repoPath, filePaths, staged);
-      if (!success) {
-        setOptimisticStage(filePaths, !staged);
-        return false;
+      // All groups must settle: a failed repository must not release another's pending UI.
+      const results = await Promise.allSettled(
+        repositoryGroups.map(({ repoPath: fileRepoPath, files: repositoryFiles }) =>
+          setFilesStaged(fileRepoPath, resolveGitFileMutationPaths(repositoryFiles), staged),
+        ),
+      );
+      for (const [repositoryIndex, result] of results.entries()) {
+        if (result.status === "rejected") {
+          const message = result.reason instanceof Error ? result.reason.message : String(result.reason);
+          logStagingFailure(
+            message,
+            staged,
+            "write",
+            resolveGitFileMutationPaths(repositoryGroups[repositoryIndex]!.files).length,
+            repositoryGroups.length,
+            repositoryIndex,
+          );
+          toast.error(t("git.operationError", { error: message }));
+        }
       }
-      await onRefresh?.();
-      return true;
+      // Reconcile successful and failed repositories without history or repository discovery.
+      await onStagingRefresh();
+      return results.every((result) => result.status === "fulfilled" && result.value);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logStagingFailure(message, staged, "refresh", displayFilePaths.length, repositoryGroups.length);
+      toast.error(t("git.operationError", { error: message }));
+      return false;
     } finally {
-      setIsLoading(false);
+      for (const path of displayFilePaths) {
+        const operations = stagingOperationsRef.current.get(path);
+        operations?.delete(operation);
+        if (operations?.size === 0) stagingOperationsRef.current.delete(path);
+      }
+      const pendingPaths = new Set(stagingOperationsRef.current.keys());
+      setStagePendingPaths(pendingPaths);
+      setOptimisticStageMap((current) => Object.fromEntries(
+        Object.entries(current).filter(([path]) => pendingPaths.has(path)),
+      ));
     }
   };
 
-  const handleStageAll = async () => {
-    if (!repoPath) return;
-    setOptimisticStage(
-      unstagedFiles.map((file) => file.path),
-      true,
-    );
-    setIsLoading(true);
-    try {
-      const success = await stageAllFiles(repoPath);
-      if (!success) {
-        setOptimisticStage(
-          unstagedFiles.map((file) => file.path),
-          false,
-        );
-        return;
-      }
-      await onRefresh?.();
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleUnstageAll = async () => {
-    if (!repoPath) return;
-    setOptimisticStage(
-      stagedFiles.map((file) => file.path),
-      false,
-    );
-    setIsLoading(true);
-    try {
-      const success = await unstageAllFiles(repoPath);
-      if (!success) {
-        setOptimisticStage(
-          stagedFiles.map((file) => file.path),
-          true,
-        );
-        return;
-      }
-      await onRefresh?.();
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const handleStageAll = () => handleSetFilesStaged(unstagedFiles, true);
+  const handleUnstageAll = () => handleSetFilesStaged(stagedFiles, false);
 
   const getSelectionFilePaths = (entries: GitStatusSelectionEntry[]) => [
     ...new Set(entries.flatMap((entry) => entry.filePaths)),
@@ -458,20 +521,15 @@ const GitStatusPanel = ({
   };
 
   const handleRollbackEntries = async (entries: GitStatusSelectionEntry[]) => {
-    if (!repoPath) return;
-    const trackedFilePaths = [
-      ...new Set(
-        entries
-          .flatMap((entry) => entry.files)
-          .filter((file) => file.status !== "untracked")
-          .map((file) => file.path),
-      ),
-    ];
-    if (trackedFilePaths.length === 0) return;
+    const trackedFilesToRollback = entries
+      .flatMap((entry) => entry.files)
+      .filter((file) => file.status !== "untracked");
+    const displayTrackedFilePaths = [...new Set(trackedFilesToRollback.map((file) => file.path))];
+    if (displayTrackedFilePaths.length === 0) return;
 
     if (
       confirmBeforeDiscard &&
-      !(await showConfirmDialog(t("git.rollbackPathsConfirm", { count: trackedFilePaths.length }), {
+      !(await showConfirmDialog(t("git.rollbackPathsConfirm", { count: displayTrackedFilePaths.length }), {
         title: t("git.rollback"),
         confirmLabel: t("git.rollback"),
       }))
@@ -481,7 +539,12 @@ const GitStatusPanel = ({
 
     setIsLoading(true);
     try {
-      await rollbackFilesChanges(repoPath, trackedFilePaths);
+      await Promise.all(
+        groupGitFilesByRepository(trackedFilesToRollback, repoPath).map(
+          ({ repoPath: fileRepoPath, files: repositoryFiles }) =>
+            rollbackFilesChanges(fileRepoPath, getRepoRelativePaths(repositoryFiles)),
+        ),
+      );
       await onRefresh?.();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -492,7 +555,6 @@ const GitStatusPanel = ({
   };
 
   const handleDeleteEntries = async (entries: GitStatusSelectionEntry[]) => {
-    if (!repoPath) return;
     const filePaths = resolveGitStatusDeletionPaths(entries);
     if (filePaths.length === 0) return;
     const singleFileEntry = entries.length === 1 && entries[0]?.kind === "file";
@@ -513,11 +575,13 @@ const GitStatusPanel = ({
 
     setIsLoading(true);
     try {
-      const result = await deleteGitStatusPaths(
-        filePaths,
-        (filePath) => deleteFile(joinPath(repoPath, filePath)),
-        async () => onRefresh?.(),
-      );
+      const result = await deleteGitStatusPaths(filePaths, async (filePath) => {
+        const file = entries.flatMap((entry) => entry.files).find((candidate) => candidate.path === filePath);
+        const fileRepoPath = file ? getGitFileRepositoryPath(file, repoPath) : repoPath;
+        const relativePath = file ? getGitFileRepositoryRelativePath(file) : filePath;
+        if (!fileRepoPath) throw new Error("Missing Git repository path for delete operation");
+        return deleteFile(joinPath(fileRepoPath, relativePath));
+      }, async () => onRefresh?.());
       for (const failure of result.failures) {
         console.error(`Failed to delete source-control file ${failure.path}:`, failure.error);
       }
@@ -538,16 +602,11 @@ const GitStatusPanel = ({
   };
 
   const handleAddToVcs = async (entries: GitStatusSelectionEntry[]) => {
-    const untrackedFilePaths = [
-      ...new Set(
-        entries
-          .flatMap((entry) => entry.files)
-          .filter((file) => file.status === "untracked")
-          .map((file) => file.path),
-      ),
-    ];
-    if (untrackedFilePaths.length > 0) {
-      await handleSetFilesStaged(untrackedFilePaths, true);
+    const untrackedFilesToAdd = entries
+      .flatMap((entry) => entry.files)
+      .filter((file) => file.status === "untracked");
+    if (untrackedFilesToAdd.length > 0) {
+      await handleSetFilesStaged(untrackedFilesToAdd, true);
     }
   };
 
@@ -555,7 +614,6 @@ const GitStatusPanel = ({
     entries: GitStatusSelectionEntry[],
     target: "gitignore" | "exclude",
   ) => {
-    if (!repoPath) return;
     const paths = buildGitIgnorePaths(
       entries
         .filter((entry) => entry.files.some((file) => file.status === "untracked"))
@@ -582,11 +640,23 @@ const GitStatusPanel = ({
 
     setIsLoading(true);
     try {
-      const success =
-        target === "gitignore"
-          ? await addPathsToGitignore(repoPath, paths)
-          : await addPathsToLocalGitExclude(repoPath, paths);
-      if (success) {
+      const results = await Promise.all(
+        groupGitFilesByRepository(
+          entries.flatMap((entry) => entry.files).filter((file) => file.status === "untracked"),
+          repoPath,
+        ).map(({ repoPath: fileRepoPath, files: repositoryFiles }) => {
+          const repositoryPaths = buildGitIgnorePaths(
+            repositoryFiles.map((file) => ({
+              kind: "file" as const,
+              path: getGitFileRepositoryRelativePath(file),
+            })),
+          );
+          return target === "gitignore"
+            ? addPathsToGitignore(fileRepoPath, repositoryPaths)
+            : addPathsToLocalGitExclude(fileRepoPath, repositoryPaths);
+        }),
+      );
+      if (results.every(Boolean)) {
         setSelectedEntryIds(new Set());
         await onRefresh?.();
       }
@@ -598,13 +668,22 @@ const GitStatusPanel = ({
   const handleStashEntries = (entries: GitStatusSelectionEntry[]) => {
     const filePaths = getSelectionFilePaths(entries);
     if (filePaths.length === 0) return;
+    const repositoryGroups = groupGitFilesByRepository(
+      entries.flatMap((entry) => entry.files),
+      repoPath,
+    );
+    if (repositoryGroups.length !== 1) {
+      toast.error(t("git.selectSingleRepositoryForStash"));
+      return;
+    }
     setStashModal({
       isOpen: true,
       type: "selection",
-      filePaths,
+      filePaths: resolveGitFileMutationPaths(repositoryGroups[0]?.files ?? []),
       includeUntracked: entries
         .flatMap((entry) => entry.files)
         .some((file) => file.status === "untracked"),
+      repoPath: repositoryGroups[0]?.repoPath,
     });
   };
 
@@ -621,27 +700,30 @@ const GitStatusPanel = ({
   };
 
   const handleStashAllUnstaged = async () => {
+    const repositoryGroups = groupGitFilesByRepository(unstagedFiles, repoPath);
+    if (repositoryGroups.length !== 1) {
+      toast.error(t("git.selectSingleRepositoryForStash"));
+      return;
+    }
     setStashModal({
       isOpen: true,
       type: "all",
+      filePaths: resolveGitFileMutationPaths(repositoryGroups[0]?.files ?? []),
+      includeUntracked: false,
+      repoPath: repositoryGroups[0]?.repoPath,
     });
   };
 
   const handleConfirmStash = async (message: string) => {
     if (!repoPath) return;
 
-    if (stashModal.type === "selection" && stashModal.filePaths?.length) {
+    if (stashModal.filePaths?.length) {
       await createStash(
-        repoPath,
-        message || t("git.stashSelectedDefault"),
+        stashModal.repoPath ?? repoPath,
+        message || t(stashModal.type === "all" ? "git.stashAllUnstagedChanges" : "git.stashSelectedDefault"),
         stashModal.includeUntracked,
         stashModal.filePaths,
       );
-    } else if (stashModal.type === "all") {
-      const paths = unstagedFiles.map((f) => f.path);
-      if (paths.length === 0) return;
-
-      await createStash(repoPath, message || t("git.stashAllUnstagedChanges"), false, paths);
     }
 
     await onRefresh?.();
@@ -797,6 +879,9 @@ const GitStatusPanel = ({
           onContextMenu={(event) => handleContextMenu(event, entry)}
           checked={commitSelectedPaths.has(row.file.path)}
           onCheckedChange={(checked) => handleSetCommitPathsSelected([row.file.path], checked)}
+          disabled={isLoading}
+          onStagedChange={(staged) => void handleSetFilesStaged([row.file], staged)}
+          stagePending={stagePendingPaths.has(row.file.path)}
           showDirectory={row.showDirectory}
           showFileIcon={fileTreePresentation.showIcons}
           showIndentGuides={fileTreePresentation.showIndentGuides}
@@ -903,6 +988,14 @@ const GitStatusPanel = ({
     () => contextMenuEntries.flatMap((entry) => entry.files),
     [contextMenuEntries],
   );
+  const contextMenuStagedFiles = useMemo(
+    () => resolveGitFilesForStagedState(contextMenuFiles, false),
+    [contextMenuFiles],
+  );
+  const contextMenuUnstagedFiles = useMemo(
+    () => resolveGitFilesForStagedState(contextMenuFiles, true),
+    [contextMenuFiles],
+  );
   const contextMenuDeletionPaths = useMemo(
     () => resolveGitStatusDeletionPaths(contextMenuEntries),
     [contextMenuEntries],
@@ -910,6 +1003,20 @@ const GitStatusPanel = ({
   const contextMenuTarget = contextMenuEntries.length === 1 ? contextMenuEntries[0] : null;
   const contextMenuHasTrackedFiles = contextMenuFiles.some((file) => file.status !== "untracked");
   const contextMenuHasUntrackedFiles = contextMenuFiles.some((file) => file.status === "untracked");
+  const getStageActionLabel = (staged: boolean) => {
+    if (contextMenuTarget?.kind === "folder") {
+      return t(staged ? "git.unstageFolder" : "git.stageFolder", {
+        name: getBaseName(contextMenuTarget.path, contextMenuTarget.path),
+      });
+    }
+    if (contextMenuTarget?.kind === "file" && contextMenuFiles.length === 1) {
+      return t(staged ? "git.unstageFileNamed" : "git.stageFileNamed", {
+        name: getBaseName(contextMenuTarget.path, contextMenuTarget.path),
+      });
+    }
+    return t(staged ? "git.unstageFile" : "git.stageFile");
+  };
+  const contextMenuRepositories = groupGitFilesByRepository(contextMenuFiles, repoPath);
   const openScopedDiff = useCallback(
     (scope: GitStatusDiffScope) => {
       setIsDiffMenuOpen(false);
@@ -984,6 +1091,7 @@ const GitStatusPanel = ({
         if (
           event.key !== "Delete" ||
           isLoading ||
+          stagePendingPaths.size > 0 ||
           selectedEntries.length === 0 ||
           !(event.target as HTMLElement | null)?.closest('[role="treeitem"]')
         ) {
@@ -1037,7 +1145,7 @@ const GitStatusPanel = ({
               {unstagedFiles.length > 0 && (
                 <SidebarHeaderIconButton
                   onClick={handleStashAllUnstaged}
-                  disabled={isLoading}
+                  disabled={isLoading || stagePendingPaths.size > 0}
                   className="disabled:opacity-50"
                   tooltip={t("git.stashAllUnstaged")}
                   tooltipSide="bottom"
@@ -1132,18 +1240,52 @@ const GitStatusPanel = ({
                 },
               ]
             : [
+                ...(contextMenuUnstagedFiles.length > 0
+                  ? [
+                      {
+                        id: "stage-selection",
+                        label: getStageActionLabel(false),
+                        icon: <Plus />,
+                        disabled: isLoading,
+                        onClick: () =>
+                          void handleSetFilesStaged(contextMenuUnstagedFiles, true),
+                      },
+                    ]
+                  : []),
+                ...(contextMenuStagedFiles.length > 0
+                  ? [
+                      {
+                        id: "unstage-selection",
+                        label: getStageActionLabel(true),
+                        icon: <Minus />,
+                        disabled: isLoading,
+                        onClick: () =>
+                          void handleSetFilesStaged(contextMenuStagedFiles, false),
+                      },
+                    ]
+                  : []),
+                {
+                  id: "create-patch-selection",
+                  label: contextMenuRepositories.length === 1 ? t("git.patch.create") : t("git.patch.singleRepository"),
+                  icon: <GitDiff />,
+                  disabled: isLoading || contextMenuRepositories.length !== 1,
+                  onClick: () => {
+                    const repository = contextMenuRepositories[0];
+                    if (repository) void showGitPatchDialog(repository.repoPath, { mode: "export", paths: getRepoRelativePaths(repository.files) });
+                  },
+                },
                 {
                   id: "commit-selection",
                   label: t("git.commit"),
                   icon: <GitCommit />,
-                  disabled: contextMenuEntries.length === 0 || isLoading,
+                  disabled: contextMenuEntries.length === 0 || isLoading || stagePendingPaths.size > 0,
                   onClick: () => void handleCommitEntries(contextMenuEntries),
                 },
                 {
                   id: "rollback-selection",
                   label: t("git.rollback"),
                   icon: <RotateCcw />,
-                  disabled: !contextMenuHasTrackedFiles || isLoading,
+                  disabled: !contextMenuHasTrackedFiles || isLoading || stagePendingPaths.size > 0,
                   onClick: () => void handleRollbackEntries(contextMenuEntries),
                 },
                 {
@@ -1160,7 +1302,15 @@ const GitStatusPanel = ({
                   disabled: !contextMenuTarget || !onOpenPath,
                   onClick: () => {
                     if (contextMenuTarget) {
-                      onOpenPath?.(contextMenuTarget.path, contextMenuTarget.kind === "folder");
+                      const file = contextMenuTarget.files[0];
+                      const isDirectory = contextMenuTarget.kind === "folder";
+                      const prefixLength = file?.repositoryRelativePath
+                        ? file.path.length - file.repositoryRelativePath.length
+                        : 0;
+                      const path = isDirectory
+                        ? contextMenuTarget.path.slice(prefixLength)
+                        : contextMenuTarget.path;
+                      onOpenPath?.(path, isDirectory, file?.repositoryPath);
                     }
                   },
                 },
@@ -1168,7 +1318,7 @@ const GitStatusPanel = ({
                   id: "delete-selection",
                   label: t("git.delete"),
                   icon: <Trash2 />,
-                  disabled: contextMenuDeletionPaths.length === 0 || isLoading,
+                  disabled: contextMenuDeletionPaths.length === 0 || isLoading || stagePendingPaths.size > 0,
                   className: "text-destructive",
                   onClick: () => void handleDeleteEntries(contextMenuEntries),
                 },
@@ -1190,7 +1340,7 @@ const GitStatusPanel = ({
                               })
                             : t("git.addToGitignore"),
                         icon: <EyeSlash />,
-                        disabled: isLoading,
+                        disabled: isLoading || stagePendingPaths.size > 0,
                         onClick: () => void handleAddToIgnoreFile(contextMenuEntries, "gitignore"),
                       },
                       {
@@ -1202,7 +1352,7 @@ const GitStatusPanel = ({
                               })
                             : t("git.addToLocalExclude"),
                         icon: <EyeSlash />,
-                        disabled: isLoading,
+                        disabled: isLoading || stagePendingPaths.size > 0,
                         onClick: () => void handleAddToIgnoreFile(contextMenuEntries, "exclude"),
                       },
                     ]
@@ -1211,7 +1361,7 @@ const GitStatusPanel = ({
                   id: "stash-selection",
                   label: t("git.stash"),
                   icon: <Archive />,
-                  disabled: contextMenuEntries.length === 0 || isLoading,
+                  disabled: contextMenuEntries.length === 0 || isLoading || stagePendingPaths.size > 0,
                   onClick: () => handleStashEntries(contextMenuEntries),
                 },
               ]

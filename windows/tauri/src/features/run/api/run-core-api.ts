@@ -62,12 +62,14 @@ export function createLaunchPlan(
   configurationId: string,
   currentFile?: string,
   mavenContext?: MavenLaunchContext | null,
+  debugPort?: number,
 ) {
   return runCore<LaunchPlan>("runConfig.createLaunchPlan", {
     root,
     configurationId,
     currentFile,
     mavenContext: mavenContext ?? null,
+    debugPort,
   });
 }
 

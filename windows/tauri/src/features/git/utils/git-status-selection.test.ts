@@ -3,6 +3,7 @@ import {
   buildGitIgnorePaths,
   collapseNestedGitStatusPaths,
   resolveGitFileMutationPaths,
+  resolveGitFilesForStagedState,
   resolveGitStatusDeletionPaths,
   resolveGitStatusContextSelection,
   updateGitStatusSelection,
@@ -21,6 +22,42 @@ describe("Git status row selection", () => {
         { path: "src/other.ts", status: "modified", staged: false },
       ]),
     ).toEqual(["src/new-name.ts", "src/old-name.ts", "src/other.ts"]);
+  });
+
+  test("uses repository-relative paths for aggregated workspace mutations", () => {
+    expect(
+      resolveGitFileMutationPaths([
+        {
+          path: "service-a/src/new-name.ts",
+          originalPath: "service-a/src/old-name.ts",
+          repositoryPath: "C:/workspace/service-a",
+          repositoryRelativePath: "src/new-name.ts",
+          repositoryOriginalRelativePath: "src/old-name.ts",
+          status: "renamed",
+          staged: true,
+        },
+      ]),
+    ).toEqual(["src/new-name.ts", "src/old-name.ts"]);
+  });
+
+  test("partitions a mixed file and folder selection into unique stage mutations", () => {
+    const staged = {
+      path: "service-a/src/staged.ts",
+      repositoryPath: "C:/workspace/service-a",
+      repositoryRelativePath: "src/staged.ts",
+      status: "modified" as const,
+      staged: true,
+    };
+    const unstaged = {
+      path: "service-a/src/unstaged.ts",
+      repositoryPath: "C:/workspace/service-a",
+      repositoryRelativePath: "src/unstaged.ts",
+      status: "modified" as const,
+      staged: false,
+    };
+
+    expect(resolveGitFilesForStagedState([staged, unstaged, staged], false)).toEqual([staged]);
+    expect(resolveGitFilesForStagedState([staged, unstaged, unstaged], true)).toEqual([unstaged]);
   });
 
   test("keeps row selection independent from commit checkboxes", () => {

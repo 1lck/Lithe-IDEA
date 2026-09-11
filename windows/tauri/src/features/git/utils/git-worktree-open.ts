@@ -10,7 +10,7 @@ interface OpenGitWorktreeOptions {
 }
 
 export function isOpenableGitWorktree(worktree: GitWorktree): boolean {
-  return !worktree.prunable_reason?.trim();
+  return !worktree.is_bare && !worktree.is_prunable && !worktree.prunable_reason?.trim();
 }
 
 export async function openGitWorktreeWorkspace(

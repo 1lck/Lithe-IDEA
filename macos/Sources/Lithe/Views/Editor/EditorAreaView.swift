@@ -16,7 +16,7 @@ enum EditorDocumentIconResolver {
     }
 }
 
-private enum MarkdownViewMode: String, CaseIterable, Identifiable, Equatable {
+enum DocumentPreviewMode: String, CaseIterable, Identifiable, Equatable {
     case editor
     case split
     case preview
@@ -52,17 +52,17 @@ struct EditorAreaView: View {
     @State private var tabReorderTarget: EditorTabReorderTarget?
     @State private var isTerminalTabBarDropTargeted = false
     @State private var splitDocumentID: UUID?
-    @State private var markdownViewModes: [UUID: MarkdownViewMode] = [:]
+    @State private var documentPreviewModes: [UUID: DocumentPreviewMode] = [:]
     @State private var markdownScrollPositions: [UUID: MarkdownScrollPosition] = [:]
     @State private var editorViewportStore = EditorViewportStore()
-    @State private var hoveredMarkdownMode: MarkdownViewMode?
+    @State private var hoveredPreviewMode: DocumentPreviewMode?
     @State private var resolvedJavaDocumentIconKinds: [String: LitheIconKind] = [:]
 
     var body: some View {
         let _ = LitheSignpost.bodyEvaluated("EditorAreaView")
         ZStack(alignment: .top) {
             Group {
-                if model.selectedSidebar == .database {
+                if model.workbenchFeature.selectedSidebar == .database {
                     if model.isDatabaseModuleActive {
                         DatabaseWorkspaceView()
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -70,12 +70,25 @@ struct EditorAreaView: View {
                         ProgressView()
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                } else if let comparison = model.branchComparison {
-                    BranchComparisonView(comparison: comparison)
-                } else if let commitDiff = model.selectedGitCommitDiffContext {
-                    GitCommitDiffReviewView(context: commitDiff)
-                } else if let selectedChange = model.selectedChange {
-                    DiffReviewView(change: selectedChange)
+                } else if let feature = model.gitFeatureIfActive,
+                          let comparison = feature.branchComparison {
+                    BranchComparisonView(
+                        feature: feature,
+                        comparison: comparison,
+                        onRefresh: { [weak model] in
+                            if let target = comparison.targetReference {
+                                await model?.showComparison(from: comparison.reference, to: target)
+                            } else {
+                                await model?.showComparisonWithWorkingTree(for: comparison.reference)
+                            }
+                        }
+                    )
+                } else if let feature = model.gitFeatureIfActive,
+                          let commitDiff = feature.selectedGitCommitDiffContext {
+                    GitCommitDiffReviewView(feature: feature, context: commitDiff)
+                } else if let feature = model.gitFeatureIfActive,
+                          let selectedChange = feature.selectedChange {
+                    DiffReviewView(feature: feature, change: selectedChange)
                 } else {
                     VStack(spacing: 0) {
                         if model.editorTabItems.isEmpty {
@@ -100,7 +113,7 @@ struct EditorAreaView: View {
             if let splitDocumentID, !ids.contains(splitDocumentID) {
                 self.splitDocumentID = nil
             }
-            markdownViewModes = markdownViewModes.filter { ids.contains($0.key) }
+            documentPreviewModes = documentPreviewModes.filter { ids.contains($0.key) }
             markdownScrollPositions = markdownScrollPositions.filter { ids.contains($0.key) }
             editorViewportStore.retain(documentIDs: Set(ids))
         }
@@ -155,9 +168,9 @@ struct EditorAreaView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             if let document = model.activeDocument,
                model.activeEditorTerminalSession == nil,
-               isMarkdownFile(document),
+               (isMarkdownFile(document) || isSVGFile(document)),
                splitDocumentID == nil {
-                markdownModePicker
+                documentPreviewModePicker
             }
         }
         .frame(minHeight: LitheTheme.Metrics.tabHeight, alignment: .top)
@@ -971,14 +984,14 @@ struct EditorAreaView: View {
         tabDragStartFrames = [:]
     }
 
-    private var markdownModePicker: some View {
+    private var documentPreviewModePicker: some View {
         HStack(spacing: 1) {
-            ForEach(MarkdownViewMode.allCases) { mode in
-                let isSelected = selectedMarkdownMode == mode
-                let isHovered = hoveredMarkdownMode == mode
+            ForEach(DocumentPreviewMode.allCases) { mode in
+                let isSelected = selectedDocumentPreviewMode == mode
+                let isHovered = hoveredPreviewMode == mode
 
                 Button {
-                    selectMarkdownMode(mode)
+                    selectDocumentPreviewMode(mode)
                 } label: {
                     Image(systemName: mode.symbolName)
                         .font(.system(size: 11, weight: .medium))
@@ -998,11 +1011,12 @@ struct EditorAreaView: View {
                 .buttonStyle(.plain)
                 .lithePointer()
                 .help(mode.title)
+                .accessibilityLabel(mode.title)
                 .onHover { isHovering in
                     if isHovering {
-                        hoveredMarkdownMode = mode
-                    } else if hoveredMarkdownMode == mode {
-                        hoveredMarkdownMode = nil
+                        hoveredPreviewMode = mode
+                    } else if hoveredPreviewMode == mode {
+                        hoveredPreviewMode = nil
                     }
                 }
             }
@@ -1020,14 +1034,18 @@ struct EditorAreaView: View {
         .padding(.horizontal, 7)
     }
 
-    private var selectedMarkdownMode: MarkdownViewMode {
+    private var selectedDocumentPreviewMode: DocumentPreviewMode {
         guard let document = model.activeDocument else { return .editor }
-        return markdownViewModes[document.id] ?? .editor
+        return documentPreviewModes[document.id] ?? (isSVGFile(document) ? .split : .editor)
     }
 
-    private func selectMarkdownMode(_ mode: MarkdownViewMode) {
+    private func selectDocumentPreviewMode(_ mode: DocumentPreviewMode) {
         guard let document = model.activeDocument else { return }
-        markdownViewModes[document.id] = mode
+        documentPreviewModes[document.id] = mode
+    }
+
+    private func isSVGFile(_ document: EditorDocument) -> Bool {
+        document.url.pathExtension.lowercased() == "svg"
     }
 
     private func isMarkdownFile(_ document: EditorDocument) -> Bool {
@@ -1205,8 +1223,17 @@ struct EditorAreaView: View {
             MediaViewerView(media: media)
                 .id(media.id)
         } else if let document = model.activeDocument {
-            if isMarkdownFile(document) {
-                switch markdownViewModes[document.id] ?? .editor {
+            if isSVGFile(document) {
+                switch documentPreviewModes[document.id] ?? .split {
+                case .editor:
+                    editorWithFindBar(document)
+                case .split:
+                    SVGEditorSplitView(editor: editorWithFindBar(document), document: document)
+                case .preview:
+                    SVGPreviewView(document: document)
+                }
+            } else if isMarkdownFile(document) {
+                switch documentPreviewModes[document.id] ?? .editor {
                 case .editor:
                     editorWithFindBar(document)
                 case .split:

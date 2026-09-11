@@ -1,7 +1,6 @@
 import { invoke } from "@/platform/tauri-core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  DebugAdapterLaunch,
   DebugAdapterSessionInfo,
   DebugBreakpoint,
   DebugCommandResult,
@@ -10,17 +9,15 @@ import type {
   DebugProtocolMessage,
   DebugSessionEnded,
 } from "@/features/debugger/types/debugger.types";
+import {
+  connectDebugAdapterSession,
+  startDebugAdapterSession,
+} from "../api/debug-adapter-host-api";
 
 interface DebuggerEventHandlers {
   onMessage?: (payload: DebugProtocolMessage) => void | Promise<void>;
   onOutput?: (payload: DebugProcessOutput) => void;
-  onSessionEnded?: (payload: DebugSessionEnded) => void;
-}
-
-async function startDebugAdapterSession(
-  launch: DebugAdapterLaunch,
-): Promise<DebugAdapterSessionInfo> {
-  return await invoke<DebugAdapterSessionInfo>("debug_start_session", { launch });
+  onSessionEnded?: (payload: DebugSessionEnded) => void | Promise<void>;
 }
 
 export async function sendDebugAdapterRequest(
@@ -69,12 +66,34 @@ export async function startDebugLaunchSession(
     env: config.env,
     workspacePath,
   });
-  onSessionStarted?.(session);
+  return initializeDebugLaunchSession(session, config, breakpoints, effectiveCwd, onSessionStarted);
+}
 
+export async function startConnectedDebugLaunchSession(
+  config: DebugLaunchConfig,
+  adapterPort: number,
+  breakpoints: DebugBreakpoint[],
+  workspacePath?: string,
+  onSessionStarted?: (session: DebugAdapterSessionInfo) => void,
+): Promise<DebugAdapterSessionInfo> {
+  const effectiveCwd = config.cwd ?? workspacePath;
+  const session = await connectDebugAdapterSession({ port: adapterPort, workspacePath });
+  return initializeDebugLaunchSession(session, config, breakpoints, effectiveCwd, onSessionStarted);
+}
+
+async function initializeDebugLaunchSession(
+  session: DebugAdapterSessionInfo,
+  config: DebugLaunchConfig,
+  breakpoints: DebugBreakpoint[],
+  effectiveCwd: string | undefined,
+  onSessionStarted?: (session: DebugAdapterSessionInfo) => void,
+): Promise<DebugAdapterSessionInfo> {
   try {
+    onSessionStarted?.(session);
     // Rust Core owns DAP initialization and the configurationDone handshake;
     // the host facade only queues the launch and breakpoint sets.
     await sendDebugAdapterRequest(session.id, config.request ?? "launch", {
+      ...config.launchArguments,
       name: config.name,
       type: config.type ?? config.runtime,
       request: config.request ?? "launch",
@@ -133,7 +152,7 @@ export async function subscribeDebuggerEvents(
       handlers.onOutput?.(event.payload);
     }),
     listen<DebugSessionEnded>("debugger_session_ended", (event) => {
-      handlers.onSessionEnded?.(event.payload);
+      void handlers.onSessionEnded?.(event.payload);
     }),
   ]);
 

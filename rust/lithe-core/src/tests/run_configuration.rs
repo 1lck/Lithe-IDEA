@@ -7,6 +7,75 @@ use std::fs;
 use std::path::PathBuf;
 
 #[test]
+fn resolved_maven_ownership_survives_cwd_override_and_separates_reactors() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/run-configuration/maven-module-ownership.json"
+    ))
+    .unwrap();
+    let root = temporary_root("maven-menu-ownership");
+    // The guard also removes generated documents when an assertion fails.
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).expect("remove fixture workspace");
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    for (path, contents) in fixture["files"].as_object().unwrap() {
+        let path = root.join(path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, contents.as_str().unwrap()).unwrap();
+    }
+    let generated: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "generate", "command": "runConfig.generate",
+            "payload": {"root": root, "paths": fixture["paths"], "modulePaths": []}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(generated["ok"], true, "{generated}");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        generated["data"]["generated"].to_string(),
+    )
+    .unwrap();
+    let resolved: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "resolve", "command": "runConfig.resolve",
+            "payload": {"root": root, "localDocument": fixture["local"]}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(resolved["ok"], true, "{resolved}");
+    let configurations = resolved["data"]["configurations"].as_array().unwrap();
+    for expected in fixture["expected"]["configurations"].as_array().unwrap() {
+        let actual = configurations
+            .iter()
+            .find(|item| item["id"] == expected["id"])
+            .unwrap();
+        for key in ["id", "name", "provider", "execution", "cwd"] {
+            assert_eq!(actual[key], expected[key], "{key}: {actual}");
+        }
+        assert_eq!(actual["debug"], expected["debug"]);
+        if actual["provider"] == "java.current-file" {
+            assert!(actual["extensions"]["maven"]["reactorPath"].is_null());
+        } else {
+            assert_eq!(actual["disabled"], false);
+            assert_eq!(actual["toolchains"], expected["toolchains"]);
+            for key in ["module", "reactorPath"] {
+                assert_eq!(
+                    actual["extensions"]["maven"][key],
+                    expected["extensions"]["maven"][key]
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn run_configuration_commands_generate_merge_and_plan() {
     let root = temporary_root("run-config");
     fs::create_dir_all(root.join("src/main/java/com/example"))
@@ -46,6 +115,13 @@ fn run_configuration_commands_generate_merge_and_plan() {
     assert_eq!(current["name"], "Local File");
     assert_eq!(current["toolchains"]["java"], "custom-jdk");
     assert_eq!(current["toolchains"]["maven"], "custom-maven");
+    let service = resolve["data"]["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["id"] == "spring-boot.maven:demo")
+        .unwrap();
+    assert_eq!(service["extensions"]["maven"]["reactorPath"], ".");
     let plan: Value = serde_json::from_str(&execute_json(&serde_json::json!({"id":"plan","command":"runConfig.createLaunchPlan","payload":{"root":root,"configurationId":"current-file","currentFile":"src/main/java/com/example/App.java"}}).to_string())).unwrap();
     assert_eq!(plan["ok"], true);
     assert_eq!(plan["data"]["executable"]["toolchain"], "custom-jdk");

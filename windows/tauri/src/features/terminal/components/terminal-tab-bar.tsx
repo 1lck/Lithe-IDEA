@@ -298,6 +298,8 @@ const TerminalTabBar = ({
   const sessions = useTerminalStore((state) => state.sessions);
   const customProfiles = useTerminalProfilesStore.use.profiles();
   const availableShells = useTerminalShellsStore.use.shells();
+  const isDetectingShells = useTerminalShellsStore.use.isLoading();
+  const shellDetectionError = useTerminalShellsStore.use.error();
   const { openTerminalBuffer } = useBufferStore.use.actions();
 
   const tabBarRef = useRef<HTMLDivElement>(null);
@@ -438,6 +440,7 @@ const TerminalTabBar = ({
   };
 
   const openProfileMenu = (event: React.MouseEvent<HTMLButtonElement>) => {
+    void useTerminalShellsStore.getState().actions.loadShells({ force: true });
     event.preventDefault();
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
@@ -487,11 +490,14 @@ const TerminalTabBar = ({
         >
           <Plus />
         </Button>
-        {onNewTerminalWithProfile && terminalProfiles.length > 1 && (
+        {onNewTerminalWithProfile && (
           <Tooltip content={t("terminal.chooseTerminalProfile")} side="bottom">
             <Button
               ref={profileMenuButtonRef}
               onClick={openProfileMenu}
+              aria-label={t("terminal.chooseTerminalProfile")}
+              aria-haspopup="menu"
+              aria-expanded={profileMenu.isOpen}
               variant="ghost"
               size="icon-xs"
             >
@@ -542,6 +548,8 @@ const TerminalTabBar = ({
     if (title && isUsefulTerminalTitle(title)) return title;
     const commandLabel = getCommandLabel(terminal.initialCommand);
     if (commandLabel) return commandLabel;
+    const shellLabel = availableShells.find((shell) => shell.id === terminal.shell)?.name;
+    if (shellLabel) return shellLabel;
     const dirLabel = getDirectoryLabel(session?.currentDirectory || terminal.currentDirectory);
     if (dirLabel) return dirLabel;
     return terminal.name;
@@ -725,11 +733,14 @@ const TerminalTabBar = ({
             >
               <Plus />
             </Button>
-            {onNewTerminalWithProfile && terminalProfiles.length > 1 && (
+            {onNewTerminalWithProfile && (
               <Tooltip content={t("terminal.chooseTerminalProfile")} side="bottom">
                 <Button
                   ref={profileMenuButtonRef}
                   onClick={openProfileMenu}
+                  aria-label={t("terminal.chooseTerminalProfile")}
+                  aria-haspopup="menu"
+                  aria-expanded={profileMenu.isOpen}
                   variant="ghost"
                   className="rounded-lg text-subtle-foreground"
                   size="icon-xs"
@@ -1023,7 +1034,26 @@ const TerminalTabBar = ({
               {t("terminal.newTerminal")}
             </div>
             <div className="my-0.5 border-border/70 border-t" />
-            <MenuItemsList items={profileMenuItems} onItemSelect={closeProfileMenu} />
+            <div className="max-h-72 overflow-y-auto">
+              <MenuItemsList items={profileMenuItems} onItemSelect={closeProfileMenu} />
+            </div>
+            <div className="my-0.5 border-border/70 border-t" />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start"
+              disabled={isDetectingShells}
+              onClick={() =>
+                void useTerminalShellsStore.getState().actions.loadShells({ force: true })
+              }
+            >
+              {t(isDetectingShells ? "terminal.detectingShells" : "terminal.detectShells")}
+            </Button>
+            {shellDetectionError && (
+              <p role="alert" className="px-2.5 py-1 text-xs text-destructive">
+                {t("terminal.detectShellsFailed")}
+              </p>
+            )}
           </Dropdown>
         </>,
         document.body,

@@ -31,6 +31,7 @@ const nativeCommands = new Set([
   "debug_session_ready",
   "debug_stop_session",
   "debug_stop_workspace_sessions",
+  "export_diagnostic_bundle",
   "get_secure_secret",
   "frontend_trace",
   "get_application_memory_usage",
@@ -48,6 +49,7 @@ const nativeCommands = new Set([
   "move_file",
   "open_log_directory",
   "open_file_external",
+  "preview_diagnostic_bundle",
   "read_file_custom",
   "read_local_file",
   "read_local_file_bounded",
@@ -70,6 +72,8 @@ const nativeCommands = new Set([
   "set_project_root",
   "start_watching",
   "stop_watching",
+  "watch_git_repository",
+  "unwatch_git_repository",
   "store_secure_secret",
   "terminal_resize",
   "terminal_set_paused",
@@ -78,6 +82,7 @@ const nativeCommands = new Set([
   "warm_terminal_environment",
   "validate_font",
   "write_file",
+  "write_patch_file",
 ]);
 
 export function invoke<T>(command: string, args?: InvokeArgs, options?: InvokeOptions): Promise<T> {

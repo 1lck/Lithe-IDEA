@@ -211,6 +211,374 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
+    func dismissingADedicatedProjectWindowResetsThatWindowSession() async {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        sessions.shouldDismissWindowWhenClosingActiveSession = true
+        let coordinator = LitheWindowCoordinator(
+            projectSessions: sessions,
+            confirmUnsavedDocuments: { _ in true }
+        )
+        let window = CloseCommandTestWindow()
+        coordinator.attach(to: window, layout: .workspace)
+
+        #expect(!coordinator.windowShouldClose(window))
+        #expect(await window.waitUntilNativeCloseAllowed())
+        #expect(sessions.resetForProjectWindowCloseCallCount == 1)
+        #expect(sessions.requestCloseActiveSessionCallCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func openingAProjectInANewWindowCreatesADedicatedSession() throws {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        settings.projectOpenBehavior = .newWindow
+        var presentedWindowIDs: [UUID] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode
+                    ).services
+                )
+            },
+            projectWindowPresenter: { presentedWindowIDs.append($0) }
+        )
+
+        let firstURL = URL(fileURLWithPath: "/tmp/lithe-primary-project")
+        let secondURL = URL(fileURLWithPath: "/tmp/lithe-dedicated-project")
+        manager.openStartupProject(firstURL)
+        let primaryID = manager.activeSessionID(in: .primary)
+
+        manager.requestOpenProject(secondURL, from: primaryID)
+
+        #expect(manager.openProjects.count == 2)
+        #expect(manager.primaryOpenProjects.count == 1)
+        #expect(manager.primaryOpenProjects.first?.id == primaryID)
+        #expect(presentedWindowIDs.count == 1)
+        let dedicatedWindowID = try #require(presentedWindowIDs.first)
+        #expect(manager.activeSessionID(in: .primary) == primaryID)
+        #expect(manager.isDedicatedWindowSession(dedicatedWindowID))
+        #expect(
+            manager.activeModel(in: .dedicated(dedicatedWindowID))
+                .workspaceURL?.standardizedFileURL == secondURL
+        )
+        #expect(manager.shouldDismissPrimaryWindowWhenClosingActiveSession)
+    }
+
+    @Test
+    @MainActor
+    func openingInThisWindowFromDedicatedStaysInDedicatedScope() throws {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        settings.projectOpenBehavior = .newWindow
+        var presentedWindowIDs: [UUID] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode
+                    ).services
+                )
+            },
+            projectWindowPresenter: { presentedWindowIDs.append($0) }
+        )
+
+        manager.openStartupProject(URL(fileURLWithPath: "/tmp/lithe-primary-a"))
+        let primaryID = manager.activeSessionID(in: .primary)
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-dedicated-b"),
+            from: primaryID
+        )
+        let dedicatedWindowID = try #require(presentedWindowIDs.first)
+        let dedicatedSessionID = manager.activeSessionID(in: .dedicated(dedicatedWindowID))
+
+        settings.projectOpenBehavior = .thisWindow
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-dedicated-d"),
+            from: dedicatedSessionID
+        )
+
+        #expect(manager.primaryOpenProjects.count == 1)
+        #expect(manager.openProjects(in: .dedicated(dedicatedWindowID)).count == 2)
+        #expect(
+            manager.openProjects(in: .dedicated(dedicatedWindowID))
+                .contains { $0.workspaceURL?.path.hasSuffix("lithe-dedicated-d") == true }
+        )
+        #expect(manager.activeSessionID(in: .primary) == primaryID)
+    }
+
+    @Test
+    @MainActor
+    func removingADedicatedSessionDismissesItsWindow() throws {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        settings.projectOpenBehavior = .newWindow
+        var presentedWindowIDs: [UUID] = []
+        var dismissedWindowIDs: [UUID] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode
+                    ).services
+                )
+            },
+            projectWindowPresenter: { presentedWindowIDs.append($0) },
+            projectWindowDismisser: { dismissedWindowIDs.append($0) }
+        )
+
+        manager.openStartupProject(URL(fileURLWithPath: "/tmp/lithe-primary-keep"))
+        let primaryID = manager.activeSessionID(in: .primary)
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-dedicated-close"),
+            from: primaryID
+        )
+        let dedicatedWindowID = try #require(presentedWindowIDs.first)
+        let dedicatedSessionID = manager.activeSessionID(in: .dedicated(dedicatedWindowID))
+
+        manager.closeProject(dedicatedSessionID)
+
+        #expect(dismissedWindowIDs == [dedicatedWindowID])
+        #expect(manager.session(for: dedicatedSessionID) == nil)
+        #expect(manager.openProjects.count == 1)
+        #expect(manager.activeSessionID(in: .primary) == primaryID)
+    }
+
+    @Test
+    @MainActor
+    func resettingPrimaryWindowDoesNotDestroyDedicatedSessions() async throws {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        settings.projectOpenBehavior = .thisWindow
+        var presentedWindowIDs: [UUID] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode
+                    ).services
+                )
+            },
+            projectWindowPresenter: { presentedWindowIDs.append($0) }
+        )
+
+        manager.openStartupProject(URL(fileURLWithPath: "/tmp/lithe-primary-a"))
+        let primaryID = manager.activeSessionID(in: .primary)
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-primary-b"),
+            from: primaryID
+        )
+        settings.projectOpenBehavior = .newWindow
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-dedicated-c"),
+            from: manager.activeSessionID(in: .primary)
+        )
+        let dedicatedWindowID = try #require(presentedWindowIDs.first)
+        let dedicatedSessionID = manager.activeSessionID(in: .dedicated(dedicatedWindowID))
+
+        #expect(manager.primaryOpenProjects.count == 2)
+        await manager.resetForProjectWindowClose()
+
+        #expect(manager.primaryOpenProjects.isEmpty)
+        #expect(manager.session(for: dedicatedSessionID) != nil)
+        #expect(
+            manager.activeModel(in: .dedicated(dedicatedWindowID))
+                .workspaceURL?.path.hasSuffix("lithe-dedicated-c") == true
+        )
+    }
+
+    @Test
+    @MainActor
+    func activatingADedicatedSessionDoesNotChangePrimaryActiveTab() throws {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        settings.projectOpenBehavior = .thisWindow
+        var presentedWindowIDs: [UUID] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode
+                    ).services
+                )
+            },
+            projectWindowPresenter: { presentedWindowIDs.append($0) }
+        )
+
+        manager.openStartupProject(URL(fileURLWithPath: "/tmp/lithe-primary-a"))
+        let primaryA = manager.activeSessionID(in: .primary)
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-primary-b"),
+            from: primaryA
+        )
+        let primaryB = manager.activeSessionID(in: .primary)
+        #expect(primaryB != primaryA)
+
+        settings.projectOpenBehavior = .newWindow
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-dedicated-c"),
+            from: primaryB
+        )
+        let dedicatedWindowID = try #require(presentedWindowIDs.first)
+
+        #expect(manager.activeSessionID(in: .primary) == primaryB)
+        #expect(manager.activeSessionID(in: .dedicated(dedicatedWindowID)) != primaryB)
+
+        manager.noteWindowBecameKey(.primary)
+        #expect(manager.activeSessionID(in: .primary) == primaryB)
+        #expect(manager.focusedScope == .primary)
+    }
+
+    @Test
+    @MainActor
+    func resettingADedicatedWindowKeepsOtherProjectsOpen() async throws {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        settings.projectOpenBehavior = .newWindow
+        var presentedWindowIDs: [UUID] = []
+        var dismissedWindowIDs: [UUID] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode
+                    ).services
+                )
+            },
+            projectWindowPresenter: { presentedWindowIDs.append($0) },
+            projectWindowDismisser: { dismissedWindowIDs.append($0) }
+        )
+
+        manager.openStartupProject(URL(fileURLWithPath: "/tmp/lithe-keep-primary"))
+        let primaryID = manager.activeSessionID(in: .primary)
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-close-dedicated"),
+            from: primaryID
+        )
+        let dedicatedWindowID = try #require(presentedWindowIDs.first)
+
+        await manager.resetDedicatedWindowSession(windowID: dedicatedWindowID)
+
+        #expect(dismissedWindowIDs == [dedicatedWindowID])
+        #expect(manager.sessions(in: .dedicated(dedicatedWindowID)).isEmpty)
+        #expect(manager.openProjects.count == 1)
+        #expect(manager.activeSessionID(in: .primary) == primaryID)
+        #expect(manager.activeModel(in: .primary).workspaceURL != nil)
+    }
+
+    @Test
+    @MainActor
+    func askPromptIsScopedToTheSourceWindowOnly() throws {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        settings.projectOpenBehavior = .newWindow
+        var presentedWindowIDs: [UUID] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode
+                    ).services
+                )
+            },
+            projectWindowPresenter: { presentedWindowIDs.append($0) }
+        )
+
+        manager.openStartupProject(URL(fileURLWithPath: "/tmp/lithe-ask-primary"))
+        let primaryID = manager.activeSessionID(in: .primary)
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-ask-dedicated"),
+            from: primaryID
+        )
+        let dedicatedWindowID = try #require(presentedWindowIDs.first)
+        let dedicatedSessionID = manager.activeSessionID(in: .dedicated(dedicatedWindowID))
+
+        settings.projectOpenBehavior = .ask
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-ask-next"),
+            from: dedicatedSessionID
+        )
+
+        let pending = try #require(manager.pendingProjectOpen)
+        #expect(manager.scope(for: pending.sourceSessionID) == .dedicated(dedicatedWindowID))
+        #expect(manager.pendingProjectOpen(in: .dedicated(dedicatedWindowID))?.id == pending.id)
+        #expect(manager.pendingProjectOpen(in: .primary) == nil)
+
+        manager.resolvePendingOpen(pending, placement: .thisWindow, doNotAskAgain: false)
+        #expect(manager.pendingProjectOpen == nil)
+        #expect(manager.openProjects(in: .dedicated(dedicatedWindowID)).count == 2)
+        #expect(manager.primaryOpenProjects.count == 1)
+    }
+
+    @Test
+    @MainActor
+    func windowFocusUpdatesMenuCommandTargetSession() throws {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        settings.projectOpenBehavior = .newWindow
+        var presentedWindowIDs: [UUID] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode
+                    ).services
+                )
+            },
+            projectWindowPresenter: { presentedWindowIDs.append($0) }
+        )
+
+        manager.openStartupProject(URL(fileURLWithPath: "/tmp/lithe-focus-primary"))
+        let primaryID = manager.activeSessionID(in: .primary)
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-focus-dedicated"),
+            from: primaryID
+        )
+        let dedicatedWindowID = try #require(presentedWindowIDs.first)
+        let dedicatedID = manager.activeSessionID(in: .dedicated(dedicatedWindowID))
+
+        #expect(manager.activeSessionID == dedicatedID)
+        manager.noteWindowBecameKey(.primary)
+        #expect(manager.activeSessionID == primaryID)
+        manager.noteWindowBecameKey(.dedicated(dedicatedWindowID))
+        #expect(manager.activeSessionID == dedicatedID)
+    }
+
+    @Test
+    @MainActor
     func closingAProjectWindowReplacesAllSessionsWithAnEmptyActiveSession() async {
         let store = MutableKeyValueStore()
         let settings = AppSettings(store: store)
@@ -229,7 +597,7 @@ struct LitheCoreLogicTests {
                 createdModels.append(model)
                 return model
             },
-            newWindowOpener: { _ in }
+            projectWindowPresenter: { _ in }
         )
 
         manager.openStandaloneFile(URL(fileURLWithPath: "/tmp/lithe-close-first.swift"))
@@ -265,7 +633,7 @@ struct LitheCoreLogicTests {
                     services: MacServiceContainer(store: store, settings: settings).services
                 )
             },
-            newWindowOpener: { _ in }
+            projectWindowPresenter: { _ in }
         )
         let previousModel = manager.activeModel
         let runtime = previousModel.services.moduleRuntime
@@ -1867,6 +2235,27 @@ struct LitheCoreLogicTests {
         )
         #expect(
             !rules.isHidden(
+                root.appendingPathComponent(".factorypath"),
+                relativeTo: root,
+                isDirectory: false
+            )
+        )
+        #expect(
+            !rules.isHidden(
+                root.appendingPathComponent("services/alpha/.factorypath"),
+                relativeTo: root,
+                isDirectory: false
+            )
+        )
+        #expect(
+            !rules.isHidden(
+                root.appendingPathComponent("services/alpha/pom.xml"),
+                relativeTo: root,
+                isDirectory: false
+            )
+        )
+        #expect(
+            !rules.isHidden(
                 root.appendingPathComponent(".lithe/run/configurations.json"),
                 relativeTo: root,
                 isDirectory: false
@@ -3080,6 +3469,8 @@ private final class ProjectWindowShutdownTestModule: LitheModule {
 private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
     var hasActiveProject: Bool
     var hasActiveStandaloneFile = false
+    var shouldDismissWindowWhenClosingActiveSession = false
+    var windowScope: ProjectWindowScope = .primary
     var consumesWorkbenchCloseCommand = false
     var hasUnsavedDocuments = false
     var unsavedDocumentNames: [String] = []
@@ -3090,6 +3481,7 @@ private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
     private(set) var closeActiveWorkbenchItemCallCount = 0
     private(set) var requestCloseActiveSessionCallCount = 0
     private(set) var resetForProjectWindowCloseCallCount = 0
+    private(set) var noteWindowBecameKeyCallCount = 0
     private(set) var saveAllDocumentsCallCount = 0
 
     init(hasActiveProject: Bool) {
@@ -3122,6 +3514,10 @@ private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
         if let projectWindowCleanupRelease {
             _ = await projectWindowCleanupRelease.waitUntilOpen()
         }
+    }
+
+    func noteWindowBecameKey() {
+        noteWindowBecameKeyCallCount += 1
     }
 }
 
@@ -4110,6 +4506,10 @@ struct EditorDocumentTests {
             atPath: hiddenWorktree.appendingPathComponent("App.swift").path,
             contents: Data("print(2)".utf8)
         )
+        let factorypath = workspace.appendingPathComponent(".factorypath")
+        let nestedFactorypath = sources.appendingPathComponent(".factorypath")
+        fileManager.createFile(atPath: factorypath.path, contents: Data("<factorypath />".utf8))
+        fileManager.createFile(atPath: nestedFactorypath.path, contents: Data("<factorypath />".utf8))
         defer { try? fileManager.removeItem(at: workspace) }
 
         let snapshot = try #require(
@@ -4119,10 +4519,95 @@ struct EditorDocumentTests {
             )
         )
 
-        #expect(snapshot.root.children?.map(\.name) == ["Sources", "README.md"])
-        #expect(snapshot.files.map(\.lastPathComponent).sorted() == ["App.swift", "README.md"])
+        let names = snapshot.root.children?.map(\.name) ?? []
+        #expect(names.contains("Sources"))
+        #expect(names.contains("README.md"))
+        #expect(names.contains(".factorypath"))
+        #expect(snapshot.files.contains { $0.lastPathComponent == "App.swift" })
+        #expect(snapshot.files.contains { $0.lastPathComponent == "README.md" })
+        #expect(snapshot.files.contains { $0.lastPathComponent == ".factorypath" })
         #expect(!snapshot.files.contains { $0.path.contains("/.git/") })
         #expect(!snapshot.files.contains { $0.path.contains("/.worktree/") })
+        #expect(fileManager.fileExists(atPath: factorypath.path))
+        #expect(fileManager.fileExists(atPath: nestedFactorypath.path))
+    }
+
+    @Test
+    func hidingLSPGeneratedArtifactsIsOptInAndLeavesFilesOnDisk() throws {
+        let fileManager = FileManager.default
+        let workspace = fileManager.temporaryDirectory
+            .appendingPathComponent("lithe-factorypath-search-\(UUID().uuidString)")
+        let module = workspace.appendingPathComponent("services/alpha")
+        try fileManager.createDirectory(at: module, withIntermediateDirectories: true)
+        let uniqueToken = "jdtlsFactorypathToken589"
+        let factorypath = workspace.appendingPathComponent(".factorypath")
+        let nestedFactorypath = module.appendingPathComponent(".factorypath")
+        fileManager.createFile(atPath: factorypath.path, contents: Data("\(uniqueToken)\n".utf8))
+        fileManager.createFile(
+            atPath: nestedFactorypath.path,
+            contents: Data("\(uniqueToken)\n".utf8)
+        )
+        fileManager.createFile(
+            atPath: workspace.appendingPathComponent("README.md").path,
+            contents: Data("visible\n".utf8)
+        )
+        defer { try? fileManager.removeItem(at: workspace) }
+
+        let defaultSnapshot = try #require(
+            FileSystemWorkspaceSnapshotBuilder().snapshot(
+                at: workspace,
+                visibilityRules: .default
+            )
+        )
+        #expect(fileNodeContains(defaultSnapshot.root, named: ".factorypath"))
+        #expect(fileManager.fileExists(atPath: factorypath.path))
+        #expect(fileManager.fileExists(atPath: nestedFactorypath.path))
+        #expect(!FileVisibilityRules.default.isHidden(factorypath, relativeTo: workspace, isDirectory: false))
+
+        let hiddenRules = FileVisibilityRules(
+            hiddenDirectoryNames: [],
+            hiddenFilePatterns: LSPGeneratedArtifactVisibility.inserting(into: [])
+        )
+        let hiddenSnapshot = try #require(
+            FileSystemWorkspaceSnapshotBuilder().snapshot(
+                at: workspace,
+                visibilityRules: hiddenRules
+            )
+        )
+        #expect(!fileNodeContains(hiddenSnapshot.root, named: ".factorypath"))
+        #expect(hiddenSnapshot.files.contains { $0.lastPathComponent == "README.md" })
+        #expect(hiddenRules.isHidden(factorypath, relativeTo: workspace, isDirectory: false))
+        #expect(hiddenRules.isHidden(nestedFactorypath, relativeTo: workspace, isDirectory: false))
+        #expect(fileManager.fileExists(atPath: factorypath.path))
+
+        guard RustCoreBridge().isAvailable else { return }
+        let visibleMatches = try #require(
+            RustCoreBridge().search(
+                at: workspace,
+                query: uniqueToken,
+                caseSensitive: true,
+                wholeWords: false,
+                regularExpression: false,
+                hiddenDirectoryNames: FileVisibilityRules.default.hiddenDirectoryNames,
+                hiddenFilePatterns: FileVisibilityRules.default.hiddenFilePatterns
+            )?.matches
+        )
+        #expect(visibleMatches.contains { $0.path == ".factorypath" })
+        #expect(visibleMatches.contains { $0.path == "services/alpha/.factorypath" })
+
+        let hiddenMatches = try #require(
+            RustCoreBridge().search(
+                at: workspace,
+                query: uniqueToken,
+                caseSensitive: true,
+                wholeWords: false,
+                regularExpression: false,
+                hiddenDirectoryNames: hiddenRules.hiddenDirectoryNames,
+                hiddenFilePatterns: hiddenRules.hiddenFilePatterns
+            )?.matches
+        )
+        #expect(!hiddenMatches.contains { $0.path == ".factorypath" })
+        #expect(!hiddenMatches.contains { $0.path == "services/alpha/.factorypath" })
     }
 
     @Test
@@ -4294,6 +4779,9 @@ struct EditorDocumentTests {
         let source = workspace.appendingPathComponent("src/Main.java")
         let build = workspace.appendingPathComponent("pom.xml")
         let watcherFactory = TestDirectoryWatcherFactory()
+        let delayStarted = TestGate()
+        let releaseDelay = TestGate()
+        let refreshFinished = TestGate()
         var projectedChanges: [WorkspaceFileChange] = []
         var projectReloadCount = 0
         let model = makeWorkspaceObservationUnitModel(
@@ -4304,26 +4792,79 @@ struct EditorDocumentTests {
             fileOperations: ExistingWorkspaceFileOperations(paths: [source.path, build.path]),
             provider: SequencedGitWatchContextProvider([nil]),
             watcherFactory: watcherFactory,
-            refreshGit: {},
+            refreshGit: {
+                if projectReloadCount > 0 { refreshFinished.open() }
+            },
             notifyWorkspaceFileChanges: { projectedChanges.append(contentsOf: $0) },
-            reloadProjectServices: { projectReloadCount += 1 }
+            reloadProjectServices: { projectReloadCount += 1 },
+            observationDelay: { duration in
+                #expect(duration == .milliseconds(350))
+                delayStarted.open()
+                guard await releaseDelay.waitUntilOpen() else { throw CancellationError() }
+                try Task.checkCancellation()
+            }
         )
-        defer { model.reset() }
+        defer {
+            model.reset()
+            releaseDelay.open()
+        }
         model.beginWorkspace(at: workspace, visibilityRules: .default)
         _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
         let watcher = try #require(watcherFactory.source)
 
         watcher.emit([source.path, build.path])
-        let refreshed = await waitForWorkspaceObservation {
-            projectedChanges.count == 2 && projectReloadCount == 1
-        }
-
-        #expect(refreshed)
+        #expect(await delayStarted.waitUntilOpen(), "The event did not reach the refresh scheduler")
+        #expect(projectedChanges.isEmpty)
+        #expect(projectReloadCount == 0)
+        releaseDelay.open()
+        #expect(await refreshFinished.waitUntilOpen(), "Released refresh did not finish")
         #expect(projectedChanges == [
             WorkspaceFileChange(fileURL: build, kind: .changed),
             WorkspaceFileChange(fileURL: source, kind: .changed),
         ])
         #expect(projectReloadCount == 1)
+    }
+
+    @Test
+    @MainActor
+    func resettingWorkspaceCancelsAnEventWaitingForItsRefreshDelay() async throws {
+        let started = TestGate()
+        let release = TestGate()
+        let finished = TestGate()
+        let watcherFactory = TestDirectoryWatcherFactory()
+        var externalChanges = 0
+        var gitRefreshes = 0
+        let model = makeWorkspaceObservationUnitModel(
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: { gitRefreshes += 1 },
+            processExternalChanges: { _ in externalChanges += 1; return false },
+            observationDelay: { _ in
+                started.open()
+                defer { finished.open() }
+                guard await release.waitUntilOpen() else { throw CancellationError() }
+                try Task.checkCancellation()
+            }
+        )
+        defer {
+            model.reset()
+            release.open()
+        }
+        let workspace = URL(fileURLWithPath: "/in-memory/cancelled-observation")
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        let watcher = try #require(watcherFactory.source)
+        watcher.emit(DirectoryChangeBatch(
+            workspacePaths: [workspace.appendingPathComponent("Main.java").path],
+            gitStateMayHaveChanged: true
+        ))
+        #expect(await started.waitUntilOpen(), "The event did not reach the refresh scheduler")
+
+        model.reset()
+
+        #expect(await finished.waitUntilOpen(), "Reset did not cancel the pending delay")
+        #expect(externalChanges == 0)
+        #expect(gitRefreshes == 0)
+        #expect(model.projectFiles.isEmpty)
     }
 
     @Test
@@ -4740,6 +5281,13 @@ struct EditorDocumentTests {
     }
 }
 
+private func fileNodeContains(_ node: FileNode, named name: String) -> Bool {
+    if node.url.lastPathComponent == name {
+        return true
+    }
+    return node.children?.contains { fileNodeContains($0, named: name) } ?? false
+}
+
 @MainActor
 private func makeWorkspaceObservationUnitModel(
     operations: any WorkspaceOperations = EmptyWorkspaceOperations(),
@@ -4751,7 +5299,8 @@ private func makeWorkspaceObservationUnitModel(
     notifyWorkspaceFileChanges: @escaping @MainActor ([WorkspaceFileChange]) -> Void = { _ in },
     reloadProjectServices: @escaping @MainActor () async -> Void = {},
     recordHistory: @escaping @MainActor (URL, LocalHistoryReason) async -> Void = { _, _ in },
-    directoryMarkStore: any WorkspaceDirectoryMarkStoring = EmptyWorkspaceDirectoryMarkStore()
+    directoryMarkStore: any WorkspaceDirectoryMarkStoring = EmptyWorkspaceDirectoryMarkStore(),
+    observationDelay: (@Sendable (Duration) async throws -> Void)? = nil
 ) -> WorkspaceFeatureModel {
     let model = WorkspaceFeatureModel(
         operations: operations,
@@ -4760,7 +5309,8 @@ private func makeWorkspaceObservationUnitModel(
         gitWatchContextProvider: provider,
         directoryWatcherFactory: watcherFactory,
         workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore()),
-        directoryMarkStore: directoryMarkStore
+        directoryMarkStore: directoryMarkStore,
+        observationDelay: observationDelay
     )
     model.configure(
         documentsProvider: { [] },
@@ -5098,6 +5648,132 @@ private let dbxPlainConnectionExport = #"""
 private let dbxEncryptedConnectionExport = #"""
 {"format":"dbx-encrypted","version":1,"salt":"AAECAwQFBgcICQoLDA0ODw==","iv":"EBESExQVFhcYGRob","data":"fdwV5NDM/8LXPJqMyQgoQVkuOwMe+0VDPFR8HsEWD1AMIhPz1sHRRkmzd6ZLcBqnfcA57xCJz3Jtnbf+djnYI83EiNkr6iukZq1Ahd8aGy/r61/JdThx/NTaUgzn0mwAIcpxDl9uyBDwI0PO8WAaXbZyWbFumsLn3SJSEb8d"}
 """#
+
+@Suite("Editor session coordination")
+@MainActor
+struct EditorSessionCoordinatorTests {
+    @Test(arguments: [true, false])
+    func restorationPreservesSavedOrderAndSelectsAvailableDocument(activePathExists: Bool) async throws {
+        let document = DocumentFeatureModel(
+            operations: EmptyWorkspaceOperations(readFileValue: "restored"),
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+        document.configure(
+            workspaceURLProvider: { URL(fileURLWithPath: "/in-memory") },
+            autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 },
+            notify: { Issue.record("Unexpected restoration notification: \($0)") },
+            onDocumentOpened: { _ in },
+            onDocumentChanged: { _ in },
+            onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in },
+            onRecordDiscard: { _ in },
+            onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {},
+            onProjectCloseReady: {}
+        )
+        defer { document.reset() }
+        let order = EditorTabOrderFeatureModel()
+        let coordinator = EditorSessionCoordinator(
+            document: document,
+            media: MediaDocumentFeatureModel(),
+            terminalPlacement: TerminalPlacementFeatureModel(),
+            tabOrder: order
+        )
+        let first = URL(fileURLWithPath: "/in-memory/first.txt")
+        let second = URL(fileURLWithPath: "/in-memory/second.txt")
+        let missing = URL(fileURLWithPath: "/in-memory/missing.txt")
+        await coordinator.restoreDocuments(
+            orderedPaths: [second.path, missing.path, first.path],
+            activePath: activePathExists ? second.path : missing.path,
+            availableFiles: [first, second]
+        )
+
+        #expect(document.openDocuments.map(\.url) == [second, first])
+        #expect(document.activeDocument?.url == (activePathExists ? second : first))
+        #expect(order.items == document.openDocuments.map { .document($0.id) })
+    }
+
+    @Test
+    func documentActivationSynchronizesTabsAndDeactivatesOtherEditors() throws {
+        let document = makeDocumentFeature()
+        let media = MediaDocumentFeatureModel()
+        let terminal = TerminalPlacementFeatureModel()
+        let order = EditorTabOrderFeatureModel()
+        let coordinator = EditorSessionCoordinator(
+            document: document, media: media, terminalPlacement: terminal, tabOrder: order
+        )
+        defer {
+            withExtendedLifetime(coordinator) {}
+            document.reset()
+        }
+        let image = media.open(url: URL(fileURLWithPath: "/in-memory/image.png"), kind: .image)
+        let terminalID = UUID()
+        terminal.registerSession(terminalID)
+        terminal.moveToEditor(terminalID)
+        terminal.activateEditorSession(terminalID)
+        order.move(.terminal(terminalID), before: .media(image.id))
+        #expect(media.activeMediaDocumentID == image.id)
+        #expect(terminal.activeEditorSessionID == terminalID)
+
+        document.openVirtualDocument(
+            try #require(URL(string: "lithe-test://document/one")),
+            text: "one",
+            displayPath: nil
+        )
+        let opened = try #require(document.openDocuments.first)
+        #expect(order.items == [.terminal(terminalID), .media(image.id), .document(opened.id)])
+        #expect(media.activeMediaDocumentID == nil)
+        #expect(terminal.activeEditorSessionID == nil)
+        #expect(document.activeDocumentID == opened.id)
+
+        media.close(image)
+        #expect(order.items == [.terminal(terminalID), .document(opened.id)])
+    }
+
+    @Test
+    func releasingCoordinatorCancelsCollectionAndSelectionSubscriptions() throws {
+        let document = makeDocumentFeature()
+        defer { document.reset() }
+        let media = MediaDocumentFeatureModel()
+        let terminal = TerminalPlacementFeatureModel()
+        let order = EditorTabOrderFeatureModel()
+        var coordinator: EditorSessionCoordinator? = EditorSessionCoordinator(
+            document: document, media: media, terminalPlacement: terminal, tabOrder: order
+        )
+        weak var released = coordinator
+        #expect(coordinator != nil)
+        coordinator = nil
+        #expect(released == nil)
+
+        let image = media.open(url: URL(fileURLWithPath: "/in-memory/image.png"), kind: .image)
+        let terminalID = UUID()
+        terminal.registerSession(terminalID)
+        terminal.moveToEditor(terminalID)
+        terminal.activateEditorSession(terminalID)
+        document.openVirtualDocument(
+            try #require(URL(string: "lithe-test://document/unobserved")),
+            text: "unobserved",
+            displayPath: nil
+        )
+        #expect(order.items.isEmpty)
+        #expect(media.activeMediaDocumentID == image.id)
+        #expect(terminal.activeEditorSessionID == terminalID)
+    }
+
+    private func makeDocumentFeature() -> DocumentFeatureModel {
+        DocumentFeatureModel(
+            operations: EmptyWorkspaceOperations(),
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+    }
+}
 
 private struct EmptyWorkspaceOperations: WorkspaceOperations {
     let readFileValue: String?

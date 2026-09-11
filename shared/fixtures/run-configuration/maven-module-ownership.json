@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "files": {
+    "services/alpha/pom.xml": "<project><modelVersion>4.0.0</modelVersion><groupId>example</groupId><artifactId>alpha</artifactId><version>1</version></project>",
+    "services/beta/pom.xml": "<project><modelVersion>4.0.0</modelVersion><groupId>example</groupId><artifactId>beta</artifactId><version>1</version></project>",
+    "services/alpha/src/main/java/example/Alpha.java": "package example; public class Alpha { public static void main(String[] args) {} }",
+    "services/beta/src/main/java/example/Beta.java": "package example; public class Beta { public static void main(String[] args) {} }"
+  },
+  "paths": [
+    "services/alpha/src/main/java/example/Alpha.java",
+    "services/beta/src/main/java/example/Beta.java"
+  ],
+  "local": {
+    "version": 2,
+    "configurations": [
+      {
+        "id": "java-main:example.Alpha",
+        "cwd": ".",
+        "extensions": {
+          "maven": {
+            "reactorPath": "services/beta"
+          }
+        }
+      }
+    ]
+  },
+  "expected": {
+    "configurations": [
+      {
+        "id": "java-main:example.Alpha",
+        "name": "Alpha",
+        "provider": "java.main",
+        "execution": "application",
+        "cwd": ".",
+        "toolchains": {
+          "java": "project-jdk",
+          "maven": "project-maven"
+        },
+        "extensions": {
+          "maven": {
+            "module": ".",
+            "reactorPath": "services/alpha"
+          }
+        }
+      },
+      {
+        "id": "java-main:example.Beta",
+        "name": "Beta",
+        "provider": "java.main",
+        "execution": "application",
+        "cwd": "services/beta",
+        "toolchains": {
+          "java": "project-jdk",
+          "maven": "project-maven"
+        },
+        "extensions": {
+          "maven": {
+            "module": ".",
+            "reactorPath": "services/beta"
+          }
+        }
+      },
+      {
+        "id": "current-file",
+        "name": "Current File",
+        "provider": "java.current-file",
+        "execution": "application",
+        "cwd": ".",
+        "debug": {
+          "adapter": "jdwp"
+        }
+      }
+    ]
+  }
+}

@@ -36,6 +36,16 @@ import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspa
 import { useGitBlame } from "@/features/git/hooks/use-git-blame";
 import { keymapRegistry } from "@/features/keymaps/utils/registry";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { openMavenRunPane } from "@/features/maven/actions/maven-tool-window-actions";
+import {
+  canRunMavenTest,
+  runMavenTestAction,
+} from "@/features/maven/services/maven-test-actions";
+import {
+  javaTestMethodAtLine,
+  type JavaTestMethod,
+} from "@/features/maven/utils/maven-test-selection";
+import { useJavaTestMethods } from "@/features/maven/hooks/use-java-test-methods";
 import { recordStartupMilestone } from "@/features/bootstrap/startup-performance";
 import { useVimStore } from "@/features/vim/stores/vim.store";
 import { formatRelativeTime } from "@/utils/date";
@@ -62,6 +72,7 @@ import { isEditorGoToDefinitionModifierClick } from "../utils/go-to-definition-g
 import { getLanguageIdFromPath } from "../utils/language-id";
 import { toggleCaseText } from "../utils/text-operations";
 import { editorAPI } from "../extensions/api";
+import type { MarkdownScrollMetrics } from "../markdown/scroll-sync";
 import type { EditorModelPositionResolver } from "../view-model/view-layout";
 import { syncContainedEditorFontOptions } from "../engines/monaco/contained-editors";
 import { registerMonacoDefinitionLinkGesture } from "../engines/monaco/definition-link";
@@ -111,6 +122,7 @@ import {
   JAVA_IMPLEMENTATION_GLYPH_CLASS,
 } from "../engines/monaco/java-implementation-markers";
 import type { JavaImplementationMarker } from "../lsp/java-navigation-models";
+import { toast } from "sonner";
 
 registerMonacoLspProviders();
 registerMonacoCodeLensProvider();
@@ -118,7 +130,13 @@ registerMonacoCodeLensProvider();
 const EMPTY_DIAGNOSTICS: Diagnostic[] = [];
 const INACTIVE_CURSOR_POSITION: Position = { line: 0, column: 0, offset: 0 };
 
-interface MonacoEditorProps {
+/** Imperative scroll access for embedders that mirror editor scrolling. */
+export interface MonacoEditorScrollApi {
+  getMetrics: () => MarkdownScrollMetrics;
+  setScrollTop: (scrollTop: number) => void;
+}
+
+export interface MonacoEditorProps {
   bufferId?: string;
   viewStateKey?: string;
   isActiveSurface?: boolean;
@@ -141,6 +159,14 @@ interface MonacoEditorProps {
     options?: EditorContentChangeOptions,
   ) => void;
   onScrollOffsetChange?: (scrollTop: number, scrollLeft: number) => void;
+  /** Reports viewport scroll metrics on every editor scroll event. */
+  onScrollMetricsChange?: (metrics: MarkdownScrollMetrics) => void;
+  /**
+   * Hands out imperative scroll access once the editor exists, and null when
+   * it is disposed. Kept as a callback so embedders never depend on editor
+   * instance lifecycles.
+   */
+  onEditorScrollApiReady?: (api: MonacoEditorScrollApi | null) => void;
   onModelPositionResolverChange?: (resolver: EditorModelPositionResolver | null) => void;
   onMouseMove?: MouseEventHandler<HTMLDivElement>;
   onMouseLeave?: () => void;
@@ -166,6 +192,8 @@ export function MonacoEditor({
   lineNumberMap,
   onContentChange,
   onScrollOffsetChange,
+  onScrollMetricsChange,
+  onEditorScrollApiReady,
   onModelPositionResolverChange,
   onMouseMove,
   onMouseLeave,
@@ -190,10 +218,19 @@ export function MonacoEditor({
   const gitBlameWidgetRef = useRef<InlineGitBlameWidget | null>(null);
   const gitBlameRenderFrameRef = useRef<number | null>(null);
   const renderedGitBlameKeyRef = useRef<string | null>(null);
+  const javaTestMethodsRef = useRef<JavaTestMethod[]>([]);
   const renderInlineGitBlameRef = useRef<() => void>(() => {});
   const mouseSelectingRef = useRef(false);
   const latestContentChangeRef = useRef(onContentChange);
   const isActiveSurfaceRef = useRef(isActiveSurface);
+  const onScrollMetricsChangeRef = useRef(onScrollMetricsChange);
+  const onEditorScrollApiReadyRef = useRef(onEditorScrollApiReady);
+  // Read inside the editor-creation effect's long-lived closures. The flag flips
+  // on every tab switch (it derives from `isActiveSurface`); keeping it out of
+  // that effect's dependencies avoids disposing and rebuilding the whole Monaco
+  // editor — and re-tokenizing the file from scratch — on each switch. Option
+  // changes are applied by the dedicated `updateOptions` effect instead.
+  const enableExpensiveServicesRef = useRef(enableExpensiveServices);
   const activeBufferId = useBufferStore((state) => propBufferId ?? state.activeBufferId);
   const buffer = useBufferStore(
     useCallback(
@@ -245,6 +282,9 @@ export function MonacoEditor({
   );
   const languageId = documentTarget.languageId ?? getLanguageIdFromPath(filePath);
   const monacoLanguageId = toMonacoLanguageId(languageId);
+  const [mavenTestsAvailable, setMavenTestsAvailable] = useState(false);
+  const javaTestMethods = useJavaTestMethods(filePath, content, mavenTestsAvailable);
+  javaTestMethodsRef.current = javaTestMethods;
   const {
     fontFamily,
     fontSize,
@@ -364,6 +404,23 @@ export function MonacoEditor({
       .sort((left, right) => right.length - left.length)[0];
     return getRelativePath(filePath, workspaceRoot);
   }, [filePath, rootFolderPath, workspaceFolders]);
+
+  useEffect(() => {
+    if (!rootFolderPath || !filePath || !/\.java$/i.test(filePath)) {
+      setMavenTestsAvailable(false);
+      return;
+    }
+
+    let cancelled = false;
+    setMavenTestsAvailable(false);
+    void canRunMavenTest(rootFolderPath, filePath).then((available) => {
+      if (!cancelled) setMavenTestsAvailable(available);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filePath, rootFolderPath]);
   const modelUri = useMemo(
     () => createModelUri(activeBufferId ?? undefined, filePath, modelDisplayPath),
     [activeBufferId, filePath, modelDisplayPath],
@@ -371,6 +428,9 @@ export function MonacoEditor({
 
   latestContentChangeRef.current = onContentChange;
   isActiveSurfaceRef.current = isActiveSurface;
+  onScrollMetricsChangeRef.current = onScrollMetricsChange;
+  onEditorScrollApiReadyRef.current = onEditorScrollApiReady;
+  enableExpensiveServicesRef.current = enableExpensiveServices;
 
   const lineNumberFormatter = useCallback(
     (lineNumber: number) => {
@@ -522,6 +582,7 @@ export function MonacoEditor({
     x: number;
     y: number;
   } | null>(null);
+  const [contextMenuTestMethod, setContextMenuTestMethod] = useState<JavaTestMethod | null>(null);
   const [implementationMarkers, setImplementationMarkers] = useState<JavaImplementationMarker[]>(
     [],
   );
@@ -529,6 +590,29 @@ export function MonacoEditor({
   const executeEditorCommand = useCallback((commandId: string) => {
     void keymapRegistry.executeCommand(commandId);
   }, []);
+
+  const runMavenTestFromEditor = useCallback(
+    (method?: string) => {
+      if (!filePath) return;
+      setContextMenuPosition(null);
+      setContextMenuTestMethod(null);
+      openMavenRunPane();
+      void runMavenTestAction(filePath, method, workspaceId).catch((error) => {
+        toast.error(error instanceof Error ? error.message : "Unable to run Maven test.");
+      });
+    },
+    [filePath, workspaceId],
+  );
+
+  const runTestClassFromEditor = useCallback(() => {
+    runMavenTestFromEditor();
+  }, [runMavenTestFromEditor]);
+
+  const runTestMethodFromEditor = useCallback(() => {
+    const method = contextMenuTestMethod?.name;
+    if (!method) return;
+    runMavenTestFromEditor(method);
+  }, [contextMenuTestMethod, runMavenTestFromEditor]);
 
   const triggerMonacoAction = useCallback(
     (actionId: string) => {
@@ -655,7 +739,7 @@ export function MonacoEditor({
       // monospace width cache places the caret one column left of the click.
       disableMonospaceOptimizations: true,
       selectOnLineNumbers: true,
-      glyphMargin: enableExpensiveServices && monacoLanguageId === "java",
+      glyphMargin: enableExpensiveServicesRef.current && monacoLanguageId === "java",
       stickyScroll: { enabled: editorStickyScroll },
       bracketPairColorization: { enabled: editorBracketPairColorization },
       smoothScrolling: editorSmoothScrolling,
@@ -672,9 +756,12 @@ export function MonacoEditor({
       selectionHighlight: highlightOccurrences,
       quickSuggestions: autoCompletion,
       suggestOnTriggerCharacters: autoCompletion,
-      parameterHints: { enabled: enableExpensiveServices && parameterHints },
-      codeLens: enableExpensiveServices && codeLens,
-      inlayHints: { enabled: enableExpensiveServices && inlayHints ? "on" : "off" },
+      // Expensive-service options are read from the ref so this effect stays
+      // stable across active-surface flips; the dedicated `updateOptions` effect
+      // below re-applies them whenever the live value changes.
+      parameterHints: { enabled: enableExpensiveServicesRef.current && parameterHints },
+      codeLens: enableExpensiveServicesRef.current && codeLens,
+      inlayHints: { enabled: enableExpensiveServicesRef.current && inlayHints ? "on" : "off" },
       theme: defineMonacoTheme(themeId, editorItalicComments),
       cursorStyle: vimModeEnabled && vimCurrentMode === "normal" ? "block" : editorCursorStyle,
       cursorBlinking:
@@ -682,7 +769,7 @@ export function MonacoEditor({
       contextmenu: false,
       overviewRulerLanes: 0,
       fixedOverflowWidgets: false,
-      "semanticHighlighting.enabled": enableExpensiveServices && semanticTokens,
+      "semanticHighlighting.enabled": enableExpensiveServicesRef.current && semanticTokens,
       scrollbar: {
         vertical: scrollable ? "auto" : "hidden",
         horizontal: scrollable ? "auto" : "hidden",
@@ -794,13 +881,25 @@ export function MonacoEditor({
     });
     requestAnimationFrame(syncNestedEditorFonts);
 
+    const scrollApi: MonacoEditorScrollApi = {
+      getMetrics: () => ({
+        scrollTop: editor.getScrollTop(),
+        scrollHeight: editor.getScrollHeight(),
+        clientHeight: editor.getLayoutInfo().height,
+      }),
+      setScrollTop: (scrollTop) => {
+        editor.setScrollTop(scrollTop);
+      },
+    };
+    onEditorScrollApiReadyRef.current?.(scrollApi);
+
     editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyA, selectEntireModel);
     const definitionLinkGesture = registerMonacoDefinitionLinkGesture({
       editor,
       model,
       documentTarget,
       workspaceScope: rootFolderPath ? { workspaceId, root: rootFolderPath } : undefined,
-      enabled: enableExpensiveServices,
+      isEnabled: () => enableExpensiveServicesRef.current,
     });
     let definitionClickIntent = 0;
 
@@ -840,8 +939,17 @@ export function MonacoEditor({
       editor.onContextMenu((event) => {
         event.event.preventDefault();
         event.event.stopPropagation();
+        setContextMenuTestMethod(null);
 
         if (event.target.position) {
+          setContextMenuTestMethod(
+            /\.java$/i.test(filePath)
+              ? javaTestMethodAtLine(
+                  javaTestMethodsRef.current,
+                  event.target.position.lineNumber - 1,
+                )
+              : null,
+          );
           const currentSelection = editor.getSelection();
           if (!currentSelection?.containsPosition(event.target.position)) {
             editor.setPosition(event.target.position);
@@ -890,7 +998,7 @@ export function MonacoEditor({
         const editorState = useEditorStateStore.getState();
         previousContentRef.current = nextContent;
         rememberLocalContentSnapshot(pendingLocalContentSnapshotsRef.current, nextContent);
-        if (filePath && enableExpensiveServices) {
+        if (filePath && enableExpensiveServicesRef.current) {
           queueLspDocumentChanges(filePath, contentChanges);
         }
         latestContentChangeRef.current?.(
@@ -953,7 +1061,12 @@ export function MonacoEditor({
             return;
           }
           void definitionLinkGesture.resolveForClick(clickedPosition).then((definitionHint) => {
-            if (clickIntent !== definitionClickIntent || !definitionHint || model.isDisposed()) {
+            if (
+              clickIntent !== definitionClickIntent ||
+              !definitionHint ||
+              model.isDisposed() ||
+              !isActiveSurfaceRef.current
+            ) {
               return;
             }
             const currentPosition = editor.getPosition();
@@ -984,6 +1097,11 @@ export function MonacoEditor({
         const viewKey = viewStateKey ?? activeBufferId ?? null;
         setScrollForBuffer(viewKey, event.scrollTop, event.scrollLeft);
         onScrollOffsetChange?.(event.scrollTop, event.scrollLeft);
+        onScrollMetricsChangeRef.current?.({
+          scrollTop: event.scrollTop,
+          scrollHeight: event.scrollHeight,
+          clientHeight: editor.getLayoutInfo().height,
+        });
       }),
       editor.onDidLayoutChange((info) => {
         setViewportHeight(info.height);
@@ -1072,6 +1190,7 @@ export function MonacoEditor({
       renderedGitBlameKeyRef.current = null;
       mouseSelectingRef.current = false;
       createdEditorDisposable.dispose();
+      onEditorScrollApiReadyRef.current?.(null);
       try {
         vimAdapterRef.current?.dispose();
       } catch (error) {
@@ -1110,7 +1229,6 @@ export function MonacoEditor({
     editorScrollBeyondLastLine,
     editorSmoothScrolling,
     editorStickyScroll,
-    enableExpensiveServices,
     documentTarget,
     inlayHints,
     setContextMenuPosition,
@@ -1574,11 +1692,12 @@ export function MonacoEditor({
     vimRelativeLineNumbers,
   ]);
 
+  // Theme application is isolated from option updates so that tab switches
+  // (which flip `enableExpensiveServices`) do not redefine the theme and
+  // invalidate every model's tokenization cache via `TokenizationRegistry`.
   useEffect(() => {
     const editor = editorRef.current;
-    const container = containerRef.current;
     if (!editor) return;
-    const fontOptions = { fontFamily, fontSize, lineHeight };
 
     const applyTheme = (nextThemeId?: string) => {
       monacoEditor.setTheme(
@@ -1589,6 +1708,24 @@ export function MonacoEditor({
     };
 
     applyTheme();
+
+    const unsubscribeRegistry = themeRegistry.onRegistryChange(applyTheme);
+    const unsubscribeTheme = themeRegistry.onThemeChange(applyTheme);
+    const unsubscribeReady = themeRegistry.onReady(applyTheme);
+
+    return () => {
+      unsubscribeRegistry();
+      unsubscribeTheme();
+      unsubscribeReady();
+    };
+  }, [editorItalicComments, themeId]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    const container = containerRef.current;
+    if (!editor) return;
+    const fontOptions = { fontFamily, fontSize, lineHeight };
+
     editor.updateOptions({
       ...fontOptions,
       tabSize,
@@ -1630,15 +1767,7 @@ export function MonacoEditor({
     });
     if (container) syncContainedEditorFontOptions(container, fontOptions);
 
-    const unsubscribeRegistry = themeRegistry.onRegistryChange(applyTheme);
-    const unsubscribeTheme = themeRegistry.onThemeChange(applyTheme);
-    const unsubscribeReady = themeRegistry.onReady(applyTheme);
-
-    return () => {
-      unsubscribeRegistry();
-      unsubscribeTheme();
-      unsubscribeReady();
-    };
+    return undefined;
   }, [
     autoCompletion,
     codeLens,
@@ -1646,7 +1775,6 @@ export function MonacoEditor({
     editorCursorBlinking,
     editorCursorStyle,
     editorFontLigatures,
-    editorItalicComments,
     editorScrollBeyondLastLine,
     editorSmoothScrolling,
     editorStickyScroll,
@@ -1669,7 +1797,6 @@ export function MonacoEditor({
     alwaysConsumeMouseWheel,
     semanticTokens,
     tabSize,
-    themeId,
     vimCurrentMode,
     vimModeEnabled,
     wordWrap,
@@ -1865,7 +1992,10 @@ export function MonacoEditor({
           <EditorContextMenu
             isOpen
             position={contextMenuPosition}
-            onClose={() => setContextMenuPosition(null)}
+            onClose={() => {
+              setContextMenuPosition(null);
+              setContextMenuTestMethod(null);
+            }}
             onCopy={() => executeEditorCommand("editor.copy")}
             onCut={canEdit ? () => executeEditorCommand("editor.cut") : undefined}
             onPaste={canEdit ? () => executeEditorCommand("editor.paste") : undefined}
@@ -1905,6 +2035,12 @@ export function MonacoEditor({
             onShowHover={() => executeEditorCommand("editor.showHover")}
             onTriggerSuggest={
               canEdit ? () => executeEditorCommand("editor.triggerSuggest") : undefined
+            }
+            onRunTestClass={
+              mavenTestsAvailable ? runTestClassFromEditor : undefined
+            }
+            onRunTestMethod={
+              mavenTestsAvailable && contextMenuTestMethod ? runTestMethodFromEditor : undefined
             }
           />,
           document.body,
