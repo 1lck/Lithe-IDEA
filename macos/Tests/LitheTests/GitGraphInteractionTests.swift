@@ -47,29 +47,39 @@ struct GitGraphInteractionTests {
             repositoryCommits: try reportedCommits(dateOrder ? "issue410-date-context" : "issue410-context"))
         #expect(layout.rows.count == (dateOrder ? 300 : 200))
         let selectedIndex = try #require(layout.rows.firstIndex { $0.commit.hash.hasPrefix("ba3725bb") })
+        var regions = [("reported-\(dateOrder ? "date" : "topo")", selectedIndex - 6, 16, CGFloat(1_050))]
+        if dateOrder {
+            // The user's IDEA crop starts four rows above the "update" commit.
+            let reference = try #require(layout.rows.firstIndex { $0.commit.hash.hasPrefix("de4208d5") })
+            regions.append(("idea-reference", reference - 4, 11, 660))
+        }
         for dark in [false, true] {
-            let height = CGFloat(layout.rows.count + (layout.hasMissingParents ? 1 : 0)) * GitGraphGeometry.rowHeight
-            let frame = NSRect(x: 0, y: 0, width: 1_050, height: height)
-            let surface = GraphCaptureBackground(frame: frame)
-            surface.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-            let hosting = NSHostingView(rootView: GitGraphView(presentation: presentation(layout),
-                selectedHash: layout.rows[selectedIndex].commit.hash, showCommitDecorations: true,
-                actions: actions { _ in }).environment(\.colorScheme, dark ? .dark : .light))
-            hosting.frame = frame
-            surface.addSubview(hosting)
-            let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
-            window.contentView = surface
-            defer { window.orderOut(nil); window.close() }
-            surface.layoutSubtreeIfNeeded()
-            var regions = [("reported-\(dateOrder ? "date" : "topo")", selectedIndex - 6, 16, CGFloat(1_050))]
-            if dateOrder {
-                // The user's IDEA crop starts four rows above the "update" commit.
-                let reference = try #require(layout.rows.firstIndex { $0.commit.hash.hasPrefix("de4208d5") })
-                regions.append(("idea-reference", reference - 4, 11, 660))
-            }
             for (name, first, count, width) in regions {
-                let region = NSRect(x: 0, y: CGFloat(first) * GitGraphGeometry.rowHeight, width: width,
+                // Keep the complete history for layout parity, then render only
+                // the captured viewport and one adjacent row at each boundary.
+                // Reuse its resolved lanes, colors and edges without relayout:
+                // an unbounded hosting view eagerly creates hundreds of rows
+                // that contribute no pixels to these regression captures.
+                try #require(first > 0 && first + count < layout.rows.count)
+                let lowerBound = first - 1
+                let viewport = GitGraphLayout(rows: Array(layout.rows[lowerBound..<(first + count + 1)]),
+                    laneCount: layout.laneCount, hasMissingParents: false,
+                    recommendedLaneCount: layout.recommendedLaneCount)
+                let frame = NSRect(x: 0, y: 0, width: 1_050,
+                    height: CGFloat(viewport.rows.count) * GitGraphGeometry.rowHeight)
+                let surface = GraphCaptureBackground(frame: frame)
+                surface.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+                let hosting = NSHostingView(rootView: GitGraphView(presentation: presentation(viewport),
+                    selectedHash: layout.rows[selectedIndex].commit.hash, showCommitDecorations: true,
+                    actions: actions { _ in }).environment(\.colorScheme, dark ? .dark : .light))
+                hosting.frame = frame
+                surface.addSubview(hosting)
+                let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false
+                window.contentView = surface
+                defer { window.orderOut(nil); window.close() }
+                surface.layoutSubtreeIfNeeded()
+                let region = NSRect(x: 0, y: CGFloat(first - lowerBound) * GitGraphGeometry.rowHeight, width: width,
                                     height: CGFloat(count) * GitGraphGeometry.rowHeight)
                 let bitmap = try #require(surface.bitmapImageRepForCachingDisplay(in: region))
                 surface.cacheDisplay(in: region, to: bitmap)
