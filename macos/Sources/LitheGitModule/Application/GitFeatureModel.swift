@@ -148,7 +148,11 @@ package final class GitFeatureModel: ObservableObject {
     @Published package private(set) var isCommitting = false
     @Published package private(set) var gitBlameLines: [URL: [GitBlameLine]] = [:]
     @Published package private(set) var gitLineChangeMarkers: [URL: [GitLineChangeMarker]] = [:]
-    @Published package private(set) var gitReferences: [GitReference] = []
+    @Published package private(set) var gitReferences: [GitReference] = [] {
+        didSet { gitReferencesVersion = Self.nextGitCommitsVersion() }
+    }
+    /// Constant-time invalidation for graph reference priority and classification.
+    package private(set) var gitReferencesVersion = 0
     @Published package private(set) var recentGitReferences: [GitReference] = []
     @Published package private(set) var gitCommits: [GitCommit] = [] {
         didSet { gitCommitsVersion = Self.nextGitCommitsVersion() }
@@ -162,6 +166,14 @@ package final class GitFeatureModel: ObservableObject {
     /// alongside `gitCommits`, which already publishes, and a second publish
     /// would mean a second invalidation for one logical change.
     package private(set) var gitCommitsVersion = 0
+
+    /// Bounded all-reference graph used before applying branch scope. The log
+    /// still pages its visible commits independently through the existing cursor.
+    @Published package private(set) var gitGraphRepositoryCommits: [GitCommit] = [] {
+        didSet { gitGraphRepositoryVersion = Self.nextGitCommitsVersion() }
+    }
+    package private(set) var gitGraphRepositoryVersion = 0
+    private static let gitGraphRepositoryLimit = 5_000
 
     /// Counts across instances, so reopening a workspace cannot hand a fresh
     /// feature model a version a previous one already used.
@@ -384,6 +396,7 @@ package final class GitFeatureModel: ObservableObject {
         gitReferences = []
         recentGitReferences = []
         gitCommits = []
+        gitGraphRepositoryCommits = []
         gitIdentity = nil
         gitLogMatchedCommitHashes = nil
         isFilteringGitLog = false
@@ -1532,6 +1545,7 @@ package final class GitFeatureModel: ObservableObject {
         let referencesOperationID = gitHistoryOperationID(kind: "references", generation: generation)
         let pageOperationID = gitHistoryOperationID(kind: "page", generation: generation)
         activeGitHistoryOperationIDs.formUnion([referencesOperationID, pageOperationID])
+        gitGraphRepositoryCommits = []
         isLoadingGitHistory = true
         let previousCommitHash = selectedGitCommit?.hash
         async let references = service.references(
@@ -1545,6 +1559,9 @@ package final class GitFeatureModel: ObservableObject {
             limit: Self.gitHistoryPageSize,
             operationID: pageOperationID
         )
+        // Enrich the graph independently: the visible page and its cursor must
+        // become usable even while a much larger repository walk is pending.
+        async let repositoryGraph: Void = refreshGitRepositoryGraph(at: gitRepositoryRoot, generation: generation)
         let (referenceSnapshot, historyPage) = await (references, page)
         activeGitHistoryOperationIDs.subtract([referencesOperationID, pageOperationID])
         guard gitHistoryGeneration == generation,
@@ -1586,6 +1603,23 @@ package final class GitFeatureModel: ObservableObject {
             selectedGitCommitFile = nil
             selectedGitCommitDiffContext = nil
         }
+        await repositoryGraph
+    }
+
+    private func refreshGitRepositoryGraph(at root: URL, generation: UUID) async {
+        guard gitHistoryGeneration == generation, gitRepositoryRoot == root, !Task.isCancelled else { return }
+        let operationID = gitHistoryOperationID(kind: "graph", generation: generation)
+        activeGitHistoryOperationIDs.insert(operationID)
+        let page = await service.historyPage(
+            at: root, reference: nil, cursor: nil,
+            limit: Self.gitGraphRepositoryLimit, operationID: operationID
+        )
+        activeGitHistoryOperationIDs.remove(operationID)
+        // Even a cancelled or superseded result must release its native cursor.
+        // The repository context never owns the visible page's cursor/selection.
+        if let cursor = page?.nextCursor { service.closeHistoryCursor(at: root, cursor: cursor) }
+        guard gitHistoryGeneration == generation, gitRepositoryRoot == root, !Task.isCancelled else { return }
+        gitGraphRepositoryCommits = page?.commits ?? []
     }
 
     package func applyGitLogFilter(_ rawQuery: String) async {
@@ -1967,6 +2001,16 @@ package final class GitFeatureModel: ObservableObject {
             gitWorktrees = []
             gitWorktreeLoadState = .failed("Could not load Git worktrees")
         }
+    }
+
+    /// One-shot `info/exclude` mutation used by Settings recommended-rules actions.
+    /// Runs through GitService so the Core write stays off the MainActor.
+    package func mutateLiteralLocalExcludePatterns(
+        _ patterns: [String],
+        adding: Bool,
+        at rootURL: URL
+    ) async -> GitService.CommandResult {
+        await service.mutateLiteralLocalExcludePatterns(patterns, adding: adding, at: rootURL)
     }
 
     /// Another checkout can move shared refs while this worktree's status stays unchanged.

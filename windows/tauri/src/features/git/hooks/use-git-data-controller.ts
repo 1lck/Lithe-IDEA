@@ -17,6 +17,12 @@ import {
 import { createGitRefreshQueue } from "../services/git-operation-coordinator";
 import { useRepositoryStore } from "../stores/git-repository.store";
 import { useGitStore } from "../stores/git.store";
+import {
+  useActiveWorkspaceId,
+  useWorkspaceReady,
+  useWorkspaceStoreScopeId,
+} from "@/features/workspace/stores/create-workspace-scoped-store";
+import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 
 interface GitDataControllerOptions {
   workspacePath?: string | null;
@@ -24,6 +30,10 @@ interface GitDataControllerOptions {
 }
 
 export function useGitDataController({ workspacePath, isActive }: GitDataControllerOptions) {
+  const activeWorkspaceId = useActiveWorkspaceId();
+  const scopedWorkspaceId = useWorkspaceStoreScopeId();
+  const workspaceId = scopedWorkspaceId ?? activeWorkspaceId;
+  const workspaceReady = useWorkspaceReady(workspaceId);
   const activeRepoPath = useRepositoryStore.use.activeRepoPath();
   const availableRepoPaths = useRepositoryStore.use.availableRepoPaths();
   const { syncWorkspaceRepositories, refreshWorkspaceRepositories } =
@@ -45,6 +55,9 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
   const wasActiveRef = useRef(isActive);
 
   const loadInitialGitData = useCallback(async () => {
+    if (!workspaceRuntimeRegistry.isWorkspaceReady(workspaceId)) {
+      return;
+    }
     const repoPath = activeRepoPath;
     if (!repoPath) {
       return;
@@ -106,16 +119,20 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
         gitActions.setIsLoadingGitData(false);
       }
     }
-  }, [activeRepoPath, availableRepoPaths, gitActions]);
+  }, [activeRepoPath, availableRepoPaths, gitActions, workspaceId]);
 
   const refreshGitData = useCallback(
     async (scopes?: GitChangeScope[], throwOnError = false) => {
+      if (!workspaceRuntimeRegistry.isWorkspaceReady(workspaceId)) return;
       const repoPath = activeRepoPath;
       if (!repoPath) return;
 
       const refreshKey = `${repoPath}\0${scopes?.slice().sort().join(",") || "*"}`;
       const requestId = requestIdRef.current;
       return refreshQueueRef.current.run(refreshKey, async () => {
+        // The queue starts on a later microtask and may execute a trailing
+        // refresh after the workspace lifecycle has changed.
+        if (!workspaceRuntimeRegistry.isWorkspaceReady(workspaceId)) return;
         // Allocate per actual read, including trailing reads, rather than per
         // caller joining a coalesced request.
         const workingTreeVersion = gitActions.beginWorkingTreeRefresh();
@@ -185,7 +202,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
         if (throwOnError) throw error;
       });
     },
-    [activeRepoPath, availableRepoPaths, gitActions, loadedCommitCount],
+    [activeRepoPath, availableRepoPaths, gitActions, loadedCommitCount, workspaceId],
   );
 
   const refreshWorkingTree = useCallback(async () => {
@@ -222,6 +239,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
   }, [syncWorkspaceRepositories, workspaceFolders, workspacePath]);
 
   useEffect(() => {
+    if (!workspaceReady) return;
     requestIdRef.current += 1;
     refreshQueueRef.current.clear();
     setFailedRepoPath(null);
@@ -231,7 +249,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
     return () => {
       requestIdRef.current += 1;
     };
-  }, [loadInitialGitData]);
+  }, [loadInitialGitData, workspaceReady]);
 
   useEffect(() => {
     if (autoRefreshGitStatus && isActive && !wasActiveRef.current && gitStatus) {

@@ -46,7 +46,7 @@ use crate::protocol::{
 };
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::io::Read;
 use std::io::Write;
 #[cfg(target_os = "windows")]
@@ -54,7 +54,6 @@ use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::thread;
 use std::time::Duration;
 
@@ -64,7 +63,6 @@ const DEFAULT_REPOSITORY_SCAN_MAX_DIRECTORIES: usize = usize::MAX;
 const DEFAULT_REPOSITORY_SCAN_MAX_DEPTH: usize = usize::MAX;
 static TEMPORARY_INDEX_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static AUTO_STASH_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-static GIT_MUTATION_LOCKS: OnceLock<Mutex<HashMap<String, Weak<Mutex<()>>>>> = OnceLock::new();
 
 const REPOSITORY_SCAN_SKIP_DIRS: &[&str] = &[".git"];
 
@@ -823,51 +821,14 @@ pub fn workspace_repositories(
     })
 }
 
-fn git_mutation_lock(root: &str) -> Arc<Mutex<()>> {
-    let key = git_mutation_lock_key(root);
-    git_mutation_lock_for_key(key)
-}
-
-fn git_mutation_lock_for_key(key: String) -> Arc<Mutex<()>> {
-    let locks = GIT_MUTATION_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut locks = locks
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-
-    // Weak entries keep the registry bounded after a repository is no longer
-    // active, while the strong Arc returned below keeps a lock alive for every
-    // current owner or waiter.
-    locks.retain(|_, lock| lock.strong_count() > 0);
-    if let Some(lock) = locks.get(&key).and_then(|lock| lock.upgrade()) {
-        return lock;
-    }
-
-    let lock = Arc::new(Mutex::new(()));
-    locks.insert(key, Arc::downgrade(&lock));
-    lock
-}
-
-fn git_mutation_lock_key(root: &str) -> String {
-    // Linked worktrees share refs and the common Git administration directory.
-    // Resolve that directory without the traced command path so lock discovery
-    // does not appear as an extra compatibility invocation.
-    run_git(
-        Path::new(root),
-        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
-    )
-    .ok()
-    .and_then(|output| canonical_git_output(output, "Git common directory").ok())
-    .unwrap_or_else(|| root.to_string())
-}
-
 /// Executes an argument-based Git command after validating the workspace root.
 pub fn command(request: GitCommandRequest) -> Result<GitCommandResponse, CoreError> {
     with_git_invocation_trace(|| {
         let root = validate_root(&request.root)?;
-        let mutation_lock = git_mutation_lock(&root);
-        let _mutation_guard = mutation_lock
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Raw compatibility commands can also mutate refs and configuration.
+        // Share the typed writers' fail-fast lease instead of waiting on a mutex
+        // that cannot observe the request's cancellation or deadline.
+        let _lease = rewrite::RewriteLease::acquire(&root)?;
         execute_git(&root, &request.arguments, request.input)
     })
 }
@@ -884,10 +845,6 @@ pub fn write(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> 
 
 fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> {
     let root = validate_root(&request.root)?;
-    let mutation_lock = git_mutation_lock(&root);
-    let _mutation_guard = mutation_lock
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
     // Every typed writer shares the same repository lease, including linked
     // worktrees. Clone has no existing repository whose state it could race.
     let _lease = if request.operation == "clone" {
@@ -983,6 +940,25 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
         }
         "exclude" => {
             return append_git_ignore_patterns(&root, &request.paths, GitIgnoreTarget::LocalExclude)
+        }
+        // Literal ignore-line mutations for recommended IDE patterns such as
+        // `.factorypath`. Unlike `exclude`, these keep the caller's text and do
+        // not root-anchor or escape pathspec characters.
+        "excludePatterns" => {
+            return mutate_literal_git_ignore_patterns(
+                &root,
+                &request.paths,
+                GitIgnoreTarget::LocalExclude,
+                true,
+            )
+        }
+        "unexcludePatterns" => {
+            return mutate_literal_git_ignore_patterns(
+                &root,
+                &request.paths,
+                GitIgnoreTarget::LocalExclude,
+                false,
+            )
         }
         "cherryPick" => {
             arguments = vec![
@@ -3167,11 +3143,7 @@ fn append_git_ignore_patterns(
         GitIgnoreTarget::Repository => repository_root(root)?.join(".gitignore"),
         GitIgnoreTarget::LocalExclude => git_path(root, "info/exclude")?,
     };
-    let existing = match std::fs::read(&target_path) {
-        Ok(content) => content,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        Err(error) => return Err(git_ignore_io_error("read", error)),
-    };
+    let existing = read_git_ignore_bytes(&target_path)?;
     let existing_text = String::from_utf8_lossy(&existing);
     let additions = patterns
         .into_iter()
@@ -3200,6 +3172,183 @@ fn append_git_ignore_patterns(
     file.write_all(appended.as_bytes())
         .map_err(|error| git_ignore_io_error("write", error))?;
     Ok(successful_git_result())
+}
+
+/// Inserts or removes exact ignore lines while preserving unrelated rules.
+///
+/// Existing file lines are compared as stored bytes, including leading and
+/// trailing whitespace and non-UTF-8 content. Git ignore treats a leading
+/// space as part of the pattern, so ` .factorypath` is not the same rule as
+/// `.factorypath`. Request patterns are still trimmed and validated
+/// separately. Line terminators stay with their original lines and are not
+/// part of the match. Add appends without rewriting existing bytes; remove
+/// rebuilds from the original line bytes so unrelated invalid UTF-8 is kept.
+///
+/// Missing managed lines are a no-op on remove. Non-repository roots fail with
+/// a stable "Not a Git repository" message so hosts can skip Git UI side effects.
+fn mutate_literal_git_ignore_patterns(
+    root: &str,
+    patterns: &[String],
+    target: GitIgnoreTarget,
+    adding: bool,
+) -> Result<GitCommandResponse, CoreError> {
+    require_git_repository(root)?;
+    let patterns = literal_git_ignore_patterns(patterns)?;
+    let target_path = match target {
+        GitIgnoreTarget::Repository => repository_root(root)?.join(".gitignore"),
+        GitIgnoreTarget::LocalExclude => git_path(root, "info/exclude")?,
+    };
+    let existing = read_git_ignore_bytes(&target_path)?;
+    let lines = split_git_ignore_file_lines(&existing);
+    let managed: HashSet<&[u8]> = patterns.iter().map(|pattern| pattern.as_bytes()).collect();
+
+    if adding {
+        let present: HashSet<&[u8]> = lines.iter().map(|(body, _)| *body).collect();
+        let additions = patterns
+            .iter()
+            .map(String::as_bytes)
+            .filter(|pattern| !present.contains(*pattern))
+            .collect::<Vec<_>>();
+        if additions.is_empty() {
+            return Ok(successful_git_result());
+        }
+
+        let terminator = git_ignore_appended_line_terminator(&existing);
+        let mut appended = Vec::new();
+        if !existing.is_empty() && !existing.ends_with(b"\n") {
+            appended.extend_from_slice(terminator);
+        }
+        for pattern in additions {
+            appended.extend_from_slice(pattern);
+            appended.extend_from_slice(terminator);
+        }
+
+        if let Some(parent) = target_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| git_ignore_io_error("create", error))?;
+        }
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&target_path)
+            .map_err(|error| git_ignore_io_error("open", error))?;
+        file.write_all(&appended)
+            .map_err(|error| git_ignore_io_error("write", error))?;
+        return Ok(successful_git_result());
+    }
+
+    if lines.iter().all(|(body, _)| !managed.contains(body)) {
+        return Ok(successful_git_result());
+    }
+
+    let mut updated = Vec::with_capacity(existing.len());
+    for (body, terminator) in lines {
+        if managed.contains(body) {
+            continue;
+        }
+        updated.extend_from_slice(body);
+        updated.extend_from_slice(terminator);
+    }
+
+    if let Some(parent) = target_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| git_ignore_io_error("create", error))?;
+    }
+    std::fs::write(&target_path, updated).map_err(|error| git_ignore_io_error("write", error))?;
+    Ok(successful_git_result())
+}
+
+/// Splits an ignore file into line bodies and their original terminators.
+///
+/// Split on `\n` and treat a preceding `\r` as part of the terminator so CRLF
+/// files keep their stored endings. Line bodies stay raw bytes; they are never
+/// decoded as UTF-8.
+fn split_git_ignore_file_lines(bytes: &[u8]) -> Vec<(&[u8], &[u8])> {
+    let mut lines = Vec::new();
+    let mut start = 0;
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'\n' {
+            let terminator_start = if index > start && bytes[index - 1] == b'\r' {
+                index - 1
+            } else {
+                index
+            };
+            lines.push((
+                &bytes[start..terminator_start],
+                &bytes[terminator_start..=index],
+            ));
+            start = index + 1;
+        }
+        index += 1;
+    }
+    if start < bytes.len() {
+        lines.push((&bytes[start..], &[]));
+    }
+    lines
+}
+
+fn git_ignore_appended_line_terminator(bytes: &[u8]) -> &'static [u8] {
+    if bytes.windows(2).any(|window| window == b"\r\n") {
+        b"\r\n"
+    } else {
+        b"\n"
+    }
+}
+
+fn require_git_repository(root: &str) -> Result<(), CoreError> {
+    // Keep this probe outside the command invocation trace so a missing
+    // repository stays a standard invalid_request envelope for hosts.
+    let resolved = capture_git_with_options(
+        root,
+        &["rev-parse".into(), "--is-inside-work-tree".into()],
+        None,
+        true,
+    )?;
+    let stdout = String::from_utf8_lossy(&resolved.stdout);
+    if resolved.exit_code != 0 || stdout.trim() != "true" {
+        let details = {
+            let stderr = String::from_utf8_lossy(&resolved.stderr);
+            let combined = format!("{stdout}{stderr}");
+            combined.trim().to_string()
+        };
+        return Err(
+            CoreError::new(ErrorCode::InvalidRequest, "Not a Git repository").with_details(details),
+        );
+    }
+    Ok(())
+}
+
+fn read_git_ignore_bytes(path: &Path) -> Result<Vec<u8>, CoreError> {
+    match std::fs::read(path) {
+        Ok(content) => Ok(content),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(error) => Err(git_ignore_io_error("read", error)),
+    }
+}
+
+fn literal_git_ignore_patterns(patterns: &[String]) -> Result<Vec<String>, CoreError> {
+    let mut normalized = Vec::with_capacity(patterns.len());
+    for pattern in patterns {
+        // Trim request input only. Existing exclude lines keep their stored
+        // whitespace because a leading space changes Git ignore semantics.
+        let trimmed = pattern.trim();
+        if trimmed.is_empty() || trimmed.contains(['\0', '\n', '\r']) {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Git ignore operation contains an invalid pattern",
+            ));
+        }
+        normalized.push(trimmed.to_string());
+    }
+    normalized.sort();
+    normalized.dedup();
+    if normalized.is_empty() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Git ignore operation contains an invalid pattern",
+        ));
+    }
+    Ok(normalized)
 }
 
 fn git_ignore_patterns(paths: &[String]) -> Result<Vec<String>, CoreError> {
@@ -6317,14 +6466,77 @@ mod tests {
         GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse, GitReferencesResponse,
     };
     use serde_json::Value;
-    #[test]
-    fn mutation_lock_registry_reuses_keys_and_isolates_repositories() {
-        let first = super::git_mutation_lock_for_key("test-repository-a".into());
-        let same_repository = super::git_mutation_lock_for_key("test-repository-a".into());
-        let other_repository = super::git_mutation_lock_for_key("test-repository-b".into());
 
-        assert!(std::sync::Arc::ptr_eq(&first, &same_repository));
-        assert!(!std::sync::Arc::ptr_eq(&first, &other_repository));
+    #[test]
+    fn argument_and_typed_writes_reject_an_active_repository_lease() {
+        struct Repository(std::path::PathBuf);
+        impl Drop for Repository {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).expect("temporary repository should be removed");
+            }
+        }
+
+        let repository = Repository(std::env::temp_dir().join(format!(
+            "lithe-write-lease-{}-{}",
+            std::process::id(),
+            super::TEMPORARY_INDEX_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        )));
+        std::fs::create_dir_all(&repository.0).unwrap();
+        let root = repository.0.to_string_lossy().into_owned();
+        let _deadline = crate::protocol::cancellation::Scope::begin(None, Some(5_000));
+        let initialized = super::command(super::GitCommandRequest {
+            root: root.clone(),
+            arguments: vec!["init".into(), "-q".into()],
+            input: None,
+        })
+        .unwrap();
+        assert_eq!(initialized.exit_code, 0);
+
+        let lease = super::rewrite::RewriteLease::acquire(&root).unwrap();
+        let (completed, completion) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let results = [
+                (
+                    "git.command",
+                    serde_json::json!({"arguments":["config", "test.writer", "raw"]}),
+                ),
+                ("git.write", serde_json::json!({"operation":"stageAll"})),
+            ]
+            .map(|(command, mut payload)| {
+                payload["root"] = serde_json::json!(root);
+                serde_json::from_str::<Value>(&crate::execute_json(
+                    &serde_json::json!({
+                        "id": command,
+                        "command": command,
+                        "timeoutMilliseconds": 2_000,
+                        "payload": payload,
+                    })
+                    .to_string(),
+                ))
+                .unwrap()
+            });
+            let _ = completed.send(results);
+        });
+
+        // The competing commands must finish while the writer still owns its
+        // lease. Always release it before asserting, so a blocking regression
+        // can terminate and be joined even when the first deadline is missed.
+        let results = completion.recv_timeout(std::time::Duration::from_secs(5));
+        drop(lease);
+        if results.is_err() {
+            completion
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("competing writer should terminate after lease cleanup");
+        }
+        worker.join().expect("competing writer should not panic");
+        for result in results.expect("competing writers must fail without waiting for the lease") {
+            assert_eq!(result["ok"], false, "{result}");
+            assert_eq!(result["error"]["code"], "invalid_request", "{result}");
+            assert_eq!(
+                result["error"]["message"],
+                "Another Git write operation is running in this repository"
+            );
+        }
     }
 
     #[test]

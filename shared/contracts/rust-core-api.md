@@ -322,8 +322,12 @@ validation or probe fails after at least one subprocess was recorded, the
 response retains the invocation trace and includes the failure as
 `operationError`.
 
+`git.command` and typed Git writers share the repository's write lease, including
+linked worktrees. A competing request fails with `invalid_request` while a writer
+is active; it does not wait behind a mutex outside its cancellation deadline.
+
 `git.write` accepts a typed mutation request. Its required `operation` values are
-`stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `cherryPick`, `revert`,
+`stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `excludePatterns`, `unexcludePatterns`, `cherryPick`, `revert`,
 `reset`, `undoCommit`, `editCommitMessage`, `deleteCommit`, `squashCommits`, `createBranch`, `publishBranch`,
 `renameBranch`, `setUpstream`, `unsetUpstream`, `deleteBranch`, `updateBranch`, `merge`, `rebase`, `createWorktree`,
 `removeWorktree`, `lockWorktree`, `unlockWorktree`, `repairWorktrees`, `pruneWorktrees`,
@@ -460,7 +464,19 @@ the legacy behavior of committing the existing index. `ignore` appends root-anch
 repository's top-level `.gitignore`; `exclude` appends the same patterns to the
 worktree-aware Git metadata path for `info/exclude`. Both ignore operations
 preserve existing content, escape Git pattern characters, de-duplicate rules,
-and interpret a trailing `/` as a directory rule.
+and interpret a trailing `/` as a directory rule. `excludePatterns` and
+`unexcludePatterns` mutate exact literal lines in that same worktree-aware
+`info/exclude` file without root-anchoring or escaping, so recommended IDE
+patterns such as `.factorypath` can be added or removed once. Existing lines are
+compared as stored raw bytes, including leading and trailing whitespace and
+non-UTF-8 content; a leading space is a different Git ignore rule and is neither
+treated as a duplicate on add nor removed as the same rule. Unrelated lines keep
+their original bytes; add appends without rewriting the existing file, and
+remove rebuilds from the original line bytes and terminators rather than
+decoding the file as UTF-8. Request values are trimmed and rejected when empty or
+when they contain NULs or line breaks. Remove is a no-op when managed lines are
+absent. A non-repository root fails with `invalid_request` / `Not a Git
+repository`.
 
 `editCommitMessage` rebuilds the selected commit and its later first-parent
 descendants with the new `message`. `squashCommits` requires at least two
@@ -648,7 +664,16 @@ core clamps it to `1...5000`). It remains the compatibility command that
 combines `git.references` with the first `git.historyPage`. New clients use
 `git.references` with `{ "root": string }` and request commits separately with
 `git.historyPage` using `root`, optional full `reference`, nullable opaque
-`cursor`, and `limit`. The first request omits `cursor`; each later request
+`cursor`, `limit`, and optional `order` (`"topo"` or `"date"`). Omitted
+`order` preserves the original `git log --topo-order` behavior. `"date"` uses
+`git log --date-order`: committer date descending whenever the child-before-
+parent constraint permits, independently of the displayed author date. macOS
+requests date order for the log page and repository graph; existing clients
+retain topology order. A cursor is bound to its root, reference, and order;
+continuations must repeat the same order. A mismatched order returns
+`invalid_request` without consuming the cursor. The portable request example is
+`shared/fixtures/git/history-page-date-request-v1.json`.
+The first request omits `cursor`; each later request
 returns the prior page's `nextCursor`. Core keeps one bounded, backpressured
 `git log` stream behind that cursor and clamps the stream to the first 5,000
 commits, so later pages continue traversal instead of replaying earlier commits.
@@ -671,7 +696,8 @@ remote references, and tags return zero for both fields. Portable examples are
 
 For compatibility, a request that explicitly contains the deprecated numeric
 `offset` field still uses the bounded offset implementation and returns
-`nextOffset`. New clients must omit `offset`; repository size does not select
+`nextOffset`; it honors the same optional `order`. New clients must omit
+`offset`; repository size does not select
 between the two protocols.
 
 `git.commit` accepts `root` and a revision, returning one `commit` object.
@@ -1194,6 +1220,17 @@ states, the effective global `toolchain`, and the machine-local
 `localToolchains` document. Toolchain diagnostics carry the affected run
 configuration ID when a requirement is consumed by one or more configurations;
 requirements with no configuration consumer do not emit a blocking diagnostic.
+For detected Maven configurations, resolved `extensions.maven.reactorPath`
+contains the workspace-relative reactor from the generated layer, independently
+of an overridden effective `cwd`. Core derives this read-only ownership value
+when resolving existing generated documents as well; regeneration is not
+required. Overrides cannot move a configuration to another reactor. Current
+File and configurations without detected Maven ownership omit this field.
+Module menus first match reactor and module, then apply the default preference;
+they must not infer ownership from an overridden working directory. The shared
+`run-configuration/maven-module-ownership.json` fixture covers independent
+reactors, cwd overrides, and the ordinary Java main / Current File capabilities.
+
 A process detector declares a runtime binding only when that command genuinely
 consumes the runtime. npm, pnpm, and Yarn scripts consume `project-node`; Bun
 scripts keep their independent `bun` command and do not acquire a Node
