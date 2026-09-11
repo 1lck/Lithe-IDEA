@@ -3,6 +3,7 @@ import type { GitReference } from "../types/git.types";
 import {
   reconcileGitLogReference,
   selectedReferenceAfterRemoval,
+  selectedReferenceAfterRename,
   shouldRefreshGitLogForChange,
 } from "./git-log-refresh";
 
@@ -22,10 +23,7 @@ describe("Git Log refresh events", () => {
       false,
     );
     expect(
-      shouldRefreshGitLogForChange(
-        { repoPath: "C:/work/other", scopes: ["history"] },
-        repoPath,
-      ),
+      shouldRefreshGitLogForChange({ repoPath: "C:/work/other", scopes: ["history"] }, repoPath),
     ).toBe(false);
   });
 
@@ -48,6 +46,35 @@ describe("Git Log refresh events", () => {
     expect(selectedReferenceAfterRemoval(selectedReference, "refs/remotes/origin/main")).toBe(
       selectedReference,
     );
+  });
+
+  test("rebinds a selected reference to its renamed identity", () => {
+    const selectedReference: GitReference = {
+      fullName: "refs/heads/feature/old-name",
+      shortName: "feature/old-name",
+      kind: "local",
+      peelsToCommit: true,
+      isCurrent: false,
+      upstreamShortName: "origin/feature/old-name",
+      ahead: 1,
+      behind: 0,
+    };
+    const renamedReference: GitReference = {
+      ...selectedReference,
+      fullName: "refs/heads/feature/new-name",
+      shortName: "feature/new-name",
+    };
+
+    expect(
+      selectedReferenceAfterRename(selectedReference, selectedReference.fullName, renamedReference),
+    ).toBe(renamedReference);
+    expect(
+      selectedReferenceAfterRename(
+        { ...selectedReference, fullName: "refs/heads/other" },
+        selectedReference.fullName,
+        renamedReference,
+      ),
+    ).not.toBe(renamedReference);
   });
 
   test("rebinds the selected reference to refreshed metadata", () => {

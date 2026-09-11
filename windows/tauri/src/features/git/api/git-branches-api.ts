@@ -38,7 +38,7 @@ const blockingChangesMessage = (blockingPaths: string[]): string => {
   return `Local changes would be overwritten by switching branches: ${listed}${suffix}`;
 };
 
-const localBranchReference = (branchName: string): string =>
+export const localBranchReference = (branchName: string): string =>
   branchName.startsWith("refs/heads/") ? branchName : `refs/heads/${branchName}`;
 
 export const getBranches = async (repoPath: string): Promise<string[]> => {
@@ -62,7 +62,8 @@ export const getBranches = async (repoPath: string): Promise<string[]> => {
 export const checkoutBranch = async (
   repoPath: string,
   branchName: string,
-): Promise<CheckoutResult> => checkoutReference(repoPath, localBranchReference(branchName), "local");
+): Promise<CheckoutResult> =>
+  checkoutReference(repoPath, localBranchReference(branchName), "local");
 
 export const checkoutReference = async (
   repoPath: string,
@@ -204,10 +205,7 @@ export const setBranchUpstream = async (
   });
 };
 
-export const unsetBranchUpstream = async (
-  repoPath: string,
-  branchName: string,
-): Promise<void> => {
+export const unsetBranchUpstream = async (repoPath: string, branchName: string): Promise<void> => {
   const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
   await tauriInvoke("git.write", {
     repoPath: resolvedRepoPath,
@@ -221,10 +219,7 @@ export const unsetBranchUpstream = async (
   });
 };
 
-export const updateBranch = async (
-  repoPath: string,
-  reference: GitReference,
-): Promise<void> => {
+export const updateBranch = async (repoPath: string, reference: GitReference): Promise<void> => {
   const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
   const result = await tauriInvoke<GitWriteResult>("git.write", {
     repoPath: resolvedRepoPath,

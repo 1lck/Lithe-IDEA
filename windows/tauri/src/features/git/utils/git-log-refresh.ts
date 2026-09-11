@@ -15,6 +15,14 @@ export function selectedReferenceAfterRemoval(
   return selectedReference?.fullName === removedFullName ? null : selectedReference;
 }
 
+export function selectedReferenceAfterRename(
+  selectedReference: GitReference | null,
+  renamedFromFullName: string,
+  renamedReference: GitReference,
+): GitReference | null {
+  return selectedReference?.fullName === renamedFromFullName ? renamedReference : selectedReference;
+}
+
 export function reconcileGitLogReference(
   reference: GitReference | null,
   refreshedReferences: GitReference[] | null,

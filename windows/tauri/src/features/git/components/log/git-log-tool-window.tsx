@@ -15,6 +15,7 @@ import {
   checkoutGitReference,
   createAndCheckoutBranch,
   deleteBranch,
+  localBranchReference,
   renameBranch,
   setBranchUpstream,
   unsetBranchUpstream,
@@ -44,6 +45,7 @@ import {
   isGitReferencePullAction,
   type GitReferenceAction,
 } from "../../utils/git-reference-actions";
+import { selectedReferenceAfterRename } from "../../utils/git-log-refresh";
 import { showGitPushDialog } from "../../services/git-push-dialog-service";
 import { showGitPatchDialog } from "../../services/git-patch-dialog-service";
 import type {
@@ -96,7 +98,8 @@ export function GitLogToolWindow() {
   const emptyContextMenu = useDropdownMenu();
   const selectionAnchorRef = useRef<string | null>(null);
   const mainPanelLayout = useGitLogPreferencesStore.use.mainPanelLayout();
-  const { setFilterQuery, setMainPanelLayout } = useGitLogPreferencesStore.use.actions();
+  const { setFilterQuery, setMainPanelLayout, renameMarkedReference } =
+    useGitLogPreferencesStore.use.actions();
   const currentReference = useMemo(
     () => history.references.find((reference) => reference.isCurrent) ?? null,
     [history.references],
@@ -373,9 +376,23 @@ export function GitLogToolWindow() {
       defaultValue: reference.shortName,
     });
     if (!newName?.trim() || newName.trim() === reference.shortName) return;
+    const nextShortName = newName.trim();
+    const renamedReference: GitReference = {
+      ...reference,
+      fullName: localBranchReference(nextShortName),
+      shortName: nextShortName,
+    };
     await runReferenceMutation(t("git.log.renameBranch"), async () => {
-      await renameBranch(repoPath, reference.shortName, newName.trim());
-      forgetReference(reference);
+      await renameBranch(repoPath, reference.shortName, nextShortName);
+      renameMarkedReference(repoPath, reference.fullName, renamedReference.fullName);
+      const nextSelectedReference = selectedReferenceAfterRename(
+        selectedReference,
+        reference.fullName,
+        renamedReference,
+      );
+      if (nextSelectedReference !== selectedReference) {
+        selectReference(nextSelectedReference);
+      }
     });
   };
 

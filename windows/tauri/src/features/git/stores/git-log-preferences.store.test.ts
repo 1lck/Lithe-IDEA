@@ -64,4 +64,25 @@ describe("Git Log preferences", () => {
 
     actions.toggleMarkedReference("C:/work/two", "refs/heads/feature/demo");
   });
+
+  test("migrates marked references when a branch is renamed", () => {
+    const actions = useGitLogPreferencesStore.getState().actions;
+    const repoPath = "C:/work/rename";
+    const oldFullName = "refs/heads/feature/old-name";
+    const newFullName = "refs/heads/feature/new-name";
+
+    actions.toggleMarkedReference(repoPath, oldFullName);
+    actions.renameMarkedReference(repoPath, oldFullName, newFullName);
+
+    expect(useGitLogPreferencesStore.getState().markedReferenceFullNamesByRepository).toEqual({
+      [repoPath]: [newFullName],
+    });
+
+    actions.renameMarkedReference(repoPath, "refs/heads/missing", "refs/heads/other");
+    expect(useGitLogPreferencesStore.getState().markedReferenceFullNamesByRepository).toEqual({
+      [repoPath]: [newFullName],
+    });
+
+    actions.toggleMarkedReference(repoPath, newFullName);
+  });
 });

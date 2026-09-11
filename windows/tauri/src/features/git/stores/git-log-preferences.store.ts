@@ -32,6 +32,11 @@ interface GitLogPreferencesStore {
     toggleReferenceGroup: (id: string) => void;
     setReferenceExpansion: (sections: GitReferenceKind[], groups: string[]) => void;
     toggleMarkedReference: (repoPath: string, fullName: string) => void;
+    renameMarkedReference: (
+      repoPath: string,
+      renamedFromFullName: string,
+      renamedToFullName: string,
+    ) => void;
   };
 }
 
@@ -96,6 +101,31 @@ const useGitLogPreferencesStoreBase = create<GitLogPreferencesStore>()(
             }
             return { markedReferenceFullNamesByRepository };
           }),
+        renameMarkedReference: (repoPath, renamedFromFullName, renamedToFullName) =>
+          set((state) => {
+            if (renamedFromFullName === renamedToFullName) return state;
+            const repositoryKey = normalizeRepositoryPath(repoPath);
+            const markedReferences =
+              state.markedReferenceFullNamesByRepository[repositoryKey] ?? [];
+            if (!markedReferences.includes(renamedFromFullName)) return state;
+
+            const nextReferences = [
+              ...new Set(
+                markedReferences.map((fullName) =>
+                  fullName === renamedFromFullName ? renamedToFullName : fullName,
+                ),
+              ),
+            ];
+            const markedReferenceFullNamesByRepository = {
+              ...state.markedReferenceFullNamesByRepository,
+            };
+            if (nextReferences.length > 0) {
+              markedReferenceFullNamesByRepository[repositoryKey] = nextReferences;
+            } else {
+              delete markedReferenceFullNamesByRepository[repositoryKey];
+            }
+            return { markedReferenceFullNamesByRepository };
+          }),
       },
     }),
     {
@@ -103,12 +133,10 @@ const useGitLogPreferencesStoreBase = create<GitLogPreferencesStore>()(
       storage: createSafeJSONStorage<Omit<GitLogPreferencesStore, "actions">>(),
       partialize: ({ actions: _, ...preferences }) => preferences,
       merge: (persistedState, currentState) => {
-        const {
-          markedReferenceFullNames: _legacyMarkedReferences,
-          ...persistedPreferences
-        } = (persistedState ?? {}) as Partial<GitLogPreferencesStore> & {
-          markedReferenceFullNames?: string[];
-        };
+        const { markedReferenceFullNames: _legacyMarkedReferences, ...persistedPreferences } =
+          (persistedState ?? {}) as Partial<GitLogPreferencesStore> & {
+            markedReferenceFullNames?: string[];
+          };
         return {
           ...currentState,
           ...persistedPreferences,
