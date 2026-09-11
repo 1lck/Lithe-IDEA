@@ -27,20 +27,13 @@
     <a href="#download-and-install"><img src="https://img.shields.io/badge/Homebrew-Install-FBB040?style=flat&logo=homebrew&logoColor=black" alt="Install with Homebrew"></a>
     <a href="./LICENSE"><img src="https://img.shields.io/github/license/1lck/Lithe-IDEA?style=flat&label=license" alt="Apache License 2.0"></a>
   </p>
-  <p>
-    <img src="https://img.shields.io/badge/Java-Development-E76F00?style=flat&logo=openjdk&logoColor=white" alt="Java development">
-    <img src="https://img.shields.io/badge/Spring%20Boot-Projects-6DB33F?style=flat&logo=springboot&logoColor=white" alt="Spring Boot projects">
-    <img src="https://img.shields.io/badge/Maven-Management-C71A36?style=flat&logo=apachemaven&logoColor=white" alt="Maven management">
-    <img src="https://img.shields.io/badge/Debugger-Breakpoints-D32F2F?style=flat" alt="Breakpoint debugging">
-    <img src="https://img.shields.io/badge/Git-Diff%20Review-F05032?style=flat&logo=git&logoColor=white" alt="Git diff review">
-    <img src="https://img.shields.io/badge/Database-SQL%20Workspace-336791?style=flat" alt="Database SQL workspace">
-  </p>
 </div>
 
 ## Join the community
 
 Welcome to join the Lithe community, share your experience, ask questions, and follow the latest updates.
 
+<div align="center">
 <table>
   <tr>
     <th>QQ group</th>
@@ -51,6 +44,7 @@ Welcome to join the Lithe community, share your experience, ask questions, and f
     <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr.png" width="280" alt="QR code for the Lithe WeChat group"></a></td>
   </tr>
 </table>
+</div>
 
 If you cannot scan the WeChat QR code, [click here to join through Feishu](https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink).
 
