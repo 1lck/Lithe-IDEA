@@ -604,12 +604,11 @@ struct MavenView: View {
             guard !model.isMavenOperationBusy else { return }
             feature.run(phase: phase, module: module)
         })
-        .contextMenu {
-            Button(dependencyLocalization.text("Run")) {
+        .litheContextMenu(items: {
+            [.action(dependencyLocalization.text("Run"), isEnabled: !model.isMavenOperationBusy) {
                 feature.run(phase: phase, module: module)
-            }
-            .disabled(model.isMavenOperationBusy)
-        }
+            }]
+        })
     }
 
     private func treeNode<Content: View>(
@@ -672,9 +671,9 @@ struct MavenView: View {
                 .buttonStyle(.plain)
                 .lithePointer()
             }
-            .contextMenu {
-                if hasModuleMenu { moduleContextMenu(menuModule) }
-            }
+            .litheContextMenu(items: {
+                hasModuleMenu ? moduleContextMenu(menuModule) : []
+            })
 
             if isNodeExpanded(id) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -690,30 +689,35 @@ struct MavenView: View {
         return [project.rootURL] + moduleURLs(project.modules)
     }
 
-    @ViewBuilder
-    private func moduleContextMenu(_ module: MavenModule?) -> some View {
-        Button(dependencyLocalization.text("Run")) { model.startMavenModule(module, debug: false) }
-            .disabled(model.isMavenOperationBusy || model.mavenModuleConfiguration(module, debug: false) == nil)
-            .help(dependencyLocalization.text("Choose a Run configuration for this Maven module"))
-        Button(dependencyLocalization.text("Debug")) { model.startMavenModule(module, debug: true) }
-            .disabled(model.isMavenOperationBusy || model.genericDebugFeatureIfActive?.isSessionActive == true
-                      || model.mavenModuleConfiguration(module, debug: true) == nil)
-            .help(dependencyLocalization.text("Choose a Run configuration for this Maven module"))
-        Divider()
-        Button(dependencyLocalization.text("Test")) { feature.run(phase: .test, module: module) }
-            .disabled(model.isMavenOperationBusy)
-        Button(dependencyLocalization.text("Package")) { feature.run(phase: .packagePhase, module: module) }
-            .disabled(model.isMavenOperationBusy)
-        Button(dependencyLocalization.text("Execute Maven Goal")) { presentGoal(for: module) }
-            .disabled(model.isMavenOperationBusy)
-        Divider()
-        Button(dependencyLocalization.text("Open pom.xml")) {
-            if let pom = module?.url.appendingPathComponent("pom.xml") ?? feature.project?.pomURL {
-                model.openFile(pom)
-            }
-        }
-        Button(dependencyLocalization.text("Reload"), action: refreshProject)
-            .disabled(model.isMavenOperationBusy)
+    private func moduleContextMenu(_ module: MavenModule?) -> [LitheContextMenuItem] {
+        [
+            .action(dependencyLocalization.text("Run"),
+                    isEnabled: !model.isMavenOperationBusy && model.mavenModuleConfiguration(module, debug: false) != nil) {
+                model.startMavenModule(module, debug: false)
+            },
+            .action(dependencyLocalization.text("Debug"),
+                    isEnabled: !model.isMavenOperationBusy && model.genericDebugFeatureIfActive?.isSessionActive != true
+                        && model.mavenModuleConfiguration(module, debug: true) != nil) {
+                model.startMavenModule(module, debug: true)
+            },
+            .separator,
+            .action(dependencyLocalization.text("Test"), isEnabled: !model.isMavenOperationBusy) {
+                feature.run(phase: .test, module: module)
+            },
+            .action(dependencyLocalization.text("Package"), isEnabled: !model.isMavenOperationBusy) {
+                feature.run(phase: .packagePhase, module: module)
+            },
+            .action(dependencyLocalization.text("Execute Maven Goal"), isEnabled: !model.isMavenOperationBusy) {
+                presentGoal(for: module)
+            },
+            .separator,
+            .action(dependencyLocalization.text("Open pom.xml")) {
+                if let pom = module?.url.appendingPathComponent("pom.xml") ?? feature.project?.pomURL {
+                    model.openFile(pom)
+                }
+            },
+            .action(dependencyLocalization.text("Reload"), isEnabled: !model.isMavenOperationBusy, action: refreshProject)
+        ]
     }
 
     private func presentGoal(for module: MavenModule?) {
