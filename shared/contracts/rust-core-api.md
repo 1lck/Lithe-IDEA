@@ -1199,6 +1199,17 @@ states, the effective global `toolchain`, and the machine-local
 `localToolchains` document. Toolchain diagnostics carry the affected run
 configuration ID when a requirement is consumed by one or more configurations;
 requirements with no configuration consumer do not emit a blocking diagnostic.
+For detected Maven configurations, resolved `extensions.maven.reactorPath`
+contains the workspace-relative reactor from the generated layer, independently
+of an overridden effective `cwd`. Core derives this read-only ownership value
+when resolving existing generated documents as well; regeneration is not
+required. Overrides cannot move a configuration to another reactor. Current
+File and configurations without detected Maven ownership omit this field.
+Module menus first match reactor and module, then apply the default preference;
+they must not infer ownership from an overridden working directory. The shared
+`run-configuration/maven-module-ownership.json` fixture covers independent
+reactors, cwd overrides, and the ordinary Java main / Current File capabilities.
+
 A process detector declares a runtime binding only when that command genuinely
 consumes the runtime. npm, pnpm, and Yarn scripts consume `project-node`; Bun
 scripts keep their independent `bun` command and do not acquire a Node

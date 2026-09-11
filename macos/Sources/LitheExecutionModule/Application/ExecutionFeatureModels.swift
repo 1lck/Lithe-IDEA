@@ -35,6 +35,16 @@ package final class MavenFeatureModel: ObservableObject {
     package var javaHomePath: String? { service.javaHomePath }
     package var configurationSaveError: String? { service.configurationSaveError }
     package var isReloadRequired: Bool { service.isReloadRequired }
+    package var isProjectReloadRequired: Bool { service.isProjectReloadRequired }
+    package var isReloading: Bool { service.isReloading }
+    package var reloadError: String? { service.reloadError }
+    package func markPomChanged(_ url: URL) { service.markPomChanged(url) }
+    package func reloadProject(
+        files: [URL], rescan: Bool,
+        synchronizeJava: @escaping @MainActor () async throws -> Void
+    ) async {
+        await service.reloadProject(files: files, rescan: rescan, synchronizeJava: synchronizeJava)
+    }
     package var dependencyStates: [String: MavenDependencyLoadState] { service.dependencyStates }
     package var isResolvingDependencies: Bool { service.isResolvingDependencies }
     package var launchContext: MavenLaunchContext? { service.launchContext }
@@ -297,7 +307,7 @@ package final class ProjectDevelopmentFeatureModel {
         }
         if hasMavenDescriptor {
             await mavenFeature.loadProject(at: workspaceURL, files: files)
-        } else {
+        } else if !mavenFeature.isProjectReloadRequired && !mavenFeature.isReloading {
             mavenFeature.reset()
         }
         await runFeature.loadProject(

@@ -92,7 +92,7 @@ describe("Maven-backed Run context", () => {
       effectiveRuntimeExecutablePaths: {},
     });
 
-    const run = store.getState().actions.runConfiguration(configuration.id);
+    const run = store.getState().actions.runConfiguration(configuration.id, undefined, 5005);
     try {
       await Promise.resolve();
       await Promise.resolve();
@@ -101,12 +101,18 @@ describe("Maven-backed Run context", () => {
       expect(createLaunchPlan).not.toHaveBeenCalled();
     } finally {
       pendingContext.resolve(mavenContext);
-      await run;
+      expect(await run).toBe(configuration.id);
     }
 
     expect(saveWorkspaceBeforeLaunch).toHaveBeenCalledWith("workspace");
     expect(mavenLaunchContextForWorkspace).toHaveBeenCalledWith("D:/work", [], "workspace");
-    expect(createLaunchPlan).toHaveBeenCalledWith("D:/work", "spring", undefined, mavenContext);
+    expect(createLaunchPlan).toHaveBeenCalledWith(
+      "D:/work",
+      "spring",
+      undefined,
+      mavenContext,
+      5005,
+    );
     expect(resolveRunLaunch).toHaveBeenCalledWith(
       expect.objectContaining({
         mavenExecutablePath: "D:/Tools/apache-maven",

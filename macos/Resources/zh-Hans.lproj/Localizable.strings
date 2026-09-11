@@ -1416,6 +1416,13 @@
 "Unlock the worktree before removing it." = "请先解锁工作树再删除。";
 "Prune the stale record instead." = "请改用清理陈旧记录。";
 "Loading…" = "正在加载…";
+"Maven POM changed" = "Maven POM 已变化";
+"Maven configuration changed" = "Maven 配置已变化";
+"Reloading Maven..." = "正在重新加载 Maven…";
+"Reload" = "重新加载";
+"Maven reload was cancelled or timed out." = "Maven 重新加载已取消或超时。";
+"The Maven project could not be reloaded. The previous model is still available." = "无法重新加载 Maven 项目，仍可使用之前的模型。";
+"Java runtime is not ready. Retry Maven reload." = "Java 运行时尚未就绪，请重试 Maven 重新加载。";
 
 /* Diagnostics bundle export (Issue #420). */
 "Diagnostics" = "诊断";
@@ -1766,3 +1773,25 @@
 "rebase" = "变基";
 "cherry-pick" = "拣选";
 "revert" = "反向提交";
+
+"Preview Update" = "预览版更新";
+"Install Preview" = "安装预览版";
+"Skip Build" = "跳过此构建";
+"Continue Installation" = "继续安装";
+"Return to Stable" = "回到正式版";
+"The stable release is missing a valid publisher signature. Nothing was installed. Try a newer release or install manually from a trusted source." = "正式版缺少有效的发布者签名，未执行安装。请等待新版本，或从可信来源手动安装。";
+"Return to Stable?" = "回到正式版？";
+"Download Stable Release" = "下载正式版";
+"Downloading full stable release…" = "正在下载正式版完整安装包…";
+"Verifying stable release…" = "正在校验正式版…";
+"Stable release %@ is ready." = "正式版 %@ 已准备就绪。";
+"Install and Restart" = "安装并重启";
+"The latest stable release will be downloaded in full and replace this preview after you confirm installation. Projects and settings are kept, but preview-only settings may not work in the stable release." = "将全量下载最新正式版，在你确认安装后替换当前预览版。项目和设置会保留，但预览版专有的设置可能无法在正式版中使用。";
+"Lithe cannot replace this app in its current folder. Move it to a writable Applications folder or install the stable release manually." = "Lithe 无法替换当前目录中的应用。请将应用移到有写入权限的应用程序目录，或手动安装正式版。";
+"The downloaded app does not match the selected stable release. Nothing was installed." = "下载的应用与所选正式版不符，未执行安装。";
+"The stable installer stopped. Your current app has been preserved. Try again or download the stable release manually." = "正式版安装程序已停止，当前应用已保留。请重试或手动下载安装正式版。";
+"A stable release installation is already in progress." = "正在进行正式版安装，请等待完成。";
+"Waiting to quit to complete the update." = "等待退出应用以完成更新。";
+"Build %@ → %@" = "构建 %@ → %@";
+"Built %@" = "构建于 %@";
+"This preview contains changes that have not been officially released and may be unstable." = "此预览版包含尚未正式发布的改动，可能不稳定。";

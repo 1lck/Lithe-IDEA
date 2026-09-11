@@ -174,8 +174,15 @@ extension AppModel {
 
     func handleJavaWorkspaceFileChanges(_ changes: [WorkspaceFileChange]) {
         guard let workspaceURL else { return }
+        let maven = mavenFeatureIfActive
+        let forwarded = changes.filter { change in
+            guard maven?.project != nil,
+                  change.fileURL.lastPathComponent.lowercased() == "pom.xml" else { return true }
+            maven?.markPomChanged(change.fileURL)
+            return false
+        }
         javaLanguageServerPreparationCoordinator.notifyWorkspaceFileChanges(
-            changes,
+            forwarded,
             workspaceURL: workspaceURL,
             projectFiles: projectFiles,
             openDocuments: openDocuments,
@@ -188,6 +195,42 @@ extension AppModel {
             },
             sessions: languageToolingSessionsIfActive
         )
+    }
+
+    func reloadMavenProject(rescan: Bool) async {
+        guard let identity = currentWorkspaceIdentity,
+              let feature = mavenFeatureIfActive else { return }
+        let files = projectFiles
+        if feature.project == nil {
+            await feature.loadProject(at: identity.url, files: files)
+            return
+        }
+        await feature.reloadProject(files: files, rescan: rescan) { [weak self] in
+            guard let self, self.isCurrentWorkspace(identity) else { throw CancellationError() }
+            guard self.services.javaMavenOperations.javaWorkspacePolicy(
+                at: identity.url, files: files, changedFiles: []
+            )?.shouldStart == true else {
+                self.languageToolingSessionsIfActive?.stopLanguageServer(providerID: "java")
+                return
+            }
+            let preparation = await self.services.projectRuntimeService.prepareJavaLanguageServerRuntime()
+            try Task.checkCancellation()
+            guard self.isCurrentWorkspace(identity) else { throw CancellationError() }
+            switch preparation {
+            case .ready: break
+            case .failed(let message):
+                throw NSError(domain: "MavenReload", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+            case .unprepared:
+                throw NSError(domain: "MavenReload", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: String(localized: "Java runtime is not ready. Retry Maven reload.")
+                ])
+            }
+            let sessions = try await self.languageSessionsForWorkspaceMaintenance()
+            try Task.checkCancellation()
+            guard self.isCurrentWorkspace(identity) else { throw CancellationError() }
+            self.cancelJavaLanguageServerPreparation()
+            try await sessions.reloadJavaWorkspace(rootURL: identity.url)
+        }
     }
 
     private func ownsJavaLanguageServerPreparation(
