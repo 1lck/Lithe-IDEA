@@ -4,6 +4,7 @@ import { editorAPI } from "@/features/editor/extensions/api";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useEditorStateStore } from "@/features/editor/stores/state.store";
 import { useJumpListStore } from "@/features/editor/stores/jump-list.store";
+import { usePaneStore } from "@/features/panes/stores/pane.store";
 import { useRecentFilesStore } from "@/features/file-system/stores/recent-files.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useFffSearch } from "@/features/file-search/hooks/use-fff-search";
@@ -127,6 +128,7 @@ export const useQuickOpen = () => {
         useJumpListStore.getState().actions.pushEntry({
           bufferId: activeBuffer.id,
           filePath: activeBuffer.path,
+          paneId: usePaneStore.getState().activePaneId,
           line: editorState.cursorPosition.line,
           column: editorState.cursorPosition.column,
           offset: editorState.cursorPosition.offset,

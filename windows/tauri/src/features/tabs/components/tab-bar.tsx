@@ -192,6 +192,7 @@ const TabBar = ({
         ? {
             bufferId: currentActiveBufferId,
             filePath: currentActiveBuffer.path,
+            paneId,
             line: editorState.cursorPosition.line,
             column: editorState.cursorPosition.column,
             offset: editorState.cursorPosition.offset,
@@ -204,7 +205,7 @@ const TabBar = ({
     if (entry) {
       await navigateToJumpEntry(entry);
     }
-  }, [activeWebViewerNavigation, jumpListActions, usesWebViewerNavigation]);
+  }, [activeWebViewerNavigation, jumpListActions, paneId, usesWebViewerNavigation]);
 
   const handleJumpForward = useCallback(async () => {
     if (usesWebViewerNavigation) {

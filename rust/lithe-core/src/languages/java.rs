@@ -5,7 +5,8 @@ use crate::protocol::{
     JavaClassNameResponse, JavaCodeVisionHintResponse, JavaCodeVisionResponse,
     JavaFoldRegionResponse, JavaInlayHintResponse, JavaMainClassResponse,
     JavaRunConfigurationResponse, JavaRunConfigurationsResponse, JavaServerPortResponse,
-    JavaSourceSetResponse, JavaStructureResponse, JavaTestMethodsResponse,
+    JavaSourceSetResponse, JavaStructureResponse, JavaStructureTestMethodResponse,
+    JavaTestMethodsResponse,
 };
 use regex::Regex;
 use serde::Deserialize;
@@ -140,6 +141,16 @@ pub fn structure(request: JavaStructureRequest) -> Result<JavaStructureResponse,
         fold_regions: fold_regions(&source),
         inlay_hints: parameter_hints(&source, &request.declaration_sources),
         syntax_highlights: super::java_syntax::syntax_highlights(&source),
+        // The structure endpoint retains its one-based contract; the dedicated
+        // test-method endpoint uses zero-based editor ranges.
+        test_methods: super::java_syntax::test_methods(&source)?
+            .into_iter()
+            .map(|method| JavaStructureTestMethodResponse {
+                name: method.name,
+                line: method.line.saturating_add(1),
+                end_line: method.end_line.saturating_add(1),
+            })
+            .collect(),
     })
 }
 

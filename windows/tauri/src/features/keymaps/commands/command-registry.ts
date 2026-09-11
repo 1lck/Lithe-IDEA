@@ -966,14 +966,14 @@ const navigationCommands: Command[] = [
     id: "navigation.goBack",
     title: "Go Back",
     category: "Navigation",
-    keybinding: "ctrl+-",
+    keybinding: "ctrl+alt+left",
     execute: goBack,
   },
   {
     id: "navigation.goForward",
     title: "Go Forward",
     category: "Navigation",
-    keybinding: "ctrl+shift+-",
+    keybinding: "ctrl+alt+right",
     execute: goForward,
   },
 ];
