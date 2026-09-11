@@ -104,6 +104,11 @@ struct RunView: View {
             }
             synchronizeSelectedServices()
         }
+        .onChange(of: feature.moduleSessions) { sessions in
+            if let runningSession = sessions.last(where: { $0.isRunning }) {
+                selectedSessionID = runningSession.id
+            }
+        }
         .onAppear { synchronizeSelectedServices() }
     }
 
@@ -615,18 +620,6 @@ struct RunView: View {
                         ForEach(pinnedConfigurations) { configuration in
                             configurationRow(configuration)
                         }
-                    }
-
-                    sessionRow(
-                        title: String(localized: "Current run"),
-                        subtitle: feature.runningTitle ?? String(localized: "Primary configuration"),
-                        isRunning: feature.isRunning,
-                        exitCode: feature.lastExitCode,
-                        isSelected: selectedSessionID == nil,
-                        onToggle: nil
-                    ) {
-                        selectedSessionID = nil
-                        feature.select(.currentFile)
                     }
 
                     let services = unpinnedConfigurations(for: .service)

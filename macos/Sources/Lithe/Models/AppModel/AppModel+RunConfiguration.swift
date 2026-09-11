@@ -390,6 +390,7 @@ extension AppModel {
                 guard isCurrentWorkspace(identity) else { return }
                 runFeature.startConfiguration(configuration)
             }
+            showToolWindow(.run)
         }
     }
 
@@ -419,6 +420,7 @@ extension AppModel {
         ) else { return }
         guard isCurrentWorkspace(identity) else { return }
         runFeature.startConfiguration(configuration)
+        showToolWindow(.run)
     }
 
     func runAllServiceConfigurations() {
