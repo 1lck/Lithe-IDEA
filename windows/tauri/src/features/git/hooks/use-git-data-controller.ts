@@ -130,6 +130,9 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
       const refreshKey = `${repoPath}\0${scopes?.slice().sort().join(",") || "*"}`;
       const requestId = requestIdRef.current;
       return refreshQueueRef.current.run(refreshKey, async () => {
+        // The queue starts on a later microtask and may execute a trailing
+        // refresh after the workspace lifecycle has changed.
+        if (!workspaceRuntimeRegistry.isWorkspaceReady(workspaceId)) return;
         // Allocate per actual read, including trailing reads, rather than per
         // caller joining a coalesced request.
         const workingTreeVersion = gitActions.beginWorkingTreeRefresh();

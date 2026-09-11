@@ -140,6 +140,19 @@ test("does not refresh Git while the workspace is opening", async () => {
   expect(getWorkspaceGitStatus).not.toHaveBeenCalled();
 });
 
+test("does not start a queued refresh after the workspace stops being ready", async () => {
+  await mount();
+  getWorkspaceGitStatus.mockClear();
+  const refresh = controller.refreshGitData();
+
+  await act(async () => {
+    workspaceRuntimeRegistry.updateWorkspaceStatus("workspace:welcome", "opening");
+    await refresh;
+  });
+
+  expect(getWorkspaceGitStatus).not.toHaveBeenCalled();
+});
+
 test("loads Git for a scoped workspace when that workspace becomes ready", async () => {
   const workspaceId = "workspace:scoped-git-test";
   workspaceRuntimeRegistry.ensureWorkspace(
