@@ -40,6 +40,17 @@ fn git_status_returns_contract_shape() {
     fs::remove_dir_all(root).expect("temporary repository should be removable");
 }
 
+// Discovery reports canonical roots in plain native form: on Windows the
+// verbatim `\\?\` prefix from canonicalization must not leak to consumers.
+fn reported_repository_path(path: &Path) -> String {
+    crate::git::simplified_canonical_path(
+        path.canonicalize()
+            .expect("discovered repository should exist"),
+    )
+    .to_string_lossy()
+    .replace('\\', "/")
+}
+
 #[test]
 fn workspace_repositories_discovers_multiple_child_repositories() {
     let root = temporary_root("workspace-repositories");
@@ -85,9 +96,9 @@ fn workspace_repositories_discovers_multiple_child_repositories() {
     assert_eq!(
         response["data"]["repositories"],
         serde_json::json!([
-            { "path": first.canonicalize().expect("first repository should exist").to_string_lossy().replace('\\', "/") },
-            { "path": second.canonicalize().expect("second repository should exist").to_string_lossy().replace('\\', "/") },
-            { "path": nested.canonicalize().expect("nested worktree should exist").to_string_lossy().replace('\\', "/") }
+            { "path": reported_repository_path(&first) },
+            { "path": reported_repository_path(&second) },
+            { "path": reported_repository_path(&nested) }
         ])
     );
 
@@ -1689,11 +1700,13 @@ fn git_worktrees_lists_primary_linked_and_locked_metadata() {
     assert_eq!(worktrees[0]["isCurrent"], true);
     assert_eq!(
         worktrees[1]["path"],
-        destination
-            .canonicalize()
-            .expect("linked worktree should canonicalize")
-            .to_string_lossy()
-            .as_ref()
+        crate::git::simplified_canonical_path(
+            destination
+                .canonicalize()
+                .expect("linked worktree should canonicalize")
+        )
+        .to_string_lossy()
+        .as_ref()
     );
     assert_eq!(worktrees[1]["branch"], "refs/heads/feature/linked");
     assert_eq!(worktrees[1]["isLocked"], true);

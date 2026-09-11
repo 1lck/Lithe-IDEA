@@ -465,7 +465,7 @@ const initializeLocalWorkspaceInBackground = (
     gitStore.getState().actions.setWorkspaceGitStatus(null, path);
   }
 
-  void (async () => {
+  return (async () => {
     const backgroundInitStartedAt = performance.now();
     logWorkspaceOpenStep("start", "backgroundInit", path);
     try {
@@ -712,7 +712,7 @@ const openLocalWorkspace = async (
   }
 
   if (!prewarm) {
-    initializeLocalWorkspaceInBackground(
+    await initializeLocalWorkspaceInBackground(
       workspaceId,
       path,
       get,
@@ -860,7 +860,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             resume: async (workspaceId) => {
               const targetStore = getScopedFileSystemStore(workspaceId).getState();
               targetStore.resumeWorkspaceSession();
-              initializeLocalWorkspaceInBackground(
+              void initializeLocalWorkspaceInBackground(
                 workspaceId,
                 selected,
                 () => targetStore,
@@ -1273,7 +1273,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           resume: async (workspaceId) => {
             const targetStore = getScopedFileSystemStore(workspaceId).getState();
             targetStore.resumeWorkspaceSession();
-            initializeLocalWorkspaceInBackground(
+            void initializeLocalWorkspaceInBackground(
               workspaceId,
               path,
               () => targetStore,
@@ -3014,7 +3014,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
               workspaceServiceActivationVersion++;
               void useFileWatcherStore.getStore(workspaceId).getState().actions.setProjectRoot("");
             } else {
-              initializeLocalWorkspaceInBackground(
+              void initializeLocalWorkspaceInBackground(
                 workspaceId,
                 path,
                 () => targetStore,

@@ -36,9 +36,17 @@ function normalizePath(path: string): string {
       : normalized;
   }
 
-  const unixPath = path.replace(/\\/g, "/");
+  const unixPath = stripWindowsVerbatimPrefix(path.replace(/\\/g, "/"));
   const collapsed = unixPath.replace(/\/{2,}/g, "/");
   return collapsed.length > 1 ? collapsed.replace(/\/+$/, "") : collapsed;
+}
+
+// Windows canonicalization can report verbatim paths (`\\?\C:\...`). Collapsing
+// their separators would yield `/?/C:/...`, which no longer resolves.
+function stripWindowsVerbatimPrefix(unixPath: string): string {
+  if (unixPath.startsWith("//?/UNC/")) return `//${unixPath.slice("//?/UNC/".length)}`;
+  if (unixPath.startsWith("//?/")) return unixPath.slice("//?/".length);
+  return unixPath;
 }
 
 function isAbsolutePath(path: string): boolean {

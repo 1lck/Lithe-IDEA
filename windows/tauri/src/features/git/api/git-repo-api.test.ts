@@ -53,6 +53,20 @@ describe("discoverWorkspaceRepositories", () => {
     expect(result).toEqual(["D:/work/service-b", "D:/work/service-a"]);
   });
 
+  test("strips Windows verbatim prefixes from discovered repository paths", async () => {
+    invoke.mockResolvedValue({
+      repositories: [
+        { path: "\\\\?\\C:\\work\\repo" },
+        { path: "//?/C:/work/repo/packages/nested" },
+      ],
+    });
+
+    expect(await discoverWorkspaceRepositories("C:/work/repo")).toEqual([
+      "C:/work/repo",
+      "C:/work/repo/packages/nested",
+    ]);
+  });
+
   test("discovers repositories from every workspace root", async () => {
     invoke.mockImplementation(async (_command, args) => {
       const workspacePath = (args as { workspacePath: string }).workspacePath;

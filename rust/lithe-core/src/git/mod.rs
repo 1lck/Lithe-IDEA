@@ -755,7 +755,7 @@ pub fn workspace_repositories(
             break;
         }
 
-        let canonical_directory = match directory.canonicalize() {
+        let canonical_directory = match canonicalize_simplified(&directory) {
             Ok(path) => path,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(error) => return Err(repository_scan_error(error)),
@@ -2847,9 +2847,33 @@ pub fn blame(request: GitBlameRequest) -> Result<GitBlameResponse, CoreError> {
     Ok(GitBlameResponse { lines })
 }
 
+/// Removes the Windows verbatim prefix that `Path::canonicalize` adds.
+///
+/// Canonical Windows paths come back as `\\?\C:\...` or `\\?\UNC\server\share`.
+/// Once a consumer normalizes separators, both forms turn into `//?/...`,
+/// which no longer resolves to the original location. Repository roots cross
+/// the platform boundary as identifiers and are reused as Git working
+/// directories, so they must stay in plain native form. Non-Windows paths are
+/// returned unchanged.
+pub(crate) fn simplified_canonical_path(path: PathBuf) -> PathBuf {
+    let simplified = {
+        let text = path.to_string_lossy();
+        if let Some(network_path) = text.strip_prefix(r"\\?\UNC\") {
+            Some(PathBuf::from(format!(r"\\{network_path}")))
+        } else {
+            text.strip_prefix(r"\\?\").map(PathBuf::from)
+        }
+    };
+    simplified.unwrap_or(path)
+}
+
+/// Canonicalizes `path` and strips the Windows verbatim prefix from the result.
+fn canonicalize_simplified(path: &Path) -> std::io::Result<PathBuf> {
+    path.canonicalize().map(simplified_canonical_path)
+}
+
 fn validate_root(raw_root: &str) -> Result<String, CoreError> {
-    let root = PathBuf::from(raw_root)
-        .canonicalize()
+    let root = canonicalize_simplified(Path::new(raw_root))
         .map_err(|_| CoreError::new(ErrorCode::WorkspaceNotFound, "Workspace does not exist"))?;
     if !root.is_dir() {
         return Err(CoreError::new(
@@ -2881,8 +2905,7 @@ fn discover_containing_repository(root: &Path) -> Result<Option<PathBuf>, CoreEr
     if repository_root.is_empty() {
         return Ok(None);
     }
-    let path = PathBuf::from(repository_root)
-        .canonicalize()
+    let path = canonicalize_simplified(Path::new(repository_root))
         .unwrap_or_else(|_| PathBuf::from(repository_root));
     Ok(Some(path))
 }
@@ -4826,9 +4849,8 @@ fn list_worktrees(root: &str) -> Result<Vec<GitWorktreeResponse>, CoreError> {
                 .with_details(response.output),
         );
     }
-    let current_root = repository_root(root)?
-        .canonicalize()
-        .unwrap_or_else(|_| PathBuf::from(root));
+    let current_root =
+        canonicalize_simplified(&repository_root(root)?).unwrap_or_else(|_| PathBuf::from(root));
     let mut records = Vec::new();
     let mut fields = Vec::new();
     for field in response.stdout.split('\0') {
@@ -4913,9 +4935,8 @@ fn parse_worktree_record(
     let lock = value_after_marker("locked");
     let prunable = value_after_marker("prunable");
     let reported_path = PathBuf::from(path);
-    let normalized_path = reported_path
-        .canonicalize()
-        .unwrap_or_else(|_| reported_path.clone());
+    let normalized_path =
+        canonicalize_simplified(&reported_path).unwrap_or_else(|_| reported_path.clone());
     Ok(GitWorktreeResponse {
         path: normalized_path.to_string_lossy().to_string(),
         head,
@@ -6067,8 +6088,7 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
 pub fn watch_context(
     request: GitWatchContextRequest,
 ) -> Result<Option<GitWatchContextResponse>, CoreError> {
-    let root = PathBuf::from(&request.root)
-        .canonicalize()
+    let root = canonicalize_simplified(Path::new(&request.root))
         .map_err(|_| CoreError::new(ErrorCode::WorkspaceNotFound, "Workspace does not exist"))?;
     if !root.is_dir() {
         return Err(CoreError::new(
@@ -6104,7 +6124,7 @@ fn canonical_git_output(output: std::process::Output, label: &str) -> Result<Str
     }
     let raw_path = String::from_utf8_lossy(&output.stdout);
     let path = PathBuf::from(raw_path.trim());
-    path.canonicalize()
+    canonicalize_simplified(&path)
         .map(|path| path.to_string_lossy().into_owned())
         .map_err(|error| {
             CoreError::new(
@@ -6238,8 +6258,7 @@ fn branch_requires_publish(root: &str, branch: &str) -> bool {
 
 /// Returns the normalized repository status and branch context.
 pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError> {
-    let root = PathBuf::from(&request.root)
-        .canonicalize()
+    let root = canonicalize_simplified(Path::new(&request.root))
         .map_err(|_| CoreError::new(ErrorCode::WorkspaceNotFound, "Workspace does not exist"))?;
     if !root.is_dir() {
         return Err(CoreError::new(
@@ -6259,9 +6278,8 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
     }
     let repository_root_text = String::from_utf8_lossy(&repository_root_output.stdout);
     let repository_root_path = PathBuf::from(repository_root_text.trim());
-    let repository_root = repository_root_path
-        .canonicalize()
-        .unwrap_or(repository_root_path);
+    let repository_root =
+        canonicalize_simplified(&repository_root_path).unwrap_or(repository_root_path);
     let branch = run_git(&repository_root, &["branch", "--show-current"])
         .ok()
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
@@ -6389,14 +6407,34 @@ fn relative_or_absolute(path: &Path, root: &Path) -> String {
 mod tests {
     use super::{
         annotation_message_from_tag_object, line_similarity, pair_diff_entries, parse_diff,
-        structured_diff_from_output, DiffEntry, GitCommandInvocation, GitCommandResponse,
-        GitProcessOutput, MAX_ALIGNMENT_CELLS,
+        simplified_canonical_path, structured_diff_from_output, DiffEntry, GitCommandInvocation,
+        GitCommandResponse, GitProcessOutput, MAX_ALIGNMENT_CELLS,
     };
     use crate::protocol::{
         CoreError, ErrorCode, GitCommitResponse, GitHistoryPageResponse, GitHistoryResponse,
         GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse, GitReferencesResponse,
     };
     use serde_json::Value;
+    use std::path::PathBuf;
+
+    #[test]
+    fn simplified_canonical_path_strips_windows_verbatim_prefixes() {
+        // Windows canonicalization yields verbatim paths. Consumers normalize
+        // separators, which would turn them into `//?/C:/...` and break every
+        // later lookup of the discovered repository root.
+        assert_eq!(
+            simplified_canonical_path(PathBuf::from(r"\\?\C:\work\repo")),
+            PathBuf::from(r"C:\work\repo")
+        );
+        assert_eq!(
+            simplified_canonical_path(PathBuf::from(r"\\?\UNC\server\share\repo")),
+            PathBuf::from(r"\\server\share\repo")
+        );
+        assert_eq!(
+            simplified_canonical_path(PathBuf::from("/work/repo")),
+            PathBuf::from("/work/repo")
+        );
+    }
 
     #[test]
     fn tag_annotation_parser_preserves_crlf_and_trailing_blank_lines() {
