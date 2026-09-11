@@ -57,6 +57,7 @@ import { createOutputStamper, trimRunOutput, type OutputStamper } from "../utils
 const MAXIMUM_OUTPUT_CHARACTERS = 500_000;
 const sessionWorkspaces = new Map<string, string>();
 const outputStampers = new Map<string, OutputStamper>();
+const workspaceSaveInFlight = new Map<string, Promise<void>>();
 
 interface RunState {
   root: string | null;
@@ -450,7 +451,16 @@ export const createRunStore = (
         await dependencies.stopRunProcess(sessionId).catch(() => undefined);
         try {
           if (!isCurrent()) return null;
-          await dependencies.saveWorkspaceBeforeLaunch(workspaceId);
+          let save = workspaceSaveInFlight.get(workspaceId);
+          if (!save) {
+            save = dependencies.saveWorkspaceBeforeLaunch(workspaceId);
+            workspaceSaveInFlight.set(workspaceId, save);
+            const clearSave = () => {
+              if (workspaceSaveInFlight.get(workspaceId) === save) workspaceSaveInFlight.delete(workspaceId);
+            };
+            void save.then(clearSave, clearSave);
+          }
+          await save;
           if (!isCurrent()) return null;
           const mavenContext = configurationUsesMaven(configuration)
             ? await dependencies.mavenLaunchContextForWorkspace(root, [], workspaceId)
