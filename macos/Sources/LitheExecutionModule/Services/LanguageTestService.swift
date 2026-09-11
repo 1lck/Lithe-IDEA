@@ -428,7 +428,7 @@ package final class LanguageTestService: ObservableObject {
         } else {
             parsedResults = nil
         }
-        // Parsing may outlive stop, reset, or a replacement run. Only the
+        // Parsing may outlive Stop, reset, or a replacement run. Only the
         // operation and workspace that produced the output may publish it.
         guard activeOperationID == operationID,
               activeWorkspaceURL == parsingWorkspaceURL else { return }

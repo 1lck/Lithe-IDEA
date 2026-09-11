@@ -234,7 +234,9 @@ succeeds. Failure keeps the old model and a retryable error; reset cancels the
 task and invalidates late results. Inventory refreshes cannot accept pending
 POM changes. Configuration-only reload skips scanning. Java synchronization
 restarts only the workspace Java session, awaits readiness, and cancels its
-owned session on failure or the reload's 60-second deadline. Reload holds the
+owned session on failure or explicit cancellation. Java import uses Core's
+progress-aware readiness deadline and absolute safety cap; Reload must not
+shorten them with a platform-owned wall-clock timeout. Reload holds the
 execution module's activity lease until it finishes.
 
 Inventory scans validate the captured Reload revision before committing models,
