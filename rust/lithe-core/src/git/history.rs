@@ -57,6 +57,10 @@ pub struct GitHistoryPageRequest {
     pub root: String,
     #[serde(default)]
     pub reference: Option<String>,
+    /// Traversal order is fixed for the lifetime of a cursor. Omission keeps
+    /// existing clients on topology order; macOS opts into IDEA's date order.
+    #[serde(default)]
+    pub order: HistoryOrder,
     #[serde(default)]
     pub cursor: Option<String>,
     /// Deprecated compatibility field; new callers omit it and continue with `cursor`.
@@ -64,6 +68,26 @@ pub struct GitHistoryPageRequest {
     pub offset: Option<usize>,
     #[serde(default = "default_history_limit")]
     pub limit: usize,
+}
+
+/// Git-native ordering policies that both preserve child-before-parent order.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum HistoryOrder {
+    /// Group branch histories, preserving the original API behavior.
+    #[default]
+    Topo,
+    /// Order by committer date whenever topology permits, as IDEA Normal does.
+    Date,
+}
+
+impl HistoryOrder {
+    fn argument(self) -> &'static str {
+        match self {
+            Self::Topo => "--topo-order",
+            Self::Date => "--date-order",
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -86,6 +110,7 @@ pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreErr
     let page = history_page(GitHistoryPageRequest {
         root: request.root.clone(),
         reference: request.reference,
+        order: HistoryOrder::default(),
         cursor: None,
         offset: None,
         limit: request.limit,
@@ -181,7 +206,13 @@ pub fn history_page(request: GitHistoryPageRequest) -> Result<GitHistoryPageResp
         ));
     }
     if let Some(offset) = request.offset {
-        return offset_history_page(request.root, request.reference, offset, request.limit);
+        return offset_history_page(
+            request.root,
+            request.reference,
+            request.order,
+            offset,
+            request.limit,
+        );
     }
     let root = validate_root(&request.root)?;
     validate_reference(request.reference.as_deref())?;
@@ -191,10 +222,14 @@ pub fn history_page(request: GitHistoryPageRequest) -> Result<GitHistoryPageResp
         take_history_session(cursor)?.ok_or_else(|| invalid_history_cursor(cursor))?
     } else {
         let lease = reserve_history_session_slot()?;
-        let session = HistorySession::start(root.clone(), request.reference.clone())?;
+        let session =
+            HistorySession::start(root.clone(), request.reference.clone(), request.order)?;
         (session, lease)
     };
-    if session.root != root || session.reference != request.reference {
+    if session.root != root
+        || session.reference != request.reference
+        || session.order != request.order
+    {
         let cursor = session.cursor.clone();
         lease.store(session)?;
         return Err(invalid_history_cursor(&cursor));
@@ -232,6 +267,7 @@ pub fn history_page(request: GitHistoryPageRequest) -> Result<GitHistoryPageResp
 fn offset_history_page(
     root: String,
     reference: Option<String>,
+    order: HistoryOrder,
     offset: usize,
     requested_limit: usize,
 ) -> Result<GitHistoryPageResponse, CoreError> {
@@ -256,7 +292,7 @@ fn offset_history_page(
         ]);
     }
     arguments.extend([
-        "--topo-order".to_string(),
+        order.argument().to_string(),
         "--decorate=short".to_string(),
         format!("--decorate-refs-exclude={INTERNAL_REF_PREFIX}*"),
         "--skip".to_string(),
@@ -329,6 +365,8 @@ struct HistorySession {
     cursor: String,
     root: String,
     reference: Option<String>,
+    /// Prevents a continuation from silently switching traversal policies.
+    order: HistoryOrder,
     child: Option<Child>,
     receiver: Option<Receiver<HistoryStreamMessage>>,
     stdout_reader: Option<JoinHandle<()>>,
@@ -379,7 +417,11 @@ impl Drop for HistorySessionLease {
 }
 
 impl HistorySession {
-    fn start(root: String, reference: Option<String>) -> Result<Self, CoreError> {
+    fn start(
+        root: String,
+        reference: Option<String>,
+        order: HistoryOrder,
+    ) -> Result<Self, CoreError> {
         cancellation::check()?;
         let mut arguments = vec!["log".to_string()];
         if let Some(reference) = reference.as_deref() {
@@ -391,7 +433,7 @@ impl HistorySession {
             ]);
         }
         arguments.extend([
-            "--topo-order".to_string(),
+            order.argument().to_string(),
             "--decorate=short".to_string(),
             format!("--decorate-refs-exclude={INTERNAL_REF_PREFIX}*"),
             "-n".to_string(),
@@ -441,6 +483,7 @@ impl HistorySession {
             cursor,
             root,
             reference,
+            order,
             child: Some(child),
             receiver: Some(receiver),
             stdout_reader: Some(stdout_reader),
@@ -835,11 +878,156 @@ mod tests {
     use crate::protocol::ErrorCode;
     use std::time::{Duration, Instant};
 
+    #[test]
+    fn date_order_pages_interleave_branches_and_preserve_cursor_policy() {
+        use serde_json::{json, Value};
+
+        struct Repository {
+            root: String,
+            cursors: Vec<String>,
+        }
+        impl Drop for Repository {
+            fn drop(&mut self) {
+                for cursor in &self.cursors {
+                    let _ = super::close_history_cursor(super::GitHistoryCursorCloseRequest {
+                        root: self.root.clone(),
+                        cursor: cursor.clone(),
+                    });
+                }
+                let _ = std::fs::remove_dir_all(&self.root);
+            }
+        }
+        let path = std::env::temp_dir().join(format!(
+            "lithe-history-order-{}-{}",
+            std::process::id(),
+            super::NEXT_HISTORY_CURSOR.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let root = path.to_string_lossy().into_owned();
+        let mut repository = Repository {
+            root: root.clone(),
+            cursors: Vec::new(),
+        };
+        std::fs::create_dir_all(&root).expect("create isolated repository");
+        // Plumbing commands have no hooks, signing, or child helpers. Use the
+        // production cancellation watchdog with a local deadline for each one.
+        let git = |arguments: &[&str], environment: &[(String, String)]| {
+            let _deadline = crate::protocol::cancellation::Scope::begin(None, Some(3_000));
+            let response = super::execute_git_with_environment(
+                &root,
+                &arguments.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                None,
+                true,
+                environment,
+            )
+            .expect("bounded Git fixture command");
+            assert_eq!(response.exit_code, 0, "{}", response.output);
+            response.output.trim().to_string()
+        };
+        git(&["init", "-q"], &[]);
+        let tree = git(&["write-tree"], &[]);
+        let commit = |name: &str, minute: u32, parents: &[&str]| {
+            let mut arguments = vec!["commit-tree", &tree, "-m", name];
+            for parent in parents {
+                arguments.extend(["-p", parent]);
+            }
+            git(
+                &arguments,
+                &[
+                    ("GIT_AUTHOR_NAME".into(), "Graph fixture".into()),
+                    ("GIT_AUTHOR_EMAIL".into(), "fixture@example.invalid".into()),
+                    ("GIT_COMMITTER_NAME".into(), "Graph fixture".into()),
+                    (
+                        "GIT_COMMITTER_EMAIL".into(),
+                        "fixture@example.invalid".into(),
+                    ),
+                    // Deliberately reversed author dates must not drive traversal.
+                    (
+                        "GIT_AUTHOR_DATE".into(),
+                        format!("{} +0000", 1_700_010_000 - minute * 60),
+                    ),
+                    (
+                        "GIT_COMMITTER_DATE".into(),
+                        format!("{} +0000", 1_700_000_000 + minute * 60),
+                    ),
+                ],
+            )
+        };
+        // A clock-skewed root is newer than its descendants, but must stay last.
+        let base = commit("base", 70, &[]);
+        let a1 = commit("a1", 20, &[&base]);
+        let b1 = commit("b1", 30, &[&base]);
+        let a2 = commit("a2", 40, &[&a1]);
+        let b2 = commit("b2", 50, &[&b1]);
+        let merge = commit("merge", 60, &[&a2, &b2]);
+        git(&["update-ref", "HEAD", &merge], &[]);
+
+        let page = |mut payload: Value| -> Value {
+            payload["root"] = json!(root);
+            serde_json::from_str(&crate::execute_json(
+                &json!({
+                    "id": "date-order-regression", "command": "git.historyPage",
+                    "timeoutMilliseconds": 3_000, "payload": payload
+                })
+                .to_string(),
+            ))
+            .expect("JSON response")
+        };
+        let subjects = |response: &Value| -> Vec<String> {
+            assert_eq!(response["ok"], true, "{response}");
+            response["data"]["commits"]
+                .as_array()
+                .expect("commits")
+                .iter()
+                .map(|commit| commit["subject"].as_str().expect("subject").to_string())
+                .collect()
+        };
+        let request: Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/git/history-page-date-request-v1.json"
+        ))
+        .expect("portable date-order request");
+        let first = page(request.clone());
+        // Register cleanup before assertions so failures cannot leak a stream.
+        let cursor = first["data"]["nextCursor"]
+            .as_str()
+            .expect("cursor")
+            .to_string();
+        repository.cursors.push(cursor.clone());
+        assert_eq!(subjects(&first), ["merge", "b2"]);
+        let wrong_order = page(json!({"reference": "HEAD", "cursor": cursor, "limit": 2}));
+        assert_eq!(wrong_order["ok"], false);
+        assert_eq!(wrong_order["error"]["code"], "invalid_request");
+        let second =
+            page(json!({"reference": "HEAD", "order": "date", "cursor": cursor, "limit": 2}));
+        assert_eq!(subjects(&second), ["a2", "b1"]);
+        let third =
+            page(json!({"reference": "HEAD", "order": "date", "cursor": cursor, "limit": 2}));
+        assert_eq!(subjects(&third), ["a1", "base"]);
+        assert_eq!(third["data"]["hasMore"], false);
+        assert_eq!(third["data"]["nextCursor"], Value::Null);
+
+        let offset = page(json!({"reference": "HEAD", "order": "date", "offset": 2, "limit": 2}));
+        assert_eq!(subjects(&offset), ["a2", "b1"]);
+        assert_eq!(offset["data"]["nextOffset"], 4);
+        assert_eq!(
+            subjects(&page(json!({"reference": "HEAD", "limit": 20}))),
+            ["merge", "b2", "b1", "a2", "a1", "base"]
+        );
+        assert_eq!(
+            subjects(&page(json!({"order": "date", "limit": 20}))),
+            ["merge", "b2", "a2", "b1", "a1", "base"]
+        );
+        assert_eq!(
+            page(json!({"order": "authorDate", "limit": 20}))["ok"],
+            false
+        );
+    }
+
     fn finished_session(cursor: &str, last_access: Instant) -> HistorySession {
         HistorySession {
             cursor: cursor.to_string(),
             root: "/test/repository".to_string(),
             reference: None,
+            order: super::HistoryOrder::default(),
             child: None,
             receiver: None,
             stdout_reader: None,

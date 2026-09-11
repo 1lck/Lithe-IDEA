@@ -1,0 +1,11 @@
+The macOS Git graph projection and upstream regression fixtures adapt portions
+of JetBrains IntelliJ Platform Community, Copyright 2000-2024 JetBrains s.r.o.
+and contributors, licensed under the Apache License, Version 2.0.
+
+Pinned upstream commit: 36415d346b3d18a6ded90d05afb8e0a0bface9d6
+https://github.com/JetBrains/intellij-community
+
+Adapted algorithms: GraphLayoutBuilder, GraphElementComparatorByLayoutIndex,
+PrintElementGeneratorImpl, DottedFilterEdgesGenerator, SimpleGraphCellPainter.
+Swift adaptation and native integration: Lithe contributors.
+See docs/architecture/macos-git-graph.md for source links and behavior.
