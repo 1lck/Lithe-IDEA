@@ -199,21 +199,28 @@ fn java_mapper_types(parser: &mut Parser, path: &str, source: &str) -> Vec<JavaT
 }
 
 fn collect_types(
-    node: Node<'_>,
+    root: Node<'_>,
     path: &str,
     package: &str,
     source: &str,
     bytes: &[u8],
     types: &mut Vec<JavaType>,
 ) {
-    if matches!(node.kind(), "class_declaration" | "interface_declaration") {
-        if let Some(java_type) = java_type(node, path, package, source, bytes) {
-            types.push(java_type);
+    // Java expression trees can be thousands of nodes deep even in small files.
+    // Keep traversal state on the heap instead of consuming the host thread's stack.
+    let mut pending = vec![root];
+    while let Some(node) = pending.pop() {
+        if matches!(node.kind(), "class_declaration" | "interface_declaration") {
+            if let Some(java_type) = java_type(node, path, package, source, bytes) {
+                types.push(java_type);
+            }
         }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_types(child, path, package, source, bytes, types);
+        // Reverse the push order to preserve the recursive walk's source preorder.
+        for index in (0..node.child_count()).rev() {
+            if let Some(child) = node.child(index) {
+                pending.push(child);
+            }
+        }
     }
 }
 

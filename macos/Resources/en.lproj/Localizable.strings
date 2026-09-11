@@ -81,6 +81,11 @@
 "Collapsed" = "Collapsed";
 "Expanded" = "Expanded";
 "Run configurations" = "Run configurations";
+"Other run configurations" = "Other run configurations";
+"Run selected services" = "Run selected services";
+"Choose services to run" = "Choose services to run";
+"Run all services?" = "Run all services?";
+"This will start %lld detected services." = "This will start %lld detected services.";
 "Hide configuration list" = "Hide configuration list";
 "Show configuration list" = "Show configuration list";
 "Run a configuration to see process output." = "Run a configuration to see process output.";
@@ -777,3 +782,7 @@
 "Build %@ → %@" = "Build %@ → %@";
 "Built %@" = "Built %@";
 "This preview contains changes that have not been officially released and may be unstable." = "This preview contains changes that have not been officially released and may be unstable.";
+"Show long graph edges" = "Show long graph edges";
+"Collapse long graph edges" = "Collapse long graph edges";
+"Go to parent commit %@" = "Go to parent commit %@";
+"Go to child commit %@" = "Go to child commit %@";

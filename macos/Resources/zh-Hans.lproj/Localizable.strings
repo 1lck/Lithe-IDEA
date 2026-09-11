@@ -1186,6 +1186,11 @@
 "Collapsed" = "已折叠";
 "Expanded" = "已展开";
 "Run configurations" = "运行配置";
+"Other run configurations" = "其他运行配置";
+"Run selected services" = "运行选中的服务";
+"Choose services to run" = "选择要运行的服务";
+"Run all services?" = "是否运行所有服务？";
+"This will start %lld detected services." = "这将启动检测到的 %lld 个服务。";
 "Hide configuration list" = "收起运行配置列表";
 "Show configuration list" = "展开运行配置列表";
 "Run a configuration to see process output." = "运行配置后将在这里显示进程输出。";
@@ -1795,3 +1800,7 @@
 "Build %@ → %@" = "构建 %@ → %@";
 "Built %@" = "构建于 %@";
 "This preview contains changes that have not been officially released and may be unstable." = "此预览版包含尚未正式发布的改动，可能不稳定。";
+"Show long graph edges" = "显示完整长连线";
+"Collapse long graph edges" = "收束长连线";
+"Go to parent commit %@" = "跳转到父提交 %@";
+"Go to child commit %@" = "跳转到子提交 %@";

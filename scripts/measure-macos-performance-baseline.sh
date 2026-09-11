@@ -107,6 +107,7 @@ prepare_baseline_app() {
     cp "$project_root/macos/Resources/AppIcon.icns" "$app_dir/Contents/Resources/AppIcon.icns"
     cp -R "$project_root/macos/Resources/Fonts" "$app_dir/Contents/Resources/Fonts"
     cp -R "$project_root/macos/Resources/IDEAIcons" "$app_dir/Contents/Resources/IDEAIcons"
+    cp -R "$project_root/macos/Resources/GitGraph" "$app_dir/Contents/Resources/GitGraph"
     cp -R "$project_root/macos/Resources/DatabaseIcons" "$app_dir/Contents/Resources/DatabaseIcons"
     for localization in en.lproj zh-Hans.lproj; do
         if [[ -d "$project_root/macos/Resources/$localization" ]]; then

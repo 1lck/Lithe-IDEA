@@ -23,6 +23,24 @@ interface GitWriteResult {
 
 export type GitResetMode = "soft" | "mixed" | "hard";
 
+function isCancelledGitHistoryRequest(error: unknown): boolean {
+  const candidate =
+    typeof error === "object" && error !== null
+      ? (error as { code?: unknown; message?: unknown })
+      : null;
+  const code = typeof candidate?.code === "string" ? candidate.code.toLowerCase() : "";
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : typeof candidate?.message === "string"
+          ? candidate.message
+          : "";
+
+  return code === "cancelled" || message.trim().toLowerCase() === "operation was cancelled";
+}
+
 const runHistoryMutation = async (
   repoPath: string,
   source: string,
@@ -130,7 +148,9 @@ export const getGitReferences = async (
       }),
     );
   } catch (error) {
-    if (!isNotGitRepositoryError(error)) console.error("Failed to get git references:", error);
+    if (!isNotGitRepositoryError(error) && !isCancelledGitHistoryRequest(error)) {
+      console.error("Failed to get git references:", error);
+    }
     return null;
   }
 };
@@ -160,7 +180,9 @@ export const getGitHistoryPage = async (
       { retryOnInvalidation: false },
     );
   } catch (error) {
-    if (!isNotGitRepositoryError(error)) console.error("Failed to get git history page:", error);
+    if (!isNotGitRepositoryError(error) && !isCancelledGitHistoryRequest(error)) {
+      console.error("Failed to get git history page:", error);
+    }
     return null;
   }
 };

@@ -323,6 +323,96 @@ fn mybatis_index_rejects_a_relative_root() {
     assert_eq!(parsed["error"]["code"], "invalid_request");
 }
 
+#[test]
+fn mybatis_index_handles_deep_expressions_in_unrelated_java() {
+    // A small Java file can produce thousands of left-associative AST nodes,
+    // even when the mapper itself is shallow and the source is below 2 MiB.
+    let deep_java = format!(
+        "package demo; class Calculation {{ int value() {{ return 1{}; }} }}",
+        " + 1".repeat(8192)
+    );
+    let response = execute_mybatis(
+        &std::env::temp_dir(),
+        &["Calculation.java", "UserMapper.java", "UserMapper.xml"],
+        serde_json::json!({
+            "textOverrides": {
+                "Calculation.java": deep_java,
+                "UserMapper.java": "package demo;\npublic interface UserMapper {\n    User find();\n}\n",
+                "UserMapper.xml": "<mapper namespace=\"demo.UserMapper\"><select id=\"find\">SELECT 1</select></mapper>"
+            }
+        }),
+    );
+
+    assert_eq!(response["ok"], true, "{response}");
+    let statements = response["data"]["statements"].as_array().unwrap();
+    assert_eq!(statements.len(), 1, "{statements:?}");
+    assert_eq!(statements[0]["namespace"], "demo.UserMapper");
+    assert_eq!(statements[0]["statementId"], "find");
+    assert_eq!(statements[0]["javaPath"], "UserMapper.java");
+    assert_eq!(statements[0]["javaLine"], 3);
+    assert_eq!(statements[0]["javaColumn"], 10);
+    assert_eq!(statements[0]["javaEndColumn"], 14);
+}
+
+#[test]
+fn mybatis_index_finds_mapper_below_deeply_nested_blocks() {
+    // The mapped declaration is below the deep subtree, so truncating traversal
+    // or skipping the Java file would lose a statement and fail this regression.
+    let deep_java = format!(
+        "package demo;\nclass Container {{ void declarations() {{ {}\nabstract class DeepMapper {{\n    abstract java.util.List<String> find();\n}}\n{} }} }}",
+        "{".repeat(4096),
+        "}".repeat(4096)
+    );
+    let response = execute_mybatis(
+        &std::env::temp_dir(),
+        &["Container.java", "DeepMapper.xml"],
+        serde_json::json!({
+            "textOverrides": {
+                "Container.java": deep_java,
+                "DeepMapper.xml": "<mapper namespace=\"demo.Container.DeepMapper\"><select id=\"find\">SELECT 1</select></mapper>"
+            }
+        }),
+    );
+
+    assert_eq!(response["ok"], true, "{response}");
+    let statements = response["data"]["statements"].as_array().unwrap();
+    assert_eq!(statements.len(), 1, "{statements:?}");
+    assert_eq!(statements[0]["namespace"], "demo.Container.DeepMapper");
+    assert_eq!(statements[0]["statementId"], "find");
+    assert_eq!(statements[0]["javaPath"], "Container.java");
+    assert_eq!(statements[0]["javaLine"], 4);
+    assert_eq!(statements[0]["javaColumn"], 37);
+    assert_eq!(statements[0]["javaEndColumn"], 41);
+    assert_eq!(statements[0]["javaEndLine"], 4);
+}
+
+#[test]
+fn mybatis_index_preserves_source_order_for_nested_types_with_same_name() {
+    // Local classes in separate method scopes share the index's qualified name.
+    // Pairing must keep choosing the first declaration in source order.
+    let response = execute_mybatis(
+        &std::env::temp_dir(),
+        &["Container.java", "Mapper.xml"],
+        serde_json::json!({
+            "textOverrides": {
+                "Container.java": "package demo;\nclass Container {\n    void first() {\n        abstract class Mapper<T> {\n            abstract java.util.List<T> find();\n        }\n    }\n    void second() {\n        abstract class Mapper<T> {\n            abstract java.util.List<T> find();\n        }\n    }\n}\n",
+                "Mapper.xml": "<mapper namespace=\"demo.Container.Mapper\"><select id=\"find\">SELECT 1</select></mapper>"
+            }
+        }),
+    );
+
+    assert_eq!(response["ok"], true, "{response}");
+    let statements = response["data"]["statements"].as_array().unwrap();
+    assert_eq!(statements.len(), 1, "{statements:?}");
+    assert_eq!(statements[0]["namespace"], "demo.Container.Mapper");
+    assert_eq!(statements[0]["statementId"], "find");
+    assert_eq!(statements[0]["javaPath"], "Container.java");
+    assert_eq!(statements[0]["javaLine"], 5);
+    assert_eq!(statements[0]["javaColumn"], 40);
+    assert_eq!(statements[0]["javaEndColumn"], 44);
+    assert_eq!(statements[0]["javaEndLine"], 5);
+}
+
 fn execute_mybatis(root: &std::path::Path, paths: &[&str], extra: Value) -> Value {
     let mut payload = serde_json::json!({"root": root, "paths": paths});
     payload
