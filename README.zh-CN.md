@@ -27,20 +27,13 @@
     <a href="#下载与安装"><img src="https://img.shields.io/badge/Homebrew-Install-FBB040?style=flat&logo=homebrew&logoColor=black" alt="通过 Homebrew 安装"></a>
     <a href="./LICENSE"><img src="https://img.shields.io/github/license/1lck/Lithe-IDEA?style=flat&label=license" alt="Apache License 2.0"></a>
   </p>
-  <p>
-    <img src="https://img.shields.io/badge/Java-Development-E76F00?style=flat&logo=openjdk&logoColor=white" alt="Java 开发">
-    <img src="https://img.shields.io/badge/Spring%20Boot-Projects-6DB33F?style=flat&logo=springboot&logoColor=white" alt="支持 Spring Boot 项目">
-    <img src="https://img.shields.io/badge/Maven-Management-C71A36?style=flat&logo=apachemaven&logoColor=white" alt="Maven 管理">
-    <img src="https://img.shields.io/badge/Debugger-Breakpoints-D32F2F?style=flat" alt="断点调试">
-    <img src="https://img.shields.io/badge/Git-Diff%20Review-F05032?style=flat&logo=git&logoColor=white" alt="Git Diff 审查">
-    <img src="https://img.shields.io/badge/Database-SQL%20Workspace-336791?style=flat" alt="数据库 SQL 工作台">
-  </p>
 </div>
 
 ## 欢迎加入群聊
 
 欢迎加入 Lithe 社区，分享使用体验、交流问题，并获取项目最新动态。
 
+<div align="center">
 <table>
   <tr>
     <th>QQ群</th>
@@ -51,6 +44,7 @@
     <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr.png" width="280" alt="Lithe 微信群二维码"></a></td>
   </tr>
 </table>
+</div>
 
 如果无法扫描微信群二维码，[点击这里通过飞书加入群聊](https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink)。
 
