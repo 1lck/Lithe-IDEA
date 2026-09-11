@@ -292,6 +292,10 @@
 "Excluded" = "已排除";
 "Module Root" = "模块根目录";
 "Package" = "包";
+"Open pom.xml" = "打开 pom.xml";
+"Execute Maven Goal" = "执行 Maven 目标";
+"Test" = "测试";
+"Choose a Run configuration for this Maven module" = "请为此 Maven 模块选择运行配置";
 "Normal Folder" = "普通文件夹";
 "Copy Relative Path" = "复制相对路径";
 "New Project…" = "新建项目…";

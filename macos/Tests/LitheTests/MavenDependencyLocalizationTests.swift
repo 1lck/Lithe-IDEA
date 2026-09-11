@@ -17,6 +17,9 @@ struct MavenDependencyLocalizationTests {
         let english = try localization(.english)
         let expected = [
             "Dependencies": "依赖",
+            "Open pom.xml": "打开 pom.xml",
+            "Execute Maven Goal": "执行 Maven 目标",
+            "Test": "测试",
             "Resolving dependencies...": "正在解析依赖…",
             "Dependency resolution cancelled": "依赖解析已取消",
             "No dependencies": "无依赖",

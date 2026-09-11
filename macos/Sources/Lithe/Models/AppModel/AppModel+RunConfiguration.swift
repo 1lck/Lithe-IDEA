@@ -76,6 +76,7 @@ extension AppModel {
     }
 
     func stopMaven() {
+        runWorkflowCoordinator.cancelModuleOperation()
         executionModuleCoordinator.stopFeatures(
             maven: mavenFeatureIfActive,
             run: nil

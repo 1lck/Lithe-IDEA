@@ -8,6 +8,27 @@ import Testing
 
 @MainActor
 struct ExecutionModuleTests {
+    @Test(arguments: ["services/alpha", "services/beta"])
+    func moduleRunPassesMavenContextOnlyToItsOwningReactor(reactor: String) async {
+        let configuration = RunConfiguration(
+            id: "main", name: "Main", kind: .javaMain, modulePath: ".", mainClass: "example.Main",
+            mavenReactorPath: reactor)
+        let operations = MavenContextRunOperations(configuration: configuration)
+        let graph = makeTestGraph(runOperations: operations)
+        defer { graph.run.reset(); graph.maven.reset() }
+        let context = MavenLaunchContext(reactorPath: "services/alpha", profiles: ["dev"],
+                                         settingsPath: "/fixture/settings.xml", skipTests: true,
+                                         mavenExecutablePath: nil, javaHomePath: nil)
+        graph.run.configureMavenContextProvider { context }
+        await graph.run.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [], mavenProject: nil)
+        #expect(graph.run.defaultConfigurationID == configuration.id)
+        graph.run.startConfiguration(configuration)
+        #expect(operations.called)
+        #expect(operations.context == (reactor == context.reactorPath ? context : nil))
+        // A failed plan remains in the existing Run output and supports a retry.
+        #expect(graph.run.moduleSessions.first?.exitCode == 1)
+    }
+
     @Test(arguments: ["pom-failure", "reload-failure", "reload-success"])
     func mavenReloadInvalidatesAlreadyRunningInventory(outcome: String) async throws {
         let gate = ReloadScanGate()
@@ -1625,6 +1646,39 @@ private struct TestServerPortParser: RunServerPortParsing {
 private struct FixedServerPortParser: RunServerPortParsing {
     let port: Int?
     func serverPort(content _: String, fileExtension _: String) -> Int? { port }
+}
+
+private final class MavenContextRunOperations: RunConfigurationOperations, @unchecked Sendable {
+    let configuration: RunConfiguration
+    private let lock = NSLock()
+    private var recordedContext: MavenLaunchContext?
+    private var didCall = false
+    var context: MavenLaunchContext? { lock.lock(); defer { lock.unlock() }; return recordedContext }
+    var called: Bool { lock.lock(); defer { lock.unlock() }; return didCall }
+    init(configuration: RunConfiguration) { self.configuration = configuration }
+    func inspect(at _: URL) -> ProjectRunConfigurationInspection {
+        ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
+    }
+    func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
+        RunConfigurationResolution(configurations: [EffectiveRunConfiguration(configuration: configuration, options: RunOptions())],
+                                   diagnostics: [], defaultConfigurationID: configuration.id)
+    }
+    func generate(at _: URL, files _: [URL], modulePaths _: [String]) throws -> RunConfigurationGenerationResult {
+        RunConfigurationGenerationResult(entryCount: 1)
+    }
+    func launchPlan(at _: URL, configurationID _: String, currentFile _: String?, classPath _: String?, debugPort _: Int?) throws -> SharedLaunchPlan {
+        throw RunConfigurationOperationFailure(message: "Expected the context-aware launch boundary")
+    }
+    func launchPlan(at _: URL, configurationID _: String, currentFile _: String?, classPath _: String?, debugPort _: Int?,
+                    mavenContext: MavenLaunchContext?) throws -> SharedLaunchPlan {
+        lock.lock()
+        recordedContext = mavenContext
+        didCall = true
+        lock.unlock()
+        throw RunConfigurationOperationFailure(message: "Fixture launch failure")
+    }
+    func createConfiguration(_ draft: RunConfigurationDraft, at _: URL) throws -> String { draft.name }
+    func migrateLegacySettings(at _: URL, configurationIDs _: [String]) throws {}
 }
 
 private struct SingleRunConfigurationOperations: RunConfigurationOperations {

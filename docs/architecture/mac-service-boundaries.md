@@ -223,6 +223,15 @@ tests continue to use the production delay and native watcher.
 
 ## Remaining migration work
 
+Maven root and module menus route lifecycle, Test, Package and custom goals
+through `MavenFeatureModel` and its existing process. Run/Debug select only
+configurations with matching Core-provided reactor and module ownership;
+working-directory overrides and Current File never supply that ownership.
+The Run workflow coordinator owns module startup and cancels it on workspace
+reset. Native Debug reuses the existing Java target resolver, adapter and
+terminal lifecycle; preparation captures the selected configuration and rejects
+cancelled or stale workspace/configuration results before launch.
+
 Maven POM watcher events mark the accepted model as requiring Reload instead
 of immediately forwarding the descriptor to JDT LS. `MavenService` owns the
 coalesced reload task, a revision that advances on POM/configuration changes,
