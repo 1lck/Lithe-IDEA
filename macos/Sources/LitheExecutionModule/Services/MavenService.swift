@@ -32,6 +32,7 @@ package final class MavenService: ObservableObject {
     @Published package private(set) var reloadError: String?
     private var reloadRevision = 0
     private var reloadTask: Task<Void, Never>?
+    package var onProjectReloaded: (@MainActor (URL, MavenProject) -> Void)?
     @Published package private(set) var dependencyStates: [String: MavenDependencyLoadState] = [:]
 
     package var isLoadingProject: Bool {
@@ -155,8 +156,14 @@ package final class MavenService: ObservableObject {
            isProjectReloadRequired || isReloading { return }
         invalidateDependencies()
         let loadID = UUID()
+        let revision = reloadRevision
         projectLoadID = loadID
         projectState = .loading
+        defer {
+            if projectLoadID == loadID, projectState == .loading {
+                projectState = project == nil ? .idle : .ready
+            }
+        }
         let rootURL = workspaceURL.standardizedFileURL
         let mavenOperations = mavenOperations
         let configurationWriter = configurationWriter
@@ -188,7 +195,7 @@ package final class MavenService: ObservableObject {
                 )
             }
         }.value
-        guard !Task.isCancelled, projectLoadID == loadID else { return }
+        guard !Task.isCancelled, projectLoadID == loadID, reloadRevision == revision else { return }
 
         guard let errorMessage = result.errorMessage else {
             self.workspaceURL = rootURL
@@ -204,7 +211,7 @@ package final class MavenService: ObservableObject {
                         goals: [MavenLifecyclePhase.validate.rawValue]
                     ).configurationFingerprint
                 }.value
-                guard !Task.isCancelled, projectLoadID == loadID else { return }
+                guard !Task.isCancelled, projectLoadID == loadID, reloadRevision == revision else { return }
                 configurationFingerprint = fingerprint
             } else {
                 configurationFingerprint = nil
@@ -310,6 +317,8 @@ package final class MavenService: ObservableObject {
     ) async {
         if let reloadTask { await reloadTask.value; return }
         guard let root = workspaceURL, let context = launchContext else { return }
+        // Invalidate inventory scans that started before this explicit transaction.
+        reloadRevision += 1
         let revision = reloadRevision
         let loadID = projectLoadID
         let previousProject = project
@@ -349,6 +358,7 @@ package final class MavenService: ObservableObject {
                 self.isProjectReloadRequired = false
                 self.isReloadRequired = false
                 self.projectState = .ready
+                self.onProjectReloaded?(root, candidate.0)
             } catch {
                 guard self.projectLoadID == loadID, self.reloadRevision == revision else { return }
                 self.reloadError = error is CancellationError

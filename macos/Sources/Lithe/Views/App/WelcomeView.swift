@@ -27,7 +27,7 @@ struct WelcomeView: View {
                     Text("Lithe")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
-                    Text("\(updateChecker.currentVersion) · macOS")
+                    Text("\(updateChecker.versionDescription) · macOS")
                         .font(LitheTheme.smallFont)
                         .foregroundStyle(LitheTheme.secondaryText)
                     updatePrompt
@@ -83,7 +83,10 @@ struct WelcomeView: View {
 
     @ViewBuilder
     private var updatePrompt: some View {
-        UpdateControl()
+        VStack(alignment: .leading, spacing: 8) {
+            UpdateControl()
+            StableRollbackControl(compact: true)
+        }
     }
 
     private var projectsContent: some View {

@@ -195,6 +195,10 @@ macOS owns the platform side of these capabilities:
   native handles (LSP process transport belongs to Rust);
 - native window, menu, clipboard, shortcut, installer, and update behavior.
 
+In-app updates use Sparkle through the macOS update adapter. See
+[`macos-updates.md`](macos-updates.md) for signing, differential archives,
+legacy-client compatibility, and release verification.
+
 ## Verification
 
 Run this check after changing an application boundary:
@@ -232,6 +236,13 @@ owned session on failure or explicit cancellation. Java import uses Core's
 progress-aware readiness deadline and absolute safety cap; Reload must not
 shorten them with a platform-owned wall-clock timeout. Reload holds the
 execution module's activity lease until it finishes.
+
+Inventory scans validate the captured Reload revision before committing models,
+configuration, or fingerprints, including scans already running when a POM
+changes. After a successful Reload, `ExecutionFeatureGraph` synchronously
+delivers the accepted model to the workspace-bound `RunService`. This updates
+Maven profiles without rescanning or replacing Run's file snapshot. Run
+inspection suspended across that delivery must retain the newer Maven model.
 
 The current boundary is usable and enforced, but it is not a claim that every
 workflow has moved into Rust. Language provider routing remains an application

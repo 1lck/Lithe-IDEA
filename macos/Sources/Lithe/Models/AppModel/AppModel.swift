@@ -963,6 +963,11 @@ final class AppModel: ObservableObject, Identifiable {
         selectedChange = nil
         closeBranchComparison()
         editorNavigationTarget = nil
+        // SVG remains a text document so edits, saves, and previews share one buffer.
+        if let mediaKind = MediaDocumentKind.from(url: url) {
+            openMediaFile(url, kind: mediaKind)
+            return
+        }
         documentFeature.openFile(url, isReadOnly: isReadOnly, displayPath: displayPath)
     }
 

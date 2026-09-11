@@ -26,6 +26,22 @@ export function resolveGitFileMutationPaths(files: readonly GitFile[]): string[]
   ].sort((left, right) => left.localeCompare(right));
 }
 
+export function resolveGitFilesForStagedState(
+  files: readonly GitFile[],
+  staged: boolean,
+): GitFile[] {
+  const resolvedFiles = new Map<string, GitFile>();
+
+  for (const file of files) {
+    if (file.staged === staged) continue;
+    const repositoryPath = getGitFileRepositoryPath(file) ?? "";
+    const filePath = getGitFileRepositoryRelativePath(file);
+    resolvedFiles.set(`${repositoryPath}\0${filePath}`, file);
+  }
+
+  return [...resolvedFiles.values()];
+}
+
 export function updateGitStatusSelection(
   selectedEntryIds: ReadonlySet<string>,
   entryId: string,

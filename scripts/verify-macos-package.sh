@@ -125,6 +125,9 @@ fi
 
 required_executables=(
     "$app_path/Contents/MacOS/Lithe"
+    "$app_path/Contents/Frameworks/Sparkle.framework/Sparkle"
+    "$app_path/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
+    "$app_path/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater"
     "$app_path/Contents/Helpers/lithe-db-sidecar"
     "$app_path/Contents/Helpers/lithe-db-mcp"
 )
@@ -161,6 +164,8 @@ for resource in "${required_resources[@]}"; do
     fi
 done
 /usr/bin/lipo "$app_path/Contents/MacOS/Lithe" -verify_arch arm64 x86_64
+/usr/bin/lipo "$app_path/Contents/Frameworks/Sparkle.framework/Sparkle" -verify_arch arm64 x86_64
+/usr/bin/otool -l "$app_path/Contents/MacOS/Lithe" | /usr/bin/grep -F '@executable_path/../Frameworks' >/dev/null
 /usr/bin/lipo \
     "$app_path/Contents/Resources/LanguageServers/jdk-arm64/bin/java" \
     -verify_arch arm64
