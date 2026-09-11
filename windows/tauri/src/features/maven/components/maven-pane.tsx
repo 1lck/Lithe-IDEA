@@ -35,7 +35,6 @@ import { Spinner } from "@/ui/spinner";
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
 import { joinPath } from "@/utils/path-helpers";
-import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { openMavenRunPane } from "../actions/maven-tool-window-actions";
 import { ensureMavenProcessListeners } from "../hooks/use-maven-process-events";
 import { availableMavenProfiles, useMavenStore } from "../stores/maven.store";
@@ -281,7 +280,6 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
   const taskStatus = useMavenStore((state) => state.taskStatus);
   const taskError = useMavenStore((state) => state.taskError);
   const runningTitle = useMavenStore((state) => state.taskTitle);
-  const handleFileSelect = useFileSystemStore((state) => state.handleFileSelect);
   const output = useMavenStore((state) => state.output);
   const issues = useMavenStore((state) => state.issues);
   const lastExitCode = useMavenStore((state) => state.lastExitCode);
