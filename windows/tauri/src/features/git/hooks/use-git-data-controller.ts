@@ -13,6 +13,11 @@ import {
 } from "../events/git-events";
 import { useRepositoryStore } from "../stores/git-repository.store";
 import { useGitStore } from "../stores/git.store";
+import {
+  useActiveWorkspaceId,
+  useWorkspaceStoreScopeId,
+} from "@/features/workspace/stores/create-workspace-scoped-store";
+import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 
 interface GitDataControllerOptions {
   workspacePath?: string | null;
@@ -20,6 +25,10 @@ interface GitDataControllerOptions {
 }
 
 export function useGitDataController({ workspacePath, isActive }: GitDataControllerOptions) {
+  const activeWorkspaceId = useActiveWorkspaceId();
+  const scopedWorkspaceId = useWorkspaceStoreScopeId();
+  const workspaceId = scopedWorkspaceId ?? activeWorkspaceId;
+  const workspaceReady = workspaceRuntimeRegistry.isWorkspaceReady(workspaceId);
   const activeRepoPath = useRepositoryStore.use.activeRepoPath();
   const { syncWorkspaceRepositories, refreshWorkspaceRepositories } =
     useRepositoryStore.use.actions();
@@ -171,6 +180,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
   }, [syncWorkspaceRepositories, workspacePath]);
 
   useEffect(() => {
+    if (!workspaceReady) return;
     requestIdRef.current += 1;
     refreshPromisesRef.current.clear();
     void loadInitialGitData();
@@ -178,7 +188,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
     return () => {
       requestIdRef.current += 1;
     };
-  }, [loadInitialGitData]);
+  }, [loadInitialGitData, workspaceReady]);
 
   useEffect(() => {
     if (autoRefreshGitStatus && isActive && !wasActiveRef.current && gitStatus) {
