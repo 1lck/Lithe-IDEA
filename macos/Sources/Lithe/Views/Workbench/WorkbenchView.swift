@@ -973,9 +973,9 @@ struct WorkbenchView: View {
     private var runConfigurationSelectionPanel: some View {
         let configurations = model.runFeatureIfActive?.configurations ?? [.currentFile]
         let services = configurations.filter { $0.execution == .service }
-        let visibleConfigurations = services.isEmpty ? configurations : services
+        let visibleConfigurations = [RunConfiguration.currentFile] + services
         return VStack(alignment: .leading, spacing: 6) {
-            Text(services.isEmpty ? "Run configurations" : "Services")
+            Text("Run configurations")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .padding(.horizontal, 10)
@@ -983,6 +983,14 @@ struct WorkbenchView: View {
             ScrollView {
                 VStack(spacing: 3) {
                     ForEach(visibleConfigurations) { configuration in
+                        if configuration.id == services.first?.id {
+                            Divider().padding(.vertical, 3)
+                            Text("Services")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(LitheTheme.secondaryText)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 10)
+                        }
                         let isSelected = configuration.id == model.runFeatureIfActive?.selectedConfiguration?.id
                         Button {
                             model.selectRunConfiguration(configuration)
@@ -1011,7 +1019,7 @@ struct WorkbenchView: View {
                     }
                 }
             }
-            .frame(height: min(CGFloat(visibleConfigurations.count) * 37, 296))
+            .frame(height: min(CGFloat(visibleConfigurations.count) * 37 + (services.isEmpty ? 0 : 28), 296))
         }
         .padding(8)
         .frame(width: 280)
