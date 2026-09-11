@@ -30,6 +30,7 @@ if ($null -eq (Get-Command bun -ErrorAction SilentlyContinue)) {
 }
 
 $rustToolchain = "stable-$RustTarget"
+$env:RUSTUP_TOOLCHAIN = $rustToolchain
 & rustup target add $RustTarget --toolchain $rustToolchain
 if ($LASTEXITCODE -ne 0) { throw "Could not install Rust target $RustTarget" }
 
