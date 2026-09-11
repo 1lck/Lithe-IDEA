@@ -962,6 +962,51 @@ fn git_write_literal_exclude_patterns_preserve_leading_whitespace_lines() {
 }
 
 #[test]
+fn git_write_literal_exclude_patterns_preserve_non_utf8_bytes() {
+    // Unrelated invalid UTF-8 in info/exclude must survive Add/Remove. A
+    // String round-trip would replace 0xff with U+FFFD (ef bf bd).
+    let root = temporary_root("lithe-exclude-patterns-raw-bytes");
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    let exclude_path = root.join(".git/info/exclude");
+    fs::create_dir_all(exclude_path.parent().expect("exclude parent should exist"))
+        .expect("git info directory should be creatable");
+    let unrelated = b"legacy-\xff\n";
+    fs::write(&exclude_path, unrelated).expect("local exclude should be writable");
+
+    let request = |operation: &str, paths: Value| -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::to_string(&serde_json::json!({
+                "id": operation,
+                "command": "git.write",
+                "payload": {"root": root, "operation": operation, "paths": paths}
+            }))
+            .expect("exclude pattern request should encode"),
+        ))
+        .expect("exclude pattern response should be JSON")
+    };
+
+    let added = request("excludePatterns", serde_json::json!([".factorypath"]));
+    assert_eq!(added["ok"], true, "{added:?}");
+    let after_add = fs::read(&exclude_path).expect("local exclude should be readable");
+    assert_eq!(after_add, b"legacy-\xff\n.factorypath\n");
+
+    let removed = request("unexcludePatterns", serde_json::json!([".factorypath"]));
+    assert_eq!(removed["ok"], true, "{removed:?}");
+    let after_remove = fs::read(&exclude_path).expect("local exclude should remain readable");
+    assert_eq!(after_remove, unrelated);
+
+    fs::remove_dir_all(root).expect("temporary workspace should be removable");
+}
+
+#[test]
 fn git_write_edits_a_local_commit_message_and_rebuilds_descendants() {
     let root = history_rewrite_repository("git-edit-commit-message");
     commit_history_file(&root, "story.txt", "one\n", "one");

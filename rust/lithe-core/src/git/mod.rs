@@ -3171,11 +3171,13 @@ fn append_git_ignore_patterns(
 
 /// Inserts or removes exact ignore lines while preserving unrelated rules.
 ///
-/// Existing file lines are compared as stored, including leading and trailing
-/// whitespace. Git ignore treats a leading space as part of the pattern, so
-/// ` .factorypath` is not the same rule as `.factorypath`. Request patterns are
-/// still trimmed and validated separately. `str::lines()` already drops `\n`
-/// and `\r\n` terminators, so CRLF files compare on line content only.
+/// Existing file lines are compared as stored bytes, including leading and
+/// trailing whitespace and non-UTF-8 content. Git ignore treats a leading
+/// space as part of the pattern, so ` .factorypath` is not the same rule as
+/// `.factorypath`. Request patterns are still trimmed and validated
+/// separately. Line terminators stay with their original lines and are not
+/// part of the match. Add appends without rewriting existing bytes; remove
+/// rebuilds from the original line bytes so unrelated invalid UTF-8 is kept.
 ///
 /// Missing managed lines are a no-op on remove. Non-repository roots fail with
 /// a stable "Not a Git repository" message so hosts can skip Git UI side effects.
@@ -3191,61 +3193,101 @@ fn mutate_literal_git_ignore_patterns(
         GitIgnoreTarget::Repository => repository_root(root)?.join(".gitignore"),
         GitIgnoreTarget::LocalExclude => git_path(root, "info/exclude")?,
     };
-    let existing = match std::fs::read(&target_path) {
-        Ok(content) => content,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            if !adding {
-                return Ok(successful_git_result());
-            }
-            Vec::new()
-        }
-        Err(error) => return Err(git_ignore_io_error("read", error)),
-    };
-    let existing_text = String::from_utf8_lossy(&existing);
-    let managed: HashSet<&str> = patterns.iter().map(String::as_str).collect();
+    let existing = read_git_ignore_bytes(&target_path)?;
+    let lines = split_git_ignore_file_lines(&existing);
+    let managed: HashSet<&[u8]> = patterns.iter().map(|pattern| pattern.as_bytes()).collect();
 
-    let mut logical: Vec<String> = existing_text.lines().map(str::to_string).collect();
     if adding {
-        let mut present: HashSet<String> = logical.iter().cloned().collect();
-        for pattern in &patterns {
-            if present.contains(pattern) {
-                continue;
-            }
-            logical.push(pattern.clone());
-            present.insert(pattern.clone());
-        }
-    } else {
-        logical.retain(|line| !managed.contains(line.as_str()));
-    }
-
-    let updated = if logical.is_empty() {
-        if existing.is_empty() {
+        let present: HashSet<&[u8]> = lines.iter().map(|(body, _)| *body).collect();
+        let additions = patterns
+            .iter()
+            .map(String::as_bytes)
+            .filter(|pattern| !present.contains(*pattern))
+            .collect::<Vec<_>>();
+        if additions.is_empty() {
             return Ok(successful_git_result());
         }
-        "\n".to_string()
-    } else {
-        let mut text = logical.join("\n");
-        text.push('\n');
-        text
-    };
 
-    let existing_normalized = if existing.is_empty() {
-        String::new()
-    } else if existing_text.ends_with('\n') {
-        existing_text.to_string()
-    } else {
-        format!("{existing_text}\n")
-    };
-    if updated == existing_normalized {
+        let terminator = git_ignore_appended_line_terminator(&existing);
+        let mut appended = Vec::new();
+        if !existing.is_empty() && !existing.ends_with(b"\n") {
+            appended.extend_from_slice(terminator);
+        }
+        for pattern in additions {
+            appended.extend_from_slice(pattern);
+            appended.extend_from_slice(terminator);
+        }
+
+        if let Some(parent) = target_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| git_ignore_io_error("create", error))?;
+        }
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&target_path)
+            .map_err(|error| git_ignore_io_error("open", error))?;
+        file.write_all(&appended)
+            .map_err(|error| git_ignore_io_error("write", error))?;
         return Ok(successful_git_result());
+    }
+
+    if lines.iter().all(|(body, _)| !managed.contains(body)) {
+        return Ok(successful_git_result());
+    }
+
+    let mut updated = Vec::with_capacity(existing.len());
+    for (body, terminator) in lines {
+        if managed.contains(body) {
+            continue;
+        }
+        updated.extend_from_slice(body);
+        updated.extend_from_slice(terminator);
     }
 
     if let Some(parent) = target_path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| git_ignore_io_error("create", error))?;
     }
-    std::fs::write(&target_path, updated.as_bytes())
-        .map_err(|error| git_ignore_io_error("write", error))?;
+    std::fs::write(&target_path, updated).map_err(|error| git_ignore_io_error("write", error))?;
     Ok(successful_git_result())
+}
+
+/// Splits an ignore file into line bodies and their original terminators.
+///
+/// Split on `\n` and treat a preceding `\r` as part of the terminator so CRLF
+/// files keep their stored endings. Line bodies stay raw bytes; they are never
+/// decoded as UTF-8.
+fn split_git_ignore_file_lines(bytes: &[u8]) -> Vec<(&[u8], &[u8])> {
+    let mut lines = Vec::new();
+    let mut start = 0;
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'\n' {
+            let terminator_start = if index > start && bytes[index - 1] == b'\r' {
+                index - 1
+            } else {
+                index
+            };
+            lines.push((
+                &bytes[start..terminator_start],
+                &bytes[terminator_start..=index],
+            ));
+            start = index + 1;
+        }
+        index += 1;
+    }
+    if start < bytes.len() {
+        lines.push((&bytes[start..], &[]));
+    }
+    lines
+}
+
+fn git_ignore_appended_line_terminator(bytes: &[u8]) -> &'static [u8] {
+    if bytes.windows(2).any(|window| window == b"\r\n") {
+        b"\r\n"
+    } else {
+        b"\n"
+    }
 }
 
 fn require_git_repository(root: &str) -> Result<(), CoreError> {

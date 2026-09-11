@@ -457,9 +457,12 @@ and interpret a trailing `/` as a directory rule. `excludePatterns` and
 `unexcludePatterns` mutate exact literal lines in that same worktree-aware
 `info/exclude` file without root-anchoring or escaping, so recommended IDE
 patterns such as `.factorypath` can be added or removed once. Existing lines are
-compared as stored, including leading and trailing whitespace; a leading space
-is a different Git ignore rule and is neither treated as a duplicate on add nor
-removed as the same rule. Request values are trimmed and rejected when empty or
+compared as stored raw bytes, including leading and trailing whitespace and
+non-UTF-8 content; a leading space is a different Git ignore rule and is neither
+treated as a duplicate on add nor removed as the same rule. Unrelated lines keep
+their original bytes; add appends without rewriting the existing file, and
+remove rebuilds from the original line bytes and terminators rather than
+decoding the file as UTF-8. Request values are trimmed and rejected when empty or
 when they contain NULs or line breaks. Remove is a no-op when managed lines are
 absent. A non-repository root fails with `invalid_request` / `Not a Git
 repository`.
