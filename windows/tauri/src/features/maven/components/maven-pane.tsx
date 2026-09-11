@@ -279,6 +279,7 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
   const projectReloadRequired = useMavenStore((state) => state.projectReloadRequired);
   const taskStatus = useMavenStore((state) => state.taskStatus);
   const taskError = useMavenStore((state) => state.taskError);
+  const runningTitle = useMavenStore((state) => state.taskTitle);
   const output = useMavenStore((state) => state.output);
   const issues = useMavenStore((state) => state.issues);
   const lastExitCode = useMavenStore((state) => state.lastExitCode);

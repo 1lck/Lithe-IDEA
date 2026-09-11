@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import type { GitHistorySnapshot, GitStatus } from "../types/git.types";
@@ -13,6 +13,8 @@ import * as events from "../events/git-events";
 import * as fileSystem from "@/features/file-system/stores/file-system.store";
 import * as settings from "@/features/settings/stores/settings.store";
 import { useRepositoryStore } from "../stores/git-repository.store";
+import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { WorkspaceStoreScopeContext } from "@/features/workspace/stores/create-workspace-scoped-store";
 
 let restoreDom: () => void;
 const actGlobal = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
@@ -49,12 +51,19 @@ function Probe() {
   controller = useGitDataController({ workspacePath: "C:/repo", isActive: true });
   return null;
 }
-async function mount() {
+function ScopedProbe({ workspaceId }: { workspaceId: string }) {
+  return (
+    <WorkspaceStoreScopeContext.Provider value={workspaceId}>
+      <Probe />
+    </WorkspaceStoreScopeContext.Provider>
+  );
+}
+async function mount(element: ReactNode = <Probe />) {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
   await act(async () => {
-    root!.render(<Probe />);
+    root!.render(element);
   });
 }
 beforeEach(() => {
@@ -63,6 +72,8 @@ beforeEach(() => {
   actGlobal.IS_REACT_ACT_ENVIRONMENT = true;
   previousRepository = useRepositoryStore.getState();
   previousGitState = useGitStore.getState();
+  workspaceRuntimeRegistry.resetForTests();
+  workspaceRuntimeRegistry.updateWorkspaceStatus("workspace:welcome", "ready");
   clearRepositoryDiscoveryCache.mockClear();
   useRepositoryStore.getState().actions.reset();
   useRepositoryStore.getState().actions.setManualRepository("C:/repo");
@@ -99,9 +110,65 @@ afterEach(async () => {
     for (const spy of spies.splice(0).reverse()) spy.mockRestore();
     useRepositoryStore.setState(previousRepository, true);
     useGitStore.setState(previousGitState, true);
+    workspaceRuntimeRegistry.resetForTests();
     actGlobal.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
     restoreDom();
   }
+});
+
+test("starts Git loading when the workspace becomes ready", async () => {
+  workspaceRuntimeRegistry.updateWorkspaceStatus("workspace:welcome", "opening");
+  await mount();
+  expect(getWorkspaceGitStatus).not.toHaveBeenCalled();
+
+  await act(async () => {
+    workspaceRuntimeRegistry.updateWorkspaceStatus("workspace:welcome", "ready");
+    await Promise.resolve();
+  });
+
+  expect(getWorkspaceGitStatus).toHaveBeenCalledTimes(1);
+});
+
+test("does not refresh Git while the workspace is opening", async () => {
+  workspaceRuntimeRegistry.updateWorkspaceStatus("workspace:welcome", "opening");
+  await mount();
+
+  await act(async () => {
+    await controller.refreshGitData();
+  });
+
+  expect(getWorkspaceGitStatus).not.toHaveBeenCalled();
+});
+
+test("does not start a queued refresh after the workspace stops being ready", async () => {
+  await mount();
+  getWorkspaceGitStatus.mockClear();
+  const refresh = controller.refreshGitData();
+
+  await act(async () => {
+    workspaceRuntimeRegistry.updateWorkspaceStatus("workspace:welcome", "opening");
+    await refresh;
+  });
+
+  expect(getWorkspaceGitStatus).not.toHaveBeenCalled();
+});
+
+test("loads Git for a scoped workspace when that workspace becomes ready", async () => {
+  const workspaceId = "workspace:scoped-git-test";
+  workspaceRuntimeRegistry.ensureWorkspace(
+    { id: workspaceId, name: "Scoped Git test" },
+    "opening",
+  );
+  useRepositoryStore.getStore(workspaceId).getState().actions.setManualRepository("C:/repo");
+  await mount(<ScopedProbe workspaceId={workspaceId} />);
+  expect(getWorkspaceGitStatus).not.toHaveBeenCalled();
+
+  await act(async () => {
+    workspaceRuntimeRegistry.updateWorkspaceStatus(workspaceId, "ready");
+    await Promise.resolve();
+  });
+
+  expect(getWorkspaceGitStatus).toHaveBeenCalledTimes(1);
 });
 
 test("keeps files and the commit draft after a failed refresh, then recovers", async () => {
