@@ -9,6 +9,7 @@ struct RunView: View {
     @AppStorage("lithe.run.pinnedConfigurationIDs") private var pinnedConfigurationTokens = ""
     @AppStorage("lithe.run.configurationListWidth") private var configurationListWidth = 230.0
     @AppStorage("lithe.run.configurationListCollapsed") private var isConfigurationListCollapsed = false
+    @AppStorage("lithe.run.otherConfigurationsCollapsed") private var areOtherConfigurationsCollapsed = true
     /// Separate caches: the two raw strings change independently, and one box
     /// memoizes a single raw value.
     @State private var collapsedExecutionCache = RunConfigurationTokenCache()
@@ -16,6 +17,9 @@ struct RunView: View {
     /// The configuration whose editor popover is open. Held separately from the list
     /// selection so opening an editor does not switch which log is shown.
     @State private var editingConfigurationID: String?
+    /// Services selected in the header menu for the next multi-service launch.
+    /// The first project service is selected when a workspace has no prior choice.
+    @State private var selectedServiceIDs: Set<String> = []
 
     var body: some View {
         let _ = LitheSignpost.bodyEvaluated("RunView")
@@ -81,7 +85,9 @@ struct RunView: View {
                !feature.configurations.contains(where: { $0.id == selectedSessionID }) {
                 self.selectedSessionID = nil
             }
+            synchronizeSelectedServices()
         }
+        .onAppear { synchronizeSelectedServices() }
     }
 
     private var configurationSetupView: some View {
@@ -264,24 +270,44 @@ struct RunView: View {
             }
 
             if hasServiceConfigurations {
-                Button {
-                    model.runAllServiceConfigurations()
-                    selectedSessionID = feature.moduleSessions.first?.id
+                Menu {
+                    Section("Services") {
+                        ForEach(serviceConfigurations) { configuration in
+                            let session = feature.moduleSessions.first { $0.id == configuration.id }
+                            Button {
+                                if let session, session.isRunning {
+                                    feature.stopModule(session)
+                                } else {
+                                    model.selectRunConfiguration(configuration)
+                                    model.startRunConfiguration(configuration)
+                                    selectedSessionID = configuration.id
+                                }
+                            } label: {
+                                Label(
+                                    configuration.name,
+                                    systemImage: session?.isRunning == true ? "stop.fill" : "play.fill"
+                                )
+                            }
+                        }
+                    }
+                    Divider()
+                    Button {
+                        model.runAllServiceConfigurations()
+                        selectedSessionID = feature.moduleSessions.first?.id
+                    } label: {
+                        Label("Run all services", systemImage: "square.stack.3d.up.fill")
+                    }
+                    if feature.moduleSessions.contains(where: \.isRunning) {
+                        Button(action: feature.stopAllServices) {
+                            Label("Stop all services", systemImage: "stop.circle")
+                        }
+                    }
                 } label: {
                     Image(systemName: "square.stack.3d.up.fill")
                 }
                 .litheIconButton()
-                .help("Run all services")
+                .help("Choose services to run")
                 .disabled(feature.configurationStatus != .ready || feature.isLoadingProject)
-
-                if feature.moduleSessions.contains(where: \.isRunning) {
-                    Button(action: feature.stopAllServices) {
-                        Image(systemName: "stop.circle")
-                    }
-                    .litheIconButton()
-                    .foregroundStyle(LitheTheme.warning)
-                    .help("Stop all services")
-                }
             }
 
             Button {
@@ -516,14 +542,58 @@ struct RunView: View {
                         feature.select(.currentFile)
                     }
 
-                    ForEach(RunConfigurationExecution.displayOrder, id: \.self) { execution in
-                        let configurations = unpinnedConfigurations(for: execution)
-                        if !configurations.isEmpty {
-                            sectionHeader(execution, count: configurations.count)
+                    let services = unpinnedConfigurations(for: .service)
+                    if !services.isEmpty {
+                        sectionHeader(.service, count: services.count)
+                        if !collapsedExecutions.contains(RunConfigurationExecution.service.rawValue) {
+                            ForEach(services) { configuration in
+                                configurationRow(configuration)
+                            }
+                        }
+                    }
 
-                            if !collapsedExecutions.contains(execution.rawValue) {
-                                ForEach(configurations) { configuration in
-                                    configurationRow(configuration)
+                    let otherExecutions = RunConfigurationExecution.displayOrder.filter { $0 != .service }
+                    let otherCount = otherExecutions.reduce(0) { partial, execution in
+                        partial + unpinnedConfigurations(for: execution).count
+                    }
+                    if otherCount > 0 {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                areOtherConfigurationsCollapsed.toggle()
+                            }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: areOtherConfigurationsCollapsed ? "chevron.right" : "chevron.down")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .frame(width: 10)
+                                Text("Other run configurations")
+                                Spacer(minLength: 0)
+                                Text(String(otherCount))
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                            }
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .padding(.horizontal, 6)
+                            .padding(.top, 8)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .lithePointer()
+                        .help(areOtherConfigurationsCollapsed ? "Expand" : "Collapse")
+                        .accessibilityLabel("Other run configurations")
+                        .accessibilityValue(areOtherConfigurationsCollapsed ? "Collapsed" : "Expanded")
+
+                        if !areOtherConfigurationsCollapsed {
+                            ForEach(otherExecutions, id: \.self) { execution in
+                                let configurations = unpinnedConfigurations(for: execution)
+                                if !configurations.isEmpty {
+                                    sectionHeader(execution, count: configurations.count)
+                                    if !collapsedExecutions.contains(execution.rawValue) {
+                                        ForEach(configurations) { configuration in
+                                            configurationRow(configuration)
+                                        }
+                                    }
                                 }
                             }
                         }
