@@ -29,7 +29,8 @@ if ($null -eq (Get-Command bun -ErrorAction SilentlyContinue)) {
     throw "Bun is required to build the Windows application."
 }
 
-& rustup target add $RustTarget
+$rustToolchain = "stable-$RustTarget"
+& rustup target add $RustTarget --toolchain $rustToolchain
 if ($LASTEXITCODE -ne 0) { throw "Could not install Rust target $RustTarget" }
 
 & (Join-Path $root "scripts/install-windows-frontend-dependencies.ps1")
