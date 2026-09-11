@@ -23,6 +23,7 @@ export interface DebugLaunchConfig {
   env?: Record<string, string>;
   adapterCommand?: string;
   adapterArgs?: string[];
+  launchArguments?: Record<string, unknown>;
   source: "generated" | "workspace" | "user";
 }
 
@@ -34,6 +35,7 @@ export interface DebugSession {
   cwd?: string;
   startedAt: number;
   status: DebugSessionStatus;
+  adapterSession?: boolean;
 }
 
 export interface DebuggableFile {
@@ -48,6 +50,11 @@ export interface DebugAdapterLaunch {
   cwd?: string;
   env?: Record<string, string>;
   /** Project root that owns this session; used to reap adapters on close. */
+  workspacePath?: string;
+}
+
+export interface DebugAdapterConnectionLaunch {
+  port: number;
   workspacePath?: string;
 }
 

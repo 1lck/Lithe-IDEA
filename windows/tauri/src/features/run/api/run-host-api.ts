@@ -63,6 +63,7 @@ export function resolveRunLaunch(args: {
 
 export function startRunProcess(args: {
   sessionId: string;
+  executionId?: string;
   executable: string;
   arguments: string[];
   workingDirectory: string;
@@ -76,9 +77,10 @@ export function startRunProcess(args: {
   });
 }
 
-export function stopRunProcess(sessionId: string) {
+export function stopRunProcess(sessionId: string, executionId?: string) {
   return invoke<void>("run_stop_process", {
     windowLabel: getRunWindowLabel(),
     sessionId,
+    ...(executionId ? { executionId } : {}),
   });
 }
