@@ -5997,24 +5997,6 @@ private struct ExistingWorkspaceFileOperations: WorkspaceFileOperations {
     func readText(from url: URL) throws -> String { throw CocoaError(.fileReadNoSuchFile) }
 }
 
-private final class MemoryWorkspaceFileOperations: WorkspaceFileOperations, @unchecked Sendable {
-    var texts: [URL: String] = [:]
-
-    func fileExists(at url: URL) -> Bool { texts[url] != nil }
-    func isDirectory(at url: URL) -> Bool { false }
-    func createFile(at url: URL) throws {}
-    func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {}
-    func copyItem(at sourceURL: URL, to destinationURL: URL) throws {}
-    func moveItem(at sourceURL: URL, to destinationURL: URL) throws {}
-    func removeItem(at url: URL) throws { texts[url] = nil }
-    func trashItem(at url: URL) throws { texts[url] = nil }
-    func writeText(_ text: String, to url: URL) throws { texts[url] = text }
-    func readText(from url: URL) throws -> String {
-        guard let text = texts[url] else { throw CocoaError(.fileReadNoSuchFile) }
-        return text
-    }
-}
-
 private struct EmptyWorkspaceFileOperations: WorkspaceFileOperations {
     func fileExists(at url: URL) -> Bool { false }
     func isDirectory(at url: URL) -> Bool { false }

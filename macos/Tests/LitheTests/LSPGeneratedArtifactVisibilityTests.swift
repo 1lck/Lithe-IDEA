@@ -41,8 +41,10 @@ struct LSPGeneratedArtifactVisibilityTests {
             #expect(await releaseFirst.waitUntilOpen(timeout: .seconds(2)))
             order.append(true)
         }
+        let secondFinished = TestGate()
         queue.enqueue {
             order.append(false)
+            secondFinished.open()
         }
 
         #expect(await firstStarted.waitUntilOpen(timeout: .seconds(2)))
@@ -50,12 +52,44 @@ struct LSPGeneratedArtifactVisibilityTests {
         #expect(order.isEmpty)
         releaseFirst.open()
 
-        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
-        while ContinuousClock.now < deadline, order != [true, false] {
-            await Task.yield()
-        }
+        #expect(
+            await secondFinished.waitUntilOpen(timeout: .seconds(2)),
+            "serial queue should finish both actions in click order"
+        )
         #expect(order == [true, false])
         #expect(!queue.isBusy)
+    }
+
+    @Test
+    func gitExcludeOutcomeClassifiesMissingRepositoryAndGenericFailure() {
+        #expect(
+            LSPGeneratedArtifactGitExcludeOutcome.classify(
+                succeeded: true,
+                output: "",
+                operationErrorMessage: nil
+            ) == .updated
+        )
+        #expect(
+            LSPGeneratedArtifactGitExcludeOutcome.classify(
+                succeeded: false,
+                output: "Not a Git repository",
+                operationErrorMessage: nil
+            ) == .noRepository
+        )
+        #expect(
+            LSPGeneratedArtifactGitExcludeOutcome.classify(
+                succeeded: false,
+                output: "ignored",
+                operationErrorMessage: "Not a Git repository: fatal: not a git repository"
+            ) == .noRepository
+        )
+        #expect(
+            LSPGeneratedArtifactGitExcludeOutcome.classify(
+                succeeded: false,
+                output: "Another Git write operation is running in this repository",
+                operationErrorMessage: nil
+            ) == .failed
+        )
     }
 
     @Test
