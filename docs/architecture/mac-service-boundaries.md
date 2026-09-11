@@ -195,6 +195,10 @@ macOS owns the platform side of these capabilities:
   native handles (LSP process transport belongs to Rust);
 - native window, menu, clipboard, shortcut, installer, and update behavior.
 
+In-app updates use Sparkle through the macOS update adapter. See
+[`macos-updates.md`](macos-updates.md) for signing, differential archives,
+legacy-client compatibility, and release verification.
+
 ## Verification
 
 Run this check after changing an application boundary:
@@ -218,6 +222,25 @@ before release, and verify cancellation on reset. Real FSEvents integration
 tests continue to use the production delay and native watcher.
 
 ## Remaining migration work
+
+Maven POM watcher events mark the accepted model as requiring Reload instead
+of immediately forwarding the descriptor to JDT LS. `MavenService` owns the
+coalesced reload task, a revision that advances on POM/configuration changes,
+and the candidate model produced by the existing Rust `maven.scan` operation.
+The accepted model and configuration remain available until Java import
+succeeds. Failure keeps the old model and a retryable error; reset cancels the
+task and invalidates late results. Inventory refreshes cannot accept pending
+POM changes. Configuration-only reload skips scanning. Java synchronization
+restarts only the workspace Java session, awaits readiness, and cancels its
+owned session on failure or the reload's 60-second deadline. Reload holds the
+execution module's activity lease until it finishes.
+
+Inventory scans validate the captured Reload revision before committing models,
+configuration, or fingerprints, including scans already running when a POM
+changes. After a successful Reload, `ExecutionFeatureGraph` synchronously
+delivers the accepted model to the workspace-bound `RunService`. This updates
+Maven profiles without rescanning or replacing Run's file snapshot. Run
+inspection suspended across that delivery must retain the newer Maven model.
 
 The current boundary is usable and enforced, but it is not a claim that every
 workflow has moved into Rust. Language provider routing remains an application

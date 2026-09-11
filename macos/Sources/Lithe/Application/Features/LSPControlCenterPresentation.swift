@@ -17,6 +17,13 @@ enum LSPCapabilityPresentationState: Equatable, Sendable {
     case active
 }
 
+enum MavenProfilePresentationState: Equatable, Sendable {
+    case idle
+    case applying
+    case partiallyFailed(failed: Int, total: Int)
+    case complete
+}
+
 enum LSPControlCenterPresenter {
     static func serverStatus(
         isDisabled: Bool,
@@ -68,5 +75,16 @@ enum LSPControlCenterPresenter {
             return .unsupported
         }
         return isActive ? .active : .available
+    }
+
+    static func mavenProfileState(
+        _ results: [MavenProfileProjectResult]
+    ) -> MavenProfilePresentationState {
+        guard !results.isEmpty else { return .idle }
+        let failed = results.filter { $0.status == "failed" || $0.status == "timedOut" }.count
+        let running = results.contains { $0.status == "running" }
+        if running { return .applying }
+        if failed > 0 { return .partiallyFailed(failed: failed, total: results.count) }
+        return .complete
     }
 }

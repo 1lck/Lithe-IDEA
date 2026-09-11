@@ -158,10 +158,12 @@ struct SettingsView: View {
             ["Editor", "Display", "Editor tabs", "Font size", "File tree row height", "Indentation", "Tab width"]
         case .keymap:
             ["Keymap", "Keyboard shortcuts", "Shortcuts", "Actions"]
+        case .project:
+            ["Project", "Java SDK", "JDK", "Project JDK", "Maven", "Maven Home", "Maven Wrapper", "Maven JDK"]
         case .terminal:
             ["Terminal", "Shell", "Default shell"]
         case .lsp:
-            ["LSP", "Language server", "Java SDK", "JDK", "Maven"]
+            ["LSP", "Language server"]
         case .ai:
             ["AI & Commit", "AI provider", "Model", "API key", "Commit message"]
         case .git:
@@ -197,6 +199,9 @@ struct SettingsView: View {
         } else if viewState.selection == .lsp {
             LSPControlCenterView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if viewState.selection == .project {
+            ProjectRuntimeSettingsView(feature: model.runtimeFeature)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if viewState.selection == .keymap {
             KeyboardShortcutSettingsView(
                 feature: model.keyboardShortcutFeature,
@@ -217,6 +222,7 @@ struct SettingsView: View {
                     case .keymap: EmptyView()
                     case .terminal: terminalSettings
                     case .lsp: EmptyView()
+                    case .project: EmptyView()
                     case .ai: aiSettings
                     case .git: GitIdentitySettingsView()
                     case .updates: updatesSettings
@@ -1090,7 +1096,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 18) {
             group("Application version") {
                 row("Current version") {
-                    Text(updateChecker.currentVersion)
+                    Text(updateChecker.versionDescription)
                         .foregroundStyle(LitheTheme.secondaryText)
                         .monospacedDigit()
                 }
@@ -1101,6 +1107,7 @@ struct SettingsView: View {
 
             group("Update status") {
                 updateStatusDescription
+                StableRollbackControl()
 
                 HStack(spacing: 10) {
                     Button {
@@ -1117,11 +1124,23 @@ struct SettingsView: View {
                     ))
                     .disabled(updateChecker.isBusy)
 
+                    if case .waitingForTermination = updateChecker.status {
+                        Button {
+                            Task { await updateChecker.retryInstallation() }
+                        } label: {
+                            Label("Continue Installation", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(LitheSecondaryButtonStyle())
+                    }
                     if case .available(let version, _) = updateChecker.status {
                         Button {
                             Task { await updateChecker.installAvailableUpdate() }
                         } label: {
-                            Label("Update \(version)", systemImage: "arrow.down.circle.fill")
+                            if updateChecker.isPreview {
+                                Label("Install Preview", systemImage: "arrow.down.circle.fill")
+                            } else {
+                                Label("Update \(version)", systemImage: "arrow.down.circle.fill")
+                            }
                         }
                         .buttonStyle(LitheSecondaryButtonStyle())
                         .disabled(updateChecker.isBusy)
@@ -1191,11 +1210,16 @@ struct SettingsView: View {
                 }
                 Text("Downloading update \(version)…")
                     .font(LitheTheme.smallFont)
-                Text(progress.byteCountDescription)
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.tertiaryText)
+                if progress.downloadedBytes > 0 {
+                    Text(progress.byteCountDescription)
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                }
             }
             .foregroundStyle(LitheTheme.secondaryText)
+        case .waitingForTermination:
+            Text("Waiting to quit to complete the update.")
+                .foregroundStyle(LitheTheme.secondaryText)
         case .installing(let version):
             HStack(spacing: 8) {
                 ProgressView()

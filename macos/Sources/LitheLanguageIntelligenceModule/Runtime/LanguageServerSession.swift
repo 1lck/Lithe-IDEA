@@ -40,6 +40,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
 
     package var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)?
     package var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)?
+    package var onMavenProfileTask: ((String) -> Void)?
+    package var onMavenProfileProject: ((MavenProfileProjectResult) -> Void)?
     package var onStateChange: ((LanguageServerSessionState) -> Void)?
     package private(set) var features: LanguageServerFeatureSet = []
     package var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)?
@@ -459,6 +461,13 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         if isRunning { transition(to: .stopping) }
     }
 
+    package func retryMavenProfiles() {
+        guard let sessionID, isRunning else { return }
+        if case .failure(let failure) = core.retryMavenProfiles(sessionID: sessionID) {
+            onLog?(.error, "Maven profile retry failed", failure.message, nil)
+        }
+    }
+
     // MARK: - Requests
 
     private func request(
@@ -578,6 +587,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             onServerInfoChange?(updated)
             return false
         case "log":
+            if let status = event.mavenProfileTask { onMavenProfileTask?(status) }
+            if let result = event.mavenProfileProject { onMavenProfileProject?(result) }
             let level = event.level.flatMap(LanguageServerLogLevel.init(rawValue:)) ?? .info
             onLog?(level, event.message ?? "Language server", event.detail, event.operationID)
             return false

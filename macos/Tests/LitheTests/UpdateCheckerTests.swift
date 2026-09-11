@@ -1,4 +1,5 @@
 import Foundation
+import Sparkle
 import Testing
 @testable import Lithe
 
@@ -115,328 +116,144 @@ struct UpdateManifestTests {
     }
 }
 
-@Suite("macOS update checker")
+@Suite("macOS Sparkle update checker")
 @MainActor
 struct UpdateCheckerTests {
     @Test
-    func fetchesStaticManifestAndRecordsOnlySuccessfulAutomaticCheck() async throws {
-        let recorder = UpdateRequestRecorder()
-        let transport = StubUpdateNetworkTransport(fetch: { request in
-            await recorder.record(request)
-            return UpdateHTTPResponse(statusCode: 200, headers: [:], body: manifestData())
-        })
-        let preferences = makePreferences()
-        defer { clear(preferences) }
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        let checker = UpdateChecker(
-            currentVersion: "0.3.0",
-            transport: transport,
-            preferences: preferences,
-            now: { now },
-            architecture: .arm64
-        )
-
+    func automaticUnconfiguredBuildRemainsIdle() async {
+        let checker = UpdateChecker(bundle: Bundle(for: BundleMarker.self))
         await checker.checkForUpdates()
-        await checker.checkForUpdates()
-
-        let requests = await recorder.requests
-        #expect(requests.count == 1)
-        #expect(requests.first?.url?.absoluteString == "https://github.com/1lck/Lithe-IDEA/releases/latest/download/latest-macos.json")
-        #expect(requests.first?.url?.host == "github.com")
-        #expect(checker.status == .available(
-            version: "0.3.1",
-            url: URL(string: "https://github.com/1lck/Lithe-IDEA/releases/tag/v0.3.1")!
-        ))
+        #expect(checker.status == .idle)
         #expect(checker.notice == nil)
-        #expect(checker.updateInfo == UpdateInfo(
-            currentVersion: "0.3.0",
-            targetVersion: "0.3.1",
-            releaseDate: "2026-01-02T00:00:00Z",
-            releaseNotes: "Bug fixes and improvements.",
-            releaseURL: URL(string: "https://github.com/1lck/Lithe-IDEA/releases/tag/v0.3.1")!
-        ))
-    }
-
-    @Test
-    func automaticCheckSuppressesRemindedVersionButManualCheckIgnoresIt() async {
-        let preferences = makePreferences()
-        defer { clear(preferences) }
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        preferences.set("0.3.1", forKey: "lithe.update.remindVersion")
-        preferences.set(now.addingTimeInterval(60 * 60), forKey: "lithe.update.remindUntil")
-        let transport = StubUpdateNetworkTransport(fetch: { _ in
-            UpdateHTTPResponse(statusCode: 200, headers: [:], body: manifestData())
-        })
-        let checker = UpdateChecker(
-            currentVersion: "0.3.0",
-            transport: transport,
-            preferences: preferences,
-            now: { now },
-            architecture: .arm64
-        )
-
-        await checker.checkForUpdates()
-        #expect(checker.status == .upToDate(version: "0.3.0"))
-        #expect(checker.updateInfo == nil)
-
-        await checker.checkForUpdates(manual: true)
-        #expect(checker.status == .available(
-            version: "0.3.1",
-            url: URL(string: "https://github.com/1lck/Lithe-IDEA/releases/tag/v0.3.1")!
-        ))
-    }
-
-    @Test
-    func laterAndSkipVersionPersistTargetVersionPreferences() async {
-        let preferences = makePreferences()
-        defer { clear(preferences) }
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        let transport = StubUpdateNetworkTransport(fetch: { _ in
-            UpdateHTTPResponse(statusCode: 200, headers: [:], body: manifestData())
-        })
-        let checker = UpdateChecker(
-            currentVersion: "0.3.0",
-            transport: transport,
-            preferences: preferences,
-            now: { now },
-            architecture: .arm64
-        )
-
-        await checker.checkForUpdates(manual: true)
-        checker.remindLater()
-        #expect(preferences.string(forKey: "lithe.update.remindVersion") == "0.3.1")
-        #expect(preferences.object(forKey: "lithe.update.remindUntil") as? Date == now.addingTimeInterval(24 * 60 * 60))
-
-        await checker.checkForUpdates(manual: true)
-        checker.skipVersion()
-        #expect(preferences.string(forKey: "lithe.update.skippedVersion") == "0.3.1")
-        #expect(preferences.string(forKey: "lithe.update.remindVersion") == nil)
-    }
-
-    @Test
-    func failedAutomaticCheckIsNotSuppressedForTwentyFourHours() async {
-        let recorder = UpdateRequestRecorder()
-        let transport = StubUpdateNetworkTransport(fetch: { request in
-            await recorder.record(request)
-            throw URLError(.notConnectedToInternet)
-        })
-        let preferences = makePreferences()
-        defer { clear(preferences) }
-        let checker = UpdateChecker(
-            currentVersion: "0.3.0",
-            transport: transport,
-            preferences: preferences,
-            architecture: .arm64
-        )
-
-        await checker.checkForUpdates()
-        await checker.checkForUpdates()
-
-        #expect(await recorder.requests.count == 2)
-        guard case .failed(_, let message) = checker.status else {
-            Issue.record("Expected a failed update status")
-            return
-        }
-        #expect(message.contains("proxy"))
-    }
-
-    @Test(arguments: [
-        FailureScenario(
-            response: UpdateHTTPResponse(
-                statusCode: 403,
-                headers: ["X-RateLimit-Remaining": "0"],
-                body: Data(#"{"message":"API rate limit exceeded"}"#.utf8)
-            ),
-            error: nil,
-            expectedMessageFragment: "shared API limit"
-        ),
-        FailureScenario(
-            response: UpdateHTTPResponse(statusCode: 503, headers: [:], body: Data()),
-            error: nil,
-            expectedMessageFragment: "HTTP 503"
-        ),
-        FailureScenario(
-            response: nil,
-            error: URLError(.serverCertificateUntrusted),
-            expectedMessageFragment: "TLS inspection"
-        ),
-        FailureScenario(
-            response: nil,
-            error: UpdateTransportError.invalidResponse,
-            expectedMessageFragment: "unexpected response"
-        ),
-        FailureScenario(
-            response: UpdateHTTPResponse(statusCode: 200, headers: [:], body: Data("not json".utf8)),
-            error: nil,
-            expectedMessageFragment: "manifest is invalid"
-        )
-    ])
-    func presentsActionableManualCheckFailures(scenario: FailureScenario) async {
-        let transport = StubUpdateNetworkTransport(fetch: { _ in
-            if let error = scenario.error { throw error }
-            return scenario.response!
-        })
-        let preferences = makePreferences()
-        defer { clear(preferences) }
-        let checker = UpdateChecker(
-            currentVersion: "0.3.0",
-            transport: transport,
-            preferences: preferences,
-            architecture: .arm64
-        )
-
-        await checker.checkForUpdates(manual: true)
-
-        #expect(checker.notice?.message.contains(scenario.expectedMessageFragment) == true)
-        guard case .open(let url) = checker.notice?.action else {
-            Issue.record("Expected the Release page fallback action")
-            return
-        }
-        #expect(url.absoluteString == "https://github.com/1lck/Lithe-IDEA/releases/latest")
-    }
-
-    @Test
-    func rejectsDownloadedAssetWhenManifestChecksumDoesNotMatch() async throws {
-        let downloadedFile = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-update-test-\(UUID().uuidString).dmg")
-        try Data("unexpected disk image".utf8).write(to: downloadedFile)
-        defer { try? FileManager.default.removeItem(at: downloadedFile) }
-
-        let transport = StubUpdateNetworkTransport(
-            fetch: { _ in
-                UpdateHTTPResponse(statusCode: 200, headers: [:], body: manifestData())
-            },
-            download: { request, progress in
-                #expect(request.url?.lastPathComponent == "Lithe-0.3.1-arm64.dmg")
-                await progress(UpdateDownloadProgress(downloadedBytes: 21, totalBytes: 21))
-                return downloadedFile
-            }
-        )
-        let preferences = makePreferences()
-        defer { clear(preferences) }
-        let checker = UpdateChecker(
-            currentVersion: "0.3.0",
-            transport: transport,
-            preferences: preferences,
-            architecture: .arm64
-        )
-
-        await checker.checkForUpdates(manual: true)
-        await checker.installAvailableUpdate()
-
-        guard case .failed(let code, let message) = checker.status else {
-            Issue.record("Expected a checksum failure status")
-            return
-        }
-        #expect(code == .checksumMismatch)
-        #expect(message.contains("SHA-256"))
-        #expect(!FileManager.default.fileExists(atPath: downloadedFile.path))
-    }
-
-    @Test
-    func cancelledInstallPreparationDoesNotStartDownload() async {
-        let downloadStarted = TestGate()
-        let transport = StubUpdateNetworkTransport(
-            fetch: { _ in
-                UpdateHTTPResponse(statusCode: 200, headers: [:], body: manifestData())
-            },
-            download: { _, _ in
-                downloadStarted.open()
-                throw UpdateCheckError.downloadFailed
-            }
-        )
-        let preferences = makePreferences()
-        defer { clear(preferences) }
-        let checker = UpdateChecker(
-            currentVersion: "0.3.0",
-            transport: transport,
-            preferences: preferences,
-            architecture: .arm64
-        )
-        checker.prepareForInstall = { false }
-
-        await checker.checkForUpdates(manual: true)
-        await checker.installAvailableUpdate()
-
-        #expect(checker.status == .available(
-            version: "0.3.1",
-            url: URL(string: "https://github.com/1lck/Lithe-IDEA/releases/tag/v0.3.1")!
-        ))
-        #expect(!downloadStarted.isOpen)
         #expect(!checker.isBusy)
     }
 
     @Test
-    func replacementHelperSurvivesParentExitAndBoundsWait() throws {
-        let sourceURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/Lithe/Platform/MacOS/Updates/UpdateChecker.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
-
-        #expect(source.contains("/usr/bin/nohup"))
-        #expect(source.contains("requestTerminationForInstall"))
-        #expect(source.contains("attempts\" -ge 150"))
-        #expect(source.contains("/bin/kill -KILL"))
+    func releaseDetailsPreferTheOfferedVersionLink() {
+        let identity = UpdateBuildIdentity(info: [:])
+        let url = URL(string: "https://example.com/releases/v0.4.0")!
+        let info = identity.updateInfo(version: "0.3.0", targetVersion: "0.4.0", targetBuild: "43",
+            date: nil, notes: "Release notes", infoURL: url)
+        #expect(info.releaseURL == url)
     }
 
-    private func makePreferences() -> UserDefaults {
-        let suiteName = "lithe.update-tests.\(UUID().uuidString)"
-        return UserDefaults(suiteName: suiteName)!
+    @Test
+    func waitingForTerminationKeepsInstallationActiveAndRestoresEntryPoints() {
+        let checker = UpdateChecker()
+        let driver = LitheSparkleUserDriver(hostBundle: .main, delegate: nil)
+        let controller = SPUStandardUpdaterController(
+            startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
+        var cyclesFinished = 0
+        checker.didFinishUpdateCycle = { cyclesFinished += 1 }
+        driver.installationWaiting = { checker.installationWaitingForTermination($0) }
+        defer { driver.dismissUpdateInstallation() }
+
+        // Sparkle reports that the application remains alive after requesting
+        // termination. Cancellation does not finish the installation cycle.
+        checker.installationWaitingForTermination(false)
+        #expect(checker.isBusy)
+        driver.showInstallingUpdate(withApplicationTerminated: false, retryTerminatingApplication: {})
+        #expect(checker.status == .waitingForTermination)
+        #expect(checker.isInstalling)
+        #expect(!checker.isBusy)
+        #expect(cyclesFinished == 0)
+        // A repeated request may also be cancelled; the same entry stays usable.
+        driver.showInstallingUpdate(withApplicationTerminated: false, retryTerminatingApplication: {})
+        #expect(!checker.isBusy)
+        checker.updater(controller.updater, didFinishUpdateCycleFor: .updates, error: nil)
+        #expect(!checker.isInstalling)
+        #expect(checker.status == .idle)
+        #expect(cyclesFinished == 1)
     }
 
-    private func clear(_ preferences: UserDefaults) {
-        for key in preferences.dictionaryRepresentation().keys {
-            preferences.removeObject(forKey: key)
+    @Test
+    func previewIdentityHidesNotesAndKeepsBuildNumbersWhenVersionIsUnchanged() {
+        let identity = UpdateBuildIdentity(info: [
+            "LitheUpdateChannel": "preview", "CFBundleVersion": "142.1",
+            "LitheBuildTimestamp": "2026-01-02T00:00:00Z",
+            "LitheUpdateReleaseURL": "https://example.com/releases/preview"
+        ])
+        let info = identity.updateInfo(version: "0.3.0", targetVersion: "0.3.0", targetBuild: "143.1",
+            date: Date(timeIntervalSince1970: 0), notes: "Internal technical changes")
+        #expect(info.isPreview)
+        #expect(info.currentBuild == "142.1")
+        #expect(info.targetBuild == "143.1")
+        #expect(info.releaseNotes == nil)
+        #expect(info.releaseDate == "1970-01-01T00:00:00Z")
+        #expect(info.releaseURL.absoluteString == "https://example.com/releases/preview")
+    }
+
+    @Test
+    func stableIdentityRetainsReleaseNotesAndDoesNotInferPreviewFromBranch() {
+        let identity = UpdateBuildIdentity(info: ["LitheBuildGitBranch": "preview", "CFBundleVersion": "42"])
+        let info = identity.updateInfo(version: "0.3.0", targetVersion: "0.4.0", targetBuild: "43",
+            date: nil, notes: "User-facing release notes")
+        #expect(!info.isPreview)
+        #expect(info.releaseNotes == "User-facing release notes")
+        #expect(info.releaseURL == UpdateChecker.releasePageURL)
+    }
+
+    @Test
+    func requiresHTTPSFeedAndEd25519PublicKey() throws {
+        let valid: [String: Any] = [
+            "SUFeedURL": "https://example.com/appcast-arm64.xml",
+            "SUPublicEDKey": Data(repeating: 1, count: 32).base64EncodedString()
+        ]
+        try UpdateChecker.validateConfiguration(valid)
+        for invalid: [String: Any] in [
+            [:],
+            ["SUFeedURL": "http://example.com/feed", "SUPublicEDKey": valid["SUPublicEDKey"]!],
+            ["SUFeedURL": valid["SUFeedURL"]!, "SUPublicEDKey": "invalid"],
+            ["SUFeedURL": valid["SUFeedURL"]!, "SUPublicEDKey": Data(repeating: 1, count: 31).base64EncodedString()]
+        ] {
+            #expect(throws: (any Error).self) {
+                try UpdateChecker.validateConfiguration(invalid)
+            }
         }
     }
-}
 
-struct FailureScenario: Sendable, CustomTestStringConvertible {
-    let response: UpdateHTTPResponse?
-    let error: (any Error & Sendable)?
-    let expectedMessageFragment: String
-
-    var testDescription: String { expectedMessageFragment }
-}
-
-private final class StubUpdateNetworkTransport: UpdateNetworkTransport, @unchecked Sendable {
-    private let fetchHandler: @Sendable (URLRequest) async throws -> UpdateHTTPResponse
-    private let downloadHandler: @Sendable (
-        URLRequest,
-        @escaping @Sendable (UpdateDownloadProgress) async -> Void
-    ) async throws -> URL
-
-    init(
-        fetch: @escaping @Sendable (URLRequest) async throws -> UpdateHTTPResponse,
-        download: @escaping @Sendable (
-            URLRequest,
-            @escaping @Sendable (UpdateDownloadProgress) async -> Void
-        ) async throws -> URL = { _, _ in throw UpdateCheckError.downloadFailed }
-    ) {
-        fetchHandler = fetch
-        downloadHandler = download
+    @Test
+    func unconfiguredBuildProvidesReleaseFallbackWithoutStartingUpdater() async {
+        let checker = UpdateChecker(bundle: Bundle(for: BundleMarker.self))
+        await checker.checkForUpdates(manual: true)
+        guard case .failed = checker.status, case .open(let url) = checker.notice?.action else {
+            Issue.record("Unconfigured builds must offer the published release")
+            return
+        }
+        #expect(url == UpdateChecker.releasePageURL)
+        #expect(!checker.isBusy)
     }
 
-    func fetch(_ request: URLRequest) async throws -> UpdateHTTPResponse {
-        try await fetchHandler(request)
+    @Test
+    func completedCyclesClearBusyStateAndSurfaceFailures() throws {
+        let checker = UpdateChecker()
+        let controller = SPUStandardUpdaterController(
+            startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil
+        )
+        let updater = controller.updater
+        var relaunches = 0
+        var completedCycles = 0
+        checker.willRelaunchForUpdate = { relaunches += 1 }
+        checker.didFinishUpdateCycle = { completedCycles += 1 }
+        checker.updaterWillRelaunchApplication(updater)
+        #expect(relaunches == 1)
+        try checker.updater(updater, mayPerform: .updates)
+        #expect(checker.isChecking)
+        checker.updater(updater, didFinishUpdateCycleFor: .updates,
+            error: NSError(domain: SUSparkleErrorDomain, code: Int(SUError.signatureError.rawValue),
+                userInfo: [NSLocalizedDescriptionKey: "Invalid update signature"]))
+        #expect(checker.status == .failed(code: .installFailed, message: "Invalid update signature"))
+        #expect(!checker.isBusy)
+        checker.updater(updater, didFinishUpdateCycleFor: .updates,
+            error: NSError(domain: SUSparkleErrorDomain, code: Int(SUError.installationCanceledError.rawValue)))
+        #expect(checker.status == .idle)
+        checker.updater(updater, didFinishUpdateCycleFor: .updates,
+            error: NSError(domain: SUSparkleErrorDomain, code: Int(SUError.noUpdateError.rawValue)))
+        #expect(checker.status == .upToDate(version: checker.currentVersion))
+        #expect(completedCycles == 3)
     }
 
-    func download(
-        _ request: URLRequest,
-        progress: @escaping @Sendable (UpdateDownloadProgress) async -> Void
-    ) async throws -> URL {
-        try await downloadHandler(request, progress)
-    }
-}
-
-private actor UpdateRequestRecorder {
-    private(set) var requests: [URLRequest] = []
-
-    func record(_ request: URLRequest) {
-        requests.append(request)
-    }
+    private final class BundleMarker: NSObject {}
 }
 
 private func manifestData(

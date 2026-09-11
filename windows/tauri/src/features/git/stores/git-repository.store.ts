@@ -42,6 +42,12 @@ const mergeRepositoryPaths = (workspaceRepos: string[], manualRepoPaths: string[
   return result;
 };
 
+// Stable path lists keep a successful rescan from restarting the data controller.
+const reuseRepositoryPaths = (previous: string[], next: string[]): string[] =>
+  previous.length === next.length && previous.every((path, index) => path === next[index])
+    ? previous
+    : next;
+
 const getWorkspaceDefaultRepo = (workspaceRepos: string[]): string | null => {
   return workspaceRepos[0] ?? null;
 };
@@ -136,8 +142,8 @@ export const createGitRepositoryStore = () =>
             return {
               workspaceRootPath: normalizedRoot,
               workspaceDiscoveryKey,
-              workspaceRepoPaths: discoveredRepos,
-              availableRepoPaths,
+              workspaceRepoPaths: reuseRepositoryPaths(state.workspaceRepoPaths, discoveredRepos),
+              availableRepoPaths: reuseRepositoryPaths(state.availableRepoPaths, availableRepoPaths),
               activeRepoPath: nextActiveRepoPath,
               isDiscovering: false,
               hasDiscoveredWorkspace: true,

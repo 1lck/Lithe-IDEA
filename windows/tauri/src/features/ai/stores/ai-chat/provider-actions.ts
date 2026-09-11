@@ -92,13 +92,12 @@ export function createProviderActions(set: SetAIChatStore, get: GetAIChatStore):
     checkAllProviderApiKeys: refreshProviderAccess,
     saveApiKey: async (providerId, apiKey) => {
       try {
-        if (!(await validateProviderApiKey(providerId, apiKey))) {
-          return false;
-        }
-
+        // Persist before validating so a failed/unreachable validation
+        // endpoint never discards the key the user just typed.
         await storeProviderApiToken(providerId, apiKey);
+        const isValid = await validateProviderApiKey(providerId, apiKey);
         await refreshProviderAccess();
-        return true;
+        return isValid;
       } catch (error) {
         console.error("Error saving API key:", error);
         return false;

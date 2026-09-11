@@ -48,6 +48,7 @@ import { createTranslator } from "@/i18n/locale";
 import { cleanupBufferHistoryTracking } from "@/features/editor/stores/buffer-history-tracking";
 import type {
   EditorContent,
+  MarkdownViewMode,
   OpenContentSpec,
   PaneContent,
   TerminalContent,
@@ -201,6 +202,7 @@ interface BufferActions {
     diffData?: GitDiff | MultiFileDiff,
   ) => void;
   updateBufferTokens: (bufferId: string, tokens: TokenEntry[]) => void;
+  setMarkdownViewMode: (bufferId: string, mode: MarkdownViewMode) => void;
   updateBufferLanguage: (bufferId: string, language: string) => void;
   markBufferDirty: (bufferId: string, isDirty: boolean) => void;
   applyDocumentLifecycle: (bufferId: string, lifecycle: DocumentLifecycleState) => void;
@@ -1523,6 +1525,15 @@ const createBufferStore = (workspaceId: string) => {
             const buffer = state.buffers.find((b) => b.id === bufferId);
             if (buffer && isEditorContent(buffer)) {
               buffer.tokens = tokens;
+            }
+          });
+        },
+
+        setMarkdownViewMode: (bufferId: string, mode: MarkdownViewMode) => {
+          set((state) => {
+            const buffer = state.buffers.find((b) => b.id === bufferId);
+            if (buffer && isEditorContent(buffer)) {
+              buffer.markdownViewMode = mode;
             }
           });
         },

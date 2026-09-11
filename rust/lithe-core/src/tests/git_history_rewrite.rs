@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+const LARGE_REBASE_TIMEOUT_MILLISECONDS: u64 = 30_000;
 
 /// Temporary integration repository whose files are removed even after a failed assertion.
 struct Repository(PathBuf);
@@ -36,7 +37,9 @@ impl Repository {
     ) -> Value {
         payload["root"] = json!(self.0);
         // Each real Git subprocess is governed by Core's local deadline; tests
-        // do not synchronize using sleeps or depend on a network remote.
+        // do not synchronize using sleeps or depend on a network remote. Large
+        // native rebase fixtures use an explicit 30-second budget; ordinary
+        // requests keep the default 5-second budget.
         serde_json::from_str(&execute_json(&json!({
             "id": format!("history-integration-{}", REQUEST_SEQUENCE.fetch_add(1, Ordering::Relaxed)),
             "timeoutMilliseconds": timeout_milliseconds,
@@ -853,7 +856,11 @@ fn native_rebase_rejects_escaped_manifest_overflow_before_replacing_session() {
 fn native_rebase_large_escaped_manifest_is_readable_while_paused() {
     let repo = Repository::new("rebase-encoded-readable");
     let (_, result) = start_large_escaped_manifest_rebase(&repo);
-    let session = repo.request("git.rebaseSession", json!({}));
+    let session = repo.request_with_timeout(
+        "git.rebaseSession",
+        json!({}),
+        LARGE_REBASE_TIMEOUT_MILLISECONDS,
+    );
 
     assert_eq!(result["data"]["session"]["status"], "edit");
     assert_eq!(session["ok"], true, "{session}");
@@ -865,14 +872,19 @@ fn native_rebase_large_escaped_manifest_abort_restores_original_history() {
     let repo = Repository::new("rebase-encoded-abort");
     let (head, result) = start_large_escaped_manifest_rebase(&repo);
 
-    let aborted = repo.request(
+    let aborted = repo.request_with_timeout(
         "git.rebaseControl",
         json!({
             "sessionId":result["data"]["session"]["sessionId"], "action":"abort"
         }),
+        LARGE_REBASE_TIMEOUT_MILLISECONDS,
     );
     assert_eq!(aborted["data"]["session"]["status"], "aborted");
-    let restored = repo.request("git.rebaseSession", json!({}));
+    let restored = repo.request_with_timeout(
+        "git.rebaseSession",
+        json!({}),
+        LARGE_REBASE_TIMEOUT_MILLISECONDS,
+    );
     assert_eq!(restored["ok"], true);
     assert_eq!(restored["data"]["status"], "aborted");
     assert_eq!(repo.git(&["rev-parse", "HEAD"]), head);
@@ -883,7 +895,13 @@ fn start_large_escaped_manifest_rebase(repo: &Repository) -> (String, Value) {
     let base = repo.commit("story.txt", "base\n", "base");
     let first = repo.commit("story.txt", "first\n", "first");
     let head = repo.commit("story.txt", "last\n", "last");
-    let preview = repo.request("git.rebasePreview", json!({"revision":base}));
+    let preview = repo.request_with_timeout(
+        "git.rebasePreview",
+        json!({"revision":base}),
+        LARGE_REBASE_TIMEOUT_MILLISECONDS,
+    );
+    assert_eq!(preview["ok"], true, "{preview}");
+    assert_eq!(preview["data"]["allowed"], true, "{preview}");
     // Keep the escaped manifest close to the supported size boundary. Starting
     // a native rebase invokes several Git processes, so this fixture uses an
     // explicit bounded budget instead of the ordinary request deadline.
@@ -894,7 +912,7 @@ fn start_large_escaped_manifest_rebase(repo: &Repository) -> (String, Value) {
             "expectedState":preview["data"]["expectedState"],
             "steps":[{"hash":first,"action":"edit"}, {"hash":head,"action":"reword","message":message}]
         }),
-        30_000,
+        LARGE_REBASE_TIMEOUT_MILLISECONDS,
     );
     assert_eq!(result["ok"], true, "{result}");
     assert_eq!(result["data"]["session"]["status"], "edit", "{result}");
