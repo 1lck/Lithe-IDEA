@@ -6,13 +6,32 @@ package enum GitGraphLayoutService {
     package static func layout(
         commits: [GitCommit],
         references: [GitReference] = [],
+        repositoryCommits: [GitCommit] = [],
         visibleHashes: Set<String>? = nil,
         options: GitGraphDisplayOptions = .compact
     ) -> GitGraphLayout {
         guard !Task.isCancelled else { return GitGraphLayout(rows: [], laneCount: 0, hasMissingParents: false) }
         let remoteNames = Set(references.filter { $0.kind == .remote }.map(\.shortName))
-        let commitLabels = commits.map { labels(from: $0.decorations, remoteNames: remoteNames) }
-        let graph = GitGraphProjection(commits: commits, labels: commitLabels, visibleHashes: visibleHashes)
+        func commitLabels(_ values: [GitCommit]) -> [[GitGraphLabel]] {
+            values.map { labels(from: $0.decorations, remoteNames: remoteNames) }
+        }
+        var orderedCommits = commits
+        var permanentGraph: GitGraphProjection?
+        let scopedHashes = Set(commits.map(\.hash))
+        let repositoryHashes = Set(repositoryCommits.map(\.hash))
+        // IDEA builds the permanent graph before applying the branch scope.
+        // Otherwise an older release ref can steal the main branch's layout
+        // when main's tip is outside the selected branch's first history page.
+        // Use only a complete, unique context; bounded-history misses fall back
+        // to the scoped graph instead of dropping commits or mixing indices.
+        if !repositoryCommits.isEmpty, repositoryHashes.count == repositoryCommits.count,
+           scopedHashes.isSubset(of: repositoryHashes) {
+            permanentGraph = GitGraphProjection(commits: repositoryCommits, labels: commitLabels(repositoryCommits), visibleHashes: nil)
+            let scopedByHash = Dictionary(commits.map { ($0.hash, $0) }, uniquingKeysWith: { first, _ in first })
+            orderedCommits = repositoryCommits.compactMap { scopedByHash[$0.hash] }
+        }
+        let graph = GitGraphProjection(commits: orderedCommits, labels: commitLabels(orderedCommits),
+                                       visibleHashes: visibleHashes, permanentGraph: permanentGraph)
         guard !Task.isCancelled else { return GitGraphLayout(rows: [], laneCount: 0, hasMissingParents: false) }
         return graph.layout(options: options)
     }

@@ -35,7 +35,8 @@ struct GitGraphPerformanceBaselineTests {
     @Test("The 5,000-commit graph scales within the committed work envelope")
     func fiveThousandCommitLayoutBaseline() {
         let commits = SyntheticGitGraphFixture.mergeHeavy(commitCount: 5_000)
-        let layout = GitGraphLayoutService.layout(commits: commits)
+        // Exercise the production path, including the full repository graph.
+        let layout = GitGraphLayoutService.layout(commits: commits, repositoryCommits: commits)
 
         #expect(SyntheticGitGraphFixture.parentsFollowChildren(in: commits))
         print("Compact graph 5000: \(GitGraphStructureBaseline(layout: layout)), signature=\(GitGraphStructureBaseline.signature(of: layout))")

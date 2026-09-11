@@ -233,8 +233,8 @@ package struct GitGraphStructureBaseline: Codable, Equatable, Sendable {
 
     package static func expectedSignature(commitCount: Int) -> UInt64 {
         switch commitCount {
-        case 1_000: 17_832_840_794_110_590_192
-        case 5_000: 848_715_265_737_716_650
+        case 1_000: 8_981_637_258_004_108_316
+        case 5_000: 13_617_013_803_270_823_780
         default: preconditionFailure("No committed Git graph signature for \(commitCount) commits")
         }
     }

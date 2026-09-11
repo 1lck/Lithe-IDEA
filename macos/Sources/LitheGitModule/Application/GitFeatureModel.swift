@@ -167,6 +167,14 @@ package final class GitFeatureModel: ObservableObject {
     /// would mean a second invalidation for one logical change.
     package private(set) var gitCommitsVersion = 0
 
+    /// Bounded all-reference graph used before applying branch scope. The log
+    /// still pages its visible commits independently through the existing cursor.
+    @Published package private(set) var gitGraphRepositoryCommits: [GitCommit] = [] {
+        didSet { gitGraphRepositoryVersion = Self.nextGitCommitsVersion() }
+    }
+    package private(set) var gitGraphRepositoryVersion = 0
+    private static let gitGraphRepositoryLimit = 5_000
+
     /// Counts across instances, so reopening a workspace cannot hand a fresh
     /// feature model a version a previous one already used.
     private static var gitCommitsVersionCounter = 0
@@ -388,6 +396,7 @@ package final class GitFeatureModel: ObservableObject {
         gitReferences = []
         recentGitReferences = []
         gitCommits = []
+        gitGraphRepositoryCommits = []
         gitIdentity = nil
         gitLogMatchedCommitHashes = nil
         isFilteringGitLog = false
@@ -1535,7 +1544,8 @@ package final class GitFeatureModel: ObservableObject {
             : (selectedReference ?? currentCheckoutHistoryReference)
         let referencesOperationID = gitHistoryOperationID(kind: "references", generation: generation)
         let pageOperationID = gitHistoryOperationID(kind: "page", generation: generation)
-        activeGitHistoryOperationIDs.formUnion([referencesOperationID, pageOperationID])
+        let graphOperationID = gitHistoryOperationID(kind: "graph", generation: generation)
+        activeGitHistoryOperationIDs.formUnion([referencesOperationID, pageOperationID, graphOperationID])
         isLoadingGitHistory = true
         let previousCommitHash = selectedGitCommit?.hash
         async let references = service.references(
@@ -1549,8 +1559,16 @@ package final class GitFeatureModel: ObservableObject {
             limit: Self.gitHistoryPageSize,
             operationID: pageOperationID
         )
-        let (referenceSnapshot, historyPage) = await (references, page)
-        activeGitHistoryOperationIDs.subtract([referencesOperationID, pageOperationID])
+        async let repositoryGraph = service.historyPage(
+            at: gitRepositoryRoot, reference: nil, cursor: nil,
+            limit: Self.gitGraphRepositoryLimit, operationID: graphOperationID
+        )
+        let (referenceSnapshot, historyPage, graphPage) = await (references, page, repositoryGraph)
+        activeGitHistoryOperationIDs.subtract([referencesOperationID, pageOperationID, graphOperationID])
+        // The context is a snapshot, never a second cursor owned by the UI.
+        if let cursor = graphPage?.nextCursor {
+            service.closeHistoryCursor(at: gitRepositoryRoot, cursor: cursor)
+        }
         guard gitHistoryGeneration == generation,
               self.gitRepositoryRoot == gitRepositoryRoot,
               selectedGitReference == selectedReference,
@@ -1562,6 +1580,10 @@ package final class GitFeatureModel: ObservableObject {
         }
         isLoadingGitHistory = false
         guard let historyPage else { return }
+
+        // A failed context request uses the current page's graph. Never retain
+        // graph indices from a previous repository or reference refresh.
+        gitGraphRepositoryCommits = graphPage?.commits ?? []
 
         if let referenceSnapshot {
             gitReferences = referenceSnapshot.references

@@ -66,7 +66,7 @@ struct GitGraphView: View {
     let actions: GitGraphRowActions
     var selectedHashes: Set<String>? = nil
 
-    private let rowHeight: CGFloat = 30
+    private let rowHeight = GitGraphGeometry.rowHeight
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -114,7 +114,7 @@ struct GitGraphView: View {
                     .foregroundStyle(LitheTheme.tertiaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, maximumGraphWidth + 6)
-                    .frame(height: 30)
+                    .frame(height: rowHeight)
                 }
             }
 
@@ -146,7 +146,7 @@ struct GitGraphScrollView: NSViewRepresentable {
     let actions: GitGraphRowActions
     let onLoadMore: () -> Void
 
-    private let rowHeight: CGFloat = 30
+    private let rowHeight = GitGraphGeometry.rowHeight
 
     /// Keep the user's viewport stable while the document grows or is
     /// refreshed for reasons unrelated to selection.
@@ -269,7 +269,7 @@ final class GitGraphScrollDocumentView: NSView {
     private var onLoadMore: (() -> Void)?
     private var rowCount = 0
     private var graphWidth: CGFloat = 30
-    private let rowHeight: CGFloat = 30
+    private let rowHeight = GitGraphGeometry.rowHeight
 
     override var isFlipped: Bool { true }
 
@@ -452,7 +452,7 @@ final class GitGraphCommitRowsNSView: NSView {
     private var showDecorations = false
     private var graphWidth: CGFloat = 30
     private var recommendedLaneCount = 0
-    private var rowHeight: CGFloat = 30
+    private var rowHeight = GitGraphGeometry.rowHeight
     private var actions: GitGraphRowActions?
     private var drawingStyle: DrawingStyle?
     private var hoveredIndex: Int?
@@ -821,20 +821,11 @@ private struct GitGraphNSViewRepresentable: NSViewRepresentable {
 }
 
 final class GitGraphNSView: NSView {
-    private static let palette: [NSColor] = [
-        NSColor(calibratedRed: 0.29, green: 0.72, blue: 0.45, alpha: 1),
-        NSColor(calibratedRed: 0.35, green: 0.62, blue: 0.96, alpha: 1),
-        NSColor(calibratedRed: 0.82, green: 0.47, blue: 0.82, alpha: 1),
-        NSColor(calibratedRed: 0.96, green: 0.61, blue: 0.28, alpha: 1),
-        NSColor(calibratedRed: 0.36, green: 0.78, blue: 0.78, alpha: 1),
-        NSColor(calibratedRed: 0.93, green: 0.42, blue: 0.48, alpha: 1),
-        NSColor(calibratedRed: 0.70, green: 0.63, blue: 0.94, alpha: 1)
-    ]
-
+    private var colorCache: [Int: NSColor] = [:]
     private var snapshot = GitGraphRoutingSnapshot(rows: [], laneCount: 0)
     private var graphWidth: CGFloat = 0
-    private var rowHeight: CGFloat = 30
-    private let laneLineWidth: CGFloat = 1.6
+    private var rowHeight = GitGraphGeometry.rowHeight
+    private let laneLineWidth = GitGraphGeometry.lineWidth
 
     override var isOpaque: Bool { false }
     override var isFlipped: Bool { true }
@@ -851,8 +842,14 @@ final class GitGraphNSView: NSView {
     func update(snapshot: GitGraphRoutingSnapshot, width: CGFloat, rowHeight: CGFloat) {
         guard self.snapshot != snapshot || graphWidth != width || self.rowHeight != rowHeight else { return }
         self.snapshot = snapshot
+        colorCache.removeAll(keepingCapacity: true)
         graphWidth = width
         self.rowHeight = rowHeight
+        needsDisplay = true
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
     }
 
@@ -897,15 +894,10 @@ final class GitGraphNSView: NSView {
                 context.restoreGState()
             }
 
-            let nodeSize: CGFloat = row.isMerge ? 9.5 : 8.5
+            let nodeSize = GitGraphGeometry.nodeDiameter
             let nodeRect = CGRect(x: currentX - nodeSize / 2, y: centerY - nodeSize / 2, width: nodeSize, height: nodeSize)
             context.setFillColor(color(for: row.nodeColorIndex).cgColor)
             context.fillEllipse(in: nodeRect)
-            if row.isMerge {
-                context.setStrokeColor(NSColor.white.withAlphaComponent(0.72).cgColor)
-                context.setLineWidth(1)
-                context.strokeEllipse(in: nodeRect.insetBy(dx: 1, dy: 1))
-            }
         }
     }
 
@@ -933,7 +925,10 @@ final class GitGraphNSView: NSView {
     }
 
     private func color(for index: Int) -> NSColor {
-        Self.palette[index % Self.palette.count]
+        if let color = colorCache[index] { return color }
+        let color = GitGraphColor.color(for: index)
+        colorCache[index] = color
+        return color
     }
 }
 

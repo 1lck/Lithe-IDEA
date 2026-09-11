@@ -8,16 +8,82 @@ import Testing
 @Suite("Git graph arrow interaction", .serialized)
 @MainActor
 struct GitGraphInteractionTests {
+    @Test("The reported history matches IDEA with and without repository context", arguments: [false, true])
+    func reportedHistoryParity(_ useContext: Bool) throws {
+        let layout = GitGraphLayoutService.layout(commits: try reportedCommits(),
+            repositoryCommits: useContext ? try reportedCommits("issue410-context") : [])
+        var actual = ["Width|\(layout.recommendedLaneCount)"]
+        for (index, row) in layout.rows.enumerated() {
+            actual.append("Node|\(index):\(row.lane):\(row.layoutIndex):\(row.nodeColorIndex)")
+            for edge in row.printElements {
+                let direction = edge.direction == .up ? "UP" : "DOWN"
+                let style = edge.isDotted ? "DASHED" : "SOLID"
+                actual.append("Edge|\(index):\(edge.position):\(edge.adjacentPosition):\(direction):\(edge.hasArrow):\(edge.isTerminal):\(style):\(edge.colorIndex)")
+            }
+        }
+        let expected = try graphFixture(useContext ? "issue410-context-idea" : "issue410-idea", extension: "txt")
+            .split(separator: "\n").map(String.init)
+        // Compare the complete multiset, but report only differences on failure.
+        let difference = actual.sorted().difference(from: expected)
+        #expect(difference.isEmpty, "IDEA print differences: \(difference)")
+    }
+
+    @Test("Generated colors match IDEA RGB samples including signed integer overflow")
+    func ideaColors() throws {
+        for line in try graphFixture("idea-colors", extension: "txt").split(separator: "\n") {
+            let columns = line.split(separator: "|")
+            let id = try #require(Int(columns[0]))
+            let expected = columns[1].split(separator: ":").compactMap { Int($0) }
+            let color = try #require(GitGraphColor.color(for: id).usingColorSpace(.deviceRGB))
+            let actual = [color.redComponent, color.greenComponent, color.blueComponent].map { Int(($0 * 255).rounded()) }
+            #expect(actual == expected, "IDEA color ID \(id)")
+        }
+    }
+
+    @Test("The reported merge cluster renders with compact row spacing in both appearances")
+    func reportedHistoryRendering() throws {
+        let layout = GitGraphLayoutService.layout(commits: try reportedCommits(), repositoryCommits: try reportedCommits("issue410-context"))
+        #expect(layout.rows.count == 200)
+        let selectedIndex = try #require(layout.rows.firstIndex { $0.commit.hash.hasPrefix("ba3725bb") })
+        for dark in [false, true] {
+            let height = CGFloat(layout.rows.count + (layout.hasMissingParents ? 1 : 0)) * GitGraphGeometry.rowHeight
+            let frame = NSRect(x: 0, y: 0, width: 1_050, height: height)
+            let surface = GraphCaptureBackground(frame: frame)
+            surface.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            let hosting = NSHostingView(rootView: GitGraphView(presentation: presentation(layout),
+                selectedHash: layout.rows[selectedIndex].commit.hash, showCommitDecorations: true,
+                actions: actions { _ in }).environment(\.colorScheme, dark ? .dark : .light))
+            hosting.frame = frame
+            surface.addSubview(hosting)
+            let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = surface
+            defer { window.orderOut(nil); window.close() }
+            surface.layoutSubtreeIfNeeded()
+            let region = NSRect(x: 0, y: CGFloat(selectedIndex - 6) * GitGraphGeometry.rowHeight, width: 1_050,
+                                height: 16 * GitGraphGeometry.rowHeight)
+            let bitmap = try #require(surface.bitmapImageRepForCachingDisplay(in: region))
+            surface.cacheDisplay(in: region, to: bitmap)
+            let data = try #require(bitmap.representation(using: .png, properties: [:]))
+            #expect(data.count > 1_000)
+            if let directory = ProcessInfo.processInfo.environment["LITHE_GIT_GRAPH_CAPTURE_DIR"] {
+                let root = URL(fileURLWithPath: directory, isDirectory: true)
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+                try data.write(to: root.appendingPathComponent("reported-history-\(dark ? "dark" : "light").png"))
+            }
+        }
+    }
+
     @Test("Both arrow hit regions navigate to their real visible endpoint")
     func arrowHitRegions() throws {
         let layout = GitGraphLayoutService.layout(commits: commits())
         let view = GitGraphNSView()
-        view.update(snapshot: GitGraphLayoutService.routingSnapshot(for: layout), width: 60, rowHeight: 30)
+        view.update(snapshot: GitGraphLayoutService.routingSnapshot(for: layout), width: 60, rowHeight: GitGraphGeometry.rowHeight)
         var targets = Set<String>()
         for (index, row) in layout.rows.enumerated() {
             for edge in row.printElements where edge.hasArrow {
-                let rect = GitGraphGeometry.arrowHitRect(for: edge, rowHeight: 30)
-                let point = CGPoint(x: rect.midX, y: CGFloat(index) * 30 + rect.midY)
+                let rect = GitGraphGeometry.arrowHitRect(for: edge, rowHeight: GitGraphGeometry.rowHeight)
+                let point = CGPoint(x: rect.midX, y: CGFloat(index) * GitGraphGeometry.rowHeight + rect.midY)
                 #expect(view.navigationTarget(at: point) == edge.targetHash)
                 targets.insert(try #require(view.navigationTarget(at: point)))
             }
@@ -46,14 +112,14 @@ struct GitGraphInteractionTests {
         for direction in [GitGraphPrintElement.Direction.down, .up] {
             let pair = try #require(layout.rows.enumerated().first { $0.element.printElements.contains { $0.hasArrow && $0.direction == direction } })
             let edge = try #require(pair.element.printElements.first { $0.hasArrow && $0.direction == direction })
-            let rect = GitGraphGeometry.arrowHitRect(for: edge, rowHeight: 30)
-            let point = document.convert(CGPoint(x: rect.midX, y: CGFloat(pair.offset) * 30 + rect.midY), to: nil)
+            let rect = GitGraphGeometry.arrowHitRect(for: edge, rowHeight: GitGraphGeometry.rowHeight)
+            let point = document.convert(CGPoint(x: rect.midX, y: CGFloat(pair.offset) * GitGraphGeometry.rowHeight + rect.midY), to: nil)
             let event = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [],
                 timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
             document.mouseDown(with: event)
             #expect(selection == edge.targetHash)
             let target = try #require(layout.rows.firstIndex { $0.commit.hash == edge.targetHash })
-            #expect(scroll.contentView.bounds.intersects(CGRect(x: 0, y: CGFloat(target) * 30, width: 1, height: 30)))
+            #expect(scroll.contentView.bounds.intersects(CGRect(x: 0, y: CGFloat(target) * GitGraphGeometry.rowHeight, width: 1, height: GitGraphGeometry.rowHeight)))
         }
     }
 
@@ -65,7 +131,7 @@ struct GitGraphInteractionTests {
         callbacks.onNavigateHash = { targets.append($0) }
         let hosting = NSHostingView(rootView: GitGraphView(presentation: presentation(layout), selectedHash: nil,
                                                           showCommitDecorations: true, actions: callbacks))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 850, height: 1_230),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 850, height: CGFloat(layout.rows.count) * GitGraphGeometry.rowHeight),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = hosting
@@ -74,8 +140,8 @@ struct GitGraphInteractionTests {
         hosting.layoutSubtreeIfNeeded()
         for (index, row) in layout.rows.enumerated() {
             for edge in row.printElements where edge.hasArrow {
-                let rect = GitGraphGeometry.arrowHitRect(for: edge, rowHeight: 30)
-                let point = CGPoint(x: rect.midX, y: CGFloat(index) * 30 + rect.midY)
+                let rect = GitGraphGeometry.arrowHitRect(for: edge, rowHeight: GitGraphGeometry.rowHeight)
+                let point = CGPoint(x: rect.midX, y: CGFloat(index) * GitGraphGeometry.rowHeight + rect.midY)
                 let windowPoint = hosting.convert(point, to: nil)
                 let down = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: windowPoint, modifierFlags: [],
                     timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
@@ -130,7 +196,7 @@ struct GitGraphInteractionTests {
         for row in layout.rows {
             let width = GitGraphGeometry.rowWidth(row, recommendedLaneCount: layout.recommendedLaneCount)
             for edge in row.printElements {
-                let line = GitGraphGeometry.line(for: edge, rowHeight: 30)
+                let line = GitGraphGeometry.line(for: edge, rowHeight: GitGraphGeometry.rowHeight)
                 #expect(width > max(line.start.x, line.end.x) + 6)
             }
         }
@@ -155,6 +221,22 @@ struct GitGraphInteractionTests {
         }
     }
 
+    private func reportedCommits(_ name: String = "issue410-history") throws -> [GitCommit] {
+        try graphFixture(name, extension: "tsv").split(separator: "\n").map { line in
+            let columns = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            precondition(columns.count == 4)
+            return GitCommit(hash: columns[0], shortHash: String(columns[0].prefix(8)),
+                             parentHashes: columns[1].split(separator: " ").map(String.init),
+                             authorName: "Graph fixture", authorEmail: "fixture@example.invalid", date: "2026/09/11",
+                             subject: columns[3], decorations: columns[2].trimmingCharacters(in: CharacterSet(charactersIn: " ()")))
+        }
+    }
+
+    private func graphFixture(_ name: String, extension suffix: String) throws -> String {
+        let url = try #require(Bundle.module.url(forResource: name, withExtension: suffix, subdirectory: "Fixtures/GitGraph"))
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
     private func presentation(_ layout: GitGraphLayout) -> GitGraphPresentation {
         GitGraphPresentation(rows: layout.rows, routingSnapshot: GitGraphLayoutService.routingSnapshot(for: layout),
                              hasMissingParents: layout.hasMissingParents)
@@ -168,6 +250,8 @@ struct GitGraphInteractionTests {
 
 @MainActor
 private final class GraphCaptureBackground: NSView {
+    override var isFlipped: Bool { true }
+
     override func draw(_ dirtyRect: NSRect) {
         NSColor.windowBackgroundColor.setFill()
         NSBezierPath(rect: dirtyRect).fill()

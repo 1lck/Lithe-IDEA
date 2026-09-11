@@ -27,7 +27,7 @@ struct GitGraphProjection {
     private let colors: [Int]
     private let edges: [Edge]
 
-    init(commits: [GitCommit], labels: [[GitGraphLabel]], visibleHashes: Set<String>?) {
+    init(commits: [GitCommit], labels: [[GitGraphLabel]], visibleHashes: Set<String>?, permanentGraph: GitGraphProjection? = nil) {
         self.commits = commits
         self.labels = labels
         // History normally has unique IDs. First occurrence wins for defensive
@@ -47,8 +47,14 @@ struct GitGraphProjection {
                 }
             }
         }
-        let heads = GitGraphHeadOrdering.sortedHeads(labels: labels, children: children)
-        (indices, colors) = Self.permanentLayout(commits: commits, parents: parents, heads: heads)
+        if let permanentGraph {
+            let permanentRows = Dictionary(uniqueKeysWithValues: permanentGraph.commits.enumerated().map { ($1.hash, $0) })
+            indices = commits.map { permanentGraph.indices[permanentRows[$0.hash]!] }
+            colors = commits.map { permanentGraph.colors[permanentRows[$0.hash]!] }
+        } else {
+            let heads = GitGraphHeadOrdering.sortedHeads(labels: labels, children: children)
+            (indices, colors) = Self.permanentLayout(labels: labels, parents: parents, heads: heads)
+        }
         visible = commits.indices.filter { byHash[commits[$0].hash] == $0 && (visibleHashes?.contains(commits[$0].hash) ?? true) }
         let visibleRows = Dictionary(uniqueKeysWithValues: visible.enumerated().map { ($1, $0) })
         var result: [Edge] = []
@@ -75,22 +81,23 @@ struct GitGraphProjection {
         }
     }
 
-    private static func permanentLayout(commits: [GitCommit], parents: [[Int]], heads: [Int]) -> ([Int], [Int]) {
-        var indices = [Int](repeating: 0, count: commits.count)
+    private static func permanentLayout(labels: [[GitGraphLabel]], parents: [[Int]], heads: [Int]) -> ([Int], [Int]) {
+        var indices = [Int](repeating: 0, count: parents.count)
         var colors = indices
         var nextParent = indices
         var layoutIndex = 1
-        var color = 0
         for head in heads {
             guard indices[head] == 0 else { continue }
             var stack = [head]
-            var newBranch = true
+            let headIndex = layoutIndex
+            let headColor = GitGraphHeadOrdering.colorID(for: labels[head])
             while let node = stack.last {
                 let firstVisit = indices[node] == 0
                 if firstVisit {
-                    if newBranch { color = stableColor(commits[node].hash); newBranch = false }
                     indices[node] = layoutIndex
-                    colors[node] = color
+                    // GraphColorGetterByHead + GraphColorManagerImpl: the head
+                    // fragment uses its reference name; side fragments use LI.
+                    colors[node] = layoutIndex == headIndex ? headColor : layoutIndex
                 }
                 while nextParent[node] < parents[node].count && indices[parents[node][nextParent[node]]] != 0 {
                     nextParent[node] += 1
@@ -98,20 +105,12 @@ struct GitGraphProjection {
                 if nextParent[node] < parents[node].count {
                     stack.append(parents[node][nextParent[node]])
                 } else {
-                    if firstVisit { layoutIndex += 1; newBranch = true }
+                    if firstVisit { layoutIndex += 1 }
                     stack.removeLast()
                 }
             }
         }
         return (indices, colors)
-    }
-
-    /// A stable color callback is independent of DFS numbering and screen
-    /// columns, so discovering older ancestors does not recolor other branches.
-    private static func stableColor(_ hash: String) -> Int {
-        var value: UInt32 = 2_166_136_261
-        for byte in hash.utf8 { value = (value ^ UInt32(byte)) &* 16_777_619 }
-        return Int(value)
     }
 
     /// IntelliJ DottedFilterEdgesGenerator's two directional number walks.
@@ -211,7 +210,9 @@ struct GitGraphProjection {
                             arrow = (span >= longEdgeSize && offset == visiblePartSize)
                                 || (span >= options.edgeWithArrowSize && offset == 1)
                         } else {
-                            arrow = direction == .down && (row == edge.up + 1 || (row == edge.up && next >= visible.count))
+                            // IDEA places unloaded-parent arrows on the next
+                            // row, never stacked on the last visible node.
+                            arrow = direction == .down && row == edge.up + 1
                         }
                         guard nextPosition != nil || arrow else { continue }
                         // Nodes never draw a terminal for a normal edge without

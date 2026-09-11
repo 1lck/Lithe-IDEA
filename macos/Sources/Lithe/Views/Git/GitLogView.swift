@@ -90,10 +90,12 @@ struct GitLogView: View {
             let identity = graphProjectionIdentity
             let commits = feature.gitCommits
             let references = feature.gitReferences
+            let repositoryCommits = feature.gitGraphRepositoryCommits
             let visibleHashes = visibleCommitHashes
             let options: GitGraphDisplayOptions = showLongGraphEdges ? .expanded : .compact
             let task = Task.detached(priority: .userInitiated) {
-                let layout = GitGraphLayoutService.layout(commits: commits, references: references, visibleHashes: visibleHashes, options: options)
+                let layout = GitGraphLayoutService.layout(commits: commits, references: references,
+                    repositoryCommits: repositoryCommits, visibleHashes: visibleHashes, options: options)
                 return GitGraphPresentation(rows: layout.rows,
                     routingSnapshot: GitGraphLayoutService.routingSnapshot(for: layout),
                     hasMissingParents: layout.hasMissingParents)
@@ -1353,8 +1355,7 @@ struct GitLogView: View {
     }
 
     private var filteredCommits: [GitCommit] {
-        guard let hashes = visibleCommitHashes else { return feature.gitCommits }
-        return feature.gitCommits.filter { hashes.contains($0.hash) }
+        graphPresentation.rows.map(\.commit)
     }
 
     private func moveGitLogCommitSelection(by offset: Int) {
@@ -1437,9 +1438,7 @@ struct GitLogView: View {
                 gitLogCommitListFocused = true
                 feature.historyEditing.select(
                     commit.hash,
-                    visibleHashes: feature.gitCommits.filter {
-                        feature.gitLogMatchedCommitHashes?.contains($0.hash) ?? true
-                    }.map(\.hash),
+                    visibleHashes: graphPresentation.rows.map(\.commit.hash),
                     additive: modifiers.contains(.command),
                     range: modifiers.contains(.shift)
                 )
@@ -1479,6 +1478,7 @@ struct GitLogView: View {
 
     private struct GraphProjectionIdentity: Equatable {
         let historyVersion: Int
+        let repositoryVersion: Int
         let referencesVersion: Int
         let filterVersion: Int
         let filtering: Bool
@@ -1487,6 +1487,7 @@ struct GitLogView: View {
 
     private var graphProjectionIdentity: GraphProjectionIdentity {
         GraphProjectionIdentity(historyVersion: feature.gitCommitsVersion,
+            repositoryVersion: feature.gitGraphRepositoryVersion,
             referencesVersion: feature.gitReferencesVersion,
             filterVersion: feature.gitLogFilterVersion, filtering: hasActiveGitLogFilter,
             showLongEdges: showLongGraphEdges)

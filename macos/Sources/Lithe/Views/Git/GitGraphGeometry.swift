@@ -3,11 +3,17 @@ import LitheGitModule
 
 /// One geometry definition for drawing, pointer targets and accessible buttons.
 enum GitGraphGeometry {
-    static let laneSpacing: CGFloat = 13
+    // IntelliJ PaintParameters at its native 22 pt row height. Keep the whole
+    // geometry together: stretched rows with narrow columns exaggerate zigzags.
+    static let rowHeight: CGFloat = 22
+    static let laneSpacing: CGFloat = 16
     static let leftPadding: CGFloat = 8
+    static let lineWidth: CGFloat = 1.5
+    static let nodeDiameter: CGFloat = 8
+    static let graphTextGap: CGFloat = 2
 
     static func maximumWidth(laneCount: Int, recommendedLaneCount: Int) -> CGFloat {
-        max(30, CGFloat(max(laneCount, min(6, recommendedLaneCount))) * laneSpacing + 16)
+        CGFloat(max(1, laneCount, min(6, recommendedLaneCount))) * laneSpacing + graphTextGap
     }
 
     /// GraphCommitCellUtil includes diagonal boundary midpoints, then reserves
@@ -17,7 +23,7 @@ enum GitGraphGeometry {
             max($0, CGFloat($1.position), CGFloat($1.position + $1.adjacentPosition) / 2)
         }
         let columns = max(lastPosition + 1, CGFloat(min(6, recommendedLaneCount)))
-        return max(30, columns * laneSpacing + 16)
+        return columns * laneSpacing + graphTextGap
     }
 
     static func line(for element: GitGraphPrintElement, rowHeight: CGFloat) -> (start: CGPoint, end: CGPoint) {
@@ -32,7 +38,9 @@ enum GitGraphGeometry {
 
     static func arrowHitRect(for element: GitGraphPrintElement, rowHeight: CGFloat) -> CGRect {
         let segment = line(for: element, rowHeight: rowHeight)
-        let center = CGPoint(x: (segment.start.x + segment.end.x) / 2, y: (segment.start.y + segment.end.y) / 2)
-        return CGRect(x: center.x - 6, y: max(0, center.y - 7), width: 12, height: 14)
+        let centerX = (segment.start.x + segment.end.x) / 2
+        // Keep up/down targets in their own half of a compact row.
+        return CGRect(x: centerX - 6, y: element.direction == .up ? 0 : rowHeight / 2,
+                      width: 12, height: rowHeight / 2)
     }
 }

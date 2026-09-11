@@ -117,6 +117,7 @@ struct GitGraphLayoutTests {
         let page = GitGraphLayoutService.layout(commits: [head])
         #expect(page.hasMissingParents)
         #expect(page.rows[0].parentEdges.count == 1)
+        #expect(page.rows[0].printElements.isEmpty)
         #expect(page.rows[0].printElements.allSatisfy { $0.targetHash == nil })
         let full = GitGraphLayoutService.layout(commits: [head, commit("b", [])])
         #expect(!full.hasMissingParents)
@@ -157,6 +158,31 @@ struct GitGraphLayoutTests {
         let names = ["feature10", "feature02", "feature2", "Feature2", "feature1", "feature002", "feature2x"]
         let sorted = names.sorted { GitGraphHeadOrdering.naturalCompare(Array($0.utf16), Array($1.utf16)) < 0 }
         #expect(sorted == ["feature1", "Feature2", "feature2", "feature2x", "feature02", "feature002", "feature10"])
+    }
+
+    @Test("Branch scope retains repository head priority and base order")
+    func repositoryGraphBeforeScope() {
+        let main = commit("main-tip", ["root"], "origin/main")
+        let side = commit("side", ["root"], "HEAD -> feature")
+        let root = commit("root", [])
+        let repository = [main, side, root]
+        let scoped = GitGraphLayoutService.layout(commits: [side, root], repositoryCommits: repository)
+        let full = GitGraphLayoutService.layout(commits: repository)
+        #expect(scoped.rows.map(\.layoutIndex) == [2, 1])
+        #expect(scoped.rows.map(\.nodeColorIndex) == Array(full.rows.dropFirst()).map(\.nodeColorIndex))
+        let reordered = GitGraphLayoutService.layout(commits: [side, main, root], repositoryCommits: repository)
+        #expect(reordered.rows.map(\.commit.hash) == ["main-tip", "side", "root"])
+        assertContinuity(reordered)
+    }
+
+    @Test("Incomplete or duplicate repository context falls back without dropping visible commits")
+    func incompleteRepositoryContext() {
+        let values = [commit("tip", ["root"]), commit("root", [])]
+        let expected = GitGraphLayoutService.layout(commits: values)
+        for context in [[values[1]], [values[0], values[0], values[1]]] {
+            let layout = GitGraphLayoutService.layout(commits: values, repositoryCommits: context)
+            #expect(layout.rows == expected.rows)
+        }
     }
 
     @Test("Recommended graph width follows weighted edge counts, not the widest row")

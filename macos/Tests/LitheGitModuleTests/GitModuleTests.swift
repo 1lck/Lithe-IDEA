@@ -525,6 +525,56 @@ struct GitModuleTests {
     }
 
     @Test
+    func repositoryGraphIsSeparateFromVisiblePagingAndReleasesItsCursor() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let probe = GitGraphHistoryProbe()
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []), graphHistoryProbe: probe
+        )))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { true }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+
+        await feature.refreshGit()
+        #expect(feature.gitCommits.map(\.hash) == ["visible"])
+        #expect(feature.gitGraphRepositoryCommits.map(\.hash) == ["other-branch", "visible"])
+        #expect(feature.canLoadMoreGitHistory)
+        #expect(probe.closedCursors == ["graph-cursor"])
+        #expect(probe.requestedAllReferences)
+        let version = feature.gitGraphRepositoryVersion
+        await feature.loadMoreGitHistory()
+        #expect(feature.gitCommits.map(\.hash) == ["visible", "older"])
+        #expect(feature.gitGraphRepositoryVersion == version)
+
+        probe.failGraphRequest()
+        await feature.refreshGitHistory()
+        #expect(feature.gitGraphRepositoryCommits.isEmpty)
+        #expect(feature.gitCommits.map(\.hash) == ["visible"])
+        #expect(feature.gitGraphRepositoryVersion > version)
+    }
+
+    @Test
+    func cancelledRepositoryGraphCannotPublishIntoAResetWorkspace() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let probe = GitGraphHistoryProbe(blockGraph: true)
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []), graphHistoryProbe: probe
+        )))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { true }, notify: { _ in }, onStateRefreshed: {})
+        let refresh = Task { await feature.refreshGit() }
+        defer { probe.release.open(); refresh.cancel(); feature.reset() }
+        let started = await probe.started.waitUntilOpen()
+        feature.reset()
+        probe.release.open()
+        await refresh.value
+        #expect(started)
+        #expect(!probe.didTimeOut)
+        #expect(probe.graphWasCancelled)
+        #expect(Set(probe.closedCursors) == ["graph-cursor", "visible-cursor"])
+        #expect(feature.gitGraphRepositoryCommits.isEmpty)
+        #expect(feature.gitCommits.isEmpty)
+    }
+
+    @Test
     func successfulRevertRefreshesVisibleGitHistoryAndFocusesCurrentHead() async {
         let root = URL(fileURLWithPath: "/workspace")
         let revertedCommit = makeTestCommit(hash: "original-commit", subject: "Original change")
@@ -557,7 +607,8 @@ struct GitModuleTests {
         #expect(!feature.isShowingAllGitReferences)
         #expect(feature.selectedGitCommit?.hash == revertCommit.hash)
         #expect(controller.revertedHashes == [revertedCommit.hash])
-        #expect(controller.historyCallCount == 4)
+        // Each refresh loads the visible page and independent repository graph.
+        #expect(controller.historyCallCount == 8)
     }
 
     @Test
@@ -2840,6 +2891,50 @@ private final class GitProcessResultQueue: @unchecked Sendable {
     }
 }
 
+/// Controls the native synchronous operation boundary on GitService's worker
+/// queue. The existing gate bounds failures and exposes an async start event.
+private final class GitGraphHistoryProbe: @unchecked Sendable {
+    let started = GitModuleTestGate()
+    let release = GitModuleTestGate()
+    private let lock = NSLock()
+    private let blockGraph: Bool
+    private var failed = false
+    private var closed: [String] = []
+    private var cancelled: [String] = []
+    private var graphOperationID: String?
+    private var allReferences = false
+    private var timedOut = false
+
+    init(blockGraph: Bool = false) { self.blockGraph = blockGraph }
+    var closedCursors: [String] { lock.withLock { closed } }
+    var requestedAllReferences: Bool { lock.withLock { allReferences } }
+    var didTimeOut: Bool { lock.withLock { timedOut } }
+    var graphWasCancelled: Bool { lock.withLock { graphOperationID.map(cancelled.contains) ?? false } }
+    func failGraphRequest() { lock.withLock { failed = true } }
+    func close(cursor: String) { lock.withLock { closed.append(cursor) } }
+    func cancel(operationID: String) {
+        lock.withLock { cancelled.append(operationID) }
+        release.open()
+    }
+
+    func page(reference: GitReference?, cursor: String?, limit: Int, operationID: String) -> GitHistoryPage? {
+        if limit == 5_000 {
+            lock.withLock {
+                graphOperationID = operationID
+                allReferences = reference == nil && cursor == nil
+            }
+            started.open()
+            if blockGraph, !release.waitSynchronously() { lock.withLock { timedOut = true } }
+            guard !lock.withLock({ failed }) else { return nil }
+            return GitHistoryPage(commits: [makeTestCommit(hash: "other-branch", subject: "Other branch"),
+                                           makeTestCommit(hash: "visible", subject: "Visible")],
+                                  nextCursor: "graph-cursor", hasMore: true)
+        }
+        return GitHistoryPage(commits: [makeTestCommit(hash: cursor == nil ? "visible" : "older", subject: "Visible history")],
+                              nextCursor: cursor == nil ? "visible-cursor" : nil, hasMore: cursor == nil)
+    }
+}
+
 private struct TestGitOperations: GitOperations {
     private let snapshotValue: GitSnapshot?
     private let snapshotsByRoot: [String: GitSnapshot]
@@ -2854,6 +2949,7 @@ private struct TestGitOperations: GitOperations {
     private let referencesValue: GitReferenceSnapshot?
     private let historyPageValues: [String: GitHistoryPage]?
     private let historyPageHandler: (@Sendable () -> GitHistoryPage?)?
+    private let graphHistoryProbe: GitGraphHistoryProbe?
     private let historyController: GitHistoryLoadController?
     private let snapshotGate: GitModuleTestGate?
     private let discardHandler: (@Sendable (GitChange) -> GitProcessResult?)?
@@ -2885,6 +2981,7 @@ private struct TestGitOperations: GitOperations {
         referencesValue: GitReferenceSnapshot? = nil,
         historyPageValues: [String: GitHistoryPage]? = nil,
         historyPageHandler: (@Sendable () -> GitHistoryPage?)? = nil,
+        graphHistoryProbe: GitGraphHistoryProbe? = nil,
         historyController: GitHistoryLoadController? = nil,
         filesValue: [GitCommitFile]? = nil,
         untrackedDiffDocumentValue: DiffDocument? = nil,
@@ -2919,6 +3016,7 @@ private struct TestGitOperations: GitOperations {
         self.referencesValue = referencesValue
         self.historyPageValues = historyPageValues
         self.historyPageHandler = historyPageHandler
+        self.graphHistoryProbe = graphHistoryProbe
         self.historyController = historyController
         self.filesValue = filesValue
         self.untrackedDiffDocumentValue = untrackedDiffDocumentValue
@@ -3004,6 +3102,9 @@ private struct TestGitOperations: GitOperations {
         limit: Int,
         operationID: String
     ) -> GitHistoryPage? {
+        if let graphHistoryProbe {
+            return graphHistoryProbe.page(reference: reference, cursor: cursor, limit: limit, operationID: operationID)
+        }
         if let historyPageHandler { return historyPageHandler() }
         if let historyPageValues { return historyPageValues[cursor ?? ""] }
         guard let historyValue else { return nil }
@@ -3016,7 +3117,14 @@ private struct TestGitOperations: GitOperations {
             hasMore: hasMore
         )
     }
-    func cancel(operationID: String) -> Bool { false }
+    func closeHistoryCursor(at rootURL: URL, cursor: String) -> Bool {
+        graphHistoryProbe?.close(cursor: cursor)
+        return graphHistoryProbe != nil
+    }
+    func cancel(operationID: String) -> Bool {
+        graphHistoryProbe?.cancel(operationID: operationID)
+        return graphHistoryProbe != nil
+    }
     func files(in commit: GitCommit, at rootURL: URL) -> [GitCommitFile]? {
         filesRecorder?.recordCall()
         if let filesGate {

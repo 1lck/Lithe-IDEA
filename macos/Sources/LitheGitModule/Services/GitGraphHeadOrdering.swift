@@ -5,7 +5,7 @@ import Foundation
 
 enum GitGraphHeadOrdering {
     static func sortedHeads(labels: [[GitGraphLabel]], children: [[Int]]) -> [Int] {
-        let best = labels.map { $0.min(by: precedes) }
+        let best = labels.map(bestReference)
         // A referenced branch may already have children. It still seeds DFS
         // before less important graph tips; tags alone do not create a head.
         return labels.indices.filter {
@@ -20,6 +20,18 @@ enum GitGraphHeadOrdering {
             case (nil, nil): return left < right
             }
         }
+    }
+
+    static func bestReference(_ labels: [GitGraphLabel]) -> GitGraphLabel? {
+        labels.min(by: precedes)
+    }
+
+    /// Java String.hashCode, used by IDEA's GraphColorManagerImpl for the
+    /// principal fragment of a referenced head. Unreferenced heads use zero.
+    static func colorID(for labels: [GitGraphLabel]) -> Int {
+        guard let ref = bestReference(labels) else { return 0 }
+        let hash = ref.title.utf16.reduce(Int32(0)) { ($0 &* 31) &+ Int32($1) }
+        return Int(hash)
     }
 
     private static func precedes(_ left: GitGraphLabel, _ right: GitGraphLabel) -> Bool {
