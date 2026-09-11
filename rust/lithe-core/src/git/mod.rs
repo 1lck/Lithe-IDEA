@@ -937,6 +937,25 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
         "exclude" => {
             return append_git_ignore_patterns(&root, &request.paths, GitIgnoreTarget::LocalExclude)
         }
+        // Literal ignore-line mutations for recommended IDE patterns such as
+        // `.factorypath`. Unlike `exclude`, these keep the caller's text and do
+        // not root-anchor or escape pathspec characters.
+        "excludePatterns" => {
+            return mutate_literal_git_ignore_patterns(
+                &root,
+                &request.paths,
+                GitIgnoreTarget::LocalExclude,
+                true,
+            )
+        }
+        "unexcludePatterns" => {
+            return mutate_literal_git_ignore_patterns(
+                &root,
+                &request.paths,
+                GitIgnoreTarget::LocalExclude,
+                false,
+            )
+        }
         "cherryPick" => {
             arguments = vec![
                 "cherry-pick".into(),
@@ -3119,11 +3138,7 @@ fn append_git_ignore_patterns(
         GitIgnoreTarget::Repository => repository_root(root)?.join(".gitignore"),
         GitIgnoreTarget::LocalExclude => git_path(root, "info/exclude")?,
     };
-    let existing = match std::fs::read(&target_path) {
-        Ok(content) => content,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        Err(error) => return Err(git_ignore_io_error("read", error)),
-    };
+    let existing = read_git_ignore_bytes(&target_path)?;
     let existing_text = String::from_utf8_lossy(&existing);
     let additions = patterns
         .into_iter()
@@ -3152,6 +3167,183 @@ fn append_git_ignore_patterns(
     file.write_all(appended.as_bytes())
         .map_err(|error| git_ignore_io_error("write", error))?;
     Ok(successful_git_result())
+}
+
+/// Inserts or removes exact ignore lines while preserving unrelated rules.
+///
+/// Existing file lines are compared as stored bytes, including leading and
+/// trailing whitespace and non-UTF-8 content. Git ignore treats a leading
+/// space as part of the pattern, so ` .factorypath` is not the same rule as
+/// `.factorypath`. Request patterns are still trimmed and validated
+/// separately. Line terminators stay with their original lines and are not
+/// part of the match. Add appends without rewriting existing bytes; remove
+/// rebuilds from the original line bytes so unrelated invalid UTF-8 is kept.
+///
+/// Missing managed lines are a no-op on remove. Non-repository roots fail with
+/// a stable "Not a Git repository" message so hosts can skip Git UI side effects.
+fn mutate_literal_git_ignore_patterns(
+    root: &str,
+    patterns: &[String],
+    target: GitIgnoreTarget,
+    adding: bool,
+) -> Result<GitCommandResponse, CoreError> {
+    require_git_repository(root)?;
+    let patterns = literal_git_ignore_patterns(patterns)?;
+    let target_path = match target {
+        GitIgnoreTarget::Repository => repository_root(root)?.join(".gitignore"),
+        GitIgnoreTarget::LocalExclude => git_path(root, "info/exclude")?,
+    };
+    let existing = read_git_ignore_bytes(&target_path)?;
+    let lines = split_git_ignore_file_lines(&existing);
+    let managed: HashSet<&[u8]> = patterns.iter().map(|pattern| pattern.as_bytes()).collect();
+
+    if adding {
+        let present: HashSet<&[u8]> = lines.iter().map(|(body, _)| *body).collect();
+        let additions = patterns
+            .iter()
+            .map(String::as_bytes)
+            .filter(|pattern| !present.contains(*pattern))
+            .collect::<Vec<_>>();
+        if additions.is_empty() {
+            return Ok(successful_git_result());
+        }
+
+        let terminator = git_ignore_appended_line_terminator(&existing);
+        let mut appended = Vec::new();
+        if !existing.is_empty() && !existing.ends_with(b"\n") {
+            appended.extend_from_slice(terminator);
+        }
+        for pattern in additions {
+            appended.extend_from_slice(pattern);
+            appended.extend_from_slice(terminator);
+        }
+
+        if let Some(parent) = target_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| git_ignore_io_error("create", error))?;
+        }
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&target_path)
+            .map_err(|error| git_ignore_io_error("open", error))?;
+        file.write_all(&appended)
+            .map_err(|error| git_ignore_io_error("write", error))?;
+        return Ok(successful_git_result());
+    }
+
+    if lines.iter().all(|(body, _)| !managed.contains(body)) {
+        return Ok(successful_git_result());
+    }
+
+    let mut updated = Vec::with_capacity(existing.len());
+    for (body, terminator) in lines {
+        if managed.contains(body) {
+            continue;
+        }
+        updated.extend_from_slice(body);
+        updated.extend_from_slice(terminator);
+    }
+
+    if let Some(parent) = target_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| git_ignore_io_error("create", error))?;
+    }
+    std::fs::write(&target_path, updated).map_err(|error| git_ignore_io_error("write", error))?;
+    Ok(successful_git_result())
+}
+
+/// Splits an ignore file into line bodies and their original terminators.
+///
+/// Split on `\n` and treat a preceding `\r` as part of the terminator so CRLF
+/// files keep their stored endings. Line bodies stay raw bytes; they are never
+/// decoded as UTF-8.
+fn split_git_ignore_file_lines(bytes: &[u8]) -> Vec<(&[u8], &[u8])> {
+    let mut lines = Vec::new();
+    let mut start = 0;
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'\n' {
+            let terminator_start = if index > start && bytes[index - 1] == b'\r' {
+                index - 1
+            } else {
+                index
+            };
+            lines.push((
+                &bytes[start..terminator_start],
+                &bytes[terminator_start..=index],
+            ));
+            start = index + 1;
+        }
+        index += 1;
+    }
+    if start < bytes.len() {
+        lines.push((&bytes[start..], &[]));
+    }
+    lines
+}
+
+fn git_ignore_appended_line_terminator(bytes: &[u8]) -> &'static [u8] {
+    if bytes.windows(2).any(|window| window == b"\r\n") {
+        b"\r\n"
+    } else {
+        b"\n"
+    }
+}
+
+fn require_git_repository(root: &str) -> Result<(), CoreError> {
+    // Keep this probe outside the command invocation trace so a missing
+    // repository stays a standard invalid_request envelope for hosts.
+    let resolved = capture_git_with_options(
+        root,
+        &["rev-parse".into(), "--is-inside-work-tree".into()],
+        None,
+        true,
+    )?;
+    let stdout = String::from_utf8_lossy(&resolved.stdout);
+    if resolved.exit_code != 0 || stdout.trim() != "true" {
+        let details = {
+            let stderr = String::from_utf8_lossy(&resolved.stderr);
+            let combined = format!("{stdout}{stderr}");
+            combined.trim().to_string()
+        };
+        return Err(
+            CoreError::new(ErrorCode::InvalidRequest, "Not a Git repository").with_details(details),
+        );
+    }
+    Ok(())
+}
+
+fn read_git_ignore_bytes(path: &Path) -> Result<Vec<u8>, CoreError> {
+    match std::fs::read(path) {
+        Ok(content) => Ok(content),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(error) => Err(git_ignore_io_error("read", error)),
+    }
+}
+
+fn literal_git_ignore_patterns(patterns: &[String]) -> Result<Vec<String>, CoreError> {
+    let mut normalized = Vec::with_capacity(patterns.len());
+    for pattern in patterns {
+        // Trim request input only. Existing exclude lines keep their stored
+        // whitespace because a leading space changes Git ignore semantics.
+        let trimmed = pattern.trim();
+        if trimmed.is_empty() || trimmed.contains(['\0', '\n', '\r']) {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Git ignore operation contains an invalid pattern",
+            ));
+        }
+        normalized.push(trimmed.to_string());
+    }
+    normalized.sort();
+    normalized.dedup();
+    if normalized.is_empty() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Git ignore operation contains an invalid pattern",
+        ));
+    }
+    Ok(normalized)
 }
 
 fn git_ignore_patterns(paths: &[String]) -> Result<Vec<String>, CoreError> {
