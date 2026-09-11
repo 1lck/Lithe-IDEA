@@ -1,4 +1,5 @@
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
+import { normalizePath as normalizeFilePath, stripTrailingPathSeparators } from "@/utils/path-helpers";
 
 interface RepositoryDiscoveryCacheEntry {
   discoveredAt: number;
@@ -36,17 +37,11 @@ function normalizePath(path: string): string {
       : normalized;
   }
 
-  const unixPath = stripWindowsVerbatimPrefix(path.replace(/\\/g, "/"));
+  const unixPath = normalizeFilePath(path);
   const collapsed = unixPath.replace(/\/{2,}/g, "/");
-  return collapsed.length > 1 ? collapsed.replace(/\/+$/, "") : collapsed;
-}
-
-// Windows canonicalization can report verbatim paths (`\\?\C:\...`). Collapsing
-// their separators would yield `/?/C:/...`, which no longer resolves.
-function stripWindowsVerbatimPrefix(unixPath: string): string {
-  if (unixPath.startsWith("//?/UNC/")) return `//${unixPath.slice("//?/UNC/".length)}`;
-  if (unixPath.startsWith("//?/")) return unixPath.slice("//?/".length);
-  return unixPath;
+  // UNC repository identifiers must retain their network-root separator.
+  const normalized = unixPath.startsWith("//") ? `/${collapsed}` : collapsed;
+  return stripTrailingPathSeparators(normalized);
 }
 
 function isAbsolutePath(path: string): boolean {

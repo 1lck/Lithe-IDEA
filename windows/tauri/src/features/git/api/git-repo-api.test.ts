@@ -6,8 +6,12 @@ const readDirectory = mock(async (_path: string): Promise<unknown[]> => []);
 mock.module("@/platform/tauri-core", () => ({ invoke }));
 mock.module("@/features/file-system/controllers/platform", () => ({ readDirectory }));
 
-const { clearRepositoryDiscoveryCache, discoverWorkspaceRepositories, resolveRepositoryForFile } =
-  await import("./git-repo-api");
+const {
+  clearRepositoryDiscoveryCache,
+  discoverWorkspaceRepositories,
+  normalizeRepositoryPath,
+  resolveRepositoryForFile,
+} = await import("./git-repo-api");
 
 beforeEach(() => {
   invoke.mockReset();
@@ -87,6 +91,27 @@ describe("discoverWorkspaceRepositories", () => {
       workspacePath: "D:/work-b",
     });
     expect(result).toEqual(["D:/work-a/repo-a", "D:/work-b/repo-b"]);
+  });
+});
+
+describe("normalizeRepositoryPath", () => {
+  test("preserves drive roots and remote schemes while collapsing separators", () => {
+    expect(normalizeRepositoryPath("C://")).toBe("C:/");
+    expect(normalizeRepositoryPath("remote://host/repo//src/")).toBe("remote://host/repo/src");
+    expect(normalizeRepositoryPath("wsl://Ubuntu/repo//")).toBe("wsl://Ubuntu/repo");
+    expect(normalizeRepositoryPath("/work//repo/")).toBe("/work/repo");
+  });
+
+  test("preserves verbatim and ordinary UNC roots", () => {
+    expect(normalizeRepositoryPath("//?/unc/server/share//repo/")).toBe(
+      "//server/share/repo",
+    );
+    expect(normalizeRepositoryPath("\\\\?\\UNC\\server\\share\\repo")).toBe(
+      "//server/share/repo",
+    );
+    expect(normalizeRepositoryPath("\\\\server\\share\\repo")).toBe(
+      "//server/share/repo",
+    );
   });
 });
 
