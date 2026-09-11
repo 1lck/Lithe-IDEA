@@ -122,6 +122,16 @@ struct RunEntryPointTests {
         let relaunched = await runConfigurations.launchPlanRequested(1)
         #expect(relaunched, "the deferred Run was never actually re-issued")
         #expect(model.pendingRunAction == nil)
+        // Toolbar Run must publish the application's output to the same session
+        // selected by the sidebar, without starting a separate primary process.
+        let configurationID = ReadyRunConfigurationOperations.entryPoint.id
+        #expect(runFeature.selectedProjectSessionID == configurationID)
+        #expect(runFeature.moduleSessions.count == 1)
+        #expect(runFeature.moduleSessions.first?.configurationID == configurationID)
+        #expect(runFeature.moduleSessions.first?.output.contains("Launching is out of scope") == true)
+        #expect(runFeature.output.isEmpty)
+        #expect(!runFeature.isRunning)
+        #expect(runConfigurations.launchPlanCallCount == 1)
         #expect(
             runFeature.isProjectReady(
                 for: workspace.root,
@@ -371,7 +381,7 @@ struct RunEntryPointTests {
             gitWatchContextProvider: watchContext
         )
 
-        // Establish lastConfiguration through the same deferred-run path the
+        // Establish an application session through the same deferred-run path the
         // existing entry tests already cover, then refresh to a newer snapshot
         // without letting the run service consume it.
         model.openProjectDirectly(workspace.root)
@@ -387,7 +397,7 @@ struct RunEntryPointTests {
         watchContext.release(1)
         let launched = await runConfigurations.launchPlanRequested(1)
         #expect(launched, "the initial run never requested a launch plan")
-        #expect(model.runFeatureIfActive?.lastConfiguration != nil)
+        #expect(model.runFeatureIfActive?.moduleSessions.first?.configurationID == ReadyRunConfigurationOperations.entryPoint.id)
         #expect(model.pendingRunAction == nil)
         _ = await firstRefresh.value
 
@@ -404,7 +414,7 @@ struct RunEntryPointTests {
 
         model.restartSelectedRun()
         let deferredRestart = await awaitLoadDrivenChange(on: model) {
-            model.pendingRunAction?.kind == .restart
+            model.pendingRunAction?.kind == .startConfiguration(ReadyRunConfigurationOperations.entryPoint)
         }
         #expect(deferredRestart, "Restart must defer while the newer snapshot is unpublished to the run service")
         #expect(

@@ -324,7 +324,7 @@ extension AppModel {
             return
         }
         guard isCurrentWorkspace(identity) else { return }
-        if configuration.execution == .service {
+        if configuration.kind != .currentFile {
             runFeature.startConfiguration(configuration)
         } else {
             runFeature.runSelected(currentFileURL: activeDocument?.url)
@@ -334,7 +334,7 @@ extension AppModel {
 
     func restartSelectedRun() {
         if let configuration = runFeatureIfActive?.selectedConfiguration,
-           configuration.execution == .service {
+           configuration.kind != .currentFile {
             startRunConfiguration(configuration)
             return
         }
@@ -462,7 +462,7 @@ extension AppModel {
     func stopSelectedRun() {
         if let feature = runFeatureIfActive,
            let configuration = feature.selectedConfiguration,
-           configuration.execution == .service {
+           configuration.kind != .currentFile {
             if let session = feature.moduleSessions.first(where: { $0.configurationID == configuration.id }) {
                 feature.stopModule(session)
             }

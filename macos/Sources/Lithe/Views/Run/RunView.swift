@@ -4,7 +4,10 @@ struct RunView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.openURL) private var openURL
     @ObservedObject var feature: RunFeatureModel
-    @State private var selectedSessionID: String?
+    private var selectedSessionID: String? {
+        get { feature.selectedProjectSessionID }
+        nonmutating set { feature.selectedConfigurationID = newValue ?? RunConfiguration.currentFileID }
+    }
     @AppStorage("lithe.run.collapsedExecutions") private var collapsedExecutionIDs = ""
     @AppStorage("lithe.run.pinnedConfigurationIDs") private var pinnedConfigurationTokens = ""
     @AppStorage("lithe.run.configurationListWidth") private var configurationListWidth = 230.0
@@ -98,23 +101,10 @@ struct RunView: View {
             Text("This will start \(serviceConfigurations.count) detected services.")
         }
         .onChange(of: feature.configurations) { _ in
-            if let selectedSessionID,
-               !feature.configurations.contains(where: { $0.id == selectedSessionID }) {
-                self.selectedSessionID = nil
-            }
             synchronizeSelectedServices()
-        }
-        .onChange(of: feature.moduleSessions.filter(\.isRunning).map(\.id)) { runningIDs in
-            if let selectedID = feature.selectedConfiguration?.id,
-               runningIDs.contains(selectedID) {
-                selectedSessionID = selectedID
-            }
         }
         .onAppear {
             synchronizeSelectedServices()
-            if let session = feature.moduleSessions.last(where: \.isRunning) {
-                selectedSessionID = session.id
-            }
         }
     }
 
