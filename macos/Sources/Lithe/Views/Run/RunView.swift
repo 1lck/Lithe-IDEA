@@ -273,27 +273,21 @@ struct RunView: View {
                 Menu {
                     Section("Services") {
                         ForEach(serviceConfigurations) { configuration in
-                            let session = feature.moduleSessions.first { $0.id == configuration.id }
-                            Button {
-                                if let session, session.isRunning {
-                                    feature.stopModule(session)
-                                } else {
-                                    model.selectRunConfiguration(configuration)
-                                    model.startRunConfiguration(configuration)
-                                    selectedSessionID = configuration.id
-                                }
-                            } label: {
-                                Label(
-                                    configuration.name,
-                                    systemImage: session?.isRunning == true ? "stop.fill" : "play.fill"
-                                )
+                            Toggle(isOn: serviceSelectionBinding(for: configuration)) {
+                                Label(configuration.name, systemImage: "server.rack")
                             }
                         }
                     }
                     Divider()
                     Button {
+                        runSelectedServices()
+                    } label: {
+                        Label("Run selected services", systemImage: "play.fill")
+                    }
+                    .disabled(selectedServiceConfigurations.isEmpty)
+                    Button {
                         model.runAllServiceConfigurations()
-                        selectedSessionID = feature.moduleSessions.first?.id
+                        selectedSessionID = serviceConfigurations.first?.id
                     } label: {
                         Label("Run all services", systemImage: "square.stack.3d.up.fill")
                     }
@@ -375,6 +369,46 @@ struct RunView: View {
 
     private var hasServiceConfigurations: Bool {
         !serviceConfigurations.isEmpty
+    }
+
+    private var selectedServiceConfigurations: [RunConfiguration] {
+        serviceConfigurations.filter { selectedServiceIDs.contains($0.id) }
+    }
+
+    private func synchronizeSelectedServices() {
+        let serviceIDs = Set(serviceConfigurations.map(\.id))
+        let retained = selectedServiceIDs.intersection(serviceIDs)
+        if !retained.isEmpty {
+            selectedServiceIDs = retained
+            return
+        }
+
+        let preferred = serviceConfigurations.first(where: { $0.id == feature.selectedConfigurationID })
+            ?? serviceConfigurations.first
+        selectedServiceIDs = preferred.map { [$0.id] } ?? []
+    }
+
+    private func serviceSelectionBinding(for configuration: RunConfiguration) -> Binding<Bool> {
+        Binding(
+            get: { selectedServiceIDs.contains(configuration.id) },
+            set: { isSelected in
+                if isSelected {
+                    selectedServiceIDs.insert(configuration.id)
+                } else {
+                    selectedServiceIDs.remove(configuration.id)
+                }
+            }
+        )
+    }
+
+    private func runSelectedServices() {
+        let services = selectedServiceConfigurations
+        guard !services.isEmpty else { return }
+        for configuration in services {
+            model.selectRunConfiguration(configuration)
+            model.startRunConfiguration(configuration)
+        }
+        selectedSessionID = services.first?.id
     }
 
     private var hasRunnableConfigurations: Bool {
@@ -498,7 +532,7 @@ struct RunView: View {
     private var moduleSessionList: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                Text("Run configurations")
+                Text(hasServiceConfigurations ? "Services" : "Run configurations")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(LitheTheme.secondaryText)
                 Spacer(minLength: 0)

@@ -1186,6 +1186,9 @@
 "Collapsed" = "已折叠";
 "Expanded" = "已展开";
 "Run configurations" = "运行配置";
+"Other run configurations" = "其他运行配置";
+"Run selected services" = "运行选中的服务";
+"Choose services to run" = "选择要运行的服务";
 "Hide configuration list" = "收起运行配置列表";
 "Show configuration list" = "展开运行配置列表";
 "Run a configuration to see process output." = "运行配置后将在这里显示进程输出。";

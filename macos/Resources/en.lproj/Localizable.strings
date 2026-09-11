@@ -81,6 +81,9 @@
 "Collapsed" = "Collapsed";
 "Expanded" = "Expanded";
 "Run configurations" = "Run configurations";
+"Other run configurations" = "Other run configurations";
+"Run selected services" = "Run selected services";
+"Choose services to run" = "Choose services to run";
 "Hide configuration list" = "Hide configuration list";
 "Show configuration list" = "Show configuration list";
 "Run a configuration to see process output." = "Run a configuration to see process output.";
