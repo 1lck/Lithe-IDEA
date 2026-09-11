@@ -77,6 +77,8 @@ describe("git history result adaptation", () => {
           kind: "tag",
           peelsToCommit: false,
           isCurrent: false,
+          ahead: 0,
+          behind: 0,
           upstreamShortName: undefined,
         },
       ],

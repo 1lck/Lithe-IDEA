@@ -231,7 +231,10 @@ current branch's tracking counts and are zero when no upstream is configured.
 repository first when present, then repositories under the opened workspace by
 workspace containment, depth, and path. Each entry contains an absolute native
 `path` because repository roots are platform boundary values and may be outside
-the opened folder when the folder is nested inside a checkout. Core treats both
+the opened folder when the folder is nested inside a checkout. Canonical paths
+are reported in plain native form: Core strips the Windows verbatim `\\?\`
+prefix so roots remain valid Git working directories and stay resolvable after
+consumers normalize separators. Core treats both
 `.git` directories and `.git` files as repository markers. The default traversal
 visits the entire workspace tree, including build and dependency folders, and
 continues below discovered repositories. Git metadata itself is not traversed.
@@ -326,10 +329,14 @@ validation or probe fails after at least one subprocess was recorded, the
 response retains the invocation trace and includes the failure as
 `operationError`.
 
+`git.command` and typed Git writers share the repository's write lease, including
+linked worktrees. A competing request fails with `invalid_request` while a writer
+is active; it does not wait behind a mutex outside its cancellation deadline.
+
 `git.write` accepts a typed mutation request. Its required `operation` values are
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `excludePatterns`, `unexcludePatterns`, `cherryPick`, `revert`,
 `reset`, `undoCommit`, `editCommitMessage`, `deleteCommit`, `squashCommits`, `createBranch`, `publishBranch`,
-`renameBranch`, `setUpstream`, `unsetUpstream`, `deleteBranch`, `merge`, `rebase`, `createWorktree`,
+`renameBranch`, `setUpstream`, `unsetUpstream`, `deleteBranch`, `updateBranch`, `merge`, `rebase`, `createWorktree`,
 `removeWorktree`, `lockWorktree`, `unlockWorktree`, `repairWorktrees`, `pruneWorktrees`,
 `fetch`, `pull`, `push`, `checkout`, `checkoutAndRebase`, `checkoutRevision`, `clone`, `stashPush`,
 `stashApply`, `stashPop`, `stashDrop`, `deleteRemoteBranch`, `operationContinue`,
@@ -364,6 +371,13 @@ primary, or locked worktree; dirty worktrees require an explicit `force` value.
 `repairWorktrees` refreshes administrative links after a repository or worktree
 has moved. `pruneWorktrees` removes registrations whose checkout is already missing and
 does not recursively delete an arbitrary directory.
+
+`updateBranch` requires a typed, non-current local `gitReference`. Core resolves
+that branch's configured remote upstream and performs an atomic Fetch that
+refreshes the remote-tracking ref and fast-forwards the local branch without
+switching HEAD. Git rejects diverged branches and branches checked out by any
+worktree, so the operation cannot discard local commits or mutate another active
+checkout.
 Successful process launch returns `{ "arguments": string[], "output": string,
 "stdout": string, "stderr": string, "exitCode": number, "invocations":
 GitCommandInvocation[], "operationError": CoreError?, "stashRestore":
@@ -657,7 +671,16 @@ core clamps it to `1...5000`). It remains the compatibility command that
 combines `git.references` with the first `git.historyPage`. New clients use
 `git.references` with `{ "root": string }` and request commits separately with
 `git.historyPage` using `root`, optional full `reference`, nullable opaque
-`cursor`, and `limit`. The first request omits `cursor`; each later request
+`cursor`, `limit`, and optional `order` (`"topo"` or `"date"`). Omitted
+`order` preserves the original `git log --topo-order` behavior. `"date"` uses
+`git log --date-order`: committer date descending whenever the child-before-
+parent constraint permits, independently of the displayed author date. macOS
+requests date order for the log page and repository graph; existing clients
+retain topology order. A cursor is bound to its root, reference, and order;
+continuations must repeat the same order. A mismatched order returns
+`invalid_request` without consuming the cursor. The portable request example is
+`shared/fixtures/git/history-page-date-request-v1.json`.
+The first request omits `cursor`; each later request
 returns the prior page's `nextCursor`. Core keeps one bounded, backpressured
 `git log` stream behind that cursor and clamps the stream to the first 5,000
 commits, so later pages continue traversal instead of replaying earlier commits.
@@ -680,7 +703,8 @@ remote references, and tags return zero for both fields. Portable examples are
 
 For compatibility, a request that explicitly contains the deprecated numeric
 `offset` field still uses the bounded offset implementation and returns
-`nextOffset`. New clients must omit `offset`; repository size does not select
+`nextOffset`; it honors the same optional `order`. New clients must omit
+`offset`; repository size does not select
 between the two protocols.
 
 `git.commit` accepts `root` and a revision, returning one `commit` object.
