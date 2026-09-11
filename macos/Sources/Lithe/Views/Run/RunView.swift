@@ -10,6 +10,7 @@ struct RunView: View {
     @AppStorage("lithe.run.configurationListWidth") private var configurationListWidth = 230.0
     @AppStorage("lithe.run.configurationListCollapsed") private var isConfigurationListCollapsed = false
     @AppStorage("lithe.run.otherConfigurationsCollapsed") private var areOtherConfigurationsCollapsed = true
+    @AppStorage("lithe.run.selectedServiceIDs") private var selectedServiceTokens = ""
     /// Separate caches: the two raw strings change independently, and one box
     /// memoizes a single raw value.
     @State private var collapsedExecutionCache = RunConfigurationTokenCache()
@@ -20,6 +21,8 @@ struct RunView: View {
     /// Services selected in the header menu for the next multi-service launch.
     /// The first project service is selected when a workspace has no prior choice.
     @State private var selectedServiceIDs: Set<String> = []
+    @State private var selectedServicesWorkspacePath = ""
+    @State private var isServiceLaunchConfirmationPresented = false
 
     var body: some View {
         let _ = LitheSignpost.bodyEvaluated("RunView")
@@ -80,6 +83,19 @@ struct RunView: View {
             }
         }
         .litheWorkbenchSurface(LitheTheme.editor)
+        .confirmationDialog(
+            "Run all services?",
+            isPresented: $isServiceLaunchConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Run all services") {
+                model.runAllServiceConfigurations()
+                selectedSessionID = serviceConfigurations.first?.id
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will start \(serviceConfigurations.count) detected services.")
+        }
         .onChange(of: feature.configurations) { _ in
             if let selectedSessionID,
                !feature.configurations.contains(where: { $0.id == selectedSessionID }) {
@@ -286,8 +302,7 @@ struct RunView: View {
                     }
                     .disabled(selectedServiceConfigurations.isEmpty)
                     Button {
-                        model.runAllServiceConfigurations()
-                        selectedSessionID = serviceConfigurations.first?.id
+                        isServiceLaunchConfirmationPresented = true
                     } label: {
                         Label("Run all services", systemImage: "square.stack.3d.up.fill")
                     }
@@ -377,7 +392,21 @@ struct RunView: View {
 
     private func synchronizeSelectedServices() {
         let serviceIDs = Set(serviceConfigurations.map(\.id))
-        let retained = selectedServiceIDs.intersection(serviceIDs)
+        let workspacePath = model.workspaceURL?.standardizedFileURL.path ?? ""
+        if selectedServicesWorkspacePath != workspacePath {
+            selectedServicesWorkspacePath = workspacePath
+            selectedServiceIDs = []
+        }
+        let prefix = workspacePath + "::"
+        let persistedIDs = Set(
+            selectedServiceTokens
+                .split(separator: "\n")
+                .map(String.init)
+                .filter { $0.hasPrefix(prefix) }
+                .map { String($0.dropFirst(prefix.count)) }
+        )
+        let retained = (selectedServiceIDs.isEmpty ? persistedIDs : selectedServiceIDs)
+            .intersection(serviceIDs)
         if !retained.isEmpty {
             selectedServiceIDs = retained
             return
@@ -386,6 +415,7 @@ struct RunView: View {
         let preferred = serviceConfigurations.first(where: { $0.id == feature.selectedConfigurationID })
             ?? serviceConfigurations.first
         selectedServiceIDs = preferred.map { [$0.id] } ?? []
+        persistSelectedServices()
     }
 
     private func serviceSelectionBinding(for configuration: RunConfiguration) -> Binding<Bool> {
@@ -397,8 +427,20 @@ struct RunView: View {
                 } else {
                     selectedServiceIDs.remove(configuration.id)
                 }
+                persistSelectedServices()
             }
         )
+    }
+
+    private func persistSelectedServices() {
+        guard let workspacePath = model.workspaceURL?.standardizedFileURL.path else { return }
+        let prefix = workspacePath + "::"
+        let otherWorkspaceSelections = selectedServiceTokens
+            .split(separator: "\n")
+            .map(String.init)
+            .filter { !$0.hasPrefix(prefix) }
+        selectedServiceTokens = (otherWorkspaceSelections + selectedServiceIDs.sorted().map { prefix + $0 })
+            .joined(separator: "\n")
     }
 
     private func runSelectedServices() {
