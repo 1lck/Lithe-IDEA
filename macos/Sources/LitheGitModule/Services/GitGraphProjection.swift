@@ -73,6 +73,27 @@ struct GitGraphProjection {
         }
         if visibleHashes != nil {
             Self.dottedEdges(parents: parents, children: children, visible: Set(visible), add: { add($0, $1, dotted: true) })
+            // Hidden nodes can reach the page boundary, not only another
+            // visible commit. Memoize their distinct unloaded destinations in
+            // reverse topological order so merged paths are visited once.
+            // Stop at visible nodes: their own outgoing edges represent the
+            // continuation, and unrelated hidden branches must not leak in.
+            var hiddenMissing = [Set<String>](repeating: [], count: commits.count)
+            for row in commits.indices.reversed() where byHash[commits[row].hash] == row {
+                let direct = Set(commits[row].parentHashes.filter { byHash[$0] == nil })
+                var missing = direct
+                for parent in parents[row] where visibleRows[parent] == nil {
+                    missing.formUnion(hiddenMissing[parent])
+                }
+                if let up = visibleRows[row] {
+                    // The direct solid edge was already added above.
+                    for hash in missing.subtracting(direct).sorted() {
+                        result.append(Edge(up: up, down: nil, parentHash: hash, dotted: true))
+                    }
+                } else {
+                    hiddenMissing[row] = missing
+                }
+            }
         }
         edges = result.sorted {
             if $0.up != $1.up { return $0.up < $1.up }

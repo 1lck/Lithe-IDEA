@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import LitheApplicationKernel
 @testable import LitheGitModule
@@ -550,6 +551,64 @@ struct GitModuleTests {
         #expect(feature.gitGraphRepositoryCommits.isEmpty)
         #expect(feature.gitCommits.map(\.hash) == ["visible"])
         #expect(feature.gitGraphRepositoryVersion > version)
+    }
+
+    @Test
+    func visibleHistoryPublishesBeforeRepositoryGraphCompletes() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let probe = GitGraphHistoryProbe(blockGraph: true)
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []), graphHistoryProbe: probe
+        )))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { true }, notify: { _ in }, onStateRefreshed: {})
+        let visiblePublished = GitModuleTestGate()
+        let observation = feature.$gitCommits.sink { commits in
+            if commits.map(\.hash) == ["visible"] { visiblePublished.open() }
+        }
+        let refresh = Task { await feature.refreshGit() }
+        defer { observation.cancel(); probe.release.open(); refresh.cancel(); feature.reset() }
+
+        #expect(await probe.started.waitUntilOpen())
+        #expect(await visiblePublished.waitUntilOpen())
+        #expect(feature.gitCommits.map(\.hash) == ["visible"])
+        #expect(!feature.isLoadingGitHistory)
+        #expect(feature.canLoadMoreGitHistory)
+        #expect(feature.gitGraphRepositoryCommits.isEmpty)
+        // Paging remains usable while the repository context is on its worker.
+        await feature.loadMoreGitHistory()
+        #expect(feature.gitCommits.map(\.hash) == ["visible", "older"])
+        probe.release.open()
+        await refresh.value
+        #expect(!probe.didTimeOut)
+        #expect(feature.gitGraphRepositoryCommits.map(\.hash) == ["other-branch", "visible"])
+        #expect(feature.gitCommits.map(\.hash) == ["visible", "older"])
+        #expect(probe.closedCursors == ["graph-cursor"])
+    }
+
+    @Test
+    func supersededRepositoryGraphCannotReplaceNewContext() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        // The first worker deliberately returns after cancellation and after
+        // the second refresh, as a native operation racing cancellation can.
+        let probe = GitGraphHistoryProbe(blockGraph: true, releaseOnCancel: false)
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []), graphHistoryProbe: probe
+        )))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { true }, notify: { _ in }, onStateRefreshed: {})
+        let refresh = Task { await feature.refreshGit() }
+        defer { probe.release.open(); refresh.cancel(); feature.reset() }
+        #expect(await probe.started.waitUntilOpen())
+
+        await feature.showAllGitReferences()
+        #expect(feature.isShowingAllGitReferences)
+        #expect(feature.gitGraphRepositoryCommits.map(\.hash) == ["other-branch", "visible"])
+        let version = feature.gitGraphRepositoryVersion
+        probe.release.open()
+        await refresh.value
+        #expect(!probe.didTimeOut)
+        #expect(feature.gitGraphRepositoryVersion == version)
+        #expect(feature.gitCommits.map(\.hash) == ["visible"])
+        #expect(probe.closedCursors.filter { $0 == "graph-cursor" }.count == 2)
     }
 
     @Test
@@ -2898,6 +2957,8 @@ private final class GitGraphHistoryProbe: @unchecked Sendable {
     let release = GitModuleTestGate()
     private let lock = NSLock()
     private let blockGraph: Bool
+    private let releaseOnCancel: Bool
+    private var graphRequests = 0
     private var failed = false
     private var closed: [String] = []
     private var cancelled: [String] = []
@@ -2905,7 +2966,10 @@ private final class GitGraphHistoryProbe: @unchecked Sendable {
     private var allReferences = false
     private var timedOut = false
 
-    init(blockGraph: Bool = false) { self.blockGraph = blockGraph }
+    init(blockGraph: Bool = false, releaseOnCancel: Bool = true) {
+        self.blockGraph = blockGraph
+        self.releaseOnCancel = releaseOnCancel
+    }
     var closedCursors: [String] { lock.withLock { closed } }
     var requestedAllReferences: Bool { lock.withLock { allReferences } }
     var didTimeOut: Bool { lock.withLock { timedOut } }
@@ -2914,17 +2978,19 @@ private final class GitGraphHistoryProbe: @unchecked Sendable {
     func close(cursor: String) { lock.withLock { closed.append(cursor) } }
     func cancel(operationID: String) {
         lock.withLock { cancelled.append(operationID) }
-        release.open()
+        if releaseOnCancel { release.open() }
     }
 
     func page(reference: GitReference?, cursor: String?, limit: Int, operationID: String) -> GitHistoryPage? {
         if limit == 5_000 {
-            lock.withLock {
+            let shouldBlock = lock.withLock {
                 graphOperationID = operationID
                 allReferences = reference == nil && cursor == nil
+                graphRequests += 1
+                return blockGraph && graphRequests == 1
             }
             started.open()
-            if blockGraph, !release.waitSynchronously() { lock.withLock { timedOut = true } }
+            if shouldBlock, !release.waitSynchronously() { lock.withLock { timedOut = true } }
             guard !lock.withLock({ failed }) else { return nil }
             return GitHistoryPage(commits: [makeTestCommit(hash: "other-branch", subject: "Other branch"),
                                            makeTestCommit(hash: "visible", subject: "Visible")],

@@ -1544,8 +1544,8 @@ package final class GitFeatureModel: ObservableObject {
             : (selectedReference ?? currentCheckoutHistoryReference)
         let referencesOperationID = gitHistoryOperationID(kind: "references", generation: generation)
         let pageOperationID = gitHistoryOperationID(kind: "page", generation: generation)
-        let graphOperationID = gitHistoryOperationID(kind: "graph", generation: generation)
-        activeGitHistoryOperationIDs.formUnion([referencesOperationID, pageOperationID, graphOperationID])
+        activeGitHistoryOperationIDs.formUnion([referencesOperationID, pageOperationID])
+        gitGraphRepositoryCommits = []
         isLoadingGitHistory = true
         let previousCommitHash = selectedGitCommit?.hash
         async let references = service.references(
@@ -1559,16 +1559,11 @@ package final class GitFeatureModel: ObservableObject {
             limit: Self.gitHistoryPageSize,
             operationID: pageOperationID
         )
-        async let repositoryGraph = service.historyPage(
-            at: gitRepositoryRoot, reference: nil, cursor: nil,
-            limit: Self.gitGraphRepositoryLimit, operationID: graphOperationID
-        )
-        let (referenceSnapshot, historyPage, graphPage) = await (references, page, repositoryGraph)
-        activeGitHistoryOperationIDs.subtract([referencesOperationID, pageOperationID, graphOperationID])
-        // The context is a snapshot, never a second cursor owned by the UI.
-        if let cursor = graphPage?.nextCursor {
-            service.closeHistoryCursor(at: gitRepositoryRoot, cursor: cursor)
-        }
+        // Enrich the graph independently: the visible page and its cursor must
+        // become usable even while a much larger repository walk is pending.
+        async let repositoryGraph: Void = refreshGitRepositoryGraph(at: gitRepositoryRoot, generation: generation)
+        let (referenceSnapshot, historyPage) = await (references, page)
+        activeGitHistoryOperationIDs.subtract([referencesOperationID, pageOperationID])
         guard gitHistoryGeneration == generation,
               self.gitRepositoryRoot == gitRepositoryRoot,
               selectedGitReference == selectedReference,
@@ -1580,10 +1575,6 @@ package final class GitFeatureModel: ObservableObject {
         }
         isLoadingGitHistory = false
         guard let historyPage else { return }
-
-        // A failed context request uses the current page's graph. Never retain
-        // graph indices from a previous repository or reference refresh.
-        gitGraphRepositoryCommits = graphPage?.commits ?? []
 
         if let referenceSnapshot {
             gitReferences = referenceSnapshot.references
@@ -1612,6 +1603,23 @@ package final class GitFeatureModel: ObservableObject {
             selectedGitCommitFile = nil
             selectedGitCommitDiffContext = nil
         }
+        await repositoryGraph
+    }
+
+    private func refreshGitRepositoryGraph(at root: URL, generation: UUID) async {
+        guard gitHistoryGeneration == generation, gitRepositoryRoot == root, !Task.isCancelled else { return }
+        let operationID = gitHistoryOperationID(kind: "graph", generation: generation)
+        activeGitHistoryOperationIDs.insert(operationID)
+        let page = await service.historyPage(
+            at: root, reference: nil, cursor: nil,
+            limit: Self.gitGraphRepositoryLimit, operationID: operationID
+        )
+        activeGitHistoryOperationIDs.remove(operationID)
+        // Even a cancelled or superseded result must release its native cursor.
+        // The repository context never owns the visible page's cursor/selection.
+        if let cursor = page?.nextCursor { service.closeHistoryCursor(at: root, cursor: cursor) }
+        guard gitHistoryGeneration == generation, gitRepositoryRoot == root, !Task.isCancelled else { return }
+        gitGraphRepositoryCommits = page?.commits ?? []
     }
 
     package func applyGitLogFilter(_ rawQuery: String) async {

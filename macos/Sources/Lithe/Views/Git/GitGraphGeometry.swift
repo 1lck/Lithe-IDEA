@@ -38,7 +38,7 @@ enum GitGraphGeometry {
 
     static func arrowHitRect(for element: GitGraphPrintElement, rowHeight: CGFloat) -> CGRect {
         let segment = line(for: element, rowHeight: rowHeight)
-        let centerX = (segment.start.x + segment.end.x) / 2
+        let centerX = segment.end.x
         // Keep up/down targets in their own half of a compact row.
         return CGRect(x: centerX - 6, y: element.direction == .up ? 0 : rowHeight / 2,
                       width: 12, height: rowHeight / 2)

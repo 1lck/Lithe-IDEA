@@ -113,6 +113,87 @@ struct GitGraphInteractionTests {
         #expect(view.navigationTarget(at: CGPoint(x: 8, y: -1)) == nil)
     }
 
+    @Test("Expanded multi-lane arrow tips hit their drawn destinations")
+    func diagonalArrowTips() throws {
+        let layout = expandedMergeFixture()
+        let view = GitGraphNSView()
+        view.update(snapshot: GitGraphLayoutService.routingSnapshot(for: layout), width: 600, rowHeight: GitGraphGeometry.rowHeight)
+        var directions = Set<GitGraphPrintElement.Direction>()
+        for (index, row) in layout.rows.enumerated() {
+            for edge in row.printElements where edge.hasArrow && abs(edge.position - edge.adjacentPosition) >= 2 {
+                #expect(!edge.isTerminal)
+                let tip = GitGraphGeometry.line(for: edge, rowHeight: GitGraphGeometry.rowHeight).end
+                let point = CGPoint(x: tip.x, y: CGFloat(index) * GitGraphGeometry.rowHeight + tip.y)
+                #expect(view.navigationTarget(at: point) == edge.targetHash)
+                // Also cover the visible stroke just inside the tip, independent
+                // of the hit rectangle's own center or edge-inclusion rules.
+                let inside = CGPoint(x: point.x, y: point.y + (edge.direction == .up ? 0.5 : -0.5))
+                #expect(view.navigationTarget(at: inside) == edge.targetHash)
+                directions.insert(edge.direction)
+            }
+        }
+        #expect(directions == [.up, .down])
+    }
+
+    @Test("SwiftUI diagonal arrows receive clicks on the rendered tip stroke")
+    func swiftUIDiagonalArrowTips() async throws {
+        let layout = expandedMergeFixture()
+        var targets: [String] = []
+        var expected: [String] = []
+        for direction in [GitGraphPrintElement.Direction.down, .up] {
+            let pair = try #require(layout.rows.enumerated().first { row in
+                row.element.printElements.contains { $0.hasArrow && $0.direction == direction && abs($0.position - $0.adjacentPosition) >= 2 }
+            })
+            let edge = try #require(pair.element.printElements.first { $0.hasArrow && $0.direction == direction && abs($0.position - $0.adjacentPosition) >= 2 })
+            expected.append(try #require(edge.targetHash))
+            let first = max(0, pair.offset - 1)
+            let viewport = GitGraphLayout(rows: Array(layout.rows[first...min(layout.rows.count - 1, pair.offset + 1)]),
+                laneCount: layout.laneCount, hasMissingParents: false, recommendedLaneCount: layout.recommendedLaneCount)
+            var callbacks = actions { _ in }
+            callbacks.onNavigateHash = { targets.append($0) }
+            let hosting = NSHostingView(rootView: GitGraphView(presentation: presentation(viewport), selectedHash: nil,
+                showCommitDecorations: true, actions: callbacks))
+            let frame = NSRect(x: 0, y: 0, width: 850, height: CGFloat(viewport.rows.count) * GitGraphGeometry.rowHeight)
+            let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = hosting
+            defer { window.orderOut(nil); window.close() }
+            window.makeKeyAndOrderFront(nil)
+            hosting.layoutSubtreeIfNeeded()
+            let tip = GitGraphGeometry.line(for: edge, rowHeight: GitGraphGeometry.rowHeight).end
+            let point = CGPoint(x: tip.x, y: CGFloat(pair.offset - first) * GitGraphGeometry.rowHeight + tip.y + (direction == .up ? 0.5 : -0.5))
+            let location = hosting.convert(point, to: nil)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                let event = try #require(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+                window.sendEvent(event)
+            }
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(1))
+            // Native gesture callbacks arrive asynchronously; observe their
+            // public outcome with a bounded deadline before closing the window.
+            while targets.count < expected.count && clock.now < deadline { await Task.yield() }
+            #expect(targets == expected, "Clicking the drawn diagonal tip must activate its endpoint")
+        }
+    }
+
+    private func expandedMergeFixture() -> GitGraphLayout {
+        // Five parents fan out immediately after a long edge's source, then
+        // converge just before its destination. The arrow half-edges therefore
+        // cross several compacted lanes in both directions.
+        let history = commits().enumerated().map { row, value in
+            let parents: [String]
+            if row == 1 { parents = (2...6).map(String.init) }
+            else if (2...6).contains(row) { parents = ["39"] }
+            else if row == 39 { parents = [] }
+            else { parents = value.parentHashes }
+            return GitCommit(hash: value.hash, shortHash: value.shortHash, parentHashes: parents,
+                authorName: value.authorName, authorEmail: value.authorEmail, date: value.date,
+                subject: value.subject, decorations: value.decorations)
+        }
+        return GitGraphLayoutService.layout(commits: history, options: .expanded)
+    }
+
     @Test("Arrow activation selects and scrolls to parent, then back to child")
     func bidirectionalNavigation() throws {
         let layout = GitGraphLayoutService.layout(commits: commits())

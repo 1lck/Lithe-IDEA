@@ -102,6 +102,55 @@ struct GitGraphLayoutTests {
         assertContinuity(layout)
     }
 
+    @Test("Filtered ancestors retain the unloaded boundary and resolve it after paging")
+    func filteredMissingParent() throws {
+        let page = [commit("a", ["b"]), commit("b", ["c"]), commit("unrelated", [])]
+        let lastRow = GitGraphLayoutService.layout(commits: page, visibleHashes: ["a"])
+        #expect(lastRow.hasMissingParents)
+        #expect(lastRow.rows[0].parentEdges.map(\.parentHash) == ["c"])
+        #expect(lastRow.rows[0].parentEdges.allSatisfy { $0.isMissing })
+        #expect(lastRow.rows[0].printElements.isEmpty)
+
+        let filtered = GitGraphLayoutService.layout(commits: page, visibleHashes: ["a", "unrelated"])
+        #expect(filtered.hasMissingParents)
+        let prints = filtered.rows.flatMap(\.printElements)
+        #expect(!prints.isEmpty)
+        #expect(prints.allSatisfy { $0.isDotted && $0.targetHash == nil })
+        #expect(prints.contains { $0.hasArrow && $0.isTerminal })
+        assertContinuity(filtered)
+
+        let loaded = page + [commit("c", [])]
+        let hiddenRoot = GitGraphLayoutService.layout(commits: loaded, visibleHashes: ["a", "unrelated"])
+        #expect(!hiddenRoot.hasMissingParents)
+        #expect(hiddenRoot.rows[0].parentEdges.isEmpty)
+        let visibleRoot = GitGraphLayoutService.layout(commits: loaded, visibleHashes: ["a", "c"])
+        #expect(!visibleRoot.hasMissingParents)
+        #expect(visibleRoot.rows[0].parentEdges.map(\.parentHash) == ["c"])
+        #expect(visibleRoot.rows.flatMap(\.printElements).allSatisfy { $0.isDotted })
+        assertContinuity(visibleRoot)
+    }
+
+    @Test("Missing projection deduplicates hidden merge paths and stops at visible ancestors")
+    func filteredMissingMergePaths() {
+        let commits = [commit("a", ["left", "right", "missing"]), commit("peer", ["left"]),
+                       commit("left", ["missing", "missing"]), commit("right", ["missing", "other"]),
+                       commit("unrelated", ["unrelated-missing"])]
+        let layout = GitGraphLayoutService.layout(commits: commits, visibleHashes: ["a", "peer"])
+        #expect(layout.hasMissingParents)
+        #expect(layout.rows[0].parentEdges.map(\.parentHash) == ["missing", "other"])
+        #expect(layout.rows[1].parentEdges.map(\.parentHash) == ["missing"])
+        let direct = layout.rows[0].parentEdges.first { $0.parentHash == "missing" }
+        #expect(layout.rows[0].printElements.filter { $0.edgeID == direct?.id }.allSatisfy { !$0.isDotted })
+
+        let stopped = GitGraphLayoutService.layout(commits: [commit("a", ["b"]), commit("b", ["c"]), commit("c", ["missing"])],
+                                                   visibleHashes: ["a", "b"])
+        #expect(stopped.rows[0].parentEdges.map(\.parentHash) == ["b"])
+        #expect(stopped.rows[0].parentEdges.allSatisfy { !$0.isMissing })
+        #expect(stopped.rows[1].parentEdges.map(\.parentHash) == ["missing"])
+        let unrelated = GitGraphLayoutService.layout(commits: [commit("a", []), commit("hidden", ["missing"])], visibleHashes: ["a"])
+        #expect(!unrelated.hasMissingParents)
+    }
+
     @Test("An ended branch gives its column back instead of leaving a hole")
     func compactColumns() {
         let layout = GitGraphLayoutService.layout(commits: [commit("a", ["b", "c"]), commit("b", []), commit("c", ["d"]), commit("d", [])])

@@ -837,11 +837,17 @@ final class GitGraphNSView: NSView {
 
     func navigationTarget(at point: CGPoint) -> String? {
         let row = Int(floor(point.y / rowHeight))
-        guard snapshot.rows.indices.contains(row) else { return nil }
-        let local = CGPoint(x: point.x, y: point.y - CGFloat(row) * rowHeight)
-        return snapshot.rows[row].printElements.first {
-            $0.hasArrow && $0.targetHash != nil && GitGraphGeometry.arrowHitRect(for: $0, rowHeight: rowHeight).contains(local)
-        }?.targetHash
+        // Expanded arrows end on a shared row boundary. At that exact pixel,
+        // also check the preceding row's down arrow instead of losing its tip
+        // to floor() and CGRect's exclusive upper bound.
+        let candidates = point.y == CGFloat(row) * rowHeight ? [row, row - 1] : [row]
+        for candidate in candidates where snapshot.rows.indices.contains(candidate) {
+            let local = CGPoint(x: point.x, y: min(rowHeight.nextDown, point.y - CGFloat(candidate) * rowHeight))
+            if let target = snapshot.rows[candidate].printElements.first(where: {
+                $0.hasArrow && $0.targetHash != nil && GitGraphGeometry.arrowHitRect(for: $0, rowHeight: rowHeight).contains(local)
+            })?.targetHash { return target }
+        }
+        return nil
     }
 
     func update(snapshot: GitGraphRoutingSnapshot, width: CGFloat, rowHeight: CGFloat) {
