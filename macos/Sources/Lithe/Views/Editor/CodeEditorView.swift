@@ -1300,10 +1300,13 @@ struct CodeEditorView: NSViewRepresentable {
             guard document?.isReadOnly != true else { return }
             let codeTextView = textView as? CodeTextView
             let previousSource = document?.text
-            if let replacedRange = pendingReplacedRange, let replacement = pendingReplacement {
-                codeTextView?.applyLineIndexEdit(replacedRange: replacedRange, replacement: replacement)
-            } else {
+            let replacesWholeText = pendingReplacedRange == nil || pendingReplacement == nil
+                || (pendingReplacedRange?.location == 0 && pendingReplacedRange?.length == previousSource?.utf16.count)
+            if replacesWholeText {
                 codeTextView?.rebuildLineIndex()
+                invalidateStructureForTextReplacement()
+            } else if let replacedRange = pendingReplacedRange, let replacement = pendingReplacement {
+                codeTextView?.applyLineIndexEdit(replacedRange: replacedRange, replacement: replacement)
             }
             gutter?.refreshLineNumberLayout()
             isApplyingEditorChange = true
@@ -1335,7 +1338,6 @@ struct CodeEditorView: NSViewRepresentable {
             }
             let findReplacedRange = pendingReplacedRange
             let findInsertedLength = pendingHighlightRange?.length ?? 0
-            if pendingHighlightRange == nil { resetHighlightCache(textChanged: true) }
             highlight(
                 in: pendingHighlightRange,
                 replacedLength: pendingReplacedRange?.length
@@ -1500,28 +1502,32 @@ struct CodeEditorView: NSViewRepresentable {
 
         func replaceText(_ source: String) {
             guard let textView else { return }
+            let selection = textView.selectedRange()
+            textView.string = source
+            (textView as? CodeTextView)?.rebuildLineIndex()
+            invalidateStructureForTextReplacement()
+            highlight()
+            gutter?.refreshLineNumberLayout()
+            textView.setSelectedRange(NSRange(location: min(selection.location, source.utf16.count), length: 0))
+            (textView as? CodeTextView)?.updateEditorDecorations()
+            gutter?.needsDisplay = true
+        }
+
+        private func invalidateStructureForTextReplacement() {
             foldRefreshTask?.cancel()
             javaMarkerRefreshTask?.cancel()
-            let selection = textView.selectedRange()
             // Retain only the user's fold choices until fresh structure validates
-            // them. Old offsets must never hide or exclude the replacement text.
+            // them. Both model-driven replacements and native whole-buffer edits
+            // must stop old offsets from hiding or excluding the new text.
             collapsedFoldIDsBeforeTextReplacement.formUnion(collapsedFoldIDs)
             let hadFoldState = !foldRegions.isEmpty || !collapsedFoldIDs.isEmpty || !implementationMarkers.isEmpty
             foldRegions = []
             collapsedFoldIDs = []
             implementationMarkers = []
-            textView.string = source
-            (textView as? CodeTextView)?.rebuildLineIndex()
             resetHighlightCache(textChanged: true)
             if hadFoldState {
-                applyFoldState()
-            } else {
-                highlight()
+                updateFoldPresentation()
             }
-            gutter?.refreshLineNumberLayout()
-            textView.setSelectedRange(NSRange(location: min(selection.location, source.utf16.count), length: 0))
-            (textView as? CodeTextView)?.updateEditorDecorations()
-            gutter?.needsDisplay = true
         }
 
         func primeJavaImportFold(_ region: JavaFoldRegion) {
@@ -1650,6 +1656,11 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         private func applyFoldState() {
+            updateFoldPresentation()
+            highlight()
+        }
+
+        private func updateFoldPresentation() {
             (textView as? CodeTextView)?.updateFolds(
                 regions: foldRegions,
                 collapsedIDs: collapsedFoldIDs,
@@ -1664,7 +1675,6 @@ struct CodeEditorView: NSViewRepresentable {
                 guard let document else { return }
                 model?.resolveJavaNavigation(marker, in: document.url)
             }
-            highlight()
             scheduleEditorOverlayRelayout()
         }
 

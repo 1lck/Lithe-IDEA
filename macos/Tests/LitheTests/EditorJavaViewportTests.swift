@@ -259,6 +259,81 @@ struct EditorJavaViewportTests {
         }
     }
 
+    @Test(arguments: ["replaceAll", "paste", "programmatic"])
+    func wholeBufferEditorEditsClearFoldsBeforeAnalysis(entry: String) throws {
+        let source = "import first;\nimport second;\nclass Demo {}\n"
+        let (view, layout) = makeTextView(source)
+        try withCoordinator(source: source) { coordinator in
+            coordinator.textView = view
+            view.delegate = coordinator
+            defer { view.delegate = nil }
+            let fold = JavaFoldRegion(kind: .imports, startLine: 0, endLine: 1,
+                                      hiddenRange: (source as NSString).range(of: "import second;\n"))
+            coordinator.primeJavaImportFold(fold)
+            let replacement = source.replacingOccurrences(of: "first", with: "firstLong")
+            switch entry {
+            case "replaceAll":
+                view.updateFindMatches(query: "first", options: FindInFileOptions())
+                view.replaceAllFindMatches(replacement: "firstLong")
+            case "paste":
+                view.insertText(replacement, replacementRange: NSRange(location: 0, length: source.utf16.count))
+            default:
+                view.textStorage?.replaceCharacters(in: NSRange(location: 0, length: source.utf16.count),
+                                                    with: replacement)
+                view.didChangeText()
+            }
+            #expect(view.string == replacement)
+            #expect(coordinator.document?.text == replacement)
+            #expect(coordinator.foldRegions.isEmpty)
+            #expect(coordinator.collapsedFoldIDs.isEmpty)
+            let full = NSRange(location: 0, length: replacement.utf16.count)
+            #expect(view.unfoldedRanges(in: full) == [full])
+            for location in 0..<full.length {
+                #expect(layout.temporaryAttribute(.foregroundColor, atCharacterIndex: location,
+                                                 effectiveRange: nil) as? NSColor != .clear)
+            }
+        }
+    }
+
+    @Test(arguments: [6, 13])
+    func insertionAtFoldBoundariesKeepsVisibleTextVisible(location: Int) {
+        let (view, layout) = makeTextView("start\nhidden\nend")
+        let fold = JavaFoldRegion(kind: .block, startLine: 0, endLine: 2,
+                                  hiddenRange: NSRange(location: 6, length: 7))
+        view.updateFolds(regions: [fold], collapsedIDs: [fold.id], onToggle: { _ in })
+        let edit = NSRange(location: location, length: 0)
+        view.textStorage?.replaceCharacters(in: edit, with: "X")
+        view.applyLineIndexEdit(replacedRange: edit, replacement: "X")
+        let updated = JavaFoldRegion(kind: .block, startLine: 0, endLine: 2,
+                                     hiddenRange: NSRange(location: 6, length: location == 6 ? 8 : 7))
+        view.updateFolds(regions: [updated], collapsedIDs: [updated.id], onToggle: { _ in })
+        let firstVisible = NSMaxRange(updated.hiddenRange)
+        #expect(!view.isCharacterHiddenByFold(firstVisible))
+        #expect(layout.temporaryAttribute(.font, atCharacterIndex: firstVisible, effectiveRange: nil) == nil)
+        #expect(layout.temporaryAttribute(.foregroundColor, atCharacterIndex: firstVisible,
+                                         effectiveRange: nil) as? NSColor != .clear)
+    }
+
+    @Test
+    func nativePartialEditPreservesFoldStateWhileAnalysisIsPending() throws {
+        let source = "import first;\nimport second;\nclass Demo {}\n"
+        let (view, _) = makeTextView(source)
+        try withCoordinator(source: source) { coordinator in
+            coordinator.textView = view
+            view.delegate = coordinator
+            defer { view.delegate = nil }
+            let fold = JavaFoldRegion(kind: .imports, startLine: 0, endLine: 1,
+                                      hiddenRange: (source as NSString).range(of: "import second;\n"))
+            coordinator.primeJavaImportFold(fold)
+            view.insertText("Renamed", replacementRange: (source as NSString).range(of: "Demo"))
+            #expect(view.string == source.replacingOccurrences(of: "Demo", with: "Renamed"))
+            #expect(coordinator.document?.text == view.string)
+            #expect(coordinator.collapsedFoldIDs == [fold.id])
+            #expect(view.isCharacterHiddenByFold(fold.hiddenRange.location))
+            #expect(!view.isCharacterHiddenByFold(NSMaxRange(fold.hiddenRange)))
+        }
+    }
+
     @Test
     func initialImportFoldUsesLightColorsBeforeAnyStructureResult() throws {
         let source = "import a;\nimport b;\nclass Demo {}\n"
