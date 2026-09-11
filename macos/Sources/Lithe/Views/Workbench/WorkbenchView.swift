@@ -937,7 +937,9 @@ struct WorkbenchView: View {
         Menu {
             if let runFeature = model.runFeatureIfActive,
                !runFeature.configurations.isEmpty {
-                ForEach(runFeature.configurations) { configuration in
+                let services = runFeature.configurations.filter { $0.execution == .service }
+                let visibleConfigurations = services.isEmpty ? runFeature.configurations : services
+                ForEach(visibleConfigurations) { configuration in
                     Button {
                         model.selectRunConfiguration(configuration)
                     } label: {
