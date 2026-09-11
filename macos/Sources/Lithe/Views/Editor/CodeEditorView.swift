@@ -677,6 +677,8 @@ struct CodeEditorView: NSViewRepresentable {
         Coordinator(
             document: document,
             model: model,
+            isDarkAppearance: colorScheme == .dark,
+            colorTheme: settings.colorTheme,
             markdownScrollPosition: markdownScrollPosition,
             viewportStore: viewportStore
         )
@@ -842,8 +844,6 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.debugInlineValueOverlay = DebugInlineValueOverlayController(
             textView: textView
         )
-        context.coordinator.isDarkAppearance = palette.isDark
-        context.coordinator.colorTheme = settings.colorTheme
         context.coordinator.highlight()
         textView.updateCaretDecorations()
         context.coordinator.scheduleFoldRefresh(useDefaultImportFold: true)
@@ -912,15 +912,7 @@ struct CodeEditorView: NSViewRepresentable {
         if textView.string != document.text,
            !textView.hasMarkedText(),
            !context.coordinator.isApplyingEditorChange {
-            let selection = textView.selectedRange()
-            textView.string = document.text
-            (textView as? CodeTextView)?.rebuildLineIndex()
-            container.gutter?.refreshLineNumberLayout()
-            textView.setSelectedRange(NSRange(location: min(selection.location, document.text.utf16.count), length: 0))
-            context.coordinator.resetHighlightCache(textChanged: true)
-            context.coordinator.highlight()
-            (textView as? CodeTextView)?.updateEditorDecorations()
-            container.gutter?.needsDisplay = true
+            context.coordinator.replaceText(document.text)
             context.coordinator.scheduleFoldRefresh()
             textChanged = true
         }
@@ -964,8 +956,8 @@ struct CodeEditorView: NSViewRepresentable {
         var codeVisionOverlay: CodeVisionOverlayController?
         var debugInlineValueOverlay: DebugInlineValueOverlayController?
         var isApplyingEditorChange = false
-        var isDarkAppearance = true
-        var colorTheme: AppColorTheme = .lithe
+        var isDarkAppearance: Bool
+        var colorTheme: AppColorTheme
         var shouldFocus = true
         var markdownScrollPosition: Binding<MarkdownScrollPosition>?
         private struct CodeVisionInputKey: Equatable {
@@ -979,6 +971,7 @@ struct CodeEditorView: NSViewRepresentable {
         var appliedNavigationTargetID: UUID?
         var foldRegions: [JavaFoldRegion] = []
         var collapsedFoldIDs: Set<String> = []
+        private var collapsedFoldIDsBeforeTextReplacement: Set<String> = []
         var implementationMarkers: [JavaImplementationMarker] = []
         var lastFindVisible = false
         var lastFindQuery = ""
@@ -1033,11 +1026,15 @@ struct CodeEditorView: NSViewRepresentable {
         init(
             document: EditorDocument,
             model: AppModel,
+            isDarkAppearance: Bool,
+            colorTheme: AppColorTheme,
             markdownScrollPosition: Binding<MarkdownScrollPosition>?,
             viewportStore: EditorViewportStore
         ) {
             self.document = document
             self.model = model
+            self.isDarkAppearance = isDarkAppearance
+            self.colorTheme = colorTheme
             self.markdownScrollPosition = markdownScrollPosition
             self.viewportStore = viewportStore
             fileName = document.url.lastPathComponent
@@ -1501,6 +1498,32 @@ struct CodeEditorView: NSViewRepresentable {
             }
         }
 
+        func replaceText(_ source: String) {
+            guard let textView else { return }
+            foldRefreshTask?.cancel()
+            javaMarkerRefreshTask?.cancel()
+            let selection = textView.selectedRange()
+            // Retain only the user's fold choices until fresh structure validates
+            // them. Old offsets must never hide or exclude the replacement text.
+            collapsedFoldIDsBeforeTextReplacement.formUnion(collapsedFoldIDs)
+            let hadFoldState = !foldRegions.isEmpty || !collapsedFoldIDs.isEmpty || !implementationMarkers.isEmpty
+            foldRegions = []
+            collapsedFoldIDs = []
+            implementationMarkers = []
+            textView.string = source
+            (textView as? CodeTextView)?.rebuildLineIndex()
+            resetHighlightCache(textChanged: true)
+            if hadFoldState {
+                applyFoldState()
+            } else {
+                highlight()
+            }
+            gutter?.refreshLineNumberLayout()
+            textView.setSelectedRange(NSRange(location: min(selection.location, source.utf16.count), length: 0))
+            (textView as? CodeTextView)?.updateEditorDecorations()
+            gutter?.needsDisplay = true
+        }
+
         func primeJavaImportFold(_ region: JavaFoldRegion) {
             guard fileExtension.lowercased() == "java" else { return }
             foldRegions = [region]
@@ -1509,15 +1532,19 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         func scheduleFoldRefresh(useDefaultImportFold: Bool = false) {
-            scheduleJavaNavigationMarkerRefresh()
             foldRefreshTask?.cancel()
+            guard fileExtension.lowercased() == "java" else {
+                clearJavaStructure()
+                return
+            }
+            scheduleJavaNavigationMarkerRefresh()
             foldRefreshTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .milliseconds(80))
                 guard !Task.isCancelled,
                       let self,
                       let document = self.document,
                       let textView = self.textView as? CodeTextView else { return }
-                guard self.fileExtension.lowercased() == "java", let model = self.model else {
+                guard let model = self.model else {
                     self.clearJavaStructure()
                     return
                 }
@@ -1584,6 +1611,8 @@ struct CodeEditorView: NSViewRepresentable {
             }
             foldRegions = structure.foldRegions
             let availableIDs = Set(foldRegions.map(\.id))
+            collapsedFoldIDs.formUnion(collapsedFoldIDsBeforeTextReplacement)
+            collapsedFoldIDsBeforeTextReplacement = []
             collapsedFoldIDs.formIntersection(availableIDs)
             if useDefaultImportFold,
                let imports = foldRegions.first(where: { $0.kind == .imports }) {
@@ -1596,13 +1625,18 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         private func clearJavaStructure() {
-            syntaxHighlightState.invalidateText()
-            highlight()
+            collapsedFoldIDsBeforeTextReplacement = []
+            let isJava = fileExtension.lowercased() == "java"
+            if isJava {
+                syntaxHighlightState.invalidateText()
+            }
             if !foldRegions.isEmpty || !collapsedFoldIDs.isEmpty || !implementationMarkers.isEmpty {
                 foldRegions = []
                 collapsedFoldIDs = []
                 implementationMarkers = []
                 applyFoldState()
+            } else if isJava {
+                highlight()
             }
         }
 
@@ -2298,13 +2332,19 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     }
 
     func applyLineIndexEdit(replacedRange: NSRange, replacement: String) {
-        // NSTextStorage adjusts temporary attributes through edits. Rebuild them
-        // if an edit can touch/shift a fold, even if parsing returns equal ranges.
-        if let last = collapsedRanges.ranges.last, replacedRange.location <= NSMaxRange(last) {
+        let insertedLength = (replacement as NSString).length
+        // Equal-length edits outside folds leave their temporary attributes intact.
+        // Offset-changing edits remain dirty: several edits can shift attributes
+        // before one parse returns, even if their net change restores old geometry.
+        let touchesFold = collapsedRanges.contains(replacedRange.location)
+            || collapsedRanges.intersects(replacedRange)
+        let shiftsFold = insertedLength != replacedRange.length
+            && collapsedRanges.ranges.last.map { replacedRange.location < NSMaxRange($0) } == true
+        if touchesFold || shiftsFold {
             foldAttributesNeedRefresh = true
         }
         if replacement.contains("\n") || replacement.contains("\r")
-            || !lineIndex.applySingleLineEdit(replacedRange: replacedRange, insertedLength: (replacement as NSString).length) {
+            || !lineIndex.applySingleLineEdit(replacedRange: replacedRange, insertedLength: insertedLength) {
             lineIndex = TextLineIndex(source: string as NSString)
         }
     }
@@ -5672,6 +5712,17 @@ struct HighlightedRangeCache {
     }
 
     func contains(_ location: Int) -> Bool {
+        let index = firstRangeEnding(after: location)
+        return index < ranges.count && NSLocationInRange(location, ranges[index])
+    }
+
+    func intersects(_ range: NSRange) -> Bool {
+        guard range.length > 0 else { return false }
+        let index = firstRangeEnding(after: range.location)
+        return index < ranges.count && ranges[index].location < NSMaxRange(range)
+    }
+
+    private func firstRangeEnding(after location: Int) -> Int {
         var lower = 0
         var upper = ranges.count
         while lower < upper {
@@ -5679,7 +5730,7 @@ struct HighlightedRangeCache {
             if NSMaxRange(ranges[middle]) <= location { lower = middle + 1 }
             else { upper = middle }
         }
-        return lower < ranges.count && NSLocationInRange(location, ranges[lower])
+        return lower
     }
 
     mutating func insert(_ range: NSRange) {

@@ -190,6 +190,131 @@ struct EditorJavaViewportTests {
     }
 
     @Test
+    func fullTextReplacementClearsOldFoldsBeforeFreshStructureArrives() throws {
+        let source = "start\nhidden\nend"
+        let (view, layout) = makeTextView(source)
+        let gutter = LineNumberGutterView(frame: .zero)
+        try withCoordinator(source: source) { coordinator in
+            coordinator.textView = view
+            coordinator.gutter = gutter
+            let fold = JavaFoldRegion(kind: .imports, startLine: 0, endLine: 2,
+                                      hiddenRange: NSRange(location: 6, length: 7))
+            coordinator.primeJavaImportFold(fold)
+            #expect(view.isCharacterHiddenByFold(6))
+
+            // Inspect the synchronous replacement boundary without delivering any
+            // Java structure result; unrelated text now occupies the old offsets.
+            coordinator.replaceText("class New {\nint visible;\n}\n")
+
+            let storage = try #require(view.textStorage)
+            let full = NSRange(location: 0, length: storage.length)
+            #expect(coordinator.foldRegions.isEmpty)
+            #expect(coordinator.collapsedFoldIDs.isEmpty)
+            #expect(view.unfoldedRanges(in: full) == [full])
+            let reference = NSTextStorage(string: view.string)
+            SyntaxHighlighter.apply(to: reference, font: font, fileExtension: "java", isDark: true, range: full)
+            for location in 0..<storage.length {
+                #expect(!view.isCharacterHiddenByFold(location))
+                #expect(layout.temporaryAttribute(.foregroundColor, atCharacterIndex: location,
+                                                 effectiveRange: nil) as? NSColor != .clear)
+                #expect(storage.attribute(.foregroundColor, at: location, effectiveRange: nil) as? NSColor
+                    == reference.attribute(.foregroundColor, at: location, effectiveRange: nil) as? NSColor)
+            }
+            coordinator.replaceText("")
+            #expect(view.unfoldedRanges(in: NSRange(location: 0, length: 0)).isEmpty)
+            #expect(view.selectedRange() == NSRange(location: 0, length: 0))
+        }
+    }
+
+    @Test(arguments: ["swift", "json", "md"])
+    func nonJavaFoldRefreshPreservesEditedLineColorsAndViewportCache(fileExtension: String) throws {
+        let source = "name\nsecond\nthird\n"
+        let (view, layout) = makeTextView(source)
+        try withCoordinator(source: source, fileExtension: fileExtension) { coordinator in
+            coordinator.textView = view
+            coordinator.highlight()
+            let storage = try #require(view.textStorage)
+            let recorder = ViewportAttributeRecorder()
+            storage.delegate = recorder
+            defer { storage.delegate = nil }
+            coordinator.scheduleFoldRefresh()
+            coordinator.highlight()
+            #expect(recorder.attributeEdits == 0)
+
+            let edit = NSRange(location: 0, length: 4)
+            storage.replaceCharacters(in: edit, with: "type")
+            view.applyLineIndexEdit(replacedRange: edit, replacement: "type")
+            coordinator.highlight(in: edit, replacedLength: edit.length)
+            #expect(recorder.attributeEdits > 0)
+            recorder.attributeEdits = 0
+
+            // The non-Java branch finishes synchronously; no debounce or external
+            // analysis is needed to discover that there is no Java state to clear.
+            coordinator.scheduleFoldRefresh()
+            #expect(recorder.attributeEdits == 0)
+
+            layout.containerLayoutRequests = 0
+            coordinator.replaceText("other\ntext\n")
+            #expect(layout.containerLayoutRequests == 0)
+        }
+    }
+
+    @Test
+    func initialImportFoldUsesLightColorsBeforeAnyStructureResult() throws {
+        let source = "import a;\nimport b;\nclass Demo {}\n"
+        let (view, _) = makeTextView(source)
+        try withCoordinator(source: source, isDark: false) { coordinator in
+            coordinator.textView = view
+            let fold = JavaFoldRegion(kind: .imports, startLine: 0, endLine: 1,
+                                      hiddenRange: (source as NSString).range(of: "import b;\n"))
+            coordinator.primeJavaImportFold(fold)
+            coordinator.highlight()
+            let storage = try #require(view.textStorage)
+            let full = NSRange(location: 0, length: storage.length)
+            let reference = NSTextStorage(string: source)
+            SyntaxHighlighter.apply(to: reference, font: font, fileExtension: "java", isDark: false, range: full)
+            for keyword in ["import", "class"] {
+                let location = (source as NSString).range(of: keyword).location
+                #expect(storage.attribute(.foregroundColor, at: location, effectiveRange: nil) as? NSColor
+                    == reference.attribute(.foregroundColor, at: location, effectiveRange: nil) as? NSColor)
+            }
+        }
+    }
+
+    @Test(arguments: [0, 5, 13])
+    func equalLengthEditsOutsideFoldDoNotForceLayout(location: Int) {
+        let (view, layout) = makeTextView("start\nhidden\nend")
+        let fold = JavaFoldRegion(kind: .block, startLine: 0, endLine: 2,
+                                  hiddenRange: NSRange(location: 6, length: 7))
+        view.updateFolds(regions: [fold], collapsedIDs: [fold.id], onToggle: { _ in })
+        let edit = NSRange(location: location, length: 1)
+        view.textStorage?.replaceCharacters(in: edit, with: "X")
+        view.applyLineIndexEdit(replacedRange: edit, replacement: "X")
+        layout.containerLayoutRequests = 0
+        view.updateFolds(regions: [fold], collapsedIDs: [fold.id], onToggle: { _ in })
+        #expect(layout.containerLayoutRequests == 0)
+        #expect(layout.temporaryAttribute(.foregroundColor, atCharacterIndex: 6,
+                                         effectiveRange: nil) as? NSColor == .clear)
+    }
+
+    @Test(arguments: [NSRange(location: 6, length: 1), NSRange(location: 12, length: 1),
+                      NSRange(location: 5, length: 2)])
+    func editsTouchingFoldBoundariesStillRefreshAttributes(edit: NSRange) {
+        let (view, layout) = makeTextView("start\nhidden\nend")
+        let fold = JavaFoldRegion(kind: .block, startLine: 0, endLine: 2,
+                                  hiddenRange: NSRange(location: 6, length: 7))
+        view.updateFolds(regions: [fold], collapsedIDs: [fold.id], onToggle: { _ in })
+        let replacement = String(repeating: "X", count: edit.length)
+        view.textStorage?.replaceCharacters(in: edit, with: replacement)
+        view.applyLineIndexEdit(replacedRange: edit, replacement: replacement)
+        layout.containerLayoutRequests = 0
+        view.updateFolds(regions: [fold], collapsedIDs: [fold.id], onToggle: { _ in })
+        #expect(layout.containerLayoutRequests > 0)
+        #expect(layout.temporaryAttribute(.foregroundColor, atCharacterIndex: 6,
+                                         effectiveRange: nil) as? NSColor == .clear)
+    }
+
+    @Test
     func shiftingAnExistingFoldReplacesItsGeometryAndTemporaryAttributes() {
         let (view, layout) = makeTextView("start\nhidden\nend")
         let original = JavaFoldRegion(kind: .block, startLine: 0, endLine: 2,
@@ -250,9 +375,46 @@ struct EditorJavaViewportTests {
         view.rebuildLineIndex()
         return (view, layout)
     }
+
+    private func withCoordinator(
+        source: String,
+        fileExtension: String = "java",
+        isDark: Bool = true,
+        body: (CodeEditorView.Coordinator) throws -> Void
+    ) rethrows {
+        let store = ViewportTestStore()
+        let settings = AppSettings(store: store)
+        let services = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services
+        let model = AppModel(settings: settings, services: services)
+        let document = EditorDocument(url: URL(fileURLWithPath: "/fixture/Viewport.\(fileExtension)"),
+                                      text: source, modificationDate: nil)
+        let coordinator = CodeEditorView.Coordinator(
+            document: document, model: model, isDarkAppearance: isDark, colorTheme: .lithe,
+            markdownScrollPosition: nil, viewportStore: EditorViewportStore()
+        )
+        try withExtendedLifetime((model, document)) { try body(coordinator) }
+    }
 }
 
-@MainActor
+private final class ViewportAttributeRecorder: NSObject, NSTextStorageDelegate {
+    var attributeEdits = 0
+
+    func textStorage(_ textStorage: NSTextStorage, didProcessEditing editedMask: NSTextStorageEditActions,
+                     range editedRange: NSRange, changeInLength delta: Int) {
+        if editedMask.contains(.editedAttributes) { attributeEdits += 1 }
+    }
+}
+
+private final class ViewportTestStore: KeyValueStore, @unchecked Sendable {
+    private var values: [String: Any] = [:]
+
+    func data(forKey key: String) -> Data? { values[key] as? Data }
+    func object(forKey key: String) -> Any? { values[key] }
+    func string(forKey key: String) -> String? { values[key] as? String }
+    func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
+    func set(_ value: Any?, forKey key: String) { values[key] = value }
+}
+
 private final class ViewportLayoutRecorder: NSLayoutManager {
     var containerLayoutRequests = 0
     var requestedLineGlyphs: [Int] = []
