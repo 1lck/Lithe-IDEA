@@ -8,10 +8,10 @@ import Testing
 @Suite("Git graph arrow interaction", .serialized)
 @MainActor
 struct GitGraphInteractionTests {
-    @Test("The reported history matches IDEA with and without repository context", arguments: [false, true])
-    func reportedHistoryParity(_ useContext: Bool) throws {
-        let layout = GitGraphLayoutService.layout(commits: try reportedCommits(),
-            repositoryCommits: useContext ? try reportedCommits("issue410-context") : [])
+    @Test("Real history matches IDEA for page, repository context and Normal date order", arguments: ["page", "context", "date"])
+    func reportedHistoryParity(_ fixture: String) throws {
+        let layout = GitGraphLayoutService.layout(commits: try reportedCommits(fixture == "date" ? "issue410-date-history" : "issue410-history"),
+            repositoryCommits: fixture == "page" ? [] : try reportedCommits(fixture == "date" ? "issue410-date-context" : "issue410-context"))
         var actual = ["Width|\(layout.recommendedLaneCount)"]
         for (index, row) in layout.rows.enumerated() {
             actual.append("Node|\(index):\(row.lane):\(row.layoutIndex):\(row.nodeColorIndex)")
@@ -21,7 +21,7 @@ struct GitGraphInteractionTests {
                 actual.append("Edge|\(index):\(edge.position):\(edge.adjacentPosition):\(direction):\(edge.hasArrow):\(edge.isTerminal):\(style):\(edge.colorIndex)")
             }
         }
-        let expected = try graphFixture(useContext ? "issue410-context-idea" : "issue410-idea", extension: "txt")
+        let expected = try graphFixture(fixture == "date" ? "issue410-date-idea" : fixture == "context" ? "issue410-context-idea" : "issue410-idea", extension: "txt")
             .split(separator: "\n").map(String.init)
         // Compare the complete multiset, but report only differences on failure.
         let difference = actual.sorted().difference(from: expected)
@@ -30,20 +30,22 @@ struct GitGraphInteractionTests {
 
     @Test("Generated colors match IDEA RGB samples including signed integer overflow")
     func ideaColors() throws {
-        for line in try graphFixture("idea-colors", extension: "txt").split(separator: "\n") {
+        for line in try graphFixture("idea-theme-colors", extension: "txt").split(separator: "\n") {
             let columns = line.split(separator: "|")
-            let id = try #require(Int(columns[0]))
-            let expected = columns[1].split(separator: ":").compactMap { Int($0) }
-            let color = try #require(GitGraphColor.color(for: id).usingColorSpace(.deviceRGB))
+            let isDark = columns[0] == "dark"
+            let id = try #require(Int(columns[1]))
+            let expected = columns[2].split(separator: ":").compactMap { Int($0) }
+            let color = try #require(GitGraphColor.color(for: id, isDark: isDark).usingColorSpace(.deviceRGB))
             let actual = [color.redComponent, color.greenComponent, color.blueComponent].map { Int(($0 * 255).rounded()) }
             #expect(actual == expected, "IDEA color ID \(id)")
         }
     }
 
-    @Test("The reported merge cluster renders with compact row spacing in both appearances")
-    func reportedHistoryRendering() throws {
-        let layout = GitGraphLayoutService.layout(commits: try reportedCommits(), repositoryCommits: try reportedCommits("issue410-context"))
-        #expect(layout.rows.count == 200)
+    @Test("Real merge clusters render in date and legacy order in both appearances", arguments: [false, true])
+    func reportedHistoryRendering(_ dateOrder: Bool) throws {
+        let layout = GitGraphLayoutService.layout(commits: try reportedCommits(dateOrder ? "issue410-date-history" : "issue410-history"),
+            repositoryCommits: try reportedCommits(dateOrder ? "issue410-date-context" : "issue410-context"))
+        #expect(layout.rows.count == (dateOrder ? 300 : 200))
         let selectedIndex = try #require(layout.rows.firstIndex { $0.commit.hash.hasPrefix("ba3725bb") })
         for dark in [false, true] {
             let height = CGFloat(layout.rows.count + (layout.hasMissingParents ? 1 : 0)) * GitGraphGeometry.rowHeight
@@ -60,16 +62,24 @@ struct GitGraphInteractionTests {
             window.contentView = surface
             defer { window.orderOut(nil); window.close() }
             surface.layoutSubtreeIfNeeded()
-            let region = NSRect(x: 0, y: CGFloat(selectedIndex - 6) * GitGraphGeometry.rowHeight, width: 1_050,
-                                height: 16 * GitGraphGeometry.rowHeight)
-            let bitmap = try #require(surface.bitmapImageRepForCachingDisplay(in: region))
-            surface.cacheDisplay(in: region, to: bitmap)
-            let data = try #require(bitmap.representation(using: .png, properties: [:]))
-            #expect(data.count > 1_000)
-            if let directory = ProcessInfo.processInfo.environment["LITHE_GIT_GRAPH_CAPTURE_DIR"] {
-                let root = URL(fileURLWithPath: directory, isDirectory: true)
-                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-                try data.write(to: root.appendingPathComponent("reported-history-\(dark ? "dark" : "light").png"))
+            var regions = [("reported-\(dateOrder ? "date" : "topo")", selectedIndex - 6, 16, CGFloat(1_050))]
+            if dateOrder {
+                // The user's IDEA crop starts four rows above the "update" commit.
+                let reference = try #require(layout.rows.firstIndex { $0.commit.hash.hasPrefix("de4208d5") })
+                regions.append(("idea-reference", reference - 4, 11, 660))
+            }
+            for (name, first, count, width) in regions {
+                let region = NSRect(x: 0, y: CGFloat(first) * GitGraphGeometry.rowHeight, width: width,
+                                    height: CGFloat(count) * GitGraphGeometry.rowHeight)
+                let bitmap = try #require(surface.bitmapImageRepForCachingDisplay(in: region))
+                surface.cacheDisplay(in: region, to: bitmap)
+                let data = try #require(bitmap.representation(using: .png, properties: [:]))
+                #expect(data.count > 1_000)
+                if let directory = ProcessInfo.processInfo.environment["LITHE_GIT_GRAPH_CAPTURE_DIR"] {
+                    let root = URL(fileURLWithPath: directory, isDirectory: true)
+                    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+                    try data.write(to: root.appendingPathComponent("\(name)-\(dark ? "dark" : "light").png"))
+                }
             }
         }
     }

@@ -41,7 +41,9 @@ public class GenerateIdeaOracle {
       }
       bestRefs.add(refs.stream().min(ORDER).orElse(null));
     }
-    var graph = PermanentLinearGraphBuilder.newInstance(commits).build();
+    var unloaded = new HashMap<String, Integer>();
+    var graph = PermanentLinearGraphBuilder.newInstance(commits)
+      .build(hash -> unloaded.computeIfAbsent(hash, key -> -2 - unloaded.size()));
     var layout = GraphLayoutBuilder.build(graph, branches, (int a, int b) -> {
       var x = bestRefs.get(a); var y = bestRefs.get(b);
       if (x == null || y == null) return x == y ? a - b : x == null ? 1 : -1;
@@ -53,7 +55,12 @@ public class GenerateIdeaOracle {
     var visibleRows = new ArrayList<Integer>();
     for (int row = 0; row < commits.size(); row++) if (requested.contains(commits.get(row).id())) visibleRows.add(row);
     var visibleCommits = visibleRows.stream().map(commits::get).toList();
-    var visibleGraph = PermanentLinearGraphBuilder.newInstance(visibleCommits).build();
+    // The no-argument build() gives every missing parent the SAME sentinel ID.
+    // Real IDEA assigns unique IDs; otherwise two page-external parents alias
+    // in the print generator's map of adjacent-row endpoints.
+    var visibleUnloaded = new HashMap<String, Integer>();
+    var visibleGraph = PermanentLinearGraphBuilder.newInstance(visibleCommits)
+      .build(hash -> visibleUnloaded.computeIfAbsent(hash, key -> -2 - visibleUnloaded.size()));
     java.util.function.Function<Integer, Integer> visibleLI = row -> layout.getLayoutIndex(visibleRows.get(row));
     PrintElementPresentationManager presentation = new PrintElementPresentationManager() {
       public boolean isSelected(GraphPrintElement element) { return false; }
@@ -91,14 +98,18 @@ public class GenerateIdeaOracle {
     }
     Collections.sort(output);
     Files.write(Path.of(args[1]), output);
-    // Exercise the actual upstream color generator with its default theme.
+    // Exercise the upstream generator with IDEA expUI / Islands theme values.
     var companion = com.intellij.vcs.log.graph.DefaultColorGenerator.Companion;
     var calculate = companion.getClass().getDeclaredMethod("calcColor", int.class);
     calculate.setAccessible(true);
     var colors = new ArrayList<String>();
-    for (int id : new int[] {1, 2, 5, 29, 3343801, -1754104450, Integer.MIN_VALUE, Integer.MAX_VALUE}) {
-      var color = (java.awt.Color) calculate.invoke(companion, id);
-      colors.add(id + "|" + color.getRed() + ":" + color.getGreen() + ":" + color.getBlue());
+    for (boolean dark : new boolean[] {false, true}) {
+      javax.swing.UIManager.put("VersionControl.Log.Graph.saturation", 0.6f);
+      javax.swing.UIManager.put("VersionControl.Log.Graph.brightness", dark ? 0.6f : 0.7f);
+      for (int id : new int[] {1, 2, 5, 29, 3343801, -1754104450, Integer.MIN_VALUE, Integer.MAX_VALUE}) {
+        var color = (java.awt.Color) calculate.invoke(companion, id);
+        colors.add((dark ? "dark" : "light") + "|" + id + "|" + color.getRed() + ":" + color.getGreen() + ":" + color.getBlue());
+      }
     }
     Files.write(Path.of(args[2]), colors);
   }

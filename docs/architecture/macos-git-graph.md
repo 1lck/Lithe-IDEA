@@ -2,7 +2,7 @@
 
 关联需求：[Issue #410](https://github.com/1lck/Lithe-IDEA/issues/410)。
 
-本次只实现 macOS。算法落在现有 `LitheGitModule`，AppKit/SwiftUI 负责绘制与交互；不改 Windows、Rust Core 或共享 JSON 协议。以后迁移共享实现时，以本文件和 macOS 的算法回归用例为依据。
+本次改变 macOS 产品行为。算法落在现有 `LitheGitModule`，AppKit/SwiftUI 负责绘制与交互。Rust `git.historyPage` 增加向后兼容的可选排序参数，由 macOS 显式请求日期排序；Windows 代码与原有调用默认行为不变。以后迁移共享图实现时，以本文件和 macOS 的算法回归用例为依据。
 
 ## 对齐基准与范围
 
@@ -14,12 +14,14 @@
 - [PrintElementGeneratorImpl.kt](https://github.com/JetBrains/intellij-community/blob/36415d346b3d18a6ded90d05afb8e0a0bface9d6/platform/vcs-log/graph/src/com/intellij/vcs/log/graph/impl/print/PrintElementGeneratorImpl.kt)：逐行紧凑定位、相邻行路由、长边裁减与箭头阈值。
 - [DottedFilterEdgesGenerator.kt](https://github.com/JetBrains/intellij-community/blob/36415d346b3d18a6ded90d05afb8e0a0bface9d6/platform/vcs-log/graph/src/com/intellij/vcs/log/graph/collapsing/DottedFilterEdgesGenerator.kt)：双向遍历，在筛选隐藏的提交之间补可见虚线。
 - [GitRefManager.kt](https://github.com/JetBrains/intellij-community/blob/36415d346b3d18a6ded90d05afb8e0a0bface9d6/plugins/git4idea/backend/src/log/GitRefManager.kt) 的 `GitBranchLayoutComparator`、[HeadCommitsComparator.java](https://github.com/JetBrains/intellij-community/blob/36415d346b3d18a6ded90d05afb8e0a0bface9d6/platform/vcs-log/impl/src/com/intellij/vcs/log/graph/HeadCommitsComparator.java) 与 [NaturalComparator.java](https://github.com/JetBrains/intellij-community/blob/36415d346b3d18a6ded90d05afb8e0a0bface9d6/platform/util/base/src/com/intellij/openapi/util/text/NaturalComparator.java)：图头的引用优先级和自然名称排序。
-- [GraphColorManagerImpl.kt](https://github.com/JetBrains/intellij-community/blob/36415d346b3d18a6ded90d05afb8e0a0bface9d6/platform/vcs-log/impl/src/com/intellij/vcs/log/graph/GraphColorManagerImpl.kt)、[GraphColorGetterByHead.kt](https://github.com/JetBrains/intellij-community/blob/36415d346b3d18a6ded90d05afb8e0a0bface9d6/platform/vcs-log/graph/src/com/intellij/vcs/log/graph/impl/print/GraphColorGetterByHead.kt) 和 [DefaultColorGenerator.kt](https://github.com/JetBrains/intellij-community/blob/36415d346b3d18a6ded90d05afb8e0a0bface9d6/platform/vcs-log/impl/src/com/intellij/vcs/log/graph/DefaultColorGenerator.kt)：图头/分支片段的颜色 ID 和默认 HSB 配色。
+- [GraphColorManagerImpl.kt](https://github.com/JetBrains/intellij-community/blob/36415d346b3d18a6ded90d05afb8e0a0bface9d6/platform/vcs-log/impl/src/com/intellij/vcs/log/graph/GraphColorManagerImpl.kt)、[GraphColorGetterByHead.kt](https://github.com/JetBrains/intellij-community/blob/36415d346b3d18a6ded90d05afb8e0a0bface9d6/platform/vcs-log/graph/src/com/intellij/vcs/log/graph/impl/print/GraphColorGetterByHead.kt) 和 [DefaultColorGenerator.kt](https://github.com/JetBrains/intellij-community/blob/36415d346b3d18a6ded90d05afb8e0a0bface9d6/platform/vcs-log/impl/src/com/intellij/vcs/log/graph/DefaultColorGenerator.kt)：图头/分支片段的颜色 ID 和 HSB 配色。
+- [GitLogProvider.kt](https://github.com/JetBrains/intellij-community/blob/36415d346b3d18a6ded90d05afb8e0a0bface9d6/plugins/git4idea/backend/src/log/GitLogProvider.kt)：仓库完整历史读取使用 `--date-order`。
+- [MergeCommitsHighlighter.java](https://github.com/JetBrains/intellij-community/blob/36415d346b3d18a6ded90d05afb8e0a0bface9d6/platform/vcs-log/impl/src/com/intellij/vcs/log/ui/highlighters/MergeCommitsHighlighter.java)：合并提交采用主题弱化前景色，选中时恢复普通前景色。
 - [PaintParameters.java](https://github.com/JetBrains/intellij-community/blob/36415d346b3d18a6ded90d05afb8e0a0bface9d6/platform/vcs-log/impl/src/com/intellij/vcs/log/paint/PaintParameters.java)：行高、列距、节点直径和线宽。
 - [GraphCommitCellUtil.kt](https://github.com/JetBrains/intellij-community/blob/36415d346b3d18a6ded90d05afb8e0a0bface9d6/platform/vcs-log/impl/src/com/intellij/vcs/log/ui/render/GraphCommitCellUtil.kt)：按每行打印元素及相邻列中点计算文字起点。
 - [产品行为说明](https://www.jetbrains.com/help/idea/log-tab.html)：Long Edges 默认关闭，箭头导航到连线另一端。
 
-这里的“同样算法”指上述布局、图头优先级、比较、可见图、打印元素与默认配色规则在相同输入上的一致性。先在仓库所有引用的有界历史上建立永久图，再投影所选分支及其已加载页面；提交显示顺序沿用这个仓库图的顺序，不能为每个分支单独重排并重新分配 layout index。底层仍使用 Lithe 已有的 `git log --topo-order`，IDEA 的日期排序和 BEK 排序尚未移植；不宣称与 IDEA 在不同输入顺序下像素一致。比较时须统一提交集合、引用、筛选条件和 Long Edges 设置。
+这里的“同样算法”指上述布局、图头优先级、比较、可见图、打印元素与默认配色规则在相同输入上的一致性。先在仓库所有引用的有界历史上建立永久图，再投影所选分支及其已加载页面；提交显示顺序沿用这个仓库图的顺序，不能为每个分支单独重排并重新分配 layout index。底层使用 `git log --date-order`，对应 IDEA 当前“按提交日期”的 Normal 模式，排序依据是 committer date，不能使用界面展示的 author date 做简单排序。BEK 是另外的模式，本次不启用。比较时须统一提交集合、引用、筛选条件和 Long Edges 设置。
 
 长边收束隐藏的是两个提交之间经过很多行的边，不删除中间行的其他提交；“折叠一整段线性提交”属于另一种功能，本次不启用。
 
@@ -27,7 +29,7 @@
 
 ### 1. 完整提交图和稳定的分支顺序
 
-输入分为仓库图与可见历史页。macOS 通过现有 Rust `historyPage` 接口并行取得最多 5,000 条所有引用历史和当前分支的一页历史，不增加共享命令或修改 Windows。仓库图决定永久 layout index、颜色和基础顺序；可见页决定显示哪些提交、哪些父提交尚未加载。两者均保持子在父之前，父数组保持 Git 原顺序。建立 hash → 行号、父子邻接表，去重重复父边，页外父提交单独保留。
+输入分为仓库图与可见历史页。macOS 通过 Rust `historyPage` 接口并行取得最多 5,000 条所有引用历史和当前分支的一页历史，两者均显式传 `order: "date"`，后续页沿用该参数。排序必须从 Git 遍历开始保持一致，不能只在 UI 内排序当前页。Core 将 cursor 与 root、reference、order 绑定，错误的续页排序不会消费游标。未提供参数的客户端及旧 `history` 接口继续使用 `--topo-order`。仓库图决定永久 layout index、颜色和基础顺序；可见页决定显示哪些提交、哪些父提交尚未加载。两者均保持子在父之前，父数组保持 Git 原顺序。建立 hash → 行号、父子邻接表，去重重复父边，页外父提交单独保留。
 
 仓库上下文请求参与既有 operation ID 取消和 generation 检查，返回的上下文 cursor 立即关闭，避免额外 Git 进程常驻。失败、重复 hash 或未覆盖当前页全部提交时，以当前页的独立图回退，不能混合不兼容的 layout index 或丢失行。分页复用同一仓库图；仓库刷新重新获取。
 
@@ -35,7 +37,7 @@
 
 按照有序图头执行非递归 DFS。首次访问节点时写入当前 layout index；沿第一个尚未访问的父节点继续，走到没有未访问父节点的节点时递增 index，再回溯处理其他父节点。这是分支的相对顺序，不是屏幕列号，也不能用屏幕列号决定颜色。
 
-主片段采用该图头最优先引用名称的 Java `String.hashCode`（UTF-16、有符号 32 位溢出）；其他 DFS 片段以 layout index 为颜色 ID，无引用主片段使用主题前景色。边采用两端 layout index 较大者所属片段的颜色。ID 经 IDEA 的整数 RGB 映射得到 hue，再应用默认 saturation=0.4、brightness=0.65。禁止把提交 hash 对少量固定颜色取模，这会让互不相关的相邻分支碰巧同色。
+主片段采用该图头最优先引用名称的 Java `String.hashCode`（UTF-16、有符号 32 位溢出）；其他 DFS 片段以 layout index 为颜色 ID，无引用主片段使用主题前景色。边采用两端 layout index 较大者所属片段的颜色。ID 经 IDEA 的整数 RGB 映射得到 hue，再应用 IDEA expUI / Islands 主题覆盖值：saturation=0.6，浅色 brightness=0.7，深色 brightness=0.6。`DefaultColorGenerator` 的 0.4/0.65 只是未配置主题时的后备值，不能用它代表当前 IDEA 外观。主题切换时清除原生图的颜色缓存。禁止把提交 hash 对少量固定颜色取模，这会让互不相关的相邻分支碰巧同色。
 
 ### 2. 筛选生成可见图
 
@@ -70,6 +72,8 @@
 
 几何使用 IDEA 原生比例：22 pt 行高、16 pt 列距、8 pt 节点直径、1.5 pt 线宽、2 pt 图文间隔。箭头按行高同比缩放；上下命中区域各占半行，不相互覆盖。普通合并节点使用实心圆，不再额外放大并添加白色内圈。
 
+普通提交使用主要文字色；有两个及以上父节点的合并提交标题使用 IDEA `VersionControl.Log.Commit.unmatchedForeground`（浅色 `#818594`、深色 `#6F737A`），选中行恢复普通前景色。以父节点数量判断合并，而不是依赖标题是否以 Merge 开头。
+
 布局和筛选投影在后台执行，按历史版本、仓库图版本、引用版本、筛选结果版本与长边显示模式触发；取消或版本过期的结果不得覆盖当前图。选择、hover、滚动不重新执行 DFS 或全图投影。
 
 继续使用现有单个 AppKit 绘图表面，只绘制 dirty rect 对应的行。SwiftUI 的行承担原有选择、上下文菜单和多选行为。箭头命中与提示使用已经生成的打印元素，不在鼠标移动时遍历 Git 历史。列表宽度由当前可见打印元素计算。键盘上下移动、Shift 范围选择及箭头导航均使用图中实际显示顺序。
@@ -91,7 +95,9 @@
 | `macos/Sources/LitheGitModule/Services/GitGraphHeadOrdering.swift` | 引用优先级、自然名称比较和图头集合 |
 | `macos/Sources/LitheGitModule/Services/GitGraphProjection.swift` | 永久图 DFS、筛选虚线、逐行打印元素和推荐宽度 |
 | `macos/Sources/LitheGitModule/Services/GitGraphLayoutService.swift` | macOS 布局入口、引用解析和绘制快照 |
-| `macos/Sources/Lithe/Views/Git/GitGraphColor.swift` | IDEA 默认颜色生成 |
+| `macos/Sources/Lithe/Views/Git/GitGraphColor.swift` | IDEA 主题颜色生成与合并文字层次 |
+| `rust/lithe-core/src/git/history.rs` | 可选日期遍历与游标排序约束 |
+| `macos/Sources/Lithe/Core/Rust/RustGitOperations.swift` | macOS 日志显式请求日期顺序 |
 | `macos/Sources/Lithe/Views/Git/GitGraphGeometry.swift` | 半边坐标、文字宽度和箭头命中范围 |
 | `macos/Sources/Lithe/Views/Git/GitGraphView.swift` | AppKit 绘制、SwiftUI 箭头按钮和原生列表导航 |
 | `macos/Sources/Lithe/Views/Git/GitLogView.swift` | 缓存更新、长边开关、选择、详情和滚动定位 |
@@ -133,3 +139,25 @@
 - `LITHE_GIT_GRAPH_CAPTURE_DIR="$PWD/.artifacts/issue410/final" ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/git-issue410-readability.json -- --filter 'Git|ContextMenu'`：27 个 suite，197 项通过、1 项既有 Rust 集成项按条件跳过。HTML 与 JUnit 报告分别为 `.artifacts/test-stability/git-issue410-readability.html` 和 `.artifacts/test-stability/git-issue410-readability.junit.xml`。
 - 最慢的相关测试为原生绘制多次采样 2,735 ms；包含仓库图的 5,000 行布局 513 ms；真实历史的浅/深色正式 SwiftUI 渲染 424 ms；两种上下文的 IDEA 完整对照 27 ms；SwiftUI 双向箭头事件 42 ms；仓库图游标清理、取消后防止过期结果回填分别 1 ms。全部低于测试预算。
 - 正式 SwiftUI 合并段回放图保存在 `.artifacts/issue410/final/reported-history-light.png` 与 `reported-history-dark.png`；两种外观均已检查。测试窗口均已关闭。验证环境仍为 Swift 6.3.3，未完成 Swift 6.2 验证。
+
+### IDEA 参考截图的日期顺序与主题对照
+
+此前的截图回放仍使用拓扑分组顺序及通用颜色后备值，缺少合并提交文字层次。实际检查 IDEA 当前日志菜单后，确认参考模式为“按提交日期”。现在首次加载、分页与仓库图统一请求日期顺序，同时应用主题配色和合并文字色。
+
+新增 `issue410-date-history.tsv` 冻结 `631ede91` 的 300 个日期顺序提交；`issue410-date-context.tsv` 冻结当时所有引用可达的 1,711 个提交，覆盖当前产品 5,000 条上限内的完整仓库。必须保持完整上下文：把它随意裁成 1,000 条，虽然局部线形可能相同，却会改变 DFS 片段编号及颜色。原有拓扑顺序 fixture 保留作兼容回归。
+
+参考截图对应 `2bedf381` 到 `887f49ea` 的 11 行，包含 `de4208d5` 的 `update`。测试使用正式 SwiftUI 列表及 AppKit 绘图器渲染这同一段历史，检查浅色和深色外观，不使用示意图替代。设置 `LITHE_GIT_GRAPH_CAPTURE_DIR` 后导出 `idea-reference-light.png` 和 `idea-reference-dark.png`，并保留最初反馈中的密集合并段。
+
+独立 Java oracle 仍调用 IDEA 原始实现。页外父提交须使用不同负数 ID，不能用 `PermanentLinearGraphBuilder.build()` 的统一占位值，否则两个未加载父节点会在端点映射中互相覆盖。主题 RGB fixture 则显式设置 IDEA 主题的两个 UIManager 参数后调用原始颜色生成器，覆盖浅/深色、正/负 ID 与溢出。
+
+Core 的本地 Git 集成回归构造固定作者/提交者日期的交错双分支，并将根提交的时钟设在后代之后，验证日期排序仍保持拓扑、作者日期不参与遍历、分页无重复、排序不匹配后可继续原游标、旧调用保留拓扑分组，以及 offset 兼容路径。
+
+本轮计时验证记录：
+
+- `LITHE_GIT_GRAPH_CAPTURE_DIR="$PWD/.artifacts/issue410/date-order" ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/git-issue410-date-regression.json -- --filter 'Git|ContextMenu'`：27 个 suite，197 项通过，1 项既有 Rust 集成用例按条件跳过。HTML / JUnit 为 `.artifacts/test-stability/git-issue410-date-regression.html` 与同名前缀 `.junit.xml`。
+- `node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs --manifest rust/Cargo.toml --package lithe-core --report .artifacts/test-stability/git-issue410-date-rust.json --keep-going`：448 项全部通过。HTML / JUnit 为 `.artifacts/test-stability/git-issue410-date-rust.html` 与同名前缀 `.junit.xml`。
+- 新增日期分页测试 160 ms；三个真实历史 IDEA 对照 59 ms；主题 RGB 对照 1 ms；两种排序、两种外观的正式视图回放 1,180 ms（包含窗口和位图创建）；SwiftUI 箭头点击 47 ms。相关的 5,000 行布局 543 ms，原生多次绘制采样 3,186 ms，均低于 15 秒测试预算。
+- Rust 普通并行门禁曾在既有 `native_rebase_large_escaped_manifest_remains_readable_through_abort` 处失败，单项重试也出现过失败；该用例在逐项计时及 `RUST_TEST_THREADS=1` 的完整重跑中通过。本次未修改这个无关用例或放宽其 5 秒请求期限，不能把这次串行通过解释为并行稳定性已经修复。
+- `./scripts/verify-core.sh`、`./scripts/verify-git-graph.sh`、服务边界、共享契约、Rust 注释及测试稳定性门禁通过。环境仍只有 Swift 6.3.3，未完成 Swift 6.2 验证。
+- `RUST_TEST_THREADS=1 ./scripts/verify-rust-core.sh`：435 个 Core 单元/集成用例、8 个 push 用例及 5 个 watch-context 用例通过，Swift 桥接、真实静态库链接与导出符号检查通过。
+- `./scripts/build-macos.sh` 与 `git diff --check` 通过；回放窗口已关闭，生成的 Git 验证仓库已删除，结束时没有遗留 Lithe 应用或测试进程。

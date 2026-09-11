@@ -9,7 +9,8 @@ Adapted algorithms: GraphLayoutBuilder, GraphElementComparatorByLayoutIndex,
 PrintElementGeneratorImpl, DottedFilterEdgesGenerator, SimpleGraphCellPainter.
 HeadCommitsComparator, GitBranchLayoutComparator, NaturalComparator,
 GraphCommitCellUtil, PaintParameters, GraphColorGetterByHead,
-GraphColorManagerImpl, DefaultColorGenerator and the recommended graph width
-calculation.
+GraphColorManagerImpl, DefaultColorGenerator, MergeCommitsHighlighter,
+the expUI / Islands theme graph colors, and the recommended graph width
+calculation. Git traversal follows GitLogProvider date order.
 Swift adaptation and native integration: Lithe contributors.
 See docs/architecture/macos-git-graph.md for source links and behavior.

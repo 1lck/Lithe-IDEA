@@ -560,7 +560,7 @@ final class GitGraphCommitRowsNSView: NSView {
                 row.commit.subject,
                 in: CGRect(x: textStart, y: rect.minY, width: max(0, rect.width - textStart - 230), height: rowHeight),
                 font: style.body,
-                color: style.primary
+                color: row.commit.parentHashes.count > 1 && selectedHash != row.commit.hash ? style.merge : style.primary
             )
             drawText(
                 row.commit.authorName,
@@ -659,6 +659,7 @@ final class GitGraphCommitRowsNSView: NSView {
         let meta = NSFont.systemFont(ofSize: 11.5)
         let monoMeta = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .regular)
         let primary: NSColor
+        let merge: NSColor
         let secondary: NSColor
         let divider: NSColor
         let selection: NSColor
@@ -667,6 +668,7 @@ final class GitGraphCommitRowsNSView: NSView {
 
         init(isDark: Bool) {
             primary = LitheTheme.nsColor(.primaryText, isDark: isDark)
+            merge = GitGraphColor.mergeForeground(isDark: isDark)
             secondary = LitheTheme.nsColor(.secondaryText, isDark: isDark)
             divider = LitheTheme.nsColor(.divider, isDark: isDark)
             selection = LitheTheme.nsColor(.accent, isDark: isDark).withAlphaComponent(0.16)
@@ -677,6 +679,7 @@ final class GitGraphCommitRowsNSView: NSView {
 }
 
 private struct GitGraphRowView: View, Equatable {
+    @Environment(\.colorScheme) private var colorScheme
     let row: GitGraphRow
     let graphWidth: CGFloat
     let rowHeight: CGFloat
@@ -702,7 +705,9 @@ private struct GitGraphRowView: View, Equatable {
                 HStack(spacing: 0) {
                     Text(row.commit.subject)
                         .font(.system(size: 12.5, weight: .regular))
-                        .foregroundStyle(LitheTheme.primaryText)
+                        .foregroundStyle(row.commit.parentHashes.count > 1 && !isSelected
+                            ? Color(nsColor: GitGraphColor.mergeForeground(isDark: colorScheme == .dark))
+                            : LitheTheme.primaryText)
                         .lineLimit(1)
 
                     if showCommitDecorations, !row.labels.isEmpty {
@@ -850,6 +855,7 @@ final class GitGraphNSView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        colorCache.removeAll(keepingCapacity: true)
         needsDisplay = true
     }
 
@@ -926,7 +932,8 @@ final class GitGraphNSView: NSView {
 
     private func color(for index: Int) -> NSColor {
         if let color = colorCache[index] { return color }
-        let color = GitGraphColor.color(for: index)
+        let color = GitGraphColor.color(for: index,
+            isDark: effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
         colorCache[index] = color
         return color
     }
