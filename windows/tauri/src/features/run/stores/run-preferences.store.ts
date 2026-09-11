@@ -6,8 +6,10 @@ import { RUN_CONFIGURATION_LIST_DEFAULT_WIDTH } from "../utils/run-configuration
 
 interface RunPreferencesStore {
   configurationListWidth: number;
+  selectedServiceIDsByWorkspace: Record<string, string[]>;
   actions: {
     setConfigurationListWidth: (width: number) => void;
+    setSelectedServiceIDs: (workspace: string, ids: string[]) => void;
   };
 }
 
@@ -15,8 +17,16 @@ const useRunPreferencesStoreBase = create<RunPreferencesStore>()(
   persist(
     (set) => ({
       configurationListWidth: RUN_CONFIGURATION_LIST_DEFAULT_WIDTH,
+      selectedServiceIDsByWorkspace: {},
       actions: {
         setConfigurationListWidth: (configurationListWidth) => set({ configurationListWidth }),
+        setSelectedServiceIDs: (workspace, ids) =>
+          set((state) => ({
+            selectedServiceIDsByWorkspace: {
+              ...state.selectedServiceIDsByWorkspace,
+              [workspace]: ids,
+            },
+          })),
       },
     }),
     {

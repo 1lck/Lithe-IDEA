@@ -24,6 +24,27 @@ prlctl exec "<vm-name>" cmd /c "..."
 prlctl exec "<vm-name>" powershell -Command "..."
 ```
 
+`prlctl exec` defaults to `NT AUTHORITY\\SYSTEM`. That context does not have
+the interactive user's PATH, Rustup home, Bun installation, Git config, or
+mapped drives. For product builds and user-session diagnostics, use the
+interactive Windows account instead:
+
+```bash
+prlctl exec "<vm-name>" --current-user cmd /c "..."
+prlctl exec "<vm-name>" --current-user powershell -Command "..."
+```
+
+Verify the context before running a build:
+
+```bash
+prlctl exec "<vm-name>" --current-user cmd /c "whoami & where rustup & where bun"
+```
+
+Use the default SYSTEM form only for machine-level inspection or actions that
+do not depend on the logged-in user's tools and configuration. The
+`--current-user` form is required for Windows builds, Git behavior, and logs
+produced by the active Lithe session.
+
 `prlctl exec` runs as `NT AUTHORITY\SYSTEM`, not the logged-in user. Three
 consequences follow, and all three look like "the tool is not installed":
 

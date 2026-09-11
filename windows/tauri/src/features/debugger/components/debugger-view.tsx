@@ -173,7 +173,10 @@ export default function DebuggerView() {
   const activeSessionDisplayStatus = activeSession
     ? getDebugSessionDisplayStatus(activeSession.status, activeSessionEndReason)
     : "idle";
-  const isAdapterSession = Boolean(isActiveSession && resolvedActiveConfig.adapterCommand);
+  const isAdapterSession = Boolean(
+    isActiveSession &&
+    (activeSession?.adapterSession ?? Boolean(resolvedActiveConfig.adapterCommand)),
+  );
   const activeThreadId = stoppedState?.threadId ?? threads[0]?.id;
   const canSendAdapterThreadRequest = Boolean(isAdapterSession && activeThreadId);
   const isPaused = activeSession?.status === "paused";
@@ -267,6 +270,7 @@ export default function DebuggerView() {
               cwd: session.cwd,
               startedAt: Date.now(),
               status: "running",
+              adapterSession: true,
             });
           },
         );
@@ -302,7 +306,7 @@ export default function DebuggerView() {
   };
 
   const stopDebugging = () => {
-    if (activeSession && resolvedActiveConfig.adapterCommand) {
+    if (activeSession && isAdapterSession) {
       void stopDebugAdapterSession(activeSession.id).catch(() => {});
     } else {
       window.dispatchEvent(new CustomEvent("close-active-terminal"));

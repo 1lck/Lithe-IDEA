@@ -45,6 +45,7 @@ interface GitCommitPanelProps {
   onCommitSuccess?: () => void;
   onPull?: () => Promise<unknown> | void;
   isPulling?: boolean;
+  isPullLocked?: boolean;
   focusRequest?: number;
 }
 
@@ -210,14 +211,15 @@ const GitCommitPanel = ({
   onCommitSuccess,
   onPull,
   isPulling = false,
+  isPullLocked = false,
   focusRequest = 0,
 }: GitCommitPanelProps) => {
   const { t } = useTranslation();
-  const aiAutocompleteProvider = useSettingsStore((state) => state.settings.aiAutocompleteProvider);
-  const aiAutocompleteModelId = useSettingsStore((state) =>
-    state.settings.aiAutocompleteProvider === "custom"
-      ? state.settings.aiAutocompleteCustomModelId
-      : state.settings.aiAutocompleteModelId,
+  const aiChatProvider = useSettingsStore((state) => state.settings.aiProviderId);
+  const aiChatModelId = useSettingsStore((state) =>
+    state.settings.aiProviderId === "custom"
+      ? state.settings.aiCustomModelId
+      : state.settings.aiModelId,
   );
   const [isCommitting, setIsCommitting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -266,9 +268,9 @@ const GitCommitPanel = ({
         existingDraftHint,
       });
       const { editedText } = await requestInlineEdit({
-        provider: aiAutocompleteProvider,
-        customProviderScope: "autocomplete",
-        model: aiAutocompleteModelId,
+        provider: aiChatProvider,
+        customProviderScope: "chat",
+        model: aiChatModelId,
         beforeSelection: "",
         selectedText,
         afterSelection: "",
@@ -488,7 +490,7 @@ const GitCommitPanel = ({
                 <Button
                   type="button"
                   onClick={() => void onPull?.()}
-                  disabled={!repoPath || isRemoteActionLoading || isPulling}
+                  disabled={!repoPath || isRemoteActionLoading || isPullLocked}
                   variant="ghost"
                   size="xs"
                   className={cn(composerButtonClassName, "text-git-deleted hover:text-git-deleted")}

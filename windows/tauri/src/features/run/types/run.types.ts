@@ -23,6 +23,7 @@ export interface RunConfiguration {
   kindTitle: string;
   execution: RunExecution;
   modulePath?: string;
+  mavenReactorPath?: string;
   mainClass?: string;
   cwd: string;
   args: string[];
@@ -35,6 +36,7 @@ export interface RunConfiguration {
   mavenExecutablePath: string;
   mavenJavaHomePath: string;
   toolchains: Record<string, string>;
+  debugAdapter?: string;
   source: RunConfigurationSource;
   disabled: boolean;
 }
@@ -57,6 +59,12 @@ export interface RunSession {
   output: string;
   isRunning: boolean;
   exitCode: number | null;
+}
+
+/** Identifies one process execution within a reusable Run output slot. */
+export interface RunProcessInstance {
+  sessionId: string;
+  executionId: string;
 }
 
 export interface JavaRuntime {
@@ -137,9 +145,13 @@ export interface CoreResolvedConfiguration {
   toolchains?: Record<string, string>;
   source?: string;
   disabled?: boolean;
+  debug?: {
+    adapter?: string;
+  };
   extensions?: {
     maven?: {
       module?: string;
+      reactorPath?: string;
       mainClass?: string;
       jvmArguments?: string[];
       programArguments?: string[];

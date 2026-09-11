@@ -1085,6 +1085,24 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspRetryMavenProfiles => {
+            match serde_json::from_value::<crate::lsp::SessionRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Maven profile retry request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::retry_maven_profiles)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).unwrap_or(serde_json::Value::Null),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspSyncDocument => {
             match serde_json::from_value::<crate::lsp::SyncDocumentRequest>(parsed.payload)
                 .map_err(|error| {

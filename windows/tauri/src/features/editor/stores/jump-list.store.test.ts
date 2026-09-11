@@ -142,4 +142,30 @@ describe("jump list cursor history", () => {
     expect(actions.goForward()).toMatchObject({ line: 39, paneId: rightPaneId });
     expect(actions.goForward()).toMatchObject({ line: 49, paneId: rightPaneId });
   });
+
+  test("restores the present position when a back navigation fails", () => {
+    const actions = useJumpListStore.getState().actions;
+    actions.recordCursorEntry(cursorEntry(9, 1));
+    const previousIndex = useJumpListStore.getState().currentIndex;
+    const destination = actions.goBack(cursorEntry(19, 1));
+
+    expect(destination).not.toBeNull();
+    actions.rollbackNavigation(destination!, previousIndex, true);
+
+    expect(actions.goBack(cursorEntry(19, 1))).toMatchObject({ line: 9, column: 1 });
+  });
+
+  test("restores the previous history index when a forward navigation fails", () => {
+    const actions = useJumpListStore.getState().actions;
+    actions.recordCursorEntry(cursorEntry(9, 1));
+    actions.recordCursorEntry(cursorEntry(19, 1));
+    const back = actions.goBack(cursorEntry(29, 1));
+    expect(back).toMatchObject({ line: 19 });
+
+    const forward = actions.goForward();
+    expect(forward).toMatchObject({ line: 29 });
+    actions.rollbackNavigation(forward!, 1, false);
+
+    expect(actions.goForward()).toMatchObject({ line: 29, column: 1 });
+  });
 });

@@ -27,6 +27,7 @@ interface JumpListActions {
   recordCursorEntry: (entry: JumpListPosition) => void;
   goBack: (currentPosition?: JumpListPosition) => JumpListEntry | null;
   goForward: () => JumpListEntry | null;
+  rollbackNavigation: (entry: JumpListEntry, previousIndex: number, removePresent: boolean) => void;
   canGoBack: () => boolean;
   canGoForward: () => boolean;
   clear: () => void;
@@ -174,6 +175,15 @@ export const useJumpListStore = createSelectors(
           });
 
           return { ...entry };
+        },
+
+        rollbackNavigation: (entry, previousIndex, removePresent) => {
+          set((state) => {
+            const current = state.entries[state.currentIndex];
+            if (!current || current.timestamp !== entry.timestamp) return;
+            if (removePresent) state.entries.pop();
+            state.currentIndex = previousIndex;
+          });
         },
 
         canGoBack: () => {

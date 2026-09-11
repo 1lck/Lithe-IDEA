@@ -79,6 +79,8 @@ pub struct WorkspaceSnapshotResponse {
 /// One Git repository discovered for an opened workspace.
 pub struct WorkspaceRepositoryResponse {
     /// Absolute native repository root path reported by the host filesystem.
+    /// Windows paths are plain drive or UNC paths without the verbatim `\\?\`
+    /// prefix that canonicalization adds.
     pub path: String,
 }
 

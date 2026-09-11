@@ -296,6 +296,73 @@ fn reviewed_push_uses_default_remote_and_sets_upstream_when_missing() {
 }
 
 #[test]
+fn unreviewed_push_without_upstream_configures_tracking_once() {
+    let fixture = GitFixture::new();
+    let (repository, _) = initialize_repository(&fixture);
+    require_git(&repository, &["switch", "-q", "-c", "feature"]);
+    fs::write(repository.join("local.txt"), "local\n").expect("local fixture should be writable");
+    require_git(&repository, &["add", "local.txt"]);
+    require_git(&repository, &["commit", "-q", "-m", "local only"]);
+
+    let pushed = core("git.write", &repository, json!({ "operation": "push" }));
+    assert_eq!(pushed["ok"], true, "response: {pushed}");
+    assert_eq!(pushed["data"]["exitCode"], 0, "response: {pushed}");
+    assert!(pushed["data"]["warnings"]
+        .as_array()
+        .is_none_or(Vec::is_empty));
+
+    let invocations = pushed["data"]["invocations"]
+        .as_array()
+        .expect("push invocations should be present");
+    let push_invocations = invocations
+        .iter()
+        .filter(|invocation| invocation["arguments"][0] == "push")
+        .collect::<Vec<_>>();
+    assert_eq!(push_invocations.len(), 1, "response: {pushed}");
+    assert!(!push_invocations[0]["arguments"]
+        .as_array()
+        .expect("push arguments should be present")
+        .iter()
+        .any(|argument| argument == "--set-upstream"));
+
+    let remote_configuration_count = invocations
+        .iter()
+        .filter(|invocation| {
+            invocation["arguments"]
+                == json!([
+                    "config",
+                    "--local",
+                    "--replace-all",
+                    "branch.feature.remote",
+                    "origin"
+                ])
+        })
+        .count();
+    let merge_configuration_count = invocations
+        .iter()
+        .filter(|invocation| {
+            invocation["arguments"]
+                == json!([
+                    "config",
+                    "--local",
+                    "--replace-all",
+                    "branch.feature.merge",
+                    "refs/heads/feature"
+                ])
+        })
+        .count();
+    assert_eq!(remote_configuration_count, 1, "response: {pushed}");
+    assert_eq!(merge_configuration_count, 1, "response: {pushed}");
+    assert_eq!(
+        String::from_utf8_lossy(
+            &git(&repository, &["rev-parse", "--abbrev-ref", "@{upstream}"]).stdout
+        )
+        .trim(),
+        "origin/feature"
+    );
+}
+
+#[test]
 fn push_preview_preserves_a_configured_remote_name_with_slashes() {
     let fixture = GitFixture::new();
     let (repository, _) = initialize_repository(&fixture);

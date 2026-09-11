@@ -586,8 +586,8 @@ export function useGitDiffActions({
             : await getRefDiff(activeRepoPath, baseName, targetBranch);
         if (!diffs?.length) {
           await showAlertDialog(
-            `No changes between ${baseName} and ${targetBranch}.`,
-            "Git Diff",
+            t("git.diff.noChangesBetween", { base: baseName, target: targetBranch }),
+            t("git.diff.title"),
           );
           return;
         }
@@ -607,14 +607,18 @@ export function useGitDiffActions({
       } catch (error) {
         console.error("Error getting branch comparison:", error);
         await showAlertDialog(
-          `Failed to compare ${baseName} and ${targetBranch}:\n${error}`,
-          "Git Diff",
+          t("git.diff.compareRefsFailed", {
+            base: baseName,
+            target: targetBranch,
+            error: String(error),
+          }),
+          t("git.diff.title"),
         );
       } finally {
         setIsLoadingBranchDiff(false);
       }
     },
-    [activeRepoPath, currentBranch, currentReference, onBranchDiffOpened],
+    [activeRepoPath, currentBranch, currentReference, onBranchDiffOpened, t],
   );
 
   const viewReferenceWorkingTreeDiff = useCallback(

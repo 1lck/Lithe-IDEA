@@ -36,6 +36,7 @@ interface GitActionsMenuProps {
   onRefresh?: () => void;
   onPull?: () => Promise<unknown> | void;
   isPulling?: boolean;
+  isPullLocked?: boolean;
   onOpenBranchManager?: () => void;
   onShowBranchDiff?: () => void;
   onOpenRemoteManager?: () => void;
@@ -56,6 +57,7 @@ const GitActionsMenu = ({
   onRefresh,
   onPull,
   isPulling = false,
+  isPullLocked = false,
   onOpenBranchManager,
   onShowBranchDiff,
   onOpenRemoteManager,
@@ -234,7 +236,7 @@ const GitActionsMenu = ({
           id: "pull",
           label: t("git.pullChanges"),
           icon: <Download weight="fill" />,
-          disabled: isLoading || isPulling,
+          disabled: isLoading || isPullLocked,
           onClick: handlePull,
         },
         {

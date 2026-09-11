@@ -764,9 +764,14 @@ export async function goBack(): Promise<void> {
         }
       : undefined;
 
-  const entry = useJumpListStore.getState().actions.goBack(currentPosition);
+  const jumpList = useJumpListStore.getState();
+  const previousIndex = jumpList.currentIndex;
+  const entry = jumpList.actions.goBack(currentPosition);
   if (entry) {
-    await navigateToJumpEntry(entry);
+    const didNavigate = await navigateToJumpEntry(entry);
+    if (!didNavigate) {
+      jumpList.actions.rollbackNavigation(entry, previousIndex, previousIndex === -1);
+    }
     return;
   }
 
@@ -777,9 +782,14 @@ export async function goBack(): Promise<void> {
 }
 
 export async function goForward(): Promise<void> {
-  const entry = useJumpListStore.getState().actions.goForward();
+  const jumpList = useJumpListStore.getState();
+  const previousIndex = jumpList.currentIndex;
+  const entry = jumpList.actions.goForward();
   if (entry) {
-    await navigateToJumpEntry(entry);
+    const didNavigate = await navigateToJumpEntry(entry);
+    if (!didNavigate) {
+      jumpList.actions.rollbackNavigation(entry, previousIndex, false);
+    }
     return;
   }
 

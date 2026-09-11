@@ -24,10 +24,13 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
         run.configureMavenContextProvider { [weak maven] in
             maven?.launchContext
         }
+        maven.onProjectReloaded = { [weak run] workspace, project in
+            run?.acceptMavenProject(project, at: workspace)
+        }
     }
 
     package var isActive: Bool {
-        maven.isRunning || maven.isResolvingDependencies || run.isRunning || tests.isRunning
+        maven.isRunning || maven.isResolvingDependencies || maven.isReloading || run.isRunning || tests.isRunning
     }
     package var hasActiveExecutionWork: Bool { isActive }
     package func activate(context: ModuleContext) {
@@ -38,7 +41,7 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
     }
 
     package func configureModuleLeases(acquire: @escaping @MainActor (String) -> ModuleLease) {
-        Publishers.CombineLatest(maven.$taskState, maven.$dependencyStates).map { state, dependencies in
+        Publishers.CombineLatest3(maven.$taskState, maven.$dependencyStates, maven.$isReloading).map { state, dependencies, reloading in
             let buildIsActive = switch state {
             case .running, .stopping: true
             case .idle, .cancelled, .failed: false
@@ -47,7 +50,7 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
                 if case .loading = $0 { return true }
                 return false
             }
-            return buildIsActive || dependenciesAreActive
+            return buildIsActive || dependenciesAreActive || reloading
         }.removeDuplicates().sink { [weak self] active in
             guard let self else { return }
             if active, mavenLease == nil { mavenLease = acquire("Maven operation is running") }

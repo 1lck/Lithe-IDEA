@@ -122,6 +122,16 @@ struct RunEntryPointTests {
         let relaunched = await runConfigurations.launchPlanRequested(1)
         #expect(relaunched, "the deferred Run was never actually re-issued")
         #expect(model.pendingRunAction == nil)
+        // Toolbar Run must publish the application's output to the same session
+        // selected by the sidebar, without starting a separate primary process.
+        let configurationID = ReadyRunConfigurationOperations.entryPoint.id
+        #expect(runFeature.selectedProjectSessionID == configurationID)
+        #expect(runFeature.moduleSessions.count == 1)
+        #expect(runFeature.moduleSessions.first?.configurationID == configurationID)
+        #expect(runFeature.moduleSessions.first?.output.contains("Launching is out of scope") == true)
+        #expect(runFeature.output.isEmpty)
+        #expect(!runFeature.isRunning)
+        #expect(runConfigurations.launchPlanCallCount == 1)
         #expect(
             runFeature.isProjectReady(
                 for: workspace.root,
@@ -306,6 +316,38 @@ struct RunEntryPointTests {
         #expect(model.pendingRunAction == nil)
     }
 
+    /// A selected-service batch must remain one deferred action so a snapshot
+    /// arriving later cannot overwrite one launch with another.
+    @Test
+    func selectedServicesDeferAndResumeAsOneBatch() async throws {
+        let workspace = try JavaWorkspaceFixture()
+        defer { workspace.remove() }
+        let workspaceOperations = SequencedWorkspaceOperations.unavailableThenReady(workspace.snapshot)
+        let runConfigurations = ReadyRunConfigurationOperations()
+        let model = makeAppModel(
+            workspaceOperations: workspaceOperations,
+            runConfigurationOperations: runConfigurations
+        )
+
+        model.openProjectDirectly(workspace.root)
+        let services = [
+            ReadyRunConfigurationOperations.serviceEntryPoint,
+            ReadyRunConfigurationOperations.serviceEntryPointB,
+        ]
+        model.startSelectedServiceConfigurations(services)
+
+        let deferred = await awaitLoadDrivenChange(on: model) {
+            model.pendingRunAction?.kind == .startSelectedServices(services)
+        }
+        #expect(deferred)
+        #expect(runConfigurations.launchPlanCallCount == 0)
+
+        await model.workspaceFeature.refreshCurrent()
+        let relaunched = await runConfigurations.launchPlanRequested(2)
+        #expect(relaunched)
+        #expect(model.pendingRunAction == nil)
+    }
+
     /// Restart must use the same readiness funnel as direct start. A published
     /// but not-yet-consumed refresh still leaves the run service on the old
     /// inventory; restarting then would rebuild a launch plan from that stale
@@ -339,7 +381,7 @@ struct RunEntryPointTests {
             gitWatchContextProvider: watchContext
         )
 
-        // Establish lastConfiguration through the same deferred-run path the
+        // Establish an application session through the same deferred-run path the
         // existing entry tests already cover, then refresh to a newer snapshot
         // without letting the run service consume it.
         model.openProjectDirectly(workspace.root)
@@ -355,7 +397,7 @@ struct RunEntryPointTests {
         watchContext.release(1)
         let launched = await runConfigurations.launchPlanRequested(1)
         #expect(launched, "the initial run never requested a launch plan")
-        #expect(model.runFeatureIfActive?.lastConfiguration != nil)
+        #expect(model.runFeatureIfActive?.moduleSessions.first?.configurationID == ReadyRunConfigurationOperations.entryPoint.id)
         #expect(model.pendingRunAction == nil)
         _ = await firstRefresh.value
 
@@ -372,7 +414,7 @@ struct RunEntryPointTests {
 
         model.restartSelectedRun()
         let deferredRestart = await awaitLoadDrivenChange(on: model) {
-            model.pendingRunAction?.kind == .restart
+            model.pendingRunAction?.kind == .startConfiguration(ReadyRunConfigurationOperations.entryPoint)
         }
         #expect(deferredRestart, "Restart must defer while the newer snapshot is unpublished to the run service")
         #expect(
@@ -787,6 +829,15 @@ private final class ReadyRunConfigurationOperations: RunConfigurationOperations,
         mainClass: "demo.App"
     )
 
+    static let serviceEntryPointB = RunConfiguration(
+        id: "spring-boot:demo.OtherApp",
+        name: "Other Service",
+        kind: .mavenFramework(.springBoot),
+        execution: .service,
+        modulePath: nil,
+        mainClass: "demo.OtherApp"
+    )
+
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
         RunConfigurationResolution(
             configurations: [
@@ -796,6 +847,10 @@ private final class ReadyRunConfigurationOperations: RunConfigurationOperations,
                 ),
                 EffectiveRunConfiguration(
                     configuration: Self.serviceEntryPoint,
+                    options: RunOptions()
+                ),
+                EffectiveRunConfiguration(
+                    configuration: Self.serviceEntryPointB,
                     options: RunOptions()
                 ),
             ],

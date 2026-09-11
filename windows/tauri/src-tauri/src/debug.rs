@@ -1,13 +1,13 @@
-//! Windows Debug Adapter host: adapter process and stdio transport.
+//! Windows Debug Adapter host: process and loopback TCP transports.
 //!
 //! DAP framing, request correlation, breakpoint sets, and the session state
 //! machine stay in `lithe-core` under the `debug.*` contract. This module owns
-//! only the adapter executable, its stdin/stdout/stderr pipes, session
-//! lifecycle, and the Tauri events projected to the React debugger.
+//! only adapter processes and loopback sockets, their session lifecycle, and
+//! the Tauri events projected to the React debugger.
 //!
 //! Byte flow: React invokes `debug_*` commands, the host reduces them through
 //! `lithe_core::execute_json`, writes the returned base64 `outboundFrames` to
-//! the adapter stdin, and feeds adapter stdout chunks back through
+//! the adapter input, and feeds adapter output chunks back through
 //! `debug.receive`. Core-generated normalized events are emitted to React as
 //! `debugger_message`, adapter stderr as `debugger_output`, and process exit
 //! as `debugger_session_ended`.
@@ -18,11 +18,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::net::{Ipv4Addr, Shutdown, SocketAddrV4, TcpListener, TcpStream};
 use std::path::Path;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 use crate::run::{apply_creation_flags, decode_process_bytes, incomplete_suffix_len};
@@ -30,6 +32,8 @@ use crate::run::{apply_creation_flags, decode_process_bytes, incomplete_suffix_l
 const CORE_TIMEOUT_MILLISECONDS: u64 = 30_000;
 const MAX_FRAME_BYTES: usize = 64 * 1024 * 1024;
 const MAX_BUFFERED_STARTUP_EVENTS: usize = 128;
+const DEBUG_ADAPTER_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_DEBUG_PORT_WAIT_MILLISECONDS: u64 = 60_000;
 
 trait DebugEventSink: Clone + Send + Sync + 'static {
     fn emit_event(&self, name: &str, payload: Value);
@@ -56,14 +60,44 @@ impl Default for DebugAdapterManager {
 }
 
 struct AdapterSession {
+    /// Child adapter process id, or zero for an externally owned TCP adapter.
     pid: u32,
     /// Workspace root that owns this session, used to reap adapters when the
     /// owning project closes without touching sessions of other projects.
     workspace: String,
     /// Shared so adapter stdout readers can write Core-produced frames while
     /// Tauri commands write request frames; the mutex prevents interleaving.
-    stdin: Arc<Mutex<ChildStdin>>,
+    stdin: Arc<Mutex<AdapterInput>>,
     startup_gate: Arc<Mutex<StartupGate>>,
+}
+
+enum AdapterInput {
+    Process(ChildStdin),
+    Tcp(TcpStream),
+}
+
+impl AdapterInput {
+    fn shutdown(&mut self) {
+        if let Self::Tcp(stream) = self {
+            let _ = stream.shutdown(Shutdown::Both);
+        }
+    }
+}
+
+impl Write for AdapterInput {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        match self {
+            Self::Process(stdin) => stdin.write(buffer),
+            Self::Tcp(stream) => stream.write(buffer),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            Self::Process(stdin) => stdin.flush(),
+            Self::Tcp(stream) => stream.flush(),
+        }
+    }
 }
 
 struct StartupGate {
@@ -90,6 +124,21 @@ pub struct DebugAdapterLaunch {
     pub env: HashMap<String, String>,
     #[serde(default)]
     pub workspace_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DebugAdapterConnectionLaunch {
+    pub port: u16,
+    #[serde(default)]
+    pub workspace_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DebugPortWait {
+    pub port: u16,
+    pub timeout_milliseconds: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -159,7 +208,7 @@ async fn start_debug_adapter_session<S: DebugEventSink>(
         let _ = child.kill();
         return Err("The debug adapter did not expose an input pipe.".to_string());
     };
-    let stdin = Arc::new(Mutex::new(stdin));
+    let stdin = Arc::new(Mutex::new(AdapterInput::Process(stdin)));
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
 
@@ -276,6 +325,169 @@ async fn start_debug_adapter_session<S: DebugEventSink>(
     })
 }
 
+/// Connects Core's DAP session to the Java Debug Server exposed by JDT LS.
+#[tauri::command]
+pub async fn debug_connect_session(
+    app: AppHandle,
+    launch: DebugAdapterConnectionLaunch,
+) -> Result<DebugSessionInfo, String> {
+    connect_debug_adapter_session(app, launch).await
+}
+
+async fn connect_debug_adapter_session<S: DebugEventSink>(
+    app: S,
+    launch: DebugAdapterConnectionLaunch,
+) -> Result<DebugSessionInfo, String> {
+    let port = launch.port;
+    let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
+    let stream = tauri::async_runtime::spawn_blocking(move || {
+        TcpStream::connect_timeout(&address.into(), DEBUG_ADAPTER_CONNECT_TIMEOUT)
+    })
+    .await
+    .map_err(|error| format!("Java Debug Server connection task failed: {error}"))?
+    .map_err(|error| format!("Could not connect to the Java Debug Server: {error}"))?;
+    stream.set_nodelay(true).map_err(|error| {
+        format!("Could not configure the Java Debug Server connection: {error}")
+    })?;
+    let writer = stream
+        .try_clone()
+        .map_err(|error| format!("Could not own the Java Debug Server connection: {error}"))?;
+    let stdin = Arc::new(Mutex::new(AdapterInput::Tcp(writer)));
+    let session_id = format!(
+        "windows-java-debug-{}-{}",
+        std::process::id(),
+        SESSION_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
+    let workspace = launch
+        .workspace_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|workspace| !workspace.is_empty())
+        .unwrap_or("")
+        .to_string();
+    let root_path = if workspace.is_empty() {
+        "."
+    } else {
+        workspace.as_str()
+    };
+    let startup_gate = Arc::new(Mutex::new(StartupGate {
+        ready: false,
+        buffered_events: Vec::new(),
+    }));
+    let update = execute_core_async(
+        "debug.createSession".to_string(),
+        json!({
+            "sessionId": session_id,
+            "adapterId": "java",
+            "rootPath": root_path,
+            "supportsRunInTerminalRequest": false,
+        }),
+    )
+    .await?;
+    if let Err(error) = write_outbound_frames(&stdin, &update) {
+        shutdown_adapter_input(&stdin);
+        let _ = execute_core_async(
+            "debug.destroySession".to_string(),
+            json!({ "sessionId": session_id }),
+        )
+        .await;
+        return Err(error);
+    }
+    if update_state_failed(&update) {
+        let message = session_failure_message(&update);
+        emit_update_events(&app, &session_id, &update);
+        shutdown_adapter_input(&stdin);
+        let _ = execute_core_async(
+            "debug.destroySession".to_string(),
+            json!({ "sessionId": session_id }),
+        )
+        .await;
+        return Err(message);
+    }
+    {
+        let mut current = sessions().lock().map_err(|_| {
+            shutdown_adapter_input(&stdin);
+            let _ = execute_core_sync("debug.destroySession", json!({ "sessionId": session_id }));
+            "Debug session state is unavailable.".to_string()
+        })?;
+        current.insert(
+            session_id.clone(),
+            AdapterSession {
+                pid: 0,
+                workspace: workspace.clone(),
+                stdin: stdin.clone(),
+                startup_gate: startup_gate.clone(),
+            },
+        );
+    }
+    if let Err(error) = emit_or_buffer_update_events(&app, &session_id, &startup_gate, &update) {
+        fail_session(&app, &session_id, 0, &error);
+        return Err(error);
+    }
+    spawn_stdout_reader(
+        app,
+        session_id.clone(),
+        0,
+        stdin,
+        startup_gate,
+        Some(stream),
+    );
+
+    Ok(DebugSessionInfo {
+        id: session_id,
+        command: format!("tcp://127.0.0.1:{port}"),
+        args: Vec::new(),
+        cwd: (!workspace.is_empty()).then_some(workspace),
+    })
+}
+
+/// Chooses an ephemeral loopback port for one imminent JDWP launch.
+#[tauri::command]
+pub fn debug_allocate_loopback_port() -> Result<u16, String> {
+    let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))
+        .map_err(|error| format!("Could not allocate a JVM debug port: {error}"))?;
+    listener
+        .local_addr()
+        .map(|address| address.port())
+        .map_err(|error| format!("Could not read the allocated JVM debug port: {error}"))
+}
+
+/// Waits until the JVM owns a loopback port without consuming its debugger socket.
+#[tauri::command]
+pub async fn debug_wait_for_port(args: DebugPortWait) -> Result<(), String> {
+    if args.timeout_milliseconds == 0
+        || args.timeout_milliseconds > MAX_DEBUG_PORT_WAIT_MILLISECONDS
+    {
+        return Err(format!(
+            "The JVM debug-port timeout must be between 1 and {MAX_DEBUG_PORT_WAIT_MILLISECONDS} milliseconds."
+        ));
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        wait_for_bound_loopback_port(args.port, Duration::from_millis(args.timeout_milliseconds))
+    })
+    .await
+    .map_err(|error| format!("JVM debug-port wait task failed: {error}"))?
+}
+
+fn wait_for_bound_loopback_port(port: u16, timeout: Duration) -> Result<(), String> {
+    let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
+    let deadline = Instant::now() + timeout;
+    loop {
+        match TcpListener::bind(address) {
+            Ok(listener) => drop(listener),
+            Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => return Ok(()),
+            Err(error) => return Err(format!("Could not inspect JVM debug port {port}: {error}")),
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(format!(
+                "Timed out waiting for the JVM debug port {port} to start listening."
+            ));
+        }
+        thread::sleep(remaining.min(Duration::from_millis(50)));
+    }
+}
+
 /// Releases normalized startup events after the frontend registers the session.
 #[tauri::command]
 pub fn debug_session_ready(app: AppHandle, session_id: String) -> Result<(), String> {
@@ -370,8 +582,8 @@ async fn send_debug_request<S: DebugEventSink>(
     })
 }
 
-/// Stops one adapter session idempotently: graceful DAP disconnect, process
-/// tree kill, shared-session destroy, and a single `session-ended` event.
+/// Stops one adapter session idempotently: graceful DAP disconnect, native
+/// transport cleanup, shared-session destroy, and one `session-ended` event.
 #[tauri::command]
 pub async fn debug_stop_session(app: AppHandle, session_id: String) -> Result<(), String> {
     stop_session(&app, &session_id).await
@@ -418,6 +630,7 @@ async fn stop_session<S: DebugEventSink>(app: &S, session_id: &str) -> Result<()
     {
         Ok(update) => {
             if let Err(error) = write_outbound_frames(&stdin, &update) {
+                shutdown_adapter_input(&stdin);
                 kill_adapter_process(pid);
                 let _ = execute_core_async(
                     "debug.destroySession".to_string(),
@@ -438,6 +651,7 @@ async fn stop_session<S: DebugEventSink>(app: &S, session_id: &str) -> Result<()
         }
     }
 
+    shutdown_adapter_input(&stdin);
     kill_adapter_process(pid);
     let _ = execute_core_async(
         "debug.destroySession".to_string(),
@@ -451,8 +665,8 @@ async fn stop_session<S: DebugEventSink>(app: &S, session_id: &str) -> Result<()
     Ok(())
 }
 
-/// Kills every live adapter during application exit so no child process or
-/// reader task outlives the shell.
+/// Closes every live adapter during application exit so no child process,
+/// socket, or reader task outlives the shell.
 pub fn shutdown() {
     let sessions_to_stop = {
         let Ok(mut current) = sessions().lock() else {
@@ -460,10 +674,11 @@ pub fn shutdown() {
         };
         current
             .drain()
-            .map(|(session_id, session)| (session_id, session.pid))
+            .map(|(session_id, session)| (session_id, session.pid, session.stdin))
             .collect::<Vec<_>>()
     };
-    for (session_id, pid) in sessions_to_stop {
+    for (session_id, pid, stdin) in sessions_to_stop {
+        shutdown_adapter_input(&stdin);
         kill_adapter_process(pid);
         let _ = execute_core_sync("debug.destroySession", json!({ "sessionId": session_id }));
     }
@@ -780,7 +995,7 @@ fn spawn_stdout_reader<S: DebugEventSink, T: Read + Send + 'static>(
     app: S,
     session_id: String,
     pid: u32,
-    stdin: Arc<Mutex<ChildStdin>>,
+    stdin: Arc<Mutex<AdapterInput>>,
     startup_gate: Arc<Mutex<StartupGate>>,
     stdout: Option<T>,
 ) -> thread::JoinHandle<()> {
@@ -796,7 +1011,9 @@ fn spawn_stdout_reader<S: DebugEventSink, T: Read + Send + 'static>(
                     // closes stdout before the exit waiter can publish its
                     // exit code. Terminate a still-live process so a broken
                     // adapter cannot leave the session registered forever.
-                    if is_current_session(&session_id, pid) {
+                    if pid == 0 {
+                        finish_tcp_session(&app, &session_id);
+                    } else if is_current_session(&session_id, pid) {
                         kill_adapter_process(pid);
                     }
                     break;
@@ -951,15 +1168,16 @@ fn spawn_exit_waiter<S: DebugEventSink>(
 /// Removes the session only when its pid still matches, so a late event from
 /// an old adapter can never clean up or end a newer session.
 fn remove_session(session_id: &str, pid: u32) -> bool {
+    remove_adapter_session(session_id, pid).is_some()
+}
+
+fn remove_adapter_session(session_id: &str, pid: u32) -> Option<AdapterSession> {
     match sessions().lock() {
         Ok(mut current) => match current.get(session_id) {
-            Some(session) if session.pid == pid => {
-                current.remove(session_id);
-                true
-            }
-            _ => false,
+            Some(session) if session.pid == pid => current.remove(session_id),
+            _ => None,
         },
-        Err(_) => false,
+        Err(_) => None,
     }
 }
 
@@ -971,12 +1189,13 @@ fn is_current_session(session_id: &str, pid: u32) -> bool {
     })
 }
 
-/// Tears down a failed session: process tree kill, shared-session destroy,
-/// console error, and a single `failed` end event.
+/// Tears down a failed session: native transport cleanup, shared-session
+/// destroy, console error, and a single `failed` end event.
 fn fail_session<S: DebugEventSink>(app: &S, session_id: &str, pid: u32, message: &str) {
-    if !remove_session(session_id, pid) {
+    let Some(session) = remove_adapter_session(session_id, pid) else {
         return;
-    }
+    };
+    shutdown_adapter_input(&session.stdin);
     kill_adapter_process(pid);
     let _ = execute_core_sync("debug.destroySession", json!({ "sessionId": session_id }));
     app.emit_event(
@@ -987,6 +1206,23 @@ fn fail_session<S: DebugEventSink>(app: &S, session_id: &str, pid: u32, message:
         "debugger_session_ended",
         json!({ "sessionId": session_id, "reason": "failed" }),
     );
+}
+
+fn finish_tcp_session<S: DebugEventSink>(app: &S, session_id: &str) {
+    if !remove_session(session_id, 0) {
+        return;
+    }
+    let _ = execute_core_sync("debug.destroySession", json!({ "sessionId": session_id }));
+    app.emit_event(
+        "debugger_session_ended",
+        json!({ "sessionId": session_id, "reason": "exited" }),
+    );
+}
+
+fn shutdown_adapter_input(stdin: &Arc<Mutex<AdapterInput>>) {
+    if let Ok(mut stdin) = stdin.lock() {
+        stdin.shutdown();
+    }
 }
 
 fn kill_adapter_process(pid: u32) {
@@ -1015,13 +1251,11 @@ mod tests {
     use std::sync::mpsc;
     use std::time::Duration;
 
-    #[cfg(feature = "test-support")]
     #[derive(Clone)]
     struct RecordingSink {
         events: mpsc::Sender<(String, Value)>,
     }
 
-    #[cfg(feature = "test-support")]
     impl DebugEventSink for RecordingSink {
         fn emit_event(&self, name: &str, payload: Value) {
             self.events
@@ -1166,6 +1400,133 @@ mod tests {
             session_failure_message(&running),
             "The debug session failed to start or continue."
         );
+    }
+
+    #[test]
+    fn detects_a_bound_jdwp_port_without_consuming_a_connection() {
+        let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))
+            .expect("test should own a loopback port");
+        let port = listener.local_addr().expect("listener address").port();
+
+        wait_for_bound_loopback_port(port, Duration::from_secs(1))
+            .expect("the bound port should be detected immediately");
+
+        drop(listener);
+        TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port))
+            .expect("the probe must not retain or connect to the port");
+    }
+
+    #[test]
+    fn connects_core_session_to_loopback_debug_server_and_stops_cleanly() {
+        let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))
+            .expect("test should own a loopback adapter port");
+        let address = listener.local_addr().expect("listener address");
+        let (frame_sender, frame_receiver) = mpsc::channel();
+        let (release_sender, release_receiver) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let result = (|| -> Result<Vec<u8>, String> {
+                let (mut stream, _) = listener
+                    .accept()
+                    .map_err(|error| format!("test adapter accept failed: {error}"))?;
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .map_err(|error| format!("test adapter timeout failed: {error}"))?;
+                let mut frame = Vec::new();
+                let mut buffer = [0_u8; 1024];
+                loop {
+                    let count = stream
+                        .read(&mut buffer)
+                        .map_err(|error| format!("test adapter read failed: {error}"))?;
+                    if count == 0 {
+                        return Err("test adapter closed before initialize".to_string());
+                    }
+                    frame.extend_from_slice(&buffer[..count]);
+                    if String::from_utf8_lossy(&frame).contains("\"command\":\"initialize\"") {
+                        break;
+                    }
+                }
+                Ok(frame)
+            })();
+            let _ = frame_sender.send(result);
+            let _ = release_receiver.recv_timeout(Duration::from_secs(2));
+        });
+        let (events, _received) = mpsc::channel();
+        let sink = RecordingSink { events };
+
+        let connection = tauri::async_runtime::block_on(connect_debug_adapter_session(
+            sink.clone(),
+            DebugAdapterConnectionLaunch {
+                port: address.port(),
+                workspace_path: Some("C:/work".to_string()),
+            },
+        ));
+        let fallback = connection
+            .as_ref()
+            .err()
+            .and_then(|_| TcpStream::connect_timeout(&address, Duration::from_secs(1)).ok());
+        let frame = frame_receiver
+            .recv_timeout(Duration::from_secs(3))
+            .map_err(|error| format!("test adapter frame wait failed: {error}"))
+            .and_then(|result| result);
+        let session_id = connection.as_ref().ok().map(|session| session.id.clone());
+        let stop_result = match session_id.as_deref() {
+            Some(session_id) => tauri::async_runtime::block_on(stop_session(&sink, session_id)),
+            None => Ok(()),
+        };
+        drop(fallback);
+        let _ = release_sender.send(());
+        let join_result = server.join();
+
+        let session = connection.expect("host should connect to the loopback adapter");
+        let frame = frame.expect("Core should send the DAP initialize request");
+        stop_result.expect("connected adapter session should stop");
+        assert!(join_result.is_ok(), "test adapter thread should terminate");
+        assert_eq!(
+            session.command,
+            format!("tcp://127.0.0.1:{}", address.port())
+        );
+        assert!(String::from_utf8_lossy(&frame).contains("Content-Length:"));
+        assert!(!is_current_session(&session.id, 0));
+    }
+
+    #[test]
+    fn failed_tcp_session_keeps_its_failure_reason_during_socket_shutdown() {
+        let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))
+            .expect("test should own a loopback adapter port");
+        let address = listener.local_addr().expect("listener address");
+        let client = TcpStream::connect(address).expect("test client should connect");
+        let (mut server, _) = listener.accept().expect("test server should accept");
+        server
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .expect("test server should use a bounded read");
+        let session_id = "failed-tcp-session";
+        sessions().lock().unwrap().insert(
+            session_id.to_string(),
+            AdapterSession {
+                pid: 0,
+                workspace: String::new(),
+                stdin: Arc::new(Mutex::new(AdapterInput::Tcp(client))),
+                startup_gate: Arc::new(Mutex::new(StartupGate {
+                    ready: true,
+                    buffered_events: Vec::new(),
+                })),
+            },
+        );
+        let (events, received) = mpsc::channel();
+        let sink = RecordingSink { events };
+
+        fail_session(&sink, session_id, 0, "protocol failed");
+
+        let output = received
+            .recv_timeout(Duration::from_secs(1))
+            .expect("failure output should be emitted");
+        let ended = received
+            .recv_timeout(Duration::from_secs(1))
+            .expect("failed end event should be emitted");
+        assert_eq!(output.0, "debugger_output");
+        assert_eq!(ended.1["reason"], "failed");
+        assert_eq!(server.read(&mut [0_u8; 1]).unwrap(), 0);
+        assert!(!is_current_session(session_id, 0));
     }
 
     #[cfg(all(windows, feature = "test-support"))]
@@ -1384,7 +1745,9 @@ mod tests {
             .spawn()
             .expect("fake DAP adapter should start");
         let pid = child.id();
-        let stdin = Arc::new(Mutex::new(child.stdin.take().expect("adapter stdin")));
+        let stdin = Arc::new(Mutex::new(AdapterInput::Process(
+            child.stdin.take().expect("adapter stdin"),
+        )));
         let session_id = format!("fake-host-session-{}", pid);
         execute_core_sync(
             "debug.createSession",

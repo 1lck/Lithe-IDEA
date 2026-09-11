@@ -1918,6 +1918,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let level: String?
         let message: String?
         let detail: String?
+        let mavenProfileTask: String?
+        let mavenProfileProject: MavenProfileProjectPayload?
+    }
+
+    struct MavenProfileProjectPayload: Decodable, Sendable {
+        let projectUri: URL
+        let status: String
+        let errorDetails: String?
     }
 
     struct LspRuntimeErrorPayload: Decodable, Sendable {
@@ -2130,6 +2138,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let reference: String?
         let cursor: String?
         let limit: Int
+        let order: String?
     }
 
     private struct GitHistoryCursorCloseRequest: Encodable {
@@ -3287,6 +3296,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         reference: String?,
         cursor: String?,
         limit: Int,
+        order: String? = nil,
         operationID: String
     ) -> GitHistoryPagePayload? {
         execute(
@@ -3295,7 +3305,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 root: rootURL.standardizedFileURL.path,
                 reference: reference,
                 cursor: cursor,
-                limit: limit
+                limit: limit,
+                order: order
             ),
             operationID: operationID
         )
@@ -3613,6 +3624,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     func lspStopServer(sessionID: String) {
         executeVoid(
             command: "lsp.stopServer",
+            payload: LspSessionIdentifierRequest(sessionId: sessionID)
+        )
+    }
+
+    /// Retries Maven Profile application while retaining the running JDTLS process.
+    func lspRetryMavenProfiles(sessionID: String) -> Result<Void, CoreCallError> {
+        executeVoid(
+            command: "lsp.retryMavenProfiles",
             payload: LspSessionIdentifierRequest(sessionId: sessionID)
         )
     }

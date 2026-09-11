@@ -40,7 +40,6 @@ export const isImageFile = (path: string): boolean => {
     lowerPath.endsWith(".jpeg") ||
     lowerPath.endsWith(".gif") ||
     lowerPath.endsWith(".bmp") ||
-    lowerPath.endsWith(".svg") ||
     lowerPath.endsWith(".webp") ||
     lowerPath.endsWith(".ico") ||
     lowerPath.endsWith(".tiff") ||

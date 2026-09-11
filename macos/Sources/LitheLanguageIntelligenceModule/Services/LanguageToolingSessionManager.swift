@@ -35,6 +35,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
     @Published package private(set) var diagnostics: [URL: [LanguageServerDiagnostic]] = [:]
     @Published package private(set) var languageServerFeatures: [String: LanguageServerFeatureSet] = [:]
     @Published package private(set) var languageServerLogs: [LanguageServerLogEntry] = []
+    @Published package private(set) var mavenProfileProjectResults: [URL: MavenProfileProjectResult] = [:]
     @Published package private(set) var languageServerStates: [String: LanguageServerSessionState] = [:]
     @Published package private(set) var languageServerInfos: [String: LanguageServerInfo] = [:]
     @Published package private(set) var languageServerOperationIDs: [String: UUID] = [:]
@@ -97,6 +98,11 @@ package final class LanguageToolingSessionManager: ObservableObject,
         _ provider: @escaping (LanguageProviderDescriptor, URL) -> MavenLaunchContext?
     ) {
         mavenContextProvider = provider
+    }
+
+    package func retryMavenProfiles(providerID: String) {
+        guard let session = languageServers[providerID] else { return }
+        session.retryMavenProfiles()
     }
 
     package func updateCatalog(_ catalog: LanguageProviderCatalog) {
@@ -288,6 +294,22 @@ package final class LanguageToolingSessionManager: ObservableObject,
             operationID: operationID
         )
         return languageServerOperationIDs[providerID] ?? operationID
+    }
+
+    /// Reloads only Java and waits for project import, preserving other providers.
+    /// Cancellation terminates only the session created by this reload.
+    package func reloadJavaWorkspace(rootURL: URL) async throws {
+        stopLanguageServer(providerID: "java")
+        let operationID = try startLanguageServer(providerID: "java", rootURL: rootURL)
+        do {
+            try await waitUntilLanguageServerReady(providerID: "java", rootURL: rootURL)
+            try Task.checkCancellation()
+        } catch {
+            if languageServerOperationIDs["java"] == operationID {
+                stopLanguageServer(providerID: "java")
+            }
+            throw error
+        }
     }
 
     /// Starts or reuses JDT LS, then asks its bundled Java Debug extension for
@@ -824,6 +846,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             )
         }
         clearDiagnostics(providerID: providerID)
+        if providerID == "java" { mavenProfileProjectResults.removeAll() }
         languageServerSessionIdentities[providerID] = nil
         languageServers.removeValue(forKey: providerID)?.stop()
         languageServerRoots[providerID] = nil
@@ -1377,6 +1400,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
         stop: Bool
     ) {
         guard languageServerSessionIdentities[providerID] == sessionIdentity else { return }
+        if providerID == "java" { mavenProfileProjectResults.removeAll() }
         clearDiagnostics(providerID: providerID)
         languageServerSessionIdentities[providerID] = nil
         let session = languageServers.removeValue(forKey: providerID)
@@ -1602,8 +1626,17 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 self.languageServerInfos[providerID] = info
             }
         }
+        session.onMavenProfileTask = { [weak self] status in
+            guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
+            if status == "running" { self.mavenProfileProjectResults.removeAll() }
+        }
+        session.onMavenProfileProject = { [weak self] result in
+            guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
+            self.mavenProfileProjectResults[result.projectURI] = result
+        }
         session.onLog = { [weak self] level, message, detail, operationID in
-            self?.recordLanguageServerLog(
+            guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
+            self.recordLanguageServerLog(
                 providerID: providerID,
                 operationID: operationID,
                 level: level,

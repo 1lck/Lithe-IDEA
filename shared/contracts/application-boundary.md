@@ -339,9 +339,11 @@ The Java language-server startup consumes that same context. Core exposes the
 selected `settings.xml` to JDT LS as
 `java.configuration.maven.userSettings`, then applies the sorted Profile set
 to the reactor and every recursively declared Maven module after JDT LS
-reports `ServiceReady`. The Java session remains `initializing` until those
-project updates all succeed; a rejected or timed-out update fails the session
-instead of silently retaining the previous Maven model.
+reports `ServiceReady`. The Java session reaches `ready` at that verified
+signal; Profile updates then run as a bounded background task with at most
+eight in-flight projects. Each project reports its own result, and a rejected
+or timed-out update preserves the usable Java session while exposing a partial
+failure that the host can retry.
 
 Maven-backed Run and Debug launch planning consumes the current project Maven
 context. A Run Configuration's explicit Profiles and toolchain paths take
@@ -361,3 +363,25 @@ one-based source line. The active test operation owns cancellation and stop;
 late output or parsed results cannot replace a newer run. The last valid class
 or method selection remains available for an explicit rerun, while cancellation
 clears only the active result.
+
+Maven module menus use Core's resolved `extensions.maven.reactorPath` and
+module identity before preferring a default Run configuration. An effective
+working-directory override is not project ownership. File-dependent entries
+such as Current File are not module launch candidates.
+
+On Windows, Debug cleanup owns a Run execution ID in addition to its reusable
+output slot. The host checks that ID atomically when stopping the process so a
+late adapter shutdown cannot terminate a replacement Run in the same slot.
+
+## SVG document preview
+
+SVG extensions are matched case-insensitively and open as editable text in both
+workspace and standalone file flows. The default presentation is editor plus
+preview, with editor-only and preview-only modes available. All modes use the
+same document buffer and preserve normal dirty, save, undo, and read-only rules.
+Preview rendering uses the current unsaved source. Malformed source shows a
+rendering failure while the editor remains accessible; correcting the source
+restores the preview. SVG is rendered as image data, never inserted into the
+application DOM as executable markup. Rendering and resizable layout are owned
+by the platform. The behavior fixture is
+[`svg-preview-v1.json`](../fixtures/editor/svg-preview-v1.json).

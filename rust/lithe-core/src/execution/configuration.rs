@@ -879,6 +879,7 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
         }
     }
     let mut configurations = merge_values(&generated, &team, &local)?;
+    apply_maven_reactor_ownership(&mut configurations, &generated);
     normalize_runtime_consumption(&mut configurations);
     let global_toolchain = local.get("toolchain").cloned();
     if let Some(toolchain) = global_toolchain.as_ref() {
@@ -957,6 +958,40 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
         "toolchain": global_toolchain,
         "localToolchains": local_toolchains
     }))
+}
+
+/// Retains the detected reactor independently of team/local working-directory overrides.
+fn apply_maven_reactor_ownership(configurations: &mut [RunConfiguration], generated: &Value) {
+    let owners: BTreeMap<_, _> = generated["configurations"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|value| value["toolchains"]["maven"].is_string())
+        .filter_map(|value| Some((value["id"].as_str()?, value["cwd"].as_str().unwrap_or("."))))
+        .collect();
+    for configuration in configurations {
+        // Ownership comes from detection, never from an override or effective cwd.
+        if let Some(extension) = configuration
+            .extensions
+            .get_mut("maven")
+            .and_then(Value::as_object_mut)
+        {
+            extension.remove("reactorPath");
+        }
+        if configuration.provider == "java.current-file" {
+            continue;
+        }
+        if let Some(reactor) = owners.get(configuration.id.as_str()) {
+            if let Some(extension) = configuration
+                .extensions
+                .entry("maven".to_string())
+                .or_insert_with(|| json!({}))
+                .as_object_mut()
+            {
+                extension.insert("reactorPath".to_string(), json!(reactor));
+            }
+        }
+    }
 }
 
 fn apply_global_toolchain(configurations: &mut [RunConfiguration], toolchain: &Value) {
