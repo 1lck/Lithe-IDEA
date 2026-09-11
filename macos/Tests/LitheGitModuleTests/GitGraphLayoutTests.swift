@@ -197,7 +197,17 @@ struct GitGraphLayoutTests {
     }
 
     private func longEdge(_ span: Int) -> [GitCommit] {
-        (0...span).map { row in commit(String(row), row == span ? [] : row == 0 ? ["1", String(span)] : [String(row + 1)]) }
+        (0...span).map { row -> GitCommit in
+            let parents: [String]
+            if row == span {
+                parents = []
+            } else if row == 0 {
+                parents = ["1", String(span)]
+            } else {
+                parents = [String(row + 1)]
+            }
+            return commit(String(row), parents)
+        }
     }
 
     private func commit(_ hash: String, _ parents: [String], _ decorations: String = "") -> GitCommit {
