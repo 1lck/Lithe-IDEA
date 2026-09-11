@@ -3171,6 +3171,12 @@ fn append_git_ignore_patterns(
 
 /// Inserts or removes exact ignore lines while preserving unrelated rules.
 ///
+/// Existing file lines are compared as stored, including leading and trailing
+/// whitespace. Git ignore treats a leading space as part of the pattern, so
+/// ` .factorypath` is not the same rule as `.factorypath`. Request patterns are
+/// still trimmed and validated separately. `str::lines()` already drops `\n`
+/// and `\r\n` terminators, so CRLF files compare on line content only.
+///
 /// Missing managed lines are a no-op on remove. Non-repository roots fail with
 /// a stable "Not a Git repository" message so hosts can skip Git UI side effects.
 fn mutate_literal_git_ignore_patterns(
@@ -3200,17 +3206,16 @@ fn mutate_literal_git_ignore_patterns(
 
     let mut logical: Vec<String> = existing_text.lines().map(str::to_string).collect();
     if adding {
-        let mut present: HashSet<String> =
-            logical.iter().map(|line| line.trim().to_string()).collect();
+        let mut present: HashSet<String> = logical.iter().cloned().collect();
         for pattern in &patterns {
-            if present.contains(pattern.as_str()) {
+            if present.contains(pattern) {
                 continue;
             }
             logical.push(pattern.clone());
             present.insert(pattern.clone());
         }
     } else {
-        logical.retain(|line| !managed.contains(line.trim()));
+        logical.retain(|line| !managed.contains(line.as_str()));
     }
 
     let updated = if logical.is_empty() {
@@ -3277,6 +3282,8 @@ fn read_git_ignore_bytes(path: &Path) -> Result<Vec<u8>, CoreError> {
 fn literal_git_ignore_patterns(patterns: &[String]) -> Result<Vec<String>, CoreError> {
     let mut normalized = Vec::with_capacity(patterns.len());
     for pattern in patterns {
+        // Trim request input only. Existing exclude lines keep their stored
+        // whitespace because a leading space changes Git ignore semantics.
         let trimmed = pattern.trim();
         if trimmed.is_empty() || trimmed.contains(['\0', '\n', '\r']) {
             return Err(CoreError::new(
