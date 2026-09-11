@@ -19,6 +19,14 @@ const operation = (kind: GitOperationState["kind"]): GitOperationState => ({
   conflictedPaths: ["src/conflict.ts"],
 });
 
+const deferred = <Value>() => {
+  let resolve!: (value: Value | PromiseLike<Value>) => void;
+  const promise = new Promise<Value>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+};
+
 const createHarness = (overrides: Partial<GitPullWorkflowDependencies> = {}) => {
   const pullStrategies: PullStrategy[] = [];
   let refreshCount = 0;
@@ -284,4 +292,55 @@ describe("GitPullWorkflow", () => {
     await first;
     expect(harness.refreshCount()).toBe(1);
   });
+
+  test("retains the Pull lock until a slow refresh completes", async () => {
+    const pullStarted = deferred<void>();
+    const releasePull = deferred<{
+      success: boolean;
+    }>();
+    const refreshStarted = deferred<void>();
+    const releaseRefresh = deferred<void>();
+    const harness = createHarness({
+      pull: async () => {
+        pullStarted.resolve();
+        return releasePull.promise;
+      },
+    });
+    const runPromise = harness.workflow.run("C:/repo", {
+      refresh: async () => {
+        refreshStarted.resolve();
+        await releaseRefresh.promise;
+      },
+    });
+
+    try {
+      await pullStarted.promise;
+      releasePull.resolve({ success: true });
+      await refreshStarted.promise;
+
+      expect(harness.workflow.getSnapshot()).toEqual({
+        isPulling: false,
+        isPullLocked: true,
+        pendingPreflight: null,
+      });
+      await expect(harness.workflow.run("C:/repo", harness.options)).resolves.toEqual({
+        status: "duplicate",
+      });
+    } finally {
+      // Release every deferred boundary so a failed assertion cannot leave the
+      // workflow promise pending after the test has finished.
+      releasePull.resolve({ success: true });
+      releaseRefresh.resolve();
+    }
+
+    await expect(runPromise).resolves.toMatchObject({
+      status: "pulled",
+      strategy: "ffOnly",
+    });
+    expect(harness.workflow.getSnapshot()).toEqual({
+      isPulling: false,
+      isPullLocked: false,
+      pendingPreflight: null,
+    });
+  }, 2_000);
 });
