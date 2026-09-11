@@ -47,6 +47,7 @@ struct RunSessionKey {
 
 struct RunningSession {
     pid: u32,
+    execution_id: Option<String>,
     stdin: Option<ChildStdin>,
 }
 
@@ -163,6 +164,8 @@ pub struct ResolvedLaunch {
 pub struct StartProcessArgs {
     pub window_label: String,
     pub session_id: String,
+    #[serde(default)]
+    pub execution_id: Option<String>,
     pub executable: String,
     pub arguments: Vec<String>,
     pub working_directory: String,
@@ -278,7 +281,7 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
     if args.window_label.trim().is_empty() {
         return Err("A run process must be started from an active window.".into());
     }
-    stop_session(&args.window_label, &args.session_id);
+    stop_session(&args.window_label, &args.session_id, None);
     let mut command = command_for_executable(&args.executable, &args.arguments);
     command
         .current_dir(&args.working_directory)
@@ -302,6 +305,7 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
             session_key,
             RunningSession {
                 pid,
+                execution_id: args.execution_id,
                 stdin,
             },
         );
@@ -331,13 +335,21 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
 }
 
 #[tauri::command]
-pub fn run_stop_process(window_label: String, session_id: String) -> Result<(), String> {
-    stop_session(&window_label, &session_id);
+pub fn run_stop_process(
+    window_label: String,
+    session_id: String,
+    execution_id: Option<String>,
+) -> Result<(), String> {
+    stop_session(&window_label, &session_id, execution_id.as_deref());
     Ok(())
 }
 
 #[tauri::command]
-pub fn run_write_stdin(window_label: String, session_id: String, input: String) -> Result<(), String> {
+pub fn run_write_stdin(
+    window_label: String,
+    session_id: String,
+    input: String,
+) -> Result<(), String> {
     let mut current = sessions()
         .lock()
         .map_err(|_| "Run process state is unavailable".to_string())?;
@@ -1542,15 +1554,29 @@ fn spawn_exit_waiter(
     });
 }
 
-fn stop_session(window_label: &str, session_id: &str) {
-    let pid = sessions()
-        .lock()
-        .ok()
-        .and_then(|mut current| {
-            current
-                .remove(&run_session_key(window_label, session_id))
-                .map(|session| session.pid)
-        });
+fn take_owned_session(
+    current: &mut HashMap<RunSessionKey, RunningSession>,
+    key: &RunSessionKey,
+    execution_id: Option<&str>,
+) -> Option<RunningSession> {
+    // Check and remove under the same lock; an old adapter must not reap a new Run.
+    if let Some(expected) = execution_id {
+        if current.get(key)?.execution_id.as_deref() != Some(expected) {
+            return None;
+        }
+    }
+    current.remove(key)
+}
+
+fn stop_session(window_label: &str, session_id: &str, execution_id: Option<&str>) {
+    let pid = sessions().lock().ok().and_then(|mut current| {
+        take_owned_session(
+            &mut current,
+            &run_session_key(window_label, session_id),
+            execution_id,
+        )
+        .map(|session| session.pid)
+    });
     if let Some(pid) = pid {
         let mut command = Command::new("taskkill");
         command.args(["/F", "/T", "/PID", &pid.to_string()]);
@@ -1563,6 +1589,46 @@ fn stop_session(window_label: &str, session_id: &str) {
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn stale_execution_cleanup_preserves_replacement_process() {
+        let key = run_session_key("window", "primary");
+        let mut current = HashMap::new();
+        current.insert(
+            key.clone(),
+            RunningSession {
+                pid: 42,
+                execution_id: Some("replacement".into()),
+                stdin: None,
+            },
+        );
+        assert!(take_owned_session(&mut current, &key, Some("old-debug")).is_none());
+        assert_eq!(current.get(&key).unwrap().pid, 42);
+        assert_eq!(
+            take_owned_session(&mut current, &key, Some("replacement"))
+                .unwrap()
+                .pid,
+            42
+        );
+        assert!(current.is_empty());
+    }
+
+    #[test]
+    fn unqualified_stop_keeps_manual_stop_compatible() {
+        let key = run_session_key("window", "primary");
+        let mut current = HashMap::new();
+        current.insert(
+            key.clone(),
+            RunningSession {
+                pid: 42,
+                execution_id: None,
+                stdin: None,
+            },
+        );
+        assert!(take_owned_session(&mut current, &key, Some("old-debug")).is_none());
+        assert!(take_owned_session(&mut current, &key, None).is_some());
+        assert!(current.is_empty());
+    }
 
     fn temp_project() -> PathBuf {
         let stamp = SystemTime::now()

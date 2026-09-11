@@ -652,6 +652,33 @@ function sessionForFile(filePath: string, attachmentId?: string): Session {
   return attachment.session;
 }
 
+function sessionForWorkspace(workspacePath: string, languageId: string): Session {
+  const session = sessions.get(sessionKey(workspacePath, languageId));
+  if (!session || !isSessionReady(session.lifecycle)) {
+    throw lspAdapterError(
+      "no_session",
+      `No ready ${languageId} language-server session owns this workspace: ${workspacePath}`,
+    );
+  }
+  return session;
+}
+
+function parseDebugServerPort(value: unknown): number {
+  const port =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && /^\d+$/.test(value.trim())
+        ? Number(value.trim())
+        : Number.NaN;
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw lspAdapterError(
+      "invalid_response",
+      "The Java language service returned an invalid debug-server port.",
+    );
+  }
+  return port;
+}
+
 async function recoverSession(session: Session): Promise<Session | null> {
   const operation = new LspOperationLog("sessionRecovery", session.lifecycle.operationId, {
     sessionId: session.id,
@@ -1372,6 +1399,21 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
       operation.failed(reason);
       throw reason;
     }
+  }
+  if (command === "java_start_debug_session") {
+    const session = sessionForWorkspace(String(args.workspacePath ?? ""), "java");
+    const result = normalizeCoreValue(
+      await requestOperation(session, {
+        sessionId: session.id,
+        operation: "executeCommand",
+        command: {
+          title: "Start Java Debug Server",
+          command: "vscode.java.startDebugSession",
+          arguments: [],
+        },
+      }),
+    ) as JsonRecord;
+    return parseDebugServerPort(result?.value) as T;
   }
   if (command === "java_navigation_markers") {
     const session = sessionForFile(args.sessionFilePath ?? args.filePath);

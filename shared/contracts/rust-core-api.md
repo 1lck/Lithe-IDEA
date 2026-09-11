@@ -323,7 +323,7 @@ response retains the invocation trace and includes the failure as
 `operationError`.
 
 `git.write` accepts a typed mutation request. Its required `operation` values are
-`stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `cherryPick`, `revert`,
+`stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `excludePatterns`, `unexcludePatterns`, `cherryPick`, `revert`,
 `reset`, `undoCommit`, `editCommitMessage`, `deleteCommit`, `squashCommits`, `createBranch`, `publishBranch`,
 `renameBranch`, `setUpstream`, `unsetUpstream`, `deleteBranch`, `merge`, `rebase`, `createWorktree`,
 `removeWorktree`, `lockWorktree`, `unlockWorktree`, `repairWorktrees`, `pruneWorktrees`,
@@ -453,7 +453,19 @@ the legacy behavior of committing the existing index. `ignore` appends root-anch
 repository's top-level `.gitignore`; `exclude` appends the same patterns to the
 worktree-aware Git metadata path for `info/exclude`. Both ignore operations
 preserve existing content, escape Git pattern characters, de-duplicate rules,
-and interpret a trailing `/` as a directory rule.
+and interpret a trailing `/` as a directory rule. `excludePatterns` and
+`unexcludePatterns` mutate exact literal lines in that same worktree-aware
+`info/exclude` file without root-anchoring or escaping, so recommended IDE
+patterns such as `.factorypath` can be added or removed once. Existing lines are
+compared as stored raw bytes, including leading and trailing whitespace and
+non-UTF-8 content; a leading space is a different Git ignore rule and is neither
+treated as a duplicate on add nor removed as the same rule. Unrelated lines keep
+their original bytes; add appends without rewriting the existing file, and
+remove rebuilds from the original line bytes and terminators rather than
+decoding the file as UTF-8. Request values are trimmed and rejected when empty or
+when they contain NULs or line breaks. Remove is a no-op when managed lines are
+absent. A non-repository root fails with `invalid_request` / `Not a Git
+repository`.
 
 `editCommitMessage` rebuilds the selected commit and its later first-parent
 descendants with the new `message`. `squashCommits` requires at least two
@@ -1187,6 +1199,17 @@ states, the effective global `toolchain`, and the machine-local
 `localToolchains` document. Toolchain diagnostics carry the affected run
 configuration ID when a requirement is consumed by one or more configurations;
 requirements with no configuration consumer do not emit a blocking diagnostic.
+For detected Maven configurations, resolved `extensions.maven.reactorPath`
+contains the workspace-relative reactor from the generated layer, independently
+of an overridden effective `cwd`. Core derives this read-only ownership value
+when resolving existing generated documents as well; regeneration is not
+required. Overrides cannot move a configuration to another reactor. Current
+File and configurations without detected Maven ownership omit this field.
+Module menus first match reactor and module, then apply the default preference;
+they must not infer ownership from an overridden working directory. The shared
+`run-configuration/maven-module-ownership.json` fixture covers independent
+reactors, cwd overrides, and the ordinary Java main / Current File capabilities.
+
 A process detector declares a runtime binding only when that command genuinely
 consumes the runtime. npm, pnpm, and Yarn scripts consume `project-node`; Bun
 scripts keep their independent `bun` command and do not acquire a Node

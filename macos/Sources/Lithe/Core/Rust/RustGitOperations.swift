@@ -422,6 +422,14 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: rootURL, operation: "stageAll")
     }
 
+    func mutateLiteralLocalExcludePatterns(_ patterns: [String], adding: Bool, at rootURL: URL) -> GitProcessResult? {
+        write(
+            at: rootURL,
+            operation: adding ? "excludePatterns" : "unexcludePatterns",
+            paths: patterns
+        )
+    }
+
     func createTag(
         named name: String,
         at revision: String,
