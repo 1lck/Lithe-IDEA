@@ -46,7 +46,7 @@ use crate::protocol::{
 };
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::io::Read;
 use std::io::Write;
 #[cfg(target_os = "windows")]
@@ -54,7 +54,6 @@ use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::thread;
 use std::time::Duration;
 
@@ -64,7 +63,6 @@ const DEFAULT_REPOSITORY_SCAN_MAX_DIRECTORIES: usize = usize::MAX;
 const DEFAULT_REPOSITORY_SCAN_MAX_DEPTH: usize = usize::MAX;
 static TEMPORARY_INDEX_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static AUTO_STASH_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-static GIT_MUTATION_LOCKS: OnceLock<Mutex<HashMap<String, Weak<Mutex<()>>>>> = OnceLock::new();
 
 const REPOSITORY_SCAN_SKIP_DIRS: &[&str] = &[".git"];
 
@@ -823,51 +821,14 @@ pub fn workspace_repositories(
     })
 }
 
-fn git_mutation_lock(root: &str) -> Arc<Mutex<()>> {
-    let key = git_mutation_lock_key(root);
-    git_mutation_lock_for_key(key)
-}
-
-fn git_mutation_lock_for_key(key: String) -> Arc<Mutex<()>> {
-    let locks = GIT_MUTATION_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut locks = locks
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-
-    // Weak entries keep the registry bounded after a repository is no longer
-    // active, while the strong Arc returned below keeps a lock alive for every
-    // current owner or waiter.
-    locks.retain(|_, lock| lock.strong_count() > 0);
-    if let Some(lock) = locks.get(&key).and_then(|lock| lock.upgrade()) {
-        return lock;
-    }
-
-    let lock = Arc::new(Mutex::new(()));
-    locks.insert(key, Arc::downgrade(&lock));
-    lock
-}
-
-fn git_mutation_lock_key(root: &str) -> String {
-    // Linked worktrees share refs and the common Git administration directory.
-    // Resolve that directory without the traced command path so lock discovery
-    // does not appear as an extra compatibility invocation.
-    run_git(
-        Path::new(root),
-        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
-    )
-    .ok()
-    .and_then(|output| canonical_git_output(output, "Git common directory").ok())
-    .unwrap_or_else(|| root.to_string())
-}
-
 /// Executes an argument-based Git command after validating the workspace root.
 pub fn command(request: GitCommandRequest) -> Result<GitCommandResponse, CoreError> {
     with_git_invocation_trace(|| {
         let root = validate_root(&request.root)?;
-        let mutation_lock = git_mutation_lock(&root);
-        let _mutation_guard = mutation_lock
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Raw compatibility commands can also mutate refs and configuration.
+        // Share the typed writers' fail-fast lease instead of waiting on a mutex
+        // that cannot observe the request's cancellation or deadline.
+        let _lease = rewrite::RewriteLease::acquire(&root)?;
         execute_git(&root, &request.arguments, request.input)
     })
 }
@@ -884,10 +845,6 @@ pub fn write(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> 
 
 fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> {
     let root = validate_root(&request.root)?;
-    let mutation_lock = git_mutation_lock(&root);
-    let _mutation_guard = mutation_lock
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
     // Every typed writer shares the same repository lease, including linked
     // worktrees. Clone has no existing repository whose state it could race.
     let _lease = if request.operation == "clone" {
@@ -6509,14 +6466,77 @@ mod tests {
         GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse, GitReferencesResponse,
     };
     use serde_json::Value;
-    #[test]
-    fn mutation_lock_registry_reuses_keys_and_isolates_repositories() {
-        let first = super::git_mutation_lock_for_key("test-repository-a".into());
-        let same_repository = super::git_mutation_lock_for_key("test-repository-a".into());
-        let other_repository = super::git_mutation_lock_for_key("test-repository-b".into());
 
-        assert!(std::sync::Arc::ptr_eq(&first, &same_repository));
-        assert!(!std::sync::Arc::ptr_eq(&first, &other_repository));
+    #[test]
+    fn argument_and_typed_writes_reject_an_active_repository_lease() {
+        struct Repository(std::path::PathBuf);
+        impl Drop for Repository {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).expect("temporary repository should be removed");
+            }
+        }
+
+        let repository = Repository(std::env::temp_dir().join(format!(
+            "lithe-write-lease-{}-{}",
+            std::process::id(),
+            super::TEMPORARY_INDEX_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        )));
+        std::fs::create_dir_all(&repository.0).unwrap();
+        let root = repository.0.to_string_lossy().into_owned();
+        let _deadline = crate::protocol::cancellation::Scope::begin(None, Some(5_000));
+        let initialized = super::command(super::GitCommandRequest {
+            root: root.clone(),
+            arguments: vec!["init".into(), "-q".into()],
+            input: None,
+        })
+        .unwrap();
+        assert_eq!(initialized.exit_code, 0);
+
+        let lease = super::rewrite::RewriteLease::acquire(&root).unwrap();
+        let (completed, completion) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let results = [
+                (
+                    "git.command",
+                    serde_json::json!({"arguments":["config", "test.writer", "raw"]}),
+                ),
+                ("git.write", serde_json::json!({"operation":"stageAll"})),
+            ]
+            .map(|(command, mut payload)| {
+                payload["root"] = serde_json::json!(root);
+                serde_json::from_str::<Value>(&crate::execute_json(
+                    &serde_json::json!({
+                        "id": command,
+                        "command": command,
+                        "timeoutMilliseconds": 2_000,
+                        "payload": payload,
+                    })
+                    .to_string(),
+                ))
+                .unwrap()
+            });
+            let _ = completed.send(results);
+        });
+
+        // The competing commands must finish while the writer still owns its
+        // lease. Always release it before asserting, so a blocking regression
+        // can terminate and be joined even when the first deadline is missed.
+        let results = completion.recv_timeout(std::time::Duration::from_secs(5));
+        drop(lease);
+        if results.is_err() {
+            completion
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("competing writer should terminate after lease cleanup");
+        }
+        worker.join().expect("competing writer should not panic");
+        for result in results.expect("competing writers must fail without waiting for the lease") {
+            assert_eq!(result["ok"], false, "{result}");
+            assert_eq!(result["error"]["code"], "invalid_request", "{result}");
+            assert_eq!(
+                result["error"]["message"],
+                "Another Git write operation is running in this repository"
+            );
+        }
     }
 
     #[test]

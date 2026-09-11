@@ -322,6 +322,10 @@ validation or probe fails after at least one subprocess was recorded, the
 response retains the invocation trace and includes the failure as
 `operationError`.
 
+`git.command` and typed Git writers share the repository's write lease, including
+linked worktrees. A competing request fails with `invalid_request` while a writer
+is active; it does not wait behind a mutex outside its cancellation deadline.
+
 `git.write` accepts a typed mutation request. Its required `operation` values are
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `excludePatterns`, `unexcludePatterns`, `cherryPick`, `revert`,
 `reset`, `undoCommit`, `editCommitMessage`, `deleteCommit`, `squashCommits`, `createBranch`, `publishBranch`,

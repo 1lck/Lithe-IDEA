@@ -1,8 +1,9 @@
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
+import * as historyApi from "../api/git-commits-api";
 import type {
   GitCommit,
   GitHistoryPage,
@@ -10,15 +11,11 @@ import type {
   GitReferenceSnapshot,
 } from "../types/git.types";
 
-const restoreDom = installHappyDom();
-const originalCustomEvent = globalThis.CustomEvent;
-Object.defineProperty(globalThis, "CustomEvent", {
-  configurable: true,
-  writable: true,
-  value: window.CustomEvent,
-});
-(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+let restoreDom: () => void;
+let originalCustomEvent: typeof globalThis.CustomEvent;
+const actGlobal = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
+let originalActEnvironment: boolean | undefined;
+const spies: Array<{ mockRestore: () => void }> = [];
 
 const mainReference = (): GitReference => ({
   fullName: "refs/heads/main",
@@ -56,12 +53,23 @@ const getGitHistoryPage = mock(
 const cancelGitHistoryOperation = mock(async () => {});
 const closeGitHistoryCursor = mock(async () => {});
 
-mock.module("../api/git-commits-api", () => ({
-  cancelGitHistoryOperation,
-  closeGitHistoryCursor,
-  getGitHistoryPage,
-  getGitReferences,
-}));
+beforeEach(() => {
+  restoreDom = installHappyDom();
+  originalCustomEvent = globalThis.CustomEvent;
+  originalActEnvironment = actGlobal.IS_REACT_ACT_ENVIRONMENT;
+  Object.defineProperty(globalThis, "CustomEvent", {
+    configurable: true,
+    writable: true,
+    value: window.CustomEvent,
+  });
+  actGlobal.IS_REACT_ACT_ENVIRONMENT = true;
+  spies.push(
+    spyOn(historyApi, "cancelGitHistoryOperation").mockImplementation(cancelGitHistoryOperation),
+    spyOn(historyApi, "closeGitHistoryCursor").mockImplementation(closeGitHistoryCursor),
+    spyOn(historyApi, "getGitHistoryPage").mockImplementation(getGitHistoryPage),
+    spyOn(historyApi, "getGitReferences").mockImplementation(getGitReferences),
+  );
+});
 
 const { emitGitChanged } = await import("../events/git-events");
 const { useGitLogController } = await import("./use-git-log-controller");
@@ -112,7 +120,14 @@ function mountController(): {
   };
 }
 
-afterAll(() => {
+afterEach(() => {
+  for (const spy of spies.splice(0)) spy.mockRestore();
+  if (originalActEnvironment === undefined) {
+    delete actGlobal.IS_REACT_ACT_ENVIRONMENT;
+  } else {
+    actGlobal.IS_REACT_ACT_ENVIRONMENT = originalActEnvironment;
+  }
+  document.body.replaceChildren();
   if (originalCustomEvent) {
     Object.defineProperty(globalThis, "CustomEvent", {
       configurable: true,
@@ -157,8 +172,6 @@ describe("Git Log controller repository lifecycle", () => {
 
   test("cancels an event refresh when the owner immediately refreshes directly", async () => {
     const harness = mountController();
-    await harness.render("C:/repo-a");
-    getGitHistoryPage.mockClear();
 
     const originalSetTimeout = globalThis.setTimeout;
     const originalClearTimeout = globalThis.clearTimeout;
@@ -178,6 +191,8 @@ describe("Git Log controller repository lifecycle", () => {
     }) as typeof clearTimeout;
 
     try {
+      await harness.render("C:/repo-a");
+      getGitHistoryPage.mockClear();
       act(() => {
         emitGitChanged({
           repoPath: "C:/repo-a",
