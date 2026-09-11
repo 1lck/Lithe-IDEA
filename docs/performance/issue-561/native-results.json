@@ -1,0 +1,302 @@
+[
+  {
+    "coloredTokens" : 0,
+    "colorMs" : 0.00095799999999999998,
+    "colorScope" : "none",
+    "iteration" : 1,
+    "layoutMs" : 0.015583,
+    "layoutScope" : "visible",
+    "totalMs" : 0.016541,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 0,
+    "colorMs" : 0.001083,
+    "colorScope" : "none",
+    "iteration" : 2,
+    "layoutMs" : 0.014999999999999999,
+    "layoutScope" : "visible",
+    "totalMs" : 0.016083,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 0,
+    "colorMs" : 0.00033300000000000002,
+    "colorScope" : "none",
+    "iteration" : 3,
+    "layoutMs" : 0.014833000000000001,
+    "layoutScope" : "visible",
+    "totalMs" : 0.015166000000000001,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 0,
+    "colorMs" : 0.00020799999999999999,
+    "colorScope" : "none",
+    "iteration" : 4,
+    "layoutMs" : 0.013667,
+    "layoutScope" : "visible",
+    "totalMs" : 0.013875,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 0,
+    "colorMs" : 0.00029100000000000003,
+    "colorScope" : "none",
+    "iteration" : 5,
+    "layoutMs" : 0.015834000000000001,
+    "layoutScope" : "visible",
+    "totalMs" : 0.016125,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 0,
+    "colorMs" : 0.00041599999999999997,
+    "colorScope" : "none",
+    "iteration" : 1,
+    "layoutMs" : 75.475958000000006,
+    "layoutScope" : "full",
+    "totalMs" : 75.476374000000007,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 0,
+    "colorMs" : 0.00025000000000000001,
+    "colorScope" : "none",
+    "iteration" : 2,
+    "layoutMs" : 75.558207999999993,
+    "layoutScope" : "full",
+    "totalMs" : 75.558457999999987,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 0,
+    "colorMs" : 0.00025000000000000001,
+    "colorScope" : "none",
+    "iteration" : 3,
+    "layoutMs" : 75.135666000000001,
+    "layoutScope" : "full",
+    "totalMs" : 75.135915999999995,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 0,
+    "colorMs" : 0.00045800000000000002,
+    "colorScope" : "none",
+    "iteration" : 4,
+    "layoutMs" : 75.202207999999999,
+    "layoutScope" : "full",
+    "totalMs" : 75.202665999999994,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 0,
+    "colorMs" : 0.00025000000000000001,
+    "colorScope" : "none",
+    "iteration" : 5,
+    "layoutMs" : 74.316458999999995,
+    "layoutScope" : "full",
+    "totalMs" : 74.316708999999989,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 1347,
+    "colorMs" : 0.376917,
+    "colorScope" : "visible",
+    "iteration" : 1,
+    "layoutMs" : 6.2760420000000003,
+    "layoutScope" : "visible",
+    "totalMs" : 6.6529590000000001,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 1347,
+    "colorMs" : 0.37458399999999997,
+    "colorScope" : "visible",
+    "iteration" : 2,
+    "layoutMs" : 6.5937919999999997,
+    "layoutScope" : "visible",
+    "totalMs" : 6.9683759999999992,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 1347,
+    "colorMs" : 0.36762499999999998,
+    "colorScope" : "visible",
+    "iteration" : 3,
+    "layoutMs" : 6.2495000000000003,
+    "layoutScope" : "visible",
+    "totalMs" : 6.6171250000000006,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 1347,
+    "colorMs" : 0.39466699999999999,
+    "colorScope" : "visible",
+    "iteration" : 4,
+    "layoutMs" : 6.2898750000000003,
+    "layoutScope" : "visible",
+    "totalMs" : 6.6845420000000004,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 1347,
+    "colorMs" : 0.36499999999999999,
+    "colorScope" : "visible",
+    "iteration" : 5,
+    "layoutMs" : 6.5425420000000001,
+    "layoutScope" : "visible",
+    "totalMs" : 6.9075420000000003,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 1347,
+    "colorMs" : 0.37054100000000001,
+    "colorScope" : "visible",
+    "iteration" : 1,
+    "layoutMs" : 87.340917000000005,
+    "layoutScope" : "full",
+    "totalMs" : 87.711458000000007,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 1347,
+    "colorMs" : 0.40204200000000001,
+    "colorScope" : "visible",
+    "iteration" : 2,
+    "layoutMs" : 84.207791,
+    "layoutScope" : "full",
+    "totalMs" : 84.609832999999995,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 1347,
+    "colorMs" : 0.36670900000000001,
+    "colorScope" : "visible",
+    "iteration" : 3,
+    "layoutMs" : 79.211250000000007,
+    "layoutScope" : "full",
+    "totalMs" : 79.577959000000007,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 1347,
+    "colorMs" : 0.39820800000000001,
+    "colorScope" : "visible",
+    "iteration" : 4,
+    "layoutMs" : 96.397041999999999,
+    "layoutScope" : "full",
+    "totalMs" : 96.795249999999996,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 1347,
+    "colorMs" : 0.846584,
+    "colorScope" : "visible",
+    "iteration" : 5,
+    "layoutMs" : 104.387958,
+    "layoutScope" : "full",
+    "totalMs" : 105.234542,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 50701,
+    "colorMs" : 14.717625,
+    "colorScope" : "full",
+    "iteration" : 1,
+    "layoutMs" : 9.2130410000000005,
+    "layoutScope" : "visible",
+    "totalMs" : 23.930666000000002,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 50701,
+    "colorMs" : 14.277749999999999,
+    "colorScope" : "full",
+    "iteration" : 2,
+    "layoutMs" : 9.0090000000000003,
+    "layoutScope" : "visible",
+    "totalMs" : 23.286749999999998,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 50701,
+    "colorMs" : 14.305624999999999,
+    "colorScope" : "full",
+    "iteration" : 3,
+    "layoutMs" : 9.2265420000000002,
+    "layoutScope" : "visible",
+    "totalMs" : 23.532167000000001,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 50701,
+    "colorMs" : 14.590833,
+    "colorScope" : "full",
+    "iteration" : 4,
+    "layoutMs" : 9.3730419999999999,
+    "layoutScope" : "visible",
+    "totalMs" : 23.963875000000002,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 50701,
+    "colorMs" : 14.842541000000001,
+    "colorScope" : "full",
+    "iteration" : 5,
+    "layoutMs" : 9.3969170000000002,
+    "layoutScope" : "visible",
+    "totalMs" : 24.239457999999999,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 50701,
+    "colorMs" : 14.678625,
+    "colorScope" : "full",
+    "iteration" : 1,
+    "layoutMs" : 257.00383299999999,
+    "layoutScope" : "full",
+    "totalMs" : 271.682458,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 50701,
+    "colorMs" : 15.01,
+    "colorScope" : "full",
+    "iteration" : 2,
+    "layoutMs" : 246.19045800000001,
+    "layoutScope" : "full",
+    "totalMs" : 261.20045800000003,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 50701,
+    "colorMs" : 13.989708,
+    "colorScope" : "full",
+    "iteration" : 3,
+    "layoutMs" : 240.33179200000001,
+    "layoutScope" : "full",
+    "totalMs" : 254.32150000000001,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 50701,
+    "colorMs" : 13.994583,
+    "colorScope" : "full",
+    "iteration" : 4,
+    "layoutMs" : 280.76008300000001,
+    "layoutScope" : "full",
+    "totalMs" : 294.75466599999999,
+    "visibleUTF16Length" : 9091
+  },
+  {
+    "coloredTokens" : 50701,
+    "colorMs" : 14.676458,
+    "colorScope" : "full",
+    "iteration" : 5,
+    "layoutMs" : 242.762833,
+    "layoutScope" : "full",
+    "totalMs" : 257.43929100000003,
+    "visibleUTF16Length" : 9091
+  }
+]
