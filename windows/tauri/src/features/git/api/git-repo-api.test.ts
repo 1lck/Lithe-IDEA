@@ -116,6 +116,23 @@ describe("normalizeRepositoryPath", () => {
 });
 
 describe("resolveRepositoryForFile", () => {
+  test("returns relative file paths for a repository at a drive root", async () => {
+    invoke.mockResolvedValue("X:/");
+    expect(await resolveRepositoryForFile("X:/", "src/main.ts")).toEqual({
+      repoPath: "X:/", filePath: "src/main.ts",
+    });
+    expect(invoke).toHaveBeenCalledWith("git_discover_repo", { path: "X:/src" });
+  });
+
+  test("falls back to a drive-root repository for a removed directory", async () => {
+    invoke.mockRejectedValueOnce(new Error("Workspace does not exist"));
+    invoke.mockResolvedValue("X:/");
+    expect(await resolveRepositoryForFile("X:/", "removed/Deleted.java")).toEqual({
+      repoPath: "X:/", filePath: "removed/Deleted.java",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(2, "git_discover_repo", { path: "X:/" });
+  });
+
   test("discovers the repository from the file's directory", async () => {
     invoke.mockResolvedValue("D:/work/project");
 

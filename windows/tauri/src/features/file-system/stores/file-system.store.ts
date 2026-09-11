@@ -712,7 +712,9 @@ const openLocalWorkspace = async (
   }
 
   if (!prewarm) {
-    await initializeLocalWorkspaceInBackground(
+    // Optional Git status reads must not hold workspace readiness open when
+    // a repository hook or filesystem operation stalls.
+    void initializeLocalWorkspaceInBackground(
       workspaceId,
       path,
       get,

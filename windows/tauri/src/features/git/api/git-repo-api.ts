@@ -73,7 +73,7 @@ function parentPath(path: string): string {
 function toRelativePath(from: string, to: string): string {
   const normalizedFrom = normalizePath(from);
   const normalizedTo = normalizePath(to);
-  const prefix = `${normalizedFrom}/`;
+  const prefix = normalizedFrom.endsWith("/") ? normalizedFrom : `${normalizedFrom}/`;
   if (normalizedTo.startsWith(prefix)) {
     return normalizedTo.slice(prefix.length);
   }
@@ -183,7 +183,9 @@ export async function resolveRepositoryForFile(
     const belongsToFallbackRepo =
       normalizedFallbackRepo !== null &&
       (normalizedAbsoluteFile === normalizedFallbackRepo ||
-        normalizedAbsoluteFile.startsWith(`${normalizedFallbackRepo}/`));
+        normalizedAbsoluteFile.startsWith(
+          normalizedFallbackRepo.endsWith("/") ? normalizedFallbackRepo : `${normalizedFallbackRepo}/`,
+        ));
 
     if (!belongsToFallbackRepo) {
       throw error;
