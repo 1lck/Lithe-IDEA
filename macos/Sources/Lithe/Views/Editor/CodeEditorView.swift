@@ -280,8 +280,19 @@ enum EditorCaretGeometry {
         while index >= 0 {
             let character = source.character(at: index)
             if character == 10 || character == 13 {
-                index -= 1
-                continue
+                // CRLF is one logical line ending. When the caret location is
+                // the LF code unit, skip its paired CR and keep the visible
+                // content anchor; a preceding standalone line ending marks an
+                // empty line and must stop the scan.
+                if character == 13, index + 1 == location,
+                   index + 1 < source.length, source.character(at: index + 1) == 10 {
+                    index -= 1
+                    continue
+                }
+                // Stop at the previous line ending. For an empty line, using
+                // content from the preceding line places the caret one line
+                // too high when clicking that line.
+                return nil
             }
             return index
         }
