@@ -19,6 +19,7 @@ import { useRepositoryStore } from "../stores/git-repository.store";
 import { useGitStore } from "../stores/git.store";
 import {
   useActiveWorkspaceId,
+  useWorkspaceReady,
   useWorkspaceStoreScopeId,
 } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
@@ -32,7 +33,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
   const activeWorkspaceId = useActiveWorkspaceId();
   const scopedWorkspaceId = useWorkspaceStoreScopeId();
   const workspaceId = scopedWorkspaceId ?? activeWorkspaceId;
-  const workspaceReady = workspaceRuntimeRegistry.isWorkspaceReady(workspaceId);
+  const workspaceReady = useWorkspaceReady(workspaceId);
   const activeRepoPath = useRepositoryStore.use.activeRepoPath();
   const availableRepoPaths = useRepositoryStore.use.availableRepoPaths();
   const { syncWorkspaceRepositories, refreshWorkspaceRepositories } =
@@ -54,6 +55,9 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
   const wasActiveRef = useRef(isActive);
 
   const loadInitialGitData = useCallback(async () => {
+    if (!workspaceRuntimeRegistry.isWorkspaceReady(workspaceId)) {
+      return;
+    }
     const repoPath = activeRepoPath;
     if (!repoPath) {
       return;
@@ -115,10 +119,11 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
         gitActions.setIsLoadingGitData(false);
       }
     }
-  }, [activeRepoPath, availableRepoPaths, gitActions]);
+  }, [activeRepoPath, availableRepoPaths, gitActions, workspaceId]);
 
   const refreshGitData = useCallback(
     async (scopes?: GitChangeScope[], throwOnError = false) => {
+      if (!workspaceRuntimeRegistry.isWorkspaceReady(workspaceId)) return;
       const repoPath = activeRepoPath;
       if (!repoPath) return;
 
@@ -194,7 +199,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
         if (throwOnError) throw error;
       });
     },
-    [activeRepoPath, availableRepoPaths, gitActions, loadedCommitCount],
+    [activeRepoPath, availableRepoPaths, gitActions, loadedCommitCount, workspaceId],
   );
 
   const refreshWorkingTree = useCallback(async () => {
