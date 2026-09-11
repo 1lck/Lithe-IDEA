@@ -45,6 +45,7 @@ interface GitCommitPanelProps {
   onCommitSuccess?: () => void;
   onPull?: () => Promise<unknown> | void;
   isPulling?: boolean;
+  isPullLocked?: boolean;
   focusRequest?: number;
 }
 
@@ -210,6 +211,7 @@ const GitCommitPanel = ({
   onCommitSuccess,
   onPull,
   isPulling = false,
+  isPullLocked = false,
   focusRequest = 0,
 }: GitCommitPanelProps) => {
   const { t } = useTranslation();
@@ -488,7 +490,7 @@ const GitCommitPanel = ({
                 <Button
                   type="button"
                   onClick={() => void onPull?.()}
-                  disabled={!repoPath || isRemoteActionLoading || isPulling}
+                  disabled={!repoPath || isRemoteActionLoading || isPullLocked}
                   variant="ghost"
                   size="xs"
                   className={cn(composerButtonClassName, "text-git-deleted hover:text-git-deleted")}

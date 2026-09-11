@@ -546,6 +546,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
       onRefresh={onRefresh}
       onPull={handlePull}
       isPulling={pullWorkflow.isPulling}
+      isPullLocked={pullWorkflow.isPullLocked}
       onOpenBranchManager={handleOpenBranchManager}
       onShowBranchDiff={() => void handleShowBranchDiffList()}
       onOpenRemoteManager={() => setShowRemoteManager(true)}
@@ -774,6 +775,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                 }}
                 onPull={handlePull}
                 isPulling={pullWorkflow.isPulling}
+                isPullLocked={pullWorkflow.isPullLocked}
                 focusRequest={commitFocusRequest}
               />
             </SidebarFooter>

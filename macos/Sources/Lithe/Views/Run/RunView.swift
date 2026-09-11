@@ -4,11 +4,16 @@ struct RunView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.openURL) private var openURL
     @ObservedObject var feature: RunFeatureModel
-    @State private var selectedSessionID: String?
+    private var selectedSessionID: String? {
+        get { feature.selectedProjectSessionID }
+        nonmutating set { feature.selectedConfigurationID = newValue ?? RunConfiguration.currentFileID }
+    }
     @AppStorage("lithe.run.collapsedExecutions") private var collapsedExecutionIDs = ""
     @AppStorage("lithe.run.pinnedConfigurationIDs") private var pinnedConfigurationTokens = ""
     @AppStorage("lithe.run.configurationListWidth") private var configurationListWidth = 230.0
     @AppStorage("lithe.run.configurationListCollapsed") private var isConfigurationListCollapsed = false
+    @AppStorage("lithe.run.otherConfigurationsCollapsed") private var areOtherConfigurationsCollapsed = true
+    @AppStorage("lithe.run.selectedServiceIDs") private var selectedServiceTokens = ""
     /// Separate caches: the two raw strings change independently, and one box
     /// memoizes a single raw value.
     @State private var collapsedExecutionCache = RunConfigurationTokenCache()
@@ -16,6 +21,12 @@ struct RunView: View {
     /// The configuration whose editor popover is open. Held separately from the list
     /// selection so opening an editor does not switch which log is shown.
     @State private var editingConfigurationID: String?
+    /// Services selected in the header menu for the next multi-service launch.
+    /// The first project service is selected when a workspace has no prior choice.
+    @State private var selectedServiceIDs: Set<String> = []
+    @State private var selectedServicesWorkspacePath = ""
+    @State private var hasHydratedServiceSelection = false
+    @State private var isServiceLaunchConfirmationPresented = false
 
     var body: some View {
         let _ = LitheSignpost.bodyEvaluated("RunView")
@@ -76,11 +87,24 @@ struct RunView: View {
             }
         }
         .litheWorkbenchSurface(LitheTheme.editor)
-        .onChange(of: feature.configurations) { _ in
-            if let selectedSessionID,
-               !feature.configurations.contains(where: { $0.id == selectedSessionID }) {
-                self.selectedSessionID = nil
+        .confirmationDialog(
+            "Run all services?",
+            isPresented: $isServiceLaunchConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Run all services") {
+                model.runAllServiceConfigurations()
+                selectedSessionID = serviceConfigurations.first?.id
             }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will start \(serviceConfigurations.count) detected services.")
+        }
+        .onChange(of: feature.configurations) { _ in
+            synchronizeSelectedServices()
+        }
+        .onAppear {
+            synchronizeSelectedServices()
         }
     }
 
@@ -264,24 +288,37 @@ struct RunView: View {
             }
 
             if hasServiceConfigurations {
-                Button {
-                    model.runAllServiceConfigurations()
-                    selectedSessionID = feature.moduleSessions.first?.id
+                Menu {
+                    Section("Services") {
+                        ForEach(serviceConfigurations) { configuration in
+                            Toggle(isOn: serviceSelectionBinding(for: configuration)) {
+                                Label(configuration.name, systemImage: "server.rack")
+                            }
+                        }
+                    }
+                    Divider()
+                    Button {
+                        runSelectedServices()
+                    } label: {
+                        Label("Run selected services", systemImage: "play.fill")
+                    }
+                    .disabled(selectedServiceConfigurations.isEmpty)
+                    Button {
+                        isServiceLaunchConfirmationPresented = true
+                    } label: {
+                        Label("Run all services", systemImage: "square.stack.3d.up.fill")
+                    }
+                    if feature.moduleSessions.contains(where: \.isRunning) {
+                        Button(action: feature.stopAllServices) {
+                            Label("Stop all services", systemImage: "stop.circle")
+                        }
+                    }
                 } label: {
                     Image(systemName: "square.stack.3d.up.fill")
                 }
                 .litheIconButton()
-                .help("Run all services")
+                .help("Choose services to run")
                 .disabled(feature.configurationStatus != .ready || feature.isLoadingProject)
-
-                if feature.moduleSessions.contains(where: \.isRunning) {
-                    Button(action: feature.stopAllServices) {
-                        Image(systemName: "stop.circle")
-                    }
-                    .litheIconButton()
-                    .foregroundStyle(LitheTheme.warning)
-                    .help("Stop all services")
-                }
             }
 
             Button {
@@ -351,6 +388,83 @@ struct RunView: View {
         !serviceConfigurations.isEmpty
     }
 
+    private var selectedServiceConfigurations: [RunConfiguration] {
+        serviceConfigurations.filter { selectedServiceIDs.contains($0.id) }
+    }
+
+    private func synchronizeSelectedServices() {
+        guard !serviceConfigurations.isEmpty else { return }
+        let serviceIDs = Set(serviceConfigurations.map(\.id))
+        let workspacePath = model.workspaceURL?.standardizedFileURL.path ?? ""
+        if selectedServicesWorkspacePath != workspacePath {
+            selectedServicesWorkspacePath = workspacePath
+            selectedServiceIDs = []
+            hasHydratedServiceSelection = false
+        }
+        let persistedSelections = persistedServiceSelections()
+        let hasPersistedSelection = persistedSelections.keys.contains(workspacePath)
+        let persistedIDs = Set(persistedSelections[workspacePath] ?? [])
+        let retained = (hasHydratedServiceSelection ? selectedServiceIDs :
+            (selectedServiceIDs.isEmpty ? persistedIDs : selectedServiceIDs))
+            .intersection(serviceIDs)
+        if hasHydratedServiceSelection || hasPersistedSelection || !retained.isEmpty {
+            selectedServiceIDs = retained
+            hasHydratedServiceSelection = true
+            return
+        }
+
+        let preferred = serviceConfigurations.first(where: { $0.id == feature.selectedConfigurationID })
+            ?? serviceConfigurations.first
+        selectedServiceIDs = preferred.map { [$0.id] } ?? []
+        hasHydratedServiceSelection = true
+        persistSelectedServices()
+    }
+
+    private func serviceSelectionBinding(for configuration: RunConfiguration) -> Binding<Bool> {
+        Binding(
+            get: { selectedServiceIDs.contains(configuration.id) },
+            set: { isSelected in
+                if isSelected {
+                    selectedServiceIDs.insert(configuration.id)
+                } else {
+                    selectedServiceIDs.remove(configuration.id)
+                }
+                hasHydratedServiceSelection = true
+                persistSelectedServices()
+            }
+        )
+    }
+
+    private func persistSelectedServices() {
+        guard let workspacePath = model.workspaceURL?.standardizedFileURL.path else { return }
+        var selections = persistedServiceSelections()
+        selections[workspacePath] = selectedServiceIDs.sorted()
+        guard let data = try? JSONSerialization.data(withJSONObject: selections, options: [.sortedKeys]),
+              let encoded = String(data: data, encoding: .utf8) else { return }
+        selectedServiceTokens = encoded
+    }
+
+    private func persistedServiceSelections() -> [String: [String]] {
+        guard let data = selectedServiceTokens.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let selections = object as? [String: [String]] else {
+            // Accept the pre-JSON format once so existing users keep their choices.
+            let prefix = (model.workspaceURL?.standardizedFileURL.path ?? "") + "::"
+            let ids = selectedServiceTokens.split(separator: "\n").map(String.init)
+                .filter { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) }
+            return ids.isEmpty ? [:] : [String(prefix.dropLast(2)): ids]
+        }
+        return selections
+    }
+
+    private func runSelectedServices() {
+        let services = selectedServiceConfigurations
+        guard !services.isEmpty else { return }
+        model.startSelectedServiceConfigurations(services)
+        model.selectRunConfiguration(services[0])
+        selectedSessionID = services.first?.id
+    }
+
     private var hasRunnableConfigurations: Bool {
         !runnableConfigurations.isEmpty
     }
@@ -394,7 +508,16 @@ struct RunView: View {
 
     @ViewBuilder
     private var selectedConfigurationContent: some View {
-        if let configuration = selectedRunnableConfiguration {
+        if let session = selectedModuleSession {
+            OutputTextView(
+                output: session.output,
+                searchRoots: feature.sourceSearchRoots,
+                fileExists: { model.fileExists(at: $0) },
+                emptyMessage: String(localized: "Process output will appear here.")
+            ) { url, line, column in
+                model.openSourceLocation(url: url, line: line, column: column)
+            }
+        } else if let configuration = selectedRunnableConfiguration {
             configurationContent(configuration)
         } else {
             OutputTextView(
@@ -472,7 +595,7 @@ struct RunView: View {
     private var moduleSessionList: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                Text("Run configurations")
+                Text(hasServiceConfigurations ? "Services" : "Run configurations")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(LitheTheme.secondaryText)
                 Spacer(minLength: 0)
@@ -504,26 +627,58 @@ struct RunView: View {
                         }
                     }
 
-                    sessionRow(
-                        title: String(localized: "Current run"),
-                        subtitle: feature.runningTitle ?? String(localized: "Primary configuration"),
-                        isRunning: feature.isRunning,
-                        exitCode: feature.lastExitCode,
-                        isSelected: selectedSessionID == nil,
-                        onToggle: nil
-                    ) {
-                        selectedSessionID = nil
-                        feature.select(.currentFile)
+                    let services = unpinnedConfigurations(for: .service)
+                    if !services.isEmpty {
+                        sectionHeader(.service, count: services.count)
+                        if !collapsedExecutions.contains(RunConfigurationExecution.service.rawValue) {
+                            ForEach(services) { configuration in
+                                configurationRow(configuration)
+                            }
+                        }
                     }
 
-                    ForEach(RunConfigurationExecution.displayOrder, id: \.self) { execution in
-                        let configurations = unpinnedConfigurations(for: execution)
-                        if !configurations.isEmpty {
-                            sectionHeader(execution, count: configurations.count)
+                    let otherExecutions = RunConfigurationExecution.displayOrder.filter { $0 != .service }
+                    let otherCount = otherExecutions.reduce(0) { partial, execution in
+                        partial + unpinnedConfigurations(for: execution).count
+                    }
+                    if otherCount > 0 {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                areOtherConfigurationsCollapsed.toggle()
+                            }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: areOtherConfigurationsCollapsed ? "chevron.right" : "chevron.down")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .frame(width: 10)
+                                Text("Other run configurations")
+                                Spacer(minLength: 0)
+                                Text(String(otherCount))
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                            }
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .padding(.horizontal, 6)
+                            .padding(.top, 8)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .lithePointer()
+                        .help(areOtherConfigurationsCollapsed ? "Expand" : "Collapse")
+                        .accessibilityLabel("Other run configurations")
+                        .accessibilityValue(areOtherConfigurationsCollapsed ? "Collapsed" : "Expanded")
 
-                            if !collapsedExecutions.contains(execution.rawValue) {
-                                ForEach(configurations) { configuration in
-                                    configurationRow(configuration)
+                        if !areOtherConfigurationsCollapsed {
+                            ForEach(otherExecutions, id: \.self) { execution in
+                                let configurations = unpinnedConfigurations(for: execution)
+                                if !configurations.isEmpty {
+                                    sectionHeader(execution, count: configurations.count)
+                                    if !collapsedExecutions.contains(execution.rawValue) {
+                                        ForEach(configurations) { configuration in
+                                            configurationRow(configuration)
+                                        }
+                                    }
                                 }
                             }
                         }

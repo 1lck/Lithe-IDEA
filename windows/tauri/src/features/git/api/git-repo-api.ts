@@ -1,4 +1,5 @@
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
+import { normalizePath as normalizeFilePath, stripTrailingPathSeparators } from "@/utils/path-helpers";
 
 interface RepositoryDiscoveryCacheEntry {
   discoveredAt: number;
@@ -36,9 +37,11 @@ function normalizePath(path: string): string {
       : normalized;
   }
 
-  const unixPath = path.replace(/\\/g, "/");
+  const unixPath = normalizeFilePath(path);
   const collapsed = unixPath.replace(/\/{2,}/g, "/");
-  return collapsed.length > 1 ? collapsed.replace(/\/+$/, "") : collapsed;
+  // UNC repository identifiers must retain their network-root separator.
+  const normalized = unixPath.startsWith("//") ? `/${collapsed}` : collapsed;
+  return stripTrailingPathSeparators(normalized);
 }
 
 function isAbsolutePath(path: string): boolean {
@@ -70,7 +73,7 @@ function parentPath(path: string): string {
 function toRelativePath(from: string, to: string): string {
   const normalizedFrom = normalizePath(from);
   const normalizedTo = normalizePath(to);
-  const prefix = `${normalizedFrom}/`;
+  const prefix = normalizedFrom.endsWith("/") ? normalizedFrom : `${normalizedFrom}/`;
   if (normalizedTo.startsWith(prefix)) {
     return normalizedTo.slice(prefix.length);
   }
@@ -180,7 +183,9 @@ export async function resolveRepositoryForFile(
     const belongsToFallbackRepo =
       normalizedFallbackRepo !== null &&
       (normalizedAbsoluteFile === normalizedFallbackRepo ||
-        normalizedAbsoluteFile.startsWith(`${normalizedFallbackRepo}/`));
+        normalizedAbsoluteFile.startsWith(
+          normalizedFallbackRepo.endsWith("/") ? normalizedFallbackRepo : `${normalizedFallbackRepo}/`,
+        ));
 
     if (!belongsToFallbackRepo) {
       throw error;

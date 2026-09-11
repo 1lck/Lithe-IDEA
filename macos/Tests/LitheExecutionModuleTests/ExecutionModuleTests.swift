@@ -366,6 +366,40 @@ struct ExecutionModuleTests {
         #expect(service.configurationStatus == .missing)
     }
 
+    @Test
+    func selectingBetweenRunningServicesSynchronizesLogIdentityAndControls() async {
+        let first = RunConfiguration(id: "service:a", name: "A", kind: .javaMain,
+                                     execution: .service, modulePath: nil, mainClass: "demo.A")
+        let second = RunConfiguration(id: "service:b", name: "B", kind: .javaMain,
+                                      execution: .service, modulePath: nil, mainClass: "demo.B")
+        let service = RunService(
+            runtime: TestRuntime(), process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: SelectionRunConfigurationOperations(configurations: [first, second]),
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        defer { service.reset() }
+        await service.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [], mavenProject: nil)
+        // Model two already-running sessions: changing selection must not need
+        // a process transition or a new output event to update the log target.
+        service.startConfiguration(first)
+        service.startConfiguration(second)
+        let feature = RunFeatureModel(service: service)
+        for configuration in [second, first, second] {
+            feature.select(configuration)
+            #expect(feature.selectedProjectSessionID == configuration.id)
+            #expect(feature.isSelectedConfigurationRunning)
+            #expect(feature.moduleSessions.first { $0.id == feature.selectedProjectSessionID }?.title == configuration.name)
+            #expect(feature.moduleSessions.filter(\.isRunning).count == 2)
+        }
+        feature.select(.currentFile)
+        #expect(feature.selectedProjectSessionID == nil)
+        #expect(!feature.isSelectedConfigurationRunning)
+    }
+
     /// Once the project is bound, identification must behave exactly as before.
     @Test
     func identificationAfterProjectLoadGeneratesAndClearsTheUnloadedState() async throws {
@@ -1150,6 +1184,28 @@ struct ExecutionModuleTests {
             EmptyWorkspaceModule()
         }
     }
+}
+
+private struct SelectionRunConfigurationOperations: RunConfigurationOperations {
+    let configurations: [RunConfiguration]
+    func inspect(at _: URL) -> ProjectRunConfigurationInspection {
+        ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
+    }
+    func generate(at _: URL, files _: [URL], modulePaths _: [String]) throws -> RunConfigurationGenerationResult {
+        RunConfigurationGenerationResult(entryCount: configurations.count)
+    }
+    func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
+        RunConfigurationResolution(
+            configurations: ([.currentFile] + configurations).map {
+                EffectiveRunConfiguration(configuration: $0, options: RunOptions())
+            }, diagnostics: [], defaultConfigurationID: configurations.first?.id
+        )
+    }
+    func launchPlan(at _: URL, configurationID: String, currentFile _: String?, classPath _: String?, debugPort _: Int?) throws -> SharedLaunchPlan {
+        SharedLaunchPlan(executable: .toolchain("java"), arguments: [configurationID], workingDirectory: ".")
+    }
+    func createConfiguration(_ draft: RunConfigurationDraft, at _: URL) throws -> String { draft.name }
+    func migrateLegacySettings(at _: URL, configurationIDs _: [String]) throws {}
 }
 
 @MainActor
