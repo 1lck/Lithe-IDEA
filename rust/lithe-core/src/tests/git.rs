@@ -470,7 +470,7 @@ fn git_write_commits_a_selected_rename_with_both_paths() {
 
 #[test]
 fn git_write_selected_commit_uses_stdin_for_a_large_path_set() {
-    let root = temporary_root("git-write-selected-many-paths");
+    let root = temporary_root("git-pathspec");
     fs::create_dir_all(root.join("selected")).expect("temporary repository should be creatable");
     let run = |arguments: &[&str]| history_git(&root, arguments);
     assert!(run(&["init", "-q", "-b", "main"]).status.success());
@@ -483,16 +483,27 @@ fn git_write_selected_commit_uses_stdin_for_a_large_path_set() {
         .status
         .success());
 
-    let paths = (0..384)
+    // Exercise the Windows command-line limit with fewer filesystem entries and
+    // one shared blob: unique file contents add object-store/antivirus work that
+    // is unrelated to transporting the selected paths through stdin.
+    let paths = (0..224)
         .map(|index| {
             let path = format!(
                 "selected/{index:04}-{}.txt",
-                "long-path-component-used-to-cross-the-windows-command-line-limit"
+                "long-path-component-".repeat(7)
             );
-            fs::write(root.join(&path), format!("{index}\n")).expect("file should be writable");
+            fs::write(root.join(&path), "selected content\n").expect("file should be writable");
             path
         })
         .collect::<Vec<_>>();
+    let argument_units: usize = paths
+        .iter()
+        .map(|path| path.encode_utf16().count() + 1)
+        .sum();
+    assert!(
+        argument_units > 32_767,
+        "path arguments must exceed the Windows command-line limit"
+    );
     let response: Value = serde_json::from_str(&execute_json(
         &serde_json::to_string(&serde_json::json!({
             "id": "selected-many-paths",
@@ -526,7 +537,7 @@ fn git_write_selected_commit_uses_stdin_for_a_large_path_set() {
             .lines()
             .filter(|line| !line.is_empty())
             .count(),
-        384
+        paths.len()
     );
 
     fs::remove_dir_all(root).expect("temporary repository should be removable");
