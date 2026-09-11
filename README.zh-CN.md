@@ -19,11 +19,6 @@
   </p>
 
   <p>
-    <a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="https://img.shields.io/badge/QQ_群-163027877-EB1923?style=for-the-badge&logo=qq&logoColor=white" alt="加入 Lithe QQ 群 163027877"></a>
-    <a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="https://img.shields.io/badge/微信交流群-点击加入-07C160?style=for-the-badge&logo=wechat&logoColor=white" alt="加入 Lithe 微信交流群"></a>
-  </p>
-
-  <p>
     <a href="https://github.com/1lck/Lithe-IDEA/releases/latest"><img src="https://img.shields.io/github/v/release/1lck/Lithe-IDEA?style=flat&label=release&logo=github&logoColor=white" alt="最新版本"></a>
     <a href="https://github.com/1lck/Lithe-IDEA/releases"><img src="https://img.shields.io/github/downloads/1lck/Lithe-IDEA/total?style=flat&label=downloads&logo=github&logoColor=white" alt="累计下载量"></a>
     <img src="https://img.shields.io/badge/macOS-13%2B-111827?style=flat&logo=apple&logoColor=white" alt="macOS 13+">
@@ -42,6 +37,23 @@
   </p>
 </div>
 
+## 欢迎加入群聊
+
+欢迎加入 Lithe 社区，分享使用体验、交流问题，并获取项目最新动态。
+
+<table>
+  <tr>
+    <th>QQ群</th>
+    <th>微信群</th>
+  </tr>
+  <tr>
+    <td align="center"><a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="./docs/assets/contact/qq-group-qr.png" width="280" alt="Lithe QQ 群二维码"></a></td>
+    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr.png" width="280" alt="Lithe 微信群二维码"></a></td>
+  </tr>
+</table>
+
+如果无法扫描微信群二维码，[点击这里通过飞书加入群聊](https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink)。
+
 ## 为什么做 Lithe
 
 Codex、Claude Code 等 AI 编程工具已经可以承担大量编码工作，但开发者仍然需要 IDE 来理解生成的代码、跳转符号、运行调试项目并审查每一次修改。只为完成这些工作而常驻一套占用数 GB 内存的开发环境，显得越来越沉重。
@@ -54,7 +66,28 @@ Lithe 是一款主要面向 Java 和 Spring Boot 开发者的轻量级 IDEA 替�
 
 > **AI 负责编写代码，Lithe 负责帮你看懂、跑通并审查修改。**
 
+## macOS 提示“无法打开 Lithe.app”
+
+如果 macOS 提示“Apple 无法验证 Lithe.app 是否包含可能危害 Mac 安全或泄漏隐私的恶意软件”，通常是因为手动下载的安装包尚未经过 Apple 公证。请先确认应用来自可信的 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest)，然后选择以下任一方式：
+
+<p align="center">
+  <img src="./docs/assets/screenshots/macos-app-verification-warning.png" width="492" alt="macOS 提示无法打开 Lithe.app">
+</p>
+
+1. 在“应用程序”中按住 Control 键点按 `Lithe.app`，选择“打开”，再在确认对话框中选择“打开”。
+2. 如果仍被阻止，打开“系统设置 > 隐私与安全性”，在安全性提示旁点按“仍要打开”，然后再次启动应用。
+3. 也可以在终端中移除下载文件的隔离标记：
+
+   ```bash
+   sudo xattr -dr com.apple.quarantine /Applications/Lithe.app
+   ```
+
+上述命令只应对你确认来源可靠的应用使用；通过 Homebrew 安装通常不需要手动执行这些步骤。
+
 ## 核心功能
+
+<details>
+<summary>展开核心功能</summary>
 
 1. 适配 Spring Boot 项目体系，适合 Java 开发。
 2. 支持 Maven 管理、断点调试和自定义启动配置。
@@ -74,6 +107,8 @@ Lithe 是一款主要面向 Java 和 Spring Boot 开发者的轻量级 IDEA 替�
 16. 支持类似 IDEA 的多行编辑器标签，同时展示更多打开的文件。
 17. 新增数据库连接工作台，支持多种数据库类型、连接管理、SQL 历史、表浏览和数据库操作。
 18. 持续修复问题并优化用户体验。
+
+</details>
 
 ## 产品截图
 
@@ -131,24 +166,6 @@ brew tap 1lck/lithe https://github.com/1lck/Lithe-IDEA.git
 brew install --cask 1lck/lithe/lithe
 brew upgrade --cask lithe
 ```
-
-### macOS 提示“无法打开 Lithe.app”
-
-如果 macOS 提示“Apple 无法验证 Lithe.app 是否包含可能危害 Mac 安全或泄漏隐私的恶意软件”，通常是因为手动下载的安装包尚未经过 Apple 公证。请先确认应用来自可信的 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest)，然后选择以下任一方式：
-
-<p align="center">
-  <img src="./docs/assets/screenshots/macos-app-verification-warning.png" width="492" alt="macOS 提示无法打开 Lithe.app">
-</p>
-
-1. 在“应用程序”中按住 Control 键点按 `Lithe.app`，选择“打开”，再在确认对话框中选择“打开”。
-2. 如果仍被阻止，打开“系统设置 > 隐私与安全性”，在安全性提示旁点按“仍要打开”，然后再次启动应用。
-3. 也可以在终端中移除下载文件的隔离标记：
-
-   ```bash
-   sudo xattr -dr com.apple.quarantine /Applications/Lithe.app
-   ```
-
-上述命令只应对你确认来源可靠的应用使用；通过 Homebrew 安装通常不需要手动执行这些步骤。
 
 ## 架构概览
 

@@ -19,11 +19,6 @@
   </p>
 
   <p>
-    <a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="https://img.shields.io/badge/QQ_Group-163027877-EB1923?style=for-the-badge&logo=qq&logoColor=white" alt="Join the Lithe QQ group 163027877"></a>
-    <a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="https://img.shields.io/badge/WeChat_Group-Join_Now-07C160?style=for-the-badge&logo=wechat&logoColor=white" alt="Join the Lithe WeChat group"></a>
-  </p>
-
-  <p>
     <a href="https://github.com/1lck/Lithe-IDEA/releases/latest"><img src="https://img.shields.io/github/v/release/1lck/Lithe-IDEA?style=flat&label=release&logo=github&logoColor=white" alt="Latest release"></a>
     <a href="https://github.com/1lck/Lithe-IDEA/releases"><img src="https://img.shields.io/github/downloads/1lck/Lithe-IDEA/total?style=flat&label=downloads&logo=github&logoColor=white" alt="Total downloads"></a>
     <img src="https://img.shields.io/badge/macOS-13%2B-111827?style=flat&logo=apple&logoColor=white" alt="macOS 13+">
@@ -42,6 +37,23 @@
   </p>
 </div>
 
+## Join the community
+
+Welcome to join the Lithe community, share your experience, ask questions, and follow the latest updates.
+
+<table>
+  <tr>
+    <th>QQ group</th>
+    <th>WeChat group</th>
+  </tr>
+  <tr>
+    <td align="center"><a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="./docs/assets/contact/qq-group-qr.png" width="280" alt="QR code for the Lithe QQ group"></a></td>
+    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr.png" width="280" alt="QR code for the Lithe WeChat group"></a></td>
+  </tr>
+</table>
+
+If you cannot scan the WeChat QR code, [click here to join through Feishu](https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink).
+
 ## Why Lithe
 
 Codex, Claude Code, and other AI coding tools can now handle much of the implementation work. Developers still need an IDE to understand the generated code, follow symbols, run and debug the project, and review every diff. Keeping a heavyweight development environment open for those tasks can mean several gigabytes of resident memory.
@@ -54,7 +66,28 @@ The Lithe application typically uses about **300–400 MB of baseline memory** a
 
 > **AI writes the code. Lithe helps you understand it, run it, and review it.**
 
+## If macOS says it cannot open `Lithe.app`
+
+If macOS says that Apple cannot verify whether `Lithe.app` contains malware, the manually downloaded package may not yet be notarized by Apple. First confirm that the app came from the trusted [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest), then use one of these methods:
+
+<p align="center">
+  <img src="./docs/assets/screenshots/macos-app-verification-warning.png" width="492" alt="macOS warning that Lithe.app cannot be opened">
+</p>
+
+1. In **Applications**, Control-click `Lithe.app`, choose **Open**, and choose **Open** again in the confirmation dialog.
+2. If macOS still blocks it, open **System Settings > Privacy & Security**, click **Open Anyway** next to the security warning, and launch the app again.
+3. You can also remove the quarantine attribute in Terminal:
+
+   ```bash
+   sudo xattr -dr com.apple.quarantine /Applications/Lithe.app
+   ```
+
+Only use these steps for an app whose source you trust. Homebrew installations usually do not require manual quarantine removal.
+
 ## Core features
+
+<details>
+<summary>Expand core features</summary>
 
 1. Built for Spring Boot projects and Java development.
 2. Maven management, breakpoint debugging, and custom run configurations.
@@ -74,6 +107,8 @@ The Lithe application typically uses about **300–400 MB of baseline memory** a
 16. Multi-line editor tabs for keeping more files visible in the same workspace.
 17. Database connection workspace with multiple database types, connection management, SQL history, table browsing, and database operations.
 18. Ongoing bug fixes and user experience improvements.
+
+</details>
 
 ## Product tour
 
@@ -131,24 +166,6 @@ brew tap 1lck/lithe https://github.com/1lck/Lithe-IDEA.git
 brew install --cask 1lck/lithe/lithe
 brew upgrade --cask lithe
 ```
-
-### If macOS says it cannot open `Lithe.app`
-
-If macOS says that Apple cannot verify whether `Lithe.app` contains malware, the manually downloaded package may not yet be notarized by Apple. First confirm that the app came from the trusted [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest), then use one of these methods:
-
-<p align="center">
-  <img src="./docs/assets/screenshots/macos-app-verification-warning.png" width="492" alt="macOS warning that Lithe.app cannot be opened">
-</p>
-
-1. In **Applications**, Control-click `Lithe.app`, choose **Open**, and choose **Open** again in the confirmation dialog.
-2. If macOS still blocks it, open **System Settings > Privacy & Security**, click **Open Anyway** next to the security warning, and launch the app again.
-3. You can also remove the quarantine attribute in Terminal:
-
-   ```bash
-   sudo xattr -dr com.apple.quarantine /Applications/Lithe.app
-   ```
-
-Only use these steps for an app whose source you trust. Homebrew installations usually do not require manual quarantine removal.
 
 ## Architecture Overview
 
