@@ -306,6 +306,34 @@ struct RunEntryPointTests {
         #expect(model.pendingRunAction == nil)
     }
 
+    /// A selected-service batch must remain one deferred action so a snapshot
+    /// arriving later cannot overwrite one launch with another.
+    @Test
+    func selectedServicesDeferAndResumeAsOneBatch() async throws {
+        let workspace = try JavaWorkspaceFixture()
+        defer { workspace.remove() }
+        let workspaceOperations = SequencedWorkspaceOperations.unavailableThenReady(workspace.snapshot)
+        let runConfigurations = ReadyRunConfigurationOperations()
+        let model = makeAppModel(
+            workspaceOperations: workspaceOperations,
+            runConfigurationOperations: runConfigurations
+        )
+
+        model.openProjectDirectly(workspace.root)
+        model.startSelectedServiceConfigurations([ReadyRunConfigurationOperations.serviceEntryPoint])
+
+        let deferred = await awaitLoadDrivenChange(on: model) {
+            model.pendingRunAction?.kind == .startSelectedServices([ReadyRunConfigurationOperations.serviceEntryPoint])
+        }
+        #expect(deferred)
+        #expect(runConfigurations.launchPlanCallCount == 0)
+
+        await model.workspaceFeature.refreshCurrent()
+        let relaunched = await runConfigurations.launchPlanRequested(1)
+        #expect(relaunched)
+        #expect(model.pendingRunAction == nil)
+    }
+
     /// Restart must use the same readiness funnel as direct start. A published
     /// but not-yet-consumed refresh still leaves the run service on the old
     /// inventory; restarting then would rebuild a launch plan from that stale
