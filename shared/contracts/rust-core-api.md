@@ -653,7 +653,16 @@ core clamps it to `1...5000`). It remains the compatibility command that
 combines `git.references` with the first `git.historyPage`. New clients use
 `git.references` with `{ "root": string }` and request commits separately with
 `git.historyPage` using `root`, optional full `reference`, nullable opaque
-`cursor`, and `limit`. The first request omits `cursor`; each later request
+`cursor`, `limit`, and optional `order` (`"topo"` or `"date"`). Omitted
+`order` preserves the original `git log --topo-order` behavior. `"date"` uses
+`git log --date-order`: committer date descending whenever the child-before-
+parent constraint permits, independently of the displayed author date. macOS
+requests date order for the log page and repository graph; existing clients
+retain topology order. A cursor is bound to its root, reference, and order;
+continuations must repeat the same order. A mismatched order returns
+`invalid_request` without consuming the cursor. The portable request example is
+`shared/fixtures/git/history-page-date-request-v1.json`.
+The first request omits `cursor`; each later request
 returns the prior page's `nextCursor`. Core keeps one bounded, backpressured
 `git log` stream behind that cursor and clamps the stream to the first 5,000
 commits, so later pages continue traversal instead of replaying earlier commits.
@@ -676,7 +685,8 @@ remote references, and tags return zero for both fields. Portable examples are
 
 For compatibility, a request that explicitly contains the deprecated numeric
 `offset` field still uses the bounded offset implementation and returns
-`nextOffset`. New clients must omit `offset`; repository size does not select
+`nextOffset`; it honors the same optional `order`. New clients must omit
+`offset`; repository size does not select
 between the two protocols.
 
 `git.commit` accepts `root` and a revision, returning one `commit` object.
