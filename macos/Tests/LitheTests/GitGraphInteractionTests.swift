@@ -135,10 +135,11 @@ struct GitGraphInteractionTests {
         #expect(directions == [.up, .down])
     }
 
-    @Test("SwiftUI diagonal arrows receive clicks on the rendered tip stroke")
-    func swiftUIDiagonalArrowTips() async throws {
+    @Test("SwiftUI diagonal arrows receive clicks on the tip and its inner stroke", arguments: [CGFloat(0), CGFloat(0.5)])
+    func swiftUIDiagonalArrowTips(_ inset: CGFloat) async throws {
         let layout = expandedMergeFixture()
         var targets: [String] = []
+        var selections: [String] = []
         var expected: [String] = []
         for direction in [GitGraphPrintElement.Direction.down, .up] {
             let pair = try #require(layout.rows.enumerated().first { row in
@@ -149,7 +150,7 @@ struct GitGraphInteractionTests {
             let first = max(0, pair.offset - 1)
             let viewport = GitGraphLayout(rows: Array(layout.rows[first...min(layout.rows.count - 1, pair.offset + 1)]),
                 laneCount: layout.laneCount, hasMissingParents: false, recommendedLaneCount: layout.recommendedLaneCount)
-            var callbacks = actions { _ in }
+            var callbacks = actions { selections.append($0.hash) }
             callbacks.onNavigateHash = { targets.append($0) }
             let hosting = NSHostingView(rootView: GitGraphView(presentation: presentation(viewport), selectedHash: nil,
                 showCommitDecorations: true, actions: callbacks))
@@ -161,7 +162,7 @@ struct GitGraphInteractionTests {
             window.makeKeyAndOrderFront(nil)
             hosting.layoutSubtreeIfNeeded()
             let tip = GitGraphGeometry.line(for: edge, rowHeight: GitGraphGeometry.rowHeight).end
-            let point = CGPoint(x: tip.x, y: CGFloat(pair.offset - first) * GitGraphGeometry.rowHeight + tip.y + (direction == .up ? 0.5 : -0.5))
+            let point = CGPoint(x: tip.x, y: CGFloat(pair.offset - first) * GitGraphGeometry.rowHeight + tip.y + (direction == .up ? inset : -inset))
             let location = hosting.convert(point, to: nil)
             for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
                 let event = try #require(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: 0,
@@ -174,6 +175,7 @@ struct GitGraphInteractionTests {
             // public outcome with a bounded deadline before closing the window.
             while targets.count < expected.count && clock.now < deadline { await Task.yield() }
             #expect(targets == expected, "Clicking the drawn diagonal tip must activate its endpoint")
+            #expect(selections.isEmpty, "An arrow click must not also select the adjacent row")
         }
     }
 
@@ -192,6 +194,40 @@ struct GitGraphInteractionTests {
                 subject: value.subject, decorations: value.decorations)
         }
         return GitGraphLayoutService.layout(commits: history, options: .expanded)
+    }
+
+    @Test("Native arrow routing leaves ordinary SwiftUI row clicks selectable")
+    func swiftUIArrowRoutingPreservesRowSelection() async throws {
+        let layout = expandedMergeFixture()
+        var selections: [String] = []
+        var targets: [String] = []
+        var callbacks = actions { selections.append($0.hash) }
+        callbacks.onNavigateHash = { targets.append($0) }
+        let viewport = GitGraphLayout(rows: Array(layout.rows.prefix(3)), laneCount: layout.laneCount,
+            hasMissingParents: false, recommendedLaneCount: layout.recommendedLaneCount)
+        let hosting = NSHostingView(rootView: GitGraphView(presentation: presentation(viewport), selectedHash: nil,
+            showCommitDecorations: true, actions: callbacks))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 850, height: 3 * GitGraphGeometry.rowHeight),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = hosting
+        defer { window.orderOut(nil); window.close() }
+        window.makeKeyAndOrderFront(nil)
+        hosting.layoutSubtreeIfNeeded()
+        // One click on a node in the drawing surface, one on row text.
+        for point in [CGPoint(x: 8, y: 11), CGPoint(x: 200, y: 33)] {
+            let location = hosting.convert(point, to: nil)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                let event = try #require(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+                window.sendEvent(event)
+            }
+        }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while selections.count < 2 && clock.now < deadline { await Task.yield() }
+        #expect(selections == ["0", "1"], "The arrow surface must pass ordinary row clicks through")
+        #expect(targets.isEmpty)
     }
 
     @Test("Arrow activation selects and scrolls to parent, then back to child")

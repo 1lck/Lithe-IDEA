@@ -183,6 +183,67 @@ struct GitGraphLayoutTests {
         #expect(!layout.hasMissingParents)
     }
 
+    @Test("5,000 hidden merge boundaries keep only the visible result", arguments: [false, true])
+    func filteredMissingParentScaling(_ emptyFilter: Bool) throws {
+        // Each merge adds a distinct unloaded parent. Copying every suffix's
+        // full set retained ~12.5 million members for a one-row result.
+        let count = 5_000
+        let history = (0..<count).map { row -> GitCommit in
+            var parents = ["missing-\(row)"]
+            if row + 1 < count { parents.insert(String(row + 1), at: 0) }
+            return commit(String(row), parents)
+        }
+        let visible: Set<String> = emptyFilter ? [] : ["0"]
+        let started = ContinuousClock.now
+        let layout = GitGraphLayoutService.layout(commits: history, visibleHashes: visible)
+        print("Filtered missing graph 5000, empty=\(emptyFilter): \(ContinuousClock.now - started)")
+        if emptyFilter {
+            #expect(layout.rows.isEmpty)
+            #expect(!layout.hasMissingParents)
+        } else {
+            #expect(layout.rows.count == 1)
+            let row = try #require(layout.rows.first)
+            #expect(Set(row.parentEdges.map(\.parentHash)) == Set((0..<count).map { "missing-\($0)" }))
+            #expect(row.parentEdges.allSatisfy { $0.isMissing })
+            #expect(layout.hasMissingParents)
+        }
+    }
+
+    @Test("Many visible children reuse a shared hidden chain's boundary")
+    func sharedHiddenMissingChain() {
+        let count = 2_500
+        let heads = (0..<count).map { commit("head-\($0)", ["hidden-0"]) }
+        let hidden = (0..<count).map { row -> GitCommit in
+            let parent = row + 1 < count ? "hidden-\(row + 1)" : "missing"
+            return commit("hidden-\(row)", [parent])
+        }
+        let layout = GitGraphLayoutService.layout(commits: heads + hidden, visibleHashes: Set(heads.map(\.hash)))
+        #expect(layout.rows.count == count)
+        #expect(layout.hasMissingParents)
+        #expect(layout.rows.allSatisfy { $0.parentEdges.map(\.parentHash) == ["missing"] })
+        assertContinuity(layout)
+    }
+
+    @Test("Cancellation stops emitting projected missing parents")
+    @MainActor
+    func cancelledMissingProjection() async {
+        let task = Task {
+            var emitted: [String] = []
+            GitGraphMissingParents.project(
+                commits: [commit("a", ["b"]), commit("b", ["missing-a", "missing-b"])],
+                byHash: ["a": 0, "b": 1], parents: [[1], []], visible: [0]
+            ) { _, hash in
+                emitted.append(hash)
+                // Cancel at an observable consumer boundary, with no clock or
+                // scheduler race. Subsequent endpoints must not be published.
+                withUnsafeCurrentTask { $0?.cancel() }
+            }
+            return emitted
+        }
+        defer { task.cancel() }
+        #expect(await task.value == ["missing-a"])
+    }
+
     @Test("IDEA reference priority seeds main before newer feature tips and inner branch heads")
     func referencePriority() {
         let commits = [commit("feature", ["main"], "HEAD -> feature"),

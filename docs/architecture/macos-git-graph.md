@@ -45,7 +45,9 @@
 
 作者、关键词、日期和路径筛选只决定哪些节点可见。布局顺序来自完整图，不能先删掉提交再把被删父节点判为“未加载”。
 
-保留两端都可见的直接边。沿完整图执行向下和向上的编号传播，按 IDEA 的最近可见节点规则补虚线，并对重复端点去重。虚线表示经过被隐藏的提交，实线表示直接父子边。页外父提交使用独立的未加载标记。反向遍历已加载节点，缓存隐藏路径可达的页外父哈希集合，在可见节点处停止传播；可见节点经过隐藏祖先抵达页外父节点时保留虚线延续与未加载提示。多个隐藏路径到同一父节点时去重，同一端点已有直接边则保留实线。已加载的根节点及与可见图无关的隐藏分支不会产生缺页误报；补页后重新投影，已补齐的未加载标记随之消失。
+保留两端都可见的直接边。沿完整图执行向下和向上的编号传播，按 IDEA 的最近可见节点规则补虚线，并对重复端点去重。虚线表示经过被隐藏的提交，实线表示直接父子边。页外父提交使用独立的未加载标记；可见节点经过隐藏祖先抵达页外父节点时保留虚线延续与未加载提示。多个隐藏路径到同一父节点时去重，同一端点已有直接边则保留实线。已加载的根节点及与可见图无关的隐藏分支不会产生缺页误报；补页后重新投影，已补齐的未加载标记随之消失。
+
+缺页传播使用共享的隐藏边界 DAG：反向遍历已加载节点，每个组只保存本节点直接缺失的父哈希与父组 ID，不复制所有祖先的累计哈希集合。无直接缺页的单父路径复用父组，相同组也复用 ID；可见祖先不向子节点传播其边界，由它自己的出边表达延续。随后按可见提交遍历关联组，使用访问戳去重，临时哈希集合只保存该提交的输出，避免每个隐藏节点都保留一份累计结果。辅助图存储随输入节点和边增长；遍历成本还取决于各可见提交可达的组数，输出边本身可能很多，不能承诺所有输入都线性耗时。建组、遍历和输出均检查取消，过期投影由布局入口丢弃。
 
 ### 3. 逐行紧凑布局
 
@@ -66,7 +68,7 @@
 | 默认紧凑 | 边跨度 ≥ 30 行 | 距端点 ≤ 1 行 | 省略边的两端 |
 | 显示长边 | 边跨度 ≥ 1,000 行 | 距端点 ≤ 250 行 | 跨度 ≥ 30 行时，端点附近仍有方向箭头 |
 
-“跨度”使用可见图的行号之差。省略边在中间行不占列；下箭头指向父提交，上箭头指向子提交。点击已有可见目标时选择目标、滚动定位并刷新详情，不改变多选修订操作的执行规则。箭头有独立的命中区域、提示文字和可访问按钮；命中区域水平对准实际绘制的箭头尖端，支持展开模式跨多列的斜边。原生列表对恰好落在行边界的尖端同时检查相邻行，普通图形区域仍使用整行选择。
+“跨度”使用可见图的行号之差。省略边在中间行不占列；下箭头指向父提交，上箭头指向子提交。点击已有可见目标时选择目标、滚动定位并刷新详情，不改变多选修订操作的执行规则。箭头有独立的命中区域、提示文字和可访问按钮；命中区域水平对准实际绘制的箭头尖端，支持展开模式跨多列的斜边。主日志的 SwiftUI 行按钮保留提示、指针和可访问操作，鼠标左键由现有的单个 AppKit 绘图表面跨行命中；恰好落在行边界的尖端同时检查相邻行，避免 SwiftUI 行内按钮的边界漏点。绘图表面只接管箭头的普通左键事件，其余图形区域、悬停、右键和 Control 点击仍走行的原有事件路径。原生列表复用同一套坐标和目标解析。
 
 页外父节点不能伪装为已有行；保留明确的未加载提示和现有 Load more 入口。补页后按新图重新投影，补齐端点。不能为了跳转把一个旧提交插在日志顶部破坏拓扑顺序。
 
@@ -96,12 +98,13 @@
 | --- | --- |
 | `macos/Sources/LitheGitModule/Services/GitGraphHeadOrdering.swift` | 引用优先级、自然名称比较和图头集合 |
 | `macos/Sources/LitheGitModule/Services/GitGraphProjection.swift` | 永久图 DFS、筛选虚线、逐行打印元素和推荐宽度 |
+| `macos/Sources/LitheGitModule/Services/GitGraphMissingParents.swift` | 共享隐藏边界、缺页端点投影和取消检查 |
 | `macos/Sources/LitheGitModule/Services/GitGraphLayoutService.swift` | macOS 布局入口、引用解析和绘制快照 |
 | `macos/Sources/Lithe/Views/Git/GitGraphColor.swift` | IDEA 主题颜色生成与合并文字层次 |
 | `rust/lithe-core/src/git/history.rs` | 可选日期遍历与游标排序约束 |
 | `macos/Sources/Lithe/Core/Rust/RustGitOperations.swift` | macOS 日志显式请求日期顺序 |
 | `macos/Sources/Lithe/Views/Git/GitGraphGeometry.swift` | 半边坐标、文字宽度和箭头命中范围 |
-| `macos/Sources/Lithe/Views/Git/GitGraphView.swift` | AppKit 绘制、SwiftUI 箭头按钮和原生列表导航 |
+| `macos/Sources/Lithe/Views/Git/GitGraphView.swift` | AppKit 绘制与跨行箭头命中、SwiftUI 可访问按钮和原生列表导航 |
 | `macos/Sources/Lithe/Views/Git/GitLogView.swift` | 缓存更新、长边开关、选择、详情和滚动定位 |
 
 上游 fixture 固定保存在 `macos/Tests/LitheGitModuleTests/Fixtures/GitGraphIDEA/`。4 个布局 fixture 比较完整 layout index 向量；5 个打印 fixture 比较完整节点列、上下半边端点、箭头与实/虚线结果，只排除使用不同回调生成的颜色值。fixture 输入和输出不随 Lithe 实现生成。Apache-2.0 许可证和来源说明放在 `macos/Resources/GitGraph/`，随预览、打包和性能测量应用一起复制。
@@ -171,3 +174,10 @@ Core 的本地 Git 集成回归构造固定作者/提交者日期的交错双分
 - 当前页和引用就绪即可显示、分页；仓库上下文独立补全。受控 worker 验证首屏无需等待上下文、旧请求迟到不覆盖新分支及取消后游标清理。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/pr616-review-regression.json -- --filter 'Git|ContextMenu'`：203 项通过，1 项既有 Rust 集成项按条件跳过，HTML/JUnit 使用同名前缀。新增用例最慢为 SwiftUI 斜箭头点击 23 ms；5,000 行布局 502 ms，原生绘制采样 2,815 ms，均在原有预算内。
 - `./scripts/build-macos.sh`、`./scripts/verify-git-graph.sh`、服务边界、测试稳定性静态门禁和 `git diff --check` 通过。IDEA 原始 fixture 与真实历史独立 oracle 对照全部通过。本地工具链为 Swift 6.3.3；当前修正的 Swift 6.2 结果须以新一轮 CI 为准。
+
+### PR #616 第二轮 review 修复
+
+- 主日志复用 AppKit 绘图表面的跨行箭头命中，修复展开模式向下尖端恰好落在下一行时选错行的问题。正式 SwiftUI 窗口鼠标事件同时覆盖精确尖端、内移 0.5 pt、上下两个方向；每次只导航到目标，不触发普通行选择。另验证节点区域及正文点击仍选择对应行。
+- 缺页传播改为共享隐藏边界 DAG，消除逐节点复制累计父哈希集合的平方存储。5,000 个不同缺页端点的合并链从修复前约 1.94 秒降到本轮两次测量的 31–71 ms；这是该固定输入的本机测量，不代表所有图的复杂度。2,500 个可见分支共用 2,500 个隐藏节点的场景为 44 ms；输出阶段取消后不再发出后续端点。
+- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/pr616-fix2-regression.json -- --filter 'Git|ContextMenu'`：207 项通过，1 项既有 Rust 集成项按条件跳过。HTML/JUnit 使用同名前缀；最慢的新增测试为两个 5,000 节点输入合计 49 ms，精确尖端及内侧点击合计 40 ms，普通行点击 15 ms，取消输出 1 ms。计时面板无失败、超时或超预算，10 项既有绘制采样和文件观察测试有性能预警；未放宽预算。
+- macOS 产品构建（实际链接 Rust Core）、Git 图验证、服务边界、测试稳定性静态检查和 `git diff --check` 均通过。再次检查共享路径、缺页去重、可见祖先边界、取消结果与主界面事件路由，未发现额外可复现问题。IDEA fixture、真实历史 oracle 和主题 RGB 对照全部通过。本地仍为 Swift 6.3.3，Swift 6.2 以本轮提交的 CI 为准。

@@ -121,10 +121,10 @@ struct GitGraphView: View {
             GitGraphNSViewRepresentable(
                 snapshot: presentation.routingSnapshot,
                 width: maximumGraphWidth,
-                rowHeight: rowHeight
+                rowHeight: rowHeight,
+                onNavigateHash: actions.onNavigateHash
             )
             .frame(width: maximumGraphWidth, height: CGFloat(presentation.rows.count) * rowHeight)
-            .allowsHitTesting(false)
         }
     }
 
@@ -815,17 +815,20 @@ private struct GitGraphNSViewRepresentable: NSViewRepresentable {
     let snapshot: GitGraphRoutingSnapshot
     let width: CGFloat
     let rowHeight: CGFloat
+    let onNavigateHash: ((String) -> Void)?
 
     func makeNSView(context: Context) -> GitGraphNSView {
         GitGraphNSView()
     }
 
     func updateNSView(_ nsView: GitGraphNSView, context: Context) {
+        nsView.onNavigateHash = onNavigateHash
         nsView.update(snapshot: snapshot, width: width, rowHeight: rowHeight)
     }
 }
 
 final class GitGraphNSView: NSView {
+    var onNavigateHash: ((String) -> Void)?
     private var colorCache: [Int: NSColor] = [:]
     private var snapshot = GitGraphRoutingSnapshot(rows: [], laneCount: 0)
     private var graphWidth: CGFloat = 0
@@ -914,9 +917,25 @@ final class GitGraphNSView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // Graph strokes are visual only; the document view routes clicks to
-        // the matching commit row so the whole row remains selectable.
-        nil
+        // The single drawing surface spans row boundaries, unlike SwiftUI's
+        // per-row buttons. Intercept only primary arrow clicks; ordinary row
+        // selection, hover and context menus keep their existing SwiftUI path.
+        if let event = NSApp.currentEvent,
+           (event.type != .leftMouseDown && event.type != .leftMouseUp
+                || event.modifierFlags.contains(.control)) { return nil }
+        let local = convert(point, from: superview)
+        guard onNavigateHash != nil, bounds.contains(local), navigationTarget(at: local) != nil else { return nil }
+        return self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard !event.modifierFlags.contains(.control),
+              let hash = navigationTarget(at: convert(event.locationInWindow, from: nil)),
+              let onNavigateHash else {
+            super.mouseDown(with: event)
+            return
+        }
+        onNavigateHash(hash)
     }
 
     private func x(for lane: Int) -> CGFloat { GitGraphGeometry.leftPadding + CGFloat(lane) * GitGraphGeometry.laneSpacing }
