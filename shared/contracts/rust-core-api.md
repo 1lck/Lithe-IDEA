@@ -227,7 +227,10 @@ current branch's tracking counts and are zero when no upstream is configured.
 repository first when present, then repositories under the opened workspace by
 workspace containment, depth, and path. Each entry contains an absolute native
 `path` because repository roots are platform boundary values and may be outside
-the opened folder when the folder is nested inside a checkout. Core treats both
+the opened folder when the folder is nested inside a checkout. Canonical paths
+are reported in plain native form: Core strips the Windows verbatim `\\?\`
+prefix so roots remain valid Git working directories and stay resolvable after
+consumers normalize separators. Core treats both
 `.git` directories and `.git` files as repository markers. The default traversal
 visits the entire workspace tree, including build and dependency folders, and
 continues below discovered repositories. Git metadata itself is not traversed.

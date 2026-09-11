@@ -6,8 +6,12 @@ const readDirectory = mock(async (_path: string): Promise<unknown[]> => []);
 mock.module("@/platform/tauri-core", () => ({ invoke }));
 mock.module("@/features/file-system/controllers/platform", () => ({ readDirectory }));
 
-const { clearRepositoryDiscoveryCache, discoverWorkspaceRepositories, resolveRepositoryForFile } =
-  await import("./git-repo-api");
+const {
+  clearRepositoryDiscoveryCache,
+  discoverWorkspaceRepositories,
+  normalizeRepositoryPath,
+  resolveRepositoryForFile,
+} = await import("./git-repo-api");
 
 beforeEach(() => {
   invoke.mockReset();
@@ -53,6 +57,20 @@ describe("discoverWorkspaceRepositories", () => {
     expect(result).toEqual(["D:/work/service-b", "D:/work/service-a"]);
   });
 
+  test("strips Windows verbatim prefixes from discovered repository paths", async () => {
+    invoke.mockResolvedValue({
+      repositories: [
+        { path: "\\\\?\\C:\\work\\repo" },
+        { path: "//?/C:/work/repo/packages/nested" },
+      ],
+    });
+
+    expect(await discoverWorkspaceRepositories("C:/work/repo")).toEqual([
+      "C:/work/repo",
+      "C:/work/repo/packages/nested",
+    ]);
+  });
+
   test("discovers repositories from every workspace root", async () => {
     invoke.mockImplementation(async (_command, args) => {
       const workspacePath = (args as { workspacePath: string }).workspacePath;
@@ -76,7 +94,45 @@ describe("discoverWorkspaceRepositories", () => {
   });
 });
 
+describe("normalizeRepositoryPath", () => {
+  test("preserves drive roots and remote schemes while collapsing separators", () => {
+    expect(normalizeRepositoryPath("C://")).toBe("C:/");
+    expect(normalizeRepositoryPath("remote://host/repo//src/")).toBe("remote://host/repo/src");
+    expect(normalizeRepositoryPath("wsl://Ubuntu/repo//")).toBe("wsl://Ubuntu/repo");
+    expect(normalizeRepositoryPath("/work//repo/")).toBe("/work/repo");
+  });
+
+  test("preserves verbatim and ordinary UNC roots", () => {
+    expect(normalizeRepositoryPath("//?/unc/server/share//repo/")).toBe(
+      "//server/share/repo",
+    );
+    expect(normalizeRepositoryPath("\\\\?\\UNC\\server\\share\\repo")).toBe(
+      "//server/share/repo",
+    );
+    expect(normalizeRepositoryPath("\\\\server\\share\\repo")).toBe(
+      "//server/share/repo",
+    );
+  });
+});
+
 describe("resolveRepositoryForFile", () => {
+  test("returns relative file paths for a repository at a drive root", async () => {
+    invoke.mockResolvedValue("X:/");
+    expect(await resolveRepositoryForFile("X:/", "src/main.ts")).toEqual({
+      repoPath: "X:/", filePath: "src/main.ts",
+    });
+    expect(invoke).toHaveBeenCalledWith("git_discover_repo", { path: "X:/src" });
+  });
+
+  test("falls back to a drive-root repository for a removed directory", async () => {
+    invoke.mockRejectedValueOnce(new Error("Workspace does not exist"));
+    invoke.mockResolvedValue("X:/");
+    expect(await resolveRepositoryForFile("X:/", "removed/Deleted.java")).toEqual({
+      repoPath: "X:/", filePath: "removed/Deleted.java",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(2, "git_discover_repo", { path: "X:/" });
+  });
+
   test("discovers the repository from the file's directory", async () => {
     invoke.mockResolvedValue("D:/work/project");
 
