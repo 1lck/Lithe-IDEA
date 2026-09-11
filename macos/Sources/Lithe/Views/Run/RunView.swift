@@ -22,6 +22,7 @@ struct RunView: View {
     /// The first project service is selected when a workspace has no prior choice.
     @State private var selectedServiceIDs: Set<String> = []
     @State private var selectedServicesWorkspacePath = ""
+    @State private var hasHydratedServiceSelection = false
     @State private var isServiceLaunchConfirmationPresented = false
 
     var body: some View {
@@ -391,11 +392,13 @@ struct RunView: View {
     }
 
     private func synchronizeSelectedServices() {
+        guard !serviceConfigurations.isEmpty else { return }
         let serviceIDs = Set(serviceConfigurations.map(\.id))
         let workspacePath = model.workspaceURL?.standardizedFileURL.path ?? ""
         if selectedServicesWorkspacePath != workspacePath {
             selectedServicesWorkspacePath = workspacePath
             selectedServiceIDs = []
+            hasHydratedServiceSelection = false
         }
         let prefix = workspacePath + "::"
         let persistedIDs = Set(
@@ -405,16 +408,19 @@ struct RunView: View {
                 .filter { $0.hasPrefix(prefix) }
                 .map { String($0.dropFirst(prefix.count)) }
         )
-        let retained = (selectedServiceIDs.isEmpty ? persistedIDs : selectedServiceIDs)
+        let retained = (hasHydratedServiceSelection ? selectedServiceIDs :
+            (selectedServiceIDs.isEmpty ? persistedIDs : selectedServiceIDs))
             .intersection(serviceIDs)
-        if !retained.isEmpty {
+        if hasHydratedServiceSelection || !retained.isEmpty {
             selectedServiceIDs = retained
+            hasHydratedServiceSelection = true
             return
         }
 
         let preferred = serviceConfigurations.first(where: { $0.id == feature.selectedConfigurationID })
             ?? serviceConfigurations.first
         selectedServiceIDs = preferred.map { [$0.id] } ?? []
+        hasHydratedServiceSelection = true
         persistSelectedServices()
     }
 
@@ -427,6 +433,7 @@ struct RunView: View {
                 } else {
                     selectedServiceIDs.remove(configuration.id)
                 }
+                hasHydratedServiceSelection = true
                 persistSelectedServices()
             }
         )
@@ -446,10 +453,8 @@ struct RunView: View {
     private func runSelectedServices() {
         let services = selectedServiceConfigurations
         guard !services.isEmpty else { return }
-        for configuration in services {
-            model.selectRunConfiguration(configuration)
-            model.startRunConfiguration(configuration)
-        }
+        model.startSelectedServiceConfigurations(services)
+        model.selectRunConfiguration(services[0])
         selectedSessionID = services.first?.id
     }
 

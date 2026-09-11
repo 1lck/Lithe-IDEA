@@ -109,13 +109,16 @@ export default function RunPane() {
     ? workspaceRelativePath(rootFolderPath, activeFilePath)
     : undefined;
   useEffect(() => {
-    if (!rootFolderPath) {
+    if (!rootFolderPath || services.length === 0) {
       setSelectedServiceIDsLocal([]);
       return;
     }
-    const saved = selectedServiceIDsByWorkspace[rootFolderPath] ?? [];
-    const valid = saved.filter((id) => services.some((service) => service.id === id));
-    setSelectedServiceIDsLocal(valid.length > 0 ? valid : services.slice(0, 1).map((service) => service.id));
+    const saved = selectedServiceIDsByWorkspace[rootFolderPath];
+    if (saved !== undefined) {
+      setSelectedServiceIDsLocal(saved.filter((id) => services.some((service) => service.id === id)));
+      return;
+    }
+    setSelectedServiceIDsLocal(services.slice(0, 1).map((service) => service.id));
   }, [rootFolderPath, selectedServiceIDsByWorkspace, services]);
 
   const updateSelectedServices = (ids: string[]) => {
@@ -135,7 +138,9 @@ export default function RunPane() {
       void actions.stop(selectedSession?.id);
       return;
     }
-    const configuration = selectedConfiguration ?? applications[0] ?? services[0];
+    const configuration = selectedConfiguration?.execution === "group"
+      ? applications[0] ?? services[0]
+      : selectedConfiguration ?? applications[0] ?? services[0];
     if (!configuration || !rootFolderPath) return;
     void actions.runConfiguration(configuration.id, currentFile);
   };
@@ -163,7 +168,7 @@ export default function RunPane() {
         {services.length > 0 ? (
           <DropdownMenu>
             <DropdownMenuTrigger
-              render={<Button variant="ghost" size="icon-xs" aria-label={t("run.chooseServices")} />}
+              render={<Button variant="ghost" size="icon-xs" disabled={isLoading || isGenerating} aria-label={t("run.chooseServices")} />}
             >
               <DotsThreeIcon />
             </DropdownMenuTrigger>
@@ -185,10 +190,10 @@ export default function RunPane() {
                 </DropdownMenuCheckboxItem>
               ))}
               <DropdownMenuSeparator />
-              <DropdownMenuItem disabled={selectedServiceIDs.length === 0} onClick={runSelectedServices}>
+              <DropdownMenuItem disabled={isLoading || isGenerating || selectedServiceIDs.length === 0} onClick={runSelectedServices}>
                 {t("run.runSelectedServices")}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={runAllServices}>{t("run.runAllServices")}</DropdownMenuItem>
+              <DropdownMenuItem disabled={isLoading || isGenerating} onClick={runAllServices}>{t("run.runAllServices")}</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         ) : null}
@@ -298,15 +303,6 @@ export default function RunPane() {
                     <ConfigurationSection
                       title={t("run.tasks")}
                       configurations={configurationsForExecution(configurations, "task")}
-                      selectedId={selectedConfigurationId}
-                      sessions={sessions}
-                      onSelect={actions.selectConfiguration}
-                      onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
-                      onEdit={setEditingId}
-                    />
-                    <ConfigurationSection
-                      title={t("run.groups")}
-                      configurations={configurationsForExecution(configurations, "group")}
                       selectedId={selectedConfigurationId}
                       sessions={sessions}
                       onSelect={actions.selectConfiguration}
