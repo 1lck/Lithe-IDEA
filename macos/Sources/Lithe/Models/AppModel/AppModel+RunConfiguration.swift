@@ -385,6 +385,9 @@ extension AppModel {
                         for: configuration, currentFileURL: nil, runFeature: runFeature
                       ),
                       isCurrentWorkspace(identity) else { return }
+            }
+            for configuration in configurations {
+                guard isCurrentWorkspace(identity) else { return }
                 runFeature.startConfiguration(configuration)
             }
         }

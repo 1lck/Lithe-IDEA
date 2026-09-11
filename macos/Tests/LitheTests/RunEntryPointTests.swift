@@ -320,16 +320,20 @@ struct RunEntryPointTests {
         )
 
         model.openProjectDirectly(workspace.root)
-        model.startSelectedServiceConfigurations([ReadyRunConfigurationOperations.serviceEntryPoint])
+        let services = [
+            ReadyRunConfigurationOperations.serviceEntryPoint,
+            ReadyRunConfigurationOperations.serviceEntryPointB,
+        ]
+        model.startSelectedServiceConfigurations(services)
 
         let deferred = await awaitLoadDrivenChange(on: model) {
-            model.pendingRunAction?.kind == .startSelectedServices([ReadyRunConfigurationOperations.serviceEntryPoint])
+            model.pendingRunAction?.kind == .startSelectedServices(services)
         }
         #expect(deferred)
         #expect(runConfigurations.launchPlanCallCount == 0)
 
         await model.workspaceFeature.refreshCurrent()
-        let relaunched = await runConfigurations.launchPlanRequested(1)
+        let relaunched = await runConfigurations.launchPlanRequested(2)
         #expect(relaunched)
         #expect(model.pendingRunAction == nil)
     }
@@ -815,6 +819,15 @@ private final class ReadyRunConfigurationOperations: RunConfigurationOperations,
         mainClass: "demo.App"
     )
 
+    static let serviceEntryPointB = RunConfiguration(
+        id: "spring-boot:demo.OtherApp",
+        name: "Other Service",
+        kind: .mavenFramework(.springBoot),
+        execution: .service,
+        modulePath: nil,
+        mainClass: "demo.OtherApp"
+    )
+
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
         RunConfigurationResolution(
             configurations: [
@@ -824,6 +837,10 @@ private final class ReadyRunConfigurationOperations: RunConfigurationOperations,
                 ),
                 EffectiveRunConfiguration(
                     configuration: Self.serviceEntryPoint,
+                    options: RunOptions()
+                ),
+                EffectiveRunConfiguration(
+                    configuration: Self.serviceEntryPointB,
                     options: RunOptions()
                 ),
             ],

@@ -400,18 +400,13 @@ struct RunView: View {
             selectedServiceIDs = []
             hasHydratedServiceSelection = false
         }
-        let prefix = workspacePath + "::"
-        let persistedIDs = Set(
-            selectedServiceTokens
-                .split(separator: "\n")
-                .map(String.init)
-                .filter { $0.hasPrefix(prefix) }
-                .map { String($0.dropFirst(prefix.count)) }
-        )
+        let persistedSelections = persistedServiceSelections()
+        let hasPersistedSelection = persistedSelections.keys.contains(workspacePath)
+        let persistedIDs = Set(persistedSelections[workspacePath] ?? [])
         let retained = (hasHydratedServiceSelection ? selectedServiceIDs :
             (selectedServiceIDs.isEmpty ? persistedIDs : selectedServiceIDs))
             .intersection(serviceIDs)
-        if hasHydratedServiceSelection || !retained.isEmpty {
+        if hasHydratedServiceSelection || hasPersistedSelection || !retained.isEmpty {
             selectedServiceIDs = retained
             hasHydratedServiceSelection = true
             return
@@ -441,13 +436,24 @@ struct RunView: View {
 
     private func persistSelectedServices() {
         guard let workspacePath = model.workspaceURL?.standardizedFileURL.path else { return }
-        let prefix = workspacePath + "::"
-        let otherWorkspaceSelections = selectedServiceTokens
-            .split(separator: "\n")
-            .map(String.init)
-            .filter { !$0.hasPrefix(prefix) }
-        selectedServiceTokens = (otherWorkspaceSelections + selectedServiceIDs.sorted().map { prefix + $0 })
-            .joined(separator: "\n")
+        var selections = persistedServiceSelections()
+        selections[workspacePath] = selectedServiceIDs.sorted()
+        guard let data = try? JSONSerialization.data(withJSONObject: selections, options: [.sortedKeys]),
+              let encoded = String(data: data, encoding: .utf8) else { return }
+        selectedServiceTokens = encoded
+    }
+
+    private func persistedServiceSelections() -> [String: [String]] {
+        guard let data = selectedServiceTokens.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let selections = object as? [String: [String]] else {
+            // Accept the pre-JSON format once so existing users keep their choices.
+            let prefix = (model.workspaceURL?.standardizedFileURL.path ?? "") + "::"
+            let ids = selectedServiceTokens.split(separator: "\n").map(String.init)
+                .filter { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) }
+            return ids.isEmpty ? [:] : [String(prefix.dropLast(2)): ids]
+        }
+        return selections
     }
 
     private func runSelectedServices() {

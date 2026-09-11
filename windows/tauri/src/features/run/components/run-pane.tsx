@@ -91,6 +91,8 @@ export default function RunPane() {
     () => configurationsForExecution(configurations, "application"),
     [configurations],
   );
+  const tasks = useMemo(() => configurationsForExecution(configurations, "task"), [configurations]);
+  const otherConfigurations = useMemo(() => [...applications, ...tasks], [applications, tasks]);
   const selectedConfiguration =
     configurations.find((configuration) => configuration.id === selectedConfigurationId) ?? null;
   const selectedSession = sessions.find((session) => session.id === selectedSessionId);
@@ -281,15 +283,16 @@ export default function RunPane() {
                   onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
                   onEdit={setEditingId}
                 />
-                <button
+                {otherConfigurations.length > 0 ? <button
                   type="button"
+                  aria-expanded={!otherConfigurationsCollapsed}
                   className="mt-2 flex w-full items-center justify-between px-2 py-1 text-left font-medium text-subtle-foreground ui-text-sm hover:text-foreground"
                   onClick={() => setOtherConfigurationsCollapsed((collapsed) => !collapsed)}
                 >
                   {t("run.otherConfigurations")}
                   <span aria-hidden>{otherConfigurationsCollapsed ? "▸" : "▾"}</span>
-                </button>
-                {!otherConfigurationsCollapsed ? (
+                </button> : null}
+                {otherConfigurations.length > 0 && !otherConfigurationsCollapsed ? (
                   <>
                     <ConfigurationSection
                       title={t("run.applications")}
@@ -302,7 +305,7 @@ export default function RunPane() {
                     />
                     <ConfigurationSection
                       title={t("run.tasks")}
-                      configurations={configurationsForExecution(configurations, "task")}
+                      configurations={tasks}
                       selectedId={selectedConfigurationId}
                       sessions={sessions}
                       onSelect={actions.selectConfiguration}
