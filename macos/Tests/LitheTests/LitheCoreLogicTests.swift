@@ -2235,6 +2235,27 @@ struct LitheCoreLogicTests {
         )
         #expect(
             !rules.isHidden(
+                root.appendingPathComponent(".factorypath"),
+                relativeTo: root,
+                isDirectory: false
+            )
+        )
+        #expect(
+            !rules.isHidden(
+                root.appendingPathComponent("services/alpha/.factorypath"),
+                relativeTo: root,
+                isDirectory: false
+            )
+        )
+        #expect(
+            !rules.isHidden(
+                root.appendingPathComponent("services/alpha/pom.xml"),
+                relativeTo: root,
+                isDirectory: false
+            )
+        )
+        #expect(
+            !rules.isHidden(
                 root.appendingPathComponent(".lithe/run/configurations.json"),
                 relativeTo: root,
                 isDirectory: false
@@ -4485,6 +4506,10 @@ struct EditorDocumentTests {
             atPath: hiddenWorktree.appendingPathComponent("App.swift").path,
             contents: Data("print(2)".utf8)
         )
+        let factorypath = workspace.appendingPathComponent(".factorypath")
+        let nestedFactorypath = sources.appendingPathComponent(".factorypath")
+        fileManager.createFile(atPath: factorypath.path, contents: Data("<factorypath />".utf8))
+        fileManager.createFile(atPath: nestedFactorypath.path, contents: Data("<factorypath />".utf8))
         defer { try? fileManager.removeItem(at: workspace) }
 
         let snapshot = try #require(
@@ -4494,10 +4519,95 @@ struct EditorDocumentTests {
             )
         )
 
-        #expect(snapshot.root.children?.map(\.name) == ["Sources", "README.md"])
-        #expect(snapshot.files.map(\.lastPathComponent).sorted() == ["App.swift", "README.md"])
+        let names = snapshot.root.children?.map(\.name) ?? []
+        #expect(names.contains("Sources"))
+        #expect(names.contains("README.md"))
+        #expect(names.contains(".factorypath"))
+        #expect(snapshot.files.contains { $0.lastPathComponent == "App.swift" })
+        #expect(snapshot.files.contains { $0.lastPathComponent == "README.md" })
+        #expect(snapshot.files.contains { $0.lastPathComponent == ".factorypath" })
         #expect(!snapshot.files.contains { $0.path.contains("/.git/") })
         #expect(!snapshot.files.contains { $0.path.contains("/.worktree/") })
+        #expect(fileManager.fileExists(atPath: factorypath.path))
+        #expect(fileManager.fileExists(atPath: nestedFactorypath.path))
+    }
+
+    @Test
+    func hidingLSPGeneratedArtifactsIsOptInAndLeavesFilesOnDisk() throws {
+        let fileManager = FileManager.default
+        let workspace = fileManager.temporaryDirectory
+            .appendingPathComponent("lithe-factorypath-search-\(UUID().uuidString)")
+        let module = workspace.appendingPathComponent("services/alpha")
+        try fileManager.createDirectory(at: module, withIntermediateDirectories: true)
+        let uniqueToken = "jdtlsFactorypathToken589"
+        let factorypath = workspace.appendingPathComponent(".factorypath")
+        let nestedFactorypath = module.appendingPathComponent(".factorypath")
+        fileManager.createFile(atPath: factorypath.path, contents: Data("\(uniqueToken)\n".utf8))
+        fileManager.createFile(
+            atPath: nestedFactorypath.path,
+            contents: Data("\(uniqueToken)\n".utf8)
+        )
+        fileManager.createFile(
+            atPath: workspace.appendingPathComponent("README.md").path,
+            contents: Data("visible\n".utf8)
+        )
+        defer { try? fileManager.removeItem(at: workspace) }
+
+        let defaultSnapshot = try #require(
+            FileSystemWorkspaceSnapshotBuilder().snapshot(
+                at: workspace,
+                visibilityRules: .default
+            )
+        )
+        #expect(fileNodeContains(defaultSnapshot.root, named: ".factorypath"))
+        #expect(fileManager.fileExists(atPath: factorypath.path))
+        #expect(fileManager.fileExists(atPath: nestedFactorypath.path))
+        #expect(!FileVisibilityRules.default.isHidden(factorypath, relativeTo: workspace, isDirectory: false))
+
+        let hiddenRules = FileVisibilityRules(
+            hiddenDirectoryNames: [],
+            hiddenFilePatterns: LSPGeneratedArtifactVisibility.inserting(into: [])
+        )
+        let hiddenSnapshot = try #require(
+            FileSystemWorkspaceSnapshotBuilder().snapshot(
+                at: workspace,
+                visibilityRules: hiddenRules
+            )
+        )
+        #expect(!fileNodeContains(hiddenSnapshot.root, named: ".factorypath"))
+        #expect(hiddenSnapshot.files.contains { $0.lastPathComponent == "README.md" })
+        #expect(hiddenRules.isHidden(factorypath, relativeTo: workspace, isDirectory: false))
+        #expect(hiddenRules.isHidden(nestedFactorypath, relativeTo: workspace, isDirectory: false))
+        #expect(fileManager.fileExists(atPath: factorypath.path))
+
+        guard RustCoreBridge().isAvailable else { return }
+        let visibleMatches = try #require(
+            RustCoreBridge().search(
+                at: workspace,
+                query: uniqueToken,
+                caseSensitive: true,
+                wholeWords: false,
+                regularExpression: false,
+                hiddenDirectoryNames: FileVisibilityRules.default.hiddenDirectoryNames,
+                hiddenFilePatterns: FileVisibilityRules.default.hiddenFilePatterns
+            )?.matches
+        )
+        #expect(visibleMatches.contains { $0.path == ".factorypath" })
+        #expect(visibleMatches.contains { $0.path == "services/alpha/.factorypath" })
+
+        let hiddenMatches = try #require(
+            RustCoreBridge().search(
+                at: workspace,
+                query: uniqueToken,
+                caseSensitive: true,
+                wholeWords: false,
+                regularExpression: false,
+                hiddenDirectoryNames: hiddenRules.hiddenDirectoryNames,
+                hiddenFilePatterns: hiddenRules.hiddenFilePatterns
+            )?.matches
+        )
+        #expect(!hiddenMatches.contains { $0.path == ".factorypath" })
+        #expect(!hiddenMatches.contains { $0.path == "services/alpha/.factorypath" })
     }
 
     @Test
@@ -5169,6 +5279,13 @@ struct EditorDocumentTests {
         #expect(store.state(for: retainedID).selectionLocation == 18)
         #expect(store.state(for: closedID) == EditorViewportState())
     }
+}
+
+private func fileNodeContains(_ node: FileNode, named name: String) -> Bool {
+    if node.url.lastPathComponent == name {
+        return true
+    }
+    return node.children?.contains { fileNodeContains($0, named: name) } ?? false
 }
 
 @MainActor

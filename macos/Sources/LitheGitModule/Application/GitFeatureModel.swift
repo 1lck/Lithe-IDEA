@@ -1969,6 +1969,16 @@ package final class GitFeatureModel: ObservableObject {
         }
     }
 
+    /// One-shot `info/exclude` mutation used by Settings recommended-rules actions.
+    /// Runs through GitService so the Core write stays off the MainActor.
+    package func mutateLiteralLocalExcludePatterns(
+        _ patterns: [String],
+        adding: Bool,
+        at rootURL: URL
+    ) async -> GitService.CommandResult {
+        await service.mutateLiteralLocalExcludePatterns(patterns, adding: adding, at: rootURL)
+    }
+
     /// Another checkout can move shared refs while this worktree's status stays unchanged.
     package func refreshGitFromMetadataChange(since historyVersion: Int? = nil) async {
         let root = gitRepositoryRoot
