@@ -13,6 +13,7 @@ import type {
   DebugThread,
   DebugVariable,
 } from "@/features/debugger/types/debugger.types";
+import { releaseDebugSessionResources } from "./debug-session-resources";
 
 let unsubscribeDebuggerEvents: (() => void) | null = null;
 let pendingSubscription: Promise<void> | null = null;
@@ -27,7 +28,10 @@ export function initializeDebuggerEventBridge(): Promise<void> {
       return handleDebugProtocolMessage(message);
     },
     onOutput: (output) => useDebuggerStore.getState().actions.recordAdapterOutput(output),
-    onSessionEnded: (event) => useDebuggerStore.getState().actions.recordSessionEnded(event),
+    onSessionEnded: async (event) => {
+      useDebuggerStore.getState().actions.recordSessionEnded(event);
+      await releaseDebugSessionResources(event.sessionId);
+    },
   })
     .then((unlisten) => {
       unsubscribeDebuggerEvents = unlisten;

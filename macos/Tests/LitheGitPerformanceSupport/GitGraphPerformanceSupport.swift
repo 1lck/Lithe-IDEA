@@ -199,6 +199,9 @@ package struct GitGraphStructureBaseline: Codable, Equatable, Sendable {
         self.hasMissingParents = hasMissingParents
     }
 
+    // Each ten-row block has 34 compact center elements, no empty slots,
+    // three outgoing merge bends and one final convergence bend. The other
+    // convergence routes are captured by the explicit half-edge signature.
     package static func expected(commitCount: Int) -> Self {
         switch commitCount {
         case 1_000:
@@ -206,8 +209,8 @@ package struct GitGraphStructureBaseline: Codable, Equatable, Sendable {
                 rowCount: 1_000,
                 parentEdgeCount: 1_299,
                 incomingLaneSlotCount: 3_400,
-                emptyIncomingLaneSlotCount: 600,
-                crossLaneEdgeCount: 600,
+                emptyIncomingLaneSlotCount: 0,
+                crossLaneEdgeCount: 400,
                 maximumEdgeSpan: 3,
                 maximumLaneCount: 4,
                 hasMissingParents: false
@@ -217,8 +220,8 @@ package struct GitGraphStructureBaseline: Codable, Equatable, Sendable {
                 rowCount: 5_000,
                 parentEdgeCount: 6_499,
                 incomingLaneSlotCount: 17_000,
-                emptyIncomingLaneSlotCount: 3_000,
-                crossLaneEdgeCount: 3_000,
+                emptyIncomingLaneSlotCount: 0,
+                crossLaneEdgeCount: 2_000,
                 maximumEdgeSpan: 3,
                 maximumLaneCount: 4,
                 hasMissingParents: false
@@ -230,37 +233,23 @@ package struct GitGraphStructureBaseline: Codable, Equatable, Sendable {
 
     package static func expectedSignature(commitCount: Int) -> UInt64 {
         switch commitCount {
-        case 1_000: 15_278_530_430_317_338_432
-        case 5_000: 7_223_926_406_961_687_604
+        case 1_000: 8_981_637_258_004_108_316
+        case 5_000: 13_617_013_803_270_823_780
         default: preconditionFailure("No committed Git graph signature for \(commitCount) commits")
         }
     }
 
-    /// A lane that passes through a row must retain the same color at the next
-    /// row; checking only for a non-empty slot would miss accidental lane reuse.
+    /// Geometric continuity is checked by edge identity and both center
+    /// columns, not by requiring a branch to keep one column forever.
     package static func hasContinuousLanes(_ layout: GitGraphLayout) -> Bool {
-        guard layout.rows.count > 1 else { return true }
-        for index in 0..<(layout.rows.count - 1) {
-            let row = layout.rows[index]
-            let next = layout.rows[index + 1]
-            var passedDown: [Int: Int] = [:]
-
-            for (lane, colorIndex) in row.incomingLaneColors.enumerated()
-            where lane != row.lane {
-                guard let colorIndex else { continue }
-                passedDown[lane] = colorIndex
-            }
-            for edge in row.parentEdges where !edge.isMissing {
-                guard let targetLane = edge.targetLane else { return false }
-                if let existingColor = passedDown[targetLane], existingColor != edge.colorIndex {
-                    return false
-                }
-                passedDown[targetLane] = edge.colorIndex
-            }
-            if passedDown.contains(where: { lane, colorIndex in
-                lane >= next.incomingLaneColors.count || next.incomingLaneColors[lane] != colorIndex
-            }) {
-                return false
+        for (row, value) in layout.rows.enumerated() {
+            for edge in value.printElements where !edge.isTerminal {
+                let next = row + (edge.direction == .down ? 1 : -1)
+                guard layout.rows.indices.contains(next), layout.rows[next].printElements.contains(where: {
+                    $0.edgeID == edge.edgeID && $0.direction != edge.direction && !$0.isTerminal
+                        && $0.position == edge.adjacentPosition && $0.adjacentPosition == edge.position
+                        && $0.colorIndex == edge.colorIndex && $0.isDotted == edge.isDotted
+                }) else { return false }
             }
         }
         return true
@@ -319,6 +308,19 @@ package struct GitGraphStructureBaseline: Codable, Equatable, Sendable {
                 append(edge.targetLane)
                 append(edge.colorIndex)
                 append(edge.isMissing ? 1 : 0)
+            }
+            append(0x16)
+            append(row.printElements.count)
+            for element in row.printElements {
+                append(element.edgeID)
+                append(element.position)
+                append(element.adjacentPosition)
+                append(element.direction.rawValue)
+                append(element.colorIndex)
+                append(element.isDotted ? 1 : 0)
+                append(element.hasArrow ? 1 : 0)
+                append(element.isTerminal ? 1 : 0)
+                append(element.targetHash ?? "")
             }
             append(0x15)
             append(row.labels.count)
