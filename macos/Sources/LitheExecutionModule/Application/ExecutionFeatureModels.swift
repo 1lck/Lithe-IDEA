@@ -150,6 +150,13 @@ package final class RunFeatureModel: ObservableObject {
     package var selectedConfiguration: RunConfiguration? { service.selectedConfiguration }
     package var lastRunFileURL: URL? { service.lastRunFileURL }
     package var lastConfiguration: RunConfiguration? { service.lastConfiguration }
+    package var isSelectedConfigurationRunning: Bool {
+        guard let configuration = selectedConfiguration else { return false }
+        if configuration.execution == .service {
+            return moduleSessions.contains { $0.configurationID == configuration.id && $0.isRunning }
+        }
+        return isRunning && lastConfiguration?.id == configuration.id
+    }
     package var isLoadingProject: Bool { service.isLoadingProject }
     package var isRunning: Bool { service.isRunning }
     package var runningTitle: String? { service.runningTitle }

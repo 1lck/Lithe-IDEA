@@ -104,12 +104,18 @@ struct RunView: View {
             }
             synchronizeSelectedServices()
         }
-        .onChange(of: feature.moduleSessions) { sessions in
-            if let runningSession = sessions.last(where: { $0.isRunning }) {
-                selectedSessionID = runningSession.id
+        .onChange(of: feature.moduleSessions.filter(\.isRunning).map(\.id)) { runningIDs in
+            if let selectedID = feature.selectedConfiguration?.id,
+               runningIDs.contains(selectedID) {
+                selectedSessionID = selectedID
             }
         }
-        .onAppear { synchronizeSelectedServices() }
+        .onAppear {
+            synchronizeSelectedServices()
+            if let session = feature.moduleSessions.last(where: \.isRunning) {
+                selectedSessionID = session.id
+            }
+        }
     }
 
     private var configurationSetupView: some View {
@@ -512,7 +518,16 @@ struct RunView: View {
 
     @ViewBuilder
     private var selectedConfigurationContent: some View {
-        if let configuration = selectedRunnableConfiguration {
+        if let session = selectedModuleSession {
+            OutputTextView(
+                output: session.output,
+                searchRoots: feature.sourceSearchRoots,
+                fileExists: { model.fileExists(at: $0) },
+                emptyMessage: String(localized: "Process output will appear here.")
+            ) { url, line, column in
+                model.openSourceLocation(url: url, line: line, column: column)
+            }
+        } else if let configuration = selectedRunnableConfiguration {
             configurationContent(configuration)
         } else {
             OutputTextView(
