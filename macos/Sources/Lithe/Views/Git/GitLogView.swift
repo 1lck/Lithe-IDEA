@@ -37,6 +37,8 @@ struct GitLogView: View {
     @State private var pendingTagDeletion: GitReference?
     @State private var comparisonSourceReference: GitReference?
     @State private var showCommitDecorations = false
+    @State private var showLongGraphEdges = false
+    @State private var graphNavigationRequest: GraphNavigationRequest?
     @State private var selectedGitToolTab = GitToolTab.log
     @State private var gitConsoleAutoScrolls = true
     @State private var gitConsoleWrapsLines = false
@@ -48,11 +50,7 @@ struct GitLogView: View {
     @State private var gitCommitFileLoadTask: Task<Void, Never>?
     @State private var showsGitLogBranchFilterPopover = false
     @State private var showsGitLogAuthorFilterPopover = false
-    @State private var graphLayout = GitGraphLayout(
-        rows: [],
-        laneCount: 0,
-        hasMissingParents: false
-    )
+    @State private var graphPresentation = GitGraphPresentation.empty
     @FocusState private var gitLogSearchFocused: Bool
     @FocusState private var gitLogCommitListFocused: Bool
 
@@ -88,13 +86,25 @@ struct GitLogView: View {
             primaryContent
         }
         .background(background.hasImage ? Color.clear : LitheTheme.sidebar)
-        .task(id: feature.gitCommitsVersion) {
+        .task(id: graphProjectionIdentity) {
+            let identity = graphProjectionIdentity
             let commits = feature.gitCommits
-            let updatedLayout = await Task.detached(priority: .userInitiated) {
-                GitGraphLayoutService.layout(commits: commits)
-            }.value
-            guard feature.gitCommits == commits else { return }
-            graphLayout = updatedLayout
+            let references = feature.gitReferences
+            let visibleHashes = visibleCommitHashes
+            let options: GitGraphDisplayOptions = showLongGraphEdges ? .expanded : .compact
+            let task = Task.detached(priority: .userInitiated) {
+                let layout = GitGraphLayoutService.layout(commits: commits, references: references, visibleHashes: visibleHashes, options: options)
+                return GitGraphPresentation(rows: layout.rows,
+                    routingSnapshot: GitGraphLayoutService.routingSnapshot(for: layout),
+                    hasMissingParents: layout.hasMissingParents)
+            }
+            let presentation = await withTaskCancellationHandler {
+                await task.value
+            } onCancel: {
+                task.cancel()
+            }
+            guard !Task.isCancelled, graphProjectionIdentity == identity else { return }
+            graphPresentation = presentation
         }
         // The three section arrays are derived, not user state. Rebuilding them
         // here rather than in `body` keeps the flattening off the render path
@@ -113,6 +123,8 @@ struct GitLogView: View {
             await feature.applyGitLogFilter(gitLogQuery(now: Date()))
         }
         .onChange(of: feature.gitRepositoryRoot) { _ in
+            graphPresentation = .empty
+            graphNavigationRequest = nil
             selectedGitLogAuthor = nil
             selectedGitLogDatePreset = .anyTime
             gitLogPathFilter = ""
@@ -1133,6 +1145,12 @@ struct GitLogView: View {
                     gitToolbarButton(systemImage: "magnifyingglass", help: "Find in log") {
                         gitLogSearchFocused = true
                     }
+                    gitToolbarButton(
+                        systemImage: showLongGraphEdges ? "arrow.up.and.down" : "arrow.down.to.line.compact",
+                        help: showLongGraphEdges ? "Collapse long graph edges" : "Show long graph edges"
+                    ) {
+                        showLongGraphEdges.toggle()
+                    }
                 }
             }
             .padding(.horizontal, 10)
@@ -1194,6 +1212,10 @@ struct GitLogView: View {
                     .onChange(of: feature.selectedGitCommit?.hash) { _ in
                         guard let hash = feature.selectedGitCommit?.hash else { return }
                         proxy.scrollTo(hash)
+                    }
+                    .onChange(of: graphNavigationRequest) { request in
+                        guard let request else { return }
+                        proxy.scrollTo(request.hash, anchor: .center)
                     }
                 }
             }
@@ -1431,6 +1453,16 @@ struct GitLogView: View {
             },
             additionalContextMenuItems: { commit in
                 GitHistoryRewriteMenu.items(feature: feature, commit: commit)
+            },
+            onNavigateHash: { hash in
+                guard let commit = feature.gitCommits.first(where: { $0.hash == hash }),
+                      visibleCommitHashes?.contains(hash) ?? true else { return }
+                gitLogCommitListFocused = true
+                feature.historyEditing.select(hash, visibleHashes: graphPresentation.rows.map(\.commit.hash), additive: false, range: false)
+                feature.previewGitCommitSelection(commit)
+                scheduleGitCommitFileLoad(for: commit)
+                // A new request also scrolls when the endpoint is already selected.
+                graphNavigationRequest = GraphNavigationRequest(hash: hash)
             }
         )
     }
@@ -1440,27 +1472,24 @@ struct GitLogView: View {
         return feature.gitLogMatchedCommitHashes
     }
 
-    private var graphPresentation: GitGraphPresentation {
-        let layout = graphLayout
-        guard let hashes = visibleCommitHashes else {
-            return GitGraphPresentation(
-                rows: layout.rows,
-                routingSnapshot: GitGraphLayoutService.routingSnapshot(for: layout),
-                hasMissingParents: layout.hasMissingParents
-            )
-        }
+    private struct GraphNavigationRequest: Equatable {
+        let hash: String
+        let id = UUID()
+    }
 
-        let filteredRows = layout.rows.filter { hashes.contains($0.commit.hash) }
-        let filteredLayout = GitGraphLayout(
-            rows: filteredRows,
-            laneCount: layout.laneCount,
-            hasMissingParents: layout.hasMissingParents
-        )
-        return GitGraphPresentation(
-            rows: filteredRows,
-            routingSnapshot: GitGraphLayoutService.routingSnapshot(for: filteredLayout),
-            hasMissingParents: filteredLayout.hasMissingParents
-        )
+    private struct GraphProjectionIdentity: Equatable {
+        let historyVersion: Int
+        let referencesVersion: Int
+        let filterVersion: Int
+        let filtering: Bool
+        let showLongEdges: Bool
+    }
+
+    private var graphProjectionIdentity: GraphProjectionIdentity {
+        GraphProjectionIdentity(historyVersion: feature.gitCommitsVersion,
+            referencesVersion: feature.gitReferencesVersion,
+            filterVersion: feature.gitLogFilterVersion, filtering: hasActiveGitLogFilter,
+            showLongEdges: showLongGraphEdges)
     }
 
     /// True when any filter is active, without calling `Date()`. Used to decide

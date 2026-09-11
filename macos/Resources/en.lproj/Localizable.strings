@@ -777,3 +777,7 @@
 "Build %@ → %@" = "Build %@ → %@";
 "Built %@" = "Built %@";
 "This preview contains changes that have not been officially released and may be unstable." = "This preview contains changes that have not been officially released and may be unstable.";
+"Show long graph edges" = "Show long graph edges";
+"Collapse long graph edges" = "Collapse long graph edges";
+"Go to parent commit %@" = "Go to parent commit %@";
+"Go to child commit %@" = "Go to child commit %@";

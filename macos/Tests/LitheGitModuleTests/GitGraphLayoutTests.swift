@@ -1,0 +1,201 @@
+import Foundation
+@testable import LitheGitModule
+import Testing
+
+@Suite("IntelliJ Git graph parity")
+struct GitGraphLayoutTests {
+    @Test("DFS indices match pinned IntelliJ fixtures", arguments: ["manyNodes", "oneNode", "notFullGraph", "oneNodeNotFullGraph"])
+    func upstreamLayout(_ name: String) throws {
+        let input = try fixture("layoutBuilder", name, "in")
+        let expected = try fixture("layoutBuilder", name, "out").split(separator: "\n").map {
+            Int($0.components(separatedBy: "|-")[0])!
+        }
+        let commits = input.split(separator: "\n").map { line in
+            let parts = line.components(separatedBy: "|-")
+            return commit(parts[0], parts[1].split(separator: " ").map(String.init))
+        }
+        #expect(GitGraphLayoutService.layout(commits: commits).rows.map(\.layoutIndex) == expected)
+    }
+
+    @Test("Compact positions and half-edge routing match IntelliJ golden outputs",
+          arguments: ["oneNode", "manyNodes", "longEdges", "oneUpOneDown1", "oneUpOneDown2"])
+    func upstreamPrinting(_ name: String) throws {
+        let input = try fixture("elementGenerator", name, "in")
+        var commits: [GitCommit] = []
+        var visible = Set<String>()
+        for line in input.split(separator: "\n") {
+            let parts = line.components(separatedBy: "|-")
+            let id = String(parts[0].split(separator: "_")[0])
+            visible.insert(id)
+            var hidden: [GitCommit] = []
+            let parents = parts[1].split(separator: " ").map { token -> String in
+                let fields = token.split(separator: "_")
+                let target = String(fields[0])
+                // Git commits only carry direct edges. A hidden intermediate
+                // commit recreates the upstream fixture's DOTTED edge naturally.
+                if fields[1] == "D" {
+                    let hash = "hidden-\(id)-\(target)"
+                    hidden.append(commit(hash, [target]))
+                    return hash
+                }
+                return target
+            }
+            commits.append(commit(id, parents))
+            commits.append(contentsOf: hidden)
+        }
+        let options = GitGraphDisplayOptions(
+            longEdgeSize: name == "oneUpOneDown2" ? 10 : 7,
+            visiblePartSize: name.hasPrefix("oneUpOneDown") ? 1 : 2,
+            edgeWithArrowSize: 10
+        )
+        let layout = GitGraphLayoutService.layout(commits: commits, visibleHashes: visible, options: options)
+        let expected = try fixture("elementGenerator", name, "out").split(separator: "\n").map { line -> String in
+            let parts = line.trimmingCharacters(in: .whitespaces).components(separatedBy: "|-")
+            // The color callback in JetBrains's fixture uses row numbers.
+            // Compare its verbatim geometry/style/arrow oracle, excluding color.
+            return parts[0] + "|" + parts[1]
+        }.sorted()
+        let actual = layout.rows.enumerated().flatMap { row, value -> [String] in
+            ["Node|\(row):\(value.lane)"] + value.printElements.map { element in
+                let direction = element.direction == .down ? "DOWN" : "UP"
+                let arrow = element.hasArrow ? "_ARROW" : ""
+                let style = element.isDotted ? "DASHED" : "SOLID"
+                return "Edge:\(direction)\(arrow):\(style)|\(row):\(element.position):\(element.adjacentPosition)"
+            }
+        }.sorted()
+        #expect(actual == expected)
+        assertContinuity(layout)
+    }
+
+    @Test("30-row compact threshold preserves commits and exposes both destinations", arguments: [29, 30, 31])
+    func longEdgeBoundary(_ span: Int) throws {
+        let commits = longEdge(span)
+        let layout = GitGraphLayoutService.layout(commits: commits)
+        let arrows = layout.rows.flatMap(\.printElements).filter(\.hasArrow)
+        #expect(layout.rows.count == commits.count)
+        if span < 30 { #expect(arrows.isEmpty) }
+        else {
+            #expect(arrows.count == 2)
+            #expect(Set(arrows.compactMap(\.targetHash)) == ["0", String(span)])
+            #expect(layout.rows[span / 2].laneCount == 1)
+        }
+        assertContinuity(layout)
+    }
+
+    @Test("Expanded mode keeps the 1,000-row safety threshold", arguments: [999, 1_000])
+    func expandedBoundary(_ span: Int) {
+        let layout = GitGraphLayoutService.layout(commits: longEdge(span), options: .expanded)
+        #expect(layout.rows[span / 2].laneCount == (span < 1_000 ? 2 : 1))
+        #expect(layout.rows.flatMap(\.printElements).filter(\.hasArrow).count == (span < 1_000 ? 2 : 4))
+        assertContinuity(layout)
+    }
+
+    @Test("Filtering bridges hidden ancestors without inventing unloaded parents")
+    func filterProjection() {
+        let commits = [commit("a", ["b"]), commit("b", ["c"]), commit("c", ["d"]), commit("d", [])]
+        let layout = GitGraphLayoutService.layout(commits: commits, visibleHashes: ["a", "d"])
+        #expect(layout.rows.map(\.commit.hash) == ["a", "d"])
+        #expect(layout.laneCount == 1)
+        #expect(!layout.hasMissingParents)
+        #expect(layout.rows.flatMap(\.printElements).allSatisfy { $0.isDotted })
+        #expect(layout.rows[0].parentEdges.map(\.parentHash) == ["d"])
+        assertContinuity(layout)
+    }
+
+    @Test("An ended branch gives its column back instead of leaving a hole")
+    func compactColumns() {
+        let layout = GitGraphLayoutService.layout(commits: [commit("a", ["b", "c"]), commit("b", []), commit("c", ["d"]), commit("d", [])])
+        #expect(layout.rows[1].laneCount == 2)
+        #expect(layout.rows[2].laneCount == 1)
+        #expect(layout.rows[2].lane == 0)
+        assertContinuity(layout)
+    }
+
+    @Test("Pagination resolves missing parents without fake navigation targets")
+    func missingParent() {
+        let head = commit("a", ["b", "b"])
+        let page = GitGraphLayoutService.layout(commits: [head])
+        #expect(page.hasMissingParents)
+        #expect(page.rows[0].parentEdges.count == 1)
+        #expect(page.rows[0].printElements.allSatisfy { $0.targetHash == nil })
+        let full = GitGraphLayoutService.layout(commits: [head, commit("b", [])])
+        #expect(!full.hasMissingParents)
+        #expect(full.rows[0].nodeColorIndex == page.rows[0].nodeColorIndex)
+        assertContinuity(full)
+    }
+
+    @Test("Empty filters produce no graph or missing-history notice")
+    func emptyGraph() {
+        #expect(GitGraphLayoutService.layout(commits: []).rows.isEmpty)
+        let layout = GitGraphLayoutService.layout(commits: [commit("a", ["b"])], visibleHashes: [])
+        #expect(layout.rows.isEmpty)
+        #expect(layout.laneCount == 0)
+        #expect(!layout.hasMissingParents)
+    }
+
+    @Test("IDEA reference priority seeds main before newer feature tips and inner branch heads")
+    func referencePriority() {
+        let commits = [commit("feature", ["main"], "HEAD -> feature"),
+                       commit("main", ["root"], "refs/heads/main"), commit("root", [])]
+        let layout = GitGraphLayoutService.layout(commits: commits)
+        #expect(layout.rows.map(\.layoutIndex) == [2, 1, 1])
+        let tagged = [commit("tip", ["tag"]), commit("tag", ["root"], "tag: v1"), commit("root", [])]
+        #expect(GitGraphLayoutService.layout(commits: tagged).rows.map(\.layoutIndex) == [1, 1, 1])
+        let remote = GitReference(fullName: "refs/remotes/upstream/work", shortName: "upstream/work", kind: .remote,
+                                  isCurrent: false, upstreamShortName: nil)
+        let tips = [commit("local", ["root"], "main"), commit("remote", ["root"], "upstream/work"), commit("root", [])]
+        let withRemote = GitGraphLayoutService.layout(commits: tips, references: [remote])
+        #expect(withRemote.rows.map(\.layoutIndex) == [2, 1, 1])
+        #expect(withRemote.rows[1].labels.first?.kind == .remote)
+        let origin = [commit("other", ["root"], "refs/remotes/upstream/work"),
+                      commit("preferred", ["root"], "origin/main"), commit("root", [])]
+        #expect(GitGraphLayoutService.layout(commits: origin).rows.map(\.layoutIndex) == [2, 1, 1])
+    }
+
+    @Test("Natural reference names preserve IDEA numeric, zero and case tie-breaks")
+    func naturalReferenceNames() {
+        let names = ["feature10", "feature02", "feature2", "Feature2", "feature1", "feature002", "feature2x"]
+        let sorted = names.sorted { GitGraphHeadOrdering.naturalCompare(Array($0.utf16), Array($1.utf16)) < 0 }
+        #expect(sorted == ["feature1", "Feature2", "feature2", "feature2x", "feature02", "feature002", "feature10"])
+    }
+
+    @Test("Recommended graph width follows weighted edge counts, not the widest row")
+    func recommendedWidth() {
+        let layout = GitGraphLayoutService.layout(commits: [commit("a", ["c"]), commit("b", ["c"]), commit("c", [])])
+        #expect(layout.recommendedLaneCount == 2)
+        #expect(GitGraphLayoutService.routingSnapshot(for: layout).recommendedLaneCount == 2)
+        let compact = GitGraphLayoutService.layout(commits: longEdge(100))
+        let expanded = GitGraphLayoutService.layout(commits: longEdge(100), options: .expanded)
+        #expect(compact.recommendedLaneCount == 1)
+        #expect(expanded.recommendedLaneCount == 2)
+    }
+
+    private func longEdge(_ span: Int) -> [GitCommit] {
+        (0...span).map { row in commit(String(row), row == span ? [] : row == 0 ? ["1", String(span)] : [String(row + 1)]) }
+    }
+
+    private func commit(_ hash: String, _ parents: [String], _ decorations: String = "") -> GitCommit {
+        GitCommit(hash: hash, shortHash: hash, parentHashes: parents, authorName: "Fixture",
+                  authorEmail: "fixture@example.invalid", date: "2026/09/11", subject: hash, decorations: decorations)
+    }
+
+    private func fixture(_ group: String, _ name: String, _ suffix: String) throws -> String {
+        let root = try #require(Bundle.module.resourceURL)
+        return try String(contentsOf: root.appendingPathComponent("Fixtures/GitGraphIDEA/\(group)/\(name)_\(suffix).txt"), encoding: .utf8)
+    }
+
+    private func assertContinuity(_ layout: GitGraphLayout) {
+        for (row, value) in layout.rows.enumerated() {
+            for edge in value.printElements where !edge.isTerminal {
+                let next = row + (edge.direction == .down ? 1 : -1)
+                #expect(layout.rows.indices.contains(next))
+                guard layout.rows.indices.contains(next) else { continue }
+                #expect(layout.rows[next].printElements.contains {
+                    $0.edgeID == edge.edgeID && $0.direction != edge.direction && !$0.isTerminal
+                        && $0.position == edge.adjacentPosition && $0.adjacentPosition == edge.position
+                        && $0.colorIndex == edge.colorIndex && $0.isDotted == edge.isDotted
+                })
+            }
+        }
+    }
+}

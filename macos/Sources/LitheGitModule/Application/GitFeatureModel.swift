@@ -148,7 +148,11 @@ package final class GitFeatureModel: ObservableObject {
     @Published package private(set) var isCommitting = false
     @Published package private(set) var gitBlameLines: [URL: [GitBlameLine]] = [:]
     @Published package private(set) var gitLineChangeMarkers: [URL: [GitLineChangeMarker]] = [:]
-    @Published package private(set) var gitReferences: [GitReference] = []
+    @Published package private(set) var gitReferences: [GitReference] = [] {
+        didSet { gitReferencesVersion = Self.nextGitCommitsVersion() }
+    }
+    /// Constant-time invalidation for graph reference priority and classification.
+    package private(set) var gitReferencesVersion = 0
     @Published package private(set) var recentGitReferences: [GitReference] = []
     @Published package private(set) var gitCommits: [GitCommit] = [] {
         didSet { gitCommitsVersion = Self.nextGitCommitsVersion() }
