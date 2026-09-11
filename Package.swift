@@ -170,6 +170,7 @@ let package = Package(
             name: "LitheGitModuleTests",
             dependencies: ["LitheGitModule", "LitheApplicationKernel", .product(name: "Testing", package: "swift-testing")],
             path: "macos/Tests/LitheGitModuleTests",
+            resources: [.copy("Fixtures")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(

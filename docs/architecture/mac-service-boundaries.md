@@ -131,6 +131,8 @@ cleanup remains an explicitly composed callback.
 feature directly. Comparison and commit-diff navigation stay at the application
 boundary because they also change editor selection. `WorkbenchModuleUIComposition`
 connects those callbacks; neither Git Log nor its dialogs receive `AppModel`.
+The macOS Git graph projection and native arrow navigation follow the pinned
+IntelliJ rules documented in [macos-git-graph.md](macos-git-graph.md).
 `BranchComparisonView` and `GitCommitDiffReviewView` also observe the Git feature
 directly. The editor host supplies a comparison-refresh callback to preserve
 editor-selection behavior without giving the comparison view the aggregate.

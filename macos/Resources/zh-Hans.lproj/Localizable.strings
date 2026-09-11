@@ -1800,3 +1800,7 @@
 "Build %@ → %@" = "构建 %@ → %@";
 "Built %@" = "构建于 %@";
 "This preview contains changes that have not been officially released and may be unstable." = "此预览版包含尚未正式发布的改动，可能不稳定。";
+"Show long graph edges" = "显示完整长连线";
+"Collapse long graph edges" = "收束长连线";
+"Go to parent commit %@" = "跳转到父提交 %@";
+"Go to child commit %@" = "跳转到子提交 %@";
