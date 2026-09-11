@@ -364,6 +364,15 @@ late output or parsed results cannot replace a newer run. The last valid class
 or method selection remains available for an explicit rerun, while cancellation
 clears only the active result.
 
+Maven module menus use Core's resolved `extensions.maven.reactorPath` and
+module identity before preferring a default Run configuration. An effective
+working-directory override is not project ownership. File-dependent entries
+such as Current File are not module launch candidates.
+
+On Windows, Debug cleanup owns a Run execution ID in addition to its reusable
+output slot. The host checks that ID atomically when stopping the process so a
+late adapter shutdown cannot terminate a replacement Run in the same slot.
+
 ## SVG document preview
 
 SVG extensions are matched case-insensitively and open as editable text in both
