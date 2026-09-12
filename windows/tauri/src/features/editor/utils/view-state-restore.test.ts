@@ -3,6 +3,7 @@ import {
   clearNativeEditorViewState,
   createViewStateRestoreGate,
   persistEditorViewportState,
+  persistNativeEditorViewState,
   resolveScrollToPersist,
   restoreNativeEditorViewState,
   scheduleCachedViewStateRestore,
@@ -106,24 +107,23 @@ describe("scheduleCachedViewStateRestore", () => {
     cancelRestore();
   });
 
-  test("replays restoreEditor after layout when the surface stays current", () => {
+  test("replays cached scroll after layout when the surface stays current", () => {
     const layouts: number[] = [];
-    const restores: number[] = [];
+    let actualScroll = { scrollTop: 0, scrollLeft: 0 };
     let restoreCompleted = false;
+    const cachedScroll = { scrollTop: 40, scrollLeft: 4 };
 
     scheduleCachedViewStateRestore({
       editor: {
         layout: () => {
           layouts.push(layouts.length);
+          actualScroll = { scrollTop: 0, scrollLeft: 0 };
         },
-        setScrollPosition: () => {
-          throw new Error("cached scroll should not be applied when restoreEditor is provided");
+        setScrollPosition: (position) => {
+          actualScroll = position;
         },
       },
-      cachedScroll: { scrollTop: 40, scrollLeft: 4 },
-      restoreEditor: () => {
-        restores.push(restores.length);
-      },
+      cachedScroll,
       isEditorCurrent: () => true,
       isNavigationRevisionCurrent: () => true,
       focus: () => undefined,
@@ -134,11 +134,68 @@ describe("scheduleCachedViewStateRestore", () => {
 
     runNextAnimationFrame();
     expect(layouts).toEqual([0]);
-    expect(restores).toEqual([0]);
+    expect(actualScroll).toEqual(cachedScroll);
 
     runNextAnimationFrame();
     expect(restoreCompleted).toBe(true);
-    expect(restores).toEqual([0, 1]);
+    expect(actualScroll).toEqual(cachedScroll);
+  });
+
+  test("does not restore stale cursor after menu-go-to-line when owner revision is unchanged", () => {
+    let ownerNavigationRevision = 0;
+    let cursor = { line: 20, column: 1 };
+    let actualScroll = { scrollTop: 240, scrollLeft: 16 };
+    let nativeRestoreCount = 0;
+    let restoreCompleted = false;
+    const cachedScroll = { scrollTop: 240, scrollLeft: 16 };
+    const nativeHandle = {
+      save: () => ({ cursor: { line: 20, column: 1 }, scrollTop: 240, scrollLeft: 16 }),
+      restore: (state: unknown) => {
+        nativeRestoreCount += 1;
+        const snapshot = state as { cursor: { line: number; column: number } };
+        cursor = snapshot.cursor;
+      },
+    };
+
+    persistNativeEditorViewState("pane-a:buffer-b", nativeHandle);
+    expect(restoreNativeEditorViewState("pane-a:buffer-b", nativeHandle)).toBe(true);
+    expect(cursor).toEqual({ line: 20, column: 1 });
+    expect(nativeRestoreCount).toBe(1);
+
+    const cancelRestore = scheduleCachedViewStateRestore({
+      editor: {
+        layout: () => {
+          actualScroll = { scrollTop: 0, scrollLeft: 0 };
+        },
+        setScrollPosition: (position) => {
+          actualScroll = position;
+        },
+      },
+      cachedScroll,
+      isEditorCurrent: () => true,
+      isNavigationRevisionCurrent: () => ownerNavigationRevision === 0,
+      focus: () => undefined,
+      onRestoreComplete: () => {
+        restoreCompleted = true;
+      },
+    });
+
+    // menu-go-to-line updates the cursor without bumping owner navigation revision.
+    cursor = { line: 200, column: 5 };
+    actualScroll = { scrollTop: 2400, scrollLeft: 0 };
+
+    runNextAnimationFrame();
+    expect(cursor).toEqual({ line: 200, column: 5 });
+    expect(actualScroll).toEqual(cachedScroll);
+    expect(nativeRestoreCount).toBe(1);
+
+    runNextAnimationFrame();
+    expect(restoreCompleted).toBe(true);
+    expect(cursor).toEqual({ line: 200, column: 5 });
+    expect(actualScroll).toEqual(cachedScroll);
+    expect(nativeRestoreCount).toBe(1);
+
+    cancelRestore();
   });
 });
 

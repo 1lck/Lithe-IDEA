@@ -18,7 +18,6 @@ interface ViewStateRestoreEditor {
 interface ScheduleCachedViewStateRestoreOptions {
   editor: ViewStateRestoreEditor;
   cachedScroll?: CachedScrollPosition;
-  restoreEditor?: () => void;
   isEditorCurrent: () => boolean;
   isNavigationRevisionCurrent: () => boolean;
   focus: () => void;
@@ -131,18 +130,15 @@ export function createViewStateRestoreGate(): {
 }
 
 /**
- * Replays the existing post-layout view-state restoration frames while ensuring
- * that a newer owner-directed history navigation keeps its scroll position.
+ * Replays post-layout viewport restoration. Native Monaco view-state, cursor,
+ * and selection belong in the synchronous first-activation path; delayed frames
+ * only restore scroll so a later menu-go-to-line is not rolled back.
  */
 export function scheduleCachedViewStateRestore(
   options: ScheduleCachedViewStateRestoreOptions,
 ): () => void {
   const restoreCachedScroll = () => {
     if (!options.isNavigationRevisionCurrent()) return;
-    if (options.restoreEditor) {
-      options.restoreEditor();
-      return;
-    }
     if (!options.cachedScroll) return;
     options.editor.setScrollPosition(options.cachedScroll);
   };
