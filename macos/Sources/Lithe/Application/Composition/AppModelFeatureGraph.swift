@@ -73,6 +73,7 @@ final class AppModelFeatureGraph {
         languageTooling = LanguageToolingFeatureModel(
             catalogSource: services.languageProviderCatalogSource,
             catalogSnapshot: services.languageProviderCatalogSnapshot,
+            preferences: services.workspaceLanguageServerPreferences,
             sessionsProvider: { nil }
         )
         github = GitHubFeatureModel(service: services.githubService)

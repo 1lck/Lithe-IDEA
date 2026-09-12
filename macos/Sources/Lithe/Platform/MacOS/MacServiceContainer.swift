@@ -541,6 +541,7 @@ final class MacServiceContainer {
             pluginManager: pluginManager,
             pluginCatalog: pluginCatalog,
             languageProviderCatalogSource: languageProviderCatalogSource,
+            workspaceLanguageServerPreferences: MacWorkspaceLanguageServerPreferencesStore(store: store),
             languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,
             debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver(
                 fileStorage: fileStorage,

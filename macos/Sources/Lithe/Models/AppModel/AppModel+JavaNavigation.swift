@@ -2,7 +2,8 @@ import Foundation
 
 extension AppModel {
     func javaNavigationMarkers(for document: EditorDocument) async -> [JavaImplementationMarker] {
-        guard let sessions = languageToolingSessionsIfActive,
+        guard !languageToolingFeature.isDisabled("java"),
+              let sessions = languageToolingSessionsIfActive,
               let workspaceURL else { return [] }
         do {
             try sessions.synchronizeLanguageServer(

@@ -25,15 +25,17 @@ extension AppModel {
     }
 
     func setLanguageServerEnabled(_ enabled: Bool, providerID: String) {
-        if enabled {
-            languageToolingFeature.setEnabled(true, providerID: providerID)
-        } else {
-            languageToolingFeature.setEnabled(false, providerID: providerID)
+        if providerID == "java", !enabled {
+            cancelJavaLanguageServerPreparation()
+        }
+        languageToolingFeature.setEnabled(enabled, providerID: providerID)
+        if providerID == "java", enabled, let workspaceURL {
+            prepareJavaLanguageServerForWorkspaceIfNeeded(at: workspaceURL, files: projectFiles)
         }
     }
 
     func disableLanguageServerForCurrentWorkspace(providerID: String) {
-        languageToolingFeature.setEnabled(false, providerID: providerID)
+        setLanguageServerEnabled(false, providerID: providerID)
     }
 
     func prepareJavaLanguageServerRuntimeIfNeeded(
@@ -58,6 +60,8 @@ extension AppModel {
         fallbackDocument: EditorDocument? = nil
     ) {
         let normalizedRoot = workspaceURL.standardizedFileURL
+        guard self.workspaceURL?.standardizedFileURL == normalizedRoot,
+              !languageToolingFeature.isDisabled("java") else { return }
         guard services.javaMavenOperations.javaWorkspacePolicy(
             at: normalizedRoot,
             files: files,
@@ -237,7 +241,7 @@ extension AppModel {
         workspaceURL: URL,
         operationID: UUID
     ) -> Bool {
-        javaFeature.ownsLanguageServerPreparation(
+        !languageToolingFeature.isDisabled("java") && javaFeature.ownsLanguageServerPreparation(
             workspaceURL: workspaceURL,
             operationID: operationID,
             activeWorkspaceURL: self.workspaceURL
