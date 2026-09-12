@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import {
   clearNativeEditorViewState,
+  createViewStateRestoreGate,
   persistEditorViewportState,
   resolveScrollToPersist,
   restoreNativeEditorViewState,
@@ -190,5 +191,20 @@ describe("native editor view state", () => {
     expect(scroll).toEqual({ scrollTop: 960, scrollLeft: 16 });
     expect(restoreNativeEditorViewState("pane-a:buffer-a", handle)).toBe(true);
     expect(captured.state).toEqual({ firstVisibleLine: 80 });
+  });
+});
+
+describe("createViewStateRestoreGate", () => {
+  test("older restore complete does not end a newer restore", () => {
+    const gate = createViewStateRestoreGate();
+    const finishCreatedRestore = gate.begin();
+    expect(gate.isRestoring()).toBe(true);
+
+    const finishActivationRestore = gate.begin();
+    finishCreatedRestore();
+    expect(gate.isRestoring()).toBe(true);
+
+    finishActivationRestore();
+    expect(gate.isRestoring()).toBe(false);
   });
 });

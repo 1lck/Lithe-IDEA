@@ -108,6 +108,29 @@ export function clearNativeEditorViewState(viewKey?: string): void {
 }
 
 /**
+ * Tracks overlapping view-state restores so an older create/activation RAF
+ * cannot clear the restoring flag while a newer restore is still in flight.
+ */
+export function createViewStateRestoreGate(): {
+  isRestoring: () => boolean;
+  begin: () => () => void;
+} {
+  let generation = 0;
+  let restoring = false;
+
+  return {
+    isRestoring: () => restoring,
+    begin: () => {
+      const current = ++generation;
+      restoring = true;
+      return () => {
+        if (generation === current) restoring = false;
+      };
+    },
+  };
+}
+
+/**
  * Replays the existing post-layout view-state restoration frames while ensuring
  * that a newer owner-directed history navigation keeps its scroll position.
  */
