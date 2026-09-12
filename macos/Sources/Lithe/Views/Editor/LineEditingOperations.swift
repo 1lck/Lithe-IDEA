@@ -195,6 +195,8 @@ enum LineEditingOperations {
         let region: NSRange
         let text: String
         let displacement: Int
+        // 块末尾分隔符不再属于移动块时，选区终点最多到块内容末尾
+        var selectionEndLimit = blockEnd
         switch direction {
         case .up:
             guard blockStart > 0 else { return nil }
@@ -248,15 +250,18 @@ enum LineEditingOperations {
                 )
                 text = belowWithSeparator + blockSeparator + blockContentWithoutSeparator
                 displacement = belowEnd - blockEnd + blockSeparatorLength
+                selectionEndLimit = lastBounds.contentEnd
             }
         }
 
+        // 起止端点均随块平移；终点超出限值时收紧
+        let selectionEnd = min(NSMaxRange(selection), selectionEndLimit)
         return Edit(
             text: text,
             replacedRange: region,
             selection: NSRange(
                 location: selection.location + displacement,
-                length: selection.length
+                length: selectionEnd - selection.location
             )
         )
     }
@@ -352,22 +357,22 @@ enum LineEditingOperations {
         return LineBounds(start: start, contentEnd: separatorStart, endWithSeparator: separatorEnd)
     }
 
-    private static func isLineStart(_ offset: Int, in source: NSString) -> Bool {
-        guard offset > 0 else { return true }
-        return isSeparator(source.character(at: offset - 1))
-    }
-
-    /// 选区覆盖的完整行：起点取选区起始处所在行的行首；选区终点恰好落在
-    /// 某行行首时该行不计入（与 IDEA 的行级操作语义一致）。
+    /// 选区覆盖的完整行：起点取选区起始处所在行的行首；末行取选区最后
+    /// 一个实际字符所在的行——终点恰好落在某行行首时，end-1 落在上一行
+    /// 的分隔符上，该行自然成为末行（与 IDEA 的行级操作语义一致）。
     private static func coveredLines(for selection: NSRange, in source: NSString) -> [LineSpan] {
         let length = source.length
         guard length > 0 else { return [] }
         var bounds = lineBounds(at: selection.location, in: source)
-        var end = min(max(NSMaxRange(selection), 0), length)
-        if selection.length > 0, end > bounds.start, isLineStart(end, in: source) {
-            end = lineBounds(at: end - 1, in: source).start
-        }
         var spans: [LineSpan] = []
+        let lastEndWithSeparator: Int
+        if selection.length > 0 {
+            let lastIndex = min(max(NSMaxRange(selection) - 1, 0), length - 1)
+            let last = lineBounds(at: lastIndex, in: source)
+            lastEndWithSeparator = last.endWithSeparator
+        } else {
+            lastEndWithSeparator = bounds.endWithSeparator
+        }
         while true {
             spans.append(
                 LineSpan(
@@ -377,7 +382,8 @@ enum LineEditingOperations {
                     )
                 )
             )
-            if bounds.endWithSeparator >= end || bounds.endWithSeparator >= length { break }
+            if bounds.endWithSeparator >= lastEndWithSeparator
+                || bounds.endWithSeparator >= length { break }
             bounds = lineBounds(at: bounds.endWithSeparator, in: source)
         }
         return spans
@@ -399,7 +405,9 @@ enum LineEditingOperations {
                 } else if offset >= edit.position + edit.removedLength {
                     mapped -= edit.removedLength
                 } else if offset > edit.position {
-                    mapped = edit.position
+                    // 收紧到当前删除起点时必须保留此前累计的位移，
+                    // 否则跨行删除后端点会超出新文档范围
+                    mapped = edit.position + (mapped - offset)
                 }
             }
             return mapped

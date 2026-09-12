@@ -610,3 +610,89 @@ struct LineEditingShortcutTests {
         )
     }
 }
+
+extension LineEditingOperationsTests {
+    // PR #642 review 回归：选区含多行且终点恰在下一行行首
+    @Test
+    func multiLineSelectionEndingAtLineStartTogglesBothLines() {
+        let edit = LineEditingOperations.toggleLineComment(
+            in: "a\nb\nc",
+            selection: NSRange(location: 0, length: 4),
+            token: "//"
+        )
+
+        // {0,4} 覆盖 "a\nb\n"，前两行都要切换，而不是只切换第一行
+        #expect(edit?.text == "// a\n// b")
+        #expect(edit?.replacedRange == NSRange(location: 0, length: 3))
+    }
+
+    @Test
+    func multiLineSelectionEndingAtLineStartMovesWholeBlock() {
+        let edit = LineEditingOperations.moveLines(
+            in: "a\nb\nc",
+            selection: NSRange(location: 0, length: 4),
+            direction: .down
+        )
+
+        // 已选块整体下移；末行无换行，原分隔符移到块之前，
+        // 选区收紧到移动后的块内容
+        #expect(edit?.text == "c\na\nb")
+        #expect(edit?.replacedRange == NSRange(location: 0, length: 5))
+        #expect(edit?.selection == NSRange(location: 2, length: 3))
+    }
+
+    @Test
+    func multiLineCRLFSelectionEndingAtLineStartTogglesBothLines() {
+        // {0,6} 覆盖 "a\r\nb\r\n"，终点恰在 c 行行首
+        let edit = LineEditingOperations.toggleLineComment(
+            in: "a\r\nb\r\nc",
+            selection: NSRange(location: 0, length: 6),
+            token: "//"
+        )
+
+        #expect(edit?.text == "// a\r\n// b")
+    }
+
+    @Test
+    func multiLineCRLFSelectionEndingAtLineStartMovesWholeBlock() {
+        let edit = LineEditingOperations.moveLines(
+            in: "a\r\nb\r\nc",
+            selection: NSRange(location: 0, length: 6),
+            direction: .down
+        )
+
+        #expect(edit?.text == "c\r\na\r\nb")
+        #expect(edit?.selection == NSRange(location: 3, length: 4))
+    }
+
+    // PR #642 review 回归：去注释时选区终点落在后一行注释符内部，
+    // 必须映射到新文档坐标（保留累计位移）
+    @Test
+    func uncommentMapsEndpointInsideLaterTokenToNewCoordinates() {
+        let edit = LineEditingOperations.toggleLineComment(
+            in: "// a\n// b",
+            selection: NSRange(location: 0, length: 6),
+            token: "//"
+        )
+
+        #expect(edit?.text == "a\nb")
+        // 终点原在第二行 "//" 内部，去注释后应为第二行行首 2，
+        // 而不是原文坐标 5（超过新文档长度 3）
+        #expect(edit?.selection == NSRange(location: 0, length: 2))
+    }
+
+    // PR #642 review 回归：下移到无换行末行时选区终点收紧
+    @Test
+    func moveDownToLastLineWithoutNewlineClampsSelectionEnd() {
+        let edit = LineEditingOperations.moveLines(
+            in: "a\nb",
+            selection: NSRange(location: 0, length: 2),
+            direction: .down
+        )
+
+        // 块 "a\n" 下移后分隔符移到块前，选区应从 {0,2} 收紧为 {2,1}，
+        // 终点不超过新文档长度 3
+        #expect(edit?.text == "b\na")
+        #expect(edit?.selection == NSRange(location: 2, length: 1))
+    }
+}
