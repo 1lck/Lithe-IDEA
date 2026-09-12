@@ -7,6 +7,29 @@ import LitheModuleAPI
 @Suite("Run workflow coordinator")
 @MainActor
 struct RunWorkflowCoordinatorTests {
+    @Test
+    func moduleLaunchCoalescesAndWorkspaceResetCancelsPreparation() async {
+        let coordinator = makeRunWorkflowCoordinator()
+        let entered = TestGate()
+        let release = TestGate()
+        let finished = TestGate()
+        defer { coordinator.cancelModuleOperation(); entered.open(); release.open(); finished.open() }
+        var launches = 0
+        coordinator.startModuleOperation {
+            entered.open()
+            _ = await release.waitUntilOpen()
+            if !Task.isCancelled { launches += 1 }
+            finished.open()
+        }
+        #expect(await entered.waitUntilOpen())
+        coordinator.startModuleOperation { launches += 1 }
+        #expect(coordinator.isModuleOperationStarting)
+        coordinator.resetPendingAction()
+        #expect(await finished.waitUntilOpen())
+        #expect(!coordinator.isModuleOperationStarting)
+        #expect(launches == 0)
+    }
+
     @Test("selects file language support for current-file configurations")
     func selectsFileSupportForCurrentFile() {
         let coordinator = makeRunWorkflowCoordinator()

@@ -40,7 +40,6 @@ enum DocumentFeatureComposition {
         )
         graph.languageTooling.configure(
             documentsProvider: { [weak document] in document?.openDocuments ?? [] },
-            workspaceProvider: { [weak session] in session?.workspaceURL },
             activateDocument: { [weak model] in model?.activateLanguageServerIfAvailable(for: $0) ?? false },
             notify: { [weak notification] in notification?.show($0) }
         )
