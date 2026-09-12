@@ -50,8 +50,8 @@ struct LSPControlCenterView: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
             Text(usesChinese
-                ? "仅显示当前项目使用的语言。关闭后会停止对应语言服务器并释放资源。"
-                : "Only languages used by this project are shown. Turning one off stops its language server and releases its resources.")
+                ? "仅显示当前项目使用的语言。开关状态会自动为此项目保存，关闭后会停止语言服务器并释放资源，下次打开仍保持关闭。"
+                : "Only languages used by this project are shown. Changes are saved automatically for this project. Turning a language off stops its server, releases its resources, and keeps it off when you reopen the project.")
                 .font(.system(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)

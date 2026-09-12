@@ -45,14 +45,16 @@ two sections equivalent in meaning. Use these literal required headings and
 this order:
 
 1. `## 中文`, a short release summary, `### 下载`, and `### 重点更新`.
-2. Optional product-area groupings when they make the changes easier to scan.
+2. A brief overview sentence under `### 重点更新`, then `#### ✨ 新功能`,
+   `#### ⚡ 改进`, and `#### 🛠 修复`; omit categories with no changes.
 3. `### 升级说明` and `### 兼容性与已知问题`.
 4. A comparison link from the previous stable tag to the new tag.
 5. `## English`, a short release summary, `### Downloads`, and `### Highlights`.
-6. English counterparts for any optional product-area groupings.
+6. A matching overview under `### Highlights`, then `#### ✨ New features`,
+   `#### ⚡ Improvements`, and `#### 🛠 Fixes`; omit the same empty categories.
 7. `### Upgrade instructions` and `### Compatibility and known issues`.
 8. The equivalent English comparison link.
-9. At the very bottom, `### 贡献者` followed by `### Contributors`, with
+9. At the very bottom, `### 🙌 感谢贡献者` followed by `### 🙌 Contributors`, with
    equivalent contributor names or GitHub profile links in both languages.
 
 The download sections cover the project page, both macOS architectures,
@@ -84,9 +86,20 @@ apply to that version.
   `xattr -dr com.apple.quarantine /Applications/Lithe.app` in Terminal. Use
   this only for an app from a source you trust.”
 
-Use the most recent stable file under `docs/releases/` as the formatting
-reference, but verify every statement and URL for the new version instead of
-copying stale details.
+Use [the reusable release template](../../../docs/releases/TEMPLATE.md) as the
+formatting source of truth. Copy it to `docs/releases/v<version>.md`, replace
+all placeholders, and remove its authoring comment. Previous releases are only
+factual references; do not inherit their structure or stale claims.
+
+Keep change bullets as single Markdown source lines with no nested lists. Aim
+for roughly 40 Chinese characters or 20 English words when practical; this is
+a writing target, not a display-width guarantee. Put the platform first only
+when a change is platform-specific. Group by new capability, improvement, or
+fix, not by implementation layer. Credit verified contributors together at
+the bottom; optional per-item attribution must be verified and stay concise.
+Do not copy another project's features, identities, or compatibility claims.
+Run `node scripts/validate-stable-release-notes.mjs docs/releases/v<version>.md`
+before committing the notes.
 
 ## Contributors
 
