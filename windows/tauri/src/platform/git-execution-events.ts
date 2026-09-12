@@ -15,6 +15,8 @@ export interface GitExecutionEvent {
   action?: string;
   executable?: string | null;
   temporaryConfig?: string[][];
+  displayArguments?: string[];
+  globalArguments?: string[];
   progressDetails?: { stage: string; percent?: number | null; completed?: number | null; total?: number | null };
   requestId?: string;
   prompt?: string;

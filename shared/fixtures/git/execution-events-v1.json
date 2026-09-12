@@ -28,6 +28,18 @@
           "log.showSignature",
           "false"
         ]
+      ],
+      "displayArguments": [
+        "fetch",
+        "--progress"
+      ],
+      "globalArguments": [
+        "-c",
+        "color.ui=false",
+        "-c",
+        "core.quotepath=false",
+        "-c",
+        "log.showSignature=false"
       ]
     },
     {

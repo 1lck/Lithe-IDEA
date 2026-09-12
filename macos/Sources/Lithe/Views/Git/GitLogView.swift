@@ -387,8 +387,7 @@ struct GitLogView: View {
             )
             gitToolTabButton(
                 .worktrees,
-                title: "Worktrees",
-                detail: feature.gitRepositoryRoot?.path
+                title: "Worktrees"
             )
             gitToolTabButton(.console, title: "Console")
 

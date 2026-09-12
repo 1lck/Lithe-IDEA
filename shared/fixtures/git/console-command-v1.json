@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "fetch folds legacy global flags with temporary environment configuration",
+      "arguments": [
+        "--no-pager",
+        "-c",
+        "color.ui=false",
+        "-c",
+        "core.quotepath=false",
+        "fetch",
+        "--progress",
+        "--prune",
+        "--",
+        "origin"
+      ],
+      "temporaryConfig": [
+        [
+          "color.ui",
+          "false"
+        ],
+        [
+          "core.quotepath",
+          "false"
+        ],
+        [
+          "log.showSignature",
+          "false"
+        ]
+      ],
+      "displayArguments": [
+        "fetch",
+        "--progress",
+        "--prune",
+        "--",
+        "origin"
+      ],
+      "globalArguments": [
+        "-c",
+        "color.ui=false",
+        "-c",
+        "core.quotepath=false",
+        "-c",
+        "log.showSignature=false",
+        "--no-pager",
+        "-c",
+        "color.ui=false",
+        "-c",
+        "core.quotepath=false"
+      ]
+    },
+    {
+      "name": "global working directory and inline config remain inspectable",
+      "arguments": [
+        "-C",
+        "nested repo",
+        "-ccore.quotepath=false",
+        "status"
+      ],
+      "temporaryConfig": [],
+      "displayArguments": [
+        "status"
+      ],
+      "globalArguments": [
+        "-C",
+        "nested repo",
+        "-ccore.quotepath=false"
+      ]
+    },
+    {
+      "name": "commit message and paths are never interpreted as global options",
+      "arguments": [
+        "commit",
+        "-m",
+        "fix -c color.ui=false",
+        "--",
+        "-c"
+      ],
+      "temporaryConfig": [],
+      "displayArguments": [
+        "commit",
+        "-m",
+        "fix -c color.ui=false",
+        "--",
+        "-c"
+      ],
+      "globalArguments": []
+    },
+    {
+      "name": "version flag remains visible",
+      "arguments": [
+        "--version"
+      ],
+      "temporaryConfig": [],
+      "displayArguments": [
+        "--version"
+      ],
+      "globalArguments": []
+    }
+  ]
+}

@@ -5,6 +5,7 @@ export type DisplayLanguage = (typeof DISPLAY_LANGUAGES)[number];
 const catalogs = {
   "en-US": {
     "git.console.details": "Command details",
+  "git.console.options": "Git command options",
     "git.console.wrap": "Soft wrap",
     "git.console.scrollToEnd": "Scroll to end",
     "git.console.open": "Open Git Console",
@@ -4365,6 +4366,7 @@ const catalogs = {
   },
   "zh-CN": {
     "git.console.details": "命令详情",
+  "git.console.options": "Git 命令选项",
     "git.console.wrap": "自动换行",
     "git.console.scrollToEnd": "滚动到底部",
     "git.console.open": "打开 Git 控制台",

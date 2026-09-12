@@ -421,7 +421,7 @@ Each event has `operationId` and `type`:
 | Type | Additional fields |
 | --- | --- |
 | `requestStarted` | none; cancellation is registered before delivery |
-| `started` | `invocationId`, `workingDirectory`, `arguments`, nullable resolved `executable`, `temporaryConfig` key/value pairs |
+| `started` | `invocationId`, `workingDirectory`, `arguments`, nullable resolved `executable`, `temporaryConfig` key/value pairs, `displayArguments`, `globalArguments` |
 | `output` | `invocationId`, `stream` (`stdout`/`stderr`), `text`, `progress`, `truncated`, optional `progressDetails` (`stage`, nullable `percent`, `completed`, `total`) |
 | `finished` | `invocationId`, nullable `exitCode`, monotonic `durationMilliseconds`, nullable `error` |
 | `requestFinished` | nullable `error`, including failures before a child started |
@@ -433,7 +433,15 @@ absolute-path diagnostic, not a shared workspace identifier. Arguments/output
 are redacted diagnostics; preview alone is not proof of process startup. An
 unknown exit status remains null. A failed start may produce `finished` without
 `started`; consumers must not fabricate an executed command from that event.
-Final JSON response semantics and invocation traces are unchanged.
+`displayArguments` and `globalArguments` are additive console projections: the
+former starts at the subcommand, and the latter contains temporary configuration
+as `-c key=value` pairs followed by the original global argument prefix. Consoles
+fold the whole prefix once; raw `arguments` remain authoritative for copying and
+diagnostics. Older events without projections retain their legacy display.
+Internal Fetch/Push configuration lookups are not console invocations. Missing
+optional values are normal preflight results; real inspection failures still
+propagate through the request error. Explicit user configuration writes remain
+visible. Final command response semantics remain unchanged.
 
 A complete line is redacted before publication. Native diagnostic limits are
 16 KiB per line, 512 KiB raw diagnostic input and 4,096 output events per

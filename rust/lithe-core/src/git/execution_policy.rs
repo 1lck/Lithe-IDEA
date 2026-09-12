@@ -133,9 +133,53 @@ pub(super) fn command_index(arguments: &[String]) -> Option<usize> {
     None
 }
 
+/// Separates the readable subcommand from the global options folded by native consoles.
+/// Raw process arguments remain unchanged in the event and command response.
+pub(super) fn console_arguments(
+    arguments: &[String],
+    temporary_config: &[(String, String)],
+) -> (Vec<String>, Vec<String>) {
+    let command = command_index(arguments).unwrap_or(0);
+    let mut global = temporary_config
+        .iter()
+        .flat_map(|(key, value)| ["-c".into(), format!("{key}={value}")])
+        .collect::<Vec<String>>();
+    // Include every original global argument in the disclosure. In particular,
+    // do not mistake a commit message containing "-c" for a configuration flag.
+    global.extend_from_slice(&arguments[..command]);
+    (arguments[command..].to_vec(), global)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn console_projection_preserves_raw_arguments_and_folds_only_global_options() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/git/console-command-v1.json"
+        ))
+        .unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            let arguments: Vec<String> = serde_json::from_value(case["arguments"].clone()).unwrap();
+            let configuration: Vec<(String, String)> =
+                serde_json::from_value(case["temporaryConfig"].clone()).unwrap();
+            let (display, global) = console_arguments(&arguments, &configuration);
+            assert_eq!(
+                serde_json::json!(display),
+                case["displayArguments"],
+                "{}",
+                case["name"]
+            );
+            assert_eq!(
+                serde_json::json!(global),
+                case["globalArguments"],
+                "{}",
+                case["name"]
+            );
+            assert_eq!(serde_json::json!(arguments), case["arguments"]);
+        }
+    }
+
     #[test]
     fn version_capabilities_reject_old_or_unknown_executables() {
         for version in [

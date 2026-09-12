@@ -12,6 +12,8 @@ export interface GitConsoleRecord {
   lines: { stream: "stdout" | "stderr"; text: string }[];
   executable?: string | null;
   temporaryConfig?: string[][];
+  displayArguments?: string[];
+  globalArguments?: string[];
   phase?: GitExecutionEvent["progressDetails"];
   remoteResult?: GitExecutionEvent;
   progress?: string;
@@ -69,7 +71,8 @@ export class GitExecutionJournal {
     if (event.type === "started") {
       this.records = this.records.filter((record) => record.id !== operationId);
       this.records.push({ id, operationId, timestamp: this.now(), root: event.workingDirectory ?? "", action: event.action ?? "Git",
-        arguments: event.arguments ?? [], executable: event.executable, temporaryConfig: event.temporaryConfig, state: "running", output: "", lines: [], truncated: false });
+        arguments: event.arguments ?? [], executable: event.executable, temporaryConfig: event.temporaryConfig,
+        displayArguments: event.displayArguments, globalArguments: event.globalArguments, state: "running", output: "", lines: [], truncated: false });
     }
     const record = [...this.records].reverse().find((record) => record.id === id);
     if (record && event.type === "output") {

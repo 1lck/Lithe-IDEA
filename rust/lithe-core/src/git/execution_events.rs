@@ -42,6 +42,9 @@ enum Kind<'a> {
         invocation_id: u64,
         working_directory: &'a str,
         arguments: &'a [String],
+        /// Native presentation folds global options without rewriting actual argv.
+        display_arguments: Vec<String>,
+        global_arguments: Vec<String>,
     },
     Output {
         invocation_id: u64,
@@ -168,6 +171,15 @@ impl Invocation {
             .iter()
             .map(|argument| redact(argument))
             .collect::<Vec<_>>();
+        let temporary_config = if super::execution_policy::command_index(&arguments)
+            .is_some_and(|index| arguments[index] != "config")
+        {
+            super::execution_policy::temporary_config()
+        } else {
+            Vec::new()
+        };
+        let (display_arguments, global_arguments) =
+            super::execution_policy::console_arguments(&arguments, &temporary_config);
         send(
             &self.sink,
             &self.operation_id,
@@ -176,13 +188,9 @@ impl Invocation {
                     super::execution_policy::current().executable.as_deref(),
                 )
                 .map(|path| path.to_string_lossy().into_owned()),
-                temporary_config: if super::execution_policy::command_index(&arguments)
-                    .is_some_and(|index| arguments[index] == "config")
-                {
-                    Vec::new()
-                } else {
-                    super::execution_policy::temporary_config()
-                },
+                temporary_config,
+                display_arguments,
+                global_arguments,
                 invocation_id: self.id,
                 working_directory: root,
                 arguments: &arguments,

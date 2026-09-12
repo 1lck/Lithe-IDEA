@@ -5570,20 +5570,19 @@ fn resolve_push_target(root: &str, reference: Option<&str>) -> Result<PushTarget
 }
 
 fn read_git_config_value(root: &str, key: &str) -> Result<Option<String>, CoreError> {
-    let configured = execute_git_readonly(
-        root,
-        &["config".into(), "--get".into(), key.to_string()],
-        None,
-    )?;
+    // This is an internal preflight, not a user command. A missing optional
+    // value returns 1 normally and must not appear as a failed console action.
+    let arguments = ["config".into(), "--get".into(), key.to_string()];
+    let configured =
+        capture_git_with_options(root, &arguments, None, true)?.into_command_response(&arguments);
     if configured.exit_code == 1 {
         return Ok(None);
     }
     if configured.exit_code != 0 {
-        return Err(CoreError::new(
-            ErrorCode::ProcessFailed,
-            "Could not read Git push configuration",
-        )
-        .with_details(configured.output));
+        return Err(
+            CoreError::new(ErrorCode::ProcessFailed, "Could not read Git configuration")
+                .with_details(configured.output),
+        );
     }
     let value = configured.output.trim();
     if value.is_empty() {

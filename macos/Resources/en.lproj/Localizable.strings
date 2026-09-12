@@ -915,3 +915,7 @@
 "Fetch and commit preferences" = "Fetch and commit preferences";
 
 "Expand temporary Git configuration or command details" = "Expand temporary Git configuration or command details";
+
+"Command details" = "Command details";
+
+"Click the folded options to expand; right-click for command details." = "Click the folded options to expand; right-click for command details.";

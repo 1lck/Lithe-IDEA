@@ -197,6 +197,14 @@ class Fixture:
         assert plan["data"]["commands"] == sample["commands"], plan
         response, events = self.call("git.write", payload)
         assert response["ok"] and response["data"]["exitCode"] == 0, response
+        # An unset skipFetchAll is a normal internal lookup, not a failed user
+        # operation. Verify actual event delivery, not just the final Fetch result.
+        starts = [event for event in events if event["type"] == "started"]
+        assert len(starts) == 2 and all(event["displayArguments"][0] == "fetch" for event in starts), starts
+        assert all(event["exitCode"] == 0 for event in events if event["type"] == "finished"), events
+        assert [event["arguments"] for event in starts] == sample["commands"]
+        assert all("-c" not in event["displayArguments"] and "--no-pager" not in event["displayArguments"] for event in starts)
+        assert all("--no-pager" in event["globalArguments"] for event in starts)
         results = [event for event in events if event["type"] == "remoteResult"]
         assert [event["remote"] for event in results] == ["origin", "upstream"]
         assert all(event["succeeded"] and event["updatedReferenceCount"] > 0 for event in results)
@@ -210,6 +218,13 @@ class Fixture:
         assert results[2]["deletedReferences"] == ["refs/remotes/upstream/old"]
         starts = [event["arguments"] for event in events if event["type"] == "started" and "fetch" in event["arguments"]]
         assert [args[-1] for args in starts] == ["broken", "origin", "upstream"]
+        # Suppressing successful/absent configuration lookups must not suppress
+        # a real preflight error when inspecting the selected remote.
+        self.git("config", "remote.origin.url", "invalid\nremote", root=self.repo)
+        invalid, events = self.call("git.write", {**payload, "fetchOptions": {"remote": "origin"}})
+        assert not invalid["ok"], invalid
+        assert events[-1]["type"] == "requestFinished" and events[-1]["error"], events
+        self.git("config", "remote.origin.url", str(self.bare), root=self.repo)
 
     def authentication(self, retry=False, cancel=False, ssh=False):
         password = "fixture-password"

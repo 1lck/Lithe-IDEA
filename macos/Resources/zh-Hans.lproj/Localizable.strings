@@ -1939,3 +1939,7 @@
 "Fetch and commit preferences" = "Fetch 与提交偏好";
 
 "Expand temporary Git configuration or command details" = "展开临时 Git 参数或命令详情";
+
+"Command details" = "命令详情";
+
+"Click the folded options to expand; right-click for command details." = "点击折叠参数可展开；右键查看命令详情。";

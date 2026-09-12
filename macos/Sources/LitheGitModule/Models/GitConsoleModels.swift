@@ -38,6 +38,8 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
     package let progressText: String?
     package let executable: String?
     package let temporaryConfig: [[String]]
+    private let displayArguments: [String]?
+    private let globalArguments: [String]?
     package let phase: GitPhaseProgress?
     package let remoteResult: GitRemoteOutcome?
     package let isOutputTruncated: Bool
@@ -59,10 +61,13 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
         progressText: String? = nil,
         isOutputTruncated: Bool = false,
         executable: String? = nil, temporaryConfig: [[String]] = [],
-        phase: GitPhaseProgress? = nil, remoteResult: GitRemoteOutcome? = nil
+        phase: GitPhaseProgress? = nil, remoteResult: GitRemoteOutcome? = nil,
+        displayArguments: [String]? = nil, globalArguments: [String]? = nil
     ) {
         self.executable = executable
         self.temporaryConfig = temporaryConfig.map { $0.map(GitConsoleRedactor.redact) }
+        self.displayArguments = displayArguments?.map(GitConsoleRedactor.redact)
+        self.globalArguments = globalArguments?.map(GitConsoleRedactor.redact)
         self.phase = phase
         self.remoteResult = remoteResult
         self.id = id
@@ -90,7 +95,8 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
             standardError: standardError, orderedOutputLines: orderedOutputLines, exitCode: exitCode, state: state,
             durationMilliseconds: durationMilliseconds, operationTitle: operationTitle,
             operationErrorMessage: message, progressText: progressText, isOutputTruncated: isOutputTruncated,
-            executable: executable, temporaryConfig: temporaryConfig, phase: phase, remoteResult: remoteResult)
+            executable: executable, temporaryConfig: temporaryConfig, phase: phase, remoteResult: remoteResult,
+            displayArguments: displayArguments, globalArguments: globalArguments)
     }
 
     package var succeeded: Bool { state == .completed && exitCode == 0 && operationErrorMessage == nil }
@@ -100,11 +106,11 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
     }
 
     package var formattedArguments: String {
-        GitConsoleCommandFormatter.argumentLine(arguments: arguments)
+        GitConsoleCommandFormatter.argumentLine(arguments: displayArguments ?? arguments)
     }
 
     package var formattedTemporaryConfiguration: String {
-        GitConsoleCommandFormatter.argumentLine(arguments: temporaryConfig.flatMap { pair in
+        GitConsoleCommandFormatter.argumentLine(arguments: globalArguments ?? temporaryConfig.flatMap { pair in
             ["-c", pair.joined(separator: "=")]
         })
     }

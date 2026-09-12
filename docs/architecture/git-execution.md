@@ -210,11 +210,19 @@ actual Git exit code remains distinct from an operation-level failure.
 The default display follows IDEA's Console: millisecond timestamp, repository
 path, command, and continuous output in native event arrival order. Temporary
 configuration is folded into an inline `-c …` disclosure (an inspection-friendly
-equivalent of the process-local configuration environment). An inline details
-disclosure retains executable, status, duration, and per-remote results without
-adding metadata rows to every command. stderr uses a separate color, including
+equivalent of the process-local configuration environment and original global
+argument prefix). Core supplies the display projection so native clients do not
+parse Git flags or duplicate the old `--no-pager -c …` prefix outside the fold.
+The raw argument vector is preserved for copy and diagnostics. The command's
+context menu retains executable, status, duration, and per-remote results without
+adding a button or metadata rows to every command. stderr uses a separate color, including
 successful Git messages; only the exit/result state determines failure. Copying
 retains command configuration, status, duration, and output.
+
+Internal remote configuration reads use the preflight capture path, so an
+absent `remote.<name>.skipFetchAll` does not create a red exit-code-1 row. Real
+preflight failures still reach the operation error; user configuration saves and
+actual transport failures remain visible.
 
 The Console is available independently of commit history. An unborn repository
 can open it directly without configuring commit identity. Basic Git settings

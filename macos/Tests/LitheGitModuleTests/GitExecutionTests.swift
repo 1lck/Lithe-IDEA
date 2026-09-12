@@ -4,6 +4,34 @@ import Testing
 
 struct GitExecutionTests {
     @Test
+    func sharedConsoleProjectionKeepsGlobalOptionsOutOfTheCommandBody() throws {
+        struct Case: Decodable {
+            let arguments: [String]
+            let temporaryConfig: [[String]]
+            let displayArguments: [String]
+            let globalArguments: [String]
+        }
+        struct Fixture: Decodable { let cases: [Case] }
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<4 { root.deleteLastPathComponent() }
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf:
+            root.appendingPathComponent("shared/fixtures/git/console-command-v1.json")))
+        for sample in fixture.cases {
+            let context = GitExecutionContext(operationID: "console")
+            context.receive(GitExecutionEvent(operationId: "console", type: "started",
+                temporaryConfig: sample.temporaryConfig, displayArguments: sample.displayArguments,
+                globalArguments: sample.globalArguments, invocationId: 1,
+                workingDirectory: "/workspace", arguments: sample.arguments))
+            let entry = try #require(context.drainSnapshot()?.last)
+            #expect(entry.formattedArguments == GitConsoleCommandFormatter.argumentLine(arguments: sample.displayArguments))
+            #expect(entry.formattedTemporaryConfiguration == GitConsoleCommandFormatter.argumentLine(arguments: sample.globalArguments))
+            #expect(entry.commandLine == GitConsoleCommandFormatter.commandLine(arguments: sample.arguments))
+            #expect(entry.withOperationError("later error").formattedArguments == entry.formattedArguments)
+            #expect(entry.copyText.contains(entry.commandLine))
+        }
+    }
+
+    @Test
     func remoteResultPreservesExplicitCountsAndDefaultsMissingMetadata() throws {
         let context = GitExecutionContext(operationID: "operation")
         context.receive(GitExecutionEvent(operationId: "operation", type: "started", invocationId: 1,

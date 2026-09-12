@@ -6,6 +6,8 @@ package struct GitExecutionEvent: Decodable, Sendable {
     package let type: String
     package var executable: String?
     package var temporaryConfig: [[String]]?
+    package var displayArguments: [String]?
+    package var globalArguments: [String]?
     package var progressDetails: GitPhaseProgress?
     package var requestId: String?
     package var prompt: String?
@@ -62,6 +64,8 @@ package final class GitExecutionContext: @unchecked Sendable {
         let arguments: [String]
         var executable: String?
         var temporaryConfig: [[String]] = []
+        var displayArguments: [String]?
+        var globalArguments: [String]?
         var phase: GitPhaseProgress?
         var remoteResult: GitRemoteOutcome?
         var stdout = ""
@@ -94,7 +98,8 @@ package final class GitExecutionContext: @unchecked Sendable {
                 standardError: stderr, orderedOutputLines: lines, exitCode: exitCode, state: state,
                 durationMilliseconds: duration, operationTitle: "Git",
                 operationErrorMessage: error, progressText: progress, isOutputTruncated: truncated,
-                executable: executable, temporaryConfig: temporaryConfig, phase: phase, remoteResult: remoteResult)
+                executable: executable, temporaryConfig: temporaryConfig, phase: phase, remoteResult: remoteResult,
+                displayArguments: displayArguments, globalArguments: globalArguments)
         }
     }
 
@@ -132,7 +137,8 @@ package final class GitExecutionContext: @unchecked Sendable {
         if event.type == "started", let root = event.workingDirectory, let arguments = event.arguments {
             receivedInvocation = true
             records.append(Record(invocationID: invocationID, root: URL(fileURLWithPath: root), arguments: arguments,
-                executable: event.executable, temporaryConfig: event.temporaryConfig ?? []))
+                executable: event.executable, temporaryConfig: event.temporaryConfig ?? [],
+                displayArguments: event.displayArguments, globalArguments: event.globalArguments))
             if records.count > Self.maxRecords { records.removeFirst(records.count - Self.maxRecords) }
             dirty = true
             return

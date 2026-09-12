@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import LitheGitModule
 
@@ -11,11 +12,10 @@ struct GitConsoleEntryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             line(Text(command))
-                .help("Expand temporary Git configuration or command details")
+                .help("Click the folded options to expand; right-click for command details.")
                 .environment(\.openURL, OpenURLAction { url in
                     switch url.host {
                     case "configuration": showsConfiguration.toggle()
-                    case "details": showsDetails.toggle()
                     default: return .discarded
                     }
                     return .handled
@@ -43,12 +43,19 @@ struct GitConsoleEntryView: View {
         .font(.system(size: 13, weight: .regular, design: .monospaced))
         .textSelection(.enabled)
         .padding(.bottom, 4)
+        .contextMenu {
+            Button("Command details") { showsDetails.toggle() }
+            Button("Copy") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(entry.copyText, forType: .string)
+            }
+        }
     }
 
     private var command: AttributedString {
         var text = AttributedString("\(Self.timestampFormatter.string(from: entry.timestamp)): [\(entry.workingDirectory.path)] git ")
         text.foregroundColor = commandColor
-        if !entry.temporaryConfig.isEmpty {
+        if !entry.formattedTemporaryConfiguration.isEmpty {
             var configuration = AttributedString(showsConfiguration ? entry.formattedTemporaryConfiguration : "-c …")
             configuration.link = URL(string: "lithe-git-console://configuration")
             configuration.foregroundColor = outputColor
@@ -59,10 +66,6 @@ struct GitConsoleEntryView: View {
         var arguments = AttributedString(entry.formattedArguments)
         arguments.foregroundColor = commandColor
         text.append(arguments)
-        var disclosure = AttributedString(" ⋯")
-        disclosure.link = URL(string: "lithe-git-console://details")
-        disclosure.foregroundColor = LitheTheme.secondaryText
-        text.append(disclosure)
         return text
     }
 
