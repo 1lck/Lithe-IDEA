@@ -4,6 +4,40 @@ import Testing
 
 struct GitExecutionTests {
     @Test
+    func remoteResultPreservesExplicitCountsAndDefaultsMissingMetadata() throws {
+        let context = GitExecutionContext(operationID: "operation")
+        context.receive(GitExecutionEvent(operationId: "operation", type: "started", invocationId: 1,
+            workingDirectory: "/workspace", arguments: ["fetch"]))
+        func receiveResult(_ json: String) throws -> GitRemoteOutcome {
+            let event = try JSONDecoder().decode(GitExecutionEvent.self, from: Data(json.utf8))
+            context.receive(event)
+            return try #require(context.drainSnapshot()?.last?.remoteResult)
+        }
+
+        let missing = try receiveResult(#"{"operationId":"operation","type":"remoteResult"}"#)
+        #expect(missing.updatedReferences.isEmpty)
+        #expect(missing.deletedReferences.isEmpty)
+        #expect(missing.updatedCount == 0)
+        #expect(missing.deletedCount == 0)
+        #expect(missing.referencesAvailable)
+        #expect(!missing.truncated)
+
+        let inferred = try receiveResult(#"{"operationId":"operation","type":"remoteResult","remote":"origin","succeeded":true,"updatedReferences":["refs/remotes/origin/main"],"deletedReferences":["refs/remotes/origin/old"]}"#)
+        #expect(inferred.remote == "origin")
+        #expect(inferred.succeeded)
+        #expect(inferred.updatedCount == 1)
+        #expect(inferred.deletedCount == 1)
+
+        // Truncated or unavailable reference details must not replace the
+        // authoritative counts, including an explicitly supplied zero.
+        let explicit = try receiveResult(#"{"operationId":"operation","type":"remoteResult","updatedReferences":["refs/remotes/origin/main"],"updatedReferenceCount":0,"deletedReferenceCount":80,"referencesTruncated":true,"referencesAvailable":false}"#)
+        #expect(explicit.updatedCount == 0)
+        #expect(explicit.deletedCount == 80)
+        #expect(explicit.truncated)
+        #expect(!explicit.referencesAvailable)
+    }
+
+    @Test
     func sharedPolicyFixtureKeepsAuthenticationSeparateFromConsoleAndPreservesRemoteResults() throws {
         struct Fixture: Decodable { let authentication: GitExecutionEvent; let remoteResult: GitExecutionEvent }
         var root = URL(fileURLWithPath: #filePath)

@@ -90,63 +90,85 @@ package final class GitExecutionContext: @unchecked Sendable {
 
     package func receive(_ event: GitExecutionEvent) {
         guard event.operationId == operationID else { return }
-        lock.withLock {
-            if event.type == "authentication", let id = event.requestId {
-                challenges.append(.init(id: id, operationID: operationID, prompt: event.prompt ?? "Git authentication", secret: event.secret ?? true, attempt: event.attempt ?? 1, retry: event.retry ?? false))
-                return
-            }
-            if event.type == "requestFinished" { challenges.removeAll(); return }
-            if event.type == "remoteResult", let index = records.indices.last {
-                records[index].remoteResult = .init(remote: event.remote ?? "", succeeded: event.succeeded ?? false,
-                    updatedReferences: event.updatedReferences ?? [], deletedReferences: event.deletedReferences ?? [],
-                    updatedCount: event.updatedReferenceCount ?? event.updatedReferences?.count ?? 0, deletedCount: event.deletedReferenceCount ?? event.deletedReferences?.count ?? 0, truncated: event.referencesTruncated ?? false, referencesAvailable: event.referencesAvailable ?? true)
-                if let error = event.error { records[index].error = error.message }
-                dirty = true
-                return
-            }
-            guard let invocationID = event.invocationId else { return }
-            if event.type == "started", let root = event.workingDirectory, let arguments = event.arguments {
-                receivedInvocation = true
-                records.append(Record(invocationID: invocationID, root: URL(fileURLWithPath: root), arguments: arguments,
-                    executable: event.executable, temporaryConfig: event.temporaryConfig ?? []))
-                if records.count > Self.maxRecords { records.removeFirst(records.count - Self.maxRecords) }
-                dirty = true
-                return
-            }
-            guard let index = records.lastIndex(where: { $0.invocationID == invocationID }) else { return }
-            switch event.type {
-            case "output":
-                records[index].phase = event.progressDetails ?? records[index].phase
-                let text = GitConsoleRedactor.redact(event.text ?? "")
-                if event.progress == true {
-                    records[index].progress = text
-                } else {
-                    if event.stream == "stderr" { records[index].stderr += text + "\n" }
-                    else { records[index].stdout += text + "\n" }
-                    records[index].progress = nil
-                }
-                records[index].truncated = records[index].truncated || event.truncated == true
-                if records[index].stdout.count > Self.maxStreamCharacters {
-                    records[index].stdout = String(records[index].stdout.suffix(Self.maxStreamCharacters))
-                    records[index].truncated = true
-                }
-                if records[index].stderr.count > Self.maxStreamCharacters {
-                    records[index].stderr = String(records[index].stderr.suffix(Self.maxStreamCharacters))
-                    records[index].truncated = true
-                }
-                while records.count > 1 && records.reduce(0, { $0 + $1.stdout.count + $1.stderr.count }) > Self.maxTotalCharacters {
-                    records.removeFirst()
-                }
-            case "finished":
-                records[index].state = event.exitCode == nil ? .unconfirmed : .completed
-                records[index].exitCode = event.exitCode ?? -1
-                records[index].duration = event.durationMilliseconds
-                records[index].error = event.error.map { [$0.message, $0.details].compactMap { $0 }.joined(separator: "\n") }
-                records[index].progress = nil
-            default: return
-            }
-            dirty = true
+        lock.withLock { receiveLocked(event) }
+    }
+
+    /// Called with the lock held so each event publishes an atomic snapshot.
+    private func receiveLocked(_ event: GitExecutionEvent) {
+        if event.type == "authentication", let id = event.requestId {
+            let challenge = GitAuthenticationChallenge(
+                id: id, operationID: operationID,
+                prompt: event.prompt ?? "Git authentication",
+                secret: event.secret ?? true,
+                attempt: event.attempt ?? 1,
+                retry: event.retry ?? false)
+            challenges.append(challenge)
+            return
         }
+        if event.type == "requestFinished" { challenges.removeAll(); return }
+        if event.type == "remoteResult", let index = records.indices.last {
+            records[index].remoteResult = remoteOutcome(for: event)
+            if let error = event.error { records[index].error = error.message }
+            dirty = true
+            return
+        }
+        guard let invocationID = event.invocationId else { return }
+        if event.type == "started", let root = event.workingDirectory, let arguments = event.arguments {
+            receivedInvocation = true
+            records.append(Record(invocationID: invocationID, root: URL(fileURLWithPath: root), arguments: arguments,
+                executable: event.executable, temporaryConfig: event.temporaryConfig ?? []))
+            if records.count > Self.maxRecords { records.removeFirst(records.count - Self.maxRecords) }
+            dirty = true
+            return
+        }
+        guard let index = records.lastIndex(where: { $0.invocationID == invocationID }) else { return }
+        switch event.type {
+        case "output":
+            records[index].phase = event.progressDetails ?? records[index].phase
+            let text = GitConsoleRedactor.redact(event.text ?? "")
+            if event.progress == true {
+                records[index].progress = text
+            } else {
+                if event.stream == "stderr" { records[index].stderr += text + "\n" }
+                else { records[index].stdout += text + "\n" }
+                records[index].progress = nil
+            }
+            records[index].truncated = records[index].truncated || event.truncated == true
+            if records[index].stdout.count > Self.maxStreamCharacters {
+                records[index].stdout = String(records[index].stdout.suffix(Self.maxStreamCharacters))
+                records[index].truncated = true
+            }
+            if records[index].stderr.count > Self.maxStreamCharacters {
+                records[index].stderr = String(records[index].stderr.suffix(Self.maxStreamCharacters))
+                records[index].truncated = true
+            }
+            while records.count > 1 && records.reduce(0, { $0 + $1.stdout.count + $1.stderr.count }) > Self.maxTotalCharacters {
+                records.removeFirst()
+            }
+        case "finished":
+            records[index].state = event.exitCode == nil ? .unconfirmed : .completed
+            records[index].exitCode = event.exitCode ?? -1
+            records[index].duration = event.durationMilliseconds
+            records[index].error = event.error.map { [$0.message, $0.details].compactMap { $0 }.joined(separator: "\n") }
+            records[index].progress = nil
+        default: return
+        }
+        dirty = true
+    }
+
+    private func remoteOutcome(for event: GitExecutionEvent) -> GitRemoteOutcome {
+        // Resolve collection defaults before counts to keep Swift 6.2 type
+        // inference bounded and preserve counts supplied for truncated lists.
+        let updatedReferences: [String] = event.updatedReferences ?? []
+        let deletedReferences: [String] = event.deletedReferences ?? []
+        let updatedCount: Int = event.updatedReferenceCount ?? updatedReferences.count
+        let deletedCount: Int = event.deletedReferenceCount ?? deletedReferences.count
+        return GitRemoteOutcome(
+            remote: event.remote ?? "", succeeded: event.succeeded ?? false,
+            updatedReferences: updatedReferences, deletedReferences: deletedReferences,
+            updatedCount: updatedCount, deletedCount: deletedCount,
+            truncated: event.referencesTruncated ?? false,
+            referencesAvailable: event.referencesAvailable ?? true)
     }
 
     package func drainChallenges() -> [GitAuthenticationChallenge] {
