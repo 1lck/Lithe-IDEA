@@ -10,6 +10,14 @@ inputs:
     description: Restore Cargo crate archives.
     required: false
     default: "false"
+  cargo-build:
+    description: Cache macOS Rust compilation outputs in addition to crate archives.
+    required: false
+    default: "false"
+  cargo-build-architecture:
+    description: Partition compilation caches by arm64, x86_64, or universal packaging.
+    required: false
+    default: "universal"
   jdtls:
     description: Restore JDTLS and Lombok downloads.
     required: false
@@ -19,7 +27,7 @@ inputs:
     required: false
     default: "false"
   jdk-architecture:
-    description: Target JDK architecture, either arm64 or x86_64.
+    description: Target JDK architecture, arm64, x86_64, or universal for both.
     required: false
     default: ""
   restore-only:
@@ -46,8 +54,8 @@ runs:
         JDK_ARCHITECTURE: ${{ inputs.jdk-architecture }}
       run: |
         case "$JDK_ARCHITECTURE" in
-          arm64|x86_64) ;;
-          *) print -u2 -- "jdk-architecture must be arm64 or x86_64 when the JDK cache is enabled"; exit 2 ;;
+          arm64|x86_64|universal) ;;
+          *) print -u2 -- "jdk-architecture must be arm64, x86_64, or universal when the JDK cache is enabled"; exit 2 ;;
         esac
 
     - name: Restore SwiftPM repositories
@@ -184,3 +192,62 @@ runs:
       if: inputs.swiftpm == 'true'
       shell: zsh {0}
       run: "$GITHUB_WORKSPACE/scripts/prepare-macos-dependencies.sh"
+
+    - name: Resolve Cargo compilation cache identity
+      id: cargo_build_identity
+      if: inputs.cargo-build == 'true'
+      shell: bash
+      env:
+        BUILD_ARCHITECTURE: ${{ inputs.cargo-build-architecture }}
+      run: |
+        case "$BUILD_ARCHITECTURE" in
+          arm64|x86_64|universal) ;;
+          *) echo "Unsupported Cargo cache architecture: $BUILD_ARCHITECTURE" >&2; exit 2 ;;
+        esac
+        identity=$({
+          rustc -Vv
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+          sw_vers -productVersion
+          printf '%s\n' "${MACOSX_DEPLOYMENT_TARGET:-13.0}" "${RUSTFLAGS:-}"
+        } | shasum -a 256 | cut -d ' ' -f 1)
+        echo "identity=$identity" >> "$GITHUB_OUTPUT"
+
+    - name: Restore Cargo compilation outputs
+      id: cargo_build
+      if: inputs.cargo-build == 'true' && inputs.restore-only != 'true'
+      continue-on-error: true
+      uses: actions/cache@v6
+      with:
+        # Core uses target/macos; database helpers use target directly. Include
+        # both layouts, while leaving final executables for Cargo to regenerate.
+        path: |
+          rust/target/**/.fingerprint
+          rust/target/**/build
+          rust/target/**/deps
+        key: macos-cargo-build-v1-${{ runner.arch }}-${{ steps.cargo_build_identity.outputs.identity }}-${{ inputs.cargo-build-architecture }}-${{ hashFiles('rust/Cargo.lock', 'rust/**/Cargo.toml', 'rust/.cargo/**', 'scripts/build-rust-core.sh', 'scripts/build-database-*.sh') }}
+        restore-keys: |
+          macos-cargo-build-v1-${{ runner.arch }}-${{ steps.cargo_build_identity.outputs.identity }}-${{ inputs.cargo-build-architecture }}-
+          macos-cargo-build-v1-${{ runner.arch }}-${{ steps.cargo_build_identity.outputs.identity }}-universal-
+
+    - name: Restore Cargo compilation outputs without saving
+      id: cargo_build_restore
+      if: inputs.cargo-build == 'true' && inputs.restore-only == 'true'
+      continue-on-error: true
+      uses: actions/cache/restore@v6
+      with:
+        path: |
+          rust/target/**/.fingerprint
+          rust/target/**/build
+          rust/target/**/deps
+        key: macos-cargo-build-v1-${{ runner.arch }}-${{ steps.cargo_build_identity.outputs.identity }}-${{ inputs.cargo-build-architecture }}-${{ hashFiles('rust/Cargo.lock', 'rust/**/Cargo.toml', 'rust/.cargo/**', 'scripts/build-rust-core.sh', 'scripts/build-database-*.sh') }}
+        restore-keys: |
+          macos-cargo-build-v1-${{ runner.arch }}-${{ steps.cargo_build_identity.outputs.identity }}-${{ inputs.cargo-build-architecture }}-
+          macos-cargo-build-v1-${{ runner.arch }}-${{ steps.cargo_build_identity.outputs.identity }}-universal-
+
+    - name: Discard incomplete Cargo compilation cache
+      if: inputs.cargo-build == 'true' && (steps.cargo_build.outcome == 'failure' || steps.cargo_build_restore.outcome == 'failure')
+      shell: bash
+      run: |
+        echo "::warning::Cargo compilation cache restore failed; rebuilding from verified crate archives."
+        rm -rf -- "$GITHUB_WORKSPACE/rust/target"
