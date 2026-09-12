@@ -85,15 +85,19 @@ enum LineEditingOperations {
         if allCommented {
             positionEdits = nonBlank.map { info in
                 let nsContent = info.content as NSString
-                let tokenLocation = info.contentStart + info.firstContentOffset
-                // 去注释时同时移除注释符后紧跟的一个空格
+                // allCommented 已保证 token 紧跟在行首空白之后；
+                // 空格检测必须用内容串自身的下标，避免与文档坐标混用越界
                 var removedLength = tokenLength
-                let afterToken = tokenLocation + tokenLength
-                if afterToken < info.contentStart + (info.content as NSString).length,
-                   nsContent.character(at: afterToken) == unichar(UnicodeScalar(" ").value) {
+                let afterTokenInContent = info.firstContentOffset + tokenLength
+                if afterTokenInContent < nsContent.length,
+                   nsContent.character(at: afterTokenInContent) == unichar(UnicodeScalar(" ").value) {
                     removedLength += 1
                 }
-                return PositionEdit(position: tokenLocation, removedLength: removedLength, inserted: "")
+                return PositionEdit(
+                    position: info.contentStart + info.firstContentOffset,
+                    removedLength: removedLength,
+                    inserted: ""
+                )
             }
         } else {
             positionEdits = nonBlank.map { info in

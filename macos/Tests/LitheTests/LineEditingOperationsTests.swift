@@ -388,3 +388,96 @@ struct LineEditingOperationsTests {
         #expect(LineEditingOperations.lineCommentToken(forExtension: "") == nil)
     }
 }
+
+extension LineEditingOperationsTests {
+    /// 模拟编辑器管线：把 Edit 应用到整篇文档
+    private func apply(
+        _ edit: LineEditingOperations.Edit,
+        to source: String
+    ) -> String {
+        (source as NSString).replacingCharacters(in: edit.replacedRange, with: edit.text)
+    }
+
+    // Cmd+/ 按两次必须还原原文（回归：去注释分支曾用文档坐标索引行内容，
+    // 非首行时越界导致二次按压不生效）
+
+    @Test
+    func toggleTwiceRestoresOriginalSingleLine() {
+        let original = "let x = 1"
+        let first = LineEditingOperations.toggleLineComment(
+            in: original,
+            selection: NSRange(location: 2, length: 0),
+            token: "//"
+        )!
+        #expect(apply(first, to: original) == "// let x = 1")
+
+        let applied = apply(first, to: original)
+        let second = LineEditingOperations.toggleLineComment(
+            in: applied,
+            selection: first.selection,
+            token: "//"
+        )!
+        #expect(apply(second, to: applied) == original)
+    }
+
+    @Test
+    func toggleTwiceRestoresOriginalIndentedLine() {
+        let original = "    let x = 1"
+        let first = LineEditingOperations.toggleLineComment(
+            in: original,
+            selection: NSRange(location: 6, length: 0),
+            token: "//"
+        )!
+        #expect(apply(first, to: original) == "    // let x = 1")
+
+        let applied = apply(first, to: original)
+        let second = LineEditingOperations.toggleLineComment(
+            in: applied,
+            selection: first.selection,
+            token: "//"
+        )!
+        #expect(apply(second, to: applied) == original)
+    }
+
+    /// 回归用例：切换文档中部的行（非首行）。去注释分支曾以文档坐标
+    /// 索引行内容字符串，命中此场景即越界。
+    @Test
+    func toggleTwiceRestoresOriginalForNonFirstLine() {
+        let original = "func f() {\n    let x = 1\n}"
+        let caret = (original as NSString).length - 3
+        let first = LineEditingOperations.toggleLineComment(
+            in: original,
+            selection: NSRange(location: caret, length: 0),
+            token: "//"
+        )!
+        #expect(apply(first, to: original) == "func f() {\n    // let x = 1\n}")
+
+        let applied = apply(first, to: original)
+        let second = LineEditingOperations.toggleLineComment(
+            in: applied,
+            selection: first.selection,
+            token: "//"
+        )!
+        #expect(apply(second, to: applied) == original)
+    }
+
+    @Test
+    func toggleTwiceRestoresOriginalMultiLine() {
+        let original = "a\nbb\nccc"
+        let first = LineEditingOperations.toggleLineComment(
+            in: original,
+            selection: NSRange(location: 3, length: 4),
+            token: "//"
+        )!
+        // 选区终点在 ccc 行中间，覆盖到的两行整体切换
+        #expect(apply(first, to: original) == "a\n// bb\n// ccc")
+
+        let applied = apply(first, to: original)
+        let second = LineEditingOperations.toggleLineComment(
+            in: applied,
+            selection: first.selection,
+            token: "//"
+        )!
+        #expect(apply(second, to: applied) == original)
+    }
+}

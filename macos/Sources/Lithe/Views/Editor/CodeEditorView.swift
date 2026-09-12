@@ -2295,17 +2295,37 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
             return true
         }
         if isEditable,
-           handleLineEditingShortcut(modifiers: modifiers, character: character) {
+           handleLineEditingShortcut(
+               modifiers: modifiers,
+               character: character,
+               keyCode: event.keyCode
+           ) {
             return true
         }
         return super.performKeyEquivalent(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        // 方向键不进入 performKeyEquivalent 等价键循环，必须在 keyDown
+        // 拦截，否则会落回系统默认的“按段落扩展选区”行为
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if isEditable,
+           handleLineEditingShortcut(
+               modifiers: modifiers,
+               character: event.charactersIgnoringModifiers,
+               keyCode: event.keyCode
+           ) {
+            return
+        }
+        super.keyDown(with: event)
     }
 
     /// 行级编辑快捷键：Cmd+/ 切换行注释、Cmd+D 复制行/选区、
     /// Option+Shift+↑/↓ 上下移动行；未命中的按键交给默认处理。
     private func handleLineEditingShortcut(
         modifiers: NSEvent.ModifierFlags,
-        character: String?
+        character: String?,
+        keyCode: UInt16
     ) -> Bool {
         if modifiers == .command {
             if character == "/", lineCommentToken != nil {
@@ -2318,21 +2338,21 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
             }
             return false
         }
+        // 方向键用 keyCode 判断，与键盘布局无关
         guard modifiers == [.option, .shift] else { return false }
-        switch character {
-        case Self.upArrowCharacter:
+        if keyCode == Self.upArrowKeyCode {
             performMoveLine(up: true)
             return true
-        case Self.downArrowCharacter:
+        }
+        if keyCode == Self.downArrowKeyCode {
             performMoveLine(up: false)
             return true
-        default:
-            return false
         }
+        return false
     }
 
-    private static let upArrowCharacter = String(UnicodeScalar(NSEvent.SpecialKey.upArrow.rawValue)!)
-    private static let downArrowCharacter = String(UnicodeScalar(NSEvent.SpecialKey.downArrow.rawValue)!)
+    private static let upArrowKeyCode: UInt16 = 126
+    private static let downArrowKeyCode: UInt16 = 125
 
     func performToggleLineComment() {
         guard let token = lineCommentToken else { return }
