@@ -757,6 +757,9 @@ struct CodeEditorView: NSViewRepresentable {
             NSRange(location: selectionLocation, length: selectionLength)
         )
         textView.isEditable = !document.isReadOnly
+        textView.lineCommentToken = LineEditingOperations.lineCommentToken(
+            forExtension: document.url.pathExtension
+        )
         textView.isSelectable = true
         textView.onWindowAttached = { [weak coordinator = context.coordinator] in
             coordinator?.requestInitialFocusIfNeeded()
@@ -2150,6 +2153,8 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         }
     }
     var onPasteImage: (() -> Bool)?
+    /// 当前行注释符，由文档扩展名决定；nil 表示未知类型，Cmd+/ 不拦截
+    var lineCommentToken: String?
 
     private var findMatchRanges: [NSRange] = []
     private var currentFindMatchIndex = 0
@@ -2337,7 +2342,128 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
             requestLanguageCompletions()
             return true
         }
+        if isEditable,
+           handleLineEditingShortcut(
+               modifiers: modifiers,
+               character: character,
+               keyCode: event.keyCode
+           ) {
+            return true
+        }
         return super.performKeyEquivalent(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        // 方向键不进入 performKeyEquivalent 等价键循环，必须在 keyDown
+        // 拦截，否则会落回系统默认的“按段落扩展选区”行为
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if isEditable,
+           handleLineEditingShortcut(
+               modifiers: modifiers,
+               character: event.charactersIgnoringModifiers,
+               keyCode: event.keyCode
+           ) {
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    /// 行级编辑快捷键：Cmd+/ 切换行注释、Cmd+D 复制行/选区、
+    /// Option+Shift+↑/↓ 上下移动行；未命中的按键交给默认处理。
+    private func handleLineEditingShortcut(
+        modifiers: NSEvent.ModifierFlags,
+        character: String?,
+        keyCode: UInt16
+    ) -> Bool {
+        guard isEditable,
+              let kind = Self.lineEditingShortcut(
+                  modifiers: modifiers,
+                  character: character,
+                  keyCode: keyCode
+              ) else { return false }
+        switch kind {
+        case .toggleLineComment:
+            guard lineCommentToken != nil else { return false }
+            performToggleLineComment()
+        case .duplicate:
+            performDuplicateLine()
+        case .moveUp:
+            performMoveLine(up: true)
+        case .moveDown:
+            performMoveLine(up: false)
+        }
+        return true
+    }
+
+    enum LineEditingShortcutKind: Equatable {
+        case toggleLineComment
+        case duplicate
+        case moveUp
+        case moveDown
+    }
+
+    /// 判断按键组合对应的行级编辑操作；不匹配返回 nil。
+    static func lineEditingShortcut(
+        modifiers: NSEvent.ModifierFlags,
+        character: String?,
+        keyCode: UInt16
+    ) -> LineEditingShortcutKind? {
+        // 方向键等功能键事件会附带 .function（数字小键盘键还有
+        // .numericPad）标志位，必须先归一化，否则严格相等永远不匹配
+        let modifiers = modifiers
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.function, .numericPad])
+        if modifiers == .command {
+            if character == "/" { return .toggleLineComment }
+            if character?.lowercased() == "d" { return .duplicate }
+            return nil
+        }
+        // 方向键用 keyCode 判断，与键盘布局无关
+        guard modifiers == [.option, .shift] else { return nil }
+        if keyCode == Self.upArrowKeyCode { return .moveUp }
+        if keyCode == Self.downArrowKeyCode { return .moveDown }
+        return nil
+    }
+
+    private static let upArrowKeyCode: UInt16 = 126
+    private static let downArrowKeyCode: UInt16 = 125
+
+    func performToggleLineComment() {
+        guard let token = lineCommentToken else { return }
+        performLineEditingOperation(
+            LineEditingOperations.toggleLineComment(
+                in: string,
+                selection: selectedRange(),
+                token: token
+            )
+        )
+    }
+
+    func performDuplicateLine() {
+        performLineEditingOperation(
+            LineEditingOperations.duplicate(in: string, selection: selectedRange())
+        )
+    }
+
+    func performMoveLine(up: Bool) {
+        performLineEditingOperation(
+            LineEditingOperations.moveLines(
+                in: string,
+                selection: selectedRange(),
+                direction: up ? .up : .down
+            )
+        )
+    }
+
+    /// 行级编辑通过单次 shouldChangeText + didChangeText 完成，形成单个
+    /// 撤销步骤，并复用 textDidChange 的文档同步、行索引与高亮刷新链路。
+    private func performLineEditingOperation(_ edit: LineEditingOperations.Edit?) {
+        guard isEditable, let edit else { return }
+        guard shouldChangeText(in: edit.replacedRange, replacementString: edit.text) else { return }
+        textStorage?.replaceCharacters(in: edit.replacedRange, with: edit.text)
+        didChangeText()
+        setSelectedRange(edit.selection)
+        scrollRangeToVisible(edit.selection)
     }
 
     static func isStandardPasteShortcut(_ event: NSEvent) -> Bool {
