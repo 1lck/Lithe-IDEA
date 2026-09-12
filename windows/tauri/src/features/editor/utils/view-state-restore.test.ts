@@ -1,5 +1,11 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { scheduleCachedViewStateRestore } from "./view-state-restore";
+import {
+  clearNativeEditorViewState,
+  persistEditorViewportState,
+  resolveScrollToPersist,
+  restoreNativeEditorViewState,
+  scheduleCachedViewStateRestore,
+} from "./view-state-restore";
 
 const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
 const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
@@ -31,6 +37,7 @@ beforeAll(() => {
 
 afterEach(() => {
   animationFrames.clear();
+  clearNativeEditorViewState();
 });
 
 afterAll(() => {
@@ -96,5 +103,92 @@ describe("scheduleCachedViewStateRestore", () => {
     });
 
     cancelRestore();
+  });
+
+  test("replays restoreEditor after layout when the surface stays current", () => {
+    const layouts: number[] = [];
+    const restores: number[] = [];
+    let restoreCompleted = false;
+
+    scheduleCachedViewStateRestore({
+      editor: {
+        layout: () => {
+          layouts.push(layouts.length);
+        },
+        setScrollPosition: () => {
+          throw new Error("cached scroll should not be applied when restoreEditor is provided");
+        },
+      },
+      cachedScroll: { scrollTop: 40, scrollLeft: 4 },
+      restoreEditor: () => {
+        restores.push(restores.length);
+      },
+      isEditorCurrent: () => true,
+      isNavigationRevisionCurrent: () => true,
+      focus: () => undefined,
+      onRestoreComplete: () => {
+        restoreCompleted = true;
+      },
+    });
+
+    runNextAnimationFrame();
+    expect(layouts).toEqual([0]);
+    expect(restores).toEqual([0]);
+
+    runNextAnimationFrame();
+    expect(restoreCompleted).toBe(true);
+    expect(restores).toEqual([0, 1]);
+  });
+});
+
+describe("resolveScrollToPersist", () => {
+  test("keeps the cached viewport when a hidden layout reports the origin", () => {
+    expect(
+      resolveScrollToPersist({ scrollTop: 0, scrollLeft: 0 }, { scrollTop: 640, scrollLeft: 24 }),
+    ).toEqual({ scrollTop: 640, scrollLeft: 24 });
+  });
+
+  test("keeps a genuine origin when the cache is already at the origin", () => {
+    expect(
+      resolveScrollToPersist({ scrollTop: 0, scrollLeft: 0 }, { scrollTop: 0, scrollLeft: 0 }),
+    ).toEqual({ scrollTop: 0, scrollLeft: 0 });
+  });
+
+  test("prefers the live viewport after the user scrolls", () => {
+    expect(
+      resolveScrollToPersist({ scrollTop: 120, scrollLeft: 8 }, { scrollTop: 640, scrollLeft: 24 }),
+    ).toEqual({ scrollTop: 120, scrollLeft: 8 });
+  });
+});
+
+describe("native editor view state", () => {
+  test("restores the snapshot captured while switching away from a file tab", () => {
+    let nativeState: { firstVisibleLine: number } | null = { firstVisibleLine: 80 };
+    const captured: { state: { firstVisibleLine: number } | null } = { state: null };
+    const handle = {
+      save: () => nativeState,
+      restore: (state: unknown) => {
+        captured.state = state as { firstVisibleLine: number };
+      },
+    };
+
+    persistEditorViewportState({
+      viewKey: "pane-a:buffer-a",
+      liveScroll: { scrollTop: 960, scrollLeft: 16 },
+      cached: { scrollTop: 960, scrollLeft: 16 },
+      native: handle,
+    });
+
+    nativeState = { firstVisibleLine: 1 };
+    const scroll = persistEditorViewportState({
+      viewKey: "pane-a:buffer-a",
+      liveScroll: { scrollTop: 0, scrollLeft: 0 },
+      cached: { scrollTop: 960, scrollLeft: 16 },
+      native: handle,
+    });
+
+    expect(scroll).toEqual({ scrollTop: 960, scrollLeft: 16 });
+    expect(restoreNativeEditorViewState("pane-a:buffer-a", handle)).toBe(true);
+    expect(captured.state).toEqual({ firstVisibleLine: 80 });
   });
 });
