@@ -9,15 +9,18 @@ import {
   type GitRepositorySetup,
 } from "../api/git-setup-api";
 import { useRepositoryStore } from "../stores/git-repository.store";
+import { GitRepositoryErrorNotice } from "./git-repository-error-notice";
 
 export function GitRepositoryEmptyState({
   root,
   historyError,
   onRefresh,
+  context = "history",
 }: {
   root: string;
   historyError?: string | null;
   onRefresh: () => Promise<unknown>;
+  context?: "history" | "changes";
 }) {
   const { t } = useTranslation();
   const [state, setState] = useState<GitRepositorySetup | null>(null);
@@ -48,7 +51,7 @@ export function GitRepositoryEmptyState({
       })
       .catch((failure: unknown) => {
         if (request === generation.current && currentRoot.current === root)
-          setError(String(failure));
+          setError(failure instanceof Error ? failure.message : String(failure));
       })
       .finally(() => {
         if (request === generation.current && currentRoot.current === root) setBusy(false);
@@ -79,7 +82,8 @@ export function GitRepositoryEmptyState({
       await useRepositoryStore.getState().actions.refreshWorkspaceRepositories();
       if (request === generation.current && currentRoot.current === root) await onRefresh();
     } catch (failure) {
-      if (request === generation.current && currentRoot.current === root) setError(String(failure));
+      if (request === generation.current && currentRoot.current === root)
+        setError(failure instanceof Error ? failure.message : String(failure));
     } finally {
       if (request === generation.current && currentRoot.current === root) setBusy(false);
     }
@@ -98,7 +102,9 @@ export function GitRepositoryEmptyState({
                   ? "git.setup.notRepository"
                   : !state.hasCommits
                     ? "git.setup.noCommits"
-                    : "git.log.noMatch",
+                    : context === "changes"
+                      ? "git.statusLoadFailed"
+                      : "git.log.noMatch",
               )}
             </p>
             {!state.isRepository && (
@@ -130,9 +136,7 @@ export function GitRepositoryEmptyState({
         )
       )}
       {(error || (state?.hasCommits && historyError)) && (
-        <p role="alert" className="text-destructive">
-          {error ?? historyError}
-        </p>
+        <GitRepositoryErrorNotice error={error ?? historyError ?? ""} root={root} />
       )}
       {!busy && (
         <Button

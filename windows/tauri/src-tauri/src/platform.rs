@@ -111,11 +111,20 @@ fn core_response(
     if preserve_history_rewrite {
         return Ok(json!({ "exitCode": -1, "operationError": error, "warnings": [] }));
     }
-    Err(error
+    let message = error
         .get("message")
         .and_then(Value::as_str)
-        .unwrap_or("Shared core operation failed")
-        .to_string())
+        .unwrap_or("Shared core operation failed");
+    // Keep the diagnostic that explains failures such as Git ownership checks;
+    // the summary alone cannot tell the user why their repository is unreadable.
+    let details = error
+        .get("details")
+        .and_then(Value::as_str)
+        .filter(|details| !details.trim().is_empty());
+    Err(match details {
+        Some(details) => format!("{message}: {}", details.trim()),
+        None => message.to_string(),
+    })
 }
 
 fn is_reviewed_history_rewrite(command: &str, args: &Value) -> bool {
@@ -717,6 +726,27 @@ mod tests {
         translate,
     };
     use serde_json::json;
+
+    #[test]
+    fn core_failure_preserves_repository_access_diagnostics() {
+        let details = "fatal: detected dubious ownership in repository at '//server/share/repo'";
+        let failure = json!({ "ok": false, "error": {
+            "code": "process_failed", "message": "Git setup operation failed", "details": details
+        }});
+        assert_eq!(
+            core_response(&failure, false, false).unwrap_err(),
+            format!("Git setup operation failed: {details}")
+        );
+        for details in [serde_json::Value::Null, json!(""), json!("   ")] {
+            let failure = json!({ "ok": false, "error": {
+                "code": "process_failed", "message": "Git setup operation failed", "details": details
+            }});
+            assert_eq!(
+                core_response(&failure, false, false).unwrap_err(),
+                "Git setup operation failed"
+            );
+        }
+    }
 
     #[test]
     fn reviewed_history_keeps_partial_mutation_recovery_and_stable_failures() {
