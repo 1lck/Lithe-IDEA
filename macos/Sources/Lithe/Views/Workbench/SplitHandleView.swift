@@ -131,14 +131,16 @@ struct SplitHandleView: View {
     @ViewBuilder
     private var dividerLine: some View {
         if showsIdleDivider {
+            let color = isDragging ? LitheTheme.primaryText
+                : (isHovering ? LitheTheme.secondaryText : LitheTheme.divider)
             if axis == .horizontal {
                 Rectangle()
-                    .fill(LitheTheme.divider)
+                    .fill(color)
                     .frame(width: 1)
                     .frame(maxHeight: .infinity)
             } else {
                 Rectangle()
-                    .fill(LitheTheme.divider)
+                    .fill(color)
                     .frame(height: 1)
                     .frame(maxWidth: .infinity)
             }
