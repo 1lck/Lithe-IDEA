@@ -2327,28 +2327,54 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         character: String?,
         keyCode: UInt16
     ) -> Bool {
+        guard isEditable,
+              let kind = Self.lineEditingShortcut(
+                  modifiers: modifiers,
+                  character: character,
+                  keyCode: keyCode
+              ) else { return false }
+        switch kind {
+        case .toggleLineComment:
+            guard lineCommentToken != nil else { return false }
+            performToggleLineComment()
+        case .duplicate:
+            performDuplicateLine()
+        case .moveUp:
+            performMoveLine(up: true)
+        case .moveDown:
+            performMoveLine(up: false)
+        }
+        return true
+    }
+
+    enum LineEditingShortcutKind: Equatable {
+        case toggleLineComment
+        case duplicate
+        case moveUp
+        case moveDown
+    }
+
+    /// 判断按键组合对应的行级编辑操作；不匹配返回 nil。
+    static func lineEditingShortcut(
+        modifiers: NSEvent.ModifierFlags,
+        character: String?,
+        keyCode: UInt16
+    ) -> LineEditingShortcutKind? {
+        // 方向键等功能键事件会附带 .function（数字小键盘键还有
+        // .numericPad）标志位，必须先归一化，否则严格相等永远不匹配
+        let modifiers = modifiers
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.function, .numericPad])
         if modifiers == .command {
-            if character == "/", lineCommentToken != nil {
-                performToggleLineComment()
-                return true
-            }
-            if character?.lowercased() == "d" {
-                performDuplicateLine()
-                return true
-            }
-            return false
+            if character == "/" { return .toggleLineComment }
+            if character?.lowercased() == "d" { return .duplicate }
+            return nil
         }
         // 方向键用 keyCode 判断，与键盘布局无关
-        guard modifiers == [.option, .shift] else { return false }
-        if keyCode == Self.upArrowKeyCode {
-            performMoveLine(up: true)
-            return true
-        }
-        if keyCode == Self.downArrowKeyCode {
-            performMoveLine(up: false)
-            return true
-        }
-        return false
+        guard modifiers == [.option, .shift] else { return nil }
+        if keyCode == Self.upArrowKeyCode { return .moveUp }
+        if keyCode == Self.downArrowKeyCode { return .moveDown }
+        return nil
     }
 
     private static let upArrowKeyCode: UInt16 = 126

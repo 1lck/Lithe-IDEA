@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import Lithe
@@ -479,5 +480,133 @@ extension LineEditingOperationsTests {
             token: "//"
         )!
         #expect(apply(second, to: applied) == original)
+    }
+}
+
+@MainActor
+@Suite("Editor line editing shortcuts")
+struct LineEditingShortcutTests {
+    private func keyDownEvent(
+        modifierFlags: NSEvent.ModifierFlags,
+        keyCode: UInt16,
+        characters: String,
+        charactersIgnoringModifiers: String
+    ) -> NSEvent {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
+            isARepeat: false,
+            keyCode: keyCode
+        )!
+    }
+
+    /// 回归：方向键是功能键，事件 modifierFlags 附带 .function 位，
+    /// 严格相等比较曾永远匹配不上，Option+Shift+↑/↓ 只会扩展选区
+    @Test
+    func optionShiftArrowsMatchDespiteFunctionFlag() {
+        let up = keyDownEvent(
+            modifierFlags: [.function, .option, .shift],
+            keyCode: 126,
+            characters: "\u{F700}",
+            charactersIgnoringModifiers: "\u{F700}"
+        )
+        #expect(
+            CodeTextView.lineEditingShortcut(
+                modifiers: up.modifierFlags,
+                character: up.charactersIgnoringModifiers,
+                keyCode: up.keyCode
+            ) == .moveUp
+        )
+
+        let down = keyDownEvent(
+            modifierFlags: [.function, .numericPad, .option, .shift],
+            keyCode: 125,
+            characters: "\u{F701}",
+            charactersIgnoringModifiers: "\u{F701}"
+        )
+        #expect(
+            CodeTextView.lineEditingShortcut(
+                modifiers: down.modifierFlags,
+                character: down.charactersIgnoringModifiers,
+                keyCode: down.keyCode
+            ) == .moveDown
+        )
+    }
+
+    @Test
+    func optionShiftArrowsMatchWithoutFunctionFlag() {
+        #expect(
+            CodeTextView.lineEditingShortcut(
+                modifiers: [.option, .shift],
+                character: "\u{F700}",
+                keyCode: 126
+            ) == .moveUp
+        )
+        #expect(
+            CodeTextView.lineEditingShortcut(
+                modifiers: [.option, .shift],
+                character: "\u{F701}",
+                keyCode: 125
+            ) == .moveDown
+        )
+    }
+
+    @Test
+    func commandSlashAndCommandDMatch() {
+        #expect(
+            CodeTextView.lineEditingShortcut(
+                modifiers: .command,
+                character: "/",
+                keyCode: 44
+            ) == .toggleLineComment
+        )
+        #expect(
+            CodeTextView.lineEditingShortcut(
+                modifiers: .command,
+                character: "d",
+                keyCode: 2
+            ) == .duplicate
+        )
+    }
+
+    @Test
+    func nonMatchingCombinationsReturnNil() {
+        // 仅 Shift 或仅 Option 的方向键保持系统默认行为
+        #expect(
+            CodeTextView.lineEditingShortcut(
+                modifiers: [.function, .shift],
+                character: "\u{F700}",
+                keyCode: 126
+            ) == nil
+        )
+        #expect(
+            CodeTextView.lineEditingShortcut(
+                modifiers: [.function, .option],
+                character: "\u{F700}",
+                keyCode: 126
+            ) == nil
+        )
+        // 无修饰键的方向键
+        #expect(
+            CodeTextView.lineEditingShortcut(
+                modifiers: [.function],
+                character: "\u{F700}",
+                keyCode: 126
+            ) == nil
+        )
+        // 其他 Cmd 组合
+        #expect(
+            CodeTextView.lineEditingShortcut(
+                modifiers: .command,
+                character: "x",
+                keyCode: 7
+            ) == nil
+        )
     }
 }
