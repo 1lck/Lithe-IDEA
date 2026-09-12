@@ -7,6 +7,86 @@ import Testing
 
 @MainActor
 struct LanguageIntelligenceModuleTests {
+    @Test(arguments: ["Main.java", "main.go", "main.rs"])
+    func sessionStartupChecksCurrentPreferenceForEachWorkspace(fileName: String) throws {
+        let root = URL(fileURLWithPath: "/workspace/disabled-lsp", isDirectory: true)
+        let otherRoot = URL(fileURLWithPath: "/workspace/enabled-lsp", isDirectory: true)
+        let file = root.appendingPathComponent(fileName)
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: file))
+        let session = WorkspaceStateLanguageServerSession()
+        var disabled = false
+        let manager = LanguageToolingSessionManager(
+            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)],
+            isLanguageServerEnabled: { providerID, workspaceURL in
+                !(disabled && providerID == descriptor.id && workspaceURL == root)
+            }
+        )
+        defer { manager.stopAllLanguageServers() }
+
+        try manager.startLanguageServer(providerID: descriptor.id, rootURL: root)
+        #expect(session.startCallCount == 1)
+        disabled = true
+        let error = LanguageToolingSessionError.providerDisabled(descriptor.displayName)
+        // Check before reusing an existing session as well as before creating one.
+        #expect(throws: error) {
+            try manager.synchronizeLanguageServer(for: file, text: "", rootURL: root)
+        }
+        manager.stopLanguageServer(providerID: descriptor.id)
+        #expect(throws: error) {
+            try manager.startLanguageServer(
+                providerID: descriptor.id,
+                rootURL: root.appendingPathComponent("child/..", isDirectory: true)
+            )
+        }
+        #expect(session.startCallCount == 1)
+
+        try manager.startLanguageServer(providerID: descriptor.id, rootURL: otherRoot)
+        #expect(session.startCallCount == 2)
+        disabled = false
+        try manager.startLanguageServer(providerID: descriptor.id, rootURL: root)
+        #expect(session.startCallCount == 3)
+    }
+
+    @Test
+    func disabledJavaBlocksMavenReloadTestDiscoveryAndDebugStartup() async throws {
+        let root = URL(fileURLWithPath: "/workspace/java-disabled", isDirectory: true)
+        let file = root.appendingPathComponent("MainTest.java")
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: file))
+        let session = WorkspaceStateLanguageServerSession()
+        var enabled = true
+        let manager = LanguageToolingSessionManager(
+            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)],
+            isLanguageServerEnabled: { _, _ in enabled }
+        )
+        defer { manager.stopAllLanguageServers() }
+        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        #expect(session.startCallCount == 1)
+
+        enabled = false
+        manager.stopLanguageServer(providerID: "java")
+        // If the guard regresses, fail immediately at the fake start boundary
+        // instead of suspending forever waiting for a server readiness event.
+        session.startError = CancellationError()
+        let error = LanguageToolingSessionError.providerDisabled("Java")
+        await #expect(throws: error) {
+            try await manager.reloadJavaWorkspace(rootURL: root)
+        }
+        await #expect(throws: error) {
+            try await manager.discoverJavaTestItems(fileURL: file, rootURL: root)
+        }
+        await #expect(throws: error) {
+            try await manager.startJavaDebugServer(rootURL: root)
+        }
+        #expect(session.startCallCount == 1)
+        #expect(session.executedCommands.isEmpty)
+        #expect(manager.languageServerOperationIDs.isEmpty)
+
+        enabled = true
+        session.startError = nil
+        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        #expect(session.startCallCount == 2)
+    }
+
     @Test(arguments: [false, true])
     func mavenReloadWaitsForJavaImportAndCleansUpCancellation(cancel: Bool) async throws {
         let root = URL(fileURLWithPath: "/workspace/java-reload", isDirectory: true)
@@ -995,6 +1075,7 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
     private(set) var startedFingerprint: String?
     private(set) var startedMavenContext: MavenLaunchContext?
     private(set) var stopCallCount = 0
+    private(set) var startCallCount = 0
     var startError: Error?
     private(set) var executedCommands: [LanguageServerCommand] = []
     private var startWaiters: [UUID: CheckedContinuation<Void, Error>] = [:]
@@ -1019,6 +1100,7 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
         workspaceFingerprint: String?,
         mavenContext: MavenLaunchContext?
     ) throws {
+        startCallCount += 1
         if let startError { throw startError }
         startedFingerprint = workspaceFingerprint
         startedMavenContext = mavenContext
