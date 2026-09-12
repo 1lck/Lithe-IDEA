@@ -283,6 +283,32 @@ struct RunEntryPointTests {
         #expect(model.pendingRunAction == nil)
     }
 
+    @Test
+    func checkedBatchDefersTogetherAndAttemptsEveryUniqueConfiguration() async throws {
+        let workspace = try JavaWorkspaceFixture()
+        defer { workspace.remove() }
+        let operations = SequencedWorkspaceOperations.unavailableThenReady(workspace.snapshot)
+        let runConfigurations = ReadyRunConfigurationOperations()
+        let model = makeAppModel(workspaceOperations: operations, runConfigurationOperations: runConfigurations)
+        defer { model.closeProject() }
+        let ids = [ReadyRunConfigurationOperations.entryPoint.id, ReadyRunConfigurationOperations.serviceEntryPoint.id]
+
+        model.openProjectDirectly(workspace.root)
+        await model.performStartRunConfigurations(ids + [ids[0]])
+        #expect(model.pendingRunAction?.kind == .startConfigurations(ids.sorted()))
+        #expect(runConfigurations.launchPlanCallCount == 0)
+
+        await model.workspaceFeature.refreshCurrent()
+        #expect(await runConfigurations.launchPlanRequested(2))
+        #expect(model.pendingRunAction == nil)
+        #expect(runConfigurations.launchPlanCallCount == 2)
+        // The stub fails each launch plan: one failure must not prevent the
+        // remaining checked configuration from receiving its own output session.
+        let feature = try #require(model.runFeatureIfActive)
+        #expect(Set(feature.moduleSessions.map(\.configurationID)) == Set(ids))
+        #expect(feature.moduleSessions.allSatisfy { $0.exitCode == 1 && !$0.output.isEmpty })
+    }
+
     /// The Run panel's "Run All Services" button calls `runAllServiceConfigurations`,
     /// which must defer under a provisional inventory and remember that batch
     /// intent — not collapse into a generic `.run`.

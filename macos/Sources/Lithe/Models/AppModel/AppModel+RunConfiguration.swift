@@ -433,6 +433,49 @@ extension AppModel {
         showToolWindow(.run)
     }
 
+    func startRunConfigurations(_ configurationIDs: [String]) {
+        Task { [weak self] in
+            await self?.performStartRunConfigurations(configurationIDs)
+        }
+    }
+
+    /// A batch is one deferred intent. Launches use the current inventory and
+    /// retain existing sessions, including output from already running services.
+    func performStartRunConfigurations(_ configurationIDs: [String]) async {
+        let ids = Set(configurationIDs).sorted()
+        guard !ids.isEmpty, let identity = currentWorkspaceIdentity else { return }
+        guard let runFeature = await activateExecutionModule()?.runFeature else { return }
+        guard isCurrentWorkspace(identity) else { return }
+        switch await ensureRunProjectReady(runFeature, for: identity) {
+        case .ready:
+            clearPendingRunAction(for: identity)
+        case .waitingForSnapshot(let waitingIdentity):
+            deferRunAction(.startConfigurations(ids), for: waitingIdentity)
+            return
+        case .stale:
+            return
+        }
+        for id in ids {
+            guard isCurrentWorkspace(identity) else { return }
+            guard let configuration = runFeature.configurations.first(where: { $0.id == id }),
+                  !configuration.usesCurrentEditorFile,
+                  !runFeature.moduleSessions.contains(where: { $0.id == id && $0.isRunning })
+            else { continue }
+            let activated = await activateLanguageRunExtensionIfNeeded(
+                for: configuration,
+                currentFileURL: nil,
+                runFeature: runFeature
+            )
+            guard isCurrentWorkspace(identity) else { return }
+            guard activated,
+                  let current = runFeature.configurations.first(where: { $0.id == id }),
+                  !runFeature.moduleSessions.contains(where: { $0.id == id && $0.isRunning })
+            else { continue }
+            runFeature.startConfiguration(current)
+        }
+        showToolWindow(.run)
+    }
+
     func runAllServiceConfigurations() {
         Task { [weak self] in
             guard let self else { return }
