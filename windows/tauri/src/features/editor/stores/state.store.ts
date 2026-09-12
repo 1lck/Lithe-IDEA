@@ -92,7 +92,7 @@ class EditorViewStateCacheManager {
   }
 
   getCursor(bufferId: string): Position | null {
-    const cached = this.cache.get(bufferId);
+    const cached = this.getWithFallback(bufferId);
     if (!cached) return null;
     return { ...cached.cursor };
   }
@@ -113,12 +113,6 @@ class EditorViewStateCacheManager {
     if (viewKeySeparatorIndex >= 0) {
       const plainBufferId = bufferId.slice(viewKeySeparatorIndex + 1);
       return this.cache.get(plainBufferId) ?? null;
-    }
-
-    for (const [cachedKey, cachedState] of this.cache.entries()) {
-      if (cachedKey.endsWith(`:${bufferId}`)) {
-        return cachedState;
-      }
     }
 
     return null;
@@ -227,8 +221,11 @@ interface EditorState {
 
 interface EditorStateActions {
   // Cursor actions
-  setCursorPosition: (position: Position, options?: { ensureVisible?: boolean }) => void;
-  setSelection: (selection?: Range) => void;
+  setCursorPosition: (
+    position: Position,
+    options?: { ensureVisible?: boolean; viewKey?: string },
+  ) => void;
+  setSelection: (selection?: Range, viewKey?: string) => void;
   setCursorAndSelection: (position: Position, selection?: Range) => void;
   setDesiredColumn: (column?: number) => void;
   setCursorVisibility: (visible: boolean) => void;
@@ -248,7 +245,7 @@ interface EditorStateActions {
   clearSecondaryCursors: () => void;
 
   // Layout actions
-  setScroll: (scrollTop: number, scrollLeft: number) => void;
+  setScroll: (scrollTop: number, scrollLeft: number, viewKey?: string) => void;
   setScrollForBuffer: (bufferId: string | null, scrollTop: number, scrollLeft: number) => void;
   setViewportHeight: (height: number) => void;
 
@@ -302,8 +299,8 @@ export const useEditorStateStore = createSelectors(
         setCursorPosition: (position, options) => {
           const currentState = useEditorStateStore.getState();
           const { activeBufferId } = useBufferStore.getState();
-          const activeEditorViewKey = currentState.activeEditorViewKey;
-          const viewKey = activeEditorViewKey ?? activeBufferId;
+          const viewKey =
+            options?.viewKey ?? currentState.activeEditorViewKey ?? activeBufferId;
           if (viewKey) {
             viewStateCache.setCursor(viewKey, position);
           }
@@ -314,11 +311,11 @@ export const useEditorStateStore = createSelectors(
             ensureCursorVisible(position);
           }
         },
-        setSelection: (selection) => {
+        setSelection: (selection, viewKeyOverride) => {
           const currentState = useEditorStateStore.getState();
           const { activeBufferId } = useBufferStore.getState();
-          const activeEditorViewKey = currentState.activeEditorViewKey;
-          const viewKey = activeEditorViewKey ?? activeBufferId;
+          const viewKey =
+            viewKeyOverride ?? currentState.activeEditorViewKey ?? activeBufferId;
           if (viewKey) {
             viewStateCache.setSelection(viewKey, selection);
           }
@@ -494,11 +491,11 @@ export const useEditorStateStore = createSelectors(
           }),
 
         // Layout actions
-        setScroll: (scrollTop, scrollLeft) => {
+        setScroll: (scrollTop, scrollLeft, viewKeyOverride) => {
           const currentState = useEditorStateStore.getState();
           const { activeBufferId } = useBufferStore.getState();
-          const activeEditorViewKey = currentState.activeEditorViewKey;
-          const viewKey = activeEditorViewKey ?? activeBufferId;
+          const viewKey =
+            viewKeyOverride ?? currentState.activeEditorViewKey ?? activeBufferId;
           if (viewKey) {
             viewStateCache.setScroll(viewKey, scrollTop, scrollLeft);
           }
@@ -511,10 +508,11 @@ export const useEditorStateStore = createSelectors(
           if (bufferId) {
             viewStateCache.setScroll(bufferId, scrollTop, scrollLeft);
           }
-          // Only update global state if this is still the active buffer
+          // Only update global state if this is still the active editor view.
+          const currentState = useEditorStateStore.getState();
           const activeBufferId = useBufferStore.getState().activeBufferId;
-          if (bufferId === activeBufferId) {
-            const currentState = useEditorStateStore.getState();
+          const activeViewKey = currentState.activeEditorViewKey ?? activeBufferId;
+          if (bufferId === activeViewKey) {
             if (currentState.scrollTop !== scrollTop || currentState.scrollLeft !== scrollLeft) {
               set({ scrollTop, scrollLeft });
             }

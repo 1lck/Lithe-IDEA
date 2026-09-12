@@ -325,11 +325,20 @@ extension AppModel {
             return
         }
         guard isCurrentWorkspace(identity) else { return }
-        runFeature.runSelected(currentFileURL: activeDocument?.url)
+        if configuration.kind != .currentFile {
+            runFeature.startConfiguration(configuration)
+        } else {
+            runFeature.runSelected(currentFileURL: activeDocument?.url)
+        }
         showToolWindow(.run)
     }
 
     func restartSelectedRun() {
+        if let configuration = runFeatureIfActive?.selectedConfiguration,
+           configuration.kind != .currentFile {
+            startRunConfiguration(configuration)
+            return
+        }
         showToolWindow(.run)
         Task { [weak self] in
             guard let self else { return }
@@ -365,6 +374,36 @@ extension AppModel {
         }
     }
 
+    func startSelectedServiceConfigurations(_ configurations: [RunConfiguration]) {
+        guard !configurations.isEmpty else { return }
+        Task { [weak self] in
+            guard let self, let identity = currentWorkspaceIdentity else { return }
+            guard let runFeature = await activateExecutionModule()?.runFeature else { return }
+            guard isCurrentWorkspace(identity) else { return }
+            switch await ensureRunProjectReady(runFeature, for: identity) {
+            case .ready:
+                clearPendingRunAction(for: identity)
+            case .waitingForSnapshot(let waitingIdentity):
+                deferRunAction(.startSelectedServices(configurations), for: waitingIdentity)
+                return
+            case .stale:
+                return
+            }
+            for configuration in configurations {
+                guard configuration.execution == .service,
+                      await activateLanguageRunExtensionIfNeeded(
+                        for: configuration, currentFileURL: nil, runFeature: runFeature
+                      ),
+                      isCurrentWorkspace(identity) else { return }
+            }
+            for configuration in configurations {
+                guard isCurrentWorkspace(identity) else { return }
+                runFeature.startConfiguration(configuration)
+            }
+            showToolWindow(.run)
+        }
+    }
+
     /// Completes the entry workflow, including rejecting actions from an earlier workspace opening.
     func performStartRunConfiguration(_ configuration: RunConfiguration) async {
         guard let identity = currentWorkspaceIdentity else { return }
@@ -391,6 +430,7 @@ extension AppModel {
         ) else { return }
         guard isCurrentWorkspace(identity) else { return }
         runFeature.startConfiguration(configuration)
+        showToolWindow(.run)
     }
 
     func runAllServiceConfigurations() {
@@ -421,6 +461,14 @@ extension AppModel {
     }
 
     func stopSelectedRun() {
+        if let feature = runFeatureIfActive,
+           let configuration = feature.selectedConfiguration,
+           configuration.kind != .currentFile {
+            if let session = feature.moduleSessions.first(where: { $0.configurationID == configuration.id }) {
+                feature.stopModule(session)
+            }
+            return
+        }
         executionModuleCoordinator.stopFeatures(
             maven: nil,
             run: runFeatureIfActive

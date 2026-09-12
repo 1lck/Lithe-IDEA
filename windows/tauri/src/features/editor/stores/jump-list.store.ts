@@ -3,9 +3,13 @@ import { immer } from "zustand/middleware/immer";
 import { createWithEqualityFn } from "zustand/traditional";
 import { createSelectors } from "@/utils/zustand-selectors";
 
+type JumpListEntrySource = "cursor" | "explicit";
+type JumpListPosition = Omit<JumpListEntry, "timestamp">;
+
 export interface JumpListEntry {
   bufferId: string;
   filePath: string;
+  paneId?: string;
   line: number;
   column: number;
   offset: number;
@@ -14,24 +18,46 @@ export interface JumpListEntry {
   timestamp: number;
 }
 
+interface StoredJumpListEntry extends JumpListEntry {
+  source: JumpListEntrySource;
+}
+
 interface JumpListActions {
-  pushEntry: (entry: Omit<JumpListEntry, "timestamp">) => void;
-  goBack: (currentPosition?: Omit<JumpListEntry, "timestamp">) => JumpListEntry | null;
+  pushEntry: (entry: JumpListPosition) => void;
+  recordCursorEntry: (entry: JumpListPosition) => void;
+  goBack: (currentPosition?: JumpListPosition) => JumpListEntry | null;
   goForward: () => JumpListEntry | null;
+  rollbackNavigation: (entry: JumpListEntry, previousIndex: number, removePresent: boolean) => void;
   canGoBack: () => boolean;
   canGoForward: () => boolean;
   clear: () => void;
 }
 
 interface JumpListState {
-  entries: JumpListEntry[];
+  entries: StoredJumpListEntry[];
   currentIndex: number;
   maxEntries: number;
   actions: JumpListActions;
 }
 
 const DEFAULT_MAX_ENTRIES = 100;
-const DUPLICATE_LINE_THRESHOLD = 5;
+
+function withTimestamp(entry: JumpListPosition, source: JumpListEntrySource): StoredJumpListEntry {
+  return { ...entry, source, timestamp: Date.now() };
+}
+
+function truncateForwardEntries(state: JumpListState) {
+  if (state.currentIndex >= 0 && state.currentIndex < state.entries.length - 1) {
+    state.entries = state.entries.slice(0, state.currentIndex + 1);
+  }
+}
+
+function appendEntry(state: JumpListState, entry: StoredJumpListEntry) {
+  state.entries.push(entry);
+  if (state.entries.length > state.maxEntries) {
+    state.entries.shift();
+  }
+}
 
 export const useJumpListStore = createSelectors(
   createWithEqualityFn<JumpListState>()(
@@ -43,91 +69,99 @@ export const useJumpListStore = createSelectors(
       actions: {
         pushEntry: (entry) => {
           set((state) => {
-            const newEntry: JumpListEntry = {
-              ...entry,
-              timestamp: Date.now(),
-            };
+            const newEntry = withTimestamp(entry, "explicit");
 
-            // If we're in the middle of history, truncate future entries
-            if (state.currentIndex >= 0 && state.currentIndex < state.entries.length - 1) {
-              state.entries = state.entries.slice(0, state.currentIndex + 1);
-            }
+            // If we're in the middle of history, truncate future entries.
+            truncateForwardEntries(state);
 
-            // Check for duplicate (same file and within line threshold)
             const lastEntry = state.entries[state.entries.length - 1];
-            if (lastEntry) {
-              const isSameFile = lastEntry.filePath === newEntry.filePath;
-              const isNearbyLine =
-                Math.abs(lastEntry.line - newEntry.line) <= DUPLICATE_LINE_THRESHOLD;
+            const isSamePosition =
+              lastEntry &&
+              lastEntry.source !== "cursor" &&
+              lastEntry.filePath === newEntry.filePath &&
+              lastEntry.paneId === newEntry.paneId &&
+              lastEntry.line === newEntry.line &&
+              lastEntry.column === newEntry.column &&
+              lastEntry.offset === newEntry.offset;
 
-              if (isSameFile && isNearbyLine) {
-                // Update the existing entry instead of adding a duplicate
-                state.entries[state.entries.length - 1] = newEntry;
-                state.currentIndex = -1;
-                return;
-              }
+            if (isSamePosition) {
+              // Update the existing entry instead of adding a duplicate.
+              state.entries[state.entries.length - 1] = newEntry;
+              state.currentIndex = -1;
+              return;
             }
 
-            // Add the new entry
-            state.entries.push(newEntry);
+            appendEntry(state, newEntry);
 
-            // Enforce max size
-            if (state.entries.length > state.maxEntries) {
-              state.entries.shift();
+            // Reset to present (not navigating history).
+            state.currentIndex = -1;
+          });
+        },
+
+        recordCursorEntry: (entry) => {
+          set((state) => {
+            const newEntry = withTimestamp(entry, "cursor");
+
+            // A new cursor movement after going back starts a new history branch.
+            truncateForwardEntries(state);
+
+            const lastEntry = state.entries[state.entries.length - 1];
+            const isSamePosition =
+              lastEntry &&
+              lastEntry.bufferId === newEntry.bufferId &&
+              lastEntry.filePath === newEntry.filePath &&
+              lastEntry.paneId === newEntry.paneId &&
+              lastEntry.line === newEntry.line &&
+              lastEntry.column === newEntry.column &&
+              lastEntry.offset === newEntry.offset;
+
+            if (isSamePosition) {
+              state.entries[state.entries.length - 1] = newEntry;
+              state.currentIndex = -1;
+              return;
             }
 
-            // Reset to present (not navigating history)
+            appendEntry(state, newEntry);
             state.currentIndex = -1;
           });
         },
 
         goBack: (currentPosition) => {
-          const state = get();
+          let result: JumpListEntry | null = null;
 
-          if (state.entries.length === 0) {
-            return null;
-          }
+          set((state) => {
+            if (state.entries.length === 0) return;
 
-          let newIndex: number;
-          if (state.currentIndex === -1) {
-            // Currently at present - save current position so we can go forward to it
-            if (currentPosition) {
-              set((s) => {
-                s.entries.push({
-                  ...currentPosition,
-                  timestamp: Date.now(),
-                });
-                // Enforce max size
-                if (s.entries.length > s.maxEntries) {
-                  s.entries.shift();
-                }
-              });
+            let newIndex: number;
+            if (state.currentIndex === -1) {
+              // Currently at present - save current position so we can go forward to it.
+              if (currentPosition) {
+                appendEntry(state, withTimestamp(currentPosition, "cursor"));
+              }
+              // Go to second-to-last entry (last entry is now where we just were).
+              newIndex = state.entries.length - 2;
+            } else if (state.currentIndex > 0) {
+              // Go to previous entry.
+              newIndex = state.currentIndex - 1;
+            } else {
+              // Already at the beginning.
+              return;
             }
-            // Go to second-to-last entry (last entry is now where we just were)
-            newIndex = get().entries.length - 2;
-          } else if (state.currentIndex > 0) {
-            // Go to previous entry
-            newIndex = state.currentIndex - 1;
-          } else {
-            // Already at the beginning
-            return null;
-          }
 
-          if (newIndex < 0) return null;
+            if (newIndex < 0) return;
 
-          const entry = get().entries[newIndex];
-          if (!entry) return null;
+            const entry = state.entries[newIndex];
+            if (!entry) return;
 
-          set((s) => {
-            s.currentIndex = newIndex;
+            state.currentIndex = newIndex;
+            result = { ...entry };
           });
 
-          return entry;
+          return result;
         },
 
         goForward: () => {
           const state = get();
-
           if (state.currentIndex === -1 || state.currentIndex >= state.entries.length - 1) {
             return null;
           }
@@ -136,11 +170,20 @@ export const useJumpListStore = createSelectors(
           const entry = state.entries[newIndex];
           if (!entry) return null;
 
-          set((s) => {
-            s.currentIndex = newIndex;
+          set((state) => {
+            state.currentIndex = newIndex;
           });
 
-          return entry;
+          return { ...entry };
+        },
+
+        rollbackNavigation: (entry, previousIndex, removePresent) => {
+          set((state) => {
+            const current = state.entries[state.currentIndex];
+            if (!current || current.timestamp !== entry.timestamp) return;
+            if (removePresent) state.entries.pop();
+            state.currentIndex = previousIndex;
+          });
         },
 
         canGoBack: () => {

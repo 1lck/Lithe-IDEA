@@ -583,4 +583,39 @@ mod tests {
             value.utf16_start == expected && value.utf16_length == 5 && value.role == "field"
         }));
     }
+
+    #[test]
+    fn discovers_junit_methods_from_syntax_without_accepting_comments() {
+        let source = r#"class ExampleTest {
+    @Test void inlineTest() {}
+
+    // @Test
+    void helper() {}
+
+    @org.junit.jupiter.params.ParameterizedTest(name = "case")
+    void parameterized(int value) {
+        assert value > 0;
+    }
+
+    @Override
+    void ordinary() {}
+}
+"#;
+
+        assert_eq!(
+            test_methods(source).expect("valid Java test methods should parse"),
+            vec![
+                JavaTestMethodResponse {
+                    name: "inlineTest".to_string(),
+                    line: 1,
+                    end_line: 1,
+                },
+                JavaTestMethodResponse {
+                    name: "parameterized".to_string(),
+                    line: 7,
+                    end_line: 9,
+                },
+            ]
+        );
+    }
 }

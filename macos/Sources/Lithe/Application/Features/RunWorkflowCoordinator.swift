@@ -16,6 +16,7 @@ struct PendingRunAction: Equatable {
         case run
         case debug
         case startConfiguration(RunConfiguration)
+        case startSelectedServices([RunConfiguration])
         case runAllServices
         case restart
     }
@@ -365,6 +366,8 @@ final class RunWorkflowCoordinator {
             actions.startDebugging()
         case .startConfiguration(let configuration):
             actions.startRunConfiguration(configuration)
+        case .startSelectedServices(let configurations):
+            actions.startSelectedServiceConfigurations(configurations)
         case .runAllServices:
             actions.runAllServiceConfigurations()
         case .restart:

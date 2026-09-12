@@ -81,6 +81,11 @@
 "Collapsed" = "Collapsed";
 "Expanded" = "Expanded";
 "Run configurations" = "Run configurations";
+"Other run configurations" = "Other run configurations";
+"Run selected services" = "Run selected services";
+"Choose services to run" = "Choose services to run";
+"Run all services?" = "Run all services?";
+"This will start %lld detected services." = "This will start %lld detected services.";
 "Hide configuration list" = "Hide configuration list";
 "Show configuration list" = "Show configuration list";
 "Run a configuration to see process output." = "Run a configuration to see process output.";
@@ -254,6 +259,16 @@
 "Unlock the worktree before removing it." = "Unlock the worktree before removing it.";
 "Prune the stale record instead." = "Prune the stale record instead.";
 "Loading…" = "Loading…";
+"Passed" = "Passed";
+"Failed" = "Failed";
+"Skipped" = "Skipped";
+"Cancelled" = "Cancelled";
+"Results" = "Results";
+"Failures" = "Failures";
+"Timed Out" = "Timed Out";
+"Rerun last test" = "Rerun last test";
+"%@ %lld" = "%@ %lld";
+"%@ test run timed out after %@ seconds." = "%@ test run timed out after %@ seconds.";
 "Maven POM changed" = "Maven POM changed";
 "Maven configuration changed" = "Maven configuration changed";
 "Reloading Maven..." = "Reloading Maven...";
@@ -277,6 +292,13 @@
 "Unable to parse Maven dependencies for this module." = "Unable to parse Maven dependencies for this module.";
 "Unable to resolve Maven dependencies." = "Unable to resolve Maven dependencies.";
 "Maven dependency output exceeded the supported limit." = "Maven dependency output exceeded the supported limit.";
+"Source Roots" = "Source Roots";
+"main Java" = "main Java";
+"main resources" = "main resources";
+"test Java" = "test Java";
+"test resources" = "test resources";
+"generated main" = "generated main";
+"generated test" = "generated test";
 
 /* Git history editing, rebase, worktree and patch workflows. */
 "Undo Commit…" = "Undo Last Commit (Keep Changes)…";
@@ -781,3 +803,7 @@
 "Build %@ → %@" = "Build %@ → %@";
 "Built %@" = "Built %@";
 "This preview contains changes that have not been officially released and may be unstable." = "This preview contains changes that have not been officially released and may be unstable.";
+"Show long graph edges" = "Show long graph edges";
+"Collapse long graph edges" = "Collapse long graph edges";
+"Go to parent commit %@" = "Go to parent commit %@";
+"Go to child commit %@" = "Go to child commit %@";

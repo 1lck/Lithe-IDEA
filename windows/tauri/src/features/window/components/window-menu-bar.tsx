@@ -371,11 +371,11 @@ const WindowMenuBar = ({
             {t("menu.goToLine")}
           </MenubarItem>
           <MenubarSeparator />
-          <MenubarItem shortcut="ctrl+-" onClick={() => handleCommand("navigation.goBack")}>
+          <MenubarItem shortcut="ctrl+alt+left" onClick={() => handleCommand("navigation.goBack")}>
             {t("menu.goBack")}
           </MenubarItem>
           <MenubarItem
-            shortcut="ctrl+shift+-"
+            shortcut="ctrl+alt+right"
             onClick={() => handleCommand("navigation.goForward")}
           >
             {t("menu.goForward")}

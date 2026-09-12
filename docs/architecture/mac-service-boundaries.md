@@ -131,6 +131,8 @@ cleanup remains an explicitly composed callback.
 feature directly. Comparison and commit-diff navigation stay at the application
 boundary because they also change editor selection. `WorkbenchModuleUIComposition`
 connects those callbacks; neither Git Log nor its dialogs receive `AppModel`.
+The macOS Git graph projection and native arrow navigation follow the pinned
+IntelliJ rules documented in [macos-git-graph.md](macos-git-graph.md).
 `BranchComparisonView` and `GitCommitDiffReviewView` also observe the Git feature
 directly. The editor host supplies a comparison-refresh callback to preserve
 editor-selection behavior without giving the comparison view the aggregate.
@@ -241,7 +243,9 @@ succeeds. Failure keeps the old model and a retryable error; reset cancels the
 task and invalidates late results. Inventory refreshes cannot accept pending
 POM changes. Configuration-only reload skips scanning. Java synchronization
 restarts only the workspace Java session, awaits readiness, and cancels its
-owned session on failure or the reload's 60-second deadline. Reload holds the
+owned session on failure or explicit cancellation. Java import uses Core's
+progress-aware readiness deadline and absolute safety cap; Reload must not
+shorten them with a platform-owned wall-clock timeout. Reload holds the
 execution module's activity lease until it finishes.
 
 Inventory scans validate the captured Reload revision before committing models,
