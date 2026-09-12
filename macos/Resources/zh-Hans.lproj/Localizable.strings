@@ -1931,3 +1931,11 @@
 "Reference changes could not be inspected" = "无法读取引用变更";
 
 "Reference list truncated; total updated: %lld, deleted: %lld" = "引用列表已截断；更新总数：%lld，删除总数：%lld";
+
+"Open Git Console" = "打开 Git 控制台";
+
+"Advanced configuration and sources" = "高级配置与来源";
+
+"Fetch and commit preferences" = "Fetch 与提交偏好";
+
+"Expand temporary Git configuration or command details" = "展开临时 Git 参数或命令详情";

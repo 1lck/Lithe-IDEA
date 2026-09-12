@@ -907,3 +907,11 @@
 "Reference changes could not be inspected" = "Reference changes could not be inspected";
 
 "Reference list truncated; total updated: %lld, deleted: %lld" = "Reference list truncated; total updated: %lld, deleted: %lld";
+
+"Open Git Console" = "Open Git Console";
+
+"Advanced configuration and sources" = "Advanced configuration and sources";
+
+"Fetch and commit preferences" = "Fetch and commit preferences";
+
+"Expand temporary Git configuration or command details" = "Expand temporary Git configuration or command details";

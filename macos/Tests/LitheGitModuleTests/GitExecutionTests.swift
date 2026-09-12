@@ -69,6 +69,41 @@ struct GitExecutionTests {
         #expect(entries?.first?.succeeded == true)
         #expect(entries?.first?.standardError == "Receiving: 100%\n")
         #expect(entries?.first?.standardOutput == "reference updated\n")
+        #expect(entries?.first?.outputLines.map(\.stream) == [.standardError, .standardOutput])
+        #expect(entries?.first?.output == "Receiving: 100%\nreference updated\n")
+        #expect(entries?.first?.withOperationError("later failure").outputLines == entries?.first?.outputLines)
+    }
+
+    @Test
+    func consoleBoundsEmptyRowsAndPreservesLatestStreamOrder() throws {
+        let context = GitExecutionContext(operationID: "operation")
+        context.receive(GitExecutionEvent(operationId: "operation", type: "started", invocationId: 1,
+            workingDirectory: "/workspace", arguments: ["fetch"]))
+        for _ in 0..<2_100 {
+            context.receive(GitExecutionEvent(operationId: "operation", type: "output", invocationId: 1,
+                stream: "stdout", text: ""))
+        }
+        context.receive(GitExecutionEvent(operationId: "operation", type: "output", invocationId: 1,
+            stream: "stderr", text: "remote response"))
+        context.receive(GitExecutionEvent(operationId: "operation", type: "output", invocationId: 1,
+            stream: "stdout", text: "updated reference"))
+        let entry = try #require(context.drainSnapshot()?.last)
+        #expect(entry.isOutputTruncated)
+        #expect(entry.outputLines.count == 2_000)
+        #expect(entry.outputLines.suffix(2).map(\.stream) == [.standardError, .standardOutput])
+        #expect(entry.copyText.contains("remote response\nupdated reference\n"))
+    }
+
+    @Test
+    func expandableTemporaryConfigurationUsesSafeArgumentFormatting() {
+        let entry = GitConsoleEntry(workingDirectory: URL(fileURLWithPath: "/workspace"),
+            arguments: ["fetch"], output: "", exitCode: 0,
+            temporaryConfig: [["credential.helper", "helper with spaces"],
+                              ["http.proxy", "https://fixture:password@example.invalid/?token=fake-secret"]])
+        #expect(entry.formattedTemporaryConfiguration.hasPrefix("-c 'credential.helper=helper with spaces' -c "))
+        #expect(!entry.formattedTemporaryConfiguration.contains("password"))
+        #expect(!entry.formattedTemporaryConfiguration.contains("fake-secret"))
+        #expect(!entry.copyText.contains("fake-secret"))
     }
 
     @Test

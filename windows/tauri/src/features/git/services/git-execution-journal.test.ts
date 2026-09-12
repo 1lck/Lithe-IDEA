@@ -2,7 +2,7 @@ import policy from "../../../../../../shared/fixtures/git/execution-policy-v1.js
 import fixture from "../../../../../../shared/fixtures/git/execution-events-v1.json";
 import type { GitExecutionEvent } from "@/platform/git-execution-events";
 import { describe, expect, test } from "bun:test";
-import { GitExecutionJournal, gitConsoleCommand } from "./git-execution-journal";
+import { GitExecutionJournal, gitConsoleCommand, gitConsoleConfiguration, gitConsoleTimestamp } from "./git-execution-journal";
 
 describe("Git execution journal", () => {
   test("authentication uses a separate queue and remote results survive completion", () => {
@@ -17,12 +17,39 @@ describe("Git execution journal", () => {
     expect(journal.records[0].remoteResult?.deletedReferences).toEqual(["refs/remotes/origin/old"]);
   });
   test("consumes the shared native event contract", () => {
-    const journal = new GitExecutionJournal();
+    const timestamp = new Date(2026, 0, 1, 14, 9, 40, 880).getTime();
+    const journal = new GitExecutionJournal(() => timestamp);
     for (const event of fixture.events) journal.receive(event as GitExecutionEvent);
     expect(journal.records).toHaveLength(1);
     expect(journal.records[0].state).toBe("completed");
     expect(journal.records[0].exitCode).toBe(0);
     expect(journal.active.size).toBe(0);
+    expect(journal.records[0].timestamp).toBe(timestamp);
+    expect(gitConsoleTimestamp(timestamp)).toBe("14:09:40.880");
+    expect(journal.records[0].lines).toEqual([
+      { stream: "stderr", text: "Receiving: 100%" },
+      { stream: "stdout", text: "reference updated" },
+    ]);
+    expect(journal.records[0].output).toBe("Receiving: 100%\nreference updated\n");
+  });
+  test("empty output rows stay bounded without losing recent interleaved streams", () => {
+    const journal = new GitExecutionJournal(() => 0);
+    journal.receive({ operationId: "fetch", type: "started", invocationId: 1, workingDirectory: "C:/repo", arguments: ["fetch"] });
+    for (let index = 0; index < 2_100; index++) {
+      journal.receive({ operationId: "fetch", type: "output", invocationId: 1, stream: "stdout", text: "" });
+    }
+    journal.receive({ operationId: "fetch", type: "output", invocationId: 1, stream: "stderr", text: "remote response" });
+    journal.receive({ operationId: "fetch", type: "output", invocationId: 1, stream: "stdout", text: "updated reference" });
+    expect(journal.records[0].truncated).toBe(true);
+    expect(journal.records[0].lines).toHaveLength(2_000);
+    expect(journal.records[0].output.endsWith("remote response\nupdated reference\n")).toBe(true);
+  });
+  test("expanded temporary configuration is quoted and credentials are redacted", () => {
+    expect(gitConsoleConfiguration([["credential.helper", "helper with spaces"]])).toBe("-c 'credential.helper=helper with spaces'");
+    const configuration = gitConsoleConfiguration([["http.proxy", "https://fixture:password@example.invalid/?token=fake-secret"]]);
+    expect(configuration).toContain("redacted");
+    expect(configuration).not.toContain("password");
+    expect(configuration).not.toContain("fake-secret");
   });
   test("clearing an active operation suppresses its late events but permits a new operation", () => {
     const journal = new GitExecutionJournal();

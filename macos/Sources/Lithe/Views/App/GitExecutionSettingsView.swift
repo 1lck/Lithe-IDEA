@@ -6,6 +6,7 @@ struct GitExecutionSettingsView: View {
     @ObservedObject var settings: AppSettings
     @State private var feature: GitFeatureModel?
     @State private var executable = ""
+    @State private var showsAdvanced = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -20,9 +21,12 @@ struct GitExecutionSettingsView: View {
             Toggle("Use credential helper", isOn: $settings.gitUseCredentialHelper)
             Text("Git can request credentials in Lithe. Passwords are not saved by Lithe; the selected Git helper controls credential storage.")
                 .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
-            if let feature {
-                GitExecutionConfigurationPane(feature: feature, editor: feature.executionSettings,
-                    preferencesKey: "\(settings.gitExecutable)|\(settings.gitUseCredentialHelper)|\(settings.gitFetchOptions)")
+            DisclosureGroup("Advanced configuration and sources", isExpanded: $showsAdvanced) {
+                if showsAdvanced, let feature {
+                    GitExecutionConfigurationPane(feature: feature, editor: feature.executionSettings,
+                        preferencesKey: "\(settings.gitExecutable)|\(settings.gitUseCredentialHelper)|\(settings.gitFetchOptions)")
+                        .padding(.top, 12)
+                }
             }
         }
         .task(id: model.workspaceURL) { executable = settings.gitExecutable; feature = await model.activateGitModule() }

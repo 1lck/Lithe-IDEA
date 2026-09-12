@@ -16,11 +16,13 @@ export function GitRepositoryEmptyState({
   historyError,
   onRefresh,
   context = "history",
+  onShowConsole,
 }: {
   root: string;
   historyError?: string | null;
   onRefresh: () => Promise<unknown>;
   context?: "history" | "changes";
+  onShowConsole?: () => void;
 }) {
   const { t } = useTranslation();
   const [state, setState] = useState<GitRepositorySetup | null>(null);
@@ -119,15 +121,15 @@ export function GitRepositoryEmptyState({
               <>
                 {state.branch && <p>{state.branch}</p>}
                 <p>{t("git.setup.firstCommit")}</p>
-                {(!state.effectiveName?.trim() || !state.effectiveEmail?.trim()) && (
-                  <p>{t("git.setup.missingIdentity")}</p>
-                )}
                 <Button size="xs" onClick={() => openChanges()}>
                   {t("git.setup.openChanges")}
                 </Button>
               </>
             )}
-            {(!state.isRepository || !state.hasCommits) && (
+            {onShowConsole && (
+              <Button size="xs" variant="ghost" onClick={onShowConsole}>{t("git.console.open")}</Button>
+            )}
+            {!state.isRepository && (
               <Button size="xs" variant="ghost" onClick={() => openSettings("git")}>
                 {t("git.setup.openSettings")}
               </Button>

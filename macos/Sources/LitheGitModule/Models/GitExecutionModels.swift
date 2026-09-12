@@ -51,6 +51,7 @@ package final class GitExecutionContext: @unchecked Sendable {
     private var receivedInvocation = false
     private static let maxRecords = 200
     private static let maxStreamCharacters = 32_768
+    private static let maxOutputLines = 2_000
     private static let maxTotalCharacters = 1_048_576
 
     private struct Record {
@@ -65,6 +66,8 @@ package final class GitExecutionContext: @unchecked Sendable {
         var remoteResult: GitRemoteOutcome?
         var stdout = ""
         var stderr = ""
+        var lines: [GitConsoleOutputLine] = []
+        var lineCharacters = 0
         var progress: String?
         var truncated = false
         var state: GitConsoleEntryState = .running
@@ -72,10 +75,23 @@ package final class GitExecutionContext: @unchecked Sendable {
         var duration: Int?
         var error: String?
 
+        mutating func appendOutput(_ text: String, stream: GitConsoleOutputStream) {
+            // Bound both text storage and rendered rows, including empty lines.
+            let retained = String(text.suffix(GitExecutionContext.maxStreamCharacters - 1))
+            lines.append(GitConsoleOutputLine(stream: stream, text: retained))
+            lineCharacters += retained.count + 1
+            truncated = truncated || retained.count < text.count
+            while lines.count > 1 && (lineCharacters > GitExecutionContext.maxStreamCharacters
+                || lines.count > GitExecutionContext.maxOutputLines) {
+                lineCharacters -= lines.removeFirst().text.count + 1
+                truncated = true
+            }
+        }
+
         var entry: GitConsoleEntry {
             GitConsoleEntry(id: id, timestamp: timestamp, workingDirectory: root,
-                arguments: arguments, output: stdout + stderr, standardOutput: stdout,
-                standardError: stderr, exitCode: exitCode, state: state,
+                arguments: arguments, output: lines.map { $0.text + "\n" }.joined(), standardOutput: stdout,
+                standardError: stderr, orderedOutputLines: lines, exitCode: exitCode, state: state,
                 durationMilliseconds: duration, operationTitle: "Git",
                 operationErrorMessage: error, progressText: progress, isOutputTruncated: truncated,
                 executable: executable, temporaryConfig: temporaryConfig, phase: phase, remoteResult: remoteResult)
@@ -131,6 +147,7 @@ package final class GitExecutionContext: @unchecked Sendable {
             } else {
                 if event.stream == "stderr" { records[index].stderr += text + "\n" }
                 else { records[index].stdout += text + "\n" }
+                records[index].appendOutput(text, stream: event.stream == "stderr" ? .standardError : .standardOutput)
                 records[index].progress = nil
             }
             records[index].truncated = records[index].truncated || event.truncated == true
@@ -142,7 +159,7 @@ package final class GitExecutionContext: @unchecked Sendable {
                 records[index].stderr = String(records[index].stderr.suffix(Self.maxStreamCharacters))
                 records[index].truncated = true
             }
-            while records.count > 1 && records.reduce(0, { $0 + $1.stdout.count + $1.stderr.count }) > Self.maxTotalCharacters {
+            while records.count > 1 && records.reduce(0, { $0 + $1.stdout.count + $1.stderr.count + $1.lineCharacters }) > Self.maxTotalCharacters {
                 records.removeFirst()
             }
         case "finished":

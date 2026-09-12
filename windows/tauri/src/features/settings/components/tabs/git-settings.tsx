@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { GitExecutionSettings } from "../git-execution-settings";
 import { useShallow } from "zustand/react/shallow";
 import { getDefaultSetting, useSettingsStore } from "@/features/settings/stores/settings.store";
@@ -9,6 +10,7 @@ import { GitIdentitySettings } from "../git-identity-settings";
 
 export const GitSettings = () => {
   const { t } = useTranslation();
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
   const settings = useSettingsStore(
     useShallow((state) => ({
       gitFetchPrune: state.settings.gitFetchPrune,
@@ -39,27 +41,30 @@ export const GitSettings = () => {
 
   return (
     <SettingsView>
-      <Section title={t("git.fetch.defaults")}>
-        <SettingRow label={t("git.fetch.prune")} description={t("git.fetch.scope")}>
-          <Switch checked={settings.gitFetchPrune} onChange={(value) => {
-            void updateSetting("gitFetchPrune", value);
-            if (!value && settings.gitFetchTags === "prune") void updateSetting("gitFetchTags", "inherit");
-          }} size="sm" />
-        </SettingRow>
-        <SettingRow label={t("git.fetch.submodules")}>
-          <Select value={settings.gitFetchSubmodules} options={["inherit", "no", "onDemand", "yes"].map((value) => ({ value, label: t(`git.fetch.submodules.${value}`) }))}
-            onChange={(value) => void updateSetting("gitFetchSubmodules", value as typeof settings.gitFetchSubmodules)} />
-        </SettingRow>
-        <SettingRow label={t("git.fetch.tags")} description={t("git.fetch.credentials")}>
-          <Select value={settings.gitFetchTags} options={["inherit", "all", "none", "prune"].map((value) => ({ value, label: t(`git.fetch.tags.${value}`) }))}
-            onChange={(value) => {
-              void updateSetting("gitFetchTags", value as typeof settings.gitFetchTags);
-              if (value === "prune") void updateSetting("gitFetchPrune", true);
-            }} />
-        </SettingRow>
-      </Section>
       <GitExecutionSettings />
-      <GitIdentitySettings />
+      <details className="space-y-4" open={preferencesOpen} onToggle={(event) => setPreferencesOpen(event.currentTarget.open)}>
+        <summary className="cursor-pointer text-sm font-medium">{t("git.execution.preferences")}</summary>
+        <Section title={t("git.fetch.defaults")}>
+          <SettingRow label={t("git.fetch.prune")} description={t("git.fetch.scope")}>
+            <Switch checked={settings.gitFetchPrune} onChange={(value) => {
+              void updateSetting("gitFetchPrune", value);
+              if (!value && settings.gitFetchTags === "prune") void updateSetting("gitFetchTags", "inherit");
+            }} size="sm" />
+          </SettingRow>
+          <SettingRow label={t("git.fetch.submodules")}>
+            <Select value={settings.gitFetchSubmodules} options={["inherit", "no", "onDemand", "yes"].map((value) => ({ value, label: t(`git.fetch.submodules.${value}`) }))}
+              onChange={(value) => void updateSetting("gitFetchSubmodules", value as typeof settings.gitFetchSubmodules)} />
+          </SettingRow>
+          <SettingRow label={t("git.fetch.tags")} description={t("git.fetch.credentials")}>
+            <Select value={settings.gitFetchTags} options={["inherit", "all", "none", "prune"].map((value) => ({ value, label: t(`git.fetch.tags.${value}`) }))}
+              onChange={(value) => {
+                void updateSetting("gitFetchTags", value as typeof settings.gitFetchTags);
+                if (value === "prune") void updateSetting("gitFetchPrune", true);
+              }} />
+          </SettingRow>
+        </Section>
+        {preferencesOpen && <GitIdentitySettings />}
+      </details>
       <Section title={t("settings.git.integration")}>
         <SettingRow
           label={t("settings.git.gitIntegration")}

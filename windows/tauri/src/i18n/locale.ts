@@ -4,6 +4,12 @@ export type DisplayLanguage = (typeof DISPLAY_LANGUAGES)[number];
 
 const catalogs = {
   "en-US": {
+    "git.console.details": "Command details",
+    "git.console.wrap": "Soft wrap",
+    "git.console.scrollToEnd": "Scroll to end",
+    "git.console.open": "Open Git Console",
+    "git.execution.advanced": "Advanced configuration and sources",
+    "git.execution.preferences": "Fetch and commit preferences",
     "git.execution.effectiveFetch": "Effective Fetch options",
     "git.execution.referencesTruncated": "Reference list truncated; total updated: {updated}, deleted: {deleted}",
     "git.execution.referencesUnavailable": "Reference changes could not be inspected",
@@ -4358,6 +4364,12 @@ const catalogs = {
     "welcome.backToProjects": "Back to projects",
   },
   "zh-CN": {
+    "git.console.details": "命令详情",
+    "git.console.wrap": "自动换行",
+    "git.console.scrollToEnd": "滚动到底部",
+    "git.console.open": "打开 Git 控制台",
+    "git.execution.advanced": "高级配置与来源",
+    "git.execution.preferences": "Fetch 与提交偏好",
     "git.execution.effectiveFetch": "实际生效的 Fetch 选项",
     "git.execution.referencesTruncated": "引用列表已截断；更新总数：{updated}，删除总数：{deleted}",
     "git.execution.referencesUnavailable": "无法读取引用变更",

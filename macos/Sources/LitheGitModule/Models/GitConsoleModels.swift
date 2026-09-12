@@ -29,6 +29,7 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
     package let output: String
     package let standardOutput: String?
     package let standardError: String?
+    private let orderedOutputLines: [GitConsoleOutputLine]?
     package let exitCode: Int32
     package let state: GitConsoleEntryState
     package let durationMilliseconds: Int?
@@ -49,6 +50,7 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
         output: String,
         standardOutput: String? = nil,
         standardError: String? = nil,
+        orderedOutputLines: [GitConsoleOutputLine]? = nil,
         exitCode: Int32,
         state: GitConsoleEntryState = .completed,
         durationMilliseconds: Int? = nil,
@@ -60,7 +62,7 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
         phase: GitPhaseProgress? = nil, remoteResult: GitRemoteOutcome? = nil
     ) {
         self.executable = executable
-        self.temporaryConfig = temporaryConfig
+        self.temporaryConfig = temporaryConfig.map { $0.map(GitConsoleRedactor.redact) }
         self.phase = phase
         self.remoteResult = remoteResult
         self.id = id
@@ -70,6 +72,9 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
         self.output = GitConsoleRedactor.redact(output)
         self.standardOutput = standardOutput.map(GitConsoleRedactor.redact)
         self.standardError = standardError.map(GitConsoleRedactor.redact)
+        self.orderedOutputLines = orderedOutputLines?.map {
+            GitConsoleOutputLine(stream: $0.stream, text: GitConsoleRedactor.redact($0.text))
+        }
         self.exitCode = exitCode
         self.state = state
         self.durationMilliseconds = durationMilliseconds
@@ -82,7 +87,7 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
     package func withOperationError(_ message: String) -> Self {
         Self(id: id, timestamp: timestamp, workingDirectory: workingDirectory,
             arguments: arguments, output: output, standardOutput: standardOutput,
-            standardError: standardError, exitCode: exitCode, state: state,
+            standardError: standardError, orderedOutputLines: orderedOutputLines, exitCode: exitCode, state: state,
             durationMilliseconds: durationMilliseconds, operationTitle: operationTitle,
             operationErrorMessage: message, progressText: progressText, isOutputTruncated: isOutputTruncated,
             executable: executable, temporaryConfig: temporaryConfig, phase: phase, remoteResult: remoteResult)
@@ -98,7 +103,14 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
         GitConsoleCommandFormatter.argumentLine(arguments: arguments)
     }
 
+    package var formattedTemporaryConfiguration: String {
+        GitConsoleCommandFormatter.argumentLine(arguments: temporaryConfig.flatMap { pair in
+            ["-c", pair.joined(separator: "=")]
+        })
+    }
+
     package var outputLines: [GitConsoleOutputLine] {
+        if let orderedOutputLines { return orderedOutputLines }
         if standardOutput != nil || standardError != nil {
             return GitConsoleOutputLine.lines(from: standardOutput, stream: .standardOutput)
                 + GitConsoleOutputLine.lines(from: standardError, stream: .standardError)

@@ -70,8 +70,6 @@ struct GitLogView: View {
         static let treeRowHeight: CGFloat = 28
         static let toolbarHeight: CGFloat = 38
         static let commitFileLoadDelay = Duration.milliseconds(120)
-        static let darkConsoleText = Color(red: 0.76, green: 0.77, blue: 0.79)
-        static let darkConsoleMetadata = Color(red: 0.69, green: 0.70, blue: 0.72)
     }
 
     private enum GitToolTab {
@@ -405,8 +403,17 @@ struct GitLogView: View {
                 .help("Show all references")
             }
 
+            Button("Fetch") {
+                selectedGitToolTab = .console
+                Task { await feature.fetchGit() }
+            }
+            .buttonStyle(.borderless)
+            .lithePointer()
+            .disabled(feature.gitRepositoryRoot == nil || feature.isPerformingBranchOperation)
+
             Menu {
                 Button("Fetch All Remotes") {
+                    selectedGitToolTab = .console
                     Task { await feature.fetchGit() }
                 }
                 .disabled(feature.isPerformingBranchOperation)
@@ -574,7 +581,7 @@ struct GitLogView: View {
                                     .frame(height: 20, alignment: .leading)
                             } else {
                                 ForEach(feature.gitConsoleEntries) { entry in
-                                    gitConsoleEntry(entry)
+                                    GitConsoleEntryView(entry: entry, wrapsLines: gitConsoleWrapsLines)
                                         .id(entry.id)
                                 }
                             }
@@ -608,129 +615,10 @@ struct GitLogView: View {
         .background(background.hasImage ? Color.clear : LitheTheme.editor)
     }
 
-    private func gitConsoleEntry(_ entry: GitConsoleEntry) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if entry.operationTitle != nil {
-                switch entry.state {
-                case .planned:
-                    gitConsoleLine(Text("Planned Git command — waiting to start")
-                        .foregroundColor(LitheTheme.secondaryText))
-                case .running:
-                    gitConsoleLine(Text("Git command is running").foregroundColor(LitheTheme.secondaryText))
-                case .unconfirmed:
-                    gitConsoleLine(Text("No completed Git invocation was reported")
-                        .foregroundColor(LitheTheme.error))
-                case .completed:
-                    gitConsoleLine(Text(LocalizedStringKey(entry.exitCode == 0 ? "Git command succeeded" : "Git command failed"))
-                        .foregroundColor(entry.exitCode == 0 ? LitheTheme.secondaryText : LitheTheme.error))
-                }
-            }
-            gitConsoleLine(gitConsoleCommandText(entry))
-            if let executable = entry.executable { gitConsoleLine(Text("Git executable: \(executable)").foregroundColor(LitheTheme.secondaryText)) }
-            if !entry.temporaryConfig.isEmpty {
-                gitConsoleLine(Text("Temporary configuration: \(entry.temporaryConfig.map { $0.joined(separator: "=") }.joined(separator: ", "))").foregroundColor(LitheTheme.secondaryText))
-            }
-            if let outcome = entry.remoteResult {
-                gitConsoleLine(Text("Remote: \(outcome.remote)").foregroundColor(LitheTheme.accent))
-                gitConsoleLine(Text(LocalizedStringKey(outcome.succeeded ? "Remote Fetch succeeded" : "Remote Fetch failed")).foregroundColor(outcome.succeeded ? LitheTheme.secondaryText : LitheTheme.error))
-                if outcome.truncated { gitConsoleLine(Text("Reference list truncated; total updated: \(outcome.updatedCount), deleted: \(outcome.deletedCount)").foregroundColor(LitheTheme.secondaryText)) }
-                if !outcome.referencesAvailable { gitConsoleLine(Text("Reference changes could not be inspected").foregroundColor(LitheTheme.error)) }
-                if !outcome.updatedReferences.isEmpty { gitConsoleLine(Text("Updated references: \(outcome.updatedReferences.joined(separator: ", "))").foregroundColor(LitheTheme.secondaryText)) }
-                if !outcome.deletedReferences.isEmpty { gitConsoleLine(Text("Deleted references: \(outcome.deletedReferences.joined(separator: ", "))").foregroundColor(LitheTheme.secondaryText)) }
-            }
-            if let phase = entry.phase, entry.state == .running {
-                gitConsoleLine(Text("Git phase: \(phase.stage)").foregroundColor(LitheTheme.secondaryText))
-                if let percent = phase.percent { ProgressView(value: Double(percent), total: 100).frame(maxWidth: 240).accessibilityLabel(Text("Git progress")) }
-            }
-
-            if entry.outputLines.isEmpty {
-                if entry.exitCode != 0 && entry.state == .completed {
-                    gitConsoleLine(
-                        Text("Git exited with code \(entry.exitCode)")
-                            .foregroundColor(LitheTheme.error)
-                    )
-                }
-            } else {
-                ForEach(Array(entry.outputLines.enumerated()), id: \.offset) { _, line in
-                    gitConsoleLine(
-                        Text(line.text.isEmpty ? " " : line.text)
-                            .foregroundColor(
-                                line.stream == .standardError && entry.state == .completed && entry.exitCode != 0
-                                    ? LitheTheme.error
-                                    : gitConsoleTextColor
-                            )
-                    )
-                }
-            }
-            if let progress = entry.progressText {
-                gitConsoleLine(Text(verbatim: progress).foregroundColor(LitheTheme.secondaryText))
-            }
-            if entry.isOutputTruncated {
-                gitConsoleLine(Text("Earlier Git output was omitted to limit memory use.").foregroundColor(LitheTheme.secondaryText))
-            }
-            if let error = entry.operationErrorMessage {
-                gitConsoleLine(Text(verbatim: error).foregroundColor(LitheTheme.error))
-            }
-            if let duration = entry.durationMilliseconds {
-                gitConsoleLine(Text("Duration: \(duration) ms").foregroundColor(LitheTheme.secondaryText))
-                if entry.state == .completed {
-                    gitConsoleLine(Text("Git exited with code \(entry.exitCode)").foregroundColor(LitheTheme.secondaryText))
-                }
-            }
-        }
-        .font(.system(size: 13, weight: .regular, design: .monospaced))
-        .textSelection(.enabled)
-    }
-
-    private func gitConsoleLine(_ text: Text) -> some View {
-        text
-            .frame(
-                maxWidth: gitConsoleWrapsLines ? .infinity : nil,
-                minHeight: 20,
-                alignment: .leading
-            )
-            .fixedSize(horizontal: !gitConsoleWrapsLines, vertical: true)
-    }
-
-    private func gitConsoleCommandText(_ entry: GitConsoleEntry) -> Text {
-        let location = Text("\(gitConsoleTimestamp(entry.timestamp)): [\(entry.workingDirectory.path)]")
-            .foregroundColor(gitConsoleMetadataColor)
-        let executable = Text(" git")
-            .foregroundColor(gitConsoleTextColor)
-        guard !entry.formattedArguments.isEmpty else { return location + executable }
-        let arguments = Text(" \(entry.formattedArguments)")
-            .foregroundColor(gitConsoleArgumentColor)
-        return location + executable + arguments
-    }
-
-    private var gitConsoleTextColor: Color {
-        colorScheme == .dark ? GitVisual.darkConsoleText : LitheTheme.primaryText
-    }
-
-    private var gitConsoleMetadataColor: Color {
-        colorScheme == .dark ? GitVisual.darkConsoleMetadata : LitheTheme.link
-    }
-
-    private var gitConsoleArgumentColor: Color {
-        colorScheme == .dark ? GitVisual.darkConsoleText : LitheTheme.link
-    }
-
-    private func gitConsoleTimestamp(_ date: Date) -> String {
-        Self.gitConsoleTimestampFormatter.string(from: date)
-    }
-
-    // A DateFormatter is expensive to construct, so build it once instead of on
-    // every console row of every body pass.
-    private static let gitConsoleTimestampFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "HH:mm:ss.SSS"
-        return formatter
-    }()
-
     private var primaryActionBar: some View {
         HStack(spacing: 7) {
             Button {
+                selectedGitToolTab = .console
                 Task { await feature.fetchGit() }
             } label: {
                 Label("Fetch", systemImage: "arrow.down.circle")
@@ -1234,7 +1122,8 @@ struct GitLogView: View {
 
             if (visibleCommitHashes?.isEmpty == true || (visibleCommitHashes == nil && feature.gitCommits.isEmpty)) && !feature.isLoadingGitHistory {
                 GitRepositoryEmptyView(feature: feature, setup: feature.repositorySetup,
-                                       openSettings: navigation.openGitSettings, openChanges: navigation.openChanges)
+                                       openSettings: navigation.openGitSettings, openChanges: navigation.openChanges,
+                                       openConsole: { selectedGitToolTab = .console })
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {

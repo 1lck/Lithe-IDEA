@@ -14,7 +14,7 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 function flush() {
   if (timer !== undefined) clearTimeout(timer);
   timer = undefined;
-  useGitConsoleStore.setState({ records: journal.records.map((record) => ({ ...record })), active: new Map(journal.active), authentication: [...journal.authentication] });
+  useGitConsoleStore.setState({ records: journal.records.map((record) => ({ ...record, lines: [...record.lines] })), active: new Map(journal.active), authentication: [...journal.authentication] });
 }
 export function dismissGitAuthentication(requestID: string) { journal.authentication = journal.authentication.filter((request) => request.requestId !== requestID); flush(); }
 export function clearGitConsole(root: string) { journal.clear(root); flush(); }

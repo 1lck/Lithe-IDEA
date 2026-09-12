@@ -195,8 +195,9 @@ The UI does not invent a combined percentage across unrelated remotes.
 
 ## Native presentation
 
-macOS exposes **Fetch Options…** in the Git toolbar/action menu; Windows exposes
-it in the Git tool window. The sheet applies
+Both products expose a direct **Fetch** action that opens the Console and runs
+with the established defaults. **Fetch Options…** remains in the adjacent
+advanced action/menu. The sheet applies
 choices to one invocation and previews Rust's command, with credential-safe
 formatting. Plain Fetch uses the established defaults. A repository switch
 closes the options sheet. The sheet's preview is not a mandatory confirmation
@@ -206,8 +207,20 @@ The console distinguishes a pending planned command, a running process,
 a completed invocation, and unconfirmed completion. If the bridge returns no
 invocation trace, the UI does not assert that the planned command ran or that Git never started. The
 actual Git exit code remains distinct from an operation-level failure.
-Successful stderr output is displayed neutrally because progress is normal
-stderr output. Copying a record includes its status and duration.
+The default display follows IDEA's Console: millisecond timestamp, repository
+path, command, and continuous output in native event arrival order. Temporary
+configuration is folded into an inline `-c …` disclosure (an inspection-friendly
+equivalent of the process-local configuration environment). An inline details
+disclosure retains executable, status, duration, and per-remote results without
+adding metadata rows to every command. stderr uses a separate color, including
+successful Git messages; only the exit/result state determines failure. Copying
+retains command configuration, status, duration, and output.
+
+The Console is available independently of commit history. An unborn repository
+can open it directly without configuring commit identity. Basic Git settings
+show executable selection and credential-helper behavior. Configuration keys,
+origins, and Fetch/commit preferences are collapsed by default; repository
+configuration inspection starts only when its advanced section is opened.
 
 Live events and final results are bound to the repository generation. Clearing the console
 removes the pending record, and a late response cannot recreate it. Duration

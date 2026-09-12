@@ -449,6 +449,7 @@ export function GitLogToolWindow() {
 
   const fetchReferences = async (options?: GitFetchOptions) => {
     if (!repoPath || isReferenceMutationPending) return;
+    setPanel("console");
     setIsReferenceOperating(true);
     try {
       const result = await fetchChanges(repoPath, options);
@@ -578,10 +579,13 @@ export function GitLogToolWindow() {
         onClose={() => setIsBottomPaneVisible(false)}
       />
 
-      <div className="flex shrink-0 gap-4 border-b px-3 py-1 text-xs" role="tablist">
-        <button role="tab" aria-selected={panel === "log"} onClick={() => setPanel("log")}>{t("git.console.log")}</button>
-        <button role="tab" aria-selected={panel === "console"} onClick={() => setPanel("console")}>{t("git.console.title")}</button>
-        <button className="ml-auto" disabled={!repoPath || isReferenceMutationPending} onClick={() => setShowFetchOptions(true)}>{t("git.fetch.options")}</button>
+      <div className="flex shrink-0 gap-4 border-b px-3 py-1 text-xs">
+        <div className="flex gap-4" role="tablist">
+          <button role="tab" aria-selected={panel === "log"} onClick={() => setPanel("log")}>{t("git.console.log")}</button>
+          <button role="tab" aria-selected={panel === "console"} onClick={() => setPanel("console")}>{t("git.console.title")}</button>
+        </div>
+        <button className="ml-auto" disabled={!repoPath || isReferenceMutationPending} onClick={() => void fetchReferences()}>{t("git.fetch")}</button>
+        <button aria-label={t("git.fetch.options")} title={t("git.fetch.options")} disabled={!repoPath || isReferenceMutationPending} onClick={() => setShowFetchOptions(true)}>⋯</button>
       </div>
       {panel === "console" ? <GitExecutionConsole repoPath={repoPath} /> : <>
       {loadState === "failed" && history.commits.length > 0 ? (
@@ -607,7 +611,7 @@ export function GitLogToolWindow() {
           {t("git.log.loading")}
         </div>
       ) : loadState === "failed" && history.commits.length === 0 ? (
-        <GitRepositoryEmptyState root={repoPath} historyError={error} onRefresh={refresh} />
+        <GitRepositoryEmptyState root={repoPath} historyError={error} onRefresh={refresh} onShowConsole={() => setPanel("console")} />
       ) : (
         <ResizablePanelGroup
           orientation="horizontal"
@@ -644,7 +648,7 @@ export function GitLogToolWindow() {
           <ResizableHandle />
           <ResizablePanel id="commits" defaultSize="57" minSize={320}>
             <GitCommitTable
-              emptyState={<GitRepositoryEmptyState root={repoPath} onRefresh={refresh} />}
+              emptyState={<GitRepositoryEmptyState root={repoPath} onRefresh={refresh} onShowConsole={() => setPanel("console")} />}
               commits={history.commits}
               selectedCommit={activeSelectedCommit}
               selectedCommitHashes={selectedCommitHashes}
