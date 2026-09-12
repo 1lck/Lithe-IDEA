@@ -143,6 +143,8 @@ LSP 控制中心标题栏的工具设置会在用户偏好中保存每个 provid
 
 macOS 的 LSP 控制中心按标准化 workspace 根路径，在本机用户偏好中保存关闭的 provider ID。开关修改立即保存；项目打开时先恢复偏好，再恢复文档和执行 Java 预热。关闭 Java 同时取消尚未完成的启动准备，文档激活、Java 预热和导航标记同步均遵守关闭状态。重启语言服务器、重建索引和修改工具路径不会清除这一选择；重新勾选后才恢复启动。不同项目互不影响，偏好不写入项目的共享 catalog。
 
+会话管理器在创建或复用服务前，通过平台注入的查询读取该 workspace 的最新禁用列表，因此 Maven 重载、测试发现、调试及插件服务也不能绕过关闭状态。Java 关闭时，Maven 重载只更新本地模型，测试面板保留本地发现的文件列表；依赖 Java LSP 的显式操作返回可操作的禁用提示。
+
 当前 transport 是 LSP 标准的 stdio `Content-Length` framing。一个 provider 在一个 workspace root 下复用一个 session；同一 provider 切换到另一个 root 时，manager 会停止旧 session 并创建新 session。`java.workspacePolicy` 只要在非忽略目录发现有效 `.java` 文件就请求异步预热，不依赖 Maven/Gradle，也不需要先打开 Java 标签页；会话由 workspace 持有并在 workspace 关闭时停止。
 
 生产路径由 Rust engine 持有长生命周期 `sessionID -> RuntimeSession` registry。每个 runtime 同时拥有子进程、stdio、frame buffer、文档版本、pending request/deadline、capability 和 diagnostics；Swift 只保存不透明 `sessionID` 与 application-level `operationID`。`syncDocument` 由 Rust 决定发送 version 1 的 `didOpen` 或递增版本的 `didChange`；当 server 声明 Incremental `textDocumentSync` 且请求携带 range 时发送 range-based `didChange`，否则发送全文。`pollEvents` 立即排空队列；`waitEvents` 在 session 事件 channel 上等待直到有事件或超时后再排空 typed state/feature/diagnostic/result/error 事件。协议 reducer/host 只作为 engine 内部实现与纯函数测试 seam，不属于应用公开命令面。

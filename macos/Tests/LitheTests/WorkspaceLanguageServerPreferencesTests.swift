@@ -1,5 +1,7 @@
 import Combine
 import Foundation
+import LitheLanguageIntelligenceModule
+import LitheModuleAPI
 import Testing
 @testable import Lithe
 
@@ -118,8 +120,8 @@ struct WorkspaceLanguageServerPreferencesTests {
             .saveDisabledProviderIDs(["java"], for: workspace)
         let model = makeAppModel(store: store)
         defer { model.cancelJavaLanguageServerPreparation() }
-        // Restore preferences before the document and workspace startup entry
-        // points, without starting a real watcher, JDK probe, or LSP process.
+        // The injected workspace policy allows Java startup. Restoring the saved
+        // preference must prevent preparation even when Java files are eligible.
         model.languageToolingFeature.reloadCatalog(for: workspace)
         model.workspaceSessionCoordinator.beginWorkspace(at: workspace)
 
@@ -127,12 +129,54 @@ struct WorkspaceLanguageServerPreferencesTests {
             at: workspace,
             files: [workspace.appendingPathComponent("Main.java")]
         )
+        #expect(model.javaFeature.languageServerOperationID == nil)
+        #expect(model.activeNotifications.isEmpty)
         #expect(!model.activateLanguageServerIfAvailable(for: document("Main.java")))
         #expect(await model.javaNavigationMarkers(for: document("Main.java")) == [])
         #expect(model.javaFeature.languageServerOperationID == nil)
         #expect(model.languageToolingSessionsIfActive == nil)
         #expect(model.activeNotifications.isEmpty)
 
+        // Re-enable on the same model to prove the setup reaches preparation.
+        // Cancel before the queued task runs so no JDK or real LSP is needed.
+        model.setLanguageServerEnabled(true, providerID: "java")
+        guard case .preparing(let owner) = model.javaFeature.languageServerWorkspaceState else {
+            Issue.record("Enabling Java should schedule workspace preparation")
+            await model.shutdownProjectSession()
+            return
+        }
+        let task = owner.task
+        #expect(task != nil)
+        model.cancelJavaLanguageServerPreparation()
+        await task?.value
+        await model.shutdownProjectSession()
+    }
+
+    @Test
+    func maintenanceSessionsReadSavedPreferencesWithoutDocumentActivation() async throws {
+        let store = LanguagePreferencesTestStore()
+        let preferences = MacWorkspaceLanguageServerPreferencesStore(store: store)
+        preferences.saveDisabledProviderIDs(["java"], for: workspace)
+        let model = makeAppModel(store: store, moduleLaunchMode: .normal)
+        model.languageToolingFeature.reloadCatalog(for: workspace)
+        model.workspaceSessionCoordinator.beginWorkspace(at: workspace)
+        do {
+            let sessions = try await model.languageSessionsForWorkspaceMaintenance()
+            defer { sessions.stopAllLanguageServers() }
+            #expect(throws: LanguageToolingSessionError.providerDisabled("Java")) {
+                try sessions.startLanguageServer(providerID: "java", rootURL: workspace)
+            }
+            // A language first disabled after module activation must be observed
+            // by the same manager, without recreating or rebinding the module.
+            model.setLanguageServerEnabled(false, providerID: "go")
+            #expect(throws: LanguageToolingSessionError.providerDisabled("Go")) {
+                try sessions.startLanguageServer(providerID: "go", rootURL: workspace)
+            }
+            #expect(sessions.languageServerOperationIDs.isEmpty)
+        } catch {
+            await model.shutdownProjectSession()
+            throw error
+        }
         await model.shutdownProjectSession()
     }
 
@@ -185,15 +229,42 @@ struct WorkspaceLanguageServerPreferencesTests {
         )
     }
 
-    private func makeAppModel(store: any KeyValueStore) -> AppModel {
+    private func makeAppModel(
+        store: any KeyValueStore,
+        moduleLaunchMode: ModuleLaunchMode = .safeMode
+    ) -> AppModel {
         let settings = AppSettings(store: store)
         let services = MacServiceContainer(
             store: store,
             settings: settings,
-            moduleLaunchMode: .safeMode
+            moduleLaunchMode: moduleLaunchMode,
+            javaMavenOperations: LanguagePreferencesJavaOperations()
         ).services
         return AppModel(settings: settings, services: services)
     }
+}
+
+private struct LanguagePreferencesJavaOperations: JavaMavenOperations {
+    func javaWorkspacePolicy(
+        at rootURL: URL,
+        files: [URL],
+        changedFiles: [URL]
+    ) -> JavaWorkspacePolicyResult? {
+        JavaWorkspacePolicyResult(
+            shouldStart: true,
+            representativeJavaURL: rootURL.appendingPathComponent("Main.java"),
+            changes: []
+        )
+    }
+
+    func scanMavenProject(at rootURL: URL, files: [URL]) -> MavenProject? { nil }
+    func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue] { [] }
+    func codeVision(at rootURL: URL, targetPath: String, paths: [String]) -> [JavaCodeVisionValue] { [] }
+    func className(source: String, simpleName: String) -> String? { nil }
+    func sourceDefinition(source: String, declarationName: String, memberName: String?) -> (line: Int, utf16Column: Int)? { nil }
+    func serverPort(content: String, fileExtension: String) -> Int? { nil }
+    func scanRunConfigurations(at rootURL: URL, files: [URL], mavenProject: MavenProject?) -> [JavaRunConfiguration] { [] }
+    func structure(source: String, declarationSources: [String]) -> JavaStructureResult? { nil }
 }
 
 private struct LanguagePreferencesTestCatalogSource: LanguageProviderCatalogSource {

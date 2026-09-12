@@ -211,6 +211,7 @@ extension AppModel {
         }
         await feature.reloadProject(files: files, rescan: rescan) { [weak self] in
             guard let self, self.isCurrentWorkspace(identity) else { throw CancellationError() }
+            guard !self.languageToolingFeature.isDisabled("java") else { return }
             guard self.services.javaMavenOperations.javaWorkspacePolicy(
                 at: identity.url, files: files, changedFiles: []
             )?.shouldStart == true else {
@@ -220,6 +221,7 @@ extension AppModel {
             let preparation = await self.services.projectRuntimeService.prepareJavaLanguageServerRuntime()
             try Task.checkCancellation()
             guard self.isCurrentWorkspace(identity) else { throw CancellationError() }
+            guard !self.languageToolingFeature.isDisabled("java") else { return }
             switch preparation {
             case .ready: break
             case .failed(let message):
@@ -232,6 +234,7 @@ extension AppModel {
             let sessions = try await self.languageSessionsForWorkspaceMaintenance()
             try Task.checkCancellation()
             guard self.isCurrentWorkspace(identity) else { throw CancellationError() }
+            guard !self.languageToolingFeature.isDisabled("java") else { return }
             self.cancelJavaLanguageServerPreparation()
             try await sessions.reloadJavaWorkspace(rootURL: identity.url)
         }
