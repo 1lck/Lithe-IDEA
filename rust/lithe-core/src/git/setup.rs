@@ -79,6 +79,20 @@ pub struct GitSetupResponse {
 }
 
 fn git(root: &str, arguments: &[&str]) -> Result<GitProcessOutput, CoreError> {
+    if arguments.first() == Some(&"init")
+        || arguments
+            .iter()
+            .any(|arg| matches!(*arg, "--replace-all" | "--unset-all"))
+    {
+        return super::capture_git_process(
+            root,
+            &arguments.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+            None,
+            false,
+            &[("LC_ALL".into(), "C".into())],
+            true,
+        );
+    }
     capture_git_with_environment(
         root,
         &arguments.iter().map(|s| s.to_string()).collect::<Vec<_>>(),

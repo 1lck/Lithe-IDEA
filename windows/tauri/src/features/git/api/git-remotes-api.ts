@@ -1,4 +1,3 @@
-import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
 import type {
   GitPullPreflight,
@@ -21,6 +20,13 @@ import {
   resolveRepositoryPath,
   resolveRepositoryPathOrThrow,
 } from "./git-repo-api";
+
+export type GitFetchOptions = {
+  remote: string | null;
+  prune: boolean;
+  submodules: "inherit" | "no" | "onDemand" | "yes";
+  tags: "inherit" | "all" | "none" | "prune";
+};
 
 export interface GitRemoteActionResult {
   success: boolean;
@@ -138,14 +144,10 @@ export const executePullChanges = async (
   }
 };
 
-export const fetchChanges = async (repoPath: string): Promise<GitRemoteActionResult> => {
+export const fetchChanges = async (repoPath: string, fetchOptions?: GitFetchOptions): Promise<GitRemoteActionResult> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-    const settings = useSettingsStore.getState().settings;
-    await tauriInvoke("git_fetch", { repoPath: resolvedRepoPath, fetchOptions: {
-      remote: null, prune: settings.gitFetchTags === "prune" || settings.gitFetchPrune,
-      submodules: settings.gitFetchSubmodules, tags: settings.gitFetchTags,
-    } });
+    await tauriInvoke("git_fetch", { repoPath: resolvedRepoPath, ...(fetchOptions ? { fetchOptions } : {}) });
     emitGitChanged({
       repoPath: resolvedRepoPath,
       scopes: ["refs", "remotes"],

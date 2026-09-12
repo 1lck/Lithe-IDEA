@@ -54,3 +54,11 @@ __attribute__((weak)) char *lithe_core_execute_json_with_events(const char *requ
 char *lithe_bridge_execute_json_with_events(const char *request, void (*callback)(const char *, void *), void *context) {
     return lithe_core_execute_json_with_events(request, callback, context);
 }
+
+__attribute__((weak)) int32_t lithe_core_git_askpass(const char *prompt) {
+    (void)prompt;
+    return 1;
+}
+int32_t lithe_bridge_git_askpass(const char *prompt) {
+    return lithe_core_git_askpass(prompt);
+}

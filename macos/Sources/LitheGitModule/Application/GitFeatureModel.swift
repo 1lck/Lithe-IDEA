@@ -12,6 +12,23 @@ package final class GitFeatureModel: ObservableObject {
     package var repositorySetupRoot: URL? { gitRepositoryRoot ?? workspaceURLProvider?() }
     package lazy var patchExchange = makePatchExchange()
     package lazy var historyEditing = makeHistoryEditing()
+    @Published package private(set) var authenticationChallenges: [GitAuthenticationChallenge] = []
+    package lazy var executionSettings = GitExecutionSettingsFeatureModel(service: service)
+    package func initializeGitRepository() async -> Bool {
+        await withGitOperation { await repositorySetup.initialize() }
+    }
+    package func saveGitIdentity(_ field: GitIdentityField, clear: Bool) async {
+        await withGitOperation { await identitySettings.save(field, clear: clear) }
+    }
+    package func saveExecutionConfiguration(at root: URL, field: GitConfigurationField, value: String?) async {
+        await withGitOperation { await executionSettings.save(at: root, field: field, value: value) }
+    }
+    package func answerAuthentication(_ challenge: GitAuthenticationChallenge, answer: String?) async {
+        let accepted = await service.answerAuthentication(requestID: challenge.id, answer: answer)
+        authenticationChallenges.removeAll { $0.id == challenge.id }
+        if answer == nil || !accepted { activeGitExecutions[challenge.operationID].map { service.cancelExecution($0) } }
+        if answer != nil && !accepted { notify?("Git authentication request expired. Retry the operation.") }
+    }
     package lazy var interactiveRebase = makeInteractiveRebase()
 
     private func makeInteractiveRebase() -> GitInteractiveRebaseFeatureModel {
@@ -415,6 +432,8 @@ package final class GitFeatureModel: ObservableObject {
         isLoadingMoreGitHistory = false
         canLoadMoreGitHistory = false
         cancelGitExecutions()
+        authenticationChallenges = []
+        executionSettings.reset()
         gitConsoleEntries = []
         isLoadingInitialGitConsoleEntry = false
         hasLoadedInitialGitConsoleEntry = false
@@ -827,9 +846,15 @@ package final class GitFeatureModel: ObservableObject {
                 arguments: plannedArguments, output: "", exitCode: 0, state: .planned, operationTitle: title))
         }
         activeGitExecutions[execution.operationID] = execution
-        defer { activeGitExecutions.removeValue(forKey: execution.operationID) }
+        defer {
+            activeGitExecutions.removeValue(forKey: execution.operationID)
+            authenticationChallenges.removeAll { $0.operationID == execution.operationID }
+        }
         var publishedIDs: Set<UUID> = [plannedID]
         func publish() {
+            if generation == gitConsoleRepositoryGeneration, root == gitRepositoryRoot {
+                authenticationChallenges.append(contentsOf: execution.drainChallenges())
+            }
             guard generation == gitConsoleRepositoryGeneration, root == gitRepositoryRoot,
                   clearGeneration == gitConsoleClearGeneration,
                   let entries = execution.drainSnapshot() else { return }
@@ -3031,22 +3056,39 @@ package final class GitFeatureModel: ObservableObject {
         pendingPullStrategy = nil
     }
 
+    package func resolvedFetchOptions() async -> Result<GitFetchOptions, GitFetchFailure> {
+        guard let root = gitRepositoryRoot else { return .failure(GitFetchFailure("Open a Git repository first.")) }
+        return await service.executionSettings(.init(root: root, scope: "local"), save: false).flatMap { snapshot in
+            snapshot.fetchOptions.map { .success($0) } ?? .failure(GitFetchFailure(snapshot.fetchError?.message ?? "Invalid Fetch configuration"))
+        }
+    }
+
     package func previewFetch(options: GitFetchOptions) async -> Result<GitFetchPlan, GitFetchFailure> {
-        await service.fetchPlan(options: options)
+        await service.fetchPlan(options: options, at: gitRepositoryRoot)
     }
 
     package var fetchOptionsProvider: (@MainActor () -> GitFetchOptions)?
     package var defaultFetchOptions: GitFetchOptions { fetchOptionsProvider?() ?? GitFetchOptions() }
 
     package func fetchGit(options: GitFetchOptions? = nil) async {
-        let options = options ?? defaultFetchOptions
+        let singleUse = options
         guard let root = gitRepositoryRoot, !isPerformingBranchOperation else { return }
         let generation = gitConsoleRepositoryGeneration
         isPerformingBranchOperation = true
         defer {
             if generation == gitConsoleRepositoryGeneration { isPerformingBranchOperation = false }
         }
-        let preview = await service.fetchPlan(options: options)
+        let effective: GitFetchOptions
+        if let singleUse { effective = singleUse }
+        else {
+            switch await service.executionSettings(.init(root: root, scope: "local"), save: false) {
+            case .success(let snapshot):
+                guard let resolved = snapshot.fetchOptions else { notify?(snapshot.fetchError?.message ?? "Invalid Fetch configuration"); return }
+                effective = resolved
+            case .failure(let error): notify?(error.message); return
+            }
+        }
+        let preview = await service.fetchPlan(options: effective, at: root)
         guard generation == gitConsoleRepositoryGeneration, gitRepositoryRoot == root,
               !Task.isCancelled else { return }
         let plan: GitFetchPlan
@@ -3058,8 +3100,9 @@ package final class GitFeatureModel: ObservableObject {
                 output: error.message, exitCode: 1, state: .unconfirmed, operationTitle: "Fetch"))
             return
         }
-        let result = await withGitOperation(title: "Fetch", plannedArguments: plan.arguments) {
-            await service.fetch(at: root, options: plan.options,
+        let result = await withGitOperation(title: "Fetch", plannedArguments: plan.commands?.first ?? plan.arguments) {
+            if singleUse == nil { return await service.fetch(at: root) }
+            return await service.fetch(at: root, options: plan.options,
                 operationID: GitExecutionContext.current?.operationID ?? UUID().uuidString)
         }
         guard generation == gitConsoleRepositoryGeneration, gitRepositoryRoot == root else { return }

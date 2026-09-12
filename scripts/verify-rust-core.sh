@@ -52,4 +52,10 @@ if ! nm -gU "$BINARY" | grep -F "_lithe_core_lsp_provider_catalog_json" > /dev/n
     exit 1
 fi
 
-print "Rust Core verification passed: comments, Rust tests, Swift bridge build, and linked symbols"
+# Exercise the same linked app's early AskPass mode as well as the C ABI and
+# isolated local Git/HTTP flows. This lane never contacts an external remote.
+cargo build --manifest-path rust/Cargo.toml -p lithe-core
+python3 scripts/test-git-execution.py --application "$BINARY"
+node --input-type=module -e 'import { writeTestReportArtifacts } from "./.agents/skills/write-stable-tests/scripts/generate-test-report.mjs"; writeTestReportArtifacts(".artifacts/test-stability/git-execution-integration.json");'
+
+print "Rust Core verification passed: comments, Rust tests, Swift bridge, linked symbols, and Git execution integration"

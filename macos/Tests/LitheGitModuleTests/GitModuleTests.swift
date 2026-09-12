@@ -3345,7 +3345,11 @@ private struct TestGitOperations: GitOperations {
     func pullPreflight(at rootURL: URL) -> GitPullPreflightState? { nil }
     func conflictMarkerPaths(at rootURL: URL) -> [String] { [] }
     func integrationPreflight(for target: GitIntegrationTarget, operation: GitIntegrationOperation, at rootURL: URL) -> GitIntegrationPreflightState? { nil }
-    func fetch(at rootURL: URL) -> GitProcessResult? { nil }
+    func fetch(at rootURL: URL) -> GitProcessResult? { fetchHandler?(fetchPlanValue?.options ?? GitFetchOptions(), "default-fetch-fixture") }
+    func executionSettings(_ request: GitConfigurationEdit, save: Bool) -> Result<GitExecutionSettingsSnapshot, GitFetchFailure> {
+        .success(GitExecutionSettingsSnapshot(executable: nil, version: "git fixture", scope: "local", entries: [], fields: [], temporaryConfig: [],
+            fetchOptions: fetchPlanValue?.options ?? GitFetchOptions(), fetchError: nil, credentialHelperEnabled: true, interactiveAuthentication: false))
+    }
     func fetchPlan(options: GitFetchOptions) -> Result<GitFetchPlan, GitFetchFailure> {
         fetchPlanValue.map(Result.success) ?? .failure(GitFetchFailure("Fetch preview unavailable"))
     }

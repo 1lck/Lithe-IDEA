@@ -126,3 +126,15 @@ pub unsafe extern "C" fn lithe_core_execute_json_with_events(
     });
     response_pointer(&crate::execute_json_with_events(&request, sink))
 }
+
+/// Runs the native authentication helper without initializing the application.
+///
+/// # Safety
+/// `prompt` must be a readable NUL-terminated string for this synchronous call.
+#[no_mangle]
+pub unsafe extern "C" fn lithe_core_git_askpass(prompt: *const c_char) -> i32 {
+    if prompt.is_null() {
+        return 1;
+    }
+    crate::git_askpass_main(&CStr::from_ptr(prompt).to_string_lossy())
+}

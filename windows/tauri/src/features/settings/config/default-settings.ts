@@ -199,6 +199,8 @@ export const defaultSettings: Settings = {
   compactGitStatusBadges: false,
   collapseEmptyGitSections: false,
   rememberLastGitPanelMode: false,
+  gitExecutable: "",
+  gitUseCredentialHelper: true,
   gitFetchPrune: true,
   gitFetchSubmodules: "inherit",
   gitFetchTags: "inherit",

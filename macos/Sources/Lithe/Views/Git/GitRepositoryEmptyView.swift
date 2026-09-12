@@ -54,7 +54,7 @@ struct GitRepositoryEmptyView: View {
         .confirmationDialog("Initialize Git in this project folder?", isPresented: $confirmsInitialization, titleVisibility: .visible) {
             Button("Initialize Git Repository") {
                 Task {
-                    if await setup.initialize() { await feature.refreshGit() }
+                    if await feature.initializeGitRepository() { await feature.refreshGit() }
                 }
             }
         } message: {

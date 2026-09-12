@@ -871,3 +871,39 @@
 "Credentials use your existing Git helper and SSH configuration." = "Credentials use your existing Git helper and SSH configuration.";
 
 "Reset Fetch defaults" = "Reset Fetch defaults";
+
+/* Git execution policy and authentication */
+"Git execution" = "Git execution";
+"Git executable" = "Git executable";
+"Use Git from PATH" = "Use Git from PATH";
+"Use credential helper" = "Use credential helper";
+"Git can request credentials in Lithe. Passwords are not saved by Lithe; the selected Git helper controls credential storage." = "Git can request credentials in Lithe. Passwords are not saved by Lithe; the selected Git helper controls credential storage.";
+"Configuration sources" = "Configuration sources";
+"One-time choices override repository preferences, which override application defaults. Git configuration is changed only when you save or clear a field below." = "One-time choices override repository preferences, which override application defaults. Git configuration is changed only when you save or clear a field below.";
+"Temporary configuration" = "Temporary configuration";
+"Configuration key" = "Configuration key";
+"Configuration value" = "Configuration value";
+"Choose a value" = "Choose a value";
+"Overridden by a later value" = "Overridden by a later value";
+"Git configuration saved: %@" = "Git configuration saved: %@";
+"Git executable: %@" = "Git executable: %@";
+"Temporary configuration: %@" = "Temporary configuration: %@";
+"Git authentication" = "Git authentication";
+"Git requested credentials again. Check the previous answer." = "Git requested credentials again. Check the previous answer.";
+"Password or passphrase" = "Password or passphrase";
+"Response" = "Response";
+"This response is sent only to the running Git operation." = "This response is sent only to the running Git operation.";
+"Retry uses Lithe authentication for this operation only." = "Retry uses Lithe authentication for this operation only.";
+"Remote: %@" = "Remote: %@";
+"Remote Fetch succeeded" = "Remote Fetch succeeded";
+"Remote Fetch failed" = "Remote Fetch failed";
+"Updated references: %@" = "Updated references: %@";
+"Deleted references: %@" = "Deleted references: %@";
+"Git phase: %@" = "Git phase: %@";
+"Git progress" = "Git progress";
+
+"Effective Fetch options" = "Effective Fetch options";
+
+"Reference changes could not be inspected" = "Reference changes could not be inspected";
+
+"Reference list truncated; total updated: %lld, deleted: %lld" = "Reference list truncated; total updated: %lld, deleted: %lld";

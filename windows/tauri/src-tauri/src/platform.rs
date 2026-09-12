@@ -6,10 +6,13 @@ static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 #[tauri::command]
 pub async fn platform_invoke(
+    webview: tauri::Webview,
     command: String,
     args: Value,
-    git_events: Option<tauri::ipc::Channel<Value>>,
+    git_events: Option<tauri::ipc::JavaScriptChannelId>,
+    git_execution: Option<Value>,
 ) -> Result<Value, String> {
+    let git_events = git_events.map(|id| id.channel_on::<_, Value>(webview));
     let preserve_history_rewrite = is_reviewed_history_rewrite(&command, &args);
     let preserve_stash_restore = command == "git_pull"
         && args
@@ -31,14 +34,26 @@ pub async fn platform_invoke(
             | "git.patchApply"
             | "git.rebaseStart"
             | "git.rebaseControl"
+            | "git.executionConfigure"
+            | "git.initialize"
+            | "git.configureIdentity"
     ) || matches!(
         command.as_str(),
-        "git_add_remote" | "git_remove_remote" | "git_create_tag" | "git_delete_tag"
+        "git_add_remote" | "git_remove_remote" | "git_create_tag" | "git_delete_tag" | "git.command"
     );
+    let mut git_execution = if core_command == "git.authRespond" {
+        json!({})
+    } else {
+        git_execution.unwrap_or_else(|| json!({}))
+    };
+    if git_execution.is_object() {
+        git_execution["interactive"] = json!(observe_git && git_events.is_some());
+    }
     let request = json!({
         "id": operation_id,
         "operationId": operation_id,
-        "timeoutMilliseconds": 30_000,
+        "timeoutMilliseconds": if observe_git { 900_000 } else { 30_000 },
+        "gitExecution": git_execution,
         "command": core_command,
         "payload": payload
     })

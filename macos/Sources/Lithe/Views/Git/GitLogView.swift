@@ -621,14 +621,30 @@ struct GitLogView: View {
                     gitConsoleLine(Text("No completed Git invocation was reported")
                         .foregroundColor(LitheTheme.error))
                 case .completed:
-                    gitConsoleLine(Text(LocalizedStringKey(entry.succeeded ? "Git command succeeded" : "Git command failed"))
-                        .foregroundColor(entry.succeeded ? LitheTheme.secondaryText : LitheTheme.error))
+                    gitConsoleLine(Text(LocalizedStringKey(entry.exitCode == 0 ? "Git command succeeded" : "Git command failed"))
+                        .foregroundColor(entry.exitCode == 0 ? LitheTheme.secondaryText : LitheTheme.error))
                 }
             }
             gitConsoleLine(gitConsoleCommandText(entry))
+            if let executable = entry.executable { gitConsoleLine(Text("Git executable: \(executable)").foregroundColor(LitheTheme.secondaryText)) }
+            if !entry.temporaryConfig.isEmpty {
+                gitConsoleLine(Text("Temporary configuration: \(entry.temporaryConfig.map { $0.joined(separator: "=") }.joined(separator: ", "))").foregroundColor(LitheTheme.secondaryText))
+            }
+            if let outcome = entry.remoteResult {
+                gitConsoleLine(Text("Remote: \(outcome.remote)").foregroundColor(LitheTheme.accent))
+                gitConsoleLine(Text(LocalizedStringKey(outcome.succeeded ? "Remote Fetch succeeded" : "Remote Fetch failed")).foregroundColor(outcome.succeeded ? LitheTheme.secondaryText : LitheTheme.error))
+                if outcome.truncated { gitConsoleLine(Text("Reference list truncated; total updated: \(outcome.updatedCount), deleted: \(outcome.deletedCount)").foregroundColor(LitheTheme.secondaryText)) }
+                if !outcome.referencesAvailable { gitConsoleLine(Text("Reference changes could not be inspected").foregroundColor(LitheTheme.error)) }
+                if !outcome.updatedReferences.isEmpty { gitConsoleLine(Text("Updated references: \(outcome.updatedReferences.joined(separator: ", "))").foregroundColor(LitheTheme.secondaryText)) }
+                if !outcome.deletedReferences.isEmpty { gitConsoleLine(Text("Deleted references: \(outcome.deletedReferences.joined(separator: ", "))").foregroundColor(LitheTheme.secondaryText)) }
+            }
+            if let phase = entry.phase, entry.state == .running {
+                gitConsoleLine(Text("Git phase: \(phase.stage)").foregroundColor(LitheTheme.secondaryText))
+                if let percent = phase.percent { ProgressView(value: Double(percent), total: 100).frame(maxWidth: 240).accessibilityLabel(Text("Git progress")) }
+            }
 
             if entry.outputLines.isEmpty {
-                if !entry.succeeded && entry.state == .completed {
+                if entry.exitCode != 0 && entry.state == .completed {
                     gitConsoleLine(
                         Text("Git exited with code \(entry.exitCode)")
                             .foregroundColor(LitheTheme.error)
@@ -639,7 +655,7 @@ struct GitLogView: View {
                     gitConsoleLine(
                         Text(line.text.isEmpty ? " " : line.text)
                             .foregroundColor(
-                                line.stream == .standardError && entry.state == .completed && !entry.succeeded
+                                line.stream == .standardError && entry.state == .completed && entry.exitCode != 0
                                     ? LitheTheme.error
                                     : gitConsoleTextColor
                             )

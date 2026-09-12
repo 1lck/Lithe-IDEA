@@ -8,6 +8,7 @@ extern "C" {
 #endif
 
 const char *lithe_bridge_version(void);
+int32_t lithe_bridge_git_askpass(const char *prompt);
 char *lithe_bridge_execute_json(const char *request);
 char *lithe_bridge_execute_json_with_events(const char *request, void (*callback)(const char *, void *), void *context);
 char *lithe_bridge_lsp_provider_catalog_json(const char *workspace_root);

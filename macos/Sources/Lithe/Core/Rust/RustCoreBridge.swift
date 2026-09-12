@@ -10,12 +10,15 @@ import LitheRustCore
 /// Windows Qt binding will consume. The bridge stays synchronous at this
 /// layer; callers move filesystem and Git work off the main actor.
 struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
+    var gitPreferences: GitExecutionPreferences? = nil
+
     private struct Request<Payload: Encodable>: Encodable {
         let id: String
         let operationId: String?
         let timeoutMilliseconds: Int?
         let command: String
         let payload: Payload
+        var gitExecution: GitExecutionOptions? = nil
     }
 
     private struct Envelope<Data: Decodable>: Decodable {
@@ -4013,13 +4016,16 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             return .failure(CoreCallError(code: "cancelled", message: "Operation was cancelled", details: nil))
         }
         let requestID = execution?.operationID ?? operationID ?? UUID().uuidString
+        var gitOptions = gitPreferences?.snapshot ?? GitExecutionOptions()
+        gitOptions.interactive = execution != nil
         guard let requestData = try? JSONEncoder().encode(
             Request(
                 id: requestID,
                 operationId: requestID,
                 timeoutMilliseconds: nil,
                 command: command,
-                payload: payload
+                payload: payload,
+                gitExecution: command.hasPrefix("git.") && command != "git.authRespond" ? gitOptions : nil
             )
         ),
         let request = String(data: requestData, encoding: .utf8),

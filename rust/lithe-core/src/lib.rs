@@ -55,3 +55,8 @@ pub fn execute_json_with_events(
         response
     })
 }
+
+/// Runs the native AskPass helper before either host initializes its user interface.
+pub fn git_askpass_main(prompt: &str) -> i32 {
+    lithe_git_host::authentication::helper_main(prompt)
+}

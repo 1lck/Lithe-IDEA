@@ -1,3 +1,4 @@
+import { GitExecutionSettings } from "../git-execution-settings";
 import { useShallow } from "zustand/react/shallow";
 import { getDefaultSetting, useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useTranslation } from "@/i18n/locale-provider";
@@ -57,6 +58,7 @@ export const GitSettings = () => {
             }} />
         </SettingRow>
       </Section>
+      <GitExecutionSettings />
       <GitIdentitySettings />
       <Section title={t("settings.git.integration")}>
         <SettingRow

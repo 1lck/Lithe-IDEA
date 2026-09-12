@@ -4,6 +4,9 @@
 //! The compatibility Core caller supplies policy and cancellation; both hosts
 //! share this native adapter while the existing Git command ABI is retained.
 
+pub mod authentication;
+pub mod configuration;
+
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;

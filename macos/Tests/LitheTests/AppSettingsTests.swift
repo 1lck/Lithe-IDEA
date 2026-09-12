@@ -8,6 +8,21 @@ import Testing
 @MainActor
 struct AppSettingsTests {
     @Test
+    func gitExecutionPreferencesPersistAndRemainIsolatedBetweenSettingsInstances() {
+        let store = AppSettingsTestStore()
+        let settings = AppSettings(store: store)
+        settings.gitExecutable = "/fixture/tools/git"
+        settings.gitUseCredentialHelper = false
+        let reloaded = AppSettings(store: store)
+        #expect(reloaded.gitExecutionPreferences.snapshot.executable == "/fixture/tools/git")
+        #expect(!reloaded.gitExecutionPreferences.snapshot.useCredentialHelper)
+        #expect(AppSettings(store: AppSettingsTestStore()).gitExecutionPreferences.snapshot.useCredentialHelper)
+        settings.restoreDefaults()
+        #expect(settings.gitExecutionPreferences.snapshot.executable == nil)
+        #expect(AppSettings(store: store).gitUseCredentialHelper)
+    }
+
+    @Test
     func fetchDefaultsPersistAndResetWithoutSavingAnOperationTarget() {
         let store = AppSettingsTestStore()
         let settings = AppSettings(store: store)

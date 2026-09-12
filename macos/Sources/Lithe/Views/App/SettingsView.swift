@@ -228,6 +228,8 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 24) {
                             GitFetchSettingsView(options: $settings.gitFetchOptions)
                             Divider()
+                            GitExecutionSettingsView(settings: settings)
+                            Divider()
                             GitIdentitySettingsView()
                         }
                     case .updates: updatesSettings

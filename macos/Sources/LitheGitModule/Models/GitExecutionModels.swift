@@ -4,6 +4,22 @@ import Foundation
 package struct GitExecutionEvent: Decodable, Sendable {
     package let operationId: String
     package let type: String
+    package var executable: String?
+    package var temporaryConfig: [[String]]?
+    package var progressDetails: GitPhaseProgress?
+    package var requestId: String?
+    package var prompt: String?
+    package var secret: Bool?
+    package var attempt: Int?
+    package var retry: Bool?
+    package var remote: String?
+    package var updatedReferenceCount: Int?
+    package var deletedReferenceCount: Int?
+    package var referencesTruncated: Bool?
+    package var referencesAvailable: Bool?
+    package var updatedReferences: [String]?
+    package var deletedReferences: [String]?
+    package var succeeded: Bool?
     package var invocationId: Int?
     package var workingDirectory: String?
     package var arguments: [String]?
@@ -31,6 +47,7 @@ package final class GitExecutionContext: @unchecked Sendable {
     private var cancelled = false
     private var records: [Record] = []
     private var dirty = false
+    private var challenges: [GitAuthenticationChallenge] = []
     private var receivedInvocation = false
     private static let maxRecords = 200
     private static let maxStreamCharacters = 32_768
@@ -42,6 +59,10 @@ package final class GitExecutionContext: @unchecked Sendable {
         let timestamp = Date()
         let root: URL
         let arguments: [String]
+        var executable: String?
+        var temporaryConfig: [[String]] = []
+        var phase: GitPhaseProgress?
+        var remoteResult: GitRemoteOutcome?
         var stdout = ""
         var stderr = ""
         var progress: String?
@@ -56,7 +77,8 @@ package final class GitExecutionContext: @unchecked Sendable {
                 arguments: arguments, output: stdout + stderr, standardOutput: stdout,
                 standardError: stderr, exitCode: exitCode, state: state,
                 durationMilliseconds: duration, operationTitle: "Git",
-                operationErrorMessage: error, progressText: progress, isOutputTruncated: truncated)
+                operationErrorMessage: error, progressText: progress, isOutputTruncated: truncated,
+                executable: executable, temporaryConfig: temporaryConfig, phase: phase, remoteResult: remoteResult)
         }
     }
 
@@ -67,11 +89,26 @@ package final class GitExecutionContext: @unchecked Sendable {
     package var hasInvocations: Bool { lock.withLock { receivedInvocation } }
 
     package func receive(_ event: GitExecutionEvent) {
-        guard event.operationId == operationID, let invocationID = event.invocationId else { return }
+        guard event.operationId == operationID else { return }
         lock.withLock {
+            if event.type == "authentication", let id = event.requestId {
+                challenges.append(.init(id: id, operationID: operationID, prompt: event.prompt ?? "Git authentication", secret: event.secret ?? true, attempt: event.attempt ?? 1, retry: event.retry ?? false))
+                return
+            }
+            if event.type == "requestFinished" { challenges.removeAll(); return }
+            if event.type == "remoteResult", let index = records.indices.last {
+                records[index].remoteResult = .init(remote: event.remote ?? "", succeeded: event.succeeded ?? false,
+                    updatedReferences: event.updatedReferences ?? [], deletedReferences: event.deletedReferences ?? [],
+                    updatedCount: event.updatedReferenceCount ?? event.updatedReferences?.count ?? 0, deletedCount: event.deletedReferenceCount ?? event.deletedReferences?.count ?? 0, truncated: event.referencesTruncated ?? false, referencesAvailable: event.referencesAvailable ?? true)
+                if let error = event.error { records[index].error = error.message }
+                dirty = true
+                return
+            }
+            guard let invocationID = event.invocationId else { return }
             if event.type == "started", let root = event.workingDirectory, let arguments = event.arguments {
                 receivedInvocation = true
-                records.append(Record(invocationID: invocationID, root: URL(fileURLWithPath: root), arguments: arguments))
+                records.append(Record(invocationID: invocationID, root: URL(fileURLWithPath: root), arguments: arguments,
+                    executable: event.executable, temporaryConfig: event.temporaryConfig ?? []))
                 if records.count > Self.maxRecords { records.removeFirst(records.count - Self.maxRecords) }
                 dirty = true
                 return
@@ -79,6 +116,7 @@ package final class GitExecutionContext: @unchecked Sendable {
             guard let index = records.lastIndex(where: { $0.invocationID == invocationID }) else { return }
             switch event.type {
             case "output":
+                records[index].phase = event.progressDetails ?? records[index].phase
                 let text = GitConsoleRedactor.redact(event.text ?? "")
                 if event.progress == true {
                     records[index].progress = text
@@ -111,6 +149,10 @@ package final class GitExecutionContext: @unchecked Sendable {
         }
     }
 
+    package func drainChallenges() -> [GitAuthenticationChallenge] {
+        lock.withLock { defer { challenges.removeAll() }; return challenges }
+    }
+
     /// Snapshot frequency is owned by the UI coordinator, not native output rate.
     package func drainSnapshot() -> [GitConsoleEntry]? {
         lock.withLock {
@@ -119,4 +161,21 @@ package final class GitExecutionContext: @unchecked Sendable {
             return records.map(\.entry)
         }
     }
+}
+
+package struct GitPhaseProgress: Decodable, Equatable, Sendable {
+    package let stage: String
+    package let percent: Int?
+    package let completed: Int?
+    package let total: Int?
+}
+package struct GitRemoteOutcome: Equatable, Sendable {
+    package let remote: String
+    package let succeeded: Bool
+    package let updatedReferences: [String]
+    package let deletedReferences: [String]
+    package var updatedCount = 0
+    package var deletedCount = 0
+    package var truncated = false
+    package var referencesAvailable = true
 }

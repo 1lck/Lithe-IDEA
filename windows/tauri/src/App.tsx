@@ -1,3 +1,4 @@
+import { GitAuthenticationDialog } from "@/features/git/components/log/git-authentication-dialog";
 import "@/features/git/stores/git-console.store";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -92,6 +93,7 @@ function App() {
     <Suspense fallback={<InitialWindowShell />}>
       <LocaleProvider>
         <WorkbenchApp />
+        <GitAuthenticationDialog />
       </LocaleProvider>
     </Suspense>
   );

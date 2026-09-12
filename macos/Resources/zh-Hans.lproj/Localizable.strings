@@ -1895,3 +1895,39 @@
 "Credentials use your existing Git helper and SSH configuration." = "凭据沿用现有 Git 凭据助手和 SSH 配置。";
 
 "Reset Fetch defaults" = "重置 Fetch 默认行为";
+
+/* Git execution policy and authentication */
+"Git execution" = "Git 执行";
+"Git executable" = "Git 可执行文件";
+"Use Git from PATH" = "使用 PATH 中的 Git";
+"Use credential helper" = "使用凭据助手";
+"Git can request credentials in Lithe. Passwords are not saved by Lithe; the selected Git helper controls credential storage." = "Git 可以在 Lithe 中请求凭据。Lithe 不保存密码；是否保存凭据由所选 Git 凭据助手控制。";
+"Configuration sources" = "配置来源";
+"One-time choices override repository preferences, which override application defaults. Git configuration is changed only when you save or clear a field below." = "单次选项优先于仓库偏好，仓库偏好优先于应用默认值。只有保存或清除下方字段时才会修改 Git 配置。";
+"Temporary configuration" = "临时配置";
+"Configuration key" = "配置项";
+"Configuration value" = "配置值";
+"Choose a value" = "选择一个值";
+"Overridden by a later value" = "已被更高优先级的值覆盖";
+"Git configuration saved: %@" = "Git 配置已保存：%@";
+"Git executable: %@" = "Git 可执行文件：%@";
+"Temporary configuration: %@" = "临时配置：%@";
+"Git authentication" = "Git 认证";
+"Git requested credentials again. Check the previous answer." = "Git 再次请求凭据，请检查上一次输入。";
+"Password or passphrase" = "密码或密钥口令";
+"Response" = "回复";
+"This response is sent only to the running Git operation." = "此回复仅发送给正在运行的 Git 操作。";
+"Retry uses Lithe authentication for this operation only." = "此次重试仅为当前操作使用 Lithe 认证。";
+"Remote: %@" = "远程：%@";
+"Remote Fetch succeeded" = "远程 Fetch 成功";
+"Remote Fetch failed" = "远程 Fetch 失败";
+"Updated references: %@" = "已更新引用：%@";
+"Deleted references: %@" = "已删除引用：%@";
+"Git phase: %@" = "Git 阶段：%@";
+"Git progress" = "Git 进度";
+
+"Effective Fetch options" = "实际生效的 Fetch 选项";
+
+"Reference changes could not be inspected" = "无法读取引用变更";
+
+"Reference list truncated; total updated: %lld, deleted: %lld" = "引用列表已截断；更新总数：%lld，删除总数：%lld";

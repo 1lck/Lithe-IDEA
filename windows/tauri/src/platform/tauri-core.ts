@@ -1,4 +1,4 @@
-import { deliverGitExecution, type GitExecutionEvent } from "./git-execution-events";
+import { deliverGitExecution, gitExecutionPreferences, type GitExecutionEvent } from "./git-execution-events";
 import {
   Channel,
   convertFileSrc,
@@ -106,7 +106,7 @@ export function invoke<T>(command: string, args?: InvokeArgs, options?: InvokeOp
       deliverGitExecution({ ...event, action: command,
         workingDirectory: event.workingDirectory ?? String(payload.repoPath ?? payload.root ?? "") });
     };
-    return tauriInvoke<unknown>("platform_invoke", { command, args: payload, gitEvents: channel }, options).then(
+    return tauriInvoke<unknown>("platform_invoke", { command, args: payload, gitEvents: channel, gitExecution: gitExecutionPreferences() }, options).then(
       (value) => {
         return adaptCoreResult<T>(command, args as Record<string, any> | undefined, value);
       },

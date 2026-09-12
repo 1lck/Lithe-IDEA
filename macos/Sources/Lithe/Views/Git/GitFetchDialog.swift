@@ -5,6 +5,8 @@ struct GitFetchDialog: View {
     @ObservedObject var feature: GitFeatureModel
     let onFetch: (GitFetchOptions) -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var loadingDefaults = true
+    @State private var defaultsError: String?
     @State private var options = GitFetchOptions()
     @State private var plan: GitFetchPlan?
     @State private var errorMessage: String?
@@ -48,6 +50,7 @@ struct GitFetchDialog: View {
             }
             .padding(12).frame(maxWidth: .infinity, alignment: .leading)
             .background(LitheTheme.editor, in: RoundedRectangle(cornerRadius: 6))
+            if let defaultsError { Text(verbatim: defaultsError).foregroundStyle(LitheTheme.error) }
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
@@ -57,10 +60,19 @@ struct GitFetchDialog: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(plan?.options != options || feature.isPerformingBranchOperation || feature.gitRepositoryRoot == nil)
+                .disabled(loadingDefaults || defaultsError != nil || plan?.options != options || feature.isPerformingBranchOperation || feature.gitRepositoryRoot == nil)
             }
         }
         .padding(24).frame(width: 580)
+        .task {
+            let result = await feature.resolvedFetchOptions()
+            guard !Task.isCancelled else { return }
+            switch result {
+            case .success(let defaults): options = defaults
+            case .failure(let error): defaultsError = error.message
+            }
+            loadingDefaults = false
+        }
         .task(id: options) {
             let requestedOptions = options
             plan = nil

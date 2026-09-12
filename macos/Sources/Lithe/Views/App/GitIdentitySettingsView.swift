@@ -89,7 +89,7 @@ private struct GitIdentitySettingsPane: View {
 
     private func save(_ field: GitIdentityField, clear: Bool = false) {
         Task {
-            await editor.save(field, clear: clear)
+            await feature.saveGitIdentity(field, clear: clear)
             if editor.errorMessage == nil { await feature.refreshGitHistory() }
         }
     }

@@ -16,6 +16,9 @@ pub struct CoreRequest {
     /// Optional deadline applied by operations that support bounded execution.
     #[serde(default)]
     pub timeout_milliseconds: Option<u64>,
+    /// Host-owned Git preferences, scoped to this request only.
+    #[serde(default)]
+    pub git_execution: Option<crate::git::execution_policy::GitExecutionOptions>,
     /// Stable compatibility name resolved by [`CoreCommand::parse`].
     pub command: String,
     /// Command-specific JSON object; omitted payloads deserialize as JSON null.
@@ -219,6 +222,12 @@ pub enum CoreCommand {
     GitWrite,
     /// Plans Fetch arguments without launching Git or changing configuration (`git.fetchPlan`).
     GitFetchPlan,
+    /// Inspects Git configuration and its sources (`git.executionInspect`).
+    GitExecutionInspect,
+    /// Saves one explicitly selected configuration field (`git.executionConfigure`).
+    GitExecutionConfigure,
+    /// Answers a currently owned authentication prompt (`git.authRespond`).
+    GitAuthRespond,
     /// Inspects repository initialization and scoped commit identity.
     GitRepositorySetup,
     /// Initializes an existing folder outside any repository.
@@ -387,6 +396,9 @@ impl CoreCommand {
             "git.command" => Some(Self::GitCommand),
             "git.write" => Some(Self::GitWrite),
             "git.fetchPlan" => Some(Self::GitFetchPlan),
+            "git.executionInspect" => Some(Self::GitExecutionInspect),
+            "git.executionConfigure" => Some(Self::GitExecutionConfigure),
+            "git.authRespond" => Some(Self::GitAuthRespond),
             "git.historyRewritePreview" => Some(Self::GitHistoryRewritePreview),
             "git.rebasePreview" => Some(Self::GitRebasePreview),
             "git.repositorySetup" => Some(Self::GitRepositorySetup),

@@ -4,6 +4,25 @@ import Testing
 
 struct GitExecutionTests {
     @Test
+    func sharedPolicyFixtureKeepsAuthenticationSeparateFromConsoleAndPreservesRemoteResults() throws {
+        struct Fixture: Decodable { let authentication: GitExecutionEvent; let remoteResult: GitExecutionEvent }
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<4 { root.deleteLastPathComponent() }
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: root.appendingPathComponent("shared/fixtures/git/execution-policy-v1.json")))
+        let context = GitExecutionContext(operationID: "fixture")
+        context.receive(fixture.authentication)
+        #expect(context.drainSnapshot() == nil)
+        #expect(context.drainChallenges().first?.secret == true)
+        #expect(context.drainChallenges().isEmpty)
+        context.receive(GitExecutionEvent(operationId: "fixture", type: "started", invocationId: 1, workingDirectory: "/workspace", arguments: ["fetch"]))
+        context.receive(fixture.remoteResult)
+        #expect(context.drainSnapshot()?.last?.remoteResult?.deletedReferences == ["refs/remotes/origin/old"])
+        context.receive(fixture.authentication)
+        context.receive(GitExecutionEvent(operationId: "fixture", type: "requestFinished"))
+        #expect(context.drainChallenges().isEmpty)
+    }
+
+    @Test
     func sharedEventFixtureProducesOneCompletedInvocation() throws {
         struct Fixture: Decodable { let events: [GitExecutionEvent] }
         var root = URL(fileURLWithPath: #filePath)

@@ -1,9 +1,21 @@
+import policy from "../../../../../../shared/fixtures/git/execution-policy-v1.json";
 import fixture from "../../../../../../shared/fixtures/git/execution-events-v1.json";
 import type { GitExecutionEvent } from "@/platform/git-execution-events";
 import { describe, expect, test } from "bun:test";
 import { GitExecutionJournal, gitConsoleCommand } from "./git-execution-journal";
 
 describe("Git execution journal", () => {
+  test("authentication uses a separate queue and remote results survive completion", () => {
+    const journal = new GitExecutionJournal();
+    for (const event of fixture.events.slice(0, 2)) journal.receive(event as GitExecutionEvent);
+    journal.receive(policy.authentication as GitExecutionEvent);
+    expect(journal.authentication).toHaveLength(1);
+    expect(journal.records[0].output).toBe("");
+    journal.receive(policy.remoteResult as GitExecutionEvent);
+    journal.receive({ operationId: "fixture", type: "requestFinished" });
+    expect(journal.authentication).toHaveLength(0);
+    expect(journal.records[0].remoteResult?.deletedReferences).toEqual(["refs/remotes/origin/old"]);
+  });
   test("consumes the shared native event contract", () => {
     const journal = new GitExecutionJournal();
     for (const event of fixture.events) journal.receive(event as GitExecutionEvent);

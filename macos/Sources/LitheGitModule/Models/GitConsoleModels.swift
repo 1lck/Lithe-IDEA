@@ -35,6 +35,10 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
     package let operationTitle: String?
     package let operationErrorMessage: String?
     package let progressText: String?
+    package let executable: String?
+    package let temporaryConfig: [[String]]
+    package let phase: GitPhaseProgress?
+    package let remoteResult: GitRemoteOutcome?
     package let isOutputTruncated: Bool
 
     package init(
@@ -51,8 +55,14 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
         operationTitle: String? = nil,
         operationErrorMessage: String? = nil,
         progressText: String? = nil,
-        isOutputTruncated: Bool = false
+        isOutputTruncated: Bool = false,
+        executable: String? = nil, temporaryConfig: [[String]] = [],
+        phase: GitPhaseProgress? = nil, remoteResult: GitRemoteOutcome? = nil
     ) {
+        self.executable = executable
+        self.temporaryConfig = temporaryConfig
+        self.phase = phase
+        self.remoteResult = remoteResult
         self.id = id
         self.timestamp = timestamp
         self.workingDirectory = workingDirectory
@@ -74,7 +84,8 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
             arguments: arguments, output: output, standardOutput: standardOutput,
             standardError: standardError, exitCode: exitCode, state: state,
             durationMilliseconds: durationMilliseconds, operationTitle: operationTitle,
-            operationErrorMessage: message, progressText: progressText, isOutputTruncated: isOutputTruncated)
+            operationErrorMessage: message, progressText: progressText, isOutputTruncated: isOutputTruncated,
+            executable: executable, temporaryConfig: temporaryConfig, phase: phase, remoteResult: remoteResult)
     }
 
     package var succeeded: Bool { state == .completed && exitCode == 0 && operationErrorMessage == nil }
@@ -99,6 +110,8 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
     }
 
     package var copyText: String {
+        let configuration = temporaryConfig.map { $0.joined(separator: "=") }.joined(separator: ", ")
+        let outcome = remoteResult.map { "\nRemote: \($0.remote) · \($0.succeeded ? "succeeded" : "failed")\nUpdated (\($0.updatedCount)): \($0.updatedReferences.joined(separator: ", "))\nDeleted (\($0.deletedCount)): \($0.deletedReferences.joined(separator: ", "))" } ?? ""
         let header = "[\(workingDirectory.path)] \(commandLine)"
         let status: String
         switch state {
@@ -108,7 +121,7 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
         case .completed: status = "Exit code: \(exitCode)"
         }
         let duration = durationMilliseconds.map { " · \($0) ms" } ?? ""
-        return "\(header)\n\(status)\(duration)" + (output.isEmpty ? "" : "\n\(output)")
+        return "\(header)\n\(status)\(duration)\nGit: \(executable ?? "PATH")\nTemporary configuration: \(configuration)" + outcome + (output.isEmpty ? "" : "\n\(output)")
             + (progressText.map { "\n" + $0 } ?? "")
             + (isOutputTruncated ? "\nEarlier Git output was omitted to limit memory use." : "")
             + (operationErrorMessage.map { "\n" + $0 } ?? "")

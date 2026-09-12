@@ -77,7 +77,7 @@ final class MacServiceContainer {
     ) {
         let authorizationCallbackRouter = providedAuthorizationCallbackRouter
             ?? MacExternalAuthorizationCallbackRouter()
-        let rustCore = RustCoreBridge()
+        let rustCore = RustCoreBridge(gitPreferences: settings.gitExecutionPreferences)
         let mavenRepositoryURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".m2/repository", isDirectory: true)
         let gradleRepositoryURL = FileManager.default.homeDirectoryForCurrentUser

@@ -37,6 +37,8 @@ enum Kind<'a> {
         error: Option<serde_json::Value>,
     },
     Started {
+        executable: Option<String>,
+        temporary_config: Vec<(String, String)>,
         invocation_id: u64,
         working_directory: &'a str,
         arguments: &'a [String],
@@ -63,6 +65,10 @@ struct Context {
     next_invocation: u64,
 }
 thread_local! { static CURRENT: RefCell<Option<Context>> = const { RefCell::new(None) }; }
+
+pub(super) fn has_sink() -> bool {
+    CURRENT.with(|current| current.borrow().is_some())
+}
 
 /// Installs a consumer only for the duration of this synchronous request.
 pub(crate) fn with_sink<T>(sink: EventSink, operation: impl FnOnce() -> T) -> T {
@@ -166,6 +172,17 @@ impl Invocation {
             &self.sink,
             &self.operation_id,
             Kind::Started {
+                executable: lithe_git_host::configuration::executable(
+                    super::execution_policy::current().executable.as_deref(),
+                )
+                .map(|path| path.to_string_lossy().into_owned()),
+                temporary_config: if super::execution_policy::command_index(&arguments)
+                    .is_some_and(|index| arguments[index] == "config")
+                {
+                    Vec::new()
+                } else {
+                    super::execution_policy::temporary_config()
+                },
                 invocation_id: self.id,
                 working_directory: root,
                 arguments: &arguments,
@@ -276,13 +293,32 @@ impl Invocation {
 }
 
 fn send(sink: &EventSink, operation_id: &str, kind: Kind<'_>) {
-    if let Ok(json) = serde_json::to_string(&Event { operation_id, kind }) {
-        sink(&json);
+    if let Ok(mut value) = serde_json::to_value(Event { operation_id, kind }) {
+        if value["type"] == "output" {
+            if let Some(progress) = value["text"].as_str().and_then(super::progress::parse) {
+                value["progressDetails"] = serde_json::to_value(progress).unwrap_or_default();
+            }
+        }
+        sink(&value.to_string());
+    }
+}
+
+/// Sends structured native diagnostics on the same ordered request channel.
+pub(super) fn emit(mut value: serde_json::Value) {
+    let context = CURRENT.with(|current| {
+        current
+            .borrow()
+            .as_ref()
+            .map(|context| (context.sink.clone(), context.operation_id.clone()))
+    });
+    if let Some((sink, operation_id)) = context {
+        value["operationId"] = operation_id.into();
+        sink(&value.to_string());
     }
 }
 
 /// Redacts complete records, including credentials split across native chunks.
-fn redact(text: &str) -> String {
+pub(super) fn redact(text: &str) -> String {
     static URL_AUTH: OnceLock<regex::Regex> = OnceLock::new();
     let pattern = URL_AUTH.get_or_init(|| {
         regex::Regex::new(r"(?i)(https?|ssh)://[^\s/@]+(?::[^\s/@]*)?@")
@@ -369,6 +405,9 @@ mod tests {
         assert!(Invocation::current().is_none());
         let mut events = captured.lock().unwrap().clone();
         for event in &mut events {
+            if event["type"] == "started" {
+                event["executable"] = serde_json::Value::Null;
+            }
             if event.get("durationMilliseconds").is_some() {
                 event["durationMilliseconds"] = serde_json::json!(0);
             }

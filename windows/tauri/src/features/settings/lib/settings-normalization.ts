@@ -438,6 +438,8 @@ function normalizeAISettings(settings: Settings): Settings {
 
 export function normalizeSettings(settings: Settings): Settings {
   const normalizedSettings = normalizeAISettings(settings);
+  normalizedSettings.gitExecutable = typeof settings.gitExecutable === "string" ? settings.gitExecutable : "";
+  normalizedSettings.gitUseCredentialHelper = settings.gitUseCredentialHelper !== false;
   normalizedSettings.gitFetchPrune = typeof settings.gitFetchPrune === "boolean" ? settings.gitFetchPrune : true;
   normalizedSettings.gitFetchSubmodules = ["inherit", "no", "onDemand", "yes"].includes(settings.gitFetchSubmodules) ? settings.gitFetchSubmodules : "inherit";
   normalizedSettings.gitFetchTags = ["inherit", "all", "none", "prune"].includes(settings.gitFetchTags) ? settings.gitFetchTags : "inherit";

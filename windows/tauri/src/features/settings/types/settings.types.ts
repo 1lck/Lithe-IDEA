@@ -194,6 +194,8 @@ export interface Settings {
   compactGitStatusBadges: boolean;
   collapseEmptyGitSections: boolean;
   rememberLastGitPanelMode: boolean;
+  gitExecutable: string;
+  gitUseCredentialHelper: boolean;
   gitFetchPrune: boolean;
   gitFetchSubmodules: "inherit" | "no" | "onDemand" | "yes";
   gitFetchTags: "inherit" | "all" | "none" | "prune";

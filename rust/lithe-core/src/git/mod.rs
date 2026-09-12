@@ -2,13 +2,17 @@
 
 // The initial projection/routing IR is deliberately not command- or host-facing
 // until both native products can consume the same versioned contract.
+pub(crate) mod configuration;
 pub(crate) mod execution_events;
+pub(crate) mod execution_policy;
 mod fetch;
+mod fetch_execution;
 #[allow(dead_code)]
 pub(crate) mod graph;
 mod history;
 mod mutations;
 mod patch_exchange;
+mod progress;
 mod rebase_session;
 mod rewrite;
 mod setup;
@@ -1096,7 +1100,10 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
         "repairWorktrees" => arguments = vec!["worktree".into(), "repair".into()],
         "updateBranch" => return update_local_branch(&root, &request),
         "fetch" => {
-            let options = request.fetch_options.unwrap_or_default();
+            if execution_policy::current().detailed_fetch {
+                return fetch_execution::execute(&root, request.fetch_options);
+            }
+            let options = configuration::fetch_options(&root, request.fetch_options)?;
             arguments = fetch::arguments(&options)?;
             if let Some(remote) = &options.remote {
                 if read_git_config_value(&root, &format!("remote.{remote}.url"))?.is_none() {
@@ -1316,19 +1323,67 @@ fn execute_git_with_environment(
     disable_optional_locks: bool,
     environment: &[(String, String)],
 ) -> Result<GitCommandResponse, CoreError> {
-    capture_git_process(
-        root,
-        arguments,
-        input,
-        disable_optional_locks,
-        environment,
-        true,
-    )
-    .map(|output| {
-        let response = output.into_command_response(arguments);
+    let arguments = execution_policy::arguments(arguments);
+    let mut retry_scope = None;
+    for attempt in 0..3 {
+        let output = capture_git_process(
+            root,
+            &arguments,
+            input.clone(),
+            disable_optional_locks,
+            environment,
+            true,
+        )?;
+        let response = output.into_command_response(&arguments);
         record_git_invocation(&response);
-        response
-    })
+        let authentication_failed = [
+            "Authentication failed",
+            "could not read Username",
+            "could not read Password",
+            "Permission denied (publickey",
+        ]
+        .iter()
+        .any(|marker| response.stderr.contains(marker));
+        let transfer = execution_policy::command_index(&arguments).is_some_and(|index| {
+            matches!(
+                arguments[index].as_str(),
+                "fetch" | "pull" | "push" | "clone"
+            )
+        });
+        if response.exit_code == 0
+            || !authentication_failed
+            || !transfer
+            || !execution_policy::current().interactive
+            || attempt == 2
+        {
+            return Ok(response);
+        }
+        let confirmation =
+            lithe_git_host::authentication::Confirmation::new().map_err(|error| {
+                CoreError::new(
+                    ErrorCode::ProcessFailed,
+                    "Could not request Git authentication retry",
+                )
+                .with_details(error.to_string())
+            })?;
+        execution_events::emit(
+            serde_json::json!({ "type": "authentication", "requestId": confirmation.request_id,
+            "prompt": "Git authentication failed. Retry with credentials entered in Lithe, bypassing the credential helper for this retry?",
+            "secret": false, "retry": true, "attempt": attempt + 2, "workingDirectory": root }),
+        );
+        let retry = confirmation
+            .wait(|| crate::protocol::cancellation::check().is_err())
+            .map_err(|_| CoreError::new(ErrorCode::TimedOut, "Git authentication retry expired"))?;
+        crate::protocol::cancellation::check()?;
+        if !retry {
+            return Ok(response);
+        }
+        drop(retry_scope.take());
+        let mut options = execution_policy::current();
+        options.use_credential_helper = false;
+        retry_scope = Some(execution_policy::Scope::begin(Some(options))?);
+    }
+    unreachable!("bounded Git attempts always return a response")
 }
 
 fn capture_git_with_options(
@@ -1367,6 +1422,23 @@ fn capture_git_process(
 ) -> Result<GitProcessOutput, CoreError> {
     crate::protocol::cancellation::check()?;
     let mut process = git_process();
+    let version = lithe_git_host::configuration::version(process.get_program(), || {
+        crate::protocol::cancellation::check().is_err()
+    });
+    crate::protocol::cancellation::check()?;
+    execution_policy::validate_version(&version.map_err(|error| {
+        CoreError::new(
+            ErrorCode::ProcessStartFailed,
+            "Could not inspect Git executable",
+        )
+        .with_details(error.to_string())
+    })?)?;
+    if visible && execution_policy::current().interactive && !execution_events::has_sink() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Interactive Git requires an execution event receiver",
+        ));
+    }
     process
         .args(arguments)
         .current_dir(root)
@@ -1374,17 +1446,74 @@ fn capture_git_process(
     if disable_optional_locks {
         process.env("GIT_OPTIONAL_LOCKS", "0");
     }
+    if execution_policy::command_index(arguments).is_some_and(|index| arguments[index] != "config")
+    {
+        lithe_git_host::configuration::configure(
+            &mut process,
+            &execution_policy::temporary_config(),
+        )
+        .map_err(|error| {
+            CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Could not apply temporary Git configuration",
+            )
+            .with_details(error.to_string())
+        })?;
+    }
     let invocation = RefCell::new(if visible {
         execution_events::Invocation::current()
     } else {
         None
     });
+    let mut authentication = if visible && execution_policy::current().interactive {
+        let session = lithe_git_host::authentication::Session::new().map_err(|error| {
+            CoreError::new(
+                ErrorCode::ProcessStartFailed,
+                "Could not prepare Git authentication",
+            )
+            .with_details(error.to_string())
+        })?;
+        session.configure(&mut process).map_err(|error| {
+            CoreError::new(
+                ErrorCode::ProcessStartFailed,
+                "Could not configure Git authentication",
+            )
+            .with_details(error.to_string())
+        })?;
+        Some(session)
+    } else {
+        None
+    };
     let mut cancellation_error = None;
     let output = lithe_git_host::run(
         &mut process,
         input.as_deref().map(str::as_bytes),
         || {
             cancellation_error = crate::protocol::cancellation::check().err();
+            if cancellation_error.is_none() {
+                if let Some(session) = &mut authentication {
+                    match session.poll() {
+                        Ok(challenges) => {
+                            for challenge in challenges {
+                                execution_events::emit(
+                                    serde_json::json!({ "type": "authentication", "requestId": challenge.request_id,
+                                "prompt": execution_events::redact(&challenge.prompt), "secret": challenge.secret,
+                                "attempt": challenge.attempt, "workingDirectory": root }),
+                                );
+                            }
+                        }
+                        Err(error) => {
+                            cancellation_error = Some(
+                                CoreError::new(
+                                    ErrorCode::ProcessFailed,
+                                    "Git authentication transport failed",
+                                )
+                                .with_details(error.to_string()),
+                            )
+                        }
+                    }
+                }
+            }
             cancellation_error.is_some()
         },
         || {
@@ -1436,16 +1565,19 @@ fn capture_git_process(
 }
 
 pub(super) fn git_process() -> Command {
+    let options = execution_policy::current();
+    let executable = lithe_git_host::configuration::executable(options.executable.as_deref())
+        .unwrap_or_else(|| options.executable.unwrap_or_else(|| "git".into()).into());
     #[cfg(target_os = "windows")]
     {
-        let mut process = Command::new("git");
+        let mut process = Command::new(executable);
         process.creation_flags(git_process_creation_flags());
         process
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        Command::new("git")
+        Command::new(executable)
     }
 }
 

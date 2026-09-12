@@ -27,13 +27,14 @@ package struct GitFetchOptions: Codable, Hashable, Sendable {
 package struct GitFetchPlan: Decodable, Equatable, Sendable {
     package let options: GitFetchOptions
     package let arguments: [String]
+    package var commands: [[String]]?
 
     package init(options: GitFetchOptions, arguments: [String]) {
         self.options = options
         self.arguments = arguments
     }
 
-    package var commandLine: String { GitConsoleCommandFormatter.commandLine(arguments: arguments) }
+    package var commandLine: String { (commands ?? [arguments]).map { GitConsoleCommandFormatter.commandLine(arguments: $0) }.joined(separator: "\n") }
 }
 
 package struct GitFetchFailure: Error, Equatable, Sendable {
