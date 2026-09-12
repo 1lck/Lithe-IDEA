@@ -1,3 +1,4 @@
+import { GitExecutionConsole } from "./git-execution-console";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -74,6 +75,7 @@ type DirectReferenceAction = Extract<
 
 export function GitLogToolWindow() {
   const { t } = useTranslation();
+  const [panel, setPanel] = useState<"log" | "console">("log");
   const activeRepoPath = useRepositoryStore.use.activeRepoPath();
   const rootFolderPath = useProjectStore((state) => state.rootFolderPath);
   const repoPath = activeRepoPath ?? rootFolderPath ?? null;
@@ -571,6 +573,11 @@ export function GitLogToolWindow() {
         onClose={() => setIsBottomPaneVisible(false)}
       />
 
+      <div className="flex shrink-0 gap-4 border-b px-3 py-1 text-xs" role="tablist">
+        <button role="tab" aria-selected={panel === "log"} onClick={() => setPanel("log")}>{t("git.console.log")}</button>
+        <button role="tab" aria-selected={panel === "console"} onClick={() => setPanel("console")}>{t("git.console.title")}</button>
+      </div>
+      {panel === "console" ? <GitExecutionConsole repoPath={repoPath} /> : <>
       {loadState === "failed" && history.commits.length > 0 ? (
         <div className="flex h-7 shrink-0 items-center gap-2 border-destructive/30 border-b bg-destructive/10 px-2 font-sans ui-text-sm text-destructive">
           <span className="min-w-0 flex-1 truncate">{error ?? t("git.log.unableToRefresh")}</span>
@@ -689,6 +696,7 @@ export function GitLogToolWindow() {
           </ResizablePanel>
         </ResizablePanelGroup>
       )}
+      </>}
       <GitRemoteManager
         isOpen={showRemoteManager}
         onClose={() => setShowRemoteManager(false)}

@@ -42,6 +42,7 @@ struct GitLogView: View {
     @State private var selectedGitToolTab = GitToolTab.log
     @State private var gitConsoleAutoScrolls = true
     @State private var gitConsoleWrapsLines = false
+    @State private var showsFetchOptions = false
     @State private var selectedGitLogAuthor: GitLogAuthorSelection?
     @State private var selectedGitLogDatePreset = GitLogDatePreset.anyTime
     @State private var gitLogPathFilter = ""
@@ -143,6 +144,12 @@ struct GitLogView: View {
         }
         .onDisappear {
             gitCommitFileLoadTask?.cancel()
+        }
+        .sheet(isPresented: $showsFetchOptions) {
+            GitFetchDialog(feature: feature) { options in
+                selectedGitToolTab = .console
+                Task { await feature.fetchGit(options: options) }
+            }
         }
         .sheet(item: $branchDialogRequest) { request in
             GitBranchNameDialog(request: request) { name, checkout in
@@ -402,6 +409,9 @@ struct GitLogView: View {
                 Button("Fetch All Remotes") {
                     Task { await feature.fetchGit() }
                 }
+                .disabled(feature.isPerformingBranchOperation)
+                Button("Fetch Options…") { showsFetchOptions = true }
+                    .disabled(feature.isPerformingBranchOperation)
                 Button("Update Current Branch") {
                     guard let currentReference else { return }
                     Task { await feature.updateCurrentBranch(currentReference) }
@@ -528,6 +538,13 @@ struct GitLogView: View {
                 .foregroundStyle(gitConsoleAutoScrolls ? LitheTheme.accent : LitheTheme.secondaryText)
                 .help(LocalizedStringKey(gitConsoleAutoScrolls ? "Disable automatic scrolling" : "Scroll to new Git output"))
 
+                Button(action: feature.cancelGitExecutions) {
+                    Image(systemName: "stop.fill")
+                }
+                .litheIconButton()
+                .disabled(!feature.isGitExecutionRunning)
+                .help("Cancel running Git operations")
+
                 Button(action: feature.clearGitConsole) {
                     Image(systemName: "trash")
                 }
@@ -581,7 +598,7 @@ struct GitLogView: View {
                         guard gitConsoleAutoScrolls else { return }
                         proxy.scrollTo("git-console-bottom", anchor: .bottom)
                     }
-                    .onChange(of: feature.gitConsoleEntries.last?.id) { _ in
+                    .onChange(of: feature.gitConsoleEntries.last) { _ in
                         guard gitConsoleAutoScrolls else { return }
                         proxy.scrollTo("git-console-bottom", anchor: .bottom)
                     }
@@ -593,10 +610,25 @@ struct GitLogView: View {
 
     private func gitConsoleEntry(_ entry: GitConsoleEntry) -> some View {
         VStack(alignment: .leading, spacing: 0) {
+            if entry.operationTitle != nil {
+                switch entry.state {
+                case .planned:
+                    gitConsoleLine(Text("Planned Git command — waiting to start")
+                        .foregroundColor(LitheTheme.secondaryText))
+                case .running:
+                    gitConsoleLine(Text("Git command is running").foregroundColor(LitheTheme.secondaryText))
+                case .unconfirmed:
+                    gitConsoleLine(Text("No completed Git invocation was reported")
+                        .foregroundColor(LitheTheme.error))
+                case .completed:
+                    gitConsoleLine(Text(LocalizedStringKey(entry.succeeded ? "Git command succeeded" : "Git command failed"))
+                        .foregroundColor(entry.succeeded ? LitheTheme.secondaryText : LitheTheme.error))
+                }
+            }
             gitConsoleLine(gitConsoleCommandText(entry))
 
             if entry.outputLines.isEmpty {
-                if !entry.succeeded {
+                if !entry.succeeded && entry.state == .completed {
                     gitConsoleLine(
                         Text("Git exited with code \(entry.exitCode)")
                             .foregroundColor(LitheTheme.error)
@@ -607,11 +639,26 @@ struct GitLogView: View {
                     gitConsoleLine(
                         Text(line.text.isEmpty ? " " : line.text)
                             .foregroundColor(
-                                line.stream == .standardError
+                                line.stream == .standardError && entry.state == .completed && !entry.succeeded
                                     ? LitheTheme.error
                                     : gitConsoleTextColor
                             )
                     )
+                }
+            }
+            if let progress = entry.progressText {
+                gitConsoleLine(Text(verbatim: progress).foregroundColor(LitheTheme.secondaryText))
+            }
+            if entry.isOutputTruncated {
+                gitConsoleLine(Text("Earlier Git output was omitted to limit memory use.").foregroundColor(LitheTheme.secondaryText))
+            }
+            if let error = entry.operationErrorMessage {
+                gitConsoleLine(Text(verbatim: error).foregroundColor(LitheTheme.error))
+            }
+            if let duration = entry.durationMilliseconds {
+                gitConsoleLine(Text("Duration: \(duration) ms").foregroundColor(LitheTheme.secondaryText))
+                if entry.state == .completed {
+                    gitConsoleLine(Text("Git exited with code \(entry.exitCode)").foregroundColor(LitheTheme.secondaryText))
                 }
             }
         }
@@ -675,6 +722,14 @@ struct GitLogView: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             .lithePointer()
+            .disabled(feature.isPerformingBranchOperation)
+
+            Button { showsFetchOptions = true } label: {
+                Image(systemName: "slider.horizontal.3")
+            }
+            .litheIconButton()
+            .help("Fetch Options…")
+            .accessibilityLabel("Fetch Options…")
             .disabled(feature.isPerformingBranchOperation)
 
             Button {

@@ -167,7 +167,7 @@ struct SettingsView: View {
         case .ai:
             ["AI & Commit", "AI provider", "Model", "API key", "Commit message"]
         case .git:
-            ["Git", "Commit identity", "Committer name", "Committer email", "Configuration scope", "user.name", "user.email"]
+            ["Git", "Fetch", "Tags", "Submodules", "Prune", "Commit identity", "Committer name", "Committer email", "Configuration scope", "user.name", "user.email"]
         case .updates:
             ["Updates", "Application version", "Update status", "Check for Updates"]
         case .diagnostics:
@@ -224,7 +224,12 @@ struct SettingsView: View {
                     case .lsp: EmptyView()
                     case .project: EmptyView()
                     case .ai: aiSettings
-                    case .git: GitIdentitySettingsView()
+                    case .git:
+                        VStack(alignment: .leading, spacing: 24) {
+                            GitFetchSettingsView(options: $settings.gitFetchOptions)
+                            Divider()
+                            GitIdentitySettingsView()
+                        }
                     case .updates: updatesSettings
                     case .diagnostics: diagnosticsSettings
                     }

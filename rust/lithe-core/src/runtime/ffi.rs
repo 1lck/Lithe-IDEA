@@ -95,3 +95,34 @@ fn response_pointer(value: &str) -> *mut c_char {
         .unwrap_or_else(|_| CString::new("{\"id\":null,\"ok\":false}").expect("fallback is valid"))
         .into_raw()
 }
+
+/// Executes JSON with request-scoped Git diagnostic callbacks. Each event string
+/// is borrowed only during the callback; the response uses the normal ownership.
+///
+/// # Safety
+///
+/// `request` follows `lithe_core_execute_json`'s contract. `callback` must not
+/// unwind, and `context` must remain valid until this synchronous call returns.
+/// Callbacks run serially on the calling thread and must copy retained strings.
+#[no_mangle]
+pub unsafe extern "C" fn lithe_core_execute_json_with_events(
+    request: *const c_char,
+    callback: Option<unsafe extern "C" fn(*const c_char, *mut std::ffi::c_void)>,
+    context: *mut std::ffi::c_void,
+) -> *mut c_char {
+    let Some(callback) = callback else {
+        return lithe_core_execute_json(request);
+    };
+    if request.is_null() {
+        return lithe_core_execute_json(request);
+    }
+    let request = CStr::from_ptr(request).to_string_lossy();
+    // The callback is scoped to this synchronous call, never a worker thread.
+    let context_address = context as usize;
+    let sink = std::sync::Arc::new(move |event: &str| {
+        if let Ok(event) = CString::new(event) {
+            callback(event.as_ptr(), context_address as *mut std::ffi::c_void);
+        }
+    });
+    response_pointer(&crate::execute_json_with_events(&request, sink))
+}

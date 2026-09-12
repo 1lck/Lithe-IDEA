@@ -264,6 +264,13 @@ package final class GitFeatureModel: ObservableObject {
     private var isLoadingInitialGitConsoleEntry = false
     private var hasLoadedInitialGitConsoleEntry = false
     private var gitConsoleRepositoryGeneration: UInt64 = 0
+    private var gitConsoleClearGeneration: UInt64 = 0
+    @Published private var activeGitExecutions: [String: GitExecutionContext] = [:]
+    package var isGitExecutionRunning: Bool { !activeGitExecutions.isEmpty }
+
+    package func cancelGitExecutions() {
+        for execution in activeGitExecutions.values { service.cancelExecution(execution) }
+    }
     private var loadingLineChangeURLs: Set<URL> = []
     private var lineChangeHunks: [URL: [String: DiffHunk]] = [:]
     private var worktreeRequestGeneration: UInt64 = 0
@@ -407,6 +414,7 @@ package final class GitFeatureModel: ObservableObject {
         isLoadingGitHistory = false
         isLoadingMoreGitHistory = false
         canLoadMoreGitHistory = false
+        cancelGitExecutions()
         gitConsoleEntries = []
         isLoadingInitialGitConsoleEntry = false
         hasLoadedInitialGitConsoleEntry = false
@@ -801,15 +809,72 @@ package final class GitFeatureModel: ObservableObject {
         return saveChangesPolicy?() ?? .stash
     }
 
-    private func withGitOperation<T>(_ operation: () async -> T) async -> T {
+    private func withGitOperation<T: Sendable>(
+        title: String? = nil, plannedArguments: [String]? = nil,
+        _ operation: () async -> T
+    ) async -> T {
+        if GitExecutionContext.current != nil { return await operation() }
         let lease = acquireModuleLease?("Git operation in progress")
         defer { lease?.release() }
+        let root = gitRepositoryRoot
+        let generation = gitConsoleRepositoryGeneration
+        let clearGeneration = gitConsoleClearGeneration
+        let execution = GitExecutionContext()
+        let startedAt = ContinuousClock.now
+        let plannedID = UUID()
+        if let root, let plannedArguments {
+            gitConsoleEntries.append(GitConsoleEntry(id: plannedID, workingDirectory: root,
+                arguments: plannedArguments, output: "", exitCode: 0, state: .planned, operationTitle: title))
+        }
+        activeGitExecutions[execution.operationID] = execution
+        defer { activeGitExecutions.removeValue(forKey: execution.operationID) }
+        var publishedIDs: Set<UUID> = [plannedID]
+        func publish() {
+            guard generation == gitConsoleRepositoryGeneration, root == gitRepositoryRoot,
+                  clearGeneration == gitConsoleClearGeneration,
+                  let entries = execution.drainSnapshot() else { return }
+            gitConsoleEntries.removeAll { publishedIDs.contains($0.id) }
+            gitConsoleEntries.append(contentsOf: entries)
+            publishedIDs = Set(entries.map(\.id))
+            trimGitConsole()
+        }
+        // Native events are coalesced here; output volume does not determine
+        // SwiftUI publication frequency. The task is cancelled and joined below.
+        let pump = Task { @MainActor in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .milliseconds(100)) }
+                catch { break }
+                publish()
+            }
+        }
         onGitOperationBegan?()
-        let result = await operation()
-        if let commandResult = result as? GitService.CommandResult {
-            recordGitConsoleEntry(commandResult)
-        } else if let rebaseResult = result as? GitRebaseMutationResult {
-            recordGitConsoleEntry(rebaseResult.command)
+        let result = await GitExecutionContext.$current.withValue(execution) { await operation() }
+        pump.cancel()
+        await pump.value
+        publish()
+        if generation == gitConsoleRepositoryGeneration, root == gitRepositoryRoot,
+           clearGeneration == gitConsoleClearGeneration {
+            let command = (result as? GitService.CommandResult) ?? (result as? GitRebaseMutationResult)?.command
+            if let command {
+                if !execution.hasInvocations {
+                    gitConsoleEntries.removeAll { $0.id == plannedID }
+                    let duration = elapsedMilliseconds(since: startedAt)
+                    if command.invocations.isEmpty, let root = command.workingDirectory ?? root {
+                        gitConsoleEntries.append(GitConsoleEntry(workingDirectory: root,
+                            arguments: command.arguments.isEmpty ? plannedArguments ?? [] : command.arguments,
+                            output: command.output, standardOutput: command.standardOutput,
+                            standardError: command.standardError, exitCode: command.exitCode,
+                            state: .unconfirmed, durationMilliseconds: duration, operationTitle: title,
+                            operationErrorMessage: command.operationErrorMessage))
+                    } else {
+                        recordGitConsoleEntry(command, durationMilliseconds: duration, operationTitle: title)
+                    }
+                } else if let message = command.operationErrorMessage,
+                          let index = gitConsoleEntries.lastIndex(where: { publishedIDs.contains($0.id) }) {
+                    gitConsoleEntries[index] = gitConsoleEntries[index].withOperationError(message)
+                }
+            }
+            trimGitConsole()
         }
         await onGitOperationEnded?()
         return result
@@ -818,12 +883,18 @@ package final class GitFeatureModel: ObservableObject {
     private func recordingGitCommand(
         _ operation: () async -> GitService.CommandResult
     ) async -> GitService.CommandResult {
-        let result = await operation()
-        recordGitConsoleEntry(result)
-        return result
+        await withGitOperation(operation)
+    }
+
+    private func trimGitConsole() {
+        if gitConsoleEntries.count > 200 { gitConsoleEntries.removeFirst(gitConsoleEntries.count - 200) }
+        while gitConsoleEntries.count > 1 && gitConsoleEntries.reduce(0, { $0 + $1.output.count }) > 1_048_576 {
+            gitConsoleEntries.removeFirst()
+        }
     }
 
     package func clearGitConsole() {
+        gitConsoleClearGeneration &+= 1
         gitConsoleEntries = []
         hasLoadedInitialGitConsoleEntry = true
     }
@@ -856,7 +927,7 @@ package final class GitFeatureModel: ObservableObject {
         return max(0, Int(milliseconds.rounded()))
     }
 
-    private func recordGitConsoleEntry(_ result: GitService.CommandResult) {
+    private func recordGitConsoleEntry(_ result: GitService.CommandResult, durationMilliseconds: Int? = nil, operationTitle: String? = nil) {
         guard let workingDirectory = result.workingDirectory ?? gitRepositoryRoot else { return }
         if result.invocations.isEmpty {
             gitConsoleEntries.append(
@@ -866,7 +937,8 @@ package final class GitFeatureModel: ObservableObject {
                     output: result.output,
                     standardOutput: result.standardOutput,
                     standardError: result.standardError,
-                    exitCode: result.exitCode
+                    exitCode: result.exitCode, durationMilliseconds: durationMilliseconds, operationTitle: operationTitle,
+                    operationErrorMessage: result.operationErrorMessage
                 )
             )
         } else {
@@ -877,7 +949,7 @@ package final class GitFeatureModel: ObservableObject {
                     output: invocation.output,
                     standardOutput: invocation.standardOutput,
                     standardError: invocation.standardError,
-                    exitCode: invocation.exitCode
+                    exitCode: invocation.exitCode, durationMilliseconds: durationMilliseconds, operationTitle: operationTitle
                 )
             })
         }
@@ -2959,11 +3031,38 @@ package final class GitFeatureModel: ObservableObject {
         pendingPullStrategy = nil
     }
 
-    package func fetchGit() async {
-        guard let gitRepositoryRoot else { return }
+    package func previewFetch(options: GitFetchOptions) async -> Result<GitFetchPlan, GitFetchFailure> {
+        await service.fetchPlan(options: options)
+    }
+
+    package var fetchOptionsProvider: (@MainActor () -> GitFetchOptions)?
+    package var defaultFetchOptions: GitFetchOptions { fetchOptionsProvider?() ?? GitFetchOptions() }
+
+    package func fetchGit(options: GitFetchOptions? = nil) async {
+        let options = options ?? defaultFetchOptions
+        guard let root = gitRepositoryRoot, !isPerformingBranchOperation else { return }
+        let generation = gitConsoleRepositoryGeneration
         isPerformingBranchOperation = true
-        let result = await withGitOperation { await service.fetch(at: gitRepositoryRoot) }
-        isPerformingBranchOperation = false
+        defer {
+            if generation == gitConsoleRepositoryGeneration { isPerformingBranchOperation = false }
+        }
+        let preview = await service.fetchPlan(options: options)
+        guard generation == gitConsoleRepositoryGeneration, gitRepositoryRoot == root,
+              !Task.isCancelled else { return }
+        let plan: GitFetchPlan
+        switch preview {
+        case .success(let value): plan = value
+        case .failure(let error):
+            notify?(error.message)
+            gitConsoleEntries.append(GitConsoleEntry(workingDirectory: root, arguments: [],
+                output: error.message, exitCode: 1, state: .unconfirmed, operationTitle: "Fetch"))
+            return
+        }
+        let result = await withGitOperation(title: "Fetch", plannedArguments: plan.arguments) {
+            await service.fetch(at: root, options: plan.options,
+                operationID: GitExecutionContext.current?.operationID ?? UUID().uuidString)
+        }
+        guard generation == gitConsoleRepositoryGeneration, gitRepositoryRoot == root else { return }
         notify?(result.succeeded ? "Fetched Git remotes" : trimmedMessage(result))
         await refreshGit()
     }

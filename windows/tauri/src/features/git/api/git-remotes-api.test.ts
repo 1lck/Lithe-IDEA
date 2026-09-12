@@ -61,7 +61,7 @@ describe("Git remote Pull API", () => {
     );
 
     await expect(fetchChanges("C:/repo")).resolves.toEqual({ success: true });
-    expect(invoke).toHaveBeenCalledWith("git_fetch", { repoPath: "C:/repo" });
+    expect(invoke).toHaveBeenCalledWith("git_fetch", { repoPath: "C:/repo", fetchOptions: { remote: null, prune: true, submodules: "inherit", tags: "inherit" } });
   });
 
   test("keeps a headless divergent Pull on the safe Cancel default", async () => {

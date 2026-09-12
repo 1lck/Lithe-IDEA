@@ -1,11 +1,15 @@
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 #[tauri::command]
-pub async fn platform_invoke(command: String, args: Value) -> Result<Value, String> {
+pub async fn platform_invoke(
+    command: String,
+    args: Value,
+    git_events: Option<tauri::ipc::Channel<Value>>,
+) -> Result<Value, String> {
     let preserve_history_rewrite = is_reviewed_history_rewrite(&command, &args);
     let preserve_stash_restore = command == "git_pull"
         && args
@@ -19,6 +23,18 @@ pub async fn platform_invoke(command: String, args: Value) -> Result<Value, Stri
         .map(ToString::to_string)
         .unwrap_or_else(|| format!("windows-{}", REQUEST_ID.fetch_add(1, Ordering::Relaxed)));
     let (core_command, payload) = translate(&command, args)?;
+    let observe_git = matches!(
+        core_command.as_str(),
+        "git.write"
+            | "git.commit"
+            | "git.apply"
+            | "git.patchApply"
+            | "git.rebaseStart"
+            | "git.rebaseControl"
+    ) || matches!(
+        command.as_str(),
+        "git_add_remote" | "git_remove_remote" | "git_create_tag" | "git_delete_tag"
+    );
     let request = json!({
         "id": operation_id,
         "operationId": operation_id,
@@ -28,9 +44,30 @@ pub async fn platform_invoke(command: String, args: Value) -> Result<Value, Stri
     })
     .to_string();
 
-    let response = tauri::async_runtime::spawn_blocking(move || lithe_core::execute_json(&request))
-        .await
-        .map_err(|error| format!("Shared core task failed: {error}"))?;
+    let response = tauri::async_runtime::spawn_blocking(move || {
+        if observe_git {
+            if let Some(channel) = git_events {
+                let receiver_closed = std::sync::atomic::AtomicBool::new(false);
+                return lithe_core::execute_json_with_events(
+                    &request,
+                    std::sync::Arc::new(move |event| match serde_json::from_str::<Value>(event) {
+                        Ok(event) => {
+                            if !receiver_closed.load(Ordering::Relaxed) {
+                                if let Err(error) = channel.send(event) {
+                                    receiver_closed.store(true, Ordering::Relaxed);
+                                    eprintln!("Git console receiver closed: {error}");
+                                }
+                            }
+                        }
+                        Err(error) => eprintln!("Invalid Git execution event: {error}"),
+                    }),
+                );
+            }
+        }
+        lithe_core::execute_json(&request)
+    })
+    .await
+    .map_err(|error| format!("Shared core task failed: {error}"))?;
     let envelope: Value = serde_json::from_str(&response)
         .map_err(|error| format!("Shared core returned invalid JSON: {error}"))?;
 
@@ -131,6 +168,10 @@ fn command_data_error(data: &Value, preserve_stash_restore: bool) -> Option<Stri
 fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
     let mut payload = args.as_object().cloned().unwrap_or_default();
     move_field(&mut payload, "repoPath", "root");
+    // Operation identity belongs to the envelope, not strict Git payloads.
+    if command.starts_with("git_") || command.starts_with("git.") {
+        payload.remove("operationId");
+    }
 
     let core_command = match command {
         "git_status" => "git.status",

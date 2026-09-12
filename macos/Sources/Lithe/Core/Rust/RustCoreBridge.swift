@@ -4008,7 +4008,11 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 details: nil
             ))
         }
-        let requestID = operationID ?? UUID().uuidString
+        let execution = command.hasPrefix("git.") ? GitExecutionContext.current : nil
+        if execution?.isCancellationRequested == true {
+            return .failure(CoreCallError(code: "cancelled", message: "Operation was cancelled", details: nil))
+        }
+        let requestID = execution?.operationID ?? operationID ?? UUID().uuidString
         guard let requestData = try? JSONEncoder().encode(
             Request(
                 id: requestID,
@@ -4019,7 +4023,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             )
         ),
         let request = String(data: requestData, encoding: .utf8),
-        let responsePointer = lithe_bridge_execute_json(request) else {
+        let responsePointer = executeGitObserving(request, context: execution) else {
             return .failure(CoreCallError(
                 code: "unknown",
                 message: "Rust Core request could not be encoded or executed",

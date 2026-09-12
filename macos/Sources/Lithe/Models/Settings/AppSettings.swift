@@ -20,6 +20,7 @@ final class AppSettings: ObservableObject {
         static let terminalShellPathOverride = "settings.terminalShellPathOverride"
         static let hiddenDirectories = "settings.hiddenDirectories"
         static let hiddenFilePatterns = "settings.hiddenFilePatterns"
+        static let gitFetchOptions = "settings.gitFetchOptions"
         static let gitSaveChangesPolicy = "settings.gitSaveChangesPolicy"
         static let projectOpenBehavior = "settings.projectOpenBehavior"
         static let commitMessageAI = "settings.commitMessageAI"
@@ -71,6 +72,11 @@ final class AppSettings: ObservableObject {
         didSet {
             defaults.set(hiddenFilePatterns, forKey: Key.hiddenFilePatterns)
             notifyFileVisibilityRulesObservers()
+        }
+    }
+    @Published var gitFetchOptions: GitFetchOptions {
+        didSet {
+            if let data = try? JSONEncoder().encode(gitFetchOptions) { defaults.set(data, forKey: Key.gitFetchOptions) }
         }
     }
     @Published var gitSaveChangesPolicy: GitSaveChangesPolicy {
@@ -129,6 +135,10 @@ final class AppSettings: ObservableObject {
             ?? FileVisibilityRules.default.hiddenDirectoryNames
         hiddenFilePatterns = defaults.stringArray(forKey: Key.hiddenFilePatterns)
             ?? FileVisibilityRules.default.hiddenFilePatterns
+        var savedFetchOptions = defaults.data(forKey: Key.gitFetchOptions)
+            .flatMap { try? JSONDecoder().decode(GitFetchOptions.self, from: $0) } ?? GitFetchOptions()
+        savedFetchOptions.remote = nil
+        gitFetchOptions = savedFetchOptions
         gitSaveChangesPolicy = GitSaveChangesPolicy(
             rawValue: defaults.string(forKey: Key.gitSaveChangesPolicy) ?? ""
         ) ?? .stash
@@ -248,6 +258,7 @@ final class AppSettings: ObservableObject {
         terminalShellPathOverride = ""
         hiddenDirectoryNames = FileVisibilityRules.default.hiddenDirectoryNames
         hiddenFilePatterns = FileVisibilityRules.default.hiddenFilePatterns
+        gitFetchOptions = GitFetchOptions()
         gitSaveChangesPolicy = .stash
         projectOpenBehavior = .ask
         commitMessageAI = .default

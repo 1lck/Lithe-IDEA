@@ -2,6 +2,8 @@
 
 // The initial projection/routing IR is deliberately not command- or host-facing
 // until both native products can consume the same versioned contract.
+pub(crate) mod execution_events;
+mod fetch;
 #[allow(dead_code)]
 pub(crate) mod graph;
 mod history;
@@ -10,6 +12,8 @@ mod patch_exchange;
 mod rebase_session;
 mod rewrite;
 mod setup;
+
+pub use fetch::{plan as fetch_plan, GitFetchOptions, GitFetchPlanRequest};
 
 pub use setup::{
     configure_identity, initialize as initialize_repository, inspect as repository_setup,
@@ -409,6 +413,9 @@ pub struct GitWriteRequest {
     pub root: String,
     /// Stable mutation discriminator interpreted by [`write`].
     pub operation: String,
+    /// Optional Fetch choices; omitted values preserve the legacy scope and pruning policy.
+    #[serde(default)]
+    pub fetch_options: Option<GitFetchOptions>,
     #[serde(default)]
     pub paths: Vec<String>,
     #[serde(default)]
@@ -844,6 +851,12 @@ pub fn write(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> 
 }
 
 fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> {
+    if request.fetch_options.is_some() && request.operation != "fetch" {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Fetch options require a fetch operation",
+        ));
+    }
     let root = validate_root(&request.root)?;
     // Every typed writer shares the same repository lease, including linked
     // worktrees. Clone has no existing repository whose state it could race.
@@ -1082,7 +1095,18 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
         }
         "repairWorktrees" => arguments = vec!["worktree".into(), "repair".into()],
         "updateBranch" => return update_local_branch(&root, &request),
-        "fetch" => arguments = vec!["fetch".into(), "--all".into(), "--prune".into()],
+        "fetch" => {
+            let options = request.fetch_options.unwrap_or_default();
+            arguments = fetch::arguments(&options)?;
+            if let Some(remote) = &options.remote {
+                if read_git_config_value(&root, &format!("remote.{remote}.url"))?.is_none() {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Fetch remote is not configured",
+                    ));
+                }
+            }
+        }
         // Strategy comes from the caller because only the user can decide whether a
         // divergent history should be merged or replayed. Absent a choice we stay on
         // `--ff-only`, which refuses rather than inventing a merge commit.
@@ -1282,11 +1306,7 @@ fn execute_git_with_options(
     input: Option<String>,
     disable_optional_locks: bool,
 ) -> Result<GitCommandResponse, CoreError> {
-    capture_git_with_options(root, arguments, input, disable_optional_locks).map(|output| {
-        let response = output.into_command_response(arguments);
-        record_git_invocation(&response);
-        response
-    })
+    execute_git_with_environment(root, arguments, input, disable_optional_locks, &[])
 }
 
 fn execute_git_with_environment(
@@ -1296,13 +1316,19 @@ fn execute_git_with_environment(
     disable_optional_locks: bool,
     environment: &[(String, String)],
 ) -> Result<GitCommandResponse, CoreError> {
-    capture_git_with_environment(root, arguments, input, disable_optional_locks, environment).map(
-        |output| {
-            let response = output.into_command_response(arguments);
-            record_git_invocation(&response);
-            response
-        },
+    capture_git_process(
+        root,
+        arguments,
+        input,
+        disable_optional_locks,
+        environment,
+        true,
     )
+    .map(|output| {
+        let response = output.into_command_response(arguments);
+        record_git_invocation(&response);
+        response
+    })
 }
 
 fn capture_git_with_options(
@@ -1321,6 +1347,24 @@ fn capture_git_with_environment(
     disable_optional_locks: bool,
     environment: &[(String, String)],
 ) -> Result<GitProcessOutput, CoreError> {
+    capture_git_process(
+        root,
+        arguments,
+        input,
+        disable_optional_locks,
+        environment,
+        false,
+    )
+}
+
+fn capture_git_process(
+    root: &str,
+    arguments: &[String],
+    input: Option<String>,
+    disable_optional_locks: bool,
+    environment: &[(String, String)],
+    visible: bool,
+) -> Result<GitProcessOutput, CoreError> {
     crate::protocol::cancellation::check()?;
     let mut process = git_process();
     process
@@ -1330,69 +1374,64 @@ fn capture_git_with_environment(
     if disable_optional_locks {
         process.env("GIT_OPTIONAL_LOCKS", "0");
     }
-    process.stdin(if input.is_some() {
-        std::process::Stdio::piped()
+    let invocation = RefCell::new(if visible {
+        execution_events::Invocation::current()
     } else {
-        std::process::Stdio::null()
+        None
     });
-    let mut child = process
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|error| {
+    let mut cancellation_error = None;
+    let output = lithe_git_host::run(
+        &mut process,
+        input.as_deref().map(str::as_bytes),
+        || {
+            cancellation_error = crate::protocol::cancellation::check().err();
+            cancellation_error.is_some()
+        },
+        || {
+            if let Some(invocation) = invocation.borrow().as_ref() {
+                invocation.started(root, arguments);
+            }
+        },
+        |stream, bytes| {
+            if let Some(invocation) = invocation.borrow_mut().as_mut() {
+                invocation.output(stream, bytes);
+            }
+        },
+    );
+    let error = output.failure.map(|failure| match failure {
+        lithe_git_host::Failure::Start(error) => {
             CoreError::new(ErrorCode::ProcessStartFailed, "Could not start Git")
                 .with_details(error.to_string())
-        })?;
-
-    if let Some(input) = input {
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(input.as_bytes()).map_err(|error| {
-                CoreError::new(ErrorCode::ProcessFailed, "Could not write to Git")
-                    .with_details(error.to_string())
-            })?;
         }
-    }
-
-    let mut stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| CoreError::new(ErrorCode::ProcessFailed, "Git stdout was unavailable"))?;
-    let mut stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| CoreError::new(ErrorCode::ProcessFailed, "Git stderr was unavailable"))?;
-    let stdout_reader = thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = stdout.read_to_end(&mut bytes);
-        bytes
-    });
-    let stderr_reader = thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = stderr.read_to_end(&mut bytes);
-        bytes
-    });
-    let status = loop {
-        if let Some(status) = child.try_wait().map_err(|error| {
-            CoreError::new(ErrorCode::ProcessFailed, "Could not read Git status")
+        lithe_git_host::Failure::Io(error) => {
+            CoreError::new(ErrorCode::ProcessFailed, "Could not read Git output")
                 .with_details(error.to_string())
-        })? {
-            break status;
         }
-        if let Err(error) = crate::protocol::cancellation::check() {
-            let _ = child.kill();
-            let _ = child.wait();
-            let _ = stdout_reader.join();
-            let _ = stderr_reader.join();
-            return Err(error);
-        }
-        thread::sleep(Duration::from_millis(10));
-    };
-    let stdout = stdout_reader.join().unwrap_or_default();
-    let stderr = stderr_reader.join().unwrap_or_default();
+        lithe_git_host::Failure::Cancelled => cancellation_error
+            .unwrap_or_else(|| CoreError::new(ErrorCode::Cancelled, "Operation was cancelled")),
+        lithe_git_host::Failure::OutputLimit => CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Git output exceeded the capture limit",
+        ),
+        lithe_git_host::Failure::Cleanup => CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Git process cleanup did not complete within its deadline",
+        ),
+    });
+    let exit_code = output
+        .status
+        .as_ref()
+        .and_then(std::process::ExitStatus::code);
+    if let Some(invocation) = invocation.into_inner() {
+        invocation.finished(exit_code, error.as_ref());
+    }
+    if let Some(error) = error {
+        return Err(error);
+    }
     Ok(GitProcessOutput {
-        stdout,
-        stderr,
-        exit_code: status.code().unwrap_or(1),
+        stdout: output.stdout,
+        stderr: output.stderr,
+        exit_code: exit_code.unwrap_or(1),
     })
 }
 

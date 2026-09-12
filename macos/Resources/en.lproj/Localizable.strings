@@ -807,3 +807,67 @@
 "Collapse long graph edges" = "Collapse long graph edges";
 "Go to parent commit %@" = "Go to parent commit %@";
 "Go to child commit %@" = "Go to child commit %@";
+
+"Fetch Options" = "Fetch Options";
+
+"Fetch Options…" = "Fetch Options…";
+
+"Fetch all remotes" = "Fetch all remotes";
+
+"Configured remote name" = "Configured remote name";
+
+"Prune stale remote-tracking references" = "Prune stale remote-tracking references";
+
+"Fetch submodules" = "Fetch submodules";
+
+"Use Git configuration" = "Use Git configuration";
+
+"Do not fetch submodules" = "Do not fetch submodules";
+
+"Fetch submodules on demand" = "Fetch submodules on demand";
+
+"Fetch all submodules" = "Fetch all submodules";
+
+"These choices apply to this Fetch only. Git configuration and credentials remain unchanged." = "These choices apply to this Fetch only. Git configuration and credentials remain unchanged.";
+
+"Planned command" = "Planned command";
+
+"Fetch in progress — planned command; waiting for result" = "Fetch in progress — planned command; waiting for result";
+
+"Fetch failed — no completed Git invocation was reported" = "Fetch failed — no completed Git invocation was reported";
+
+"Fetch command succeeded" = "Fetch command succeeded";
+
+"Fetch command failed" = "Fetch command failed";
+
+"Duration: %lld ms" = "Duration: %lld ms";
+
+"Planned Git command — waiting to start" = "Planned Git command — waiting to start";
+
+"Git command is running" = "Git command is running";
+
+"No completed Git invocation was reported" = "No completed Git invocation was reported";
+
+"Git command succeeded" = "Git command succeeded";
+
+"Git command failed" = "Git command failed";
+
+"Earlier Git output was omitted to limit memory use." = "Earlier Git output was omitted to limit memory use.";
+
+"Cancel running Git operations" = "Cancel running Git operations";
+
+"Fetch defaults" = "Fetch defaults";
+
+"Used for ordinary Fetch in every project. One-time choices can override these defaults." = "Used for ordinary Fetch in every project. One-time choices can override these defaults.";
+
+"Fetch tags" = "Fetch tags";
+
+"Fetch all tags" = "Fetch all tags";
+
+"Do not fetch tags" = "Do not fetch tags";
+
+"Synchronize tags and remove local tags missing from the remote" = "Synchronize tags and remove local tags missing from the remote";
+
+"Credentials use your existing Git helper and SSH configuration." = "Credentials use your existing Git helper and SSH configuration.";
+
+"Reset Fetch defaults" = "Reset Fetch defaults";

@@ -1831,3 +1831,67 @@
 "Collapse long graph edges" = "收束长连线";
 "Go to parent commit %@" = "跳转到父提交 %@";
 "Go to child commit %@" = "跳转到子提交 %@";
+
+"Fetch Options" = "获取选项";
+
+"Fetch Options…" = "获取选项…";
+
+"Fetch all remotes" = "获取所有远程仓库";
+
+"Configured remote name" = "已配置的远程仓库名称";
+
+"Prune stale remote-tracking references" = "清理失效的远程跟踪引用";
+
+"Fetch submodules" = "获取子模块";
+
+"Use Git configuration" = "使用 Git 配置";
+
+"Do not fetch submodules" = "不获取子模块";
+
+"Fetch submodules on demand" = "按需获取子模块";
+
+"Fetch all submodules" = "获取所有子模块";
+
+"These choices apply to this Fetch only. Git configuration and credentials remain unchanged." = "这些选项仅用于本次获取。Git 配置和凭据保持不变。";
+
+"Planned command" = "计划执行的命令";
+
+"Fetch in progress — planned command; waiting for result" = "正在获取 — 以下为计划命令，等待执行结果";
+
+"Fetch failed — no completed Git invocation was reported" = "获取失败 — 未收到已完成的 Git 命令记录";
+
+"Fetch command succeeded" = "获取命令执行成功";
+
+"Fetch command failed" = "获取命令执行失败";
+
+"Duration: %lld ms" = "耗时：%lld 毫秒";
+
+"Planned Git command — waiting to start" = "Git 命令计划 — 等待启动";
+
+"Git command is running" = "Git 命令正在运行";
+
+"No completed Git invocation was reported" = "未收到已完成的 Git 命令记录";
+
+"Git command succeeded" = "Git 命令执行成功";
+
+"Git command failed" = "Git 命令执行失败";
+
+"Earlier Git output was omitted to limit memory use." = "为限制内存占用，已省略较早的 Git 输出。";
+
+"Cancel running Git operations" = "取消正在运行的 Git 操作";
+
+"Fetch defaults" = "Fetch 默认行为";
+
+"Used for ordinary Fetch in every project. One-time choices can override these defaults." = "用于所有项目中的普通 Fetch；单次操作可以覆盖这些默认值。";
+
+"Fetch tags" = "获取标签";
+
+"Fetch all tags" = "获取所有标签";
+
+"Do not fetch tags" = "不获取标签";
+
+"Synchronize tags and remove local tags missing from the remote" = "同步标签并删除远程已不存在的本地标签";
+
+"Credentials use your existing Git helper and SSH configuration." = "凭据沿用现有 Git 凭据助手和 SSH 配置。";
+
+"Reset Fetch defaults" = "重置 Fetch 默认行为";

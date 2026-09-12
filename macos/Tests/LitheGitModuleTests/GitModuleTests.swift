@@ -8,6 +8,93 @@ import Testing
 @MainActor
 struct GitModuleTests {
     @Test
+    func fetchProgressOnStderrRemainsReadableAndDoesNotImplyFailure() {
+        let progress = "Receiving objects: 10%\rReceiving objects: 100%\r\n"
+        let entry = GitConsoleEntry(workingDirectory: URL(fileURLWithPath: "/workspace"),
+            arguments: ["fetch", "--progress"], output: progress,
+            standardError: progress, exitCode: 0, operationTitle: "Fetch")
+        #expect(entry.succeeded)
+        #expect(entry.outputLines.map(\.text) == ["Receiving objects: 10%", "Receiving objects: 100%"])
+        #expect(entry.outputLines.allSatisfy { $0.stream == .standardError })
+    }
+
+    @Test(arguments: [Int32(0), Int32(128)])
+    func fetchRecordsPlanBeforeExecutionAndKeepsTheActualExitStatus(exitCode: Int32) async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let options = GitFetchOptions(remote: "team/origin", prune: false, submodules: .no)
+        let planned = ["fetch", "--progress", "--no-prune", "--", "team/origin"]
+        let actual = ["--no-pager"] + planned
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            fetchPlan: GitFetchPlan(options: options, arguments: planned),
+            fetchHandler: { receivedOptions, operationID in
+                #expect(receivedOptions == options)
+                #expect(UUID(uuidString: operationID) != nil)
+                return GitProcessResult(arguments: actual, output: "remote output", exitCode: exitCode,
+                    invocations: [GitProcessInvocation(arguments: actual, standardOutput: "",
+                        standardError: "remote output", exitCode: exitCode)])
+            }
+        )))
+        defer { feature.reset() }
+        var observedStart = false
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {}, onGitOperationBegan: {
+                observedStart = true
+                #expect(feature.gitConsoleEntries.last?.state == .planned)
+                #expect(feature.gitConsoleEntries.last?.arguments == planned)
+                #expect(feature.gitConsoleEntries.last?.succeeded == false)
+            })
+        await feature.refreshGit()
+        await feature.fetchGit(options: options)
+        #expect(observedStart)
+        #expect(feature.gitConsoleEntries.count == 1)
+        #expect(feature.gitConsoleEntries.last?.arguments == actual)
+        #expect(feature.gitConsoleEntries.last?.exitCode == exitCode)
+        #expect(feature.gitConsoleEntries.last?.standardError == "remote output")
+        #expect(feature.gitConsoleEntries.last?.succeeded == (exitCode == 0))
+        #expect(feature.gitConsoleEntries.last?.state == .completed)
+        #expect(feature.gitConsoleEntries.last?.durationMilliseconds != nil)
+        #expect(!feature.isPerformingBranchOperation)
+    }
+
+    @Test(arguments: [false, true])
+    func fetchDoesNotRestoreClearedOrPreviousRepositoryConsole(resetRepository: Bool) async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            fetchPlan: GitFetchPlan(options: GitFetchOptions(), arguments: ["fetch", "--all"]),
+            fetchHandler: { _, _ in GitProcessResult(output: "fetch failed", exitCode: 1) }
+        )))
+        defer { feature.reset() }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {}, onGitOperationBegan: {
+                // The lifecycle callback gives the test an exact boundary before
+                // execution; neither sleeps nor a blocking process double is needed.
+                if resetRepository { feature.reset() } else { feature.clearGitConsole() }
+            })
+        await feature.refreshGit()
+        await feature.fetchGit()
+        #expect(feature.gitConsoleEntries.isEmpty)
+        #expect(!feature.isPerformingBranchOperation)
+    }
+
+    @Test
+    func fetchWithoutAnInvocationKeepsItsCommandExplicitlyUnconfirmed() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            fetchPlan: GitFetchPlan(options: GitFetchOptions(), arguments: ["fetch", "--all"]),
+            fetchHandler: { _, _ in GitProcessResult(output: "Could not start Git", exitCode: 1) }
+        )))
+        defer { feature.reset() }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        await feature.fetchGit()
+        #expect(feature.gitConsoleEntries.last?.state == .unconfirmed)
+        #expect(feature.gitConsoleEntries.last?.succeeded == false)
+        #expect(feature.gitConsoleEntries.last?.copyText.contains("No completed Git invocation") == true)
+    }
+    @Test
     func patchDiscoveryKeepsFilesSelectableAfterAnEncodingFailure() async throws {
         let good = GitPatchFile(path: "good.txt", originalPath: nil, additions: 1, deletions: 0)
         let legacy = GitPatchFile(path: "legacy.txt", originalPath: nil, additions: 1, deletions: 0)
@@ -3036,6 +3123,8 @@ private struct TestGitOperations: GitOperations {
     private let branchCallRecorder: BranchCallRecorder?
     private let exportPatchHandler: (@Sendable ([String], Bool) -> Result<GitPatchExport, GitPatchFailure>)?
     private let removeWorktreeResult: GitProcessResult?
+    private let fetchPlanValue: GitFetchPlan?
+    private let fetchHandler: (@Sendable (GitFetchOptions, String) -> GitProcessResult?)?
 
     init(
         snapshotValue: GitSnapshot? = nil,
@@ -3071,7 +3160,9 @@ private struct TestGitOperations: GitOperations {
         deleteBranchResults: GitProcessResultQueue? = nil,
         branchCallRecorder: BranchCallRecorder? = nil,
         exportPatchHandler: (@Sendable ([String], Bool) -> Result<GitPatchExport, GitPatchFailure>)? = nil,
-        removeWorktreeResult: GitProcessResult? = nil
+        removeWorktreeResult: GitProcessResult? = nil,
+        fetchPlan: GitFetchPlan? = nil,
+        fetchHandler: (@Sendable (GitFetchOptions, String) -> GitProcessResult?)? = nil
     ) {
         self.snapshotValue = snapshotValue
         self.snapshotsByRoot = snapshotsByRoot
@@ -3107,6 +3198,8 @@ private struct TestGitOperations: GitOperations {
         self.branchCallRecorder = branchCallRecorder
         self.exportPatchHandler = exportPatchHandler
         self.removeWorktreeResult = removeWorktreeResult
+        self.fetchPlanValue = fetchPlan
+        self.fetchHandler = fetchHandler
     }
 
     func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure> {
@@ -3253,6 +3346,12 @@ private struct TestGitOperations: GitOperations {
     func conflictMarkerPaths(at rootURL: URL) -> [String] { [] }
     func integrationPreflight(for target: GitIntegrationTarget, operation: GitIntegrationOperation, at rootURL: URL) -> GitIntegrationPreflightState? { nil }
     func fetch(at rootURL: URL) -> GitProcessResult? { nil }
+    func fetchPlan(options: GitFetchOptions) -> Result<GitFetchPlan, GitFetchFailure> {
+        fetchPlanValue.map(Result.success) ?? .failure(GitFetchFailure("Fetch preview unavailable"))
+    }
+    func fetch(at rootURL: URL, options: GitFetchOptions, operationID: String) -> GitProcessResult? {
+        fetchHandler?(options, operationID)
+    }
     func checkout(_ reference: GitReference, at rootURL: URL, force: Bool, autoStash: Bool) -> GitProcessResult? { nil }
     func checkoutBlockingPaths(for reference: GitReference, at rootURL: URL) -> [String] { [] }
     func operationState(at rootURL: URL) -> GitOperationState? { nil }

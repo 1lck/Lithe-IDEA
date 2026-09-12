@@ -152,6 +152,7 @@ stable error code and a user-facing message:
 | `git.pullRequestContext` | Resolve worktree-aware PR branch defaults, publication state, and uncommitted-change state |
 | `git.command` | Execute one argument-based Git operation and return its arguments, streams, exit code, and ordered subprocess invocations |
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
+| `git.fetchPlan` | Validate Fetch choices and return the exact planned arguments without starting Git |
 | `git.historyRewritePreview` | Review undo, message edit, squash, or drop with complete messages, eligibility, and an immutable checkout expectation |
 | `git.rebasePreview` | Resolve the complete local linear range strictly after a selected unchanged base |
 | `git.rebaseStart` | Start a reviewed native interactive rebase with persisted messages and recovery identity |
@@ -332,6 +333,54 @@ response retains the invocation trace and includes the failure as
 `git.command` and typed Git writers share the repository's write lease, including
 linked worktrees. A competing request fails with `invalid_request` while a writer
 is active; it does not wait behind a mutex outside its cancellation deadline.
+
+`git.fetchPlan` accepts `{ "options"?: { "remote"?: string | null, "prune"?: boolean,
+"submodules"?: "inherit" | "no" | "onDemand" | "yes",
+"tags"?: "inherit" | "all" | "none" | "prune" } }` and returns
+`{ "options": GitFetchOptions, "arguments": string[] }`. Defaults are all
+remotes, pruning enabled, and inherited submodule/tag configuration.
+Tag modes map to no override, `--tags`, `--no-tags`, or `--prune-tags`;
+tag pruning requires `prune: true`. Preview is
+pure and does not confirm process execution. `git.write` with `operation:
+"fetch"` accepts the same object in optional `fetchOptions`; execution uses
+the same argument builder and verifies a selected remote is configured.
+Unknown choices and Fetch options supplied to another mutation are rejected.
+The default scope remains compatible with legacy callers. Fetch now includes
+temporary `--no-pager`, `-c color.ui=false`, `-c core.quotepath=false`, and
+`--progress`; returned invocation arguments include all these actual flags.
+No authentication or persistent Git settings are changed. See
+`shared/fixtures/git/fetch-plan-v1.json` and
+[`Git execution visibility`](../../docs/architecture/git-execution.md).
+
+The additive `lithe_core_execute_json_with_events(request, callback, context)`
+C ABI and Rust `execute_json_with_events` API deliver sanitized Git diagnostics
+while the existing synchronous request runs. Event strings are borrowed only
+for the callback; clients must copy them before returning. Callbacks are serial
+on the caller's worker thread and complete before the final response returns.
+No environment values or command stdin are emitted.
+
+Each event has `operationId` and `type`:
+
+| Type | Additional fields |
+| --- | --- |
+| `requestStarted` | none; cancellation is registered before delivery |
+| `started` | `invocationId`, `workingDirectory`, `arguments` |
+| `output` | `invocationId`, `stream` (`stdout`/`stderr`), `text`, `progress`, `truncated` |
+| `finished` | `invocationId`, nullable `exitCode`, monotonic `durationMilliseconds`, nullable `error` |
+| `requestFinished` | nullable `error`, including failures before a child started |
+
+`invocationId` is scoped to the request. `workingDirectory` is a native
+absolute-path diagnostic, not a shared workspace identifier. Arguments/output
+are redacted diagnostics; preview alone is not proof of process startup. An
+unknown exit status remains null. A failed start may produce `finished` without
+`started`; consumers must not fabricate an executed command from that event.
+Final JSON response semantics and invocation traces are unchanged.
+
+A complete line is redacted before publication. Native diagnostic limits are
+16 KiB per line, 512 KiB raw diagnostic input and 4,096 output events per
+invocation. Limits produce an omission record without suppressing completion.
+Raw parser capture has an independent 32 MiB per-stream bound and fails on
+overflow. See `shared/fixtures/git/execution-events-v1.json`.
 
 `git.write` accepts a typed mutation request. Its required `operation` values are
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `excludePatterns`, `unexcludePatterns`, `cherryPick`, `revert`,

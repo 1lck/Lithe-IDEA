@@ -217,6 +217,8 @@ pub enum CoreCommand {
     GitCommand,
     /// Performs one supported Git mutation (`git.write`).
     GitWrite,
+    /// Plans Fetch arguments without launching Git or changing configuration (`git.fetchPlan`).
+    GitFetchPlan,
     /// Inspects repository initialization and scoped commit identity.
     GitRepositorySetup,
     /// Initializes an existing folder outside any repository.
@@ -384,6 +386,7 @@ impl CoreCommand {
             "git.pullRequestContext" => Some(Self::GitPullRequestContext),
             "git.command" => Some(Self::GitCommand),
             "git.write" => Some(Self::GitWrite),
+            "git.fetchPlan" => Some(Self::GitFetchPlan),
             "git.historyRewritePreview" => Some(Self::GitHistoryRewritePreview),
             "git.rebasePreview" => Some(Self::GitRebasePreview),
             "git.repositorySetup" => Some(Self::GitRepositorySetup),

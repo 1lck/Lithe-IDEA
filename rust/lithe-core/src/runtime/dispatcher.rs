@@ -65,8 +65,11 @@ fn execute(request: &str) -> CoreResponse {
     let id = parsed.id.clone();
     let response_id = id.clone();
     let operation_id = parsed.operation_id.clone().or_else(|| id.clone());
-    let _cancellation_scope =
-        crate::protocol::cancellation::Scope::begin(operation_id, parsed.timeout_milliseconds);
+    let _cancellation_scope = crate::protocol::cancellation::Scope::begin(
+        operation_id.clone(),
+        parsed.timeout_milliseconds,
+    );
+    crate::git::execution_events::request_started(operation_id.as_deref());
     if let Err(error) = crate::protocol::cancellation::check() {
         return CoreResponse::failure(id, error);
     }
@@ -1790,6 +1793,21 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Git write response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitFetchPlan => {
+            match serde_json::from_value::<git::GitFetchPlanRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid Fetch plan request")
+                        .with_details(error.to_string())
+                })
+                .and_then(git::fetch_plan)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Fetch plan should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

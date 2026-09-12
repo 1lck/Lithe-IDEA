@@ -10,7 +10,17 @@ package struct GitConsoleOutputLine: Equatable, Sendable {
     package let text: String
 }
 
-/// One user-initiated Git process invocation shown in the Git console.
+package enum GitConsoleEntryState: Equatable, Sendable {
+    /// A preview exists but no process-start event has been received.
+    case planned
+    /// A process-start event confirmed the actual command.
+    case running
+    case completed
+    /// No completed invocation was returned; process execution cannot be confirmed.
+    case unconfirmed
+}
+
+/// A planned or completed Git invocation shown in the Git console.
 package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
     package let id: UUID
     package let timestamp: Date
@@ -20,6 +30,12 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
     package let standardOutput: String?
     package let standardError: String?
     package let exitCode: Int32
+    package let state: GitConsoleEntryState
+    package let durationMilliseconds: Int?
+    package let operationTitle: String?
+    package let operationErrorMessage: String?
+    package let progressText: String?
+    package let isOutputTruncated: Bool
 
     package init(
         id: UUID = UUID(),
@@ -29,7 +45,13 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
         output: String,
         standardOutput: String? = nil,
         standardError: String? = nil,
-        exitCode: Int32
+        exitCode: Int32,
+        state: GitConsoleEntryState = .completed,
+        durationMilliseconds: Int? = nil,
+        operationTitle: String? = nil,
+        operationErrorMessage: String? = nil,
+        progressText: String? = nil,
+        isOutputTruncated: Bool = false
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -39,9 +61,23 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
         self.standardOutput = standardOutput.map(GitConsoleRedactor.redact)
         self.standardError = standardError.map(GitConsoleRedactor.redact)
         self.exitCode = exitCode
+        self.state = state
+        self.durationMilliseconds = durationMilliseconds
+        self.operationTitle = operationTitle
+        self.progressText = progressText.map(GitConsoleRedactor.redact)
+        self.isOutputTruncated = isOutputTruncated
+        self.operationErrorMessage = operationErrorMessage.map(GitConsoleRedactor.redact)
     }
 
-    package var succeeded: Bool { exitCode == 0 }
+    package func withOperationError(_ message: String) -> Self {
+        Self(id: id, timestamp: timestamp, workingDirectory: workingDirectory,
+            arguments: arguments, output: output, standardOutput: standardOutput,
+            standardError: standardError, exitCode: exitCode, state: state,
+            durationMilliseconds: durationMilliseconds, operationTitle: operationTitle,
+            operationErrorMessage: message, progressText: progressText, isOutputTruncated: isOutputTruncated)
+    }
+
+    package var succeeded: Bool { state == .completed && exitCode == 0 && operationErrorMessage == nil }
 
     package var commandLine: String {
         GitConsoleCommandFormatter.commandLine(arguments: arguments)
@@ -64,8 +100,18 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
 
     package var copyText: String {
         let header = "[\(workingDirectory.path)] \(commandLine)"
-        guard !output.isEmpty else { return header }
-        return "\(header)\n\(output)"
+        let status: String
+        switch state {
+        case .planned: status = "Planned Git command — waiting to start"
+        case .running: status = "Git command is running"
+        case .unconfirmed: status = "No completed Git invocation was reported"
+        case .completed: status = "Exit code: \(exitCode)"
+        }
+        let duration = durationMilliseconds.map { " · \($0) ms" } ?? ""
+        return "\(header)\n\(status)\(duration)" + (output.isEmpty ? "" : "\n\(output)")
+            + (progressText.map { "\n" + $0 } ?? "")
+            + (isOutputTruncated ? "\nEarlier Git output was omitted to limit memory use." : "")
+            + (operationErrorMessage.map { "\n" + $0 } ?? "")
     }
 }
 
@@ -75,6 +121,8 @@ private extension GitConsoleOutputLine {
         let trimmedOutput = output.trimmingCharacters(in: .newlines)
         guard !trimmedOutput.isEmpty else { return [] }
         return trimmedOutput
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map { Self(stream: stream, text: String($0)) }
     }

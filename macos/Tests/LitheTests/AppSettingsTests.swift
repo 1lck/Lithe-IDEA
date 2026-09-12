@@ -1,11 +1,23 @@
 import Foundation
 import LitheCoreContracts
+import LitheGitModule
 import Testing
 @testable import Lithe
 
 @Suite("App settings")
 @MainActor
 struct AppSettingsTests {
+    @Test
+    func fetchDefaultsPersistAndResetWithoutSavingAnOperationTarget() {
+        let store = AppSettingsTestStore()
+        let settings = AppSettings(store: store)
+        settings.gitFetchOptions = GitFetchOptions(remote: "one-time", prune: false, submodules: .no, tags: .all)
+        let reloaded = AppSettings(store: store)
+        #expect(reloaded.gitFetchOptions == GitFetchOptions(prune: false, submodules: .no, tags: .all))
+        settings.restoreDefaults()
+        #expect(AppSettings(store: store).gitFetchOptions == GitFetchOptions())
+    }
+
     @Test
     func detectedTerminalShellPersistsWithoutLosingLegacyDefaults() {
         let store = AppSettingsTestStore()

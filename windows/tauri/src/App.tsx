@@ -1,3 +1,4 @@
+import "@/features/git/stores/git-console.store";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { recordStartupMilestoneAfterFrame } from "@/features/bootstrap/startup-performance";

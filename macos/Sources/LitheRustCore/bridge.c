@@ -44,3 +44,13 @@ int32_t lithe_bridge_cancel(const char *operation_id) {
 void lithe_bridge_free_string(char *value) {
     lithe_core_free_string(value);
 }
+
+__attribute__((weak)) char *lithe_core_execute_json_with_events(const char *request, void (*callback)(const char *, void *), void *context) {
+    (void)callback;
+    (void)context;
+    return lithe_core_execute_json(request);
+}
+
+char *lithe_bridge_execute_json_with_events(const char *request, void (*callback)(const char *, void *), void *context) {
+    return lithe_core_execute_json_with_events(request, callback, context);
+}
