@@ -19,6 +19,7 @@ final class AppServices {
     let languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot
     /// Metadata-only provider catalog; providers are activated on demand.
     let languageProviderCatalog: LanguageProviderCatalog
+    let workspaceLanguageServerPreferences: any WorkspaceLanguageServerPreferencesStoring
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
     let debugPortAvailabilityChecker: any DebugPortAvailabilityChecking
     let javaTestDebugLaunchService: JavaTestDebugLaunchService
@@ -56,6 +57,7 @@ final class AppServices {
         pluginManager: any PluginManaging,
         pluginCatalog: ValidatedPluginCatalog,
         languageProviderCatalogSource: any LanguageProviderCatalogSource,
+        workspaceLanguageServerPreferences: any WorkspaceLanguageServerPreferencesStoring,
         languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot? = nil,
         debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver? = nil,
         debugPortAvailabilityChecker: (any DebugPortAvailabilityChecking)? = nil,
@@ -92,6 +94,7 @@ final class AppServices {
         self.pluginManager = pluginManager
         self.pluginCatalog = pluginCatalog
         self.languageProviderCatalogSource = languageProviderCatalogSource
+        self.workspaceLanguageServerPreferences = workspaceLanguageServerPreferences
         let resolvedCatalogSnapshot = languageProviderCatalogSnapshot
             ?? languageProviderCatalogSource.load(workspaceURL: nil)
         self.languageProviderCatalogSnapshot = resolvedCatalogSnapshot

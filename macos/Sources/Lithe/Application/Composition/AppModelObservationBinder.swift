@@ -12,6 +12,7 @@ final class AppModelObservationBinder {
             graph.workspace.objectWillChange,
             graph.github.objectWillChange,
             graph.runtime.objectWillChange,
+            graph.languageTooling.objectWillChange,
             graph.navigationHistory.objectWillChange,
             graph.editorTabOrder.objectWillChange,
             graph.terminalPlacement.objectWillChange,
