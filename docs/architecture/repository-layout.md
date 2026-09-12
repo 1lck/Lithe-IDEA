@@ -111,6 +111,15 @@ and Windows plugins under `Plugins/win/`; neither platform may compile source
 from the other platform's plugin tree. Shared plugin wire contracts and
 fixtures remain under `shared/` rather than either platform directory.
 
+## Native Git adapter
+
+`rust/lithe-git-host/` owns native Git child processes, pipes, temporary input,
+and bounded process-group/job cleanup. It contains no Git argument policy or
+UI models. The existing Core Git capture boundary calls this adapter so the
+JSON/C ABI remains compatible during migration; new authentication UI and
+credential storage still belong to each platform. Shared event decoding and
+redaction stay in `rust/lithe-core/src/git/`.
+
 ## Rust Core packages
 
 `rust/lithe-core/src/lib.rs` is only the crate composition root and public API. Rust implementation files are grouped by stable ownership boundary instead of being added beside `lib.rs`:

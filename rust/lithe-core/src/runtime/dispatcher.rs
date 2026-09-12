@@ -65,11 +65,18 @@ fn execute(request: &str) -> CoreResponse {
     let id = parsed.id.clone();
     let response_id = id.clone();
     let operation_id = parsed.operation_id.clone().or_else(|| id.clone());
-    let _cancellation_scope =
-        crate::protocol::cancellation::Scope::begin(operation_id, parsed.timeout_milliseconds);
+    let _cancellation_scope = crate::protocol::cancellation::Scope::begin(
+        operation_id.clone(),
+        parsed.timeout_milliseconds,
+    );
+    crate::git::execution_events::request_started(operation_id.as_deref());
     if let Err(error) = crate::protocol::cancellation::check() {
         return CoreResponse::failure(id, error);
     }
+    let _git_policy = match crate::git::execution_policy::Scope::begin(parsed.git_execution) {
+        Ok(scope) => scope,
+        Err(error) => return CoreResponse::failure(id, error),
+    };
     let Some(command) = CoreCommand::parse(&parsed.command) else {
         return CoreResponse::failure(
             id,
@@ -1790,6 +1797,51 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Git write response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitAuthRespond => {
+            #[derive(serde::Deserialize)]
+            #[serde(rename_all = "camelCase", deny_unknown_fields)]
+            struct Reply {
+                request_id: String,
+                answer: Option<String>,
+            }
+            match serde_json::from_value::<Reply>(parsed.payload) {
+                Ok(reply) => CoreResponse::success(
+                    id,
+                    json!({ "accepted": lithe_git_host::authentication::respond(&reply.request_id, reply.answer) }),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git authentication response",
+                    ),
+                ),
+            }
+        }
+        CoreCommand::GitExecutionInspect | CoreCommand::GitExecutionConfigure => {
+            match git::configuration::dispatch(
+                parsed.payload,
+                matches!(command, CoreCommand::GitExecutionConfigure),
+            ) {
+                Ok(value) => CoreResponse::success(id, value),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitFetchPlan => {
+            match serde_json::from_value::<git::GitFetchPlanRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid Fetch plan request")
+                        .with_details(error.to_string())
+                })
+                .and_then(git::fetch_plan)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Fetch plan should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

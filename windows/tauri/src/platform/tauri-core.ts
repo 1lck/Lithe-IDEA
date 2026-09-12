@@ -1,3 +1,4 @@
+import { deliverGitExecution, gitExecutionPreferences, type GitExecutionEvent } from "./git-execution-events";
 import {
   Channel,
   convertFileSrc,
@@ -96,6 +97,22 @@ export function invoke<T>(command: string, args?: InvokeArgs, options?: InvokeOp
     return tauriInvoke<T>(command, args, options);
   }
 
+  if (command.startsWith("git_") || command.startsWith("git.")) {
+    const payload = { ...(args as Record<string, unknown> ?? {}) };
+    const operationId = typeof payload.operationId === "string" ? payload.operationId : crypto.randomUUID();
+    payload.operationId = operationId;
+    const channel = new Channel<GitExecutionEvent>();
+    channel.onmessage = (event) => {
+      deliverGitExecution({ ...event, action: command,
+        workingDirectory: event.workingDirectory ?? String(payload.repoPath ?? payload.root ?? "") });
+    };
+    return tauriInvoke<unknown>("platform_invoke", { command, args: payload, gitEvents: channel, gitExecution: gitExecutionPreferences() }, options).then(
+      (value) => {
+        return adaptCoreResult<T>(command, args as Record<string, any> | undefined, value);
+      },
+      (error) => { throw error; },
+    );
+  }
   return tauriInvoke<unknown>("platform_invoke", { command, args: args ?? {} }, options).then(
     (value) => adaptCoreResult<T>(command, args as Record<string, any> | undefined, value),
   );

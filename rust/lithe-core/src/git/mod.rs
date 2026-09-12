@@ -2,14 +2,22 @@
 
 // The initial projection/routing IR is deliberately not command- or host-facing
 // until both native products can consume the same versioned contract.
+pub(crate) mod configuration;
+pub(crate) mod execution_events;
+pub(crate) mod execution_policy;
+mod fetch;
+mod fetch_execution;
 #[allow(dead_code)]
 pub(crate) mod graph;
 mod history;
 mod mutations;
 mod patch_exchange;
+mod progress;
 mod rebase_session;
 mod rewrite;
 mod setup;
+
+pub use fetch::{plan as fetch_plan, GitFetchOptions, GitFetchPlanRequest};
 
 pub use setup::{
     configure_identity, initialize as initialize_repository, inspect as repository_setup,
@@ -409,6 +417,9 @@ pub struct GitWriteRequest {
     pub root: String,
     /// Stable mutation discriminator interpreted by [`write`].
     pub operation: String,
+    /// Optional Fetch choices; omitted values preserve the legacy scope and pruning policy.
+    #[serde(default)]
+    pub fetch_options: Option<GitFetchOptions>,
     #[serde(default)]
     pub paths: Vec<String>,
     #[serde(default)]
@@ -844,6 +855,12 @@ pub fn write(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> 
 }
 
 fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> {
+    if request.fetch_options.is_some() && request.operation != "fetch" {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Fetch options require a fetch operation",
+        ));
+    }
     let root = validate_root(&request.root)?;
     // Every typed writer shares the same repository lease, including linked
     // worktrees. Clone has no existing repository whose state it could race.
@@ -1082,7 +1099,21 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
         }
         "repairWorktrees" => arguments = vec!["worktree".into(), "repair".into()],
         "updateBranch" => return update_local_branch(&root, &request),
-        "fetch" => arguments = vec!["fetch".into(), "--all".into(), "--prune".into()],
+        "fetch" => {
+            if execution_policy::current().detailed_fetch {
+                return fetch_execution::execute(&root, request.fetch_options);
+            }
+            let options = configuration::fetch_options(&root, request.fetch_options)?;
+            arguments = fetch::arguments(&options)?;
+            if let Some(remote) = &options.remote {
+                if read_git_config_value(&root, &format!("remote.{remote}.url"))?.is_none() {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Fetch remote is not configured",
+                    ));
+                }
+            }
+        }
         // Strategy comes from the caller because only the user can decide whether a
         // divergent history should be merged or replayed. Absent a choice we stay on
         // `--ff-only`, which refuses rather than inventing a merge commit.
@@ -1282,11 +1313,7 @@ fn execute_git_with_options(
     input: Option<String>,
     disable_optional_locks: bool,
 ) -> Result<GitCommandResponse, CoreError> {
-    capture_git_with_options(root, arguments, input, disable_optional_locks).map(|output| {
-        let response = output.into_command_response(arguments);
-        record_git_invocation(&response);
-        response
-    })
+    execute_git_with_environment(root, arguments, input, disable_optional_locks, &[])
 }
 
 fn execute_git_with_environment(
@@ -1296,13 +1323,67 @@ fn execute_git_with_environment(
     disable_optional_locks: bool,
     environment: &[(String, String)],
 ) -> Result<GitCommandResponse, CoreError> {
-    capture_git_with_environment(root, arguments, input, disable_optional_locks, environment).map(
-        |output| {
-            let response = output.into_command_response(arguments);
-            record_git_invocation(&response);
-            response
-        },
-    )
+    let arguments = execution_policy::arguments(arguments);
+    let mut retry_scope = None;
+    for attempt in 0..3 {
+        let output = capture_git_process(
+            root,
+            &arguments,
+            input.clone(),
+            disable_optional_locks,
+            environment,
+            true,
+        )?;
+        let response = output.into_command_response(&arguments);
+        record_git_invocation(&response);
+        let authentication_failed = [
+            "Authentication failed",
+            "could not read Username",
+            "could not read Password",
+            "Permission denied (publickey",
+        ]
+        .iter()
+        .any(|marker| response.stderr.contains(marker));
+        let transfer = execution_policy::command_index(&arguments).is_some_and(|index| {
+            matches!(
+                arguments[index].as_str(),
+                "fetch" | "pull" | "push" | "clone"
+            )
+        });
+        if response.exit_code == 0
+            || !authentication_failed
+            || !transfer
+            || !execution_policy::current().interactive
+            || attempt == 2
+        {
+            return Ok(response);
+        }
+        let confirmation =
+            lithe_git_host::authentication::Confirmation::new().map_err(|error| {
+                CoreError::new(
+                    ErrorCode::ProcessFailed,
+                    "Could not request Git authentication retry",
+                )
+                .with_details(error.to_string())
+            })?;
+        execution_events::emit(
+            serde_json::json!({ "type": "authentication", "requestId": confirmation.request_id,
+            "prompt": "Git authentication failed. Retry with credentials entered in Lithe, bypassing the credential helper for this retry?",
+            "secret": false, "retry": true, "attempt": attempt + 2, "workingDirectory": root }),
+        );
+        let retry = confirmation
+            .wait(|| crate::protocol::cancellation::check().is_err())
+            .map_err(|_| CoreError::new(ErrorCode::TimedOut, "Git authentication retry expired"))?;
+        crate::protocol::cancellation::check()?;
+        if !retry {
+            return Ok(response);
+        }
+        drop(retry_scope.take());
+        let mut options = execution_policy::current();
+        options.use_credential_helper = false;
+        retry_scope = Some(execution_policy::Scope::begin(Some(options))?);
+    }
+    unreachable!("bounded Git attempts always return a response")
 }
 
 fn capture_git_with_options(
@@ -1321,8 +1402,43 @@ fn capture_git_with_environment(
     disable_optional_locks: bool,
     environment: &[(String, String)],
 ) -> Result<GitProcessOutput, CoreError> {
+    capture_git_process(
+        root,
+        arguments,
+        input,
+        disable_optional_locks,
+        environment,
+        false,
+    )
+}
+
+fn capture_git_process(
+    root: &str,
+    arguments: &[String],
+    input: Option<String>,
+    disable_optional_locks: bool,
+    environment: &[(String, String)],
+    visible: bool,
+) -> Result<GitProcessOutput, CoreError> {
     crate::protocol::cancellation::check()?;
     let mut process = git_process();
+    let version = lithe_git_host::configuration::version(process.get_program(), || {
+        crate::protocol::cancellation::check().is_err()
+    });
+    crate::protocol::cancellation::check()?;
+    execution_policy::validate_version(&version.map_err(|error| {
+        CoreError::new(
+            ErrorCode::ProcessStartFailed,
+            "Could not inspect Git executable",
+        )
+        .with_details(error.to_string())
+    })?)?;
+    if visible && execution_policy::current().interactive && !execution_events::has_sink() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Interactive Git requires an execution event receiver",
+        ));
+    }
     process
         .args(arguments)
         .current_dir(root)
@@ -1330,83 +1446,138 @@ fn capture_git_with_environment(
     if disable_optional_locks {
         process.env("GIT_OPTIONAL_LOCKS", "0");
     }
-    process.stdin(if input.is_some() {
-        std::process::Stdio::piped()
-    } else {
-        std::process::Stdio::null()
-    });
-    let mut child = process
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
+    if execution_policy::command_index(arguments).is_some_and(|index| arguments[index] != "config")
+    {
+        lithe_git_host::configuration::configure(
+            &mut process,
+            &execution_policy::temporary_config(),
+        )
         .map_err(|error| {
+            CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Could not apply temporary Git configuration",
+            )
+            .with_details(error.to_string())
+        })?;
+    }
+    let invocation = RefCell::new(if visible {
+        execution_events::Invocation::current()
+    } else {
+        None
+    });
+    let mut authentication = if visible && execution_policy::current().interactive {
+        let session = lithe_git_host::authentication::Session::new().map_err(|error| {
+            CoreError::new(
+                ErrorCode::ProcessStartFailed,
+                "Could not prepare Git authentication",
+            )
+            .with_details(error.to_string())
+        })?;
+        session.configure(&mut process).map_err(|error| {
+            CoreError::new(
+                ErrorCode::ProcessStartFailed,
+                "Could not configure Git authentication",
+            )
+            .with_details(error.to_string())
+        })?;
+        Some(session)
+    } else {
+        None
+    };
+    let mut cancellation_error = None;
+    let output = lithe_git_host::run(
+        &mut process,
+        input.as_deref().map(str::as_bytes),
+        || {
+            cancellation_error = crate::protocol::cancellation::check().err();
+            if cancellation_error.is_none() {
+                if let Some(session) = &mut authentication {
+                    match session.poll() {
+                        Ok(challenges) => {
+                            for challenge in challenges {
+                                execution_events::emit(
+                                    serde_json::json!({ "type": "authentication", "requestId": challenge.request_id,
+                                "prompt": execution_events::redact(&challenge.prompt), "secret": challenge.secret,
+                                "attempt": challenge.attempt, "workingDirectory": root }),
+                                );
+                            }
+                        }
+                        Err(error) => {
+                            cancellation_error = Some(
+                                CoreError::new(
+                                    ErrorCode::ProcessFailed,
+                                    "Git authentication transport failed",
+                                )
+                                .with_details(error.to_string()),
+                            )
+                        }
+                    }
+                }
+            }
+            cancellation_error.is_some()
+        },
+        || {
+            if let Some(invocation) = invocation.borrow().as_ref() {
+                invocation.started(root, arguments);
+            }
+        },
+        |stream, bytes| {
+            if let Some(invocation) = invocation.borrow_mut().as_mut() {
+                invocation.output(stream, bytes);
+            }
+        },
+    );
+    let error = output.failure.map(|failure| match failure {
+        lithe_git_host::Failure::Start(error) => {
             CoreError::new(ErrorCode::ProcessStartFailed, "Could not start Git")
                 .with_details(error.to_string())
-        })?;
-
-    if let Some(input) = input {
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(input.as_bytes()).map_err(|error| {
-                CoreError::new(ErrorCode::ProcessFailed, "Could not write to Git")
-                    .with_details(error.to_string())
-            })?;
         }
-    }
-
-    let mut stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| CoreError::new(ErrorCode::ProcessFailed, "Git stdout was unavailable"))?;
-    let mut stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| CoreError::new(ErrorCode::ProcessFailed, "Git stderr was unavailable"))?;
-    let stdout_reader = thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = stdout.read_to_end(&mut bytes);
-        bytes
-    });
-    let stderr_reader = thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = stderr.read_to_end(&mut bytes);
-        bytes
-    });
-    let status = loop {
-        if let Some(status) = child.try_wait().map_err(|error| {
-            CoreError::new(ErrorCode::ProcessFailed, "Could not read Git status")
+        lithe_git_host::Failure::Io(error) => {
+            CoreError::new(ErrorCode::ProcessFailed, "Could not read Git output")
                 .with_details(error.to_string())
-        })? {
-            break status;
         }
-        if let Err(error) = crate::protocol::cancellation::check() {
-            let _ = child.kill();
-            let _ = child.wait();
-            let _ = stdout_reader.join();
-            let _ = stderr_reader.join();
-            return Err(error);
-        }
-        thread::sleep(Duration::from_millis(10));
-    };
-    let stdout = stdout_reader.join().unwrap_or_default();
-    let stderr = stderr_reader.join().unwrap_or_default();
+        lithe_git_host::Failure::Cancelled => cancellation_error
+            .unwrap_or_else(|| CoreError::new(ErrorCode::Cancelled, "Operation was cancelled")),
+        lithe_git_host::Failure::OutputLimit => CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Git output exceeded the capture limit",
+        ),
+        lithe_git_host::Failure::Cleanup => CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Git process cleanup did not complete within its deadline",
+        ),
+    });
+    let exit_code = output
+        .status
+        .as_ref()
+        .and_then(std::process::ExitStatus::code);
+    if let Some(invocation) = invocation.into_inner() {
+        invocation.finished(exit_code, error.as_ref());
+    }
+    if let Some(error) = error {
+        return Err(error);
+    }
     Ok(GitProcessOutput {
-        stdout,
-        stderr,
-        exit_code: status.code().unwrap_or(1),
+        stdout: output.stdout,
+        stderr: output.stderr,
+        exit_code: exit_code.unwrap_or(1),
     })
 }
 
 pub(super) fn git_process() -> Command {
+    let options = execution_policy::current();
+    let executable = lithe_git_host::configuration::executable(options.executable.as_deref())
+        .unwrap_or_else(|| options.executable.unwrap_or_else(|| "git".into()).into());
     #[cfg(target_os = "windows")]
     {
-        let mut process = Command::new("git");
+        let mut process = Command::new(executable);
         process.creation_flags(git_process_creation_flags());
         process
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        Command::new("git")
+        Command::new(executable)
     }
 }
 
@@ -5399,20 +5570,19 @@ fn resolve_push_target(root: &str, reference: Option<&str>) -> Result<PushTarget
 }
 
 fn read_git_config_value(root: &str, key: &str) -> Result<Option<String>, CoreError> {
-    let configured = execute_git_readonly(
-        root,
-        &["config".into(), "--get".into(), key.to_string()],
-        None,
-    )?;
+    // This is an internal preflight, not a user command. A missing optional
+    // value returns 1 normally and must not appear as a failed console action.
+    let arguments = ["config".into(), "--get".into(), key.to_string()];
+    let configured =
+        capture_git_with_options(root, &arguments, None, true)?.into_command_response(&arguments);
     if configured.exit_code == 1 {
         return Ok(None);
     }
     if configured.exit_code != 0 {
-        return Err(CoreError::new(
-            ErrorCode::ProcessFailed,
-            "Could not read Git push configuration",
-        )
-        .with_details(configured.output));
+        return Err(
+            CoreError::new(ErrorCode::ProcessFailed, "Could not read Git configuration")
+                .with_details(configured.output),
+        );
     }
     let value = configured.output.trim();
     if value.is_empty() {

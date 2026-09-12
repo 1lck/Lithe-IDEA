@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "events": [
+    {
+      "operationId": "fixture",
+      "type": "requestStarted"
+    },
+    {
+      "operationId": "fixture",
+      "type": "started",
+      "invocationId": 1,
+      "workingDirectory": "/workspace",
+      "arguments": [
+        "fetch",
+        "--progress"
+      ],
+      "executable": null,
+      "temporaryConfig": [
+        [
+          "color.ui",
+          "false"
+        ],
+        [
+          "core.quotepath",
+          "false"
+        ],
+        [
+          "log.showSignature",
+          "false"
+        ]
+      ],
+      "displayArguments": [
+        "fetch",
+        "--progress"
+      ],
+      "globalArguments": [
+        "-c",
+        "color.ui=false",
+        "-c",
+        "core.quotepath=false",
+        "-c",
+        "log.showSignature=false"
+      ]
+    },
+    {
+      "operationId": "fixture",
+      "type": "output",
+      "invocationId": 1,
+      "stream": "stderr",
+      "text": "Receiving: 50%",
+      "progress": true,
+      "truncated": false
+    },
+    {
+      "operationId": "fixture",
+      "type": "output",
+      "invocationId": 1,
+      "stream": "stderr",
+      "text": "Receiving: 100%",
+      "progress": false,
+      "truncated": false
+    },
+    {
+      "operationId": "fixture",
+      "type": "output",
+      "invocationId": 1,
+      "stream": "stdout",
+      "text": "reference updated",
+      "progress": false,
+      "truncated": false
+    },
+    {
+      "operationId": "fixture",
+      "type": "finished",
+      "invocationId": 1,
+      "exitCode": 0,
+      "durationMilliseconds": 0,
+      "error": null
+    },
+    {
+      "operationId": "fixture",
+      "type": "requestFinished",
+      "error": null
+    }
+  ]
+}

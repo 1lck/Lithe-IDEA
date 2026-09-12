@@ -1,3 +1,6 @@
+import { GitFetchDialog } from "./git-fetch-dialog";
+import type { GitFetchOptions } from "../../api/git-remotes-api";
+import { GitExecutionConsole } from "./git-execution-console";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -74,6 +77,7 @@ type DirectReferenceAction = Extract<
 
 export function GitLogToolWindow() {
   const { t } = useTranslation();
+  const [panel, setPanel] = useState<"log" | "console">("log");
   const activeRepoPath = useRepositoryStore.use.activeRepoPath();
   const rootFolderPath = useProjectStore((state) => state.rootFolderPath);
   const repoPath = activeRepoPath ?? rootFolderPath ?? null;
@@ -94,6 +98,7 @@ export function GitLogToolWindow() {
   const [selectedCommit, setSelectedCommit] = useState<GitCommit | null>(null);
   const [selectedCommitHashes, setSelectedCommitHashes] = useState<Set<string>>(new Set());
   const [isReferenceOperating, setIsReferenceOperating] = useState(false);
+  const [showFetchOptions, setShowFetchOptions] = useState(false);
   const [showRemoteManager, setShowRemoteManager] = useState(false);
   const emptyContextMenu = useDropdownMenu();
   const selectionAnchorRef = useRef<string | null>(null);
@@ -120,6 +125,7 @@ export function GitLogToolWindow() {
     setSelectedCommit(null);
     setSelectedCommitHashes(new Set());
     selectionAnchorRef.current = null;
+    setShowFetchOptions(false);
   }, [repoPath]);
 
   const clearHistorySelection = useCallback(async () => {
@@ -441,11 +447,12 @@ export function GitLogToolWindow() {
     }
   };
 
-  const fetchReferences = async () => {
+  const fetchReferences = async (options?: GitFetchOptions) => {
     if (!repoPath || isReferenceMutationPending) return;
+    setPanel("console");
     setIsReferenceOperating(true);
     try {
-      const result = await fetchChanges(repoPath);
+      const result = await fetchChanges(repoPath, options);
       if (!result.success) throw new Error(result.error || t("git.fetchFailed"));
       toast.success(t("git.changesFetched"));
     } catch (error) {
@@ -559,6 +566,7 @@ export function GitLogToolWindow() {
       onContextMenu={handleEmptyContextMenu}
     >
       {historyDialog}
+      {showFetchOptions && repoPath && <GitFetchDialog key={repoPath} root={repoPath} onClose={() => setShowFetchOptions(false)} onFetch={(options) => { setShowFetchOptions(false); void fetchReferences(options); }} />}
       <GitLogTitleBar
         referenceName={selectedReference?.shortName ?? t("git.log.all")}
         isRefreshing={loadState === "loading"}
@@ -571,6 +579,13 @@ export function GitLogToolWindow() {
         onClose={() => setIsBottomPaneVisible(false)}
       />
 
+      <div className="flex shrink-0 gap-4 border-b px-3 py-1 text-xs">
+        <div className="flex gap-4" role="tablist">
+          <button role="tab" aria-selected={panel === "log"} onClick={() => setPanel("log")}>{t("git.console.log")}</button>
+          <button role="tab" aria-selected={panel === "console"} onClick={() => setPanel("console")}>{t("git.console.title")}</button>
+        </div>
+      </div>
+      {panel === "console" ? <GitExecutionConsole repoPath={repoPath} /> : <>
       {loadState === "failed" && history.commits.length > 0 ? (
         <div className="flex h-7 shrink-0 items-center gap-2 border-destructive/30 border-b bg-destructive/10 px-2 font-sans ui-text-sm text-destructive">
           <span className="min-w-0 flex-1 truncate">{error ?? t("git.log.unableToRefresh")}</span>
@@ -594,7 +609,7 @@ export function GitLogToolWindow() {
           {t("git.log.loading")}
         </div>
       ) : loadState === "failed" && history.commits.length === 0 ? (
-        <GitRepositoryEmptyState root={repoPath} historyError={error} onRefresh={refresh} />
+        <GitRepositoryEmptyState root={repoPath} historyError={error} onRefresh={refresh} onShowConsole={() => setPanel("console")} />
       ) : (
         <ResizablePanelGroup
           orientation="horizontal"
@@ -619,6 +634,7 @@ export function GitLogToolWindow() {
               onSetUpstream={(branch, upstream) => void setSelectedBranchUpstream(branch, upstream)}
               onManageRemotes={() => setShowRemoteManager(true)}
               onFetch={() => void fetchReferences()}
+              onFetchOptions={() => setShowFetchOptions(true)}
               onNavigateToHead={navigateToSelectedBranchHead}
               canNavigateToHead={
                 loadState === "ready" &&
@@ -631,7 +647,7 @@ export function GitLogToolWindow() {
           <ResizableHandle />
           <ResizablePanel id="commits" defaultSize="57" minSize={320}>
             <GitCommitTable
-              emptyState={<GitRepositoryEmptyState root={repoPath} onRefresh={refresh} />}
+              emptyState={<GitRepositoryEmptyState root={repoPath} onRefresh={refresh} onShowConsole={() => setPanel("console")} />}
               commits={history.commits}
               selectedCommit={activeSelectedCommit}
               selectedCommitHashes={selectedCommitHashes}
@@ -689,6 +705,7 @@ export function GitLogToolWindow() {
           </ResizablePanel>
         </ResizablePanelGroup>
       )}
+      </>}
       <GitRemoteManager
         isOpen={showRemoteManager}
         onClose={() => setShowRemoteManager(false)}

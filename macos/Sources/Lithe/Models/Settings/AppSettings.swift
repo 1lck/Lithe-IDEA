@@ -20,6 +20,9 @@ final class AppSettings: ObservableObject {
         static let terminalShellPathOverride = "settings.terminalShellPathOverride"
         static let hiddenDirectories = "settings.hiddenDirectories"
         static let hiddenFilePatterns = "settings.hiddenFilePatterns"
+        static let gitExecutable = "settings.gitExecutable"
+        static let gitUseCredentialHelper = "settings.gitUseCredentialHelper"
+        static let gitFetchOptions = "settings.gitFetchOptions"
         static let gitSaveChangesPolicy = "settings.gitSaveChangesPolicy"
         static let projectOpenBehavior = "settings.projectOpenBehavior"
         static let commitMessageAI = "settings.commitMessageAI"
@@ -71,6 +74,26 @@ final class AppSettings: ObservableObject {
         didSet {
             defaults.set(hiddenFilePatterns, forKey: Key.hiddenFilePatterns)
             notifyFileVisibilityRulesObservers()
+        }
+    }
+    let gitExecutionPreferences = GitExecutionPreferences()
+    @Published var gitExecutable: String {
+        didSet { defaults.set(gitExecutable, forKey: Key.gitExecutable); updateGitExecutionPreferences() }
+    }
+    @Published var gitUseCredentialHelper: Bool {
+        didSet { defaults.set(gitUseCredentialHelper, forKey: Key.gitUseCredentialHelper); updateGitExecutionPreferences() }
+    }
+    private func updateGitExecutionPreferences() {
+        var options = GitExecutionOptions()
+        options.executable = gitExecutable.isEmpty ? nil : gitExecutable
+        options.useCredentialHelper = gitUseCredentialHelper
+        options.fetchDefaults = gitFetchOptions
+        gitExecutionPreferences.update(options)
+    }
+    @Published var gitFetchOptions: GitFetchOptions {
+        didSet {
+            if let data = try? JSONEncoder().encode(gitFetchOptions) { defaults.set(data, forKey: Key.gitFetchOptions) }
+            updateGitExecutionPreferences()
         }
     }
     @Published var gitSaveChangesPolicy: GitSaveChangesPolicy {
@@ -129,6 +152,12 @@ final class AppSettings: ObservableObject {
             ?? FileVisibilityRules.default.hiddenDirectoryNames
         hiddenFilePatterns = defaults.stringArray(forKey: Key.hiddenFilePatterns)
             ?? FileVisibilityRules.default.hiddenFilePatterns
+        gitExecutable = defaults.string(forKey: Key.gitExecutable) ?? ""
+        gitUseCredentialHelper = defaults.object(forKey: Key.gitUseCredentialHelper) as? Bool ?? true
+        var savedFetchOptions = defaults.data(forKey: Key.gitFetchOptions)
+            .flatMap { try? JSONDecoder().decode(GitFetchOptions.self, from: $0) } ?? GitFetchOptions()
+        savedFetchOptions.remote = nil
+        gitFetchOptions = savedFetchOptions
         gitSaveChangesPolicy = GitSaveChangesPolicy(
             rawValue: defaults.string(forKey: Key.gitSaveChangesPolicy) ?? ""
         ) ?? .stash
@@ -150,6 +179,7 @@ final class AppSettings: ObservableObject {
             commitMessageAI = .default
         }
         AppThemeRuntime.shared.activate(colorTheme)
+        updateGitExecutionPreferences()
     }
 
     var terminalShellPath: String? {
@@ -248,6 +278,9 @@ final class AppSettings: ObservableObject {
         terminalShellPathOverride = ""
         hiddenDirectoryNames = FileVisibilityRules.default.hiddenDirectoryNames
         hiddenFilePatterns = FileVisibilityRules.default.hiddenFilePatterns
+        gitFetchOptions = GitFetchOptions()
+        gitExecutable = ""
+        gitUseCredentialHelper = true
         gitSaveChangesPolicy = .stash
         projectOpenBehavior = .ask
         commitMessageAI = .default

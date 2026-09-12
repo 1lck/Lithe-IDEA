@@ -7,6 +7,8 @@ crate directly. The C ABI remains:
 ```c
 const char *lithe_core_version(void);
 char *lithe_core_execute_json(const char *request);
+char *lithe_core_execute_json_with_events(const char *request, void (*callback)(const char *, void *), void *context);
+int32_t lithe_core_git_askpass(const char *prompt);
 char *lithe_core_lsp_provider_catalog_json(const char *workspace_root);
 int32_t lithe_core_cancel(const char *operation_id);
 void lithe_core_free_string(char *value);
@@ -152,6 +154,10 @@ stable error code and a user-facing message:
 | `git.pullRequestContext` | Resolve worktree-aware PR branch defaults, publication state, and uncommitted-change state |
 | `git.command` | Execute one argument-based Git operation and return its arguments, streams, exit code, and ordered subprocess invocations |
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
+| `git.fetchPlan` | Validate Fetch choices; optionally inspect a repository to expand enabled per-remote commands |
+| `git.executionInspect` | Inspect executable capabilities, configuration provenance and effective Fetch preferences |
+| `git.executionConfigure` | Explicitly save or clear one allowlisted value in a selected config scope |
+| `git.authRespond` | Answer or cancel a live authentication challenge once |
 | `git.historyRewritePreview` | Review undo, message edit, squash, or drop with complete messages, eligibility, and an immutable checkout expectation |
 | `git.rebasePreview` | Resolve the complete local linear range strictly after a selected unchanged base |
 | `git.rebaseStart` | Start a reviewed native interactive rebase with persisted messages and recovery identity |
@@ -332,6 +338,116 @@ response retains the invocation trace and includes the failure as
 `git.command` and typed Git writers share the repository's write lease, including
 linked worktrees. A competing request fails with `invalid_request` while a writer
 is active; it does not wait behind a mutex outside its cancellation deadline.
+
+Git requests may include optional envelope metadata `gitExecution`:
+`{ executable?: string | null, interactive?: boolean, useCredentialHelper?: boolean,
+fetchDefaults?: GitFetchOptions, detailedFetch?: boolean }`. Defaults are PATH,
+noninteractive, helper enabled, normal Fetch defaults, and legacy Fetch results.
+An executable must be an absolute native path to Git 2.31 or newer. Interactive
+commands require an event receiver. These values are request-scoped, including
+nested requests, and never implicitly persist. Both current applications opt
+into detailed Fetch and supply their application settings snapshot.
+
+`git.fetchPlan` accepts `{ options?: GitFetchOptions, root?: string }`. Options are
+`{ remote?: string | null, prune?: boolean, submodules?: "inherit" | "no" |
+"onDemand" | "yes", tags?: "inherit" | "all" | "none" | "prune" }`. It returns
+`{ options, arguments, commands?: string[][] }`. Without `root` the operation is
+pure. With `root`, commands expand into sorted enabled remotes, using the same
+resolver as detailed execution. `remote.<name>.skipFetchAll` is respected when
+fetching all remotes. A selected name must exist; URLs and argument text are not
+accepted as remote names. An empty enabled set is an explicit error.
+
+Defaults are all remotes, pruning enabled, and inherited submodule/tag policy.
+Tag modes map to no override, `--tags`, `--no-tags`, or `--prune-tags`; tag pruning
+requires `prune: true`. `git.write` with `operation: "fetch"` accepts optional
+`fetchOptions`. Supplied one-time values override repository `lithe.fetch.*`
+preferences, which override `gitExecution.fetchDefaults`. Unknown fields and
+Fetch options supplied to another mutation are rejected. With `detailedFetch`,
+individual remote errors preserve partial successes and an `operationError`
+summarizes failure; legacy clients retain one `fetch --all` invocation.
+
+All captured non-config invocations get named temporary presentation policy
+through appended `GIT_CONFIG_COUNT` entries: `color.ui=false`,
+`core.quotepath=false`, `log.showSignature=false`. Helper reset is appended only
+when the supplied preference disables helpers or an explicit authentication
+retry selected it. Config commands are exempt so provenance is not obscured.
+Fetch's existing explicit flags remain in the argument vector for compatibility.
+`LC_ALL=C`, pager suppression and no terminal prompting are child-local policy.
+Transfer progress is requested explicitly. No config file is implicitly modified.
+
+`git.executionInspect` takes `{ root, scope?: "local" | "global" }`, default local.
+It returns `{ executable, version, scope, entries, fields, temporaryConfig,
+fetchOptions, fetchError, fetchSources, credentialHelperEnabled,
+interactiveAuthentication }`. Entries are `{ key, value, scope, origin, effective }`
+in Git precedence order, limited to relevant configuration and redacted. Fields
+are `{ key, choices: string[], configuredValues: string[] }` from the selected
+file without expanding includes. Fetch source values are `{ scope, origin }`
+per preference; application sources have null origins. Invalid repository
+preferences return null `fetchOptions` and a structured `fetchError`.
+
+`git.executionConfigure` adds `{ key, value: string | null, expectedValues:
+string[] }` to the same request. It permits `fetch.prune`, `fetch.prunetags`,
+`fetch.recursesubmodules`, `pull.rebase`, `pull.ff`, `push.default`,
+`credential.usehttppath`, and local-only `lithe.fetch.prune`,
+`lithe.fetch.submodules`, `lithe.fetch.tags`, using the advertised choices.
+Null removes the selected file's override. An optimistic expected-values check
+rejects a detected intervening edit, then one Git config transaction runs under
+Lithe's repository write lease. It is not an atomic CAS against external writers.
+The returned snapshot reflects the saved state. No arbitrary script/argument
+setting is editable through this command.
+
+`git.authRespond` takes `{ requestId: string, answer: string | null }` and returns
+`{ accepted: boolean }`. Opaque IDs are invocation-owned, unguessable and single
+use; stale or invalid answers return false. Answers are bounded to 8 KiB without
+NUL/newlines. Null cancels the challenge. Hosts also cancel its owning operation
+when the user cancels the dialog. An event with `retry: true` requires the exact
+answer `"retry"` to repeat the failed transfer with helper bypass, at most three
+total attempts. The AskPass C ABI is called only in the child app's early helper
+mode. Credential answers are never copied into events or settings.
+
+See `shared/fixtures/git/{fetch-plan,execution-events,execution-policy}-v1.json`
+and [Git execution layer](../../docs/architecture/git-execution.md).
+
+The additive `lithe_core_execute_json_with_events(request, callback, context)`
+C ABI and Rust `execute_json_with_events` API deliver sanitized Git diagnostics
+while the existing synchronous request runs. Event strings are borrowed only
+for the callback; clients must copy them before returning. Callbacks are serial
+on the caller's worker thread and complete before the final response returns.
+No arbitrary environment values, authentication answers or command stdin are emitted.
+The named nonsecret temporary configuration is explicit diagnostic metadata.
+
+Each event has `operationId` and `type`:
+
+| Type | Additional fields |
+| --- | --- |
+| `requestStarted` | none; cancellation is registered before delivery |
+| `started` | `invocationId`, `workingDirectory`, `arguments`, nullable resolved `executable`, `temporaryConfig` key/value pairs, `displayArguments`, `globalArguments` |
+| `output` | `invocationId`, `stream` (`stdout`/`stderr`), `text`, `progress`, `truncated`, optional `progressDetails` (`stage`, nullable `percent`, `completed`, `total`) |
+| `finished` | `invocationId`, nullable `exitCode`, monotonic `durationMilliseconds`, nullable `error` |
+| `requestFinished` | nullable `error`, including failures before a child started |
+| `authentication` | `requestId`, `prompt`, `secret`, `attempt`, optional `retry`, `workingDirectory` |
+| `remoteResult` | `remote`, `succeeded`, nullable structured `error`, updated/deleted reference lists and counts, `referencesTruncated`, `referencesAvailable` |
+
+`invocationId` is scoped to the request. `workingDirectory` is a native
+absolute-path diagnostic, not a shared workspace identifier. Arguments/output
+are redacted diagnostics; preview alone is not proof of process startup. An
+unknown exit status remains null. A failed start may produce `finished` without
+`started`; consumers must not fabricate an executed command from that event.
+`displayArguments` and `globalArguments` are additive console projections: the
+former starts at the subcommand, and the latter contains temporary configuration
+as `-c key=value` pairs followed by the original global argument prefix. Consoles
+fold the whole prefix once; raw `arguments` remain authoritative for copying and
+diagnostics. Older events without projections retain their legacy display.
+Internal Fetch/Push configuration lookups are not console invocations. Missing
+optional values are normal preflight results; real inspection failures still
+propagate through the request error. Explicit user configuration writes remain
+visible. Final command response semantics remain unchanged.
+
+A complete line is redacted before publication. Native diagnostic limits are
+16 KiB per line, 512 KiB raw diagnostic input and 4,096 output events per
+invocation. Limits produce an omission record without suppressing completion.
+Raw parser capture has an independent 32 MiB per-stream bound and fails on
+overflow. See `shared/fixtures/git/execution-events-v1.json`.
 
 `git.write` accepts a typed mutation request. Its required `operation` values are
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `excludePatterns`, `unexcludePatterns`, `cherryPick`, `revert`,

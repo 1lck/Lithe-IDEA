@@ -12,6 +12,8 @@ package struct NullGitPerformanceLogger: GitPerformanceLogger {
 }
 
 package protocol GitOperations: Sendable {
+    func executionSettings(_ request: GitConfigurationEdit, save: Bool) -> Result<GitExecutionSettingsSnapshot, GitFetchFailure>
+    func answerAuthentication(requestID: String, answer: String?) -> Bool
     func repositorySetup(at root: URL, scope: GitIdentityScope) -> Result<GitRepositorySetup, GitSetupFailure>
     func initializeRepository(at root: URL) -> Result<GitRepositorySetup, GitSetupFailure>
     func configureIdentity(at root: URL, scope: GitIdentityScope, field: GitIdentityField, value: String?) -> Result<GitRepositorySetup, GitSetupFailure>
@@ -141,6 +143,9 @@ package protocol GitOperations: Sendable {
         at rootURL: URL
     ) -> GitIntegrationPreflightState?
     func fetch(at rootURL: URL) -> GitProcessResult?
+    func fetchPlan(options: GitFetchOptions) -> Result<GitFetchPlan, GitFetchFailure>
+    func fetchPlan(options: GitFetchOptions, at root: URL) -> Result<GitFetchPlan, GitFetchFailure>
+    func fetch(at rootURL: URL, options: GitFetchOptions, operationID: String) -> GitProcessResult?
     func checkout(
         _ reference: GitReference,
         at rootURL: URL,
@@ -167,6 +172,15 @@ package protocol GitOperations: Sendable {
 }
 
 package extension GitOperations {
+    func executionSettings(_ request: GitConfigurationEdit, save: Bool) -> Result<GitExecutionSettingsSnapshot, GitFetchFailure> { .failure(GitFetchFailure("Git configuration inspection is unavailable.")) }
+    func answerAuthentication(requestID: String, answer: String?) -> Bool { false }
+    func fetchPlan(options: GitFetchOptions, at root: URL) -> Result<GitFetchPlan, GitFetchFailure> { fetchPlan(options: options) }
+    func fetchPlan(options: GitFetchOptions) -> Result<GitFetchPlan, GitFetchFailure> {
+        .failure(GitFetchFailure("Fetch preview is unavailable."))
+    }
+    func fetch(at rootURL: URL, options: GitFetchOptions, operationID: String) -> GitProcessResult? {
+        GitProcessResult(output: "Configured Fetch is unavailable.", exitCode: 1)
+    }
     func repositorySetup(at root: URL, scope: GitIdentityScope) -> Result<GitRepositorySetup, GitSetupFailure> {
         .failure(GitSetupFailure("Git setup is unavailable."))
     }
@@ -541,19 +555,35 @@ package struct GitService: Sendable {
             ?? .failure(GitRebaseFailure("Could not inspect the rebase range."))
     }
 
+    func executionSettings(_ request: GitConfigurationEdit, save: Bool) async -> Result<GitExecutionSettingsSnapshot, GitFetchFailure> {
+        let operations = self.operations
+        let context = save ? GitExecutionContext.current : nil
+        return await Task.detached(priority: .userInitiated) {
+            GitExecutionContext.$current.withValue(context) { operations.executionSettings(request, save: save) }
+        }.value
+    }
+    func answerAuthentication(requestID: String, answer: String?) async -> Bool {
+        let operations = self.operations
+        return await Task.detached(priority: .userInitiated) { operations.answerAuthentication(requestID: requestID, answer: answer) }.value
+    }
+
     func repositorySetup(at root: URL, scope: GitIdentityScope) async -> Result<GitRepositorySetup, GitSetupFailure> {
         await read { $0.repositorySetup(at: root, scope: scope) }
             ?? .failure(GitSetupFailure("Git setup is unavailable."))
     }
 
     func initializeRepository(at root: URL) async -> Result<GitRepositorySetup, GitSetupFailure> {
-        await read { $0.initializeRepository(at: root) }
-            ?? .failure(GitSetupFailure("Git setup is unavailable."))
+        await setupMutation { $0.initializeRepository(at: root) }
     }
 
     func configureIdentity(at root: URL, scope: GitIdentityScope, field: GitIdentityField, value: String?) async -> Result<GitRepositorySetup, GitSetupFailure> {
-        await read { $0.configureIdentity(at: root, scope: scope, field: field, value: value) }
-            ?? .failure(GitSetupFailure("Git setup is unavailable."))
+        await setupMutation { $0.configureIdentity(at: root, scope: scope, field: field, value: value) }
+    }
+
+    private func setupMutation(_ operation: @escaping @Sendable (any GitOperations) -> Result<GitRepositorySetup, GitSetupFailure>) async -> Result<GitRepositorySetup, GitSetupFailure> {
+        let context = GitExecutionContext.current
+        let operations = self.operations
+        return await Task.detached(priority: .userInitiated) { GitExecutionContext.$current.withValue(context) { operation(operations) } }.value
     }
 
     func interactiveRebaseSession(at root: URL) async -> Result<GitRebaseSession?, GitRebaseFailure> {
@@ -574,7 +604,15 @@ package struct GitService: Sendable {
         _ operation: @escaping @Sendable (any GitOperations) -> GitRebaseProcessResult
     ) async -> GitRebaseMutationResult {
         let operations = self.operations
-        let response = await Task.detached(priority: .userInitiated) { operation(operations) }.value
+        let execution = GitExecutionContext.current
+        let response = await withTaskCancellationHandler {
+            await Task.detached(priority: .userInitiated) {
+                GitExecutionContext.$current.withValue(execution) { operation(operations) }
+            }.value
+        } onCancel: {
+            execution?.requestCancellation()
+            if let execution { _ = operations.cancel(operationID: execution.operationID) }
+        }
         let result = response.command
         return GitRebaseMutationResult(command: CommandResult(
             workingDirectory: root, arguments: result.arguments, output: result.output,
@@ -936,6 +974,24 @@ package struct GitService: Sendable {
         await command(at: repositoryRoot) { $0.fetch(at: repositoryRoot) }
     }
 
+    package func cancelExecution(_ context: GitExecutionContext) {
+        context.requestCancellation()
+        _ = operations.cancel(operationID: context.operationID)
+    }
+
+    package func fetchPlan(options: GitFetchOptions, at root: URL? = nil) async -> Result<GitFetchPlan, GitFetchFailure> {
+        let operations = self.operations
+        return await Task.detached(priority: .userInitiated) { root.map { operations.fetchPlan(options: options, at: $0) } ?? operations.fetchPlan(options: options) }.value
+    }
+
+    package func fetch(at root: URL, options: GitFetchOptions, operationID: String) async -> CommandResult {
+        await withTaskCancellationHandler {
+            await command(at: root) { $0.fetch(at: root, options: options, operationID: operationID) }
+        } onCancel: {
+            _ = operations.cancel(operationID: operationID)
+        }
+    }
+
     func checkout(
         _ reference: GitReference,
         at repositoryRoot: URL,
@@ -1050,9 +1106,15 @@ package struct GitService: Sendable {
     ) async -> CommandResult {
         let operations = self.operations
         let startedAt = ContinuousClock.now
-        let result = await Task.detached(priority: .userInitiated) {
-            operation(operations)
-        }.value
+        let execution = GitExecutionContext.current
+        let result = await withTaskCancellationHandler {
+            await Task.detached(priority: .userInitiated) {
+                GitExecutionContext.$current.withValue(execution) { operation(operations) }
+            }.value
+        } onCancel: {
+            execution?.requestCancellation()
+            if let execution { _ = operations.cancel(operationID: execution.operationID) }
+        }
         let commandResult = CommandResult(
             workingDirectory: workingDirectory,
             arguments: result?.arguments.isEmpty == false

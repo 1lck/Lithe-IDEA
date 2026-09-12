@@ -1,11 +1,18 @@
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 #[tauri::command]
-pub async fn platform_invoke(command: String, args: Value) -> Result<Value, String> {
+pub async fn platform_invoke(
+    webview: tauri::Webview,
+    command: String,
+    args: Value,
+    git_events: Option<tauri::ipc::JavaScriptChannelId>,
+    git_execution: Option<Value>,
+) -> Result<Value, String> {
+    let git_events = git_events.map(|id| id.channel_on::<_, Value>(webview));
     let preserve_history_rewrite = is_reviewed_history_rewrite(&command, &args);
     let preserve_stash_restore = command == "git_pull"
         && args
@@ -19,22 +26,74 @@ pub async fn platform_invoke(command: String, args: Value) -> Result<Value, Stri
         .map(ToString::to_string)
         .unwrap_or_else(|| format!("windows-{}", REQUEST_ID.fetch_add(1, Ordering::Relaxed)));
     let (core_command, payload) = translate(&command, args)?;
+    let interactive_git = matches!(
+        core_command.as_str(),
+        "git.write"
+            | "git.commit"
+            | "git.apply"
+            | "git.patchApply"
+            | "git.rebaseStart"
+            | "git.rebaseControl"
+            | "git.executionConfigure"
+            | "git.initialize"
+            | "git.configureIdentity"
+    ) || matches!(
+        command.as_str(),
+        "git_add_remote" | "git_remove_remote" | "git_create_tag" | "git_delete_tag" | "git.command"
+    );
+    // Observe every Git request at the shared boundary. Core suppresses its
+    // parser-only probes, so new operation entry points cannot miss the console.
+    let observe_git = observes_git_execution(&core_command);
+    let mut git_execution = if core_command == "git.authRespond" {
+        json!({})
+    } else {
+        git_execution.unwrap_or_else(|| json!({}))
+    };
+    if git_execution.is_object() {
+        git_execution["interactive"] = json!(interactive_git && git_events.is_some());
+    }
     let request = json!({
         "id": operation_id,
         "operationId": operation_id,
-        "timeoutMilliseconds": 30_000,
+        "timeoutMilliseconds": if interactive_git { 900_000 } else { 30_000 },
+        "gitExecution": git_execution,
         "command": core_command,
         "payload": payload
     })
     .to_string();
 
-    let response = tauri::async_runtime::spawn_blocking(move || lithe_core::execute_json(&request))
-        .await
-        .map_err(|error| format!("Shared core task failed: {error}"))?;
+    let response = tauri::async_runtime::spawn_blocking(move || {
+        if observe_git {
+            if let Some(channel) = git_events {
+                let receiver_closed = std::sync::atomic::AtomicBool::new(false);
+                return lithe_core::execute_json_with_events(
+                    &request,
+                    std::sync::Arc::new(move |event| match serde_json::from_str::<Value>(event) {
+                        Ok(event) => {
+                            if !receiver_closed.load(Ordering::Relaxed) {
+                                if let Err(error) = channel.send(event) {
+                                    receiver_closed.store(true, Ordering::Relaxed);
+                                    eprintln!("Git console receiver closed: {error}");
+                                }
+                            }
+                        }
+                        Err(error) => eprintln!("Invalid Git execution event: {error}"),
+                    }),
+                );
+            }
+        }
+        lithe_core::execute_json(&request)
+    })
+    .await
+    .map_err(|error| format!("Shared core task failed: {error}"))?;
     let envelope: Value = serde_json::from_str(&response)
         .map_err(|error| format!("Shared core returned invalid JSON: {error}"))?;
 
     core_response(&envelope, preserve_history_rewrite, preserve_stash_restore)
+}
+
+fn observes_git_execution(command: &str) -> bool {
+    command.starts_with("git.") && command != "git.authRespond"
 }
 
 fn core_response(
@@ -59,11 +118,20 @@ fn core_response(
     if preserve_history_rewrite {
         return Ok(json!({ "exitCode": -1, "operationError": error, "warnings": [] }));
     }
-    Err(error
+    let message = error
         .get("message")
         .and_then(Value::as_str)
-        .unwrap_or("Shared core operation failed")
-        .to_string())
+        .unwrap_or("Shared core operation failed");
+    // Keep the diagnostic that explains failures such as Git ownership checks;
+    // the summary alone cannot tell the user why their repository is unreadable.
+    let details = error
+        .get("details")
+        .and_then(Value::as_str)
+        .filter(|details| !details.trim().is_empty());
+    Err(match details {
+        Some(details) => format!("{message}: {}", details.trim()),
+        None => message.to_string(),
+    })
 }
 
 fn is_reviewed_history_rewrite(command: &str, args: &Value) -> bool {
@@ -131,6 +199,10 @@ fn command_data_error(data: &Value, preserve_stash_restore: bool) -> Option<Stri
 fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
     let mut payload = args.as_object().cloned().unwrap_or_default();
     move_field(&mut payload, "repoPath", "root");
+    // Operation identity belongs to the envelope, not strict Git payloads.
+    if command.starts_with("git_") || command.starts_with("git.") {
+        payload.remove("operationId");
+    }
 
     let core_command = match command {
         "git_status" => "git.status",
@@ -656,11 +728,54 @@ fn take_text(payload: &mut Map<String, Value>, field: &str) -> Result<String, St
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn all_shared_git_entry_points_are_observed_without_a_ui_action_allowlist() {
+        for command in [
+            "git.command",
+            "git.write",
+            "git.commit",
+            "git.apply",
+            "git.patchApply",
+            "git.rebaseStart",
+            "git.rebaseControl",
+            "git.initialize",
+            "git.configureIdentity",
+            "git.executionConfigure",
+            "git.snapshot",
+            "git.futureOperation",
+        ] {
+            assert!(super::observes_git_execution(command), "{command}");
+        }
+        assert!(!super::observes_git_execution("git.authRespond"));
+        assert!(!super::observes_git_execution("workspace.scan"));
+    }
+
     use super::{
         command_data_error, core_response, is_reviewed_history_rewrite, local_branch_reference,
         translate,
     };
     use serde_json::json;
+
+    #[test]
+    fn core_failure_preserves_repository_access_diagnostics() {
+        let details = "fatal: detected dubious ownership in repository at '//server/share/repo'";
+        let failure = json!({ "ok": false, "error": {
+            "code": "process_failed", "message": "Git setup operation failed", "details": details
+        }});
+        assert_eq!(
+            core_response(&failure, false, false).unwrap_err(),
+            format!("Git setup operation failed: {details}")
+        );
+        for details in [serde_json::Value::Null, json!(""), json!("   ")] {
+            let failure = json!({ "ok": false, "error": {
+                "code": "process_failed", "message": "Git setup operation failed", "details": details
+            }});
+            assert_eq!(
+                core_response(&failure, false, false).unwrap_err(),
+                "Git setup operation failed"
+            );
+        }
+    }
 
     #[test]
     fn reviewed_history_keeps_partial_mutation_recovery_and_stable_failures() {
@@ -744,10 +859,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(references_command, "git.references");
-        assert_eq!(
-            references_payload,
-            json!({ "root": "C:/work", "operationId": "refs-1" })
-        );
+        // platform_invoke moves operation identity into the request envelope;
+        // strict Git payloads must retain only the command's own parameters.
+        assert_eq!(references_payload, json!({ "root": "C:/work" }));
 
         let (page_command, page_payload) = translate(
             "git_history_page",
@@ -767,8 +881,7 @@ mod tests {
                 "root": "C:/work",
                 "reference": "refs/heads/main",
                 "cursor": "cursor-50",
-                "limit": 50,
-                "operationId": "page-2"
+                "limit": 50
             })
         );
 

@@ -1831,3 +1831,115 @@
 "Collapse long graph edges" = "收束长连线";
 "Go to parent commit %@" = "跳转到父提交 %@";
 "Go to child commit %@" = "跳转到子提交 %@";
+
+"Fetch Options" = "获取选项";
+
+"Fetch Options…" = "获取选项…";
+
+"Fetch all remotes" = "获取所有远程仓库";
+
+"Configured remote name" = "已配置的远程仓库名称";
+
+"Prune stale remote-tracking references" = "清理失效的远程跟踪引用";
+
+"Fetch submodules" = "获取子模块";
+
+"Use Git configuration" = "使用 Git 配置";
+
+"Do not fetch submodules" = "不获取子模块";
+
+"Fetch submodules on demand" = "按需获取子模块";
+
+"Fetch all submodules" = "获取所有子模块";
+
+"These choices apply to this Fetch only. Git configuration and credentials remain unchanged." = "这些选项仅用于本次获取。Git 配置和凭据保持不变。";
+
+"Planned command" = "计划执行的命令";
+
+"Fetch in progress — planned command; waiting for result" = "正在获取 — 以下为计划命令，等待执行结果";
+
+"Fetch failed — no completed Git invocation was reported" = "获取失败 — 未收到已完成的 Git 命令记录";
+
+"Fetch command succeeded" = "获取命令执行成功";
+
+"Fetch command failed" = "获取命令执行失败";
+
+"Duration: %lld ms" = "耗时：%lld 毫秒";
+
+"Planned Git command — waiting to start" = "Git 命令计划 — 等待启动";
+
+"Git command is running" = "Git 命令正在运行";
+
+"No completed Git invocation was reported" = "未收到已完成的 Git 命令记录";
+
+"Git command succeeded" = "Git 命令执行成功";
+
+"Git command failed" = "Git 命令执行失败";
+
+"Earlier Git output was omitted to limit memory use." = "为限制内存占用，已省略较早的 Git 输出。";
+
+"Cancel running Git operations" = "取消正在运行的 Git 操作";
+
+"Fetch defaults" = "Fetch 默认行为";
+
+"Used for ordinary Fetch in every project. One-time choices can override these defaults." = "用于所有项目中的普通 Fetch；单次操作可以覆盖这些默认值。";
+
+"Fetch tags" = "获取标签";
+
+"Fetch all tags" = "获取所有标签";
+
+"Do not fetch tags" = "不获取标签";
+
+"Synchronize tags and remove local tags missing from the remote" = "同步标签并删除远程已不存在的本地标签";
+
+"Credentials use your existing Git helper and SSH configuration." = "凭据沿用现有 Git 凭据助手和 SSH 配置。";
+
+"Reset Fetch defaults" = "重置 Fetch 默认行为";
+
+/* Git execution policy and authentication */
+"Git execution" = "Git 执行";
+"Git executable" = "Git 可执行文件";
+"Use Git from PATH" = "使用 PATH 中的 Git";
+"Use credential helper" = "使用凭据助手";
+"Git can request credentials in Lithe. Passwords are not saved by Lithe; the selected Git helper controls credential storage." = "Git 可以在 Lithe 中请求凭据。Lithe 不保存密码；是否保存凭据由所选 Git 凭据助手控制。";
+"Configuration sources" = "配置来源";
+"One-time choices override repository preferences, which override application defaults. Git configuration is changed only when you save or clear a field below." = "单次选项优先于仓库偏好，仓库偏好优先于应用默认值。只有保存或清除下方字段时才会修改 Git 配置。";
+"Temporary configuration" = "临时配置";
+"Configuration key" = "配置项";
+"Configuration value" = "配置值";
+"Choose a value" = "选择一个值";
+"Overridden by a later value" = "已被更高优先级的值覆盖";
+"Git configuration saved: %@" = "Git 配置已保存：%@";
+"Git executable: %@" = "Git 可执行文件：%@";
+"Temporary configuration: %@" = "临时配置：%@";
+"Git authentication" = "Git 认证";
+"Git requested credentials again. Check the previous answer." = "Git 再次请求凭据，请检查上一次输入。";
+"Password or passphrase" = "密码或密钥口令";
+"Response" = "回复";
+"This response is sent only to the running Git operation." = "此回复仅发送给正在运行的 Git 操作。";
+"Retry uses Lithe authentication for this operation only." = "此次重试仅为当前操作使用 Lithe 认证。";
+"Remote: %@" = "远程：%@";
+"Remote Fetch succeeded" = "远程 Fetch 成功";
+"Remote Fetch failed" = "远程 Fetch 失败";
+"Updated references: %@" = "已更新引用：%@";
+"Deleted references: %@" = "已删除引用：%@";
+"Git phase: %@" = "Git 阶段：%@";
+"Git progress" = "Git 进度";
+
+"Effective Fetch options" = "实际生效的 Fetch 选项";
+
+"Reference changes could not be inspected" = "无法读取引用变更";
+
+"Reference list truncated; total updated: %lld, deleted: %lld" = "引用列表已截断；更新总数：%lld，删除总数：%lld";
+
+"Open Git Console" = "打开 Git 控制台";
+
+"Advanced configuration and sources" = "高级配置与来源";
+
+"Fetch and commit preferences" = "Fetch 与提交偏好";
+
+"Expand temporary Git configuration or command details" = "展开临时 Git 参数或命令详情";
+
+"Command details" = "命令详情";
+
+"Click the folded options to expand; right-click for command details." = "点击折叠参数可展开；右键查看命令详情。";
