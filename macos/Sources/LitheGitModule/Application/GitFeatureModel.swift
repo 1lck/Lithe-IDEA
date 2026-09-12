@@ -1010,8 +1010,20 @@ package final class GitFeatureModel: ObservableObject {
     // Receive the confirmed value before SwiftUI dismisses and clears the dialog binding.
     package func confirmDiscardChange(_ change: GitChange) async {
         pendingDiscardChange = nil
-        let result = await withGitOperation { await service.discard(change) }
-        showResult(result, success: "Discarded \(change.path)")
+        await discardChanges([change])
+    }
+
+    package func discardChanges(_ changes: [GitChange]) async {
+        guard !changes.isEmpty else { return }
+        await withGitOperation {
+            for change in changes {
+                guard !Task.isCancelled else { break }
+                let result = await recordingGitCommand { await service.discard(change) }
+                showResult(result, success: "Discarded \(change.path)")
+                // Stop on failure rather than silently discarding only part of the selection.
+                if !result.succeeded { break }
+            }
+        }
         await refreshGit()
     }
 
