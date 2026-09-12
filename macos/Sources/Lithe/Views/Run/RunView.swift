@@ -8,25 +8,18 @@ struct RunView: View {
         get { feature.selectedProjectSessionID }
         nonmutating set { feature.selectedConfigurationID = newValue ?? RunConfiguration.currentFileID }
     }
-    @AppStorage("lithe.run.collapsedExecutions") private var collapsedExecutionIDs = ""
+    @State private var browser = RunBrowserState()
+    @State private var contentTab: ContentTab = .console
+    @State private var selectionWorkspacePath: String?
+    @AppStorage("lithe.run.selectedServiceIDs") private var selectedConfigurationTokens = ""
+
+    private enum ContentTab { case console, details }
     @AppStorage("lithe.run.pinnedConfigurationIDs") private var pinnedConfigurationTokens = ""
-    @AppStorage("lithe.run.configurationListWidth") private var configurationListWidth = 230.0
     @AppStorage("lithe.run.configurationListCollapsed") private var isConfigurationListCollapsed = false
-    @AppStorage("lithe.run.otherConfigurationsCollapsed") private var areOtherConfigurationsCollapsed = true
-    @AppStorage("lithe.run.selectedServiceIDs") private var selectedServiceTokens = ""
-    /// Separate caches: the two raw strings change independently, and one box
-    /// memoizes a single raw value.
-    @State private var collapsedExecutionCache = RunConfigurationTokenCache()
     @State private var pinnedConfigurationCache = RunConfigurationTokenCache()
     /// The configuration whose editor popover is open. Held separately from the list
     /// selection so opening an editor does not switch which log is shown.
     @State private var editingConfigurationID: String?
-    /// Services selected in the header menu for the next multi-service launch.
-    /// The first project service is selected when a workspace has no prior choice.
-    @State private var selectedServiceIDs: Set<String> = []
-    @State private var selectedServicesWorkspacePath = ""
-    @State private var hasHydratedServiceSelection = false
-    @State private var isServiceLaunchConfirmationPresented = false
 
     var body: some View {
         let _ = LitheSignpost.bodyEvaluated("RunView")
@@ -55,56 +48,36 @@ struct RunView: View {
                     model.openSourceLocation(url: url, line: line, column: column)
                 }
             } else {
-                GeometryReader { geometry in
-                    let minimumListWidth: CGFloat = 180
-                    let minimumContentWidth: CGFloat = 320
-                    let maximumListWidth = max(
-                        minimumListWidth,
-                        min(420, geometry.size.width - SplitHandleView.thickness - minimumContentWidth)
-                    )
-                    if isConfigurationListCollapsed {
-                        HStack(spacing: 0) {
-                            collapsedConfigurationListBar
-                                .frame(width: 32)
-                            Rectangle()
-                                .fill(LitheTheme.divider)
-                                .frame(width: 1)
-                            selectedConfigurationContent
-                        }
-                    } else {
-                        LitheSplitPaneView(
-                            axis: .horizontal,
-                            placement: .leading,
-                            defaultSize: CGFloat(configurationListWidth),
-                            minimum: minimumListWidth,
-                            maximum: maximumListWidth,
-                            onCommit: { configurationListWidth = Double($0) },
-                            sized: { moduleSessionList },
-                            flexible: { selectedConfigurationContent }
-                        )
-                    }
-                }
+                RunServicesSplitView(
+                    isScopeCollapsed: isConfigurationListCollapsed,
+                    scopes: scopeList,
+                    configurations: applicationTypeList,
+                    content: selectedConfigurationContent
+                )
             }
         }
         .litheWorkbenchSurface(LitheTheme.editor)
-        .confirmationDialog(
-            "Run all services?",
-            isPresented: $isServiceLaunchConfirmationPresented,
-            titleVisibility: .visible
-        ) {
-            Button("Run all services") {
-                model.runAllServiceConfigurations()
-                selectedSessionID = serviceConfigurations.first?.id
+        .onAppear { synchronizeCheckedConfigurations() }
+        .onChange(of: feature.configurations) { _ in synchronizeCheckedConfigurations() }
+        .onChange(of: feature.projectLoadState) { _ in synchronizeCheckedConfigurations() }
+        .onChange(of: browser.checkedIDs) { _ in persistCheckedConfigurations() }
+        .onChange(of: feature.selectedConfigurationID) { _ in contentTab = .console }
+        .onChange(of: selectedModuleSession?.isRunning) { isRunning in
+            if isRunning == true { contentTab = .console }
+        }
+        .onChange(of: model.workspaceFeature.workspaceGeneration) { _ in
+            selectionWorkspacePath = nil
+            browser = RunBrowserState()
+            editingConfigurationID = nil
+            contentTab = .console
+        }
+        .popover(isPresented: Binding(
+            get: { editingConfigurationID != nil },
+            set: { if !$0 { editingConfigurationID = nil } }
+        )) {
+            if let configuration = feature.configurations.first(where: { $0.id == editingConfigurationID }) {
+                RunConfigurationEditorView(feature: feature, configuration: configuration)
             }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This will start \(serviceConfigurations.count) detected services.")
-        }
-        .onChange(of: feature.configurations) { _ in
-            synchronizeSelectedServices()
-        }
-        .onAppear {
-            synchronizeSelectedServices()
         }
     }
 
@@ -271,7 +244,7 @@ struct RunView: View {
             title: "Run",
             systemImage: "play.rectangle",
             ideaAssetPath: "toolwindows/toolWindowRun.svg",
-            subtitle: selectedModuleSession?.title ?? feature.runningTitle,
+            subtitle: selectedRunnableConfiguration?.name ?? feature.runningTitle,
             onMinimize: { model.workbenchFeature.setVisibility(.run, isVisible: false) }
         ) {
             if let session = selectedModuleSession {
@@ -279,52 +252,49 @@ struct RunView: View {
             } else if feature.isLoadingProject {
                 ProgressView()
                     .controlSize(.mini)
-            } else if feature.isRunning {
+            } else if selectedSessionID == nil, feature.isRunning {
                 Label("Running", systemImage: "circle.fill")
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(LitheTheme.success)
-            } else if let exitCode = feature.lastExitCode {
+            } else if selectedSessionID == nil, let exitCode = feature.lastExitCode {
                 sessionStatus(isRunning: false, exitCode: exitCode)
             }
 
-            if hasServiceConfigurations {
-                Menu {
-                    Section("Services") {
-                        ForEach(serviceConfigurations) { configuration in
-                            Toggle(isOn: serviceSelectionBinding(for: configuration)) {
-                                Label(configuration.name, systemImage: "server.rack")
-                            }
-                        }
-                    }
-                    Divider()
-                    Button {
-                        runSelectedServices()
-                    } label: {
-                        Label("Run selected services", systemImage: "play.fill")
-                    }
-                    .disabled(selectedServiceConfigurations.isEmpty)
-                    Button {
-                        isServiceLaunchConfirmationPresented = true
-                    } label: {
-                        Label("Run all services", systemImage: "square.stack.3d.up.fill")
-                    }
-                    if feature.moduleSessions.contains(where: \.isRunning) {
-                        Button(action: feature.stopAllServices) {
-                            Label("Stop all services", systemImage: "stop.circle")
-                        }
+            if !browser.checkedIDs.isEmpty {
+                Text(String(format: String(localized: "%lld selected"), Int64(browser.checkedIDs.count)))
+                    .font(.system(size: 11))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                Button(action: runCheckedConfigurations) {
+                    Label("Run selected", systemImage: "play.fill")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(LitheTheme.success)
+                .help("Run checked configurations without restarting running services")
+                .disabled(feature.configurationStatus != .ready || feature.isLoadingProject)
+
+                Button {
+                    for session in feature.moduleSessions where browser.checkedIDs.contains(session.configurationID) && session.isRunning {
+                        feature.stopModule(session)
                     }
                 } label: {
-                    Image(systemName: "square.stack.3d.up.fill")
+                    Image(systemName: "stop.fill")
                 }
                 .litheIconButton()
-                .help("Choose services to run")
-                .disabled(feature.configurationStatus != .ready || feature.isLoadingProject)
+                .help("Stop selected")
+                .disabled(!feature.moduleSessions.contains { browser.checkedIDs.contains($0.configurationID) && $0.isRunning })
+
+                Button { browser.clearSelection() } label: {
+                    Image(systemName: "xmark")
+                }
+                .litheIconButton()
+                .help("Clear selection")
             }
 
             Button {
                 if let session = selectedModuleSession, session.isRunning {
                     feature.stopModule(session)
                 } else if let configuration = selectedRunnableConfiguration {
+                    contentTab = .console
                     model.startRunConfiguration(configuration)
                 } else if feature.isRunning {
                     model.stopSelectedRun()
@@ -341,6 +311,7 @@ struct RunView: View {
 
             Button {
                 if let configuration = selectedRunnableConfiguration {
+                    contentTab = .console
                     model.startRunConfiguration(configuration)
                 } else {
                     model.restartSelectedRun()
@@ -349,7 +320,9 @@ struct RunView: View {
                 LitheSystemIcon(systemImage: "arrow.clockwise")
             }
             .litheIconButton()
-            .disabled(selectedModuleSession == nil && feature.runningTitle == nil && feature.lastExitCode == nil)
+            .disabled(selectedSessionID != nil
+                ? selectedModuleSession == nil
+                : feature.runningTitle == nil && feature.lastExitCode == nil)
             .help("Restart run")
 
             Button {
@@ -364,7 +337,7 @@ struct RunView: View {
             Button {
                 if let session = selectedModuleSession {
                     feature.clearModuleOutput(session)
-                } else {
+                } else if selectedSessionID == nil {
                     feature.clearOutput()
                 }
             } label: {
@@ -372,97 +345,13 @@ struct RunView: View {
             }
             .litheIconButton()
             .help("Clear run output")
+            .disabled(selectedSessionID != nil && selectedModuleSession == nil)
 
         }
     }
 
     private var runnableConfigurations: [RunConfiguration] {
         feature.configurations.filter { $0.kind != .currentFile }
-    }
-
-    private var serviceConfigurations: [RunConfiguration] {
-        runnableConfigurations.filter { $0.execution == .service }
-    }
-
-    private var hasServiceConfigurations: Bool {
-        !serviceConfigurations.isEmpty
-    }
-
-    private var selectedServiceConfigurations: [RunConfiguration] {
-        serviceConfigurations.filter { selectedServiceIDs.contains($0.id) }
-    }
-
-    private func synchronizeSelectedServices() {
-        guard !serviceConfigurations.isEmpty else { return }
-        let serviceIDs = Set(serviceConfigurations.map(\.id))
-        let workspacePath = model.workspaceURL?.standardizedFileURL.path ?? ""
-        if selectedServicesWorkspacePath != workspacePath {
-            selectedServicesWorkspacePath = workspacePath
-            selectedServiceIDs = []
-            hasHydratedServiceSelection = false
-        }
-        let persistedSelections = persistedServiceSelections()
-        let hasPersistedSelection = persistedSelections.keys.contains(workspacePath)
-        let persistedIDs = Set(persistedSelections[workspacePath] ?? [])
-        let retained = (hasHydratedServiceSelection ? selectedServiceIDs :
-            (selectedServiceIDs.isEmpty ? persistedIDs : selectedServiceIDs))
-            .intersection(serviceIDs)
-        if hasHydratedServiceSelection || hasPersistedSelection || !retained.isEmpty {
-            selectedServiceIDs = retained
-            hasHydratedServiceSelection = true
-            return
-        }
-
-        let preferred = serviceConfigurations.first(where: { $0.id == feature.selectedConfigurationID })
-            ?? serviceConfigurations.first
-        selectedServiceIDs = preferred.map { [$0.id] } ?? []
-        hasHydratedServiceSelection = true
-        persistSelectedServices()
-    }
-
-    private func serviceSelectionBinding(for configuration: RunConfiguration) -> Binding<Bool> {
-        Binding(
-            get: { selectedServiceIDs.contains(configuration.id) },
-            set: { isSelected in
-                if isSelected {
-                    selectedServiceIDs.insert(configuration.id)
-                } else {
-                    selectedServiceIDs.remove(configuration.id)
-                }
-                hasHydratedServiceSelection = true
-                persistSelectedServices()
-            }
-        )
-    }
-
-    private func persistSelectedServices() {
-        guard let workspacePath = model.workspaceURL?.standardizedFileURL.path else { return }
-        var selections = persistedServiceSelections()
-        selections[workspacePath] = selectedServiceIDs.sorted()
-        guard let data = try? JSONSerialization.data(withJSONObject: selections, options: [.sortedKeys]),
-              let encoded = String(data: data, encoding: .utf8) else { return }
-        selectedServiceTokens = encoded
-    }
-
-    private func persistedServiceSelections() -> [String: [String]] {
-        guard let data = selectedServiceTokens.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data),
-              let selections = object as? [String: [String]] else {
-            // Accept the pre-JSON format once so existing users keep their choices.
-            let prefix = (model.workspaceURL?.standardizedFileURL.path ?? "") + "::"
-            let ids = selectedServiceTokens.split(separator: "\n").map(String.init)
-                .filter { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) }
-            return ids.isEmpty ? [:] : [String(prefix.dropLast(2)): ids]
-        }
-        return selections
-    }
-
-    private func runSelectedServices() {
-        let services = selectedServiceConfigurations
-        guard !services.isEmpty else { return }
-        model.startSelectedServiceConfigurations(services)
-        model.selectRunConfiguration(services[0])
-        selectedSessionID = services.first?.id
     }
 
     private var hasRunnableConfigurations: Bool {
@@ -508,16 +397,7 @@ struct RunView: View {
 
     @ViewBuilder
     private var selectedConfigurationContent: some View {
-        if let session = selectedModuleSession {
-            OutputTextView(
-                output: session.output,
-                searchRoots: feature.sourceSearchRoots,
-                fileExists: { model.fileExists(at: $0) },
-                emptyMessage: String(localized: "Process output will appear here.")
-            ) { url, line, column in
-                model.openSourceLocation(url: url, line: line, column: column)
-            }
-        } else if let configuration = selectedRunnableConfiguration {
+        if let configuration = selectedRunnableConfiguration {
             configurationContent(configuration)
         } else {
             OutputTextView(
@@ -529,10 +409,6 @@ struct RunView: View {
                 model.openSourceLocation(url: url, line: line, column: column)
             }
         }
-    }
-
-    private var collapsedExecutions: Set<String> {
-        collapsedExecutionCache.tokens(from: collapsedExecutionIDs, separator: ",")
     }
 
     private var pinnedConfigurationTokenSet: Set<String> {
@@ -548,16 +424,6 @@ struct RunView: View {
         pinnedConfigurationTokenSet.contains(pinToken(for: configuration))
     }
 
-    private func toggleCollapsed(_ execution: RunConfigurationExecution) {
-        var values = collapsedExecutions
-        if values.contains(execution.rawValue) {
-            values.remove(execution.rawValue)
-        } else {
-            values.insert(execution.rawValue)
-        }
-        collapsedExecutionIDs = values.sorted().joined(separator: ",")
-    }
-
     private func togglePinned(_ configuration: RunConfiguration) {
         var values = pinnedConfigurationTokenSet
         let token = pinToken(for: configuration)
@@ -571,141 +437,229 @@ struct RunView: View {
         }
     }
 
-    private var pinnedRunnableConfigurations: [RunConfiguration] {
-        runnableConfigurations
-            .filter(isPinned)
-            .sorted(by: configurationNamePrecedes)
+    private var pinnedIDs: Set<String> {
+        Set(runnableConfigurations.filter(isPinned).map(\.id))
     }
 
-    private func unpinnedConfigurations(
-        for execution: RunConfigurationExecution
-    ) -> [RunConfiguration] {
-        runnableConfigurations
-            .filter { $0.execution == execution && !isPinned($0) }
-            .sorted(by: configurationNamePrecedes)
+    private func configurations(in scope: RunBrowserState.Scope) -> [RunConfiguration] {
+        browser.configurations(in: scope, from: runnableConfigurations, pinnedIDs: pinnedIDs)
     }
 
-    private func configurationNamePrecedes(
-        _ left: RunConfiguration,
-        _ right: RunConfiguration
-    ) -> Bool {
-        left.name.localizedStandardCompare(right.name) == .orderedAscending
-    }
-
-    private var moduleSessionList: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Text(hasServiceConfigurations ? "Services" : "Run configurations")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                Spacer(minLength: 0)
-                Button {
-                    isConfigurationListCollapsed = true
-                } label: {
-                    Image(systemName: "chevron.left")
+    @ViewBuilder
+    private var scopeList: some View {
+        if isConfigurationListCollapsed {
+            collapsedConfigurationListBar
+        } else {
+            VStack(spacing: 0) {
+                HStack(spacing: 6) {
+                    Text("Services").font(.system(size: 11, weight: .semibold))
+                    Spacer(minLength: 0)
+                    Button { isConfigurationListCollapsed = true } label: {
+                        Image(systemName: "chevron.left")
+                    }
+                    .litheIconButton()
+                    .help("Hide configuration list")
                 }
-                .litheIconButton()
-                .help("Hide configuration list")
-                .accessibilityLabel("Hide configuration list")
+                .padding(.horizontal, 8)
+                .frame(height: 30)
+                Rectangle().fill(LitheTheme.divider).frame(height: 1)
+                ScrollView(.vertical) {
+                    VStack(spacing: 3) {
+                        scopeRow(.all, title: "All configurations", systemImage: "square.stack.3d.up")
+                        scopeRow(.pinned, title: "Pinned", systemImage: "pin")
+                        ForEach(RunConfigurationExecution.displayOrder, id: \.self) { execution in
+                            if !configurations(in: .execution(execution)).isEmpty {
+                                scopeRow(
+                                    .execution(execution),
+                                    title: String(localized: String.LocalizationValue(execution.sectionTitle)),
+                                    systemImage: execution == .service ? "server.rack" : "play.rectangle"
+                                )
+                            }
+                        }
+                        Rectangle().fill(LitheTheme.divider).frame(height: 1).padding(.vertical, 5)
+                        sessionRow(
+                            title: String(localized: "Current run"),
+                            subtitle: feature.runningTitle ?? String(localized: "Current File"),
+                            isRunning: feature.isRunning,
+                            exitCode: feature.lastExitCode,
+                            isSelected: selectedSessionID == nil,
+                            onToggle: nil
+                        ) {
+                            selectedSessionID = nil
+                            contentTab = .console
+                            feature.select(.currentFile)
+                        }
+                    }
+                    .padding(6)
+                }
             }
-            .padding(.leading, 12)
-            .padding(.trailing, 5)
+            .litheWorkbenchSurface(LitheTheme.sidebar)
+        }
+    }
+
+    private func scopeRow(_ scope: RunBrowserState.Scope, title: String, systemImage: String) -> some View {
+        let entries = configurations(in: scope)
+        return HStack(spacing: 6) {
+            selectionCheckbox(entries, title: String(localized: String.LocalizationValue(title)))
+            Button {
+                browser.scope = scope
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: systemImage).frame(width: 16)
+                    Text(String(localized: String.LocalizationValue(title))).lineLimit(1)
+                    Spacer(minLength: 0)
+                    Text(String(entries.count)).foregroundStyle(LitheTheme.secondaryText)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .lithePointer()
+        }
+        .font(.system(size: 11.5))
+        .padding(.horizontal, 6)
+        .frame(height: 30)
+        .background(browser.scope == scope ? LitheTheme.subtleSelection : .clear)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+    }
+
+    private var applicationTypeList: some View {
+        let entries = configurations(in: browser.scope)
+        let groups = RunBrowserState.groups(for: entries)
+        return VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                selectionCheckbox(entries, title: String(localized: "Application types"))
+                Text("Application types")
+                Spacer(minLength: 0)
+                Text(String(entries.count)).foregroundStyle(LitheTheme.secondaryText)
+            }
+            .font(.system(size: 11, weight: .semibold))
+            .padding(.horizontal, 12)
             .frame(height: 30)
-
-            Rectangle()
-                .fill(LitheTheme.divider)
-                .frame(height: 1)
-
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 2) {
-                    let pinnedConfigurations = pinnedRunnableConfigurations
-                    if !pinnedConfigurations.isEmpty {
-                        pinnedSectionHeader(count: pinnedConfigurations.count)
-
-                        ForEach(pinnedConfigurations) { configuration in
-                            configurationRow(configuration)
-                        }
-                    }
-
-                    let services = unpinnedConfigurations(for: .service)
-                    if !services.isEmpty {
-                        sectionHeader(.service, count: services.count)
-                        if !collapsedExecutions.contains(RunConfigurationExecution.service.rawValue) {
-                            ForEach(services) { configuration in
-                                configurationRow(configuration)
-                            }
-                        }
-                    }
-
-                    let otherExecutions = RunConfigurationExecution.displayOrder.filter { $0 != .service }
-                    let otherCount = otherExecutions.reduce(0) { partial, execution in
-                        partial + unpinnedConfigurations(for: execution).count
-                    }
-                    if otherCount > 0 {
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.18)) {
-                                areOtherConfigurationsCollapsed.toggle()
-                            }
-                        } label: {
-                            HStack(spacing: 5) {
-                                Image(systemName: areOtherConfigurationsCollapsed ? "chevron.right" : "chevron.down")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .frame(width: 10)
-                                Text("Other run configurations")
-                                Spacer(minLength: 0)
-                                Text(String(otherCount))
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                            }
-                            .font(.system(size: 10.5, weight: .semibold))
-                            .foregroundStyle(LitheTheme.secondaryText)
-                            .padding(.horizontal, 6)
-                            .padding(.top, 8)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .lithePointer()
-                        .help(areOtherConfigurationsCollapsed ? "Expand" : "Collapse")
-                        .accessibilityLabel("Other run configurations")
-                        .accessibilityValue(areOtherConfigurationsCollapsed ? "Collapsed" : "Expanded")
-
-                        if !areOtherConfigurationsCollapsed {
-                            ForEach(otherExecutions, id: \.self) { execution in
-                                let configurations = unpinnedConfigurations(for: execution)
-                                if !configurations.isEmpty {
-                                    sectionHeader(execution, count: configurations.count)
-                                    if !collapsedExecutions.contains(execution.rawValue) {
-                                        ForEach(configurations) { configuration in
-                                            configurationRow(configuration)
-                                        }
-                                    }
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            if entries.isEmpty {
+                Text("No configurations in this scope")
+                    .font(.system(size: 11))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(12)
+            } else {
+                ScrollView(.vertical) {
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        ForEach(groups) { group in
+                            applicationGroupHeader(group)
+                            if !browser.collapsedGroupIDs.contains(group.id) {
+                                ForEach(group.configurations) { configuration in
+                                    configurationRow(configuration)
                                 }
                             }
                         }
                     }
+                    .padding(6)
                 }
             }
-                .padding(7)
         }
         .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
-    private func pinnedSectionHeader(count: Int) -> some View {
-        HStack(spacing: 5) {
-            Image(systemName: "pin.fill")
-                .font(.system(size: 9, weight: .semibold))
-                .frame(width: 10)
-            Text("Pinned")
-            Spacer(minLength: 0)
-            Text(String(count))
-                .font(.system(size: 10))
-                .foregroundStyle(LitheTheme.secondaryText)
+    private func applicationGroupHeader(_ group: RunBrowserState.ApplicationGroup) -> some View {
+        let isCollapsed = browser.collapsedGroupIDs.contains(group.id)
+        return HStack(spacing: 6) {
+            selectionCheckbox(group.configurations, title: group.title)
+            Button {
+                if isCollapsed {
+                    browser.collapsedGroupIDs.remove(group.id)
+                } else {
+                    browser.collapsedGroupIDs.insert(group.id)
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                    RunConfigurationIcon(kind: group.iconKind, size: 14)
+                    Text(String(localized: String.LocalizationValue(group.title)))
+                    Spacer(minLength: 0)
+                    Text(String(group.configurations.count)).foregroundStyle(LitheTheme.secondaryText)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .lithePointer()
+            .help(isCollapsed ? "Expand" : "Collapse")
+            .accessibilityValue(isCollapsed ? "Collapsed" : "Expanded")
         }
-        .font(.system(size: 10.5, weight: .semibold))
-        .foregroundStyle(LitheTheme.accent)
+        .font(.system(size: 11, weight: .semibold))
         .padding(.horizontal, 6)
-        .padding(.top, 2)
-        .accessibilityElement(children: .combine)
+        .frame(height: 28)
+    }
+
+    private func selectionCheckbox(_ entries: [RunConfiguration], title: String) -> some View {
+        let state = browser.checkState(for: entries)
+        return Button { browser.toggle(entries) } label: {
+            Image(systemName: state == .checked ? "checkmark.square.fill" : state == .mixed ? "minus.square.fill" : "square")
+                .font(.system(size: 13))
+                .foregroundStyle(state == .unchecked ? LitheTheme.secondaryText : LitheTheme.accent)
+                .frame(width: 18, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+        .disabled(entries.isEmpty || feature.isLoadingProject)
+        .help("Select configurations for batch actions")
+        .accessibilityLabel(String(format: String(localized: "Select %@"), title))
+        .accessibilityValue(state == .checked ? "Selected" : state == .mixed ? "Partially selected" : "Not selected")
+    }
+
+    private func synchronizeCheckedConfigurations() {
+        guard let workspace = model.workspaceURL?.standardizedFileURL,
+              feature.hasReadyInventory(for: workspace) else { return }
+        if selectionWorkspacePath != workspace.path {
+            browser.restoreSelection(
+                persistedConfigurationSelections()[workspace.path] ?? [],
+                configurations: runnableConfigurations
+            )
+            selectionWorkspacePath = workspace.path
+        } else {
+            browser.retainConfigurations(runnableConfigurations)
+        }
+    }
+
+    private func persistCheckedConfigurations() {
+        guard let path = model.workspaceURL?.standardizedFileURL.path,
+              selectionWorkspacePath == path else { return }
+        var selections = persistedConfigurationSelections()
+        selections[path] = browser.checkedIDs.sorted()
+        do {
+            let data = try JSONSerialization.data(withJSONObject: selections, options: [.sortedKeys])
+            selectedConfigurationTokens = String(decoding: data, as: UTF8.self)
+        } catch {
+            model.showNotification("Could not save service selection")
+        }
+    }
+
+    private func persistedConfigurationSelections() -> [String: [String]] {
+        if let data = selectedConfigurationTokens.data(using: .utf8),
+           let selections = try? JSONSerialization.jsonObject(with: data) as? [String: [String]] {
+            return selections
+        }
+        // Keep the legacy workspace-prefixed format readable during migration.
+        let path = model.workspaceURL?.standardizedFileURL.path ?? ""
+        let prefix = path + "::"
+        let ids = selectedConfigurationTokens.split(separator: "\n").map(String.init)
+            .filter { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) }
+        return ids.isEmpty ? [:] : [path: ids]
+    }
+
+    private func runCheckedConfigurations() {
+        let checked = runnableConfigurations.filter { browser.checkedIDs.contains($0.id) }
+        guard !checked.isEmpty else { return }
+        if let configuration = checked.first(where: { candidate in
+            !feature.moduleSessions.contains { $0.id == candidate.id && $0.isRunning }
+        }) ?? checked.first {
+            selectedSessionID = configuration.id
+            feature.select(configuration)
+        }
+        contentTab = .console
+        model.startRunConfigurations(checked.map(\.id))
     }
 
     private func configurationRow(_ configuration: RunConfiguration) -> some View {
@@ -722,29 +676,21 @@ struct RunView: View {
             isSelected: selectedSessionID == configuration.id,
             isPinned: isPinned(configuration),
             onPin: { togglePinned(configuration) },
-            onEdit: {
-                editingConfigurationID = configuration.id
-            },
-            isEditing: Binding(
-                get: { editingConfigurationID == configuration.id },
-                set: { isPresented in
-                    if !isPresented, editingConfigurationID == configuration.id {
-                        editingConfigurationID = nil
-                    }
-                }
-            ),
-            editorConfiguration: configuration,
+            onEdit: { editingConfigurationID = configuration.id },
+            checkedConfiguration: configuration,
             onToggle: {
                 if let session, session.isRunning {
                     feature.stopModule(session)
                 } else {
                     feature.select(configuration)
+                    contentTab = .console
                     model.startRunConfiguration(configuration)
                     selectedSessionID = configuration.id
                 }
             }
         ) {
             selectedSessionID = configuration.id
+            contentTab = .console
             feature.select(configuration)
         }
     }
@@ -768,38 +714,65 @@ struct RunView: View {
 
     private func configurationContent(_ configuration: RunConfiguration) -> some View {
         let session = feature.moduleSessions.first { $0.id == configuration.id }
-
         return VStack(spacing: 0) {
-            configurationDetail(configuration, session: session)
-                .frame(maxHeight: session == nil ? .infinity : 220, alignment: .top)
-
-            if let session {
-                Rectangle()
-                    .fill(LitheTheme.divider)
-                    .frame(height: 1)
-
-                HStack(spacing: 6) {
-                    Image(systemName: "terminal")
-                    Text("Process output")
-                    Spacer(minLength: 0)
+            HStack(spacing: 8) {
+                RunConfigurationIcon(kind: configuration.kind, size: 16)
+                Text(configuration.name)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+                    .help(configuration.name)
+                Spacer(minLength: 8)
+                statusLabel(for: session)
+                Button { editingConfigurationID = configuration.id } label: {
+                    Image(systemName: "gearshape")
                 }
-                .font(.system(size: 10.5, weight: .semibold))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .padding(.horizontal, 12)
-                .frame(height: 28)
-                .background(LitheTheme.sidebar.opacity(0.45))
-
+                .litheIconButton()
+                .help("Edit run configuration")
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 34)
+            HStack(spacing: 12) {
+                contentTabButton("Console", tab: .console, systemImage: "terminal")
+                contentTabButton("Configuration details", tab: .details, systemImage: "slider.horizontal.3")
+                Spacer(minLength: 0)
+                if session?.isRunning == true, let url = feature.serviceURL(for: configuration) {
+                    Link(destination: url) { Image(systemName: "arrow.up.right.square") }
+                        .help(url.absoluteString)
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 30)
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            if contentTab == .details {
+                configurationDetail(configuration, session: session)
+            } else {
                 OutputTextView(
-                    output: session.output,
+                    output: session?.output ?? "",
                     searchRoots: feature.sourceSearchRoots,
                     fileExists: { model.fileExists(at: $0) },
-                    emptyMessage: String(localized: "Process output will appear here.")
+                    emptyMessage: String(localized: "Start this configuration to see its output here.")
                 ) { url, line, column in
                     model.openSourceLocation(url: url, line: line, column: column)
                 }
+                .id(configuration.id)
             }
         }
         .litheWorkbenchSurface(LitheTheme.editor)
+    }
+
+    private func contentTabButton(_ title: LocalizedStringKey, tab: ContentTab, systemImage: String) -> some View {
+        Button { contentTab = tab } label: {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 11, weight: contentTab == tab ? .semibold : .regular))
+                .foregroundStyle(contentTab == tab ? LitheTheme.accent : LitheTheme.secondaryText)
+                .frame(height: 30)
+                .overlay(alignment: .bottom) {
+                    if contentTab == tab { Rectangle().fill(LitheTheme.accent).frame(height: 2) }
+                }
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+        .accessibilityAddTraits(contentTab == tab ? .isSelected : [])
     }
 
     private func configurationDetail(
@@ -817,29 +790,6 @@ struct RunView: View {
 
         return ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 11) {
-                    RunConfigurationIcon(kind: configuration.kind, size: 22)
-                        .frame(width: 34, height: 34)
-                        .background(LitheTheme.accent.opacity(0.10))
-                        .clipShape(RoundedRectangle(cornerRadius: 7))
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(configuration.name)
-                            .font(.system(size: 14, weight: .semibold))
-                            .textSelection(.enabled)
-                        Text(String(localized: String.LocalizationValue(configuration.kind.title)))
-                            .font(.system(size: 11))
-                            .foregroundStyle(LitheTheme.secondaryText)
-                    }
-
-                    Spacer(minLength: 10)
-                    statusLabel(for: session)
-                }
-
-                Rectangle()
-                    .fill(LitheTheme.divider)
-                    .frame(height: 1)
-
                 HStack(alignment: .firstTextBaseline) {
                     Text("Configuration details")
                         .font(.system(size: 11.5, weight: .semibold))
@@ -1018,33 +968,6 @@ struct RunView: View {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private func sectionHeader(_ execution: RunConfigurationExecution, count: Int) -> some View {
-        Button {
-            toggleCollapsed(execution)
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: collapsedExecutions.contains(execution.rawValue) ? "chevron.right" : "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
-                    .frame(width: 10)
-                Text(String(localized: String.LocalizationValue(execution.sectionTitle)))
-                Spacer(minLength: 0)
-                Text(String(count))
-                    .font(.system(size: 10))
-                    .foregroundStyle(LitheTheme.secondaryText)
-            }
-            .font(.system(size: 10.5, weight: .semibold))
-            .foregroundStyle(LitheTheme.secondaryText)
-            .padding(.horizontal, 6)
-            .padding(.top, 8)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .lithePointer()
-        .help(collapsedExecutions.contains(execution.rawValue) ? "Expand" : "Collapse")
-        .accessibilityLabel(String(localized: String.LocalizationValue(execution.sectionTitle)))
-        .accessibilityValue(collapsedExecutions.contains(execution.rawValue) ? "Collapsed" : "Expanded")
-    }
-
     private func sessionStatus(isRunning: Bool, exitCode: Int32?) -> some View {
         Group {
             if isRunning {
@@ -1071,12 +994,14 @@ struct RunView: View {
         isPinned: Bool = false,
         onPin: (() -> Void)? = nil,
         onEdit: (() -> Void)? = nil,
-        isEditing: Binding<Bool> = .constant(false),
-        editorConfiguration: RunConfiguration? = nil,
+        checkedConfiguration: RunConfiguration? = nil,
         onToggle: (() -> Void)?,
         action: @escaping () -> Void
     ) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
+                if let checkedConfiguration {
+                    selectionCheckbox([checkedConfiguration], title: checkedConfiguration.name)
+                }
                 ZStack(alignment: .bottomTrailing) {
                     if let configurationKind {
                         RunConfigurationIcon(kind: configurationKind, size: 16)
@@ -1138,7 +1063,7 @@ struct RunView: View {
                     .help(isPinned ? "Unpin configuration" : "Pin configuration")
                     .accessibilityLabel(isPinned ? "Unpin configuration" : "Pin configuration")
                 }
-                if let onEdit, let editorConfiguration {
+                if let onEdit {
                     Button(action: onEdit) {
                         Image(systemName: "gearshape")
                     }
@@ -1146,12 +1071,7 @@ struct RunView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
                     .help("Edit run configuration")
                     .disabled(feature.configurationStatus != .ready || feature.isLoadingProject)
-                    .popover(isPresented: isEditing, arrowEdge: .trailing) {
-                        RunConfigurationEditorView(
-                            feature: feature,
-                            configuration: editorConfiguration
-                        )
-                    }
+
                 }
                 if let onToggle {
                     Button(action: onToggle) {

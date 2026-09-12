@@ -96,9 +96,10 @@ struct RunWorkflowCoordinatorTests {
         )
 
         coordinator.performDeferredAction(.startConfiguration(configuration))
+        coordinator.performDeferredAction(.startConfigurations(["java-main", "npm:web"]))
         coordinator.performDeferredAction(.restart)
 
-        #expect(actions.events == ["start:java-main", "restart"])
+        #expect(actions.events == ["start:java-main", "batch:java-main,npm:web", "restart"])
     }
 
     /// The pending action belongs to the opening that recorded it. A resume for
