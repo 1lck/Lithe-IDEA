@@ -860,6 +860,51 @@ final class AppModel: ObservableObject, Identifiable {
         pendingProjectItemDeletion = nil
     }
 
+    /// One-shot add/remove of recommended LSP artifact rules in Git local exclude.
+    /// Requests are serialized so click order matches write order. The Core write
+    /// itself runs off the MainActor through GitService.
+    private let lspGeneratedArtifactGitExcludeQueue = SerialMainActorActionQueue()
+    var isApplyingLSPGeneratedArtifactRules: Bool {
+        lspGeneratedArtifactGitExcludeQueue.isBusy
+    }
+
+    func applyLSPGeneratedArtifactGitExcludeRules(adding: Bool) {
+        guard workspaceURL != nil else { return }
+        objectWillChange.send()
+        lspGeneratedArtifactGitExcludeQueue.enqueue { [weak self] in
+            guard let self else { return }
+            let result = await self.performLSPGeneratedArtifactGitExclude(adding: adding)
+            switch result {
+            case .updated:
+                await self.gitFeatureIfActive?.refreshGitFromMetadataChange()
+            case .noRepository:
+                self.showNotification(
+                    "Hidden paths updated. No Git repository detected, so the Git local exclude list was not changed."
+                )
+            case .failed:
+                self.showNotification(
+                    "Hidden paths updated. The Git local exclude list could not be changed. You can retry the recommended-rules action."
+                )
+            }
+            self.objectWillChange.send()
+        }
+    }
+
+    private func performLSPGeneratedArtifactGitExclude(adding: Bool) async -> LSPGeneratedArtifactGitExcludeResult {
+        guard let workspaceURL else { return .failed }
+        guard let gitFeature = await activateGitModule() else { return .failed }
+        let command = await gitFeature.mutateLiteralLocalExcludePatterns(
+            LSPGeneratedArtifactVisibility.filePatterns,
+            adding: adding,
+            at: workspaceURL
+        )
+        return LSPGeneratedArtifactGitExcludeOutcome.classify(
+            succeeded: command.succeeded,
+            output: command.output,
+            operationErrorMessage: command.operationErrorMessage
+        )
+    }
+
     func resumeGitObservationAfterActivation() async {
         await workspaceFeature.resumeObservationAfterActivation()
     }
@@ -963,6 +1008,11 @@ final class AppModel: ObservableObject, Identifiable {
         selectedChange = nil
         closeBranchComparison()
         editorNavigationTarget = nil
+        // SVG remains a text document so edits, saves, and previews share one buffer.
+        if let mediaKind = MediaDocumentKind.from(url: url) {
+            openMediaFile(url, kind: mediaKind)
+            return
+        }
         documentFeature.openFile(url, isReadOnly: isReadOnly, displayPath: displayPath)
     }
 

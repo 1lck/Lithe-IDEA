@@ -89,6 +89,7 @@ struct WorkbenchView: View {
     @State private var hoveredProjectTabID: UUID?
     @State private var workbenchBackgroundImage: NSImage?
     @State private var isBackgroundPickerPresented = false
+    @State private var isRunConfigurationPickerPresented = false
 
     var body: some View {
         let _ = LitheSignpost.bodyEvaluated("WorkbenchView")
@@ -853,18 +854,18 @@ struct WorkbenchView: View {
 
     private var runLaunchButton: some View {
         Button {
-            if model.runFeatureIfActive?.isRunning == true {
+            if model.runFeatureIfActive?.isSelectedConfigurationRunning == true {
                 model.restartSelectedRun()
             } else {
                 model.runSelectedConfiguration()
             }
         } label: {
             LitheIDEAIcon(
-                resourcePath: model.runFeatureIfActive?.isRunning == true
+                resourcePath: model.runFeatureIfActive?.isSelectedConfigurationRunning == true
                     ? "debugger/rerun.svg"
                     : "debugger/run.svg",
                 size: 16,
-                fallbackSystemImage: model.runFeatureIfActive?.isRunning == true
+                fallbackSystemImage: model.runFeatureIfActive?.isSelectedConfigurationRunning == true
                     ? "arrow.clockwise"
                     : "play.fill",
                 preservesOriginalColors: true
@@ -874,8 +875,8 @@ struct WorkbenchView: View {
         }
         .buttonStyle(.plain)
         .lithePointer()
-        .help(model.runFeatureIfActive?.isRunning == true ? "Rerun selected configuration" : "Run selected configuration")
-        .accessibilityLabel(model.runFeatureIfActive?.isRunning == true ? "Rerun selected configuration" : "Run selected configuration")
+        .help(model.runFeatureIfActive?.isSelectedConfigurationRunning == true ? "Rerun selected configuration" : "Run selected configuration")
+        .accessibilityLabel(model.runFeatureIfActive?.isSelectedConfigurationRunning == true ? "Rerun selected configuration" : "Run selected configuration")
         .accessibilityIdentifier("run-selected-run-configuration")
     }
 
@@ -930,32 +931,12 @@ struct WorkbenchView: View {
     }
 
     private var hasActiveExecution: Bool {
-        isDebugSessionActive || model.runFeatureIfActive?.isRunning == true
+        isDebugSessionActive || model.runFeatureIfActive?.isSelectedConfigurationRunning == true
     }
 
     private var runConfigurationPicker: some View {
-        Menu {
-            if let runFeature = model.runFeatureIfActive,
-               !runFeature.configurations.isEmpty {
-                ForEach(runFeature.configurations) { configuration in
-                    Button {
-                        model.selectRunConfiguration(configuration)
-                    } label: {
-                        HStack {
-                            RunConfigurationIcon(kind: configuration.kind, size: 14)
-                            Text(configuration.name)
-                            if configuration.id == runFeature.selectedConfiguration?.id {
-                                Spacer()
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            } else {
-                Button("Current File") {
-                    model.selectRunConfiguration(.currentFile)
-                }
-            }
+        Button {
+            isRunConfigurationPickerPresented.toggle()
         } label: {
             HStack(spacing: 8) {
                 RunConfigurationIcon(
@@ -967,6 +948,9 @@ struct WorkbenchView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(LitheTheme.secondaryText)
             }
             .foregroundStyle(LitheTheme.primaryText)
             .padding(.horizontal, 4)
@@ -974,14 +958,72 @@ struct WorkbenchView: View {
             .frame(height: 30)
             .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.visible)
+        .buttonStyle(.plain)
         .frame(minWidth: 160, maxWidth: 190, alignment: .leading)
         .frame(height: 30)
         .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
         .help("Select run configuration for Run or Debug")
         .accessibilityLabel("Select run configuration for Run or Debug")
         .accessibilityIdentifier("run-configuration-picker")
+        .popover(isPresented: $isRunConfigurationPickerPresented, arrowEdge: .bottom) {
+            runConfigurationSelectionPanel
+        }
+    }
+
+    private var runConfigurationSelectionPanel: some View {
+        let configurations = model.runFeatureIfActive?.configurations ?? [.currentFile]
+        let services = configurations.filter { $0.execution == .service }
+        let visibleConfigurations = [RunConfiguration.currentFile] + services
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("Run configurations")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .padding(.horizontal, 10)
+                .padding(.top, 6)
+            ScrollView {
+                VStack(spacing: 3) {
+                    ForEach(visibleConfigurations) { configuration in
+                        if configuration.id == services.first?.id {
+                            Divider().padding(.vertical, 3)
+                            Text("Services")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(LitheTheme.secondaryText)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 10)
+                        }
+                        let isSelected = configuration.id == model.runFeatureIfActive?.selectedConfiguration?.id
+                        Button {
+                            model.selectRunConfiguration(configuration)
+                            isRunConfigurationPickerPresented = false
+                        } label: {
+                            HStack(spacing: 10) {
+                                RunConfigurationIcon(kind: configuration.kind, size: 16)
+                                Text(configuration.name)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Spacer(minLength: 12)
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .opacity(isSelected ? 1 : 0)
+                            }
+                            .foregroundStyle(LitheTheme.primaryText)
+                            .padding(.horizontal, 10)
+                            .frame(height: 34)
+                            .contentShape(Rectangle())
+                            .litheRowHover(isActive: isSelected, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
+                        }
+                        .buttonStyle(.plain)
+                        .help(configuration.name)
+                        .accessibilityAddTraits(isSelected ? .isSelected : [])
+                    }
+                }
+            }
+            .frame(height: min(CGFloat(visibleConfigurations.count) * 37 + (services.isEmpty ? 0 : 28), 296))
+        }
+        .padding(8)
+        .frame(width: 280)
+        .background(LitheTheme.editor)
     }
 
     private var backgroundPickerButton: some View {

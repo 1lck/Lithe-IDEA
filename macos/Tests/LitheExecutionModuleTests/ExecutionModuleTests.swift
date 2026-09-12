@@ -8,6 +8,307 @@ import Testing
 
 @MainActor
 struct ExecutionModuleTests {
+    @Test(arguments: ["services/alpha", "services/beta"])
+    func moduleRunPassesMavenContextOnlyToItsOwningReactor(reactor: String) async {
+        let configuration = RunConfiguration(
+            id: "main", name: "Main", kind: .javaMain, modulePath: ".", mainClass: "example.Main",
+            mavenReactorPath: reactor)
+        let operations = MavenContextRunOperations(configuration: configuration)
+        let graph = makeTestGraph(runOperations: operations)
+        defer { graph.run.reset(); graph.maven.reset() }
+        let context = MavenLaunchContext(reactorPath: "services/alpha", profiles: ["dev"],
+                                         settingsPath: "/fixture/settings.xml", skipTests: true,
+                                         mavenExecutablePath: nil, javaHomePath: nil)
+        graph.run.configureMavenContextProvider { context }
+        await graph.run.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [], mavenProject: nil)
+        #expect(graph.run.defaultConfigurationID == configuration.id)
+        graph.run.startConfiguration(configuration)
+        #expect(operations.called)
+        #expect(operations.context == (reactor == context.reactorPath ? context : nil))
+        // A failed plan remains in the existing Run output and supports a retry.
+        #expect(graph.run.moduleSessions.first?.exitCode == 1)
+    }
+
+    @Test(arguments: ["pom-failure", "reload-failure", "reload-success"])
+    func mavenReloadInvalidatesAlreadyRunningInventory(outcome: String) async throws {
+        let gate = ReloadScanGate()
+        let graph = makeTestGraph(mavenOperations: ReloadMavenOperations(scanGate: gate))
+        let service = graph.maven
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        await service.loadProject(at: root, files: [root.appendingPathComponent("old")])
+        let background = Task {
+            await service.loadProject(at: root, files: [root.appendingPathComponent("inventory")])
+        }
+        let watchdog = Task {
+            // test-stability: allow(swift-real-sleep) reason: watchdog bounds the event wait if the background scan never enters the controlled synchronous port.
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            Issue.record("Background Maven scan did not reach its gate")
+            gate.entered.continuation.finish()
+            gate.release.signal()
+            background.cancel()
+        }
+        defer {
+            watchdog.cancel()
+            background.cancel()
+            gate.entered.continuation.finish()
+            gate.release.signal()
+            service.reset()
+        }
+        for await _ in gate.entered.stream { break }
+        if outcome == "pom-failure" { service.markPomChanged(root.appendingPathComponent("pom.xml")) }
+        await service.reloadProject(files: [root.appendingPathComponent("new")], rescan: true) {
+            if outcome != "reload-success" { throw ReloadTestError.failed }
+        }
+        gate.release.signal()
+        await background.value
+        #expect(service.project?.artifactID == (outcome == "reload-success" ? "new" : "old"))
+        #expect(service.projectState == .ready)
+        #expect((service.reloadError != nil) == (outcome != "reload-success"))
+        #expect(!service.isReloading)
+    }
+
+    @Test(arguments: ["success", "failure", "new-pom", "workspace"])
+    func mavenReloadSynchronizesAcceptedRunProfiles(outcome: String) async throws {
+        let graph = makeTestGraph(mavenOperations: ReloadMavenOperations())
+        defer { graph.maven.reset(); graph.run.reset() }
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let snapshot = UUID()
+        let pom = root.appendingPathComponent("pom.xml")
+        await graph.projectDevelopment.loadProject(
+            at: root, files: [root.appendingPathComponent("old"), pom], snapshotID: snapshot
+        )
+        graph.maven.markPomChanged(pom)
+        await graph.projectDevelopment.loadProject(
+            at: root, files: [root.appendingPathComponent("new"), pom], snapshotID: snapshot
+        )
+        #expect(graph.run.mavenProfiles.map(\.id) == ["old"])
+        await graph.maven.reloadProject(files: [root.appendingPathComponent("new")], rescan: true) {
+            switch outcome {
+            case "failure": throw ReloadTestError.failed
+            case "new-pom": graph.maven.markPomChanged(pom)
+            case "workspace":
+                await graph.run.loadProject(at: URL(fileURLWithPath: "/other"), files: [], mavenProject: nil)
+            default: break
+            }
+        }
+        #expect(graph.run.mavenProfiles.map(\.id) == (outcome == "workspace" ? [] : [outcome == "success" ? "new" : "old"]))
+        if outcome != "workspace" {
+            #expect(graph.run.isProjectReady(for: root, snapshotID: snapshot))
+        }
+    }
+
+    @Test
+    func runInventoryReturningAfterReloadKeepsAcceptedProfiles() async throws {
+        let gate = ReloadScanGate()
+        let graph = makeTestGraph(
+            mavenOperations: ReloadMavenOperations(),
+            runOperations: TestRunConfigurationOperations(inspectionGate: gate)
+        )
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let snapshot = UUID()
+        let pom = root.appendingPathComponent("pom.xml")
+        gate.release.signal()
+        await graph.projectDevelopment.loadProject(at: root, files: [root.appendingPathComponent("old"), pom])
+        for await _ in gate.entered.stream { break }
+        graph.maven.markPomChanged(pom)
+        let background = Task {
+            await graph.projectDevelopment.loadProject(
+                at: root, files: [root.appendingPathComponent("new"), pom], snapshotID: snapshot
+            )
+        }
+        let watchdog = Task {
+            // test-stability: allow(swift-real-sleep) reason: watchdog bounds the event wait if Run inspection never enters the controlled synchronous port.
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            Issue.record("Run inspection did not reach its gate")
+            gate.entered.continuation.finish()
+            gate.release.signal()
+            background.cancel()
+        }
+        defer {
+            watchdog.cancel()
+            background.cancel()
+            gate.entered.continuation.finish()
+            gate.release.signal()
+            graph.maven.reset()
+            graph.run.reset()
+        }
+        for await _ in gate.entered.stream { break }
+        await graph.maven.reloadProject(files: [root.appendingPathComponent("new")], rescan: true) {}
+        gate.release.signal()
+        await background.value
+        #expect(graph.run.mavenProfiles.map(\.id) == ["new"])
+        #expect(graph.run.isProjectReady(for: root, snapshotID: snapshot))
+    }
+
+    @Test
+    func mavenReloadCoalescesConcurrentRequests() async throws {
+        let (service, root) = await makeReloadService()
+        let entered = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let release = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        var javaCalls = 0
+        let first = Task {
+            await service.reloadProject(files: [root.appendingPathComponent("new")], rescan: true) {
+                javaCalls += 1
+                entered.continuation.yield(())
+                for await _ in release.stream { break }
+            }
+        }
+        let watchdog = Task {
+            // test-stability: allow(swift-real-sleep) reason: watchdog bounds both event-driven gates if reload never reaches or leaves Java import.
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            Issue.record("Maven reload did not reach its synchronization boundary")
+            entered.continuation.finish()
+            release.continuation.finish()
+            first.cancel()
+        }
+        defer {
+            watchdog.cancel()
+            entered.continuation.finish()
+            release.continuation.finish()
+            first.cancel()
+            service.reset()
+        }
+        for await _ in entered.stream { break }
+        // The first task cannot resume on MainActor until the second call reaches
+        // its await, so it must observe and join the in-flight operation.
+        release.continuation.yield(())
+        await service.reloadProject(files: [root.appendingPathComponent("invalid")], rescan: true) {
+            javaCalls += 1
+        }
+        await first.value
+        #expect(javaCalls == 1)
+        #expect(service.project?.artifactID == "new")
+        #expect(service.reloadError == nil)
+    }
+
+    @Test
+    func mavenReloadCommitsOnlyAfterJavaImportAndPreservesConfiguration() async throws {
+        let (service, root) = await makeReloadService()
+        defer { service.reset() }
+        service.setSkipTests(true)
+        service.markPomChanged(root.appendingPathComponent("module/pom.xml"))
+        await service.reloadProject(files: [root.appendingPathComponent("new")], rescan: true) {
+            #expect(service.project?.artifactID == "old")
+            #expect(service.isReloading)
+            #expect(service.isProjectReloadRequired)
+        }
+        #expect(service.project?.artifactID == "new")
+        #expect(service.skipTests)
+        #expect(!service.isReloadRequired)
+        #expect(!service.isReloading)
+        #expect(service.reloadError == nil)
+    }
+
+    @Test(arguments: [true, false])
+    func mavenReloadFailureKeepsAcceptedModel(scanFailure: Bool) async throws {
+        let (service, root) = await makeReloadService()
+        defer { service.reset() }
+        service.markPomChanged(root.appendingPathComponent("pom.xml"))
+        var javaCalls = 0
+        await service.reloadProject(files: [root.appendingPathComponent(scanFailure ? "invalid" : "new")], rescan: true) {
+            javaCalls += 1
+            throw ReloadTestError.failed
+        }
+        #expect(javaCalls == (scanFailure ? 0 : 1))
+        #expect(service.project?.artifactID == "old")
+        #expect(service.projectState == .ready)
+        #expect(service.isReloadRequired)
+        #expect(service.reloadError != nil)
+    }
+
+    @Test(arguments: ["pom", "configuration", "reset", "workspace"])
+    func mavenReloadRejectsChangesDuringJavaImport(change: String) async throws {
+        let (service, root) = await makeReloadService()
+        defer { service.reset() }
+        service.markPomChanged(root.appendingPathComponent("pom.xml"))
+        await service.reloadProject(files: [root.appendingPathComponent("new")], rescan: true) {
+            switch change {
+            case "pom": service.markPomChanged(root.appendingPathComponent("module/pom.xml"))
+            case "configuration": service.setSkipTests(true)
+            case "workspace":
+                let next = URL(fileURLWithPath: "/next-workspace")
+                await Task { @MainActor in
+                    await service.loadProject(at: next, files: [next.appendingPathComponent("other")])
+                }.value
+            default: service.reset()
+            }
+        }
+        #expect(service.project?.artifactID == (change == "reset" ? nil : change == "workspace" ? "other" : "old"))
+        #expect(service.isReloadRequired == (change == "pom" || change == "configuration"))
+        #expect(service.reloadError == nil)
+        #expect(!service.isReloading)
+    }
+
+    @Test
+    func mavenPomChangeSurvivesInventoryRefreshAndAcknowledgement() async throws {
+        let (service, root) = await makeReloadService()
+        defer { service.reset() }
+        service.markPomChanged(URL(fileURLWithPath: "/workspace-copy/pom.xml"))
+        service.markPomChanged(root.appendingPathComponent("README.md"))
+        #expect(!service.isReloadRequired)
+        service.markPomChanged(root.appendingPathComponent("pom.xml"))
+        service.acknowledgeReload()
+        await service.loadProject(at: root, files: [root.appendingPathComponent("new")])
+        #expect(service.project?.artifactID == "old")
+        #expect(service.isProjectReloadRequired)
+    }
+
+    @Test
+    func mavenConfigurationOnlyReloadDoesNotScanPom() async throws {
+        let (service, root) = await makeReloadService()
+        defer { service.reset() }
+        service.setSkipTests(true)
+        await service.reloadProject(files: [root.appendingPathComponent("invalid")], rescan: false) {}
+        #expect(service.project?.artifactID == "old")
+        #expect(service.reloadError == nil)
+        #expect(!service.isReloadRequired)
+    }
+
+    @Test
+    func mavenReloadCancellationReleasesJavaWaitWithoutAcceptingTheCandidate() async throws {
+        let (service, root) = await makeReloadService()
+        let entered = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let waiting = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        var javaWaitEnded = false
+        service.markPomChanged(root.appendingPathComponent("pom.xml"))
+        let reload = Task {
+            await service.reloadProject(files: [root.appendingPathComponent("new")], rescan: true) {
+                entered.continuation.yield(())
+                for await _ in waiting.stream { }
+                javaWaitEnded = true
+                try Task.checkCancellation()
+            }
+        }
+        let watchdog = Task {
+            // test-stability: allow(swift-real-sleep) reason: bounds cancellation regression when the Java readiness stand-in fails to terminate.
+            do { try await Task.sleep(for: .seconds(2)) } catch { return }
+            Issue.record("Maven reload did not cancel its Java readiness wait")
+            entered.continuation.finish()
+            waiting.continuation.finish()
+            reload.cancel()
+            service.stop()
+        }
+        defer {
+            watchdog.cancel()
+            entered.continuation.finish()
+            waiting.continuation.finish()
+            reload.cancel()
+            service.reset()
+        }
+        for await _ in entered.stream { break }
+        // Cancel the caller, not the Java stand-in: the service must forward it.
+        reload.cancel()
+        await reload.value
+        #expect(javaWaitEnded)
+        #expect(service.project?.artifactID == "old")
+        #expect(service.isProjectReloadRequired)
+        #expect(service.reloadError != nil)
+        #expect(!service.isReloading)
+    }
+
     @Test
     func configuredServerPortUsesArgumentsEnvironmentResourcesAndFrameworkDefault() async throws {
         let root = URL(fileURLWithPath: "/workspace/service-port", isDirectory: true)
@@ -126,6 +427,40 @@ struct ExecutionModuleTests {
         #expect(service.generationState == .projectNotReady)
         #expect(operations.generateCallCount == 0)
         #expect(service.configurationStatus == .missing)
+    }
+
+    @Test
+    func selectingBetweenRunningServicesSynchronizesLogIdentityAndControls() async {
+        let first = RunConfiguration(id: "service:a", name: "A", kind: .javaMain,
+                                     execution: .service, modulePath: nil, mainClass: "demo.A")
+        let second = RunConfiguration(id: "service:b", name: "B", kind: .javaMain,
+                                      execution: .service, modulePath: nil, mainClass: "demo.B")
+        let service = RunService(
+            runtime: TestRuntime(), process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: SelectionRunConfigurationOperations(configurations: [first, second]),
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        defer { service.reset() }
+        await service.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [], mavenProject: nil)
+        // Model two already-running sessions: changing selection must not need
+        // a process transition or a new output event to update the log target.
+        service.startConfiguration(first)
+        service.startConfiguration(second)
+        let feature = RunFeatureModel(service: service)
+        for configuration in [second, first, second] {
+            feature.select(configuration)
+            #expect(feature.selectedProjectSessionID == configuration.id)
+            #expect(feature.isSelectedConfigurationRunning)
+            #expect(feature.moduleSessions.first { $0.id == feature.selectedProjectSessionID }?.title == configuration.name)
+            #expect(feature.moduleSessions.filter(\.isRunning).count == 2)
+        }
+        feature.select(.currentFile)
+        #expect(feature.selectedProjectSessionID == nil)
+        #expect(!feature.isSelectedConfigurationRunning)
     }
 
     /// Once the project is bound, identification must behave exactly as before.
@@ -388,6 +723,178 @@ struct ExecutionModuleTests {
         ))
         #expect(builtInProcess.startRequests.isEmpty)
         #expect(service.errorMessage == "go testing extension is not active.")
+    }
+
+    @Test
+    func mavenTestsParseResultsAndRerunTheLastSelection() async throws {
+        let root = URL(fileURLWithPath: "/workspace/maven-tests", isDirectory: true)
+        let source = root.appendingPathComponent(
+            "src/test/java/com/example/CalculatorTest.java"
+        )
+        let pom = root.appendingPathComponent("pom.xml")
+        let firstProcess = TestStreamingProcess()
+        let secondProcess = TestStreamingProcess()
+        var factoryCall = 0
+        let parsedResults = MavenTestResults(
+            testsRun: 3,
+            failures: 1,
+            errors: 0,
+            skipped: 1,
+            passed: 1,
+            success: false,
+            failureDetails: []
+        )
+        let parser = TestResultParserRecorder(result: parsedResults)
+        let service = LanguageTestService(
+            executableResolver: TestExecutableResolver(),
+            processFactory: {
+                factoryCall += 1
+                return factoryCall == 1 ? firstProcess : secondProcess
+            },
+            resultParser: parser.parse
+        )
+
+        #expect(service.run(
+            providerID: "java",
+            scope: .file(source),
+            workspaceURL: root,
+            projectFiles: [pom, source]
+        ))
+        #expect(firstProcess.startRequests.first?.arguments == ["-Dtest=CalculatorTest", "test"])
+        #expect(firstProcess.startRequests.first?.timeoutMilliseconds == 120_000)
+        defer { service.reset() }
+
+        firstProcess.onOutput?("Tests run: 3, Failures: 1, Errors: 0, Skipped: 1\n")
+        firstProcess.onTermination?(1)
+        try await awaitTestValue(service.$state, matching: { $0 == .failed(exitCode: 1) })
+        #expect(service.state == .failed(exitCode: 1))
+        #expect(service.results == parsedResults)
+        #expect(parser.calls == 1)
+        #expect(parser.output.contains("Tests run: 3"))
+        #expect(!parser.ranOnMainThread)
+        #expect(service.canRerun)
+
+        #expect(service.rerun())
+        #expect(secondProcess.startRequests.first?.arguments == ["-Dtest=CalculatorTest", "test"])
+    }
+
+    @Test
+    func mavenTestTimeoutIsPreservedWhenTerminationArrivesLate() async throws {
+        let root = URL(fileURLWithPath: "/workspace/maven-timeout", isDirectory: true)
+        let source = root.appendingPathComponent(
+            "src/test/java/com/example/CalculatorTest.java"
+        )
+        let process = TestStreamingProcess()
+        let service = LanguageTestService(
+            executableResolver: TestExecutableResolver(),
+            processFactory: { process },
+            resultParser: { _, _ in nil }
+        )
+
+        #expect(service.run(
+            providerID: "java",
+            scope: .file(source),
+            workspaceURL: root,
+            projectFiles: [root.appendingPathComponent("pom.xml"), source]
+        ))
+        let request = try #require(process.startRequests.first)
+        #expect(request.timeoutMilliseconds == 120_000)
+        defer { service.reset() }
+
+        process.onStateChange?(ProcessLifecycleEvent(
+            operationID: request.operationID,
+            state: .stopping,
+            exitCode: nil,
+            message: "Process timed out"
+        ))
+        try await awaitTestValue(service.$errorMessage, matching: { $0 != nil })
+        #expect(service.state == .running)
+        #expect(service.errorMessage == "Maven test run timed out after 120 seconds.")
+
+        process.onTermination?(0)
+        try await awaitTestValue(service.$state, matching: { $0 == .timedOut })
+        #expect(service.state == .timedOut)
+        #expect(!service.isRunning)
+    }
+
+    @Test
+    func nonMavenLanguageTestsDoNotParseMavenResults() async throws {
+        let root = URL(fileURLWithPath: "/workspace/gradle-tests", isDirectory: true)
+        let source = root.appendingPathComponent(
+            "src/test/java/com/example/CalculatorTest.java"
+        )
+        let buildFile = root.appendingPathComponent("build.gradle")
+        let process = TestStreamingProcess()
+        let parser = TestResultParserRecorder(result: MavenTestResults(
+            testsRun: 1,
+            failures: 0,
+            errors: 0,
+            skipped: 0,
+            passed: 1,
+            success: true,
+            failureDetails: []
+        ))
+        let service = LanguageTestService(
+            executableResolver: TestExecutableResolver(),
+            processFactory: { process },
+            resultParser: parser.parse
+        )
+
+        #expect(service.run(
+            providerID: "java",
+            scope: .file(source),
+            workspaceURL: root,
+            projectFiles: [buildFile, source]
+        ))
+        #expect(service.activePlan?.frameworkID == "gradle")
+        defer { service.reset() }
+
+        process.onTermination?(0)
+        try await awaitTestValue(service.$state, matching: { $0 == .passed })
+        #expect(service.state == .passed)
+        #expect(service.results == nil)
+        #expect(parser.calls == 0)
+    }
+
+    @Test
+    func stoppingMavenTestsIgnoresLateTerminationEvents() async throws {
+        let root = URL(fileURLWithPath: "/workspace/maven-cancel", isDirectory: true)
+        let source = root.appendingPathComponent(
+            "src/test/java/com/example/CalculatorTest.java"
+        )
+        let process = TestStreamingProcess()
+        let service = LanguageTestService(
+            executableResolver: TestExecutableResolver(),
+            processFactory: { process },
+            resultParser: { _, _ in
+                MavenTestResults(
+                    testsRun: 1,
+                    failures: 0,
+                    errors: 0,
+                    skipped: 0,
+                    passed: 1,
+                    success: true,
+                    failureDetails: []
+                )
+            }
+        )
+
+        #expect(service.run(
+            providerID: "java",
+            scope: .file(source),
+            workspaceURL: root,
+            projectFiles: [root.appendingPathComponent("pom.xml"), source]
+        ))
+        service.stop()
+        #expect(service.state == .cancelled)
+        #expect(!process.isRunning)
+
+        process.onTermination?(0)
+        await Task.yield()
+        await Task.yield()
+
+        #expect(service.state == .cancelled)
+        #expect(service.results == nil)
     }
 
     @Test
@@ -740,6 +1247,28 @@ struct ExecutionModuleTests {
     }
 }
 
+private struct SelectionRunConfigurationOperations: RunConfigurationOperations {
+    let configurations: [RunConfiguration]
+    func inspect(at _: URL) -> ProjectRunConfigurationInspection {
+        ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
+    }
+    func generate(at _: URL, files _: [URL], modulePaths _: [String]) throws -> RunConfigurationGenerationResult {
+        RunConfigurationGenerationResult(entryCount: configurations.count)
+    }
+    func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
+        RunConfigurationResolution(
+            configurations: ([.currentFile] + configurations).map {
+                EffectiveRunConfiguration(configuration: $0, options: RunOptions())
+            }, diagnostics: [], defaultConfigurationID: configurations.first?.id
+        )
+    }
+    func launchPlan(at _: URL, configurationID: String, currentFile _: String?, classPath _: String?, debugPort _: Int?) throws -> SharedLaunchPlan {
+        SharedLaunchPlan(executable: .toolchain("java"), arguments: [configurationID], workingDirectory: ".")
+    }
+    func createConfiguration(_ draft: RunConfigurationDraft, at _: URL) throws -> String { draft.name }
+    func migrateLegacySettings(at _: URL, configurationIDs _: [String]) throws {}
+}
+
 @MainActor
 private func makeRunService(
     configuration: RunConfiguration,
@@ -771,14 +1300,17 @@ private func makeRunService(
 }
 
 @MainActor
-private func makeTestGraph() -> ExecutionFeatureGraph {
+private func makeTestGraph(
+    mavenOperations: any MavenProjectOperations = TestMavenOperations(),
+    runOperations: any RunConfigurationOperations = TestRunConfigurationOperations()
+) -> ExecutionFeatureGraph {
     let runtime = TestRuntime()
     let resolver = TestExecutableResolver()
     let maven = MavenService(
         runtimeService: runtime,
         process: TestStreamingProcess(),
         dependencyProcess: TestStreamingProcess(),
-        mavenOperations: TestMavenOperations()
+        mavenOperations: mavenOperations
     )
     let run = RunService(
         runtime: runtime,
@@ -787,7 +1319,7 @@ private func makeTestGraph() -> ExecutionFeatureGraph {
         fileAccess: TestRunFileAccess(),
         preferences: TestRunPreferences(),
         serverPortParser: TestServerPortParser(),
-        runConfigurationOperations: TestRunConfigurationOperations(),
+        runConfigurationOperations: runOperations,
         executableResolver: resolver,
         languageProviderCatalog: .compatibilityFallback,
         languageRunProviders: .standard(catalog: .compatibilityFallback)
@@ -830,6 +1362,74 @@ private func dependencyState(
     }
 }
 
+/// Subscribe synchronously so an event between setup and suspension is buffered.
+/// The watchdog fails a missing event; elapsed time never advances the happy path.
+@MainActor
+private func awaitTestValue<Value: Sendable>(
+    _ publisher: Published<Value>.Publisher,
+    matching: @escaping @Sendable (Value) -> Bool
+) async throws {
+    let events = AsyncStream<Value>.makeStream(bufferingPolicy: .unbounded)
+    let subscription = publisher.sink { events.continuation.yield($0) }
+    let watchdog = Task {
+        // test-stability: allow(swift-real-sleep) reason: deadline ends a missing publisher event, never synchronizes successful test completion.
+        do { try await Task.sleep(for: .seconds(2)) } catch { return }
+        events.continuation.finish()
+    }
+    defer {
+        subscription.cancel()
+        watchdog.cancel()
+        events.continuation.finish()
+    }
+    for await value in events.stream {
+        if matching(value) { return }
+    }
+    throw TestObservationError.deadlineExceeded
+}
+
+private enum TestObservationError: Error {
+    case deadlineExceeded
+}
+
+private final class TestResultParserRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private let result: MavenTestResults?
+    private var recordedCalls = 0
+    private var recordedOutput = ""
+    private var recordedMainThread = false
+
+    init(result: MavenTestResults?) {
+        self.result = result
+    }
+
+    func parse(output: String, rootURL: URL) -> MavenTestResults? {
+        lock.lock()
+        recordedCalls += 1
+        recordedOutput = output
+        recordedMainThread = Thread.isMainThread
+        lock.unlock()
+        return result
+    }
+
+    var calls: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedCalls
+    }
+
+    var output: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedOutput
+    }
+
+    var ranOnMainThread: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedMainThread
+    }
+}
+
 @MainActor
 private final class TestRuntime: MavenRuntimePort, RunRuntimePort {
     func mavenExecutable(for project: MavenProject, overridePath: String?) -> URL? { nil }
@@ -857,6 +1457,49 @@ private final class TestStreamingProcess: StreamingProcess, @unchecked Sendable 
     }
     func send(_ input: Data) throws {}
     func stop() { isRunning = false }
+}
+
+private enum ReloadTestError: Error { case failed }
+
+@MainActor
+private func makeReloadService() async -> (MavenService, URL) {
+    let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+    let service = MavenService(
+        runtimeService: TestRuntime(), process: TestStreamingProcess(),
+        dependencyProcess: TestStreamingProcess(), mavenOperations: ReloadMavenOperations()
+    )
+    await service.loadProject(at: root, files: [root.appendingPathComponent("old")])
+    return (service, root)
+}
+
+private struct ReloadMavenOperations: MavenProjectOperations {
+    var scanGate: ReloadScanGate? = nil
+    func scanMavenProject(at rootURL: URL, files: [URL]) throws -> MavenProject? {
+        let name = files.first?.lastPathComponent ?? "old"
+        if name == "inventory", let scanGate {
+            scanGate.entered.continuation.yield(())
+            guard scanGate.release.wait(timeout: .now() + 2) == .success else {
+                Issue.record("Background Maven scan was not released before its deadline")
+                throw ReloadTestError.failed
+            }
+        }
+        if name == "invalid" { throw ReloadTestError.failed }
+        return MavenProject(
+            rootURL: rootURL, pomURL: rootURL.appendingPathComponent("pom.xml"),
+            groupID: "example", artifactID: name, version: "1", packaging: "jar",
+            modules: [], profiles: [MavenProfile(id: name, isActiveByDefault: false)], hasWrapper: false
+        )
+    }
+    func mavenLaunchPlan(at rootURL: URL, context: MavenLaunchContext, module: String?, goals: [String]) throws -> MavenLaunchPlan {
+        MavenLaunchPlan(version: 1, toolchain: "project-maven", arguments: goals,
+                        workingDirectory: ".", configurationFingerprint: context.skipTests ? "skip" : "run")
+    }
+    func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue] { [] }
+}
+
+private final class ReloadScanGate: Sendable {
+    let entered = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let release = DispatchSemaphore(value: 0)
 }
 
 private struct TestMavenOperations: MavenProjectOperations {
@@ -1101,6 +1744,39 @@ private struct FixedServerPortParser: RunServerPortParsing {
     func serverPort(content _: String, fileExtension _: String) -> Int? { port }
 }
 
+private final class MavenContextRunOperations: RunConfigurationOperations, @unchecked Sendable {
+    let configuration: RunConfiguration
+    private let lock = NSLock()
+    private var recordedContext: MavenLaunchContext?
+    private var didCall = false
+    var context: MavenLaunchContext? { lock.lock(); defer { lock.unlock() }; return recordedContext }
+    var called: Bool { lock.lock(); defer { lock.unlock() }; return didCall }
+    init(configuration: RunConfiguration) { self.configuration = configuration }
+    func inspect(at _: URL) -> ProjectRunConfigurationInspection {
+        ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
+    }
+    func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
+        RunConfigurationResolution(configurations: [EffectiveRunConfiguration(configuration: configuration, options: RunOptions())],
+                                   diagnostics: [], defaultConfigurationID: configuration.id)
+    }
+    func generate(at _: URL, files _: [URL], modulePaths _: [String]) throws -> RunConfigurationGenerationResult {
+        RunConfigurationGenerationResult(entryCount: 1)
+    }
+    func launchPlan(at _: URL, configurationID _: String, currentFile _: String?, classPath _: String?, debugPort _: Int?) throws -> SharedLaunchPlan {
+        throw RunConfigurationOperationFailure(message: "Expected the context-aware launch boundary")
+    }
+    func launchPlan(at _: URL, configurationID _: String, currentFile _: String?, classPath _: String?, debugPort _: Int?,
+                    mavenContext: MavenLaunchContext?) throws -> SharedLaunchPlan {
+        lock.lock()
+        recordedContext = mavenContext
+        didCall = true
+        lock.unlock()
+        throw RunConfigurationOperationFailure(message: "Fixture launch failure")
+    }
+    func createConfiguration(_ draft: RunConfigurationDraft, at _: URL) throws -> String { draft.name }
+    func migrateLegacySettings(at _: URL, configurationIDs _: [String]) throws {}
+}
+
 private struct SingleRunConfigurationOperations: RunConfigurationOperations {
     let configuration: RunConfiguration
     let options: RunOptions
@@ -1141,8 +1817,15 @@ private final class TestExecutableResolver: RunExecutableResolving {
 }
 
 private struct TestRunConfigurationOperations: RunConfigurationOperations {
+    var inspectionGate: ReloadScanGate? = nil
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
-        ProjectRunConfigurationInspection(status: .missing, diagnostics: [])
+        if let inspectionGate {
+            inspectionGate.entered.continuation.yield(())
+            if inspectionGate.release.wait(timeout: .now() + 2) != .success {
+                Issue.record("Run inspection was not released before its deadline")
+            }
+        }
+        return ProjectRunConfigurationInspection(status: .missing, diagnostics: [])
     }
     func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 0)

@@ -27,10 +27,12 @@ impl Repository {
     fn request(&self, command: &str, mut payload: Value) -> Value {
         payload["root"] = json!(self.0);
         // Each real Git subprocess is governed by Core's local deadline; tests
-        // do not synchronize using sleeps or depend on a network remote.
+        // do not synchronize using sleeps or depend on a network remote. A rewrite
+        // starts many Git processes on Windows, so allow ten seconds within the
+        // outer 15-second per-test watchdog.
         serde_json::from_str(&execute_json(&json!({
             "id": format!("history-integration-{}", REQUEST_SEQUENCE.fetch_add(1, Ordering::Relaxed)),
-            "timeoutMilliseconds": 5_000,
+            "timeoutMilliseconds": 10_000,
             "command": command,
             "payload": payload,
         }).to_string())).unwrap()
@@ -840,31 +842,60 @@ fn native_rebase_rejects_escaped_manifest_overflow_before_replacing_session() {
 
 #[test]
 fn native_rebase_large_escaped_manifest_remains_readable_through_abort() {
+    use crate::git::{
+        rebase_control, rebase_session, rebase_start, GitRebaseControlRequest,
+        GitRebaseSessionRequest, GitRebaseStartRequest,
+    };
+
+    fn bounded<T>(operation: impl FnOnce() -> Result<T, crate::protocol::CoreError>) -> T {
+        let _deadline = crate::protocol::cancellation::Scope::begin(None, Some(5_000));
+        operation().expect("bounded rebase operation should succeed")
+    }
+
     let repo = Repository::new("rebase-encoded-readable");
     let base = repo.commit("story.txt", "base\n", "base");
     let first = repo.commit("story.txt", "first\n", "first");
     let head = repo.commit("story.txt", "last\n", "last");
     let preview = repo.request("git.rebasePreview", json!({"revision":base}));
     let message = format!("Title\n{}End", "\n\\".repeat(4 * 1024 * 1024 / 2));
-    let result = repo.request("git.rebaseStart", json!({
+    // This integration case protects the on-disk size boundary and native abort.
+    // Keep the full escaped payload, but use typed Core responses: serializing
+    // and parsing it again through JSON on every inspection adds no coverage of
+    // storage and can exhaust the Windows runner's per-test deadline.
+    let mut request: GitRebaseStartRequest = serde_json::from_value(json!({
+        "root": repo.0,
         "expectedState":preview["data"]["expectedState"],
-        "steps":[{"hash":first,"action":"edit"}, {"hash":head,"action":"reword","message":message}]
-    }));
-    assert_eq!(result["ok"], true);
-    assert_eq!(result["data"]["session"]["status"], "edit");
-    let session = repo.request("git.rebaseSession", json!({}));
-    assert_eq!(session["ok"], true);
-    assert_eq!(session["data"]["canAbort"], true);
-    let aborted = repo.request(
-        "git.rebaseControl",
-        json!({
-            "sessionId":session["data"]["sessionId"], "action":"abort"
-        }),
+        "steps":[{"hash":first,"action":"edit"}, {"hash":head,"action":"reword"}]
+    }))
+    .unwrap();
+    request.steps[1].message = Some(message.clone());
+    let result = bounded(|| rebase_start(request));
+    assert_eq!(result.session.status, "edit");
+    assert_eq!(
+        result.session.steps[1].message.as_deref(),
+        Some(message.as_str())
     );
-    assert_eq!(aborted["data"]["session"]["status"], "aborted");
-    let restored = repo.request("git.rebaseSession", json!({}));
-    assert_eq!(restored["ok"], true);
-    assert_eq!(restored["data"]["status"], "aborted");
+    let manifest = repo.0.join(".git/lithe-rebase-session/session.json");
+    assert!(fs::metadata(&manifest).unwrap().len() > 8 * 1024 * 1024);
+    let query = || GitRebaseSessionRequest {
+        root: repo.0.to_string_lossy().into_owned(),
+    };
+    let session = bounded(|| rebase_session(query())).expect("stored edit session");
+    assert!(session.can_abort);
+    assert_eq!(session.steps[1].message.as_deref(), Some(message.as_str()));
+    let aborted = bounded(|| {
+        rebase_control(GitRebaseControlRequest {
+            root: repo.0.to_string_lossy().into_owned(),
+            session_id: session.session_id,
+            action: "abort".into(),
+            amend_message: None,
+            expected_head: None,
+        })
+    });
+    assert_eq!(aborted.session.status, "aborted");
+    let restored = bounded(|| rebase_session(query())).expect("stored aborted session");
+    assert_eq!(restored.status, "aborted");
+    assert_eq!(restored.steps[1].message.as_deref(), Some(message.as_str()));
     assert_eq!(repo.git(&["rev-parse", "HEAD"]), head);
     assert!(!repo.0.join(".git/rebase-merge").exists());
 }

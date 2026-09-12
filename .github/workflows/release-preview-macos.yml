@@ -25,8 +25,30 @@ env:
   PREVIEW_TAG: preview-0.3.0
 
 jobs:
+  prepare:
+    name: Pin preview source and build identity
+    if: github.actor == github.repository_owner || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+      build: ${{ steps.source.outputs.build }}
+      timestamp: ${{ steps.source.outputs.timestamp }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || env.PREVIEW_BRANCH }}
+      - name: Record immutable build identity
+        id: source
+        run: |
+          {
+            echo "sha=$(git rev-parse HEAD)"
+            echo "build=$GITHUB_RUN_NUMBER.$GITHUB_RUN_ATTEMPT"
+            echo "timestamp=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          } >> "$GITHUB_OUTPUT"
+
   build:
     name: Build ${{ matrix.architecture }} preview
+    needs: prepare
     if: github.actor == github.repository_owner || github.event_name == 'schedule'
     runs-on: macos-14
     timeout-minutes: 30
@@ -41,7 +63,7 @@ jobs:
       - name: Check out preview source
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || env.PREVIEW_BRANCH }}
+          ref: ${{ needs.prepare.outputs.sha }}
 
       - name: Record source revision
         id: source
@@ -63,6 +85,8 @@ jobs:
         with:
           swiftpm: "true"
           cargo: "true"
+          cargo-build: "true"
+          cargo-build-architecture: ${{ matrix.architecture }}
           jdtls: "true"
           jdk: "true"
           jdk-architecture: ${{ matrix.architecture }}
@@ -71,8 +95,14 @@ jobs:
         env:
           LITHE_ARCH: ${{ matrix.architecture }}
           LITHE_VERSION: ${{ env.PREVIEW_VERSION }}
-          LITHE_BUILD_NUMBER: ${{ github.run_number }}
+          LITHE_BUILD_NUMBER: ${{ needs.prepare.outputs.build }}
+          LITHE_BUILD_TIMESTAMP: ${{ needs.prepare.outputs.timestamp }}
+          LITHE_BUILD_GIT_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || env.PREVIEW_BRANCH }}
+          LITHE_UPDATE_CHANNEL: preview
+          LITHE_PREVIEW_TAG: ${{ env.PREVIEW_TAG }}
+          LITHE_SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
         run: |
+          test -n "$LITHE_SPARKLE_PUBLIC_KEY" || { echo "Configure SPARKLE_PUBLIC_KEY before publishing preview updates"; exit 1; }
           ./scripts/package-app.sh
           ./scripts/create-dmg.sh
           dmg_name="Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg"
@@ -93,19 +123,50 @@ jobs:
           test -s "$dmg_path"
           (cd dist && shasum -a 256 -c "Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg.sha256")
 
+      - name: Generate signed preview updates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LITHE_ARCH: ${{ matrix.architecture }}
+          LITHE_VERSION: ${{ env.PREVIEW_VERSION }}
+          LITHE_BUILD_NUMBER: ${{ needs.prepare.outputs.build }}
+          LITHE_BUILD_TIMESTAMP: ${{ needs.prepare.outputs.timestamp }}
+          LITHE_UPDATE_CHANNEL: preview
+          LITHE_PREVIEW_TAG: ${{ env.PREVIEW_TAG }}
+          LITHE_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: zsh scripts/create-sparkle-update.sh
+
       - name: Upload preview artifacts
+        id: artifacts
         uses: actions/upload-artifact@v7
         with:
           name: macos-preview-${{ matrix.architecture }}
           path: |
             dist/Lithe-${{ env.PREVIEW_VERSION }}-${{ matrix.architecture }}.dmg
             dist/Lithe-${{ env.PREVIEW_VERSION }}-${{ matrix.architecture }}.dmg.sha256
+            dist/sparkle-${{ matrix.architecture }}/*
           if-no-files-found: error
+          compression-level: 0
           retention-days: 14
+
+      - name: Add preview download link
+        env:
+          ARTIFACT_URL: ${{ steps.artifacts.outputs.artifact-url }}
+          PACKAGE_ARCHITECTURE: ${{ matrix.architecture }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.sha }}
+        shell: bash
+        run: |
+          {
+            echo "### macOS preview ($PACKAGE_ARCHITECTURE)"
+            echo "[Download this build]($ARTIFACT_URL)"
+            echo ""
+            echo "Source: $SOURCE_SHA"
+            echo ""
+            echo "Requires GitHub sign-in; retained for 14 days. Available before the rolling Release finishes publishing."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   publish:
     name: Publish rolling macOS preview
-    needs: build
+    needs: [prepare, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -114,7 +175,7 @@ jobs:
       - name: Check out preview source
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || env.PREVIEW_BRANCH }}
+          ref: ${{ needs.prepare.outputs.sha }}
 
       - name: Record source revision
         id: source
@@ -143,23 +204,26 @@ jobs:
           RELEASE_TAG: ${{ env.PREVIEW_TAG }}
           LITHE_VERSION: ${{ env.PREVIEW_VERSION }}
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          PREVIEW_BUILD: ${{ needs.prepare.outputs.build }}
         shell: bash
         run: |
           if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release create "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$SOURCE_SHA" \
-              --title "Lithe ${LITHE_VERSION} Preview" \
+              --title "Lithe ${LITHE_VERSION} Preview - Build ${PREVIEW_BUILD}" \
               --notes "Rolling Preview build from ${SOURCE_SHA}. This release is replaced by the next scheduled build." \
               --prerelease
           else
             gh release edit "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$SOURCE_SHA" \
-              --title "Lithe ${LITHE_VERSION} Preview" \
+              --title "Lithe ${LITHE_VERSION} Preview - Build ${PREVIEW_BUILD}" \
               --notes "Rolling Preview build from ${SOURCE_SHA}. This release is replaced by the next scheduled build." \
               --prerelease
           fi
+
+          bash scripts/prune-preview-assets.sh
 
           gh release upload "$RELEASE_TAG" \
             "dist/Lithe-${LITHE_VERSION}-arm64.dmg" \
@@ -168,3 +232,16 @@ jobs:
             "dist/Lithe-${LITHE_VERSION}-x86_64.dmg.sha256" \
             --repo "$GITHUB_REPOSITORY" \
             --clobber
+
+          # Publish every archive before replacing either feed. Retention protects
+          # the current feed and the most recent 30 builds for cached clients.
+          for architecture in arm64 x86_64; do
+            for asset in dist/sparkle-"$architecture"/*; do
+              [[ "$asset" == *.xml ]] && continue
+              gh release upload "$RELEASE_TAG" "$asset" --repo "$GITHUB_REPOSITORY"
+            done
+          done
+          gh release upload "$RELEASE_TAG" \
+            dist/sparkle-arm64/appcast-preview-arm64.xml \
+            dist/sparkle-x86_64/appcast-preview-x86_64.xml \
+            --repo "$GITHUB_REPOSITORY" --clobber

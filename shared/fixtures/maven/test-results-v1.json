@@ -1,0 +1,292 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "junit5-failure-and-error",
+      "sourceFiles": ["src/test/java/com/example/CalculatorTest.java"],
+      "output": "[ERROR] Failures:\n[ERROR]   additionIsCorrect(com.example.CalculatorTest): expected <4> but was <5>\n[ERROR]     at com.example.CalculatorTest.additionIsCorrect(CalculatorTest.java:42)\n[ERROR] Errors:\n[ERROR]   contextLoads(com.example.CalculatorTest): application context failed\n[ERROR]     at com.example.CalculatorTest.contextLoads(CalculatorTest.java:55)\n[ERROR] Tests run: 4, Failures: 1, Errors: 1, Skipped: 1\n",
+      "expected": {
+        "testsRun": 4,
+        "failures": 1,
+        "errors": 1,
+        "skipped": 1,
+        "passed": 1,
+        "success": false,
+        "failureDetails": [
+          {
+            "name": "additionIsCorrect(com.example.CalculatorTest)",
+            "kind": "failure",
+            "message": "expected <4> but was <5>",
+            "path": "src/test/java/com/example/CalculatorTest.java",
+            "line": 42,
+            "column": null
+          },
+          {
+            "name": "contextLoads(com.example.CalculatorTest)",
+            "kind": "error",
+            "message": "application context failed",
+            "path": "src/test/java/com/example/CalculatorTest.java",
+            "line": 55,
+            "column": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "junit4-pass",
+      "sourceFiles": [],
+      "output": "[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0\n",
+      "expected": {
+        "testsRun": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 2,
+        "success": true,
+        "failureDetails": []
+      }
+    },
+    {
+      "name": "surefire-3-detailed-failure-with-reactor-footer",
+      "sourceFiles": ["src/test/java/review/AppTest.java"],
+      "output": "[ERROR] review.AppTest.targetFailure -- Time elapsed: 0.023 s <<< FAILURE!\norg.opentest4j.AssertionFailedError: expected review failure\n    at org.junit.jupiter.api.Assertions.fail(Assertions.java:138)\n    at review.AppTest.targetFailure(AppTest.java:4)\n\n[INFO] Results:\n[ERROR] Failures:\n[ERROR]   AppTest.targetFailure:4 expected review failure\n[INFO] Tests run: 1, Failures: 1, Errors: 0, Skipped: 0\n[INFO] Reactor Summary for reactor 1.0-SNAPSHOT:\n[INFO] base ................................ SUCCESS\n[INFO] app ................................ FAILURE\n",
+      "expected": {
+        "testsRun": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 0,
+        "success": false,
+        "failureDetails": [
+          {
+            "name": "review.AppTest.targetFailure",
+            "kind": "failure",
+            "message": "expected review failure",
+            "path": "src/test/java/review/AppTest.java",
+            "line": 4,
+            "column": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "surefire-3-parameterized-detailed-failure",
+      "sourceFiles": ["src/test/java/review/AppTest.java"],
+      "output": "[ERROR] review.AppTest.targetFailure(int)[1] -- Time elapsed: 0.023 s <<< FAILURE!\njava.lang.AssertionError: expected review failure\n    at review.AppTest.targetFailure(AppTest.java:4)\n\n[INFO] Results:\n[ERROR] Failures:\n[ERROR]   targetFailure(int)[1](review.AppTest):4 expected review failure\n[INFO] Tests run: 1, Failures: 1, Errors: 0, Skipped: 0\n",
+      "expected": {
+        "testsRun": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 0,
+        "success": false,
+        "failureDetails": [
+          {
+            "name": "review.AppTest.targetFailure(int)[1]",
+            "kind": "failure",
+            "message": "expected review failure",
+            "path": "src/test/java/review/AppTest.java",
+            "line": 4,
+            "column": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "surefire-2-detailed-failure",
+      "sourceFiles": ["src/test/java/review/AppTest.java"],
+      "output": "[ERROR] fails(review.AppTest) Time elapsed: 0.01 s <<< FAILURE!\njava.lang.AssertionError: expected review failure\n    at review.AppTest.fails(AppTest.java:9)\n[INFO] Results:\n[ERROR] Failures:\n[ERROR]   fails(review.AppTest): expected review failure\n[INFO] Tests run: 1, Failures: 1, Errors: 0, Skipped: 0\n",
+      "expected": {
+        "testsRun": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 0,
+        "success": false,
+        "failureDetails": [
+          {
+            "name": "fails(review.AppTest)",
+            "kind": "failure",
+            "message": "expected review failure",
+            "path": "src/test/java/review/AppTest.java",
+            "line": 9,
+            "column": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "qualified-source-wins-over-simple-name",
+      "sourceFiles": [
+        "module-a/src/test/java/other/AppTest.java",
+        "module-b/src/test/java/review/AppTest.java"
+      ],
+      "output": "[ERROR] review.AppTest.fails -- Time elapsed: 0.01 s <<< FAILURE!\njava.lang.AssertionError: expected review failure\n    at review.AppTest.fails(AppTest.java:12)\n[INFO] Results:\n[ERROR] Failures:\n[ERROR]   AppTest.fails:12 expected review failure\n[INFO] Tests run: 1, Failures: 1, Errors: 0, Skipped: 0\n",
+      "expected": {
+        "testsRun": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 0,
+        "success": false,
+        "failureDetails": [
+          {
+            "name": "review.AppTest.fails",
+            "kind": "failure",
+            "message": "expected review failure",
+            "path": "module-b/src/test/java/review/AppTest.java",
+            "line": 12,
+            "column": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "ambiguous-qualified-source-has-no-location",
+      "sourceFiles": [
+        "module-a/src/test/java/review/AppTest.java",
+        "module-b/src/test/java/review/AppTest.java"
+      ],
+      "output": "[ERROR] review.AppTest.fails -- Time elapsed: 0.01 s <<< FAILURE!\njava.lang.AssertionError: expected review failure\n    at review.AppTest.fails(AppTest.java:12)\n[INFO] Results:\n[ERROR] Failures:\n[ERROR]   AppTest.fails:12 expected review failure\n[INFO] Tests run: 1, Failures: 1, Errors: 0, Skipped: 0\n",
+      "expected": {
+        "testsRun": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 0,
+        "success": false,
+        "failureDetails": [
+          {
+            "name": "review.AppTest.fails",
+            "kind": "failure",
+            "message": "expected review failure",
+            "path": null,
+            "line": null,
+            "column": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "junit5-parameterized-nested-module",
+      "sourceFiles": ["service/src/test/java/com/example/CalculatorTest.java"],
+      "output": "[ERROR] Failures:\n[ERROR]   additionIsCorrect(int)[1](com.example.CalculatorTest): expected <4> but was <5>\n[ERROR]     at com.example.CalculatorTest.additionIsCorrect(CalculatorTest.java:42)\n[ERROR] Tests run: 1, Failures: 1, Errors: 0, Skipped: 0\n",
+      "expected": {
+        "testsRun": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 0,
+        "success": false,
+        "failureDetails": [
+          {
+            "name": "additionIsCorrect(int)[1](com.example.CalculatorTest)",
+            "kind": "failure",
+            "message": "expected <4> but was <5>",
+            "path": "service/src/test/java/com/example/CalculatorTest.java",
+            "line": 42,
+            "column": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "packaged-source-wins-over-root-same-name",
+      "sourceFiles": [
+        "src/test/java/AppTest.java",
+        "service/src/test/java/com/example/AppTest.java"
+      ],
+      "output": "[ERROR] com.example.AppTest.fails -- Time elapsed: 0.023 s <<< FAILURE!\njava.lang.AssertionError: expected failure\n    at com.example.AppTest.fails(AppTest.java:8)\n\n[ERROR] Failures:\n[ERROR]   com.example.AppTest.fails:8 expected failure\n[INFO] Tests run: 1, Failures: 1, Errors: 0, Skipped: 0\n",
+      "expected": {
+        "testsRun": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 0,
+        "success": false,
+        "failureDetails": [
+          {
+            "name": "com.example.AppTest.fails",
+            "kind": "failure",
+            "message": "expected failure",
+            "path": "service/src/test/java/com/example/AppTest.java",
+            "line": 8,
+            "column": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "duplicate-packaged-source-has-no-location",
+      "sourceFiles": [
+        "service-one/src/test/java/com/example/AppTest.java",
+        "service-two/src/test/java/com/example/AppTest.java"
+      ],
+      "output": "[ERROR] com.example.AppTest.fails -- Time elapsed: 0.023 s <<< FAILURE!\njava.lang.AssertionError: expected failure\n    at com.example.AppTest.fails(AppTest.java:8)\n\n[ERROR] Failures:\n[ERROR]   com.example.AppTest.fails:8 expected failure\n[INFO] Tests run: 1, Failures: 1, Errors: 0, Skipped: 0\n",
+      "expected": {
+        "testsRun": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 0,
+        "success": false,
+        "failureDetails": [
+          {
+            "name": "com.example.AppTest.fails",
+            "kind": "failure",
+            "message": "expected failure",
+            "path": null,
+            "line": null,
+            "column": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "surefire-legacy-detailed-failure",
+      "sourceFiles": ["src/test/java/review/AppTest.java"],
+      "output": "review.AppTest.targetFailure  Time elapsed: 0.01 sec  <<< FAILURE!\njava.lang.AssertionError: expected legacy failure\n    at org.junit.Assert.fail(Assert.java:88)\n    at review.AppTest.targetFailure(AppTest.java:4)\n\nFailed tests:\n  targetFailure(review.AppTest):4 expected legacy failure\n\nTests run: 1, Failures: 1, Errors: 0, Skipped: 0\n",
+      "expected": {
+        "testsRun": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 0,
+        "success": false,
+        "failureDetails": [
+          {
+            "name": "review.AppTest.targetFailure",
+            "kind": "failure",
+            "message": "expected legacy failure",
+            "path": "src/test/java/review/AppTest.java",
+            "line": 4,
+            "column": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "junit4-failed-tests-footer-only",
+      "sourceFiles": ["src/test/java/review/AppTest.java"],
+      "output": "Failed tests:\n  targetFailure(review.AppTest):4 expected legacy failure\n\nTests run: 1, Failures: 1, Errors: 0, Skipped: 0\n",
+      "expected": {
+        "testsRun": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 0,
+        "success": false,
+        "failureDetails": [
+          {
+            "name": "targetFailure(review.AppTest)",
+            "kind": "failure",
+            "message": "expected legacy failure",
+            "path": "src/test/java/review/AppTest.java",
+            "line": 4,
+            "column": null
+          }
+        ]
+      }
+    }
+  ]
+}

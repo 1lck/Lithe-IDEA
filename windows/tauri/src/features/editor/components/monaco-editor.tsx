@@ -36,6 +36,16 @@ import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspa
 import { useGitBlame } from "@/features/git/hooks/use-git-blame";
 import { keymapRegistry } from "@/features/keymaps/utils/registry";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { openMavenRunPane } from "@/features/maven/actions/maven-tool-window-actions";
+import {
+  canRunMavenTest,
+  runMavenTestAction,
+} from "@/features/maven/services/maven-test-actions";
+import {
+  javaTestMethodAtLine,
+  type JavaTestMethod,
+} from "@/features/maven/utils/maven-test-selection";
+import { useJavaTestMethods } from "@/features/maven/hooks/use-java-test-methods";
 import { recordStartupMilestone } from "@/features/bootstrap/startup-performance";
 import { useVimStore } from "@/features/vim/stores/vim.store";
 import { formatRelativeTime } from "@/utils/date";
@@ -46,6 +56,7 @@ import { getRelativePath, pathStartsWithRoot } from "@/utils/path-helpers";
 import EditorContextMenu from "../context-menu/context-menu";
 import { useBufferStore } from "../stores/buffer.store";
 import { editorBufferSurfacesEqual, selectEditorBufferSurface } from "../stores/buffer-metadata";
+import { useJumpListStore } from "../stores/jump-list.store";
 import { useEditorStateStore } from "../stores/state.store";
 import type {
   EditorContentChangeOptions,
@@ -60,8 +71,21 @@ import { lspDocumentTargetForEditor } from "../lsp/lsp-document-target";
 import { fileOpenBenchmark } from "../utils/file-open-benchmark";
 import { isEditorGoToDefinitionModifierClick } from "../utils/go-to-definition-gesture";
 import { getLanguageIdFromPath } from "../utils/language-id";
+import {
+  cursorEntryToRecordAfterMouseGesture,
+  type CursorHistoryEntry,
+} from "../utils/mouse-cursor-history";
 import { toggleCaseText } from "../utils/text-operations";
 import { editorAPI } from "../extensions/api";
+import {
+  createViewStateRestoreGate,
+  persistEditorViewportState,
+  restoreNativeEditorViewState,
+  scheduleCachedViewStateRestore,
+  type CachedScrollPosition,
+  type NativeEditorViewStateHandle,
+} from "../utils/view-state-restore";
+import type { MarkdownScrollMetrics } from "../markdown/scroll-sync";
 import type { EditorModelPositionResolver } from "../view-model/view-layout";
 import { syncContainedEditorFontOptions } from "../engines/monaco/contained-editors";
 import { registerMonacoDefinitionLinkGesture } from "../engines/monaco/definition-link";
@@ -111,6 +135,7 @@ import {
   JAVA_IMPLEMENTATION_GLYPH_CLASS,
 } from "../engines/monaco/java-implementation-markers";
 import type { JavaImplementationMarker } from "../lsp/java-navigation-models";
+import { toast } from "sonner";
 
 registerMonacoLspProviders();
 registerMonacoCodeLensProvider();
@@ -118,8 +143,103 @@ registerMonacoCodeLensProvider();
 const EMPTY_DIAGNOSTICS: Diagnostic[] = [];
 const INACTIVE_CURSOR_POSITION: Position = { line: 0, column: 0, offset: 0 };
 
-interface MonacoEditorProps {
+function monacoViewStateHandle(
+  editor: Monaco.editor.ICodeEditor,
+): NativeEditorViewStateHandle {
+  return {
+    save: () => editor.saveViewState(),
+    restore: (state) => {
+      editor.restoreViewState(state as Monaco.editor.ICodeEditorViewState);
+    },
+  };
+}
+
+function persistMonacoSurfaceViewState(
+  editor: Monaco.editor.IStandaloneCodeEditor,
+  viewKey: string,
+): void {
+  if (!viewKey) return;
+
+  const cached = useEditorStateStore.getState().actions.getCachedViewState(viewKey);
+  const scroll = persistEditorViewportState({
+    viewKey,
+    liveScroll: {
+      scrollTop: editor.getScrollTop(),
+      scrollLeft: editor.getScrollLeft(),
+    },
+    cached: cached
+      ? { scrollTop: cached.scrollTop, scrollLeft: cached.scrollLeft }
+      : null,
+    native: monacoViewStateHandle(editor),
+  });
+  const model = editor.getModel();
+  const position = editor.getPosition();
+  const selection = editor.getSelection();
+
+  useEditorStateStore.getState().actions.cacheViewStateForBuffer(viewKey, {
+    cursor:
+      model && position
+        ? toEditorPosition(model, position)
+        : (cached?.cursor ?? { line: 0, column: 0, offset: 0 }),
+    selection:
+      model && selection && !selection.isEmpty()
+        ? toEditorRange(model, selection)
+        : cached?.selection,
+    scrollTop: scroll.scrollTop,
+    scrollLeft: scroll.scrollLeft,
+  });
+}
+
+function cachedScrollForViewKey(viewKey: string): CachedScrollPosition | undefined {
+  const cached = useEditorStateStore.getState().actions.getCachedViewState(viewKey);
+  return cached
+    ? { scrollTop: cached.scrollTop, scrollLeft: cached.scrollLeft }
+    : undefined;
+}
+
+function applyMonacoSurfaceViewState(
+  editor: Monaco.editor.IStandaloneCodeEditor,
+  viewKey: string,
+): void {
+  if (!viewKey) return;
+
+  const cached = useEditorStateStore.getState().actions.getCachedViewState(viewKey);
+  const restoredNative = restoreNativeEditorViewState(viewKey, monacoViewStateHandle(editor));
+  if (!restoredNative && cached) {
+    const model = editor.getModel();
+    if (model) {
+      editor.setPosition(toClampedMonacoPosition(model, cached.cursor));
+      if (cached.selection) editor.setSelection(toMonacoRange(model, cached.selection));
+    }
+  }
+  if (!cached) return;
+  if (restoredNative && cached.scrollTop === 0 && cached.scrollLeft === 0) {
+    return;
+  }
+  editor.setScrollPosition({
+    scrollTop: cached.scrollTop,
+    scrollLeft: cached.scrollLeft,
+  });
+}
+
+function applyMonacoSurfaceViewport(
+  editor: Monaco.editor.IStandaloneCodeEditor,
+  viewKey: string,
+): void {
+  const cachedScroll = cachedScrollForViewKey(viewKey);
+  if (!cachedScroll) return;
+  editor.setScrollPosition(cachedScroll);
+}
+
+/** Imperative scroll access for embedders that mirror editor scrolling. */
+export interface MonacoEditorScrollApi {
+  getMetrics: () => MarkdownScrollMetrics;
+  setScrollTop: (scrollTop: number) => void;
+}
+
+export interface MonacoEditorProps {
   bufferId?: string;
+  paneId?: string;
   viewStateKey?: string;
   isActiveSurface?: boolean;
   isPreviewMode?: boolean;
@@ -141,6 +261,14 @@ interface MonacoEditorProps {
     options?: EditorContentChangeOptions,
   ) => void;
   onScrollOffsetChange?: (scrollTop: number, scrollLeft: number) => void;
+  /** Reports viewport scroll metrics on every editor scroll event. */
+  onScrollMetricsChange?: (metrics: MarkdownScrollMetrics) => void;
+  /**
+   * Hands out imperative scroll access once the editor exists, and null when
+   * it is disposed. Kept as a callback so embedders never depend on editor
+   * instance lifecycles.
+   */
+  onEditorScrollApiReady?: (api: MonacoEditorScrollApi | null) => void;
   onModelPositionResolverChange?: (resolver: EditorModelPositionResolver | null) => void;
   onMouseMove?: MouseEventHandler<HTMLDivElement>;
   onMouseLeave?: () => void;
@@ -151,6 +279,7 @@ interface MonacoEditorProps {
 
 export function MonacoEditor({
   bufferId: propBufferId,
+  paneId,
   viewStateKey,
   isActiveSurface = true,
   isPreviewMode = false,
@@ -166,6 +295,8 @@ export function MonacoEditor({
   lineNumberMap,
   onContentChange,
   onScrollOffsetChange,
+  onScrollMetricsChange,
+  onEditorScrollApiReady,
   onModelPositionResolverChange,
   onMouseMove,
   onMouseLeave,
@@ -190,10 +321,22 @@ export function MonacoEditor({
   const gitBlameWidgetRef = useRef<InlineGitBlameWidget | null>(null);
   const gitBlameRenderFrameRef = useRef<number | null>(null);
   const renderedGitBlameKeyRef = useRef<string | null>(null);
+  const javaTestMethodsRef = useRef<JavaTestMethod[]>([]);
   const renderInlineGitBlameRef = useRef<() => void>(() => {});
   const mouseSelectingRef = useRef(false);
+  const mouseGestureStartRef = useRef<CursorHistoryEntry | null>(null);
+  const suppressNextCursorSelectionSyncRef = useRef(false);
+  const viewStateRestoreGateRef = useRef<ReturnType<typeof createViewStateRestoreGate> | null>(
+    null,
+  );
+  if (viewStateRestoreGateRef.current === null) {
+    viewStateRestoreGateRef.current = createViewStateRestoreGate();
+  }
+  const viewStateRestoreGate = viewStateRestoreGateRef.current;
   const latestContentChangeRef = useRef(onContentChange);
   const isActiveSurfaceRef = useRef(isActiveSurface);
+  const onScrollMetricsChangeRef = useRef(onScrollMetricsChange);
+  const onEditorScrollApiReadyRef = useRef(onEditorScrollApiReady);
   // Read inside the editor-creation effect's long-lived closures. The flag flips
   // on every tab switch (it derives from `isActiveSurface`); keeping it out of
   // that effect's dependencies avoids disposing and rebuilding the whole Monaco
@@ -251,6 +394,9 @@ export function MonacoEditor({
   );
   const languageId = documentTarget.languageId ?? getLanguageIdFromPath(filePath);
   const monacoLanguageId = toMonacoLanguageId(languageId);
+  const [mavenTestsAvailable, setMavenTestsAvailable] = useState(false);
+  const javaTestMethods = useJavaTestMethods(filePath, content, mavenTestsAvailable);
+  javaTestMethodsRef.current = javaTestMethods;
   const {
     fontFamily,
     fontSize,
@@ -370,6 +516,23 @@ export function MonacoEditor({
       .sort((left, right) => right.length - left.length)[0];
     return getRelativePath(filePath, workspaceRoot);
   }, [filePath, rootFolderPath, workspaceFolders]);
+
+  useEffect(() => {
+    if (!rootFolderPath || !filePath || !/\.java$/i.test(filePath)) {
+      setMavenTestsAvailable(false);
+      return;
+    }
+
+    let cancelled = false;
+    setMavenTestsAvailable(false);
+    void canRunMavenTest(rootFolderPath, filePath).then((available) => {
+      if (!cancelled) setMavenTestsAvailable(available);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filePath, rootFolderPath]);
   const modelUri = useMemo(
     () => createModelUri(activeBufferId ?? undefined, filePath, modelDisplayPath),
     [activeBufferId, filePath, modelDisplayPath],
@@ -377,7 +540,19 @@ export function MonacoEditor({
 
   latestContentChangeRef.current = onContentChange;
   isActiveSurfaceRef.current = isActiveSurface;
+  onScrollMetricsChangeRef.current = onScrollMetricsChange;
+  onEditorScrollApiReadyRef.current = onEditorScrollApiReady;
   enableExpensiveServicesRef.current = enableExpensiveServices;
+
+  const isCurrentEditorSurface = useCallback(() => {
+    if (!isActiveSurfaceRef.current) return false;
+    if (editorBufferId && useBufferStore.getState().activeBufferId !== editorBufferId) {
+      return false;
+    }
+
+    const activeViewKey = useEditorStateStore.getState().activeEditorViewKey;
+    return !viewStateKey || !activeViewKey || activeViewKey === viewStateKey;
+  }, [editorBufferId, viewStateKey]);
 
   const lineNumberFormatter = useCallback(
     (lineNumber: number) => {
@@ -396,7 +571,7 @@ export function MonacoEditor({
   const syncCursorAndSelection = useCallback(() => {
     const editor = editorRef.current;
     const model = modelRef.current;
-    if (!editor || !model) return;
+    if (!editor || !model || !isCurrentEditorSurface()) return;
 
     const position = editor.getPosition();
     if (!position) return;
@@ -405,7 +580,7 @@ export function MonacoEditor({
       toEditorPosition(model, position),
       selection ? toEditorRange(model, selection) : undefined,
     );
-  }, [setCursorAndSelection]);
+  }, [isCurrentEditorSurface, setCursorAndSelection]);
 
   const getMonacoCursorOffset = useCallback(() => {
     const editor = editorRef.current;
@@ -529,6 +704,7 @@ export function MonacoEditor({
     x: number;
     y: number;
   } | null>(null);
+  const [contextMenuTestMethod, setContextMenuTestMethod] = useState<JavaTestMethod | null>(null);
   const [implementationMarkers, setImplementationMarkers] = useState<JavaImplementationMarker[]>(
     [],
   );
@@ -536,6 +712,29 @@ export function MonacoEditor({
   const executeEditorCommand = useCallback((commandId: string) => {
     void keymapRegistry.executeCommand(commandId);
   }, []);
+
+  const runMavenTestFromEditor = useCallback(
+    (method?: string) => {
+      if (!filePath) return;
+      setContextMenuPosition(null);
+      setContextMenuTestMethod(null);
+      openMavenRunPane();
+      void runMavenTestAction(filePath, method, workspaceId).catch((error) => {
+        toast.error(error instanceof Error ? error.message : "Unable to run Maven test.");
+      });
+    },
+    [filePath, workspaceId],
+  );
+
+  const runTestClassFromEditor = useCallback(() => {
+    runMavenTestFromEditor();
+  }, [runMavenTestFromEditor]);
+
+  const runTestMethodFromEditor = useCallback(() => {
+    const method = contextMenuTestMethod?.name;
+    if (!method) return;
+    runMavenTestFromEditor(method);
+  }, [contextMenuTestMethod, runMavenTestFromEditor]);
 
   const triggerMonacoAction = useCallback(
     (actionId: string) => {
@@ -632,6 +831,7 @@ export function MonacoEditor({
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container || !editorBufferId) return;
+    const finishCreatedRestore = viewStateRestoreGate.begin();
     const fontOptions = { fontFamily, fontSize, lineHeight };
     syncMonacoHoverBounds(container);
     if (filePath && fileOpenBenchmark.has(filePath)) {
@@ -804,6 +1004,18 @@ export function MonacoEditor({
     });
     requestAnimationFrame(syncNestedEditorFonts);
 
+    const scrollApi: MonacoEditorScrollApi = {
+      getMetrics: () => ({
+        scrollTop: editor.getScrollTop(),
+        scrollHeight: editor.getScrollHeight(),
+        clientHeight: editor.getLayoutInfo().height,
+      }),
+      setScrollTop: (scrollTop) => {
+        editor.setScrollTop(scrollTop);
+      },
+    };
+    onEditorScrollApiReadyRef.current?.(scrollApi);
+
     editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyA, selectEntireModel);
     const definitionLinkGesture = registerMonacoDefinitionLinkGesture({
       editor,
@@ -813,6 +1025,25 @@ export function MonacoEditor({
       isEnabled: () => enableExpensiveServicesRef.current,
     });
     let definitionClickIntent = 0;
+    const cursorEntryFromEditor = (): CursorHistoryEntry | null => {
+      const position = editor.getPosition();
+      if (!position || !editorBufferId || !filePath) return null;
+
+      return {
+        bufferId: editorBufferId,
+        filePath,
+        paneId,
+        ...toEditorPosition(model, position),
+        scrollTop: editor.getScrollTop(),
+        scrollLeft: editor.getScrollLeft(),
+      };
+    };
+    const handleNativeMouseDownCapture = (event: MouseEvent) => {
+      if (event.button !== 0) return;
+      mouseSelectingRef.current = true;
+      mouseGestureStartRef.current = cursorEntryFromEditor();
+    };
+    container.addEventListener("mousedown", handleNativeMouseDownCapture, true);
 
     const handleWindowSelectAllShortcut = (event: KeyboardEvent) => {
       const isSelectAllShortcut =
@@ -850,8 +1081,17 @@ export function MonacoEditor({
       editor.onContextMenu((event) => {
         event.event.preventDefault();
         event.event.stopPropagation();
+        setContextMenuTestMethod(null);
 
         if (event.target.position) {
+          setContextMenuTestMethod(
+            /\.java$/i.test(filePath)
+              ? javaTestMethodAtLine(
+                  javaTestMethodsRef.current,
+                  event.target.position.lineNumber - 1,
+                )
+              : null,
+          );
           const currentSelection = editor.getSelection();
           if (!currentSelection?.containsPosition(event.target.position)) {
             editor.setPosition(event.target.position);
@@ -916,6 +1156,7 @@ export function MonacoEditor({
         syncCursorAndSelection();
       }),
       editor.onMouseDown((event) => {
+        if (!isCurrentEditorSurface()) return;
         const mouseEvent = event.event;
         const markerElement = event.target.element;
         if (
@@ -932,6 +1173,7 @@ export function MonacoEditor({
             mouseEvent.preventDefault();
             mouseEvent.stopPropagation();
             mouseSelectingRef.current = false;
+            mouseGestureStartRef.current = null;
             editor.setPosition({
               lineNumber: marker.line + 1,
               column: marker.utf16Column + 1,
@@ -954,6 +1196,7 @@ export function MonacoEditor({
           mouseEvent.preventDefault();
           mouseEvent.stopPropagation();
           mouseSelectingRef.current = false;
+          mouseGestureStartRef.current = null;
           editor.setPosition(event.target.position);
           syncCursorAndSelection();
           const clickedPosition = event.target.position;
@@ -983,40 +1226,80 @@ export function MonacoEditor({
           });
           return;
         }
-        if (mouseEvent.leftButton) mouseSelectingRef.current = true;
+        if (mouseEvent.leftButton) {
+          mouseSelectingRef.current = true;
+          if (!mouseGestureStartRef.current) {
+            mouseGestureStartRef.current = cursorEntryFromEditor();
+          }
+        }
       }),
       editor.onMouseUp(() => {
         if (!mouseSelectingRef.current) return;
         mouseSelectingRef.current = false;
+        if (!isCurrentEditorSurface()) {
+          mouseGestureStartRef.current = null;
+          return;
+        }
+        const entry = cursorEntryToRecordAfterMouseGesture(
+          mouseGestureStartRef.current,
+          cursorEntryFromEditor(),
+        );
+        if (entry) useJumpListStore.getState().actions.recordCursorEntry(entry);
+        mouseGestureStartRef.current = null;
         scheduleInlineGitBlameRender();
       }),
       editor.onDidChangeCursorSelection(() => {
+        if (!isCurrentEditorSurface()) return;
+        if (suppressNextCursorSelectionSyncRef.current) {
+          suppressNextCursorSelectionSyncRef.current = false;
+          scheduleInlineGitBlameRender();
+          return;
+        }
         syncCursorAndSelection();
         scheduleInlineGitBlameRender();
       }),
       definitionLinkGesture,
       editor.onDidScrollChange((event) => {
+        if (!isCurrentEditorSurface()) return;
+        if (viewStateRestoreGate.isRestoring()) return;
         const viewKey = viewStateKey ?? activeBufferId ?? null;
         setScrollForBuffer(viewKey, event.scrollTop, event.scrollLeft);
         onScrollOffsetChange?.(event.scrollTop, event.scrollLeft);
+        onScrollMetricsChangeRef.current?.({
+          scrollTop: event.scrollTop,
+          scrollHeight: event.scrollHeight,
+          clientHeight: editor.getLayoutInfo().height,
+        });
       }),
       editor.onDidLayoutChange((info) => {
         setViewportHeight(info.height);
         syncBottomScrollPadding(info.height);
         scheduleMonacoHoverClamp();
+        if (!viewStateRestoreGate.isRestoring()) return;
+        applyMonacoSurfaceViewport(editor, viewStateKey ?? activeBufferId ?? "");
       }),
     ];
 
     const handleWindowMouseUp = () => {
       if (!mouseSelectingRef.current) return;
       mouseSelectingRef.current = false;
+      if (!isCurrentEditorSurface()) {
+        mouseGestureStartRef.current = null;
+        return;
+      }
+      const entry = cursorEntryToRecordAfterMouseGesture(
+        mouseGestureStartRef.current,
+        cursorEntryFromEditor(),
+      );
+      if (entry) useJumpListStore.getState().actions.recordCursorEntry(entry);
+      mouseGestureStartRef.current = null;
       scheduleInlineGitBlameRender();
     };
     window.addEventListener("mouseup", handleWindowMouseUp);
 
     const unsubscribeCursor = editorAPI.on("cursorChange", (position) => {
       if (!modelRef.current || editorRef.current !== editor) return;
-      if (mouseSelectingRef.current) return;
+      if (!isCurrentEditorSurface() || mouseSelectingRef.current) return;
       const monacoPosition = toClampedMonacoPosition(model, position);
       const currentPosition = editor.getPosition();
       if (
@@ -1024,19 +1307,22 @@ export function MonacoEditor({
         currentPosition.lineNumber === monacoPosition.lineNumber &&
         currentPosition.column === monacoPosition.column
       ) {
+        editor.focus();
         return;
       }
       const currentSelection = editor.getSelection();
       if (currentSelection && !currentSelection.isEmpty()) {
         editor.revealPositionInCenterIfOutsideViewport(monacoPosition);
+        editor.focus();
         return;
       }
       editor.setPosition(monacoPosition);
       editor.revealPositionInCenterIfOutsideViewport(monacoPosition);
+      editor.focus();
     });
     const unsubscribeSelection = editorAPI.on("selectionChange", (selection) => {
       if (!modelRef.current || editorRef.current !== editor) return;
-      if (mouseSelectingRef.current) return;
+      if (!isCurrentEditorSurface() || mouseSelectingRef.current) return;
       if (selection) {
         editor.setSelection(toMonacoRange(model, selection));
       } else {
@@ -1055,7 +1341,24 @@ export function MonacoEditor({
     });
     scheduleInlineGitBlameRender();
 
+    const createdViewKey = viewStateKey ?? activeBufferId ?? "";
+    const createdNavigationRevision = editorAPI.getOwnerNavigationRevision(createdViewKey);
+    applyMonacoSurfaceViewState(editor, createdViewKey);
+    const cancelCreatedViewStateRestore = scheduleCachedViewStateRestore({
+      editor,
+      cachedScroll: cachedScrollForViewKey(createdViewKey),
+      isEditorCurrent: () => editorRef.current === editor,
+      isNavigationRevisionCurrent: () =>
+        editorAPI.getOwnerNavigationRevision(createdViewKey) === createdNavigationRevision,
+      focus: () => {
+        if (isActiveSurfaceRef.current) editor.focus();
+      },
+      onRestoreComplete: finishCreatedRestore,
+    });
+
     return () => {
+      cancelCreatedViewStateRestore();
+      finishCreatedRestore();
       if (benchmarkRafId !== null) cancelAnimationFrame(benchmarkRafId);
       if (benchmarkTimeoutId !== null) window.clearTimeout(benchmarkTimeoutId);
       if (filePath && fileOpenBenchmark.has(filePath)) {
@@ -1064,6 +1367,7 @@ export function MonacoEditor({
       onModelPositionResolverChange?.(null);
       unsubscribeCursor();
       unsubscribeSelection();
+      container.removeEventListener("mousedown", handleNativeMouseDownCapture, true);
       window.removeEventListener("keydown", handleWindowSelectAllShortcut, true);
       window.removeEventListener("mouseup", handleWindowMouseUp);
       for (const disposable of disposables) {
@@ -1086,7 +1390,9 @@ export function MonacoEditor({
       gitBlameWidgetRef.current = null;
       renderedGitBlameKeyRef.current = null;
       mouseSelectingRef.current = false;
+      mouseGestureStartRef.current = null;
       createdEditorDisposable.dispose();
+      onEditorScrollApiReadyRef.current?.(null);
       try {
         vimAdapterRef.current?.dispose();
       } catch (error) {
@@ -1101,6 +1407,7 @@ export function MonacoEditor({
       }
       implementationMarkerOwnerRef.current = null;
       implementationMarkersRef.current = [];
+      persistMonacoSurfaceViewState(editor, viewStateKey ?? activeBufferId ?? "");
       if (editorRef.current === editor) editorRef.current = null;
       if (modelRef.current === model) modelRef.current = null;
       try {
@@ -1129,6 +1436,7 @@ export function MonacoEditor({
     inlayHints,
     setContextMenuPosition,
     filePath,
+    paneId,
     fontFamily,
     fontSize,
     highlightOccurrences,
@@ -1159,6 +1467,7 @@ export function MonacoEditor({
     viewStateKey,
     wordWrap,
     editorBufferId,
+    isCurrentEditorSurface,
   ]);
 
   useLayoutEffect(() => {
@@ -1180,77 +1489,109 @@ export function MonacoEditor({
       },
     });
 
-    if (canEdit) {
-      editorAPI.setActiveEditorAdapter({
-        ownerId: adapterOwnerId,
-        insertText: (text, position) => {
-          const editor = editorRef.current;
-          const model = modelRef.current;
-          if (!editor || !model) return;
+    editorAPI.setActiveEditorAdapter({
+      ownerId: adapterOwnerId,
+      insertText: (text, position) => {
+        if (!canEdit) return;
+        const editor = editorRef.current;
+        const model = modelRef.current;
+        if (!editor || !model) return;
 
-          if (position) {
-            const monacoPosition = toClampedMonacoPosition(model, position);
-            executeMonacoTextEdit(
-              new MonacoRange(
-                monacoPosition.lineNumber,
-                monacoPosition.column,
-                monacoPosition.lineNumber,
-                monacoPosition.column,
-              ),
-              text,
-            );
-            return;
-          }
-
-          const selection = editor.getSelection();
-          if (selection && !selection.isEmpty()) {
-            executeMonacoTextEdit(selection, text);
-            return;
-          }
-
-          const currentPosition = editor.getPosition() ?? {
-            lineNumber: 1,
-            column: 1,
-          };
+        if (position) {
+          const monacoPosition = toClampedMonacoPosition(model, position);
           executeMonacoTextEdit(
             new MonacoRange(
-              currentPosition.lineNumber,
-              currentPosition.column,
-              currentPosition.lineNumber,
-              currentPosition.column,
+              monacoPosition.lineNumber,
+              monacoPosition.column,
+              monacoPosition.lineNumber,
+              monacoPosition.column,
             ),
             text,
           );
-        },
-        deleteRange: (range) => {
-          const model = modelRef.current;
-          if (model) executeMonacoTextEdit(toMonacoRange(model, range), "");
-        },
-        replaceRange: (range, text) => {
-          const model = modelRef.current;
-          if (model) executeMonacoTextEdit(toMonacoRange(model, range), text);
-        },
-        selectAll: selectEntireModel,
-        addSelectionToNextFindMatch: () =>
-          runMonacoSelectionAction("editor.action.addSelectionToNextFindMatch"),
-        addSelectionToPreviousFindMatch: () =>
-          runMonacoSelectionAction("editor.action.addSelectionToPreviousFindMatch"),
-        selectAllFindMatches: () => runMonacoSelectionAction("editor.action.selectHighlights"),
-        insertCursorAbove: () => runMonacoSelectionAction("editor.action.insertCursorAbove"),
-        insertCursorBelow: () => runMonacoSelectionAction("editor.action.insertCursorBelow"),
-        insertCursorsAtLineEnds: () =>
-          runMonacoSelectionAction("editor.action.insertCursorAtEndOfEachLineSelected"),
-        removeSecondaryCursors: () => runMonacoSelectionAction("removeSecondaryCursors"),
-        undo: () => {
-          editorRef.current?.trigger("lithe-api", "undo", null);
-          syncCursorAndSelection();
-        },
-        redo: () => {
-          editorRef.current?.trigger("lithe-api", "redo", null);
-          syncCursorAndSelection();
-        },
-      });
-    }
+          return;
+        }
+
+        const selection = editor.getSelection();
+        if (selection && !selection.isEmpty()) {
+          executeMonacoTextEdit(selection, text);
+          return;
+        }
+
+        const currentPosition = editor.getPosition() ?? {
+          lineNumber: 1,
+          column: 1,
+        };
+        executeMonacoTextEdit(
+          new MonacoRange(
+            currentPosition.lineNumber,
+            currentPosition.column,
+            currentPosition.lineNumber,
+            currentPosition.column,
+          ),
+          text,
+        );
+      },
+      deleteRange: (range) => {
+        if (!canEdit) return;
+        const model = modelRef.current;
+        if (model) executeMonacoTextEdit(toMonacoRange(model, range), "");
+      },
+      replaceRange: (range, text) => {
+        if (!canEdit) return;
+        const model = modelRef.current;
+        if (model) executeMonacoTextEdit(toMonacoRange(model, range), text);
+      },
+      selectAll: selectEntireModel,
+      clearSelection: () => {
+        const editor = editorRef.current;
+        const position = editor?.getPosition();
+        const currentSelection = editor?.getSelection();
+        if (!editor || !position || !currentSelection || currentSelection.isEmpty()) return;
+
+        suppressNextCursorSelectionSyncRef.current = true;
+        editor.setSelection(
+          new MonacoRange(
+            position.lineNumber,
+            position.column,
+            position.lineNumber,
+            position.column,
+          ),
+        );
+      },
+      setCursorPosition: (position) => {
+        const editor = editorRef.current;
+        const model = modelRef.current;
+        if (!editor || !model || model.isDisposed()) return;
+
+        const monacoPosition = toClampedMonacoPosition(model, position);
+        editor.setPosition(monacoPosition);
+        editor.revealPositionInCenterIfOutsideViewport(monacoPosition);
+      },
+      setScroll: (scrollTop, scrollLeft) => {
+        editorRef.current?.setScrollPosition({ scrollTop, scrollLeft });
+      },
+      focus: () => editorRef.current?.focus(),
+      addSelectionToNextFindMatch: () =>
+        runMonacoSelectionAction("editor.action.addSelectionToNextFindMatch"),
+      addSelectionToPreviousFindMatch: () =>
+        runMonacoSelectionAction("editor.action.addSelectionToPreviousFindMatch"),
+      selectAllFindMatches: () => runMonacoSelectionAction("editor.action.selectHighlights"),
+      insertCursorAbove: () => runMonacoSelectionAction("editor.action.insertCursorAbove"),
+      insertCursorBelow: () => runMonacoSelectionAction("editor.action.insertCursorBelow"),
+      insertCursorsAtLineEnds: () =>
+        runMonacoSelectionAction("editor.action.insertCursorAtEndOfEachLineSelected"),
+      removeSecondaryCursors: () => runMonacoSelectionAction("removeSecondaryCursors"),
+      undo: () => {
+        if (!canEdit) return;
+        editorRef.current?.trigger("lithe-api", "undo", null);
+        syncCursorAndSelection();
+      },
+      redo: () => {
+        if (!canEdit) return;
+        editorRef.current?.trigger("lithe-api", "redo", null);
+        syncCursorAndSelection();
+      },
+    });
 
     const editor = editorRef.current;
     const model = modelRef.current;
@@ -1305,7 +1646,7 @@ export function MonacoEditor({
       if (benchmarkRafId !== null) cancelAnimationFrame(benchmarkRafId);
       if (benchmarkTimeoutId !== null) window.clearTimeout(benchmarkTimeoutId);
       editorAPI.clearActiveFindAdapter(adapterOwnerId);
-      if (canEdit) editorAPI.clearActiveEditorAdapter(adapterOwnerId);
+      editorAPI.clearActiveEditorAdapter(adapterOwnerId);
       if (container && editorAPI.getViewportRef() === container) {
         editorAPI.setViewportRef(null);
       }
@@ -1663,8 +2004,22 @@ export function MonacoEditor({
     });
     if (container) syncContainedEditorFontOptions(container, fontOptions);
 
+    const viewKey = viewStateKey ?? activeBufferId ?? "";
+    if (
+      viewKey &&
+      (viewStateRestoreGate.isRestoring() || !isActiveSurfaceRef.current) &&
+      useEditorStateStore.getState().actions.getCachedViewState(viewKey)
+    ) {
+      if (viewStateRestoreGate.isRestoring()) {
+        applyMonacoSurfaceViewport(editor, viewKey);
+      } else {
+        applyMonacoSurfaceViewState(editor, viewKey);
+      }
+    }
+
     return undefined;
   }, [
+    activeBufferId,
     autoCompletion,
     codeLens,
     editorBracketPairColorization,
@@ -1693,6 +2048,7 @@ export function MonacoEditor({
     alwaysConsumeMouseWheel,
     semanticTokens,
     tabSize,
+    viewStateKey,
     vimCurrentMode,
     vimModeEnabled,
     wordWrap,
@@ -1823,24 +2179,40 @@ export function MonacoEditor({
     };
   }, [lineHeight, onModelPositionResolverChange]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const editor = editorRef.current;
-    if (!editor || !isActiveSurface) return;
+    if (!editor) return;
 
-    const cached = useEditorStateStore
-      .getState()
-      .actions.getCachedViewState(viewStateKey ?? activeBufferId ?? "");
-    if (cached) {
-      editor.setScrollPosition({
-        scrollTop: cached.scrollTop,
-        scrollLeft: cached.scrollLeft,
-      });
-      const model = editor.getModel();
-      if (!model) return;
-
-      editor.setPosition(toClampedMonacoPosition(model, cached.cursor));
-      if (cached.selection) editor.setSelection(toMonacoRange(model, cached.selection));
+    const viewStateKeyForRestore = viewStateKey ?? activeBufferId ?? "";
+    if (!isActiveSurface) {
+      // Snapshot the live viewport before hidden layout and option updates can
+      // reset Monaco to the first line. Do not call layout() here.
+      persistMonacoSurfaceViewState(editor, viewStateKeyForRestore);
+      return;
     }
+
+    const navigationRevision = editorAPI.getOwnerNavigationRevision(viewStateKeyForRestore);
+    const finishActivationRestore = viewStateRestoreGate.begin();
+
+    editor.layout();
+    applyMonacoSurfaceViewState(editor, viewStateKeyForRestore);
+
+    const cancelCachedViewStateRestore = scheduleCachedViewStateRestore({
+      editor,
+      cachedScroll: cachedScrollForViewKey(viewStateKeyForRestore),
+      isEditorCurrent: () => editorRef.current === editor,
+      isNavigationRevisionCurrent: () =>
+        editorAPI.getOwnerNavigationRevision(viewStateKeyForRestore) === navigationRevision,
+      focus: () => {
+        if (isActiveSurfaceRef.current) editor.focus();
+      },
+      onRestoreComplete: finishActivationRestore,
+    });
+
+    return () => {
+      cancelCachedViewStateRestore();
+      finishActivationRestore();
+    };
   }, [activeBufferId, isActiveSurface, viewStateKey]);
 
   const shellStyle = {
@@ -1888,7 +2260,10 @@ export function MonacoEditor({
           <EditorContextMenu
             isOpen
             position={contextMenuPosition}
-            onClose={() => setContextMenuPosition(null)}
+            onClose={() => {
+              setContextMenuPosition(null);
+              setContextMenuTestMethod(null);
+            }}
             onCopy={() => executeEditorCommand("editor.copy")}
             onCut={canEdit ? () => executeEditorCommand("editor.cut") : undefined}
             onPaste={canEdit ? () => executeEditorCommand("editor.paste") : undefined}
@@ -1928,6 +2303,12 @@ export function MonacoEditor({
             onShowHover={() => executeEditorCommand("editor.showHover")}
             onTriggerSuggest={
               canEdit ? () => executeEditorCommand("editor.triggerSuggest") : undefined
+            }
+            onRunTestClass={
+              mavenTestsAvailable ? runTestClassFromEditor : undefined
+            }
+            onRunTestMethod={
+              mavenTestsAvailable && contextMenuTestMethod ? runTestMethodFromEditor : undefined
             }
           />,
           document.body,

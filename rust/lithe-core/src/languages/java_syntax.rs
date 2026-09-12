@@ -1,6 +1,6 @@
 //! Deterministic Java syntax classification for native editor renderers.
 
-use crate::protocol::JavaSyntaxHighlightResponse;
+use crate::protocol::{CoreError, ErrorCode, JavaSyntaxHighlightResponse, JavaTestMethodResponse};
 use std::collections::HashSet;
 use tree_sitter::{Node, Parser};
 
@@ -39,6 +39,92 @@ pub(super) fn syntax_highlights(source: &str) -> Vec<JavaSyntaxHighlightResponse
         left.utf16_start == right.utf16_start && left.utf16_length == right.utf16_length
     });
     values
+}
+
+/// Discovers source-ordered JUnit methods from the shared Java syntax tree.
+pub(super) fn test_methods(source: &str) -> Result<Vec<JavaTestMethodResponse>, CoreError> {
+    let mut parser = Parser::new();
+    parser
+        .set_language(&tree_sitter_java::LANGUAGE.into())
+        .map_err(|error| {
+            CoreError::new(ErrorCode::ParseFailed, "Could not initialize Java parser")
+                .with_details(error.to_string())
+        })?;
+    let tree = parser.parse(source, None).ok_or_else(|| {
+        CoreError::new(ErrorCode::ParseFailed, "Could not parse Java test methods")
+    })?;
+    let mut methods = Vec::new();
+    collect_test_methods(tree.root_node(), source.as_bytes(), &mut methods)?;
+    methods.sort_by(|left, right| {
+        left.line
+            .cmp(&right.line)
+            .then_with(|| left.name.cmp(&right.name))
+    });
+    Ok(methods)
+}
+
+fn collect_test_methods(
+    node: Node<'_>,
+    source: &[u8],
+    methods: &mut Vec<JavaTestMethodResponse>,
+) -> Result<(), CoreError> {
+    crate::protocol::cancellation::check()?;
+    if node.kind() == "method_declaration" && has_junit_test_annotation(node, source) {
+        if let (Some(name_node), Some(body)) = (
+            node.child_by_field_name("name"),
+            node.child_by_field_name("body"),
+        ) {
+            if let Ok(name) = name_node.utf8_text(source) {
+                methods.push(JavaTestMethodResponse {
+                    name: name.to_string(),
+                    line: name_node.start_position().row,
+                    end_line: body.end_position().row,
+                });
+            }
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_test_methods(child, source, methods)?;
+    }
+    Ok(())
+}
+
+fn has_junit_test_annotation(method: Node<'_>, source: &[u8]) -> bool {
+    let mut method_cursor = method.walk();
+    let Some(modifiers) = method
+        .named_children(&mut method_cursor)
+        .find(|child| child.kind() == "modifiers")
+    else {
+        return false;
+    };
+    let mut modifier_cursor = modifiers.walk();
+    let has_annotation = modifiers
+        .named_children(&mut modifier_cursor)
+        .any(|annotation| {
+            matches!(annotation.kind(), "marker_annotation" | "annotation")
+                && annotation
+                    .child_by_field_name("name")
+                    .and_then(|name| name.utf8_text(source).ok())
+                    .is_some_and(is_junit_test_annotation)
+        });
+    has_annotation
+}
+
+fn is_junit_test_annotation(name: &str) -> bool {
+    const SIMPLE_NAMES: [&str; 5] = [
+        "Test",
+        "ParameterizedTest",
+        "RepeatedTest",
+        "TestFactory",
+        "TestTemplate",
+    ];
+    SIMPLE_NAMES.contains(&name)
+        || name == "org.junit.Test"
+        || name
+            .strip_prefix("org.junit.jupiter.api.")
+            .is_some_and(|name| SIMPLE_NAMES.contains(&name))
+        || name == "org.junit.jupiter.params.ParameterizedTest"
 }
 
 fn collect_highlights(
@@ -496,5 +582,40 @@ mod tests {
         assert!(values.iter().any(|value| {
             value.utf16_start == expected && value.utf16_length == 5 && value.role == "field"
         }));
+    }
+
+    #[test]
+    fn discovers_junit_methods_from_syntax_without_accepting_comments() {
+        let source = r#"class ExampleTest {
+    @Test void inlineTest() {}
+
+    // @Test
+    void helper() {}
+
+    @org.junit.jupiter.params.ParameterizedTest(name = "case")
+    void parameterized(int value) {
+        assert value > 0;
+    }
+
+    @Override
+    void ordinary() {}
+}
+"#;
+
+        assert_eq!(
+            test_methods(source).expect("valid Java test methods should parse"),
+            vec![
+                JavaTestMethodResponse {
+                    name: "inlineTest".to_string(),
+                    line: 1,
+                    end_line: 1,
+                },
+                JavaTestMethodResponse {
+                    name: "parameterized".to_string(),
+                    line: 7,
+                    end_line: 9,
+                },
+            ]
+        );
     }
 }

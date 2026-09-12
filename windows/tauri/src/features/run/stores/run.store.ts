@@ -36,6 +36,7 @@ import {
   type RunRecoveryAction,
   type RunSaveScope,
   type RunSession,
+  type RunProcessInstance,
 } from "../types/run.types";
 import {
   defaultGeneratedConfigurationId,
@@ -56,6 +57,7 @@ import { createOutputStamper, trimRunOutput, type OutputStamper } from "../utils
 const MAXIMUM_OUTPUT_CHARACTERS = 500_000;
 const sessionWorkspaces = new Map<string, string>();
 const outputStampers = new Map<string, OutputStamper>();
+const workspaceSaveInFlight = new Map<string, Promise<void>>();
 
 interface RunState {
   root: string | null;
@@ -87,8 +89,17 @@ interface RunState {
     generate: (root: string) => Promise<void>;
     selectConfiguration: (id: string | null) => void;
     selectSession: (id: string | null) => void;
-    runConfiguration: (id: string, currentFile?: string) => Promise<void>;
-    stop: (sessionId?: string) => Promise<void>;
+    runConfiguration: (
+      id: string,
+      currentFile?: string,
+      debugPort?: number,
+    ) => Promise<string | null>;
+    runConfigurationInstance: (
+      id: string,
+      currentFile?: string,
+      debugPort?: number,
+    ) => Promise<RunProcessInstance | null>;
+    stop: (sessionId?: string, executionId?: string) => Promise<void>;
     clearOutput: (sessionId?: string) => void;
     saveEditorChanges: (
       configuration: RunConfiguration,
@@ -282,8 +293,9 @@ function readyRunState(
 export const createRunStore = (
   workspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId(),
   dependencies: RunStoreDependencies = defaultRunStoreDependencies,
-) =>
-  createStore<RunState>()((set, get) => ({
+) => {
+  const executions = new Map<string, string>();
+  return createStore<RunState>()((set, get) => ({
     root: null,
     status: "missing",
     isLoading: false,
@@ -396,11 +408,16 @@ export const createRunStore = (
       selectConfiguration: (id) => set({ selectedConfigurationId: id, selectedSessionId: id }),
       selectSession: (id) => set({ selectedSessionId: id }),
 
-      runConfiguration: async (id, currentFile) => {
+      runConfiguration: async (id, currentFile, debugPort) => {
+        const instance = await get().actions.runConfigurationInstance(id, currentFile, debugPort);
+        return instance?.sessionId ?? null;
+      },
+
+      runConfigurationInstance: async (id, currentFile, debugPort) => {
         const state = get();
         const root = state.root;
         const configuration = state.configurations.find((item) => item.id === id);
-        if (!root || !configuration) return;
+        if (!root || !configuration) return null;
         const blocking = blockingToolchainDiagnosticForConfiguration(
           state.diagnostics,
           configuration.id,
@@ -411,7 +428,7 @@ export const createRunStore = (
             primaryRunning: false,
             primaryExitCode: 1,
           });
-          return;
+          return null;
         }
         if (configuration.id === CURRENT_FILE_ID && !currentFile) {
           set({
@@ -421,24 +438,42 @@ export const createRunStore = (
             primaryRunning: false,
             primaryExitCode: 1,
           });
-          return;
+          return null;
         }
         const sessionId =
           configuration.execution === "service" ? configuration.id : PRIMARY_SESSION_ID;
+        const executionId = crypto.randomUUID();
+        // Reserve ownership before yielding so old Debug callbacks cannot stop a replacement.
+        executions.set(sessionId, executionId);
+        const isCurrent = () => executions.get(sessionId) === executionId && get().root === root;
         bindRunSessionWorkspace(sessionId, workspaceId);
         resetOutputStamper(sessionId);
         await dependencies.stopRunProcess(sessionId).catch(() => undefined);
         try {
-          await dependencies.saveWorkspaceBeforeLaunch(workspaceId);
+          if (!isCurrent()) return null;
+          let save = workspaceSaveInFlight.get(workspaceId);
+          if (!save) {
+            save = dependencies.saveWorkspaceBeforeLaunch(workspaceId);
+            workspaceSaveInFlight.set(workspaceId, save);
+            const clearSave = () => {
+              if (workspaceSaveInFlight.get(workspaceId) === save) workspaceSaveInFlight.delete(workspaceId);
+            };
+            void save.then(clearSave, clearSave);
+          }
+          await save;
+          if (!isCurrent()) return null;
           const mavenContext = configurationUsesMaven(configuration)
             ? await dependencies.mavenLaunchContextForWorkspace(root, [], workspaceId)
             : null;
+          if (!isCurrent()) return null;
           const plan = await dependencies.createLaunchPlan(
             root,
             configuration.id,
             currentFile,
             mavenContext,
+            debugPort,
           );
+          if (!isCurrent()) return null;
           const resolved = await dependencies.resolveRunLaunch({
             root,
             executable: plan.executable,
@@ -446,10 +481,12 @@ export const createRunStore = (
             javaHomePath: configuration.javaHomePath,
             mavenExecutablePath:
               configuration.mavenExecutablePath || mavenContext?.mavenExecutablePath || "",
-            mavenJavaHomePath: configuration.mavenJavaHomePath || mavenContext?.javaHomePath || "",
+            mavenJavaHomePath:
+              configuration.mavenJavaHomePath || mavenContext?.javaHomePath || "",
             runtimeExecutablePaths: state.effectiveRuntimeExecutablePaths,
             environment: mergeLaunchEnvironment(configuration.env, plan),
           });
+          if (!isCurrent()) return null;
           const commandLine = `$ ${resolved.executable.split(/[\\/]/).pop()} ${plan.arguments.join(" ")}\n\n`;
           if (sessionId === PRIMARY_SESSION_ID) {
             set({
@@ -477,12 +514,19 @@ export const createRunStore = (
           }
           await dependencies.startRunProcess({
             sessionId,
+            executionId,
             executable: resolved.executable,
             arguments: plan.arguments,
             workingDirectory: resolved.workingDirectory,
             environment: resolved.environment,
           });
+          if (!isCurrent()) {
+            await dependencies.stopRunProcess(sessionId, executionId);
+            return null;
+          }
+          return { sessionId, executionId };
         } catch (error) {
+          if (!isCurrent()) return null;
           const message =
             error instanceof Error ? error.message : "Unable to start the run configuration.";
           if (sessionId === PRIMARY_SESSION_ID) {
@@ -514,12 +558,19 @@ export const createRunStore = (
               };
             });
           }
+          return null;
         }
       },
 
-      stop: async (sessionId) => {
+      stop: async (sessionId, executionId) => {
         const target = sessionId ?? get().selectedSessionId ?? PRIMARY_SESSION_ID;
-        await stopRunProcess(target).catch(() => undefined);
+        const ownedExecution = executions.get(target);
+        const ownsSlot = !executionId || executionId === ownedExecution;
+        if (ownsSlot) executions.delete(target);
+        // Native ownership remains authoritative after a workspace store is disposed/recreated.
+        await dependencies.stopRunProcess(target, executionId ?? ownedExecution).catch(() => undefined);
+        // A new launch can claim the slot while the native stop is in flight.
+        if (!ownsSlot || executions.has(target)) return;
         if (target === PRIMARY_SESSION_ID) {
           set({
             primaryRunning: false,
@@ -651,6 +702,7 @@ export const createRunStore = (
       },
     },
   }));
+};
 
 export const useRunStore = createWorkspaceScopedStore("run", createRunStore);
 

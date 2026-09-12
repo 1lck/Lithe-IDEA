@@ -365,6 +365,25 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let issues: [Issue]
     }
 
+    struct MavenTestResultsPayload: Decodable, Sendable {
+        struct Failure: Decodable, Sendable {
+            let name: String
+            let kind: String
+            let message: String?
+            let path: String?
+            let line: Int?
+            let column: Int?
+        }
+
+        let testsRun: Int
+        let failures: Int
+        let errors: Int
+        let skipped: Int
+        let passed: Int
+        let success: Bool
+        let failureDetails: [Failure]
+    }
+
     struct MavenLaunchPlanPayload: Decodable, Sendable {
         struct Executable: Decodable, Sendable {
             let toolchain: String
@@ -576,6 +595,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         }
         struct Configuration: Codable, Sendable {
             struct Maven: Codable, Sendable {
+                var reactorPath: String? = nil
                 let module: String?
                 let mainClass: String?
                 let jvmArguments: [String]?
@@ -1899,6 +1919,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let level: String?
         let message: String?
         let detail: String?
+        let mavenProfileTask: String?
+        let mavenProfileProject: MavenProfileProjectPayload?
+    }
+
+    struct MavenProfileProjectPayload: Decodable, Sendable {
+        let projectUri: URL
+        let status: String
+        let errorDetails: String?
     }
 
     struct LspRuntimeErrorPayload: Decodable, Sendable {
@@ -1919,6 +1947,11 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     }
 
     private struct MavenDiagnosticsRequest: Encodable {
+        let root: String
+        let output: String
+    }
+
+    private struct MavenTestResultsRequest: Encodable {
         let root: String
         let output: String
     }
@@ -2106,6 +2139,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let reference: String?
         let cursor: String?
         let limit: Int
+        let order: String?
     }
 
     private struct GitHistoryCursorCloseRequest: Encodable {
@@ -2723,6 +2757,19 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
+    func mavenTestResults(
+        at rootURL: URL,
+        output: String
+    ) -> Result<MavenTestResultsPayload, CoreCallError> {
+        executeResult(
+            command: "maven.testResults",
+            payload: MavenTestResultsRequest(
+                root: rootURL.standardizedFileURL.path,
+                output: output
+            )
+        )
+    }
+
     func scanJavaRunConfigurations(
         at rootURL: URL,
         paths: [String],
@@ -3250,6 +3297,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         reference: String?,
         cursor: String?,
         limit: Int,
+        order: String? = nil,
         operationID: String
     ) -> GitHistoryPagePayload? {
         execute(
@@ -3258,7 +3306,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 root: rootURL.standardizedFileURL.path,
                 reference: reference,
                 cursor: cursor,
-                limit: limit
+                limit: limit,
+                order: order
             ),
             operationID: operationID
         )
@@ -3576,6 +3625,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     func lspStopServer(sessionID: String) {
         executeVoid(
             command: "lsp.stopServer",
+            payload: LspSessionIdentifierRequest(sessionId: sessionID)
+        )
+    }
+
+    /// Retries Maven Profile application while retaining the running JDTLS process.
+    func lspRetryMavenProfiles(sessionID: String) -> Result<Void, CoreCallError> {
+        executeVoid(
+            command: "lsp.retryMavenProfiles",
             payload: LspSessionIdentifierRequest(sessionId: sessionID)
         )
     }

@@ -218,10 +218,56 @@ jobs:
           }
           ./scripts/validate-windows-build-caches.ps1 @validation
 
-      - name: Build Windows Tauri application
+      - name: Build Windows test installer
+        id: package
         if: needs.changes.outputs.windows == 'true'
         shell: pwsh
-        run: ./scripts/build-windows.ps1 -Configuration Release
+        run: |
+          # NSIS packaging performs the same release build and frontend type
+          # check; do not compile once with --no-bundle and then rebuild it.
+          $config = Get-Content windows/tauri/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          Push-Location .
+          try {
+            ./scripts/package-windows.ps1 -Configuration Release -Version $config.version
+          } finally {
+            Pop-Location
+          }
+          $installer = "dist/Lithe-$($config.version)-windows-x64.exe"
+          $expected = ((Get-Content "$installer.sha256" -Raw) -split '\s+')[0]
+          $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer).Hash.ToLowerInvariant()
+          if ($expected -ne $actual) { throw "Installer checksum mismatch" }
+          "installer=$installer" >> $env:GITHUB_OUTPUT
+          "sha=$((git rev-parse HEAD).Trim())" >> $env:GITHUB_OUTPUT
+
+      - name: Upload Windows test installer
+        id: installer
+        if: needs.changes.outputs.windows == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: Lithe-windows-x64-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            ${{ steps.package.outputs.installer }}
+            ${{ steps.package.outputs.installer }}.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Add Windows download link
+        if: needs.changes.outputs.windows == 'true'
+        env:
+          ARTIFACT_URL: ${{ steps.installer.outputs.artifact-url }}
+          SOURCE_SHA: ${{ steps.package.outputs.sha }}
+        shell: pwsh
+        run: |
+          @"
+          ### Windows x64 test download
+          [Download installer and SHA-256 checksum]($env:ARTIFACT_URL)
+
+          Source: $env:SOURCE_SHA
+
+          Requires GitHub sign-in. Retained for 14 days. Includes the bundled Java tools.
+          The installer is unsigned for testing. Check the CI gate for the combined test result.
+          "@ >> $env:GITHUB_STEP_SUMMARY
 
       - name: Verify Windows boundaries
         if: needs.changes.outputs.windows == 'true'
@@ -240,6 +286,11 @@ jobs:
           bun test src/features/run
           bun test src/features/file-explorer/lib/java-clipboard-class.test.ts src/features/file-explorer/lib/paste-java-class-from-clipboard.test.ts
 
+      - name: Test SVG editor preview modes and live updates
+        if: needs.changes.outputs.windows == 'true'
+        shell: pwsh
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/editor/components/svg-editor.test.tsx
+
       - name: Test welcome clone and modal isolation
         if: needs.changes.outputs.windows == 'true'
         shell: pwsh
@@ -252,6 +303,23 @@ jobs:
           # Run both file orders so a leaked locale mock cannot hide behind test discovery order.
           foreach ($seed in @(1, 3)) {
             node $runner --suite-timeout-ms 60000 --report ".artifacts/test-stability/windows-welcome-isolation-$seed.json" -- --randomize "--seed=$seed" $welcomeTest $localeTest
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Test Git query recovery and isolation
+        if: needs.changes.outputs.windows == 'true'
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          $gitTests = @(
+            "src/features/git/api/git-status-api.test.ts",
+            "src/features/git/hooks/use-git-data-controller.integration.test.tsx",
+            "src/features/git/stores/git-repository.store.test.ts",
+            "src/features/git/stores/git.store.test.ts"
+          )
+          foreach ($seed in @(1, 3, 7)) {
+            node $runner --suite-timeout-ms 60000 --report ".artifacts/test-stability/windows-git-isolation-$seed.json" -- --randomize "--seed=$seed" @gitTests
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 

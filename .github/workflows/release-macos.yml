@@ -100,12 +100,29 @@ jobs:
           jdk-architecture: ${{ matrix.architecture }}
           restore-only: "true"
 
+      - name: Import Developer ID signing identity
+        env:
+          MACOS_SIGNING_CERTIFICATE: ${{ secrets.MACOS_SIGNING_CERTIFICATE }}
+          MACOS_SIGNING_PASSWORD: ${{ secrets.MACOS_SIGNING_PASSWORD }}
+          LITHE_CODESIGN_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
+        run: |
+          if [[ -n "$MACOS_SIGNING_CERTIFICATE" ]]; then
+            zsh scripts/import-macos-signing.sh
+          elif [[ -n "$MACOS_SIGNING_PASSWORD" || -n "$LITHE_CODESIGN_IDENTITY" ]]; then
+            echo "Incomplete Developer ID configuration: provide the certificate or remove the optional identity and password."
+            exit 1
+          else
+            echo "Developer ID is not configured; using ad-hoc app signing and Sparkle EdDSA update signatures."
+          fi
+
       - name: Build and package the App
         env:
+          LITHE_SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
           LITHE_ARCH: ${{ matrix.architecture }}
           LITHE_VERSION: ${{ needs.prepare.outputs.version }}
           LITHE_BUILD_NUMBER: ${{ needs.prepare.outputs.build_number }}
         run: |
+          test -n "$LITHE_SPARKLE_PUBLIC_KEY" || { echo "Configure SPARKLE_PUBLIC_KEY before releasing"; exit 1; }
           ./scripts/package-app.sh
           ./scripts/create-dmg.sh
           dmg_name="Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg"
@@ -139,6 +156,15 @@ jobs:
           test -s "$dmg_path"
           (cd dist && shasum -a 256 -c "Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg.sha256")
 
+      - name: Generate signed Sparkle updates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LITHE_ARCH: ${{ matrix.architecture }}
+          LITHE_VERSION: ${{ needs.prepare.outputs.version }}
+          LITHE_BUILD_NUMBER: ${{ needs.prepare.outputs.build_number }}
+          LITHE_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: zsh scripts/create-sparkle-update.sh
+
       - name: Upload release assets
         uses: actions/upload-artifact@v7
         with:
@@ -146,8 +172,17 @@ jobs:
           path: |
             dist/Lithe-${{ needs.prepare.outputs.version }}-${{ matrix.architecture }}.dmg
             dist/Lithe-${{ needs.prepare.outputs.version }}-${{ matrix.architecture }}.dmg.sha256
+            dist/Lithe-${{ needs.prepare.outputs.version }}-${{ matrix.architecture }}.dmg.edsig
+            dist/sparkle-${{ matrix.architecture }}/*
           if-no-files-found: error
           retention-days: 7
+
+      - name: Remove signing keychain
+        if: always()
+        run: |
+          if [[ -f "$RUNNER_TEMP/lithe-signing.keychain-db" ]]; then
+            security delete-keychain "$RUNNER_TEMP/lithe-signing.keychain-db"
+          fi
 
   publish:
     name: Publish macOS release
@@ -187,6 +222,7 @@ jobs:
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           ruby scripts/create-macos-update-manifest.rb \
+            --require-signatures \
             --version "$LITHE_VERSION" \
             --repository "$GITHUB_REPOSITORY" \
             --release-tag "$RELEASE_TAG" \
@@ -220,6 +256,9 @@ jobs:
             "dist/Lithe-${LITHE_VERSION}-x86_64.dmg.sha256"
             "dist/latest-macos.json"
           )
+          for architecture in arm64 x86_64; do
+            upload_args+=(dist/sparkle-"$architecture"/*)
+          done
 
           create_args+=(--notes-file "$notes_file")
           edit_args+=(--notes-file "$notes_file")

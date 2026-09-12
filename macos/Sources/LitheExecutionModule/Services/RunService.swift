@@ -6,6 +6,7 @@ import LitheModuleAPI
 @MainActor
 package final class RunService: ObservableObject {
     @Published package private(set) var configurations: [RunConfiguration] = [.currentFile]
+    package private(set) var defaultConfigurationID: String?
     @Published package var selectedConfigurationID = RunConfiguration.currentFileID {
         didSet {
             guard let projectURL else { return }
@@ -46,6 +47,7 @@ package final class RunService: ObservableObject {
     private var projectURL: URL?
     private var projectFiles: [URL] = []
     private var mavenProject: MavenProject?
+    private var mavenModelRevision = 0
     private var projectLoadID = UUID()
     private var selectedConfigurationIDsByProject: [String: String] = [:]
     private var lastRunConfiguration: RunConfiguration?
@@ -164,6 +166,18 @@ package final class RunService: ObservableObject {
         return roots
     }
 
+    /// Applies an accepted Maven model without replacing the file snapshot or
+    /// reloading run configuration from disk. The execution graph owns delivery.
+    package func acceptMavenProject(_ project: MavenProject, at workspace: URL) {
+        let workspace = workspace.standardizedFileURL
+        guard projectURL == workspace else { return }
+        if case .loading(let pendingWorkspace) = projectLoadState,
+           pendingWorkspace != workspace { return }
+        mavenModelRevision += 1
+        mavenProject = project
+        mavenProfiles = project.profiles
+    }
+
     /// Loads run state for a workspace.
     ///
     /// `snapshotID` identifies the workspace snapshot `files` came from. Passing
@@ -176,8 +190,10 @@ package final class RunService: ObservableObject {
         snapshotID: UUID? = nil
     ) async {
         let loadID = UUID()
+        let modelRevision = mavenModelRevision
         projectLoadID = loadID
         let workspace = projectURL.standardizedFileURL
+        defaultConfigurationID = nil
         isLoadingProject = true
         projectLoadState = .loading(workspace: workspace)
         defer {
@@ -203,8 +219,12 @@ package final class RunService: ObservableObject {
         projectLoadState = snapshotID
             .map { .ready(workspace: workspace, snapshotID: $0) }
             ?? .bound(workspace: workspace)
-        self.mavenProject = mavenProject
-        mavenProfiles = mavenProject?.profiles ?? []
+        // A Reload may commit while inspection is suspended. Preserve that
+        // accepted model instead of restoring the caller's earlier snapshot.
+        if mavenModelRevision == modelRevision {
+            self.mavenProject = mavenProject
+        }
+        mavenProfiles = self.mavenProject?.profiles ?? []
         self.projectFiles = files
         configurationStatus = inspection.status
         configurationDiagnostics = inspection.diagnostics
@@ -220,10 +240,11 @@ package final class RunService: ObservableObject {
                 let resolution = try resolveWithServiceToolchains(
                     operations: operations,
                     projectURL: projectURL,
-                    mavenProject: mavenProject,
+                    mavenProject: self.mavenProject,
                     preferredConfigurationID: preferredID
                 )
                 configurationDiagnostics += resolution.diagnostics
+                defaultConfigurationID = resolution.defaultConfigurationID
                 apply(
                     resolution.configurations,
                     projectToolchain: resolution.projectToolchain,
@@ -299,6 +320,7 @@ package final class RunService: ObservableObject {
                         ?? resolution.defaultConfigurationID
                 )
                 configurationStatus = .ready
+                defaultConfigurationID = resolution.defaultConfigurationID
                 recoveryAction = .none
                 recoveryPath = nil
                 configurationDiagnostics = operations.inspect(at: projectURL).diagnostics + resolution.diagnostics
@@ -467,7 +489,7 @@ package final class RunService: ObservableObject {
         lastExitCode = nil
         lastRunConfiguration = configuration
         lastCurrentFileURL = currentFileURL
-        let mavenContext = configuration.kind.isMavenBacked ? mavenContextProvider() : nil
+        let mavenContext = mavenContext(for: configuration)
         let options = effectiveOptions(for: configuration, mavenContext: mavenContext)
         let usesGenericCurrentFile = configuration.kind == .currentFile
             && isGenericCurrentFile(currentFileURL)
@@ -657,6 +679,7 @@ package final class RunService: ObservableObject {
         projectFiles = []
         mavenProject = nil
         configurations = [.currentFile]
+        defaultConfigurationID = nil
         selectedConfigurationID = RunConfiguration.currentFileID
         optionsByConfigurationID = [:]
         projectToolchain = ProjectToolchainSelection()
@@ -973,7 +996,7 @@ package final class RunService: ObservableObject {
             ))
             return
         }
-        let mavenContext = configuration.kind.isMavenBacked ? mavenContextProvider() : nil
+        let mavenContext = mavenContext(for: configuration)
         let options = effectiveOptions(for: configuration, mavenContext: mavenContext)
         let configuredJavaHome = (options.mavenJavaHomePath.isEmpty
             ? options.javaHomePath
@@ -1297,7 +1320,12 @@ package final class RunService: ObservableObject {
         for configuration: RunConfiguration,
         mavenContext: MavenLaunchContext?
     ) -> RunOptions {
-        var options = self.options(for: configuration)
+        let stored = self.options(for: configuration)
+        var options = runtime.overlayProjectRuntime(
+            onto: stored,
+            modulePath: configuration.modulePath,
+            workingDirectory: stored.workingDirectoryPath
+        )
         guard let mavenContext else { return options }
         if options.mavenExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             options.mavenExecutablePath = mavenContext.mavenExecutablePath ?? ""
@@ -1306,6 +1334,14 @@ package final class RunService: ObservableObject {
             options.mavenJavaHomePath = mavenContext.javaHomePath ?? ""
         }
         return options
+    }
+
+    private func mavenContext(for configuration: RunConfiguration) -> MavenLaunchContext? {
+        guard let context = mavenContextProvider() else { return nil }
+        if let reactor = configuration.mavenReactorPath {
+            return reactor == context.reactorPath ? context : nil
+        }
+        return configuration.kind.isMavenBacked ? context : nil
     }
 
     private func resolvedWorkingDirectory(_ path: String, fallback: URL) -> URL {

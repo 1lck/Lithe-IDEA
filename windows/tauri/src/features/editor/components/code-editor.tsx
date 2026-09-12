@@ -26,6 +26,8 @@ import { calculateLineHeight, splitLines } from "@/features/editor/utils/lines";
 import { resolveGoToLineTarget } from "@/features/editor/utils/go-to-line";
 import type { EditorModelPositionResolver } from "@/features/editor/view-model/view-layout";
 import { hasTextContent } from "@/features/panes/types/pane-content.types";
+import { PaneResizeHandle } from "@/features/panes/components/pane-resize-handle";
+import { isMarkdownPreviewableFile } from "@/features/editor/markdown/previewable";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { toast } from "sonner";
@@ -52,7 +54,18 @@ import {
 import type { EditorContentChangeOptions, Position, Range } from "../types/editor.types";
 import { ScrollDebugOverlay } from "./debug/scroll-debug-overlay";
 import { HtmlPreview } from "./html/html-preview";
-import { MonacoEditor } from "./monaco-editor";
+import {
+  MonacoEditor,
+  type MonacoEditorProps,
+  type MonacoEditorScrollApi,
+} from "./monaco-editor";
+import {
+  MarkdownScrollSyncController,
+  markdownScrollOffset,
+  markdownScrollRatio,
+  type MarkdownScrollMetrics,
+} from "../markdown/scroll-sync";
+import { SvgEditor } from "./svg-editor";
 import { EditorStylesheet } from "./stylesheet";
 import { ExternalConflictBanner } from "./external-conflict-banner";
 import Breadcrumb, { type BreadcrumbProps } from "./toolbar/breadcrumb";
@@ -245,6 +258,16 @@ const CodeEditor = ({
   const showHtmlPreview = activeBuffer?.type === "htmlPreview";
   const showCsvPreview = activeBuffer?.type === "csvPreview";
 
+  // In-place Markdown display mode (editor/split/preview) mirrors the macOS
+  // editor area; only plain Markdown editor buffers expose the switcher.
+  const isMarkdownEditorSurface =
+    activeBuffer?.type === "editor" && isMarkdownPreviewableFile(activeBuffer.path);
+  const markdownViewMode = isMarkdownEditorSurface
+    ? (activeBuffer.markdownViewMode ?? "source")
+    : null;
+  const showMarkdownSplit = markdownViewMode === "split";
+  const showMarkdownPreviewSurface = markdownViewMode === "preview";
+
   // Initialize refs in store
   useEffect(() => {
     if (!isActiveSurface) return;
@@ -253,31 +276,39 @@ const CodeEditor = ({
     });
   }, [isActiveSurface, setRefs]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isActiveSurface) return;
     setActiveEditorViewKey(editorViewKey ?? null);
   }, [editorViewKey, isActiveSurface, setActiveEditorViewKey]);
 
-  // Focus editor when active buffer changes
+  // Focus editor when the active surface or buffer changes
   useEffect(() => {
     if (!enableInteractiveServices) return;
+    if (!isActiveSurface) return;
     if (!activeBufferId || !editorRef.current) return;
 
-    const focusTarget =
-      editorRef.current
-        .querySelector<HTMLElement>("[data-monaco-editor-scroll]")
-        ?.querySelector<HTMLTextAreaElement>("textarea") ??
-      editorRef.current.querySelector<HTMLTextAreaElement>("textarea");
+    const focusEditor = () => {
+      const editorContainer = editorRef.current;
+      if (!editorContainer) return;
 
-    if (!focusTarget) return;
+      const focusTarget =
+        editorContainer
+          .querySelector<HTMLElement>("[data-monaco-editor-scroll]")
+          ?.querySelector<HTMLTextAreaElement>("textarea") ??
+        editorContainer.querySelector<HTMLTextAreaElement>("textarea");
 
-    // Small delay to ensure the editor surface is mounted.
-    const focusTimer = setTimeout(() => {
-      focusTarget.focus();
-    }, 0);
+      focusTarget?.focus();
+    };
 
-    return () => clearTimeout(focusTimer);
-  }, [activeBufferId, enableInteractiveServices]);
+    // Wait for the active Monaco surface to finish rendering after a tab switch.
+    const animationFrame = requestAnimationFrame(focusEditor);
+    const focusTimer = setTimeout(focusEditor, 0);
+
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      clearTimeout(focusTimer);
+    };
+  }, [activeBufferId, enableInteractiveServices, isActiveSurface]);
 
   // Sync content and file info with editor instance store
   useEffect(() => {
@@ -576,6 +607,27 @@ const CodeEditor = ({
     return <div className="flex flex-1 items-center justify-center text-foreground"></div>;
   }
 
+  const monacoEditorProps: MonacoEditorProps = {
+    bufferId: activeBufferId ?? undefined,
+    paneId,
+    viewStateKey: editorViewKey ?? undefined,
+    isActiveSurface,
+    isPreviewMode: isPreviewBuffer,
+    enableExpensiveServices: enableRichEditorServices,
+    readOnly,
+    scrollable,
+    alwaysConsumeMouseWheel: alwaysConsumeMouseWheel,
+    backgroundLayer,
+    onReadonlySurfaceClick: onReadonlySurfaceClick,
+    highlightMatches: highlightMatches,
+    currentHighlightIndex: currentHighlightIndex,
+    lineNumberStart: lineNumberStart,
+    lineNumberMap: lineNumberMap,
+    onContentChange: handleEditorContentChange,
+    onScrollOffsetChange: syncLspOverlayTransform,
+    onModelPositionResolverChange: handleModelPositionResolverChange,
+  };
+
   return (
     <>
       <EditorStylesheet />
@@ -618,7 +670,7 @@ const CodeEditor = ({
           }}
         >
           {/* Code Lens */}
-          {enableCodeLens && inlineCodeLenses.length > 0 && (
+          {enableCodeLens && !showMarkdownSplit && inlineCodeLenses.length > 0 && (
             <CodeLensOverlay
               ref={codeLensRef}
               lenses={inlineCodeLenses}
@@ -661,7 +713,9 @@ const CodeEditor = ({
 
           {/* Main editor - absolute positioned to fill container */}
           <div className="absolute inset-0 bg-background">
-            {showMarkdownPreview ? (
+            {showMarkdownSplit ? (
+              <MarkdownSplitEditor editorProps={monacoEditorProps} />
+            ) : showMarkdownPreviewSurface || showMarkdownPreview ? (
               <MarkdownPreview />
             ) : showHtmlPreview ? (
               <HtmlPreview />
@@ -670,25 +724,12 @@ const CodeEditor = ({
             ) : showNotebookEditor ? (
               <NotebookEditor />
             ) : (
-              <MonacoEditor
+              <SvgEditor
+                enabled={activeBuffer?.type === "editor" && filePath.toLowerCase().endsWith(".svg")}
                 bufferId={activeBufferId ?? undefined}
-                viewStateKey={editorViewKey ?? undefined}
-                isActiveSurface={isActiveSurface}
-                isPreviewMode={isPreviewBuffer}
-                enableExpensiveServices={enableRichEditorServices}
-                readOnly={readOnly}
-                scrollable={scrollable}
-                alwaysConsumeMouseWheel={alwaysConsumeMouseWheel}
-                backgroundLayer={backgroundLayer}
-                onReadonlySurfaceClick={onReadonlySurfaceClick}
-                highlightMatches={highlightMatches}
-                currentHighlightIndex={currentHighlightIndex}
-                lineNumberStart={lineNumberStart}
-                lineNumberMap={lineNumberMap}
-                onContentChange={handleEditorContentChange}
-                onScrollOffsetChange={syncLspOverlayTransform}
-                onModelPositionResolverChange={handleModelPositionResolverChange}
-              />
+              >
+                <MonacoEditor {...monacoEditorProps} />
+              </SvgEditor>
             )}
           </div>
         </div>
@@ -701,5 +742,124 @@ const CodeEditor = ({
 };
 
 CodeEditor.displayName = "CodeEditor";
+
+/**
+ * In-place Markdown split surface: Monaco on the left, live preview on the
+ * right. Split sizes stay in this local layout container so dragging only
+ * mutates flexGrow here, and reset when the split closes (session-only,
+ * matching the macOS editor area behavior).
+ *
+ * Scrolling is synchronized proportionally in both directions through
+ * MarkdownScrollSyncController, mirroring the macOS editor/preview sync.
+ */
+function MarkdownSplitEditor({ editorProps }: { editorProps: MonacoEditorProps }) {
+  const [sizes, setSizes] = useState<[number, number]>([50, 50]);
+  const rightPaneRef = useRef<HTMLDivElement>(null);
+  const scrollApiRef = useRef<MonacoEditorScrollApi | null>(null);
+  const syncRef = useRef<MarkdownScrollSyncController | null>(null);
+  if (!syncRef.current) syncRef.current = new MarkdownScrollSyncController();
+
+  const applyEditorRatioToPreview = useCallback(() => {
+    const controller = syncRef.current;
+    const api = scrollApiRef.current;
+    const preview = rightPaneRef.current?.querySelector<HTMLElement>(".markdown-preview");
+    if (!controller || !api || !preview) return;
+    if (controller.getSource() === "preview") return;
+    const metrics = api.getMetrics();
+    const offset = markdownScrollOffset(
+      markdownScrollRatio(metrics),
+      preview.scrollHeight,
+      preview.clientHeight,
+    );
+    controller.markApplied("preview", offset);
+    preview.scrollTop = offset;
+  }, []);
+
+  const handleEditorScrollMetrics = useCallback((metrics: MarkdownScrollMetrics) => {
+    const controller = syncRef.current;
+    if (!controller) return;
+    const ratio = controller.report("editor", metrics);
+    if (ratio === null) return;
+    const preview = rightPaneRef.current?.querySelector<HTMLElement>(".markdown-preview");
+    if (!preview) return;
+    const offset = markdownScrollOffset(ratio, preview.scrollHeight, preview.clientHeight);
+    controller.markApplied("preview", offset);
+    preview.scrollTop = offset;
+  }, []);
+
+  const handleScrollApiReady = useCallback((api: MonacoEditorScrollApi | null) => {
+    scrollApiRef.current = api;
+  }, []);
+
+  // Preview -> editor sync. The preview scroll container is inside
+  // MarkdownPreview, so listen in the capture phase on the stable pane wrapper.
+  useEffect(() => {
+    const rightPane = rightPaneRef.current;
+    if (!rightPane) return;
+    const handlePreviewScroll = (event: Event) => {
+      const target = event.target as HTMLElement | null;
+      if (!target || !target.classList.contains("markdown-preview")) return;
+      const controller = syncRef.current;
+      if (!controller) return;
+      const ratio = controller.report("preview", {
+        scrollTop: target.scrollTop,
+        scrollHeight: target.scrollHeight,
+        clientHeight: target.clientHeight,
+      });
+      if (ratio === null) return;
+      const api = scrollApiRef.current;
+      if (!api) return;
+      const metrics = api.getMetrics();
+      const offset = markdownScrollOffset(ratio, metrics.scrollHeight, metrics.clientHeight);
+      controller.markApplied("editor", offset);
+      api.setScrollTop(offset);
+    };
+    rightPane.addEventListener("scroll", handlePreviewScroll, true);
+    return () => rightPane.removeEventListener("scroll", handlePreviewScroll, true);
+  }, []);
+
+  // The preview parses its HTML asynchronously, so its content height arrives
+  // after mount. Re-anchor the preview to the editor ratio whenever that
+  // content resizes while the editor is the sync source.
+  useEffect(() => {
+    const preview = rightPaneRef.current?.querySelector<HTMLElement>(".markdown-preview");
+    if (!preview || typeof ResizeObserver === "undefined") return;
+    const content = preview.querySelector<HTMLElement>(".markdown-content");
+    if (!content) return;
+    const observer = new ResizeObserver(() => applyEditorRatioToPreview());
+    observer.observe(content);
+    applyEditorRatioToPreview();
+    return () => observer.disconnect();
+  }, [applyEditorRatioToPreview]);
+
+  return (
+    <div className="flex h-full flex-row" data-pane-split-container="true">
+      {/* `relative` keeps the absolutely-positioned monaco shell anchored to this pane. */}
+      <div
+        className="relative min-h-0 min-w-0 overflow-hidden"
+        style={{ flexBasis: 0, flexGrow: sizes[0] }}
+      >
+        <MonacoEditor
+          {...editorProps}
+          onScrollMetricsChange={handleEditorScrollMetrics}
+          onEditorScrollApiReady={handleScrollApiReady}
+        />
+      </div>
+      <PaneResizeHandle
+        direction="horizontal"
+        initialSizes={sizes}
+        resizeHandleCount={1}
+        onResize={setSizes}
+      />
+      <div
+        ref={rightPaneRef}
+        className="relative min-h-0 min-w-0 overflow-hidden"
+        style={{ flexBasis: 0, flexGrow: sizes[1] }}
+      >
+        <MarkdownPreview />
+      </div>
+    </div>
+  );
+}
 
 export default CodeEditor;

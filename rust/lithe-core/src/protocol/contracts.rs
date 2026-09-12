@@ -79,6 +79,8 @@ pub struct WorkspaceSnapshotResponse {
 /// One Git repository discovered for an opened workspace.
 pub struct WorkspaceRepositoryResponse {
     /// Absolute native repository root path reported by the host filesystem.
+    /// Windows paths are plain drive or UNC paths without the verbatim `\\?\`
+    /// prefix that canonicalization adds.
     pub path: String,
 }
 
@@ -315,6 +317,44 @@ pub struct MavenDiagnosticsResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// One failed or errored JUnit test reported by Maven Surefire/Failsafe.
+pub struct MavenTestFailureResponse {
+    /// Provider-reported test name, usually `method(Class)` or `Class.method`.
+    pub name: String,
+    /// Either `failure` or `error`, matching the Surefire result section.
+    pub kind: String,
+    /// Short assertion or exception message when Maven printed one.
+    pub message: Option<String>,
+    /// Workspace-relative source path when a stack frame resolves to a file.
+    pub path: Option<String>,
+    /// One-based source line from the first matching stack frame.
+    pub line: Option<usize>,
+    /// UTF-16 column is not emitted by Surefire's text reporter.
+    pub column: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Bounded, deterministic JUnit result summary parsed from Maven output.
+pub struct MavenTestResultsResponse {
+    /// Total tests from the final Results summary or aggregated class summaries.
+    pub tests_run: usize,
+    /// Tests that failed an assertion.
+    pub failures: usize,
+    /// Tests that terminated with an error or exception.
+    pub errors: usize,
+    /// Tests skipped by assumptions, tags, or configuration.
+    pub skipped: usize,
+    /// Derived number of tests that completed successfully.
+    pub passed: usize,
+    /// True when the parsed summary contains no failures or errors.
+    pub success: bool,
+    /// Individual failures and errors in the order Maven reported them.
+    pub failure_details: Vec<MavenTestFailureResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 /// Java class containing a runnable main method.
 pub struct JavaMainClassResponse {
     pub path: String,
@@ -391,6 +431,24 @@ pub struct JavaSourceDefinitionResponse {
     pub utf16_column: usize,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One JUnit test method and its complete source range.
+pub struct JavaTestMethodResponse {
+    pub name: String,
+    /// Zero-based line containing the method name.
+    pub line: usize,
+    /// Zero-based line containing the method body's closing brace.
+    pub end_line: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// JUnit test methods in deterministic source order.
+pub struct JavaTestMethodsResponse {
+    pub methods: Vec<JavaTestMethodResponse>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Server port declared by Spring configuration, when one is present.
@@ -431,6 +489,17 @@ pub struct JavaSyntaxHighlightResponse {
     pub role: String,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One JUnit test method discovered from the Java syntax tree.
+pub struct JavaStructureTestMethodResponse {
+    pub name: String,
+    /// One-based line containing the method name.
+    pub line: usize,
+    /// Inclusive one-based line containing the end of the declaration.
+    pub end_line: usize,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Lightweight structural features derived from one Java source document.
@@ -438,6 +507,8 @@ pub struct JavaStructureResponse {
     pub fold_regions: Vec<JavaFoldRegionResponse>,
     pub inlay_hints: Vec<JavaInlayHintResponse>,
     pub syntax_highlights: Vec<JavaSyntaxHighlightResponse>,
+    /// JUnit 4 and JUnit 5 methods in source order.
+    pub test_methods: Vec<JavaStructureTestMethodResponse>,
 }
 
 #[derive(Debug, Clone, Serialize)]

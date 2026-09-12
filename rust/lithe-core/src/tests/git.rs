@@ -40,6 +40,17 @@ fn git_status_returns_contract_shape() {
     fs::remove_dir_all(root).expect("temporary repository should be removable");
 }
 
+// Discovery reports canonical roots in plain native form: on Windows the
+// verbatim `\\?\` prefix from canonicalization must not leak to consumers.
+fn reported_repository_path(path: &Path) -> String {
+    crate::git::simplified_canonical_path(
+        path.canonicalize()
+            .expect("discovered repository should exist"),
+    )
+    .to_string_lossy()
+    .replace('\\', "/")
+}
+
 #[test]
 fn workspace_repositories_discovers_multiple_child_repositories() {
     let root = temporary_root("workspace-repositories");
@@ -85,9 +96,9 @@ fn workspace_repositories_discovers_multiple_child_repositories() {
     assert_eq!(
         response["data"]["repositories"],
         serde_json::json!([
-            { "path": first.canonicalize().expect("first repository should exist").to_string_lossy().replace('\\', "/") },
-            { "path": second.canonicalize().expect("second repository should exist").to_string_lossy().replace('\\', "/") },
-            { "path": nested.canonicalize().expect("nested worktree should exist").to_string_lossy().replace('\\', "/") }
+            { "path": reported_repository_path(&first) },
+            { "path": reported_repository_path(&second) },
+            { "path": reported_repository_path(&nested) }
         ])
     );
 
@@ -470,7 +481,7 @@ fn git_write_commits_a_selected_rename_with_both_paths() {
 
 #[test]
 fn git_write_selected_commit_uses_stdin_for_a_large_path_set() {
-    let root = temporary_root("git-write-selected-many-paths");
+    let root = temporary_root("git-pathspec");
     fs::create_dir_all(root.join("selected")).expect("temporary repository should be creatable");
     let run = |arguments: &[&str]| history_git(&root, arguments);
     assert!(run(&["init", "-q", "-b", "main"]).status.success());
@@ -483,16 +494,27 @@ fn git_write_selected_commit_uses_stdin_for_a_large_path_set() {
         .status
         .success());
 
-    let paths = (0..384)
+    // Exercise the Windows command-line limit with fewer filesystem entries and
+    // one shared blob: unique file contents add object-store/antivirus work that
+    // is unrelated to transporting the selected paths through stdin.
+    let paths = (0..224)
         .map(|index| {
             let path = format!(
                 "selected/{index:04}-{}.txt",
-                "long-path-component-used-to-cross-the-windows-command-line-limit"
+                "long-path-component-".repeat(7)
             );
-            fs::write(root.join(&path), format!("{index}\n")).expect("file should be writable");
+            fs::write(root.join(&path), "selected content\n").expect("file should be writable");
             path
         })
         .collect::<Vec<_>>();
+    let argument_units: usize = paths
+        .iter()
+        .map(|path| path.encode_utf16().count() + 1)
+        .sum();
+    assert!(
+        argument_units > 32_767,
+        "path arguments must exceed the Windows command-line limit"
+    );
     let response: Value = serde_json::from_str(&execute_json(
         &serde_json::to_string(&serde_json::json!({
             "id": "selected-many-paths",
@@ -526,7 +548,7 @@ fn git_write_selected_commit_uses_stdin_for_a_large_path_set() {
             .lines()
             .filter(|line| !line.is_empty())
             .count(),
-        384
+        paths.len()
     );
 
     fs::remove_dir_all(root).expect("temporary repository should be removable");
@@ -791,6 +813,217 @@ fn git_write_appends_shared_and_local_ignore_patterns_without_duplicates() {
     let invalid = request("ignore", serde_json::json!(["unsafe\npattern"]));
     assert_eq!(invalid["ok"], false);
     assert_eq!(invalid["error"]["code"], "invalid_request");
+
+    fs::remove_dir_all(root).expect("temporary workspace should be removable");
+}
+
+#[test]
+fn git_write_mutates_literal_local_exclude_patterns_including_linked_worktrees() {
+    let root = temporary_root("lithe-exclude-patterns");
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    assert!(run(&["config", "user.email", "dev@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Dev"]).status.success());
+    fs::write(root.join("README.md"), "ok\n").expect("readme should be writable");
+    assert!(run(&["add", "README.md"]).status.success());
+    assert!(run(&["commit", "-qm", "init"]).status.success());
+
+    let request = |root: &Path, operation: &str, paths: Value| -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::to_string(&serde_json::json!({
+                "id": operation,
+                "command": "git.write",
+                "payload": {"root": root, "operation": operation, "paths": paths}
+            }))
+            .expect("exclude pattern request should encode"),
+        ))
+        .expect("exclude pattern response should be JSON")
+    };
+
+    let added = request(
+        &root,
+        "excludePatterns",
+        serde_json::json!([".factorypath", " .factorypath "]),
+    );
+    assert_eq!(added["ok"], true, "{added:?}");
+    let exclude = fs::read_to_string(root.join(".git/info/exclude"))
+        .expect("local exclude file should be readable");
+    assert!(exclude.lines().any(|line| line == ".factorypath"));
+    assert_eq!(
+        exclude
+            .lines()
+            .filter(|line| *line == ".factorypath")
+            .count(),
+        1
+    );
+
+    let worktree = root.parent().unwrap().join(format!(
+        "{}-linked",
+        root.file_name().unwrap().to_string_lossy()
+    ));
+    assert!(run(&[
+        "worktree",
+        "add",
+        "-b",
+        "feature",
+        worktree.to_str().unwrap()
+    ])
+    .status
+    .success());
+
+    let removed = request(
+        &worktree,
+        "unexcludePatterns",
+        serde_json::json!([".factorypath"]),
+    );
+    assert_eq!(removed["ok"], true, "{removed:?}");
+    let shared_exclude = fs::read_to_string(root.join(".git/info/exclude"))
+        .expect("shared exclude should remain readable");
+    assert!(!shared_exclude.lines().any(|line| line == ".factorypath"));
+    assert!(!worktree.join(".git").join("info/exclude").is_file());
+
+    let missing = request(
+        &worktree,
+        "unexcludePatterns",
+        serde_json::json!([".factorypath"]),
+    );
+    assert_eq!(missing["ok"], true, "{missing:?}");
+
+    let non_git = temporary_root("lithe-exclude-patterns-nongit");
+    fs::create_dir_all(&non_git).expect("temporary non-git directory should be creatable");
+    let rejected = request(
+        &non_git,
+        "excludePatterns",
+        serde_json::json!([".factorypath"]),
+    );
+    assert_eq!(rejected["ok"], false, "{rejected:?}");
+    assert_eq!(rejected["error"]["code"], "invalid_request");
+    assert_eq!(rejected["error"]["message"], "Not a Git repository");
+
+    let _ = Command::new("git")
+        .args(["worktree", "remove", "--force", worktree.to_str().unwrap()])
+        .current_dir(&root)
+        .output();
+    fs::remove_dir_all(root).expect("temporary workspace should be removable");
+    fs::remove_dir_all(non_git).expect("temporary non-git directory should be removable");
+    let _ = fs::remove_dir_all(&worktree);
+}
+
+#[test]
+fn git_write_literal_exclude_patterns_preserve_leading_whitespace_lines() {
+    // A leading space is a different Git ignore rule. Matching must not trim
+    // stored lines, or Add would skip a real `.factorypath` and Remove would
+    // delete a user rule that only looks similar after trim().
+    let root = temporary_root("lithe-exclude-patterns-whitespace");
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    let exclude_path = root.join(".git/info/exclude");
+    fs::create_dir_all(exclude_path.parent().expect("exclude parent should exist"))
+        .expect("git info directory should be creatable");
+    fs::write(&exclude_path, "user rules\n .factorypath\n")
+        .expect("local exclude should be writable");
+
+    let request = |operation: &str, paths: Value| -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::to_string(&serde_json::json!({
+                "id": operation,
+                "command": "git.write",
+                "payload": {"root": root, "operation": operation, "paths": paths}
+            }))
+            .expect("exclude pattern request should encode"),
+        ))
+        .expect("exclude pattern response should be JSON")
+    };
+
+    let added = request("excludePatterns", serde_json::json!([".factorypath"]));
+    assert_eq!(added["ok"], true, "{added:?}");
+    let after_add = fs::read_to_string(&exclude_path).expect("local exclude should be readable");
+    assert!(
+        after_add.lines().any(|line| line == " .factorypath"),
+        "leading-space user rule must be preserved: {after_add:?}"
+    );
+    assert!(
+        after_add.lines().any(|line| line == ".factorypath"),
+        "Add must still append the exact `.factorypath` line: {after_add:?}"
+    );
+    assert_eq!(
+        after_add
+            .lines()
+            .filter(|line| *line == ".factorypath")
+            .count(),
+        1
+    );
+
+    let removed = request("unexcludePatterns", serde_json::json!([".factorypath"]));
+    assert_eq!(removed["ok"], true, "{removed:?}");
+    let after_remove =
+        fs::read_to_string(&exclude_path).expect("local exclude should remain readable");
+    assert!(
+        after_remove.lines().any(|line| line == " .factorypath"),
+        "Remove must not delete a leading-space user rule: {after_remove:?}"
+    );
+    assert!(!after_remove.lines().any(|line| line == ".factorypath"));
+
+    fs::remove_dir_all(root).expect("temporary workspace should be removable");
+}
+
+#[test]
+fn git_write_literal_exclude_patterns_preserve_non_utf8_bytes() {
+    // Unrelated invalid UTF-8 in info/exclude must survive Add/Remove. A
+    // String round-trip would replace 0xff with U+FFFD (ef bf bd).
+    let root = temporary_root("lithe-exclude-patterns-raw-bytes");
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    let exclude_path = root.join(".git/info/exclude");
+    fs::create_dir_all(exclude_path.parent().expect("exclude parent should exist"))
+        .expect("git info directory should be creatable");
+    let unrelated = b"legacy-\xff\n";
+    fs::write(&exclude_path, unrelated).expect("local exclude should be writable");
+
+    let request = |operation: &str, paths: Value| -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::to_string(&serde_json::json!({
+                "id": operation,
+                "command": "git.write",
+                "payload": {"root": root, "operation": operation, "paths": paths}
+            }))
+            .expect("exclude pattern request should encode"),
+        ))
+        .expect("exclude pattern response should be JSON")
+    };
+
+    let added = request("excludePatterns", serde_json::json!([".factorypath"]));
+    assert_eq!(added["ok"], true, "{added:?}");
+    let after_add = fs::read(&exclude_path).expect("local exclude should be readable");
+    assert_eq!(after_add, b"legacy-\xff\n.factorypath\n");
+
+    let removed = request("unexcludePatterns", serde_json::json!([".factorypath"]));
+    assert_eq!(removed["ok"], true, "{removed:?}");
+    let after_remove = fs::read(&exclude_path).expect("local exclude should remain readable");
+    assert_eq!(after_remove, unrelated);
 
     fs::remove_dir_all(root).expect("temporary workspace should be removable");
 }
@@ -1478,11 +1711,13 @@ fn git_worktrees_lists_primary_linked_and_locked_metadata() {
     assert_eq!(worktrees[0]["isCurrent"], true);
     assert_eq!(
         worktrees[1]["path"],
-        destination
-            .canonicalize()
-            .expect("linked worktree should canonicalize")
-            .to_string_lossy()
-            .as_ref()
+        crate::git::simplified_canonical_path(
+            destination
+                .canonicalize()
+                .expect("linked worktree should canonicalize")
+        )
+        .to_string_lossy()
+        .as_ref()
     );
     assert_eq!(worktrees[1]["branch"], "refs/heads/feature/linked");
     assert_eq!(worktrees[1]["isLocked"], true);
@@ -3872,6 +4107,181 @@ fn git_pull_preflight_reports_divergence_and_strategies_resolve_it() {
 }
 
 #[test]
+fn git_write_updates_a_noncurrent_branch_without_switching_head() {
+    let root = temporary_root("git-update-noncurrent-branch");
+    let remote = root.join("remote.git");
+    let seed = root.join("seed");
+    let work = root.join("work");
+    fs::create_dir_all(&seed).expect("seed repository should be creatable");
+    fs::create_dir_all(&work).expect("work repository should be creatable");
+    let git = |directory: &Path, arguments: &[&str]| history_git(directory, arguments);
+
+    assert!(git(
+        &root,
+        &["init", "--bare", "-q", remote.to_string_lossy().as_ref()]
+    )
+    .status
+    .success());
+    assert!(git(&seed, &["init", "-q", "-b", "main"]).status.success());
+    assert!(git(&seed, &["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(git(&seed, &["config", "user.name", "Lithe Test"])
+        .status
+        .success());
+    fs::write(seed.join("base.txt"), "base\n").expect("base file should be writable");
+    assert!(git(&seed, &["add", "."]).status.success());
+    assert!(git(&seed, &["commit", "-qm", "base"]).status.success());
+    assert!(git(&seed, &["switch", "-c", "feature/core"])
+        .status
+        .success());
+    fs::write(seed.join("feature.txt"), "one\n").expect("feature file should be writable");
+    assert!(git(&seed, &["add", "."]).status.success());
+    assert!(git(&seed, &["commit", "-qm", "feature one"])
+        .status
+        .success());
+    assert!(git(
+        &seed,
+        &[
+            "remote",
+            "add",
+            "team/origin",
+            remote.to_string_lossy().as_ref()
+        ]
+    )
+    .status
+    .success());
+    assert!(git(
+        &seed,
+        &["push", "-q", "team/origin", "main", "feature/core"]
+    )
+    .status
+    .success());
+
+    assert!(git(&work, &["init", "-q"]).status.success());
+    assert!(git(
+        &work,
+        &[
+            "remote",
+            "add",
+            "team/origin",
+            remote.to_string_lossy().as_ref()
+        ]
+    )
+    .status
+    .success());
+    assert!(git(&work, &["fetch", "-q", "team/origin"]).status.success());
+    assert!(git(
+        &work,
+        &[
+            "switch",
+            "-c",
+            "main",
+            "--track",
+            "refs/remotes/team/origin/main"
+        ]
+    )
+    .status
+    .success());
+    assert!(git(
+        &work,
+        &[
+            "branch",
+            "feature/core",
+            "refs/remotes/team/origin/feature/core"
+        ]
+    )
+    .status
+    .success());
+    assert!(git(
+        &work,
+        &[
+            "branch",
+            "--set-upstream-to=refs/remotes/team/origin/feature/core",
+            "feature/core"
+        ]
+    )
+    .status
+    .success());
+
+    fs::write(seed.join("feature.txt"), "one\ntwo\n").expect("feature file should be writable");
+    assert!(git(&seed, &["add", "."]).status.success());
+    assert!(git(&seed, &["commit", "-qm", "feature two"])
+        .status
+        .success());
+    assert!(git(&seed, &["push", "-q", "team/origin", "feature/core"])
+        .status
+        .success());
+
+    let previous_feature = git_text(&work, &["rev-parse", "refs/heads/feature/core"]);
+    let remote_feature = git_text(&seed, &["rev-parse", "refs/heads/feature/core"]);
+    let response = git_write_request(
+        &work,
+        "updateBranch",
+        serde_json::json!({
+            "gitReference": {
+                "fullName": "refs/heads/feature/core",
+                "shortName": "feature/core",
+                "kind": "local"
+            }
+        }),
+    );
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(response["data"]["exitCode"], 0, "{response}");
+    assert_eq!(git_text(&work, &["branch", "--show-current"]), "main");
+    assert_ne!(previous_feature, remote_feature);
+    assert_eq!(
+        git_text(&work, &["rev-parse", "refs/heads/feature/core"]),
+        remote_feature
+    );
+    assert_eq!(
+        git_text(
+            &work,
+            &["rev-parse", "refs/remotes/team/origin/feature/core"]
+        ),
+        remote_feature
+    );
+
+    let current = git_write_request(
+        &work,
+        "updateBranch",
+        serde_json::json!({
+            "gitReference": {
+                "fullName": "refs/heads/main",
+                "shortName": "main",
+                "kind": "local"
+            }
+        }),
+    );
+    assert_eq!(current["ok"], true, "{current}");
+    assert_eq!(current["data"]["operationError"]["code"], "invalid_request");
+    assert_eq!(git_text(&work, &["branch", "--show-current"]), "main");
+
+    // A detached HEAD still permits updating another local branch; only the
+    // selected branch itself is disallowed because it would be the current ref.
+    assert!(git(&work, &["switch", "--detach", "refs/heads/main"])
+        .status
+        .success());
+    let detached = git_write_request(
+        &work,
+        "updateBranch",
+        serde_json::json!({
+            "gitReference": {
+                "fullName": "refs/heads/feature/core",
+                "shortName": "feature/core",
+                "kind": "local"
+            }
+        }),
+    );
+    assert_eq!(detached["ok"], true, "{detached}");
+    assert_eq!(detached["data"]["exitCode"], 0, "{detached}");
+    assert_eq!(git_text(&work, &["branch", "--show-current"]), "");
+
+    fs::remove_dir_all(root).expect("Git fixture should be removable");
+}
+
+#[test]
 fn explicit_pull_resolves_nested_remote_and_branch_names_against_bare_remote() {
     let root = temporary_root("git-pull-nested-ref");
     let source = root.join("source");
@@ -4342,10 +4752,12 @@ fn history_write(root: &Path, overrides: Value) -> Value {
         .get("revisions")
         .cloned()
         .unwrap_or_else(|| serde_json::json!([payload["revision"].clone()]));
+    // A reviewed rewrite starts several real Git processes. Windows runners can
+    // exceed five seconds; keep each request bounded below the 15-second test watchdog.
     let preview: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
             "id": "history-write-preview",
-            "timeoutMilliseconds": 5_000,
+            "timeoutMilliseconds": 10_000,
             "command": "git.historyRewritePreview",
             "payload": {"root": root, "operation": payload["operation"], "revisions": revisions}
         })
@@ -4357,7 +4769,7 @@ fn history_write(root: &Path, overrides: Value) -> Value {
     serde_json::from_str(&execute_json(
         &serde_json::to_string(&serde_json::json!({
             "id": "history-write",
-            "timeoutMilliseconds": 5_000,
+            "timeoutMilliseconds": 10_000,
             "command": "git.write",
             "payload": payload
         }))

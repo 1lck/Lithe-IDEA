@@ -280,8 +280,19 @@ enum EditorCaretGeometry {
         while index >= 0 {
             let character = source.character(at: index)
             if character == 10 || character == 13 {
-                index -= 1
-                continue
+                // CRLF is one logical line ending. When the caret location is
+                // the LF code unit, skip its paired CR and keep the visible
+                // content anchor; a preceding standalone line ending marks an
+                // empty line and must stop the scan.
+                if character == 13, index + 1 == location,
+                   index + 1 < source.length, source.character(at: index + 1) == 10 {
+                    index -= 1
+                    continue
+                }
+                // Stop at the previous line ending. For an empty line, using
+                // content from the preceding line places the caret one line
+                // too high when clicking that line.
+                return nil
             }
             return index
         }
@@ -677,6 +688,8 @@ struct CodeEditorView: NSViewRepresentable {
         Coordinator(
             document: document,
             model: model,
+            isDarkAppearance: colorScheme == .dark,
+            colorTheme: settings.colorTheme,
             markdownScrollPosition: markdownScrollPosition,
             viewportStore: viewportStore
         )
@@ -842,8 +855,6 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.debugInlineValueOverlay = DebugInlineValueOverlayController(
             textView: textView
         )
-        context.coordinator.isDarkAppearance = palette.isDark
-        context.coordinator.colorTheme = settings.colorTheme
         context.coordinator.highlight()
         textView.updateCaretDecorations()
         context.coordinator.scheduleFoldRefresh(useDefaultImportFold: true)
@@ -912,15 +923,8 @@ struct CodeEditorView: NSViewRepresentable {
         if textView.string != document.text,
            !textView.hasMarkedText(),
            !context.coordinator.isApplyingEditorChange {
-            let selection = textView.selectedRange()
-            textView.string = document.text
-            (textView as? CodeTextView)?.rebuildLineIndex()
-            container.gutter?.refreshLineNumberLayout()
-            textView.setSelectedRange(NSRange(location: min(selection.location, document.text.utf16.count), length: 0))
-            context.coordinator.resetHighlightCache()
-            context.coordinator.highlight()
-            (textView as? CodeTextView)?.updateEditorDecorations()
-            container.gutter?.needsDisplay = true
+            context.coordinator.replaceText(document.text)
+            context.coordinator.scheduleFoldRefresh()
             textChanged = true
         }
         if appearanceChanged {
@@ -963,8 +967,8 @@ struct CodeEditorView: NSViewRepresentable {
         var codeVisionOverlay: CodeVisionOverlayController?
         var debugInlineValueOverlay: DebugInlineValueOverlayController?
         var isApplyingEditorChange = false
-        var isDarkAppearance = true
-        var colorTheme: AppColorTheme = .lithe
+        var isDarkAppearance: Bool
+        var colorTheme: AppColorTheme
         var shouldFocus = true
         var markdownScrollPosition: Binding<MarkdownScrollPosition>?
         private struct CodeVisionInputKey: Equatable {
@@ -978,6 +982,7 @@ struct CodeEditorView: NSViewRepresentable {
         var appliedNavigationTargetID: UUID?
         var foldRegions: [JavaFoldRegion] = []
         var collapsedFoldIDs: Set<String> = []
+        private var collapsedFoldIDsBeforeTextReplacement: Set<String> = []
         var implementationMarkers: [JavaImplementationMarker] = []
         var lastFindVisible = false
         var lastFindQuery = ""
@@ -991,7 +996,7 @@ struct CodeEditorView: NSViewRepresentable {
         private var documentChangeTask: Task<Void, Never>?
         private var caretUpdateTask: Task<Void, Never>?
         private var findStateUpdateTask: Task<Void, Never>?
-        private var highlightedRanges = HighlightedRangeCache()
+        private var syntaxHighlightState = EditorSyntaxHighlightState()
         private var appliedFontSize: CGFloat?
         private var appliedTabWidth: Int?
         private var appliedLanguageFeatures: LanguageServerFeatureSet?
@@ -1032,11 +1037,15 @@ struct CodeEditorView: NSViewRepresentable {
         init(
             document: EditorDocument,
             model: AppModel,
+            isDarkAppearance: Bool,
+            colorTheme: AppColorTheme,
             markdownScrollPosition: Binding<MarkdownScrollPosition>?,
             viewportStore: EditorViewportStore
         ) {
             self.document = document
             self.model = model
+            self.isDarkAppearance = isDarkAppearance
+            self.colorTheme = colorTheme
             self.markdownScrollPosition = markdownScrollPosition
             self.viewportStore = viewportStore
             fileName = document.url.lastPathComponent
@@ -1302,10 +1311,13 @@ struct CodeEditorView: NSViewRepresentable {
             guard document?.isReadOnly != true else { return }
             let codeTextView = textView as? CodeTextView
             let previousSource = document?.text
-            if let replacedRange = pendingReplacedRange, let replacement = pendingReplacement {
-                codeTextView?.applyLineIndexEdit(replacedRange: replacedRange, replacement: replacement)
-            } else {
+            let replacesWholeText = pendingReplacedRange == nil || pendingReplacement == nil
+                || (pendingReplacedRange?.location == 0 && pendingReplacedRange?.length == previousSource?.utf16.count)
+            if replacesWholeText {
                 codeTextView?.rebuildLineIndex()
+                invalidateStructureForTextReplacement()
+            } else if let replacedRange = pendingReplacedRange, let replacement = pendingReplacement {
+                codeTextView?.applyLineIndexEdit(replacedRange: replacedRange, replacement: replacement)
             }
             gutter?.refreshLineNumberLayout()
             isApplyingEditorChange = true
@@ -1461,52 +1473,72 @@ struct CodeEditorView: NSViewRepresentable {
             guard let textView, let textStorage = textView.textStorage else { return }
             let fullRange = NSRange(location: 0, length: textStorage.length)
             let font = textView.font ?? LitheTheme.editorFont(size: 13)
+            let isJava = fileExtension.lowercased() == "java"
             if let editedRange {
-                highlightedRanges.applyEdit(
+                syntaxHighlightState.applyEdit(
                     replacedRange: NSRange(
                         location: editedRange.location,
                         length: replacedLength ?? editedRange.length
                     ),
-                    replacementLength: editedRange.length
+                    replacementLength: editedRange.length,
+                    isJava: isJava
                 )
-                let target = SyntaxHighlighter.targetRange(
-                    for: editedRange,
-                    in: textStorage.string as NSString,
-                    limit: fullRange
-                )
-                SyntaxHighlighter.applyExact(
-                    to: textStorage,
-                    font: font,
-                    fileName: fileName,
-                    fileExtension: fileExtension,
-                    isDark: isDarkAppearance,
-                    range: target
-                )
-                highlightedRanges.insert(target)
-                return
             }
             let visible = (textView as? CodeTextView)?.visibleCharacterRange()
                 ?? NSRange(location: 0, length: min(8_192, textStorage.length))
+            // Java edits invalidate the semantic snapshot for the whole view.
+            // Paint only the current viewport while fresh structure is pending.
             let target = SyntaxHighlighter.targetRange(
-                for: visible,
+                for: isJava ? visible : (editedRange ?? visible),
                 in: textStorage.string as NSString,
                 limit: fullRange
             )
-            for range in highlightedRanges.uncoveredRanges(in: target) {
-                SyntaxHighlighter.applyExact(
-                    to: textStorage,
-                    font: font,
-                    fileName: fileName,
-                    fileExtension: fileExtension,
-                    isDark: isDarkAppearance,
-                    range: range
+            let ranges = (textView as? CodeTextView)?.unfoldedRanges(in: target) ?? [target]
+            for range in ranges {
+                syntaxHighlightState.apply(
+                    to: textStorage, font: font, fileName: fileName,
+                    fileExtension: fileExtension, isDark: isDarkAppearance, range: range,
+                    force: editedRange != nil && !isJava
                 )
-                highlightedRanges.insert(range)
             }
         }
 
-        func resetHighlightCache() {
-            highlightedRanges.removeAll()
+        func resetHighlightCache(textChanged: Bool = false) {
+            if textChanged {
+                syntaxHighlightState.invalidateText()
+            } else {
+                syntaxHighlightState.invalidateAppearance()
+            }
+        }
+
+        func replaceText(_ source: String) {
+            guard let textView else { return }
+            let selection = textView.selectedRange()
+            textView.string = source
+            (textView as? CodeTextView)?.rebuildLineIndex()
+            invalidateStructureForTextReplacement()
+            highlight()
+            gutter?.refreshLineNumberLayout()
+            textView.setSelectedRange(NSRange(location: min(selection.location, source.utf16.count), length: 0))
+            (textView as? CodeTextView)?.updateEditorDecorations()
+            gutter?.needsDisplay = true
+        }
+
+        private func invalidateStructureForTextReplacement() {
+            foldRefreshTask?.cancel()
+            javaMarkerRefreshTask?.cancel()
+            // Retain only the user's fold choices until fresh structure validates
+            // them. Both model-driven replacements and native whole-buffer edits
+            // must stop old offsets from hiding or excluding the new text.
+            collapsedFoldIDsBeforeTextReplacement.formUnion(collapsedFoldIDs)
+            let hadFoldState = !foldRegions.isEmpty || !collapsedFoldIDs.isEmpty || !implementationMarkers.isEmpty
+            foldRegions = []
+            collapsedFoldIDs = []
+            implementationMarkers = []
+            resetHighlightCache(textChanged: true)
+            if hadFoldState {
+                updateFoldPresentation()
+            }
         }
 
         func primeJavaImportFold(_ region: JavaFoldRegion) {
@@ -1517,15 +1549,19 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         func scheduleFoldRefresh(useDefaultImportFold: Bool = false) {
-            scheduleJavaNavigationMarkerRefresh()
             foldRefreshTask?.cancel()
+            guard fileExtension.lowercased() == "java" else {
+                clearJavaStructure()
+                return
+            }
+            scheduleJavaNavigationMarkerRefresh()
             foldRefreshTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .milliseconds(80))
                 guard !Task.isCancelled,
                       let self,
                       let document = self.document,
                       let textView = self.textView as? CodeTextView else { return }
-                guard self.fileExtension.lowercased() == "java", let model = self.model else {
+                guard let model = self.model else {
                     self.clearJavaStructure()
                     return
                 }
@@ -1592,27 +1628,32 @@ struct CodeEditorView: NSViewRepresentable {
             }
             foldRegions = structure.foldRegions
             let availableIDs = Set(foldRegions.map(\.id))
+            collapsedFoldIDs.formUnion(collapsedFoldIDsBeforeTextReplacement)
+            collapsedFoldIDsBeforeTextReplacement = []
             collapsedFoldIDs.formIntersection(availableIDs)
             if useDefaultImportFold,
                let imports = foldRegions.first(where: { $0.kind == .imports }) {
                 collapsedFoldIDs.insert(imports.id)
             }
-            if let textStorage = textView?.textStorage {
-                SyntaxHighlighter.applyJavaSemanticHighlights(
-                    structure.syntaxHighlights,
-                    to: textStorage,
-                    isDark: isDarkAppearance
-                )
-            }
+            syntaxHighlightState.replaceJavaHighlights(
+                structure.syntaxHighlights, documentLength: textView?.textStorage?.length ?? 0
+            )
             applyFoldState()
         }
 
         private func clearJavaStructure() {
+            collapsedFoldIDsBeforeTextReplacement = []
+            let isJava = fileExtension.lowercased() == "java"
+            if isJava {
+                syntaxHighlightState.invalidateText()
+            }
             if !foldRegions.isEmpty || !collapsedFoldIDs.isEmpty || !implementationMarkers.isEmpty {
                 foldRegions = []
                 collapsedFoldIDs = []
                 implementationMarkers = []
                 applyFoldState()
+            } else if isJava {
+                highlight()
             }
         }
 
@@ -1626,6 +1667,11 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         private func applyFoldState() {
+            updateFoldPresentation()
+            highlight()
+        }
+
+        private func updateFoldPresentation() {
             (textView as? CodeTextView)?.updateFolds(
                 regions: foldRegions,
                 collapsedIDs: collapsedFoldIDs,
@@ -2140,7 +2186,9 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     private var trackingArea: NSTrackingArea?
     private var hoveredFoldID: String?
     private var lineIndex = TextLineIndex(source: "" as NSString)
-    nonisolated(unsafe) private var windowResignObserver: NSObjectProtocol?
+    private var collapsedRanges = HighlightedRangeCache()
+    private var foldAttributesNeedRefresh = true
+    private var hasInputFocus = false
     private var caretVisible = true
     private var caretPresentationGeneration = 0
 
@@ -2237,6 +2285,10 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     }
 
     override func updateInsertionPointStateAndRestartTimer(_ restartFlag: Bool) {
+        guard hasInputFocus, window?.isKeyWindow == true else {
+            stopCaretBlinking()
+            return
+        }
         guard restartFlag else { return }
         caretPresentationGeneration &+= 1
         let generation = caretPresentationGeneration
@@ -2249,13 +2301,23 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     }
 
     private func startCaretBlinking(for generation: Int) {
-        guard generation == caretPresentationGeneration else { return }
+        guard generation == caretPresentationGeneration,
+              hasInputFocus, window?.isKeyWindow == true else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(500)) { [weak self] in
-            guard let self, generation == self.caretPresentationGeneration else { return }
+            guard let self, generation == self.caretPresentationGeneration,
+                  self.hasInputFocus, self.window?.isKeyWindow == true else { return }
             self.caretVisible.toggle()
             self.needsDisplay = true
             self.startCaretBlinking(for: generation)
         }
+    }
+
+    private func stopCaretBlinking() {
+        // Invalidate queued blink callbacks and erase the last painted caret
+        // immediately, even if the terminal receives no further shell output.
+        caretPresentationGeneration &+= 1
+        caretVisible = false
+        needsDisplay = true
     }
 
     override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn _: Bool) {
@@ -2286,14 +2348,34 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     }
 
     func rebuildLineIndex() {
+        foldAttributesNeedRefresh = true
         lineIndex = TextLineIndex(source: string as NSString)
     }
 
     func applyLineIndexEdit(replacedRange: NSRange, replacement: String) {
-        if replacement.contains("\n") || replacement.contains("\r")
-            || !lineIndex.applySingleLineEdit(replacedRange: replacedRange, insertedLength: (replacement as NSString).length) {
-            rebuildLineIndex()
+        let insertedLength = (replacement as NSString).length
+        // Equal-length edits outside folds leave their temporary attributes intact.
+        // Offset-changing edits remain dirty: several edits can shift attributes
+        // before one parse returns, even if their net change restores old geometry.
+        let touchesFold = collapsedRanges.contains(replacedRange.location)
+            || collapsedRanges.intersects(replacedRange)
+        let shiftsFold = insertedLength != replacedRange.length
+            && collapsedRanges.ranges.last.map { replacedRange.location < NSMaxRange($0) } == true
+        if touchesFold || shiftsFold {
+            foldAttributesNeedRefresh = true
         }
+        if replacement.contains("\n") || replacement.contains("\r")
+            || !lineIndex.applySingleLineEdit(replacedRange: replacedRange, insertedLength: insertedLength) {
+            lineIndex = TextLineIndex(source: string as NSString)
+        }
+    }
+
+    func isCharacterHiddenByFold(_ location: Int) -> Bool {
+        collapsedRanges.contains(location)
+    }
+
+    func unfoldedRanges(in range: NSRange) -> [NSRange] {
+        collapsedRanges.uncoveredRanges(in: range)
     }
 
     func visibleCharacterRange() -> NSRange? {
@@ -2688,10 +2770,23 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
            !collapsedIDs.contains(hoveredFoldID) {
             self.hoveredFoldID = nil
         }
+        let length = (string as NSString).length
+        let nextRanges = HighlightedRangeCache(ranges: regions.compactMap { region in
+            let range = region.hiddenRange
+            guard collapsedIDs.contains(region.id), range.location >= 0,
+                  range.location <= length, range.length > 0,
+                  range.length <= length - range.location else { return nil }
+            return range
+        })
+        let geometryChanged = collapsedRanges.ranges != nextRanges.ranges
+        collapsedRanges = nextRanges
+        needsDisplay = true
+        guard geometryChanged || foldAttributesNeedRefresh else { return }
+        guard let layoutManager else { return }
+        foldAttributesNeedRefresh = false
         applyFoldAttributes()
         applyUnusedCodeFade()
         applyCollapsedFoldForeground()
-        guard let layoutManager else { return }
         let fullRange = NSRange(location: 0, length: string.utf16.count)
         layoutManager.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
         if let textContainer {
@@ -2706,12 +2801,11 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         layoutManager.removeTemporaryAttribute(.font, forCharacterRange: fullRange)
         layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: fullRange)
         layoutManager.removeTemporaryAttribute(.paragraphStyle, forCharacterRange: fullRange)
-        for region in foldRegions where collapsedFoldIDs.contains(region.id) {
-            guard NSMaxRange(region.hiddenRange) <= fullRange.length else { continue }
+        for range in collapsedRanges.ranges {
             layoutManager.addTemporaryAttribute(
                 .font,
                 value: NSFont.monospacedSystemFont(ofSize: 0.1, weight: .regular),
-                forCharacterRange: region.hiddenRange
+                forCharacterRange: range
             )
             let collapsedParagraph = NSMutableParagraphStyle()
             collapsedParagraph.minimumLineHeight = 0.1
@@ -2720,21 +2814,19 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
             layoutManager.addTemporaryAttribute(
                 .paragraphStyle,
                 value: collapsedParagraph,
-                forCharacterRange: region.hiddenRange
+                forCharacterRange: range
             )
         }
     }
 
     private func applyCollapsedFoldForeground() {
         guard let layoutManager else { return }
-        let fullLength = string.utf16.count
-        for region in foldRegions where collapsedFoldIDs.contains(region.id) {
-            guard region.hiddenRange.location >= 0,
-                  NSMaxRange(region.hiddenRange) <= fullLength else { continue }
+        for range in collapsedRanges.ranges {
+            guard NSMaxRange(range) <= (string as NSString).length else { continue }
             layoutManager.addTemporaryAttribute(
                 .foregroundColor,
                 value: NSColor.clear,
-                forCharacterRange: region.hiddenRange
+                forCharacterRange: range
             )
         }
     }
@@ -2771,10 +2863,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         forGlyphRange glyphRange: NSRange
     ) -> Bool {
         let characterRange = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
-        let isCollapsedLine = collapsedFoldIDs.contains(where: { id in
-            guard let region = foldRegions.first(where: { $0.id == id }) else { return false }
-            return NSLocationInRange(characterRange.location, region.hiddenRange)
-        })
+        let isCollapsedLine = isCharacterHiddenByFold(characterRange.location)
 
         if isCollapsedLine {
             lineFragmentRect.pointee.size.height = 0
@@ -3083,6 +3172,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     private func drawCaret() {
         guard caretVisible,
               window?.firstResponder === self,
+              window?.isKeyWindow == true,
               selectedRange().length == 0,
               let layoutManager,
               let textContainer else { return }
@@ -3153,23 +3243,23 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if let windowResignObserver {
-            NotificationCenter.default.removeObserver(windowResignObserver)
-            self.windowResignObserver = nil
-        }
-        if let window {
-            windowResignObserver = NotificationCenter.default.addObserver(
-                forName: NSWindow.didResignKeyNotification,
-                object: window,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.clearLinkHighlight()
-                }
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            NotificationCenter.default.removeObserver(self, name: name, object: nil)
+            if let window {
+                NotificationCenter.default.addObserver(
+                    self, selector: #selector(windowFocusDidChange), name: name, object: window
+                )
             }
         }
+        if window == nil { hasInputFocus = false }
+        windowFocusDidChange()
         updateTrackingAreas()
         onWindowAttached?()
+    }
+
+    @objc private func windowFocusDidChange() {
+        if window?.isKeyWindow != true { clearLinkHighlight() }
+        updateInsertionPointStateAndRestartTimer(true)
     }
 
     override func flagsChanged(with event: NSEvent) {
@@ -3263,12 +3353,18 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         updateFoldHover(to: nil)
         clearLinkHighlight()
         clearDebugHover()
-        return super.resignFirstResponder()
+        let resigned = super.resignFirstResponder()
+        if resigned {
+            hasInputFocus = false
+            stopCaretBlinking()
+        }
+        return resigned
     }
 
     override func becomeFirstResponder() -> Bool {
         let becameFirstResponder = super.becomeFirstResponder()
         if becameFirstResponder {
+            hasInputFocus = true
             updateInsertionPointStateAndRestartTimer(true)
         }
         return becameFirstResponder
@@ -3966,9 +4062,6 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
-        if let windowResignObserver {
-            NotificationCenter.default.removeObserver(windowResignObserver)
-        }
     }
 
     @objc private func handleFindQueryChanged(_ notification: Notification) {
@@ -4111,6 +4204,7 @@ final class LineNumberGutterView: NSView {
     private var onUnstageGitLineChange: ((GitLineChangeMarker) -> Void)?
     private var onDiscardGitLineChange: ((GitLineChangeMarker) -> Void)?
     private var contextGitLineChange: GitLineChangeMarker?
+    private var foldsByStartLine: [Int: [JavaFoldRegion]] = [:]
     private var gutterLayout = EditorGutterLayout(lineNumberTextWidth: 0)
 
     private var editorGutterOriginX: CGFloat {
@@ -4230,13 +4324,15 @@ final class LineNumberGutterView: NSView {
         onToggle: @escaping (JavaFoldRegion) -> Void
     ) {
         foldRegions = regions
+        foldsByStartLine = Dictionary(grouping: regions, by: \.startLine)
+        let availableIDs = Set(regions.map(\.id))
         collapsedFoldIDs = collapsedIDs
         onToggleFold = onToggle
         foldIndicatorOpacities = foldIndicatorOpacities.filter { opacity in
-            regions.contains { $0.id == opacity.key }
+            availableIDs.contains(opacity.key)
         }
         if let hoveredFoldID,
-           !regions.contains(where: { $0.id == hoveredFoldID }) {
+           !availableIDs.contains(hoveredFoldID) {
             self.hoveredFoldID = nil
         }
         animateFoldIndicators()
@@ -4475,11 +4571,11 @@ final class LineNumberGutterView: NSView {
                 .reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
         var lineNumber = firstLine + 1
         let maxGlyph = min(NSMaxRange(glyphRange), layoutManager.numberOfGlyphs)
-        let hiddenLines = EditorFoldVisibility.hiddenLines(
+        let hiddenLines = codeTextView == nil ? EditorFoldVisibility.hiddenLines(
             in: text,
             regions: foldRegions,
             collapsedIDs: collapsedFoldIDs
-        )
+        ) : []
 
         while glyphIndex < maxGlyph {
             let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
@@ -4488,7 +4584,8 @@ final class LineNumberGutterView: NSView {
             let lineGlyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
             let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
             let y = lineRect.minY + textView.textContainerOrigin.y - visibleRect.minY
-            let isCollapsedHiddenLine = hiddenLines.contains(lineNumber - 1)
+            let isCollapsedHiddenLine = codeTextView?.isCharacterHiddenByFold(lineRange.location)
+                ?? hiddenLines.contains(lineNumber - 1)
             if isCollapsedHiddenLine {
                 let nextGlyph = NSMaxRange(lineGlyphRange)
                 glyphIndex = nextGlyph > glyphIndex ? nextGlyph : glyphIndex + 1
@@ -4551,18 +4648,17 @@ final class LineNumberGutterView: NSView {
                 drawGitLineChange(marker, y: y, height: lineRect.height)
             }
             drawLineNumber(lineNumber, y: y, height: lineRect.height)
+            // This loop has already excluded hidden and offscreen lines. Reuse
+            // its geometry instead of scanning all folds and their parents.
+            for region in foldsByStartLine[lineNumber - 1] ?? [] {
+                drawFoldIndicator(region, y: y, height: max(lineRect.height, 16))
+            }
 
             let nextGlyph = NSMaxRange(lineGlyphRange)
             glyphIndex = nextGlyph > glyphIndex ? nextGlyph : glyphIndex + 1
             lineNumber += 1
         }
 
-        drawFoldIndicators(
-            in: foldRegions,
-            source: text,
-            visibleRect: visibleRect,
-            layoutManager: layoutManager
-        )
         drawEditorDivider(in: dirtyRect)
     }
 
@@ -4582,33 +4678,6 @@ final class LineNumberGutterView: NSView {
             width: 1,
             height: dirtyRect.height
         ).fill()
-    }
-
-    private func drawFoldIndicators(
-        in regions: [JavaFoldRegion],
-        source: NSString,
-        visibleRect: NSRect,
-        layoutManager: NSLayoutManager
-    ) {
-        guard !regions.isEmpty else { return }
-        for region in regions {
-            let isHiddenByParent = regions.contains { parent in
-                parent.id != region.id &&
-                    collapsedFoldIDs.contains(parent.id) &&
-                    region.startLine > parent.startLine &&
-                    region.startLine <= parent.endLine
-            }
-            guard !isHiddenByParent else { continue }
-
-            let characterIndex = characterOffset(forLine: region.startLine, in: source)
-            guard characterIndex < source.length else { continue }
-            let glyphIndex = layoutManager.glyphIndexForCharacter(at: characterIndex)
-            guard glyphIndex < layoutManager.numberOfGlyphs else { continue }
-            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
-            let y = lineRect.minY + (textView?.textContainerOrigin.y ?? 0) - visibleRect.minY
-            guard y + lineRect.height >= 0, y <= bounds.height else { continue }
-            drawFoldIndicator(region, y: y, height: max(lineRect.height, 16))
-        }
     }
 
     private func drawLineNumber(_ number: Int, y: CGFloat, height: CGFloat) {
@@ -5009,7 +5078,7 @@ final class LineNumberGutterView: NSView {
         let source = textView.string as NSString
         let line = (textView as? CodeTextView)?.lineNumber(at: characterIndex, in: source)
             ?? source.substring(to: min(characterIndex, source.length)).reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
-        return foldRegions.first(where: { $0.startLine == line })
+        return foldsByStartLine[line]?.first
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -5652,6 +5721,38 @@ private final class CodeVisionLinkButton: NSButton {
 
 struct HighlightedRangeCache {
     private(set) var ranges: [NSRange] = []
+
+    init(ranges: [NSRange] = []) {
+        for range in ranges.filter({ $0.length > 0 }).sorted(by: { $0.location < $1.location }) {
+            if let last = self.ranges.last, NSMaxRange(last) >= range.location {
+                self.ranges[self.ranges.count - 1] = NSUnionRange(last, range)
+            } else {
+                self.ranges.append(range)
+            }
+        }
+    }
+
+    func contains(_ location: Int) -> Bool {
+        let index = firstRangeEnding(after: location)
+        return index < ranges.count && NSLocationInRange(location, ranges[index])
+    }
+
+    func intersects(_ range: NSRange) -> Bool {
+        guard range.length > 0 else { return false }
+        let index = firstRangeEnding(after: range.location)
+        return index < ranges.count && ranges[index].location < NSMaxRange(range)
+    }
+
+    private func firstRangeEnding(after location: Int) -> Int {
+        var lower = 0
+        var upper = ranges.count
+        while lower < upper {
+            let middle = lower + (upper - lower) / 2
+            if NSMaxRange(ranges[middle]) <= location { lower = middle + 1 }
+            else { upper = middle }
+        }
+        return lower
+    }
 
     mutating func insert(_ range: NSRange) {
         guard range.length > 0 else { return }

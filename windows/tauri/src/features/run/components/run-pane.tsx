@@ -14,7 +14,17 @@ import {
   StopIcon,
   TrashIcon,
   WarningIcon,
+  DotsThreeIcon,
 } from "@/ui/icons";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/ui/dropdown";
 import { Spinner } from "@/ui/spinner";
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
@@ -30,6 +40,7 @@ import { RunConfigurationEditor } from "./run-configuration-editor";
 import { RunConfigurationListSplit } from "./run-configuration-list-split";
 import { JavaCupIcon, RunIcon } from "./run-icon";
 import { RunOutputText } from "./run-output-text";
+import { useRunPreferencesStore } from "../stores/run-preferences.store";
 
 export default function RunPane() {
   const { t } = useTranslation();
@@ -60,7 +71,11 @@ export default function RunPane() {
   const discoveredRuntimes = useRunStore((state) => state.discoveredRuntimes);
   const globalToolchain = useRunStore((state) => state.globalToolchain);
   const actions = useRunStore((state) => state.actions);
+  const selectedServiceIDsByWorkspace = useRunPreferencesStore((state) => state.selectedServiceIDsByWorkspace);
+  const setSelectedServiceIDs = useRunPreferencesStore((state) => state.actions.setSelectedServiceIDs);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [selectedServiceIDs, setSelectedServiceIDsLocal] = useState<string[]>([]);
+  const [otherConfigurationsCollapsed, setOtherConfigurationsCollapsed] = useState(true);
 
   useEffect(() => {
     void ensureRunProcessListeners();
@@ -76,6 +91,8 @@ export default function RunPane() {
     () => configurationsForExecution(configurations, "application"),
     [configurations],
   );
+  const tasks = useMemo(() => configurationsForExecution(configurations, "task"), [configurations]);
+  const otherConfigurations = useMemo(() => [...applications, ...tasks], [applications, tasks]);
   const selectedConfiguration =
     configurations.find((configuration) => configuration.id === selectedConfigurationId) ?? null;
   const selectedSession = sessions.find((session) => session.id === selectedSessionId);
@@ -93,13 +110,39 @@ export default function RunPane() {
   const currentFile = activeFilePath && rootFolderPath
     ? workspaceRelativePath(rootFolderPath, activeFilePath)
     : undefined;
+  useEffect(() => {
+    if (!rootFolderPath || services.length === 0) {
+      setSelectedServiceIDsLocal([]);
+      return;
+    }
+    const saved = selectedServiceIDsByWorkspace[rootFolderPath];
+    if (saved !== undefined) {
+      setSelectedServiceIDsLocal(saved.filter((id) => services.some((service) => service.id === id)));
+      return;
+    }
+    setSelectedServiceIDsLocal(services.slice(0, 1).map((service) => service.id));
+  }, [rootFolderPath, selectedServiceIDsByWorkspace, services]);
+
+  const updateSelectedServices = (ids: string[]) => {
+    setSelectedServiceIDsLocal(ids);
+    if (rootFolderPath) setSelectedServiceIDs(rootFolderPath, ids);
+  };
+  const runSelectedServices = () => {
+    const ids = selectedServiceIDs.length > 0 ? selectedServiceIDs : services.map((service) => service.id);
+    ids.forEach((id) => void actions.runConfiguration(id, currentFile));
+  };
+  const runAllServices = () => {
+    services.forEach((service) => void actions.runConfiguration(service.id, currentFile));
+  };
 
   const runSelected = () => {
     if (isSelectedRunning) {
       void actions.stop(selectedSession?.id);
       return;
     }
-    const configuration = selectedConfiguration ?? applications[0] ?? services[0];
+    const configuration = selectedConfiguration?.execution === "group"
+      ? applications[0] ?? services[0]
+      : selectedConfiguration ?? applications[0] ?? services[0];
     if (!configuration || !rootFolderPath) return;
     void actions.runConfiguration(configuration.id, currentFile);
   };
@@ -124,6 +167,38 @@ export default function RunPane() {
             {isSelectedRunning ? <StopIcon className="text-warning" /> : <PlayIcon className="text-success" />}
           </Button>
         </Tooltip>
+        {services.length > 0 ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={<Button variant="ghost" size="icon-xs" disabled={isLoading || isGenerating} aria-label={t("run.chooseServices")} />}
+            >
+              <DotsThreeIcon />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>{t("run.services")}</DropdownMenuLabel>
+              {services.map((service) => (
+                <DropdownMenuCheckboxItem
+                  key={service.id}
+                  checked={selectedServiceIDs.includes(service.id)}
+                  onCheckedChange={(checked) =>
+                    updateSelectedServices(
+                      checked
+                        ? [...selectedServiceIDs, service.id]
+                        : selectedServiceIDs.filter((id) => id !== service.id),
+                    )
+                  }
+                >
+                  {service.name}
+                </DropdownMenuCheckboxItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem disabled={isLoading || isGenerating || selectedServiceIDs.length === 0} onClick={runSelectedServices}>
+                {t("run.runSelectedServices")}
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={isLoading || isGenerating} onClick={runAllServices}>{t("run.runAllServices")}</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
         <Tooltip content={t("run.rescan")} side="bottom">
           <Button
             variant="ghost"
@@ -208,15 +283,37 @@ export default function RunPane() {
                   onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
                   onEdit={setEditingId}
                 />
-                <ConfigurationSection
-                  title={t("run.applications")}
-                  configurations={applications}
-                  selectedId={selectedConfigurationId}
-                  sessions={sessions}
-                  onSelect={actions.selectConfiguration}
-                  onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
-                  onEdit={setEditingId}
-                />
+                {otherConfigurations.length > 0 ? <button
+                  type="button"
+                  aria-expanded={!otherConfigurationsCollapsed}
+                  className="mt-2 flex w-full items-center justify-between px-2 py-1 text-left font-medium text-subtle-foreground ui-text-sm hover:text-foreground"
+                  onClick={() => setOtherConfigurationsCollapsed((collapsed) => !collapsed)}
+                >
+                  {t("run.otherConfigurations")}
+                  <span aria-hidden>{otherConfigurationsCollapsed ? "▸" : "▾"}</span>
+                </button> : null}
+                {otherConfigurations.length > 0 && !otherConfigurationsCollapsed ? (
+                  <>
+                    <ConfigurationSection
+                      title={t("run.applications")}
+                      configurations={applications}
+                      selectedId={selectedConfigurationId}
+                      sessions={sessions}
+                      onSelect={actions.selectConfiguration}
+                      onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
+                      onEdit={setEditingId}
+                    />
+                    <ConfigurationSection
+                      title={t("run.tasks")}
+                      configurations={tasks}
+                      selectedId={selectedConfigurationId}
+                      sessions={sessions}
+                      onSelect={actions.selectConfiguration}
+                      onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
+                      onEdit={setEditingId}
+                    />
+                  </>
+                ) : null}
               </div>
             </>
           }

@@ -70,10 +70,18 @@ fn absolute_git_path(root: &Path, arguments: &[&str]) -> String {
         .expect("Git path should be UTF-8")
         .trim()
         .to_string();
-    fs::canonicalize(path)
-        .expect("Git path should exist")
-        .to_string_lossy()
-        .into_owned()
+    contract_path(Path::new(&path))
+}
+
+fn contract_path(path: &Path) -> String {
+    let canonical = fs::canonicalize(path).expect("Git path should exist");
+    let text = canonical.to_string_lossy();
+    if let Some(network_path) = text.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{network_path}");
+    }
+    text.strip_prefix(r"\\?\")
+        .unwrap_or(text.as_ref())
+        .to_string()
 }
 
 fn watch_context(root: &Path) -> Value {
@@ -97,10 +105,7 @@ fn assert_context(
     assert_eq!(response["ok"], true, "response: {response}");
     assert_eq!(
         response["data"]["repositoryRoot"],
-        fs::canonicalize(repository_root)
-            .expect("repository root should exist")
-            .to_string_lossy()
-            .as_ref()
+        contract_path(repository_root)
     );
     assert_eq!(response["data"]["gitDirectory"], git_directory);
     assert_eq!(response["data"]["gitCommonDirectory"], git_common_directory);

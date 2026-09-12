@@ -1,6 +1,7 @@
 import AppKit
-import CryptoKit
+import Sparkle
 import Foundation
+import Combine
 
 struct UpdateNotice: Identifiable {
     let id = UUID()
@@ -20,6 +21,32 @@ struct UpdateInfo: Equatable, Sendable {
     let releaseDate: String?
     let releaseNotes: String?
     let releaseURL: URL
+    var isPreview = false
+    var currentBuild: String? = nil
+    var targetBuild: String? = nil
+}
+
+struct UpdateBuildIdentity: Equatable {
+    let isPreview: Bool
+    let build: String
+    let buildDate: String?
+    let releaseURL: URL
+
+    init(info: [String: Any]) {
+        isPreview = info["LitheUpdateChannel"] as? String == "preview"
+        build = info["CFBundleVersion"] as? String ?? "0"
+        buildDate = info["LitheBuildTimestamp"] as? String
+        releaseURL = (info["LitheUpdateReleaseURL"] as? String).flatMap(URL.init(string:))
+            ?? URL(string: "https://github.com/1lck/Lithe-IDEA/releases/latest")!
+    }
+
+    func updateInfo(version: String, targetVersion: String, targetBuild: String,
+                    date: Date?, notes: String?, infoURL: URL? = nil) -> UpdateInfo {
+        UpdateInfo(currentVersion: version, targetVersion: targetVersion,
+            releaseDate: date.map { ISO8601DateFormatter().string(from: $0) },
+            releaseNotes: isPreview ? nil : notes, releaseURL: infoURL ?? releaseURL,
+            isPreview: isPreview, currentBuild: build, targetBuild: targetBuild)
+    }
 }
 
 struct UpdateDownloadProgress: Equatable, Sendable {
@@ -57,6 +84,7 @@ enum UpdateStatus: Equatable {
     case available(version: String, url: URL)
     case downloading(version: String, progress: UpdateDownloadProgress)
     case installing(version: String)
+    case waitingForTermination
     case upToDate(version: String)
     case failed(code: UpdateErrorCode, message: String)
 }
@@ -108,495 +136,260 @@ struct UpdateEndpointConfiguration: Equatable {
 }
 
 @MainActor
-final class UpdateChecker: ObservableObject {
+final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     @Published private(set) var isChecking = false
     @Published private(set) var isInstalling = false
     @Published var notice: UpdateNotice?
     @Published private(set) var status: UpdateStatus = .idle
-    @Published private(set) var updateInfo: UpdateInfo?
-
-    private static let automaticCheckInterval: TimeInterval = 24 * 60 * 60
-    private static let lastAutomaticCheckKey = "lithe.update.lastAutomaticCheck"
-    private static let skippedVersionKey = "lithe.update.skippedVersion"
-    private static let remindVersionKey = "lithe.update.remindVersion"
-    private static let remindUntilKey = "lithe.update.remindUntil"
-    private static let remindLaterInterval: TimeInterval = 24 * 60 * 60
-    private static let releasePageURL = URL(string: "https://github.com/1lck/Lithe-IDEA/releases/latest")!
 
     let currentVersion: String
-    var isBusy: Bool { isChecking || isInstalling }
-
-    /// Returns `false` when the user cancels unsaved-document handling before install.
-    var prepareForInstall: (() -> Bool)?
-    /// Invoked after the replacement helper is running so the app can quit for swap-in.
-    var requestTerminationForInstall: (() -> Void)?
-
-    private let transport: any UpdateNetworkTransport
-    private let preferences: UserDefaults
-    private let now: () -> Date
-    private let architecture: UpdateArchitecture?
-    private let endpoint: UpdateEndpointConfiguration
-    private var availableManifest: UpdateManifest?
-    private var availableAsset: UpdateManifestAsset?
-
-    init(bundle: Bundle = .main) {
-        currentVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
-        transport = MacUpdateNetworkTransport()
-        preferences = .standard
-        now = Date.init
-        architecture = .current
-        endpoint = .production
+    let buildIdentity: UpdateBuildIdentity
+    var isPreview: Bool { buildIdentity.isPreview }
+    var versionDescription: String {
+        isPreview ? "\(currentVersion) Preview (\(buildIdentity.build))" : currentVersion
     }
+    let stableRollback: MacStableRollback
+    private var rollbackObservation: AnyCancellable?
+    private var rollbackRequested = false
+    var canReturnToStable: Bool {
+        isPreview && !isChecking && !isInstalling && !stableRollback.state.isActive && !rollbackRequested
+            && (updater?.sessionInProgress != true || userDriver?.hasPendingReply == true)
+    }
+    var isBusy: Bool { stableRollback.state.isActive || rollbackRequested || isChecking || (isInstalling && status != .waitingForTermination) }
+    var willRelaunchForUpdate: (() -> Void)?
+    var didFinishUpdateCycle: (() -> Void)?
+    private let bundle: Bundle
+    private var updater: SPUUpdater?
+    private var userDriver: LitheSparkleUserDriver?
+    @Published private(set) var updateInfo: UpdateInfo?
+    private var started = false
+    static let releasePageURL = URL(string: "https://github.com/1lck/Lithe-IDEA/releases/latest")!
 
-    init(
-        currentVersion: String,
-        transport: any UpdateNetworkTransport,
-        preferences: UserDefaults,
-        now: @escaping () -> Date = Date.init,
-        architecture: UpdateArchitecture? = .current,
-        endpoint: UpdateEndpointConfiguration = .production
-    ) {
-        self.currentVersion = currentVersion
-        self.transport = transport
-        self.preferences = preferences
-        self.now = now
-        self.architecture = architecture
-        self.endpoint = endpoint
+    init(bundle: Bundle = .main, diagnosticSink: @escaping @Sendable (String) -> Void = { NSLog("%@", $0) }) {
+        stableRollback = MacStableRollback(diagnosticSink: diagnosticSink)
+        self.bundle = bundle
+        buildIdentity = UpdateBuildIdentity(info: bundle.infoDictionary ?? [:])
+        currentVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
+        super.init()
+        rollbackObservation = stableRollback.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
     }
 
     func checkForUpdates(manual: Bool = false) async {
-        guard !isBusy else { return }
-        if !manual, !shouldPerformAutomaticCheck() { return }
-
-        isChecking = true
-        status = .checking
-        availableManifest = nil
-        availableAsset = nil
-        updateInfo = nil
-        if manual { notice = nil }
-        defer { isChecking = false }
-
+        guard !stableRollback.state.isActive, !rollbackRequested else { return }
+        // Local builds deliberately omit both values. Malformed or partial
+        // configurations still surface an error instead of silently disabling updates.
+        if !manual, bundle.object(forInfoDictionaryKey: "SUFeedURL") == nil,
+           bundle.object(forInfoDictionaryKey: "SUPublicEDKey") == nil { return }
         do {
-            let manifest = try await fetchLatestManifest()
-            guard let architecture else { throw UpdateCheckError.noCompatibleAsset }
-            let asset = try manifest.asset(for: architecture)
-
-            if !manual {
-                preferences.set(now(), forKey: Self.lastAutomaticCheckKey)
+            if !started {
+                try Self.validateConfiguration(bundle.infoDictionary ?? [:])
+                let driver = LitheSparkleUserDriver(hostBundle: bundle, delegate: nil)
+                driver.presentUpdate = { [weak self] item in self?.present(item) }
+                driver.installationWaiting = { [weak self] waiting in
+                    self?.installationWaitingForTermination(waiting)
+                }
+                driver.downloadProgress = { [weak self] progress in
+                    guard let self, let info = self.updateInfo else { return }
+                    self.status = .downloading(version: info.targetVersion, progress: progress)
+                }
+                let updater = SPUUpdater(hostBundle: bundle, applicationBundle: bundle, userDriver: driver, delegate: self)
+                self.userDriver = driver
+                self.updater = updater
+                try updater.start()
+                started = true
             }
-
-            let info = UpdateInfo(
-                currentVersion: currentVersion,
-                targetVersion: manifest.version,
-                releaseDate: manifest.releaseDate,
-                releaseNotes: manifest.releaseNotes,
-                releaseURL: manifest.releaseURL
-            )
-            clearPreferencesForNewerVersion(manifest.version)
-
-            if UpdateVersion.isNewer(manifest.version, than: currentVersion),
-               manual || !shouldSuppress(version: manifest.version) {
-                availableManifest = manifest
-                availableAsset = asset
-                updateInfo = info
-                status = .available(version: manifest.version, url: manifest.releaseURL)
-            } else if manual {
-                status = .upToDate(version: currentVersion)
-                notice = UpdateNotice(
-                    title: "Lithe is up to date",
-                    message: "You are using the latest published version, Lithe \(currentVersion).",
-                    action: .dismiss
-                )
-            } else {
-                status = .upToDate(version: currentVersion)
-            }
-        } catch UpdateCheckError.noPublishedRelease {
-            status = .failed(
-                code: UpdateCheckError.noPublishedRelease.code,
-                message: UpdateCheckError.noPublishedRelease.userMessage
-            )
-            if manual {
-                notice = UpdateNotice(
-                    title: "No release is available yet",
-                    message: "There is no published GitHub Release to check yet.",
-                    action: .open(Self.releasePageURL)
-                )
+            // Sparkle owns automatic scheduling and persisted skip/check preferences.
+            if manual, let updater, updater.canCheckForUpdates {
+                updater.checkForUpdates()
             }
         } catch {
-            let updateError = normalizedError(error)
-            status = .failed(code: updateError.code, message: updateError.userMessage)
+            status = .failed(code: .installFailed, message: error.localizedDescription)
             if manual {
-                notice = UpdateNotice(
-                    title: "Could not check for updates",
-                    message: updateError.userMessage,
-                    action: .open(Self.releasePageURL)
-                )
+                notice = UpdateNotice(title: "Could not check for updates",
+                    message: error.localizedDescription, action: .open(buildIdentity.releaseURL))
             }
         }
     }
 
     func installAvailableUpdate() async {
-        guard !isBusy,
-              availableManifest != nil,
-              let asset = availableAsset,
-              case .available(let version, _) = status else { return }
+        guard !stableRollback.state.isActive, !rollbackRequested else { return }
+        if let reply = userDriver?.takeReply() { reply(.install) }
+        else { await checkForUpdates(manual: true) }
+    }
 
-        // Confirm unsaved work before download so quit-for-replace cannot be cancelled
-        // after the helper is already waiting on this process.
-        if let prepareForInstall, !prepareForInstall() {
-            return
+    func remindLater() { userDriver?.takeReply()?(.dismiss) }
+    func skipVersion() { userDriver?.takeReply()?(.skip) }
+    func retryInstallation() async { await checkForUpdates(manual: true) }
+
+    func returnToStable() {
+        guard canReturnToStable else { return }
+        if let reply = userDriver?.takeReply() {
+            rollbackRequested = true
+            reply(.dismiss)
+        } else if updater?.sessionInProgress != true {
+            stableRollback.download(bundle: bundle)
         }
+    }
 
+    func installationWaitingForTermination(_ waiting: Bool) {
+        isChecking = false
         isInstalling = true
-        status = .downloading(version: version, progress: .initial)
-        notice = nil
-        defer { isInstalling = false }
+        status = waiting ? .waitingForTermination : .installing(version: updateInfo?.targetVersion ?? currentVersion)
+    }
 
-        do {
-            var request = URLRequest(url: asset.url)
-            request.setValue("Lithe/\(currentVersion)", forHTTPHeaderField: "User-Agent")
-            let updateChecker = self
-            let downloadedURL = try await transport.download(
-                request,
-                progress: { progress in
-                    await MainActor.run {
-                        updateChecker.status = .downloading(version: version, progress: progress)
-                    }
-                }
-            )
-            defer { try? FileManager.default.removeItem(at: downloadedURL) }
+    private func present(_ item: SUAppcastItem) {
+        updateInfo = buildIdentity.updateInfo(version: currentVersion, targetVersion: item.displayVersionString,
+            targetBuild: item.versionString, date: item.date, notes: item.itemDescription, infoURL: item.infoURL)
+        status = .available(version: item.displayVersionString, url: item.infoURL ?? buildIdentity.releaseURL)
+    }
 
-            try verify(downloadedFile: downloadedURL, against: asset)
-            status = .installing(version: version)
-            try scheduleReplacement(with: downloadedURL, version: version)
-        } catch {
-            let updateError = normalizedError(error, fallback: .downloadFailed)
-            status = .failed(code: updateError.code, message: updateError.userMessage)
+    func openRelease(_ url: URL?) { if let url { NSWorkspace.shared.open(url) } }
+
+    static func validateConfiguration(_ info: [String: Any]) throws {
+        guard let feed = info["SUFeedURL"] as? String,
+              let url = URL(string: feed), url.scheme == "https", url.host != nil,
+              let key = info["SUPublicEDKey"] as? String,
+              Data(base64Encoded: key)?.count == 32 else {
+            throw NSError(domain: "app.lithe.updates", code: 1,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "This build does not have a configured update feed and signing key. Download a published version from GitHub Releases."])
         }
     }
 
-    func openRelease(_ url: URL?) {
-        guard let url else { return }
-        notice = nil
-        NSWorkspace.shared.open(url)
+    func updater(_ updater: SPUUpdater, mayPerform updateCheck: SPUUpdateCheck) throws {
+        guard !stableRollback.state.isActive, !rollbackRequested else {
+            throw NSError(domain: "app.lithe.updates", code: 2,
+                userInfo: [NSLocalizedDescriptionKey: String(localized: "A stable release installation is already in progress.")])
+        }
+        isChecking = true
+        status = .checking
     }
 
-    func remindLater() {
-        guard let updateInfo else { return }
-        preferences.set(updateInfo.targetVersion, forKey: Self.remindVersionKey)
-        preferences.set(
-            now().addingTimeInterval(Self.remindLaterInterval),
-            forKey: Self.remindUntilKey
-        )
-        clearAvailableUpdate()
+    func feedURLString(for updater: SPUUpdater) -> String? {
+        // The installed build owns its channel. Do not inherit a persisted feed
+        // override when the user manually installs another distribution.
+        bundle.object(forInfoDictionaryKey: "SUFeedURL") as? String
+    }
+
+    func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        isChecking = false
+        status = .available(version: item.displayVersionString, url: item.infoURL ?? buildIdentity.releaseURL)
+    }
+
+    func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
+        isChecking = false
         status = .upToDate(version: currentVersion)
     }
 
-    func skipVersion() {
-        guard let updateInfo else { return }
-        preferences.set(updateInfo.targetVersion, forKey: Self.skippedVersionKey)
-        preferences.removeObject(forKey: Self.remindVersionKey)
-        preferences.removeObject(forKey: Self.remindUntilKey)
-        clearAvailableUpdate()
-        status = .upToDate(version: currentVersion)
+    func updater(_ updater: SPUUpdater, shouldDownloadReleaseNotesForUpdate item: SUAppcastItem) -> Bool {
+        !isPreview
     }
 
-    func retryInstallation() async {
-        guard let updateInfo,
-              availableManifest != nil,
-              availableAsset != nil,
-              case .failed = status else { return }
-        status = .available(version: updateInfo.targetVersion, url: updateInfo.releaseURL)
-        await installAvailableUpdate()
+    func updater(_ updater: SPUUpdater, willDownloadUpdate item: SUAppcastItem, with request: NSMutableURLRequest) {
+        isChecking = false
+        isInstalling = true
+        status = .downloading(version: item.displayVersionString, progress: .initial)
     }
 
-    private func fetchLatestManifest() async throws -> UpdateManifest {
-        var request = URLRequest(url: endpoint.manifestURL)
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("Lithe/\(currentVersion)", forHTTPHeaderField: "User-Agent")
-
-        let response = try await transport.fetch(request)
-        if response.statusCode == 404 {
-            throw UpdateCheckError.noPublishedRelease
-        }
-        if response.statusCode == 403, isRateLimited(response) {
-            throw UpdateCheckError.rateLimited
-        }
-        guard (200..<300).contains(response.statusCode) else {
-            throw UpdateCheckError.httpStatus(response.statusCode)
-        }
-        do {
-            return try JSONDecoder().decode(UpdateManifest.self, from: response.body)
-                .validated(allowingLocalHTTP: endpoint.allowsLocalHTTP)
-        } catch let error as UpdateCheckError {
-            throw error
-        } catch {
-            throw UpdateCheckError.invalidManifest
-        }
+    func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
+        isInstalling = true
+        status = .installing(version: item.displayVersionString)
+        // Sparkle requests normal AppKit termination, preserving unsaved-document
+        // confirmation and the application's bounded module cleanup.
     }
 
-    private func isRateLimited(_ response: UpdateHTTPResponse) -> Bool {
-        if response.header(named: "X-RateLimit-Remaining") == "0" {
-            return true
-        }
-        let body = String(data: response.body, encoding: .utf8)?.lowercased() ?? ""
-        return body.contains("rate limit")
+    func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
+        willRelaunchForUpdate?()
     }
 
-    private func verify(downloadedFile: URL, against asset: UpdateManifestAsset) throws {
-        let data = try Data(contentsOf: downloadedFile, options: .mappedIfSafe)
-        let actualDigest = SHA256.hash(data: data)
-            .map { String(format: "%02x", $0) }
-            .joined()
-
-        guard actualDigest == asset.normalizedSHA256 else {
-            throw UpdateCheckError.checksumMismatch
-        }
-    }
-
-    private func scheduleReplacement(with downloadedFile: URL, version: String) throws {
-        let fileManager = FileManager.default
-        let currentAppURL = Bundle.main.bundleURL
-            .resolvingSymlinksInPath()
-            .standardizedFileURL
-        guard currentAppURL.pathExtension == "app" else {
-            throw UpdateCheckError.notAppBundle
-        }
-
-        let temporaryRoot = fileManager.temporaryDirectory
-            .appendingPathComponent("lithe-update-\(UUID().uuidString)", isDirectory: true)
-        let mountPoint = temporaryRoot.appendingPathComponent("mount", isDirectory: true)
-        let stagedAppURL = temporaryRoot.appendingPathComponent("Lithe-\(version).app", isDirectory: true)
-        try fileManager.createDirectory(at: mountPoint, withIntermediateDirectories: true)
-
-        var mounted = false
-        var helperScheduled = false
+    func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
         defer {
-            if mounted && !helperScheduled {
-                try? runProcess(
-                    "/usr/bin/hdiutil",
-                    arguments: ["detach", mountPoint.path, "-force"]
-                )
-            }
-            if !helperScheduled {
-                try? fileManager.removeItem(at: temporaryRoot)
+            if rollbackRequested {
+                rollbackRequested = false
+                stableRollback.download(bundle: bundle)
             }
         }
-
-        try runProcess(
-            "/usr/bin/hdiutil",
-            arguments: [
-                "attach",
-                downloadedFile.path,
-                "-nobrowse",
-                "-readonly",
-                "-mountpoint",
-                mountPoint.path
-            ]
-        )
-        mounted = true
-
-        let sourceAppURL = mountPoint.appendingPathComponent("Lithe.app", isDirectory: true)
-        guard fileManager.fileExists(atPath: sourceAppURL.path) else {
-            throw UpdateCheckError.appNotFoundInDiskImage
-        }
-        try fileManager.copyItem(at: sourceAppURL, to: stagedAppURL)
-        try launchReplacementHelper(
-            stagedAppURL: stagedAppURL,
-            currentAppURL: currentAppURL,
-            mountPoint: mountPoint,
-            temporaryRoot: temporaryRoot
-        )
-        helperScheduled = true
-    }
-
-    private func launchReplacementHelper(
-        stagedAppURL: URL,
-        currentAppURL: URL,
-        mountPoint: URL,
-        temporaryRoot: URL
-    ) throws {
-        let helperURL = temporaryRoot.appendingPathComponent("install-update.sh")
-        let helperScript = #"""
-        #!/bin/sh
-        set -eu
-
-        app_pid="$1"
-        staged_app="$2"
-        target_app="$3"
-        mount_point="$4"
-        temporary_root="$5"
-        old_app="${target_app}.lithe-old"
-
-        wait_for_app_exit() {
-            attempts=0
-            while /bin/kill -0 "$app_pid" 2>/dev/null; do
-                if [ "$attempts" -ge 150 ]; then
-                    # A stale termination request must not leave updates stuck forever.
-                    /bin/kill -TERM "$app_pid" 2>/dev/null || true
-                    /bin/sleep 2
-                    /bin/kill -KILL "$app_pid" 2>/dev/null || true
-                    break
-                fi
-                /bin/sleep 0.2
-                attempts=$((attempts + 1))
-            done
-            /bin/sleep 0.5
-        }
-
-        install_without_privileges() {
-            wait_for_app_exit
-            /bin/rm -rf "$old_app"
-            /bin/mv "$target_app" "$old_app"
-            if ! /bin/mv "$staged_app" "$target_app"; then
-                /bin/mv "$old_app" "$target_app" || true
-                exit 1
-            fi
-            /usr/bin/hdiutil detach "$mount_point" -force >/dev/null 2>&1 || true
-            /usr/bin/open "$target_app" >/dev/null 2>&1 || true
-            /bin/sleep 2
-            /bin/rm -rf "$old_app" "$temporary_root"
-        }
-
-        if [ -w "$(/usr/bin/dirname "$target_app")" ]; then
-            install_without_privileges
-        else
-            /usr/bin/osascript - "$app_pid" "$staged_app" "$target_app" "$mount_point" "$temporary_root" <<'APPLESCRIPT'
-        on run argv
-            set appPID to item 1 of argv
-            set stagedApp to item 2 of argv
-            set targetApp to item 3 of argv
-            set mountPoint to item 4 of argv
-            set temporaryRoot to item 5 of argv
-            set oldApp to targetApp & ".lithe-old"
-            set waitScript to "attempts=0; while /bin/kill -0 " & quoted form of appPID & " 2>/dev/null; do if [ \"$attempts\" -ge 150 ]; then /bin/kill -TERM " & quoted form of appPID & " 2>/dev/null || true; /bin/sleep 2; /bin/kill -KILL " & quoted form of appPID & " 2>/dev/null || true; break; fi; /bin/sleep 0.2; attempts=$((attempts + 1)); done; /bin/sleep 0.5; "
-            set installScript to "/bin/sh -c " & quoted form of (waitScript & "/bin/rm -rf " & quoted form of oldApp & "; if ! /bin/mv " & quoted form of targetApp & " " & quoted form of oldApp & "; then exit 1; fi; if ! /bin/mv " & quoted form of stagedApp & " " & quoted form of targetApp & "; then /bin/mv " & quoted form of oldApp & " " & quoted form of targetApp & " || true; exit 1; fi; /usr/bin/hdiutil detach " & quoted form of mountPoint & " -force >/dev/null 2>&1 || true; /bin/rm -rf " & quoted form of oldApp & " " & quoted form of temporaryRoot)
-            try
-                do shell script installScript with administrator privileges
-            on error
-                do shell script "/usr/bin/hdiutil detach " & quoted form of mountPoint & " -force >/dev/null 2>&1 || true"
-                error number -128
-            end try
-        end run
-        APPLESCRIPT
-            /usr/bin/open "$target_app" >/dev/null 2>&1 || true
-        fi
-        """#
-
-        try helperScript.write(to: helperURL, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o755],
-            ofItemAtPath: helperURL.path
-        )
-
-        // Detach via nohup so module/process teardown cannot reap the installer
-        // before it replaces the bundle. Redirect I/O so the helper outlives Lithe.
-        let helper = Process()
-        helper.executableURL = URL(fileURLWithPath: "/usr/bin/nohup")
-        helper.arguments = [
-            "/bin/sh",
-            helperURL.path,
-            String(ProcessInfo.processInfo.processIdentifier),
-            stagedAppURL.path,
-            currentAppURL.path,
-            mountPoint.path,
-            temporaryRoot.path
-        ]
-        helper.standardInput = FileHandle.nullDevice
-        helper.standardOutput = FileHandle.nullDevice
-        helper.standardError = FileHandle.nullDevice
-        try helper.run()
-        if let requestTerminationForInstall {
-            requestTerminationForInstall()
-        } else {
-            NSApp.terminate(nil)
-        }
-    }
-
-    private func runProcess(_ executablePath: String, arguments: [String]) throws {
-        let result = MacProcessRunner().run(ProcessRequest(
-            executablePath: executablePath,
-            arguments: arguments,
-            timeoutMilliseconds: 120_000
-        ))
-        guard result.succeeded else {
-            throw UpdateCheckError.toolFailed(executablePath)
-        }
-    }
-
-    private func shouldPerformAutomaticCheck() -> Bool {
-        guard let lastCheck = preferences.object(forKey: Self.lastAutomaticCheckKey) as? Date else {
-            return true
-        }
-        return now().timeIntervalSince(lastCheck) >= Self.automaticCheckInterval
-    }
-
-    private func shouldSuppress(version: String) -> Bool {
-        if preferences.string(forKey: Self.skippedVersionKey) == version {
-            return true
-        }
-
-        guard preferences.string(forKey: Self.remindVersionKey) == version,
-              let remindUntil = preferences.object(forKey: Self.remindUntilKey) as? Date else {
-            return false
-        }
-        return remindUntil > now()
-    }
-
-    private func clearPreferencesForNewerVersion(_ version: String) {
-        if let skippedVersion = preferences.string(forKey: Self.skippedVersionKey),
-           skippedVersion != version {
-            preferences.removeObject(forKey: Self.skippedVersionKey)
-        }
-        if let remindVersion = preferences.string(forKey: Self.remindVersionKey),
-           remindVersion != version {
-            preferences.removeObject(forKey: Self.remindVersionKey)
-            preferences.removeObject(forKey: Self.remindUntilKey)
-        }
-    }
-
-    private func clearAvailableUpdate() {
-        availableManifest = nil
-        availableAsset = nil
+        didFinishUpdateCycle?()
         updateInfo = nil
+        isChecking = false
+        isInstalling = false
+        if let error {
+            let nsError = error as NSError
+            if nsError.domain == SUSparkleErrorDomain && nsError.code == SUError.noUpdateError.rawValue {
+                status = .upToDate(version: currentVersion)
+            } else if nsError.domain == SUSparkleErrorDomain &&
+                        [SUError.installationCanceledError.rawValue, SUError.installationAuthorizeLaterError.rawValue].contains(Int32(nsError.code)) {
+                status = .idle
+            } else {
+                status = .failed(code: .installFailed, message: error.localizedDescription)
+            }
+        } else if case .upToDate = status {
+            return
+        } else {
+            // Dismissal and cancellation must clear stale progress and install actions.
+            status = .idle
+        }
+    }
+}
+
+@MainActor
+final class LitheSparkleUserDriver: SPUStandardUserDriver {
+    var presentUpdate: ((SUAppcastItem) -> Void)?
+    var downloadProgress: ((UpdateDownloadProgress) -> Void)?
+    var installationWaiting: ((Bool) -> Void)?
+    private var updateReply: ((SPUUserUpdateChoice) -> Void)?
+    var hasPendingReply: Bool { updateReply != nil }
+    private var receivedBytes: Int64 = 0
+    private var expectedBytes: Int64?
+
+    override func showUserInitiatedUpdateCheck(cancellation: @escaping () -> Void) {
+        // Lithe already displays checking state. No separate checking window is needed.
     }
 
-    private func normalizedError(
-        _ error: Error,
-        fallback: UpdateCheckError = .connectionFailed
-    ) -> UpdateCheckError {
-        if let updateError = error as? UpdateCheckError {
-            return updateError
-        }
-        if error is UpdateTransportError {
-            return .invalidResponse
-        }
-        guard let urlError = error as? URLError else {
-            return fallback
-        }
+    override func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool,
+                                      retryTerminatingApplication: @escaping () -> Void) {
+        super.showInstallingUpdate(withApplicationTerminated: applicationTerminated,
+            retryTerminatingApplication: retryTerminatingApplication)
+        // Keep Sparkle's retry callback and active installation intact. A manual
+        // check brings its existing retry window into focus without downloading again.
+        installationWaiting?(!applicationTerminated)
+    }
 
-        switch urlError.code {
-        case .timedOut:
-            return .timedOut
-        case .secureConnectionFailed,
-             .serverCertificateHasBadDate,
-             .serverCertificateUntrusted,
-             .serverCertificateHasUnknownRoot,
-             .serverCertificateNotYetValid,
-             .clientCertificateRejected,
-             .clientCertificateRequired,
-             .appTransportSecurityRequiresSecureConnection:
-            return .tlsOrProxyFailure
-        case .cannotConnectToHost,
-             .cannotFindHost,
-             .dnsLookupFailed,
-             .networkConnectionLost,
-             .notConnectedToInternet,
-             .internationalRoamingOff,
-             .dataNotAllowed:
-            return .connectionFailed
-        default:
-            return fallback
-        }
+    override func showDownloadInitiated(cancellation: @escaping () -> Void) {
+        receivedBytes = 0
+        expectedBytes = nil
+        downloadProgress?(.initial)
+        super.showDownloadInitiated(cancellation: cancellation)
+    }
+
+    override func showDownloadDidReceiveExpectedContentLength(_ expectedContentLength: UInt64) {
+        expectedBytes = Int64(clamping: expectedContentLength)
+        downloadProgress?(UpdateDownloadProgress(downloadedBytes: receivedBytes, totalBytes: expectedBytes))
+        super.showDownloadDidReceiveExpectedContentLength(expectedContentLength)
+    }
+
+    override func showDownloadDidReceiveData(ofLength length: UInt64) {
+        receivedBytes += Int64(clamping: length)
+        downloadProgress?(UpdateDownloadProgress(downloadedBytes: receivedBytes, totalBytes: expectedBytes))
+        super.showDownloadDidReceiveData(ofLength: length)
+    }
+
+    override func showUpdateFound(with appcastItem: SUAppcastItem, state: SPUUserUpdateState,
+                                  reply: @escaping (SPUUserUpdateChoice) -> Void) {
+        // Keep scheduled offers in Lithe's non-modal update control. Sparkle owns
+        // the subsequent download, authorization and installation windows.
+        updateReply = reply
+        presentUpdate?(appcastItem)
+    }
+
+    func takeReply() -> ((SPUUserUpdateChoice) -> Void)? {
+        let reply = updateReply
+        updateReply = nil
+        return reply
+    }
+
+    override func dismissUpdateInstallation() {
+        updateReply = nil
+        super.dismissUpdateInstallation()
     }
 }

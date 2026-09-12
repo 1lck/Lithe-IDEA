@@ -7,20 +7,20 @@ struct MavenView: View {
     @State private var selectedPhase: MavenLifecyclePhase?
     @State private var expandedNodeIDs: Set<String> = []
     @State private var isGoalSheetPresented = false
-    @State private var isSettingsSheetPresented = false
     @State private var isAddProfilePresented = false
     @State private var customGoal = ""
     @State private var customProfile = ""
-    @State private var settingsPath = ""
-    @State private var localRepositoryPath = ""
-    @State private var mavenExecutablePath = ""
-    @State private var javaHomePath = ""
+    @State private var goalModule: MavenModule?
+    @State private var goalProject: MavenProject?
 
     var body: some View {
         VStack(spacing: 0) {
             toolWindowHeader
 
             if let error = feature.configurationSaveError {
+                configurationErrorBanner(error)
+            }
+            if let error = feature.reloadError {
                 configurationErrorBanner(error)
             }
             if feature.isReloadRequired {
@@ -51,13 +51,11 @@ struct MavenView: View {
             }
         }
         .onChange(of: feature.project?.id) { _ in
+            isGoalSheetPresented = false
             resetTreeState()
         }
         .sheet(isPresented: $isGoalSheetPresented) {
             goalSheet
-        }
-        .sheet(isPresented: $isSettingsSheetPresented) {
-            settingsSheet
         }
     }
 
@@ -93,17 +91,16 @@ struct MavenView: View {
                 LitheSystemIcon(systemImage: "play.fill")
             }
             .litheIconButton()
-            .disabled(selectedPhase == nil || feature.isRunning)
+            .disabled(selectedPhase == nil || model.isMavenOperationBusy)
             .help("Run selected Maven lifecycle phase")
 
             Button {
-                customGoal = ""
-                isGoalSheetPresented = true
+                presentGoal(for: selectedModule)
             } label: {
                 LitheSystemIcon(systemImage: "terminal")
             }
             .litheIconButton()
-            .disabled(feature.isRunning)
+            .disabled(model.isMavenOperationBusy)
             .help("Execute Maven goal")
 
             Button(action: refreshProject) {
@@ -111,8 +108,9 @@ struct MavenView: View {
             }
             .litheIconButton()
             .help("Reload Maven project")
+            .disabled(model.isMavenOperationBusy)
 
-            if feature.isRunning {
+            if feature.isRunning || model.runWorkflowCoordinator.isModuleOperationStarting {
                 Button(action: model.stopMaven) {
                     Image(systemName: "stop.fill")
                 }
@@ -138,7 +136,7 @@ struct MavenView: View {
             .litheIconButton()
             .help("Collapse all")
 
-            Button(action: presentSettings) {
+            Button(action: { model.showSettings(category: .project) }) {
                 LitheSystemIcon(systemImage: "slider.horizontal.3")
             }
             .litheIconButton()
@@ -154,23 +152,24 @@ struct MavenView: View {
     }
 
     private func refreshProject() {
-        guard let workspaceURL = model.workspaceURL else { return }
-        Task { await feature.loadProject(at: workspaceURL, files: model.projectFiles) }
+        Task { await model.reloadMavenProject(rescan: true) }
     }
 
     private var reloadBanner: some View {
         HStack(spacing: 8) {
             Image(systemName: "arrow.triangle.2.circlepath")
                 .foregroundStyle(LitheTheme.warning)
-            Text("Maven configuration changed")
+            Text(feature.isProjectReloadRequired
+                 ? String(localized: "Maven POM changed")
+                 : String(localized: "Maven configuration changed"))
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
             Spacer(minLength: 8)
-            Button("Reload JDT LS") {
-                model.restartLanguageServers()
-                feature.acknowledgeReload()
+            Button(feature.isReloading ? String(localized: "Reloading Maven...") : String(localized: "Reload")) {
+                Task { await model.reloadMavenProject(rescan: feature.isProjectReloadRequired) }
             }
             .buttonStyle(.borderless)
+            .disabled(feature.isReloading)
         }
         .padding(.horizontal, 10)
         .frame(height: 32)
@@ -221,6 +220,7 @@ struct MavenView: View {
                     subtitle: project.packaging,
                     systemImage: "m.circle",
                     isSelected: selectedModuleID == nil,
+                    hasModuleMenu: true,
                     onLabelAction: { selectedModuleID = nil }
                 ) {
                     sourceRootsNode(
@@ -248,6 +248,8 @@ struct MavenView: View {
                 subtitle: module.relativePath,
                 systemImage: "m.circle",
                 isSelected: selectedModuleID == module.id,
+                hasModuleMenu: true,
+                menuModule: module,
                 onLabelAction: { selectedModuleID = module.id }
             ) {
                 sourceRootsNode(ownerID: moduleNodeID(module), sourceRoots: module.sourceRoots)
@@ -285,7 +287,7 @@ struct MavenView: View {
         return AnyView(
             treeNode(
                 id: nodeID,
-                title: "Source Roots",
+                title: dependencyLocalization.text("Source Roots"),
                 systemImage: "folder",
                 onLabelAction: { toggleNode(nodeID) }
             ) {
@@ -294,6 +296,10 @@ struct MavenView: View {
                 }
             }
         )
+    }
+
+    private var dependencyLocalization: MavenDependencyLocalization {
+        MavenDependencyLocalization(language: model.settings.language)
     }
 
     private func dependencyNode(ownerID: String, modulePath: String) -> AnyView {
@@ -308,7 +314,7 @@ struct MavenView: View {
         return AnyView(
             treeNode(
                 id: nodeID,
-                title: "Dependencies",
+                title: dependencyLocalization.text("Dependencies"),
                 systemImage: "shippingbox",
                 onToggleAction: toggle,
                 onLabelAction: toggle
@@ -334,10 +340,10 @@ struct MavenView: View {
             return AnyView(
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini)
-                    Text("Resolving dependencies...")
+                    Text(dependencyLocalization.text("Resolving dependencies..."))
                         .lineLimit(1)
                     Spacer(minLength: 4)
-                    Button("Cancel") {
+                    Button(dependencyLocalization.text("Cancel")) {
                         feature.cancelDependencies(for: modulePath)
                     }
                     .buttonStyle(.borderless)
@@ -350,11 +356,11 @@ struct MavenView: View {
         case .failed(let message):
             return AnyView(
                 VStack(alignment: .leading, spacing: 4) {
-                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                    Label(dependencyLocalization.error(message), systemImage: "exclamationmark.triangle.fill")
                         .font(.system(size: 11.5))
                         .foregroundStyle(LitheTheme.error)
                         .lineLimit(2)
-                    Button("Retry") {
+                    Button(dependencyLocalization.text("Retry")) {
                         feature.loadDependencies(for: modulePath)
                     }
                     .buttonStyle(.borderless)
@@ -365,10 +371,10 @@ struct MavenView: View {
         case .cancelled:
             return AnyView(
                 HStack(spacing: 6) {
-                    Text("Dependency resolution cancelled")
+                    Text(dependencyLocalization.text("Dependency resolution cancelled"))
                         .lineLimit(1)
                     Spacer(minLength: 4)
-                    Button("Retry") {
+                    Button(dependencyLocalization.text("Retry")) {
                         feature.loadDependencies(for: modulePath)
                     }
                     .buttonStyle(.borderless)
@@ -381,7 +387,7 @@ struct MavenView: View {
         case .ready(let dependencies):
             if dependencies.isEmpty {
                 return AnyView(
-                    Text("No dependencies")
+                    Text(dependencyLocalization.text("No dependencies"))
                         .font(.system(size: 11.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .padding(.horizontal, 4)
@@ -422,6 +428,7 @@ struct MavenView: View {
                     )
                 }
             }
+            .help(dependencyLocalization.text("Open module pom.xml"))
         )
     }
 
@@ -458,21 +465,11 @@ struct MavenView: View {
         .buttonStyle(.plain)
         .lithePointer()
         .padding(.leading, 16)
-        .help("Open module pom.xml")
+        .help(dependencyLocalization.text("Open module pom.xml"))
     }
 
     private func dependencySubtitle(_ dependency: MavenDependency) -> String {
-        let classifier = dependency.classifier.map { ":" + $0 } ?? ""
-        let marker = switch dependency.resolution {
-        case .resolved:
-            ""
-        case .omittedDuplicate:
-            " (duplicate omitted)"
-        case .omittedConflict:
-            " (conflict -> " + (dependency.selectedVersion ?? "selected") + ")"
-        }
-        return dependency.groupID + ":" + dependency.version + ":" + dependency.type
-            + classifier + " [" + dependency.scope + "]" + marker
+        dependencyLocalization.subtitle(dependency)
     }
 
     private func openDependencyPom(_ dependency: MavenDependency) {
@@ -498,7 +495,7 @@ struct MavenView: View {
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(1)
             Spacer(minLength: 0)
-            Text(sourceRoot.kind.title)
+            Text(dependencyLocalization.text(sourceRoot.kind.title))
                 .font(.system(size: 10))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .lineLimit(1)
@@ -604,8 +601,13 @@ struct MavenView: View {
         .buttonStyle(.plain)
         .lithePointer()
         .simultaneousGesture(TapGesture(count: 2).onEnded {
-            guard !feature.isRunning else { return }
+            guard !model.isMavenOperationBusy else { return }
             feature.run(phase: phase, module: module)
+        })
+        .litheContextMenu(items: {
+            [.action(dependencyLocalization.text("Run"), isEnabled: !model.isMavenOperationBusy) {
+                feature.run(phase: phase, module: module)
+            }]
         })
     }
 
@@ -615,6 +617,8 @@ struct MavenView: View {
         subtitle: String? = nil,
         systemImage: String,
         isSelected: Bool = false,
+        hasModuleMenu: Bool = false,
+        menuModule: MavenModule? = nil,
         onToggleAction: (() -> Void)? = nil,
         onLabelAction: @escaping () -> Void,
         @ViewBuilder content: @escaping () -> Content
@@ -667,6 +671,9 @@ struct MavenView: View {
                 .buttonStyle(.plain)
                 .lithePointer()
             }
+            .litheContextMenu(items: {
+                hasModuleMenu ? moduleContextMenu(menuModule) : []
+            })
 
             if isNodeExpanded(id) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -680,6 +687,44 @@ struct MavenView: View {
     private var mavenSearchRoots: [URL] {
         guard let project = feature.project else { return [] }
         return [project.rootURL] + moduleURLs(project.modules)
+    }
+
+    private func moduleContextMenu(_ module: MavenModule?) -> [LitheContextMenuItem] {
+        [
+            .action(dependencyLocalization.text("Run"),
+                    isEnabled: !model.isMavenOperationBusy && model.mavenModuleConfiguration(module, debug: false) != nil) {
+                model.startMavenModule(module, debug: false)
+            },
+            .action(dependencyLocalization.text("Debug"),
+                    isEnabled: !model.isMavenOperationBusy && model.genericDebugFeatureIfActive?.isSessionActive != true
+                        && model.mavenModuleConfiguration(module, debug: true) != nil) {
+                model.startMavenModule(module, debug: true)
+            },
+            .separator,
+            .action(dependencyLocalization.text("Test"), isEnabled: !model.isMavenOperationBusy) {
+                feature.run(phase: .test, module: module)
+            },
+            .action(dependencyLocalization.text("Package"), isEnabled: !model.isMavenOperationBusy) {
+                feature.run(phase: .packagePhase, module: module)
+            },
+            .action(dependencyLocalization.text("Execute Maven Goal"), isEnabled: !model.isMavenOperationBusy) {
+                presentGoal(for: module)
+            },
+            .separator,
+            .action(dependencyLocalization.text("Open pom.xml")) {
+                if let pom = module?.url.appendingPathComponent("pom.xml") ?? feature.project?.pomURL {
+                    model.openFile(pom)
+                }
+            },
+            .action(dependencyLocalization.text("Reload"), isEnabled: !model.isMavenOperationBusy, action: refreshProject)
+        ]
+    }
+
+    private func presentGoal(for module: MavenModule?) {
+        goalModule = module
+        goalProject = feature.project
+        customGoal = ""
+        isGoalSheetPresented = true
     }
 
     private func moduleURLs(_ modules: [MavenModule]) -> [URL] {
@@ -808,90 +853,6 @@ struct MavenView: View {
         .frame(width: 420)
     }
 
-    private var settingsSheet: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Maven Settings")
-                .font(.system(size: 16, weight: .semibold))
-
-            settingsPathRow(
-                title: "settings.xml",
-                value: $settingsPath,
-                choose: {
-                    model.platformUI.chooseFile(title: "Choose Maven settings.xml", prompt: "Choose")
-                }
-            )
-            settingsPathRow(
-                title: "Local Repository",
-                value: $localRepositoryPath,
-                choose: {
-                    model.platformUI.chooseDirectory(title: "Choose Maven Local Repository", prompt: "Choose")
-                }
-            )
-            settingsPathRow(
-                title: "Maven Home or Executable",
-                value: $mavenExecutablePath,
-                choose: {
-                    model.platformUI.chooseDirectory(title: "Choose Maven Home", prompt: "Choose")
-                }
-            )
-            settingsPathRow(
-                title: "Maven JDK",
-                value: $javaHomePath,
-                choose: {
-                    model.platformUI.chooseDirectory(title: "Choose Maven JDK", prompt: "Choose")
-                }
-            )
-
-            if let error = feature.configurationSaveError {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(LitheTheme.error)
-            }
-
-            HStack {
-                Spacer()
-                Button("Cancel") { isSettingsSheetPresented = false }
-                    .keyboardShortcut(.cancelAction)
-                Button("Save", action: saveSettings)
-                    .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(20)
-        .frame(width: 560)
-    }
-
-    private func settingsPathRow(
-        title: String,
-        value: Binding<String>,
-        choose: @escaping () -> URL?
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(LitheTheme.primaryText)
-            HStack(spacing: 6) {
-                TextField("Automatic", text: value)
-                    .textFieldStyle(.roundedBorder)
-                Button {
-                    value.wrappedValue = ""
-                } label: {
-                    Image(systemName: "xmark")
-                }
-                .litheIconButton()
-                .help("Use automatic value")
-                Button {
-                    if let url = choose() {
-                        value.wrappedValue = url.standardizedFileURL.path
-                    }
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .litheIconButton()
-                .help("Choose path")
-            }
-        }
-    }
-
     private func profileBinding(for profile: MavenProfile) -> Binding<Bool> {
         Binding(
             get: { feature.selectedProfiles.contains(profile.id) },
@@ -908,15 +869,16 @@ struct MavenView: View {
     }
 
     private func runSelected() {
-        guard let phase = selectedPhase, !feature.isRunning else { return }
+        guard let phase = selectedPhase, !model.isMavenOperationBusy else { return }
         feature.run(phase: phase, module: selectedModule)
     }
 
     private func executeCustomGoal() {
         let goal = customGoal.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !goal.isEmpty else { return }
+        guard !goal.isEmpty, !model.isMavenOperationBusy,
+              goalProject == feature.project else { return }
         isGoalSheetPresented = false
-        feature.runCustomGoal(goal, module: selectedModule)
+        feature.runCustomGoal(goal, module: goalModule)
     }
 
     private func addCustomProfile() {
@@ -924,24 +886,6 @@ struct MavenView: View {
             customProfile = ""
             isAddProfilePresented = false
         }
-    }
-
-    private func presentSettings() {
-        settingsPath = feature.settingsPath ?? ""
-        localRepositoryPath = feature.localRepositoryPath ?? ""
-        mavenExecutablePath = feature.mavenExecutablePath ?? ""
-        javaHomePath = feature.javaHomePath ?? ""
-        isSettingsSheetPresented = true
-    }
-
-    private func saveSettings() {
-        feature.updateLocalConfiguration(
-            settingsPath: settingsPath,
-            localRepositoryPath: localRepositoryPath,
-            mavenExecutablePath: mavenExecutablePath,
-            javaHomePath: javaHomePath
-        )
-        isSettingsSheetPresented = false
     }
 
     private var selectedModule: MavenModule? {

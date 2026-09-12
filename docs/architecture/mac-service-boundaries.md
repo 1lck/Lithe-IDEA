@@ -131,6 +131,8 @@ cleanup remains an explicitly composed callback.
 feature directly. Comparison and commit-diff navigation stay at the application
 boundary because they also change editor selection. `WorkbenchModuleUIComposition`
 connects those callbacks; neither Git Log nor its dialogs receive `AppModel`.
+The macOS Git graph projection and native arrow navigation follow the pinned
+IntelliJ rules documented in [macos-git-graph.md](macos-git-graph.md).
 `BranchComparisonView` and `GitCommitDiffReviewView` also observe the Git feature
 directly. The editor host supplies a comparison-refresh callback to preserve
 editor-selection behavior without giving the comparison view the aggregate.
@@ -195,6 +197,10 @@ macOS owns the platform side of these capabilities:
   native handles (LSP process transport belongs to Rust);
 - native window, menu, clipboard, shortcut, installer, and update behavior.
 
+In-app updates use Sparkle through the macOS update adapter. See
+[`macos-updates.md`](macos-updates.md) for signing, differential archives,
+legacy-client compatibility, and release verification.
+
 ## Verification
 
 Run this check after changing an application boundary:
@@ -218,6 +224,36 @@ before release, and verify cancellation on reset. Real FSEvents integration
 tests continue to use the production delay and native watcher.
 
 ## Remaining migration work
+
+Maven root and module menus route lifecycle, Test, Package and custom goals
+through `MavenFeatureModel` and its existing process. Run/Debug select only
+configurations with matching Core-provided reactor and module ownership;
+working-directory overrides and Current File never supply that ownership.
+The Run workflow coordinator owns module startup and cancels it on workspace
+reset. Native Debug reuses the existing Java target resolver, adapter and
+terminal lifecycle; preparation captures the selected configuration and rejects
+cancelled or stale workspace/configuration results before launch.
+
+Maven POM watcher events mark the accepted model as requiring Reload instead
+of immediately forwarding the descriptor to JDT LS. `MavenService` owns the
+coalesced reload task, a revision that advances on POM/configuration changes,
+and the candidate model produced by the existing Rust `maven.scan` operation.
+The accepted model and configuration remain available until Java import
+succeeds. Failure keeps the old model and a retryable error; reset cancels the
+task and invalidates late results. Inventory refreshes cannot accept pending
+POM changes. Configuration-only reload skips scanning. Java synchronization
+restarts only the workspace Java session, awaits readiness, and cancels its
+owned session on failure or explicit cancellation. Java import uses Core's
+progress-aware readiness deadline and absolute safety cap; Reload must not
+shorten them with a platform-owned wall-clock timeout. Reload holds the
+execution module's activity lease until it finishes.
+
+Inventory scans validate the captured Reload revision before committing models,
+configuration, or fingerprints, including scans already running when a POM
+changes. After a successful Reload, `ExecutionFeatureGraph` synchronously
+delivers the accepted model to the workspace-bound `RunService`. This updates
+Maven profiles without rescanning or replacing Run's file snapshot. Run
+inspection suspended across that delivery must retain the newer Maven model.
 
 The current boundary is usable and enforced, but it is not a claim that every
 workflow has moved into Rust. Language provider routing remains an application

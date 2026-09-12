@@ -98,6 +98,37 @@ export interface MavenDiagnostic {
   message: string;
 }
 
+export interface MavenTestFailureDetail {
+  name: string;
+  kind: "failure" | "error";
+  message?: string | null;
+  path?: string | null;
+  line?: number | null;
+  column?: number | null;
+}
+
+export interface MavenTestResults {
+  testsRun: number;
+  failures: number;
+  errors: number;
+  skipped: number;
+  passed: number;
+  success: boolean;
+  failureDetails: MavenTestFailureDetail[];
+}
+
+export interface JavaTestMethod {
+  name: string;
+  line: number;
+  endLine: number;
+}
+
+export interface MavenTestRun {
+  module: string | null;
+  selector: string;
+  title: string;
+}
+
 export interface MavenPortableConfiguration {
   version: 1;
   selectedProfiles: string[];
