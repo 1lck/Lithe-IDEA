@@ -78,7 +78,9 @@ final class MacServiceContainer {
     ) {
         let authorizationCallbackRouter = providedAuthorizationCallbackRouter
             ?? MacExternalAuthorizationCallbackRouter()
-        let rustCore = RustCoreBridge(gitPreferences: settings.gitExecutionPreferences)
+        let gitExecutionJournal = GitExecutionJournal()
+        let rustCore = RustCoreBridge(gitPreferences: settings.gitExecutionPreferences,
+                                      gitExecutionJournal: gitExecutionJournal)
         let mavenRepositoryURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".m2/repository", isDirectory: true)
         let gradleRepositoryURL = FileManager.default.homeDirectoryForCurrentUser
@@ -479,7 +481,8 @@ final class MacServiceContainer {
                     operations: gitOperations,
                     shelfStorage: MacGitShelfStorage(storage: fileStorage),
                     performanceLogger: gitPerformanceLogger ?? NullGitPerformanceLogger(),
-                    patchFileAccess: MacGitPatchFileAccess(storage: fileStorage)
+                    patchFileAccess: MacGitPatchFileAccess(storage: fileStorage),
+                    executionJournal: gitExecutionJournal
                 )
             })
             try moduleRegistry.register(ModuleFactory(manifest: SearchModule.moduleManifest, contributions: SearchModule.moduleContributions) {

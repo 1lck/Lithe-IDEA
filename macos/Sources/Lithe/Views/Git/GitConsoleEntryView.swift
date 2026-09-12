@@ -43,12 +43,14 @@ struct GitConsoleEntryView: View {
         .font(.system(size: 13, weight: .regular, design: .monospaced))
         .textSelection(.enabled)
         .padding(.bottom, 4)
-        .contextMenu {
-            Button("Command details") { showsDetails.toggle() }
-            Button("Copy") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(entry.copyText, forType: .string)
-            }
+        .litheContextMenu {
+            [
+                .action("Command details") { showsDetails.toggle() },
+                .action("Copy") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(entry.copyText, forType: .string)
+                }
+            ]
         }
     }
 

@@ -4,6 +4,49 @@ import Testing
 
 struct GitExecutionTests {
     @Test
+    func journalRetainsInterleavedOperationsBeforeTheConsoleExists() throws {
+        let journal = GitExecutionJournal()
+        for (id, command) in [("stage", "add"), ("commit", "commit"), ("branch", "checkout"), ("publish", "push")] {
+            journal.receive(GitExecutionEvent(operationId: id, type: "started", invocationId: 1,
+                workingDirectory: "/workspace", arguments: [command]))
+        }
+        // Every request starts at invocation 1. Interleaved output must still
+        // update its own command, without requiring an active console view.
+        for id in ["publish", "stage", "branch", "commit"] {
+            journal.receive(GitExecutionEvent(operationId: id, type: "output", invocationId: 1,
+                stream: "stdout", text: id))
+            journal.receive(GitExecutionEvent(operationId: id, type: "finished", invocationId: 1, exitCode: 0))
+            journal.receive(GitExecutionEvent(operationId: id, type: "requestFinished"))
+        }
+        let entries = journal.snapshot
+        #expect(entries.map(\.arguments) == [["add"], ["commit"], ["checkout"], ["push"]])
+        #expect(entries.map(\.output) == ["stage\n", "commit\n", "branch\n", "publish\n"])
+        #expect(entries.allSatisfy { $0.succeeded })
+    }
+
+    @Test
+    func journalClearSuppressesLateInvocationsAndKeepsOtherRepositories() {
+        let journal = GitExecutionJournal()
+        for (id, root) in [("old", "/workspace"), ("other", "/other")] {
+            journal.receive(GitExecutionEvent(operationId: id, type: "started", invocationId: 1,
+                workingDirectory: root, arguments: ["commit"]))
+        }
+        journal.clear(at: URL(fileURLWithPath: "/workspace"))
+        journal.receive(GitExecutionEvent(operationId: "old", type: "started", invocationId: 2,
+            workingDirectory: "/workspace", arguments: ["push"]))
+        journal.receive(GitExecutionEvent(operationId: "old", type: "requestFinished"))
+        journal.receive(GitExecutionEvent(operationId: "query", type: "requestStarted"))
+        journal.receive(GitExecutionEvent(operationId: "query", type: "requestFinished"))
+        #expect(journal.snapshot.map(\.workingDirectory.path) == ["/other"])
+        journal.receive(GitExecutionEvent(operationId: "new", type: "started", invocationId: 1,
+            workingDirectory: "/workspace", arguments: ["checkout"]))
+        journal.receive(GitExecutionEvent(operationId: "new", type: "requestFinished",
+            error: .init(code: "cancelled", message: "Operation was cancelled")))
+        #expect(journal.snapshot.last?.state == .unconfirmed)
+        #expect(journal.snapshot.last?.operationErrorMessage == "Operation was cancelled")
+    }
+
+    @Test
     func sharedConsoleProjectionKeepsGlobalOptionsOutOfTheCommandBody() throws {
         struct Case: Decodable {
             let arguments: [String]

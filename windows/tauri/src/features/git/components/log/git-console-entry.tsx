@@ -18,7 +18,7 @@ export function GitConsoleEntry({ record }: { record: GitConsoleRecord }) {
           {configuration && <>
             <button
               type="button"
-              className="rounded-sm bg-success/10 px-1 text-foreground"
+              className="inline cursor-pointer border-0 bg-success/10 p-0 font-[inherit] text-foreground focus-visible:outline focus-visible:outline-1"
               title={t("git.console.options")}
               aria-label={t("git.console.options")}
               aria-expanded={expandedConfiguration}

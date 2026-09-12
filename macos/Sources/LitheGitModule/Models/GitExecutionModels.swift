@@ -126,7 +126,18 @@ package final class GitExecutionContext: @unchecked Sendable {
             challenges.append(challenge)
             return
         }
-        if event.type == "requestFinished" { challenges.removeAll(); return }
+        if event.type == "requestFinished" {
+            challenges.removeAll()
+            for index in records.indices where records[index].state == .running {
+                records[index].state = .unconfirmed
+                dirty = true
+            }
+            if let error = event.error, let index = records.indices.last {
+                records[index].error = [error.message, error.details].compactMap { $0 }.joined(separator: "\n")
+                dirty = true
+            }
+            return
+        }
         if event.type == "remoteResult", let index = records.indices.last {
             records[index].remoteResult = remoteOutcome(for: event)
             if let error = event.error { records[index].error = error.message }

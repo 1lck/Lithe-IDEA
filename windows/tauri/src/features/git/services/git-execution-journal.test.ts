@@ -5,6 +5,24 @@ import { describe, expect, test } from "bun:test";
 import { GitExecutionJournal, gitConsoleCommand, gitConsoleConfiguration, gitConsoleTimestamp } from "./git-execution-journal";
 
 describe("Git execution journal", () => {
+  test("all operation sources share history before a console subscribes", () => {
+    const journal = new GitExecutionJournal(() => 0);
+    for (const command of ["add", "commit", "checkout", "push", "stash", "rebase", "worktree"]) {
+      journal.receive({ operationId: command, type: "requestStarted", workingDirectory: "C:/repo" });
+      journal.receive({ operationId: command, type: "started", invocationId: 1, workingDirectory: "C:/repo", arguments: [command] });
+    }
+    for (const command of ["push", "add", "commit", "checkout", "stash", "rebase", "worktree"]) {
+      journal.receive({ operationId: command, type: "output", invocationId: 1, stream: "stdout", text: command });
+      journal.receive({ operationId: command, type: "finished", invocationId: 1, exitCode: 0 });
+      journal.receive({ operationId: command, type: "requestFinished" });
+    }
+    expect(journal.records.map((record) => record.arguments[0])).toEqual(["add", "commit", "checkout", "push", "stash", "rebase", "worktree"]);
+    expect(journal.records.every((record) => record.output === record.arguments[0] + "\n" && record.state === "completed")).toBe(true);
+    journal.receive({ operationId: "query", type: "requestStarted", workingDirectory: "C:/repo" });
+    journal.receive({ operationId: "query", type: "requestFinished" });
+    expect(journal.records).toHaveLength(7);
+    expect(journal.active.size).toBe(0);
+  });
   test("authentication uses a separate queue and remote results survive completion", () => {
     const journal = new GitExecutionJournal();
     for (const event of fixture.events.slice(0, 2)) journal.receive(event as GitExecutionEvent);

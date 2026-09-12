@@ -77,10 +77,15 @@ Credentials are redacted only after a complete line is available. Lines above
 completion events are retained. Raw parser capture has a separate 32 MiB limit
 per stream and fails explicitly on overflow instead of parsing truncated data.
 
-macOS copies the operation context only into mutation workers; ordinary
-background reads do not inherit the console observer. Windows observes typed
-mutations at its existing central dispatcher. Both interfaces publish output
-in 100 ms batches and bound retained records to 200 and roughly 1 MiB of text.
+macOS copies the operation context into mutation workers. Its composition root
+also owns a bounded journal at the Rust bridge for calls outside those workflows,
+such as GitHub branch publication, without recording wrapped commands twice.
+That journal survives a closed Console or an inactive Git module. Windows installs
+its journal at application startup and observes all Git requests through the central
+dispatcher; authentication responses remain outside the diagnostic channel. Core's
+parser-only capture paths stay silent, and empty successful requests do not create
+console commands. Both interfaces publish output in 100 ms batches and bound
+retained records to 200 and roughly 1 MiB of text.
 Progress on stderr is displayed separately from errors. Clearing a console
 suppresses later events from the cleared operation, and repository generations
 prevent macOS events from appearing in a newly selected repository. Windows
@@ -195,9 +200,10 @@ The UI does not invent a combined percentage across unrelated remotes.
 
 ## Native presentation
 
-Both products expose a direct **Fetch** action that opens the Console and runs
-with the established defaults. **Fetch Options…** remains in the adjacent
-advanced action/menu. The sheet applies
+The Console tab observes Git operations from the existing source-control,
+branch, worktree, settings and GitHub entry points. The console tab strip has no
+Fetch action or Fetch-options button. **Fetch Options…** remains available from
+the normal Git actions menu/toolbar overflow. The sheet applies
 choices to one invocation and previews Rust's command, with credential-safe
 formatting. Plain Fetch uses the established defaults. A repository switch
 closes the options sheet. The sheet's preview is not a mandatory confirmation

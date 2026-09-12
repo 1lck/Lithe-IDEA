@@ -131,8 +131,9 @@ struct GitLogView: View {
             gitLogPathFilter = ""
             gitLogPathDraft = ""
         }
-        .onChange(of: feature.gitConsoleEntries.last?.id) { _ in
-            guard feature.gitConsoleEntries.last?.succeeded == false else { return }
+        .onChange(of: feature.gitConsoleEntries.last) { entry in
+            guard let entry, entry.state == .completed || entry.state == .unconfirmed,
+                  !entry.succeeded else { return }
             selectedGitToolTab = .console
         }
         .onAppear {
@@ -401,14 +402,6 @@ struct GitLogView: View {
                 .litheIconButton()
                 .help("Show all references")
             }
-
-            Button("Fetch") {
-                selectedGitToolTab = .console
-                Task { await feature.fetchGit() }
-            }
-            .buttonStyle(.borderless)
-            .lithePointer()
-            .disabled(feature.gitRepositoryRoot == nil || feature.isPerformingBranchOperation)
 
             Menu {
                 Button("Fetch All Remotes") {

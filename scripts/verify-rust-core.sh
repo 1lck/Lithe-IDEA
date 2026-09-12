@@ -58,4 +58,12 @@ cargo build --manifest-path rust/Cargo.toml -p lithe-core
 python3 scripts/test-git-execution.py --application "$BINARY"
 node --input-type=module -e 'import { writeTestReportArtifacts } from "./.agents/skills/write-stable-tests/scripts/generate-test-report.mjs"; writeTestReportArtifacts(".artifacts/test-stability/git-execution-integration.json");'
 
+# Exercise the macOS journal through a real non-Git-feature entry point. The
+# ordinary Swift unit lane does not link Core, so this integration is explicit.
+LITHE_RUN_GIT_EXECUTION_INTEGRATION=1 \
+    ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
+    --suite-timeout-seconds 900 \
+    --report .artifacts/test-stability/git-console-bridge.json \
+    -- --filter MacGitHubGitOperationsTests -Xlinker -force_load -Xlinker "$RUST_LIBRARY"
+
 print "Rust Core verification passed: comments, Rust tests, Swift bridge, linked symbols, and Git execution integration"

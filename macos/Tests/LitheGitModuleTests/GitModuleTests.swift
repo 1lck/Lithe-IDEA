@@ -8,6 +8,30 @@ import Testing
 @MainActor
 struct GitModuleTests {
     @Test
+    func consoleIncludesCommandsFromOtherFeaturesBeforeItWasOpened() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let journal = GitExecutionJournal()
+        journal.receive(GitExecutionEvent(operationId: "github", type: "started", invocationId: 1,
+            workingDirectory: root.path, arguments: ["push", "origin", "feature"]))
+        journal.receive(GitExecutionEvent(operationId: "github", type: "finished", invocationId: 1, exitCode: 0))
+        journal.receive(GitExecutionEvent(operationId: "github", type: "requestFinished"))
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []))),
+            executionJournal: journal)
+        defer { feature.reset() }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        #expect(feature.gitConsoleEntries.map(\.arguments) == [["push", "origin", "feature"]])
+        await feature.loadGitConsoleIfNeeded()
+        #expect(feature.gitConsoleEntries.map(\.arguments) == [["push", "origin", "feature"]])
+        feature.clearGitConsole()
+        await feature.loadGitConsoleIfNeeded()
+        #expect(feature.gitConsoleEntries.isEmpty)
+        #expect(journal.snapshot.isEmpty)
+    }
+
+    @Test
     func fetchProgressOnStderrRemainsReadableAndDoesNotImplyFailure() {
         let progress = "Receiving objects: 10%\rReceiving objects: 100%\r\n"
         let entry = GitConsoleEntry(workingDirectory: URL(fileURLWithPath: "/workspace"),

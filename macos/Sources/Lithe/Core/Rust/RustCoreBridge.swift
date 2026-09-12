@@ -11,6 +11,7 @@ import LitheRustCore
 /// layer; callers move filesystem and Git work off the main actor.
 struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     var gitPreferences: GitExecutionPreferences? = nil
+    var gitExecutionJournal: GitExecutionJournal? = nil
 
     private struct Request<Payload: Encodable>: Encodable {
         let id: String
@@ -4029,7 +4030,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             )
         ),
         let request = String(data: requestData, encoding: .utf8),
-        let responsePointer = executeGitObserving(request, context: execution) else {
+        let responsePointer = executeGitObserving(request, context: execution,
+            journal: command.hasPrefix("git.") && command != "git.authRespond" && execution == nil ? gitExecutionJournal : nil) else {
             return .failure(CoreCallError(
                 code: "unknown",
                 message: "Rust Core request could not be encoded or executed",

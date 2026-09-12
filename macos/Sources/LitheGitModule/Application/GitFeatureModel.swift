@@ -248,6 +248,9 @@ package final class GitFeatureModel: ObservableObject {
     @Published package private(set) var availableRepositoryRoots: [URL] = []
 
     private let service: GitService
+    private let executionJournal: GitExecutionJournal?
+    private var executionJournalSubscription: AnyCancellable?
+    private var journalEntryIDs: Set<UUID> = []
     private let commitFilesLoader: GitCommitFilesLoader
     private var gitIdentity: GitIdentity?
     private var commitPathsByHash: [String: Set<String>] = [:]
@@ -298,6 +301,7 @@ package final class GitFeatureModel: ObservableObject {
     package init(
         service: GitService,
         shelveService: ShelveService? = nil,
+        executionJournal: GitExecutionJournal? = nil,
         snapshotProvider: (@Sendable (URL) async -> GitSnapshot?)? = nil,
         stashesProvider: (@Sendable (URL) async -> [GitStash])? = nil,
         operationStateProvider: (@Sendable (URL) async -> GitOperationState?)? = nil,
@@ -306,6 +310,7 @@ package final class GitFeatureModel: ObservableObject {
         diffDocumentProvider: (@Sendable (GitChange, GitDiffWhitespaceMode) async -> DiffDocument)? = nil
     ) {
         self.service = service
+        self.executionJournal = executionJournal
         commitFilesLoader = GitCommitFilesLoader(service: service)
         self.shelveService = shelveService
         self.snapshotProvider = snapshotProvider ?? { await service.snapshot(for: $0) }
@@ -316,6 +321,11 @@ package final class GitFeatureModel: ObservableObject {
         self.diffDocumentProvider = diffDocumentProvider ?? {
             await service.diffDocument(for: $0, whitespace: $1)
         }
+        executionJournalSubscription = executionJournal?.changes
+            .throttle(for: .milliseconds(100), scheduler: DispatchQueue.main, latest: true)
+            .sink { [weak self] in
+                MainActor.assumeIsolated { self?.publishGitJournal() }
+            }
     }
 
     package func configure(
@@ -540,6 +550,7 @@ package final class GitFeatureModel: ObservableObject {
             if gitRepositoryRoot != snapshot.repositoryRoot {
                 clearGitCommitFilesCache()
                 gitRepositoryRoot = snapshot.repositoryRoot
+                publishGitJournal()
                 gitWorktrees = []
                 gitWorktreeLoadState = .idle
                 worktreeRequestGeneration &+= 1
@@ -918,13 +929,26 @@ package final class GitFeatureModel: ObservableObject {
         }
     }
 
+    private func publishGitJournal() {
+        guard let executionJournal else { return }
+        let entries = executionJournal.snapshot.filter { $0.workingDirectory == gitRepositoryRoot }
+        gitConsoleEntries.removeAll { journalEntryIDs.contains($0.id) }
+        gitConsoleEntries.append(contentsOf: entries)
+        gitConsoleEntries.sort { $0.timestamp < $1.timestamp }
+        journalEntryIDs = Set(entries.map(\.id))
+        trimGitConsole()
+    }
+
     package func clearGitConsole() {
+        if let gitRepositoryRoot { executionJournal?.clear(at: gitRepositoryRoot) }
+        journalEntryIDs = []
         gitConsoleClearGeneration &+= 1
         gitConsoleEntries = []
         hasLoadedInitialGitConsoleEntry = true
     }
 
     package func loadGitConsoleIfNeeded() async {
+        publishGitJournal()
         guard !hasLoadedInitialGitConsoleEntry,
               let gitRepositoryRoot,
               !isLoadingInitialGitConsoleEntry else { return }
@@ -936,7 +960,9 @@ package final class GitFeatureModel: ObservableObject {
                 isLoadingInitialGitConsoleEntry = false
             }
         }
-        let result = await service.consoleVersion(at: requestedRoot)
+        let result = await GitExecutionContext.$current.withValue(GitExecutionContext()) {
+            await service.consoleVersion(at: requestedRoot)
+        }
         guard requestedGeneration == gitConsoleRepositoryGeneration,
               gitRepositoryRoot == requestedRoot,
               !hasLoadedInitialGitConsoleEntry else { return }
@@ -2715,7 +2741,7 @@ package final class GitFeatureModel: ObservableObject {
                     return
                 }
                 if let stash = gitStashes.first(where: { $0.message.contains(message) }) {
-                    let restored = await service.popStash(stash, at: gitRepositoryRoot)
+                    let restored = await recordingGitCommand { await service.popStash(stash, at: gitRepositoryRoot) }
                     if let conflict = restored.stashRestoreConflict {
                         presentStashRestoreConflict(conflict, operationTitle: "pull")
                         return

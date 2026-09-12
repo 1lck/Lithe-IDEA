@@ -26,7 +26,7 @@ pub async fn platform_invoke(
         .map(ToString::to_string)
         .unwrap_or_else(|| format!("windows-{}", REQUEST_ID.fetch_add(1, Ordering::Relaxed)));
     let (core_command, payload) = translate(&command, args)?;
-    let observe_git = matches!(
+    let interactive_git = matches!(
         core_command.as_str(),
         "git.write"
             | "git.commit"
@@ -41,18 +41,21 @@ pub async fn platform_invoke(
         command.as_str(),
         "git_add_remote" | "git_remove_remote" | "git_create_tag" | "git_delete_tag" | "git.command"
     );
+    // Observe every Git request at the shared boundary. Core suppresses its
+    // parser-only probes, so new operation entry points cannot miss the console.
+    let observe_git = observes_git_execution(&core_command);
     let mut git_execution = if core_command == "git.authRespond" {
         json!({})
     } else {
         git_execution.unwrap_or_else(|| json!({}))
     };
     if git_execution.is_object() {
-        git_execution["interactive"] = json!(observe_git && git_events.is_some());
+        git_execution["interactive"] = json!(interactive_git && git_events.is_some());
     }
     let request = json!({
         "id": operation_id,
         "operationId": operation_id,
-        "timeoutMilliseconds": if observe_git { 900_000 } else { 30_000 },
+        "timeoutMilliseconds": if interactive_git { 900_000 } else { 30_000 },
         "gitExecution": git_execution,
         "command": core_command,
         "payload": payload
@@ -87,6 +90,10 @@ pub async fn platform_invoke(
         .map_err(|error| format!("Shared core returned invalid JSON: {error}"))?;
 
     core_response(&envelope, preserve_history_rewrite, preserve_stash_restore)
+}
+
+fn observes_git_execution(command: &str) -> bool {
+    command.starts_with("git.") && command != "git.authRespond"
 }
 
 fn core_response(
@@ -721,6 +728,28 @@ fn take_text(payload: &mut Map<String, Value>, field: &str) -> Result<String, St
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn all_shared_git_entry_points_are_observed_without_a_ui_action_allowlist() {
+        for command in [
+            "git.command",
+            "git.write",
+            "git.commit",
+            "git.apply",
+            "git.patchApply",
+            "git.rebaseStart",
+            "git.rebaseControl",
+            "git.initialize",
+            "git.configureIdentity",
+            "git.executionConfigure",
+            "git.snapshot",
+            "git.futureOperation",
+        ] {
+            assert!(super::observes_git_execution(command), "{command}");
+        }
+        assert!(!super::observes_git_execution("git.authRespond"));
+        assert!(!super::observes_git_execution("workspace.scan"));
+    }
+
     use super::{
         command_data_error, core_response, is_reviewed_history_rewrite, local_branch_reference,
         translate,

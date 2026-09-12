@@ -186,6 +186,43 @@ class Fixture:
         assert not any(event["type"] == "started" for event in events)
         assert b"showSignature" not in (self.repo / ".git/config").read_bytes()
 
+    def ordinary_operations(self):
+        repo = self.directory / "ordinary-operations"
+        self.git("clone", str(self.bare), str(repo))
+        self.git("config", "user.name", "Fixture", root=repo)
+        self.git("config", "user.email", "fixture@example.invalid", root=repo)
+        path = repo / "notes with spaces.txt"
+        path.write_text("initial notes\n")
+
+        def mutation(operation, subcommand, **fields):
+            result, events = self.call("git.write", {"root": str(repo), "operation": operation, **fields})
+            assert result["ok"] and result["data"]["exitCode"] == 0 and not result["data"].get("operationError"), result
+            starts = [event for event in events if event["type"] == "started"]
+            commands = [event for event in starts if event["displayArguments"][0] == subcommand]
+            assert commands, (operation, starts)
+            assert all(Path(event["workingDirectory"]).resolve() == repo.resolve() for event in starts), starts
+            assert all(event["globalArguments"] and "--no-pager" not in event["displayArguments"] for event in commands)
+            for event in commands:
+                finish = next(item for item in events if item["type"] == "finished" and item["invocationId"] == event["invocationId"])
+                assert finish["exitCode"] == 0, finish
+            return starts
+
+        mutation("stage", "add", paths=[path.name])
+        mutation("unstage", "restore", paths=[path.name])
+        mutation("stage", "add", paths=[path.name])
+        mutation("commit", "commit", message="record ordinary operations")
+        mutation("createBranch", "switch", name="console-fixture", reference="HEAD", checkout=True)
+        path.write_text("changed notes\n")
+        mutation("stashPush", "stash", message="console stash")
+        mutation("stashPop", "stash", reference="stash@{0}")
+        mutation("discard", "restore", paths=[path.name])
+        mutation("publishBranch", "push", name="console-fixture")
+        mutation("createWorktree", "worktree", name="console-worktree",
+                 gitReference={"kind": "local", "fullName": "refs/heads/console-fixture", "shortName": "console-fixture"},
+                 destination=str(self.directory / "console-worktree"))
+        # All calls used the same native event path as Fetch; there was no UI
+        # action callback or command-specific event producer in this test.
+
     def remotes(self):
         self.git("remote", "add", "origin", str(self.bare), root=self.repo)
         self.git("remote", "add", "upstream", str(self.bare), root=self.repo)
@@ -315,6 +352,7 @@ def main():
             cases = [("configuration_scope_precedence_and_stale_save", fixture.configuration),
                      ("executable_capabilities_and_temporary_policy", fixture.executable_and_temporary_policy),
                      ("per_remote_preview_partial_success_and_pruning", fixture.remotes),
+                     ("ordinary_git_operations_emit_commands_and_folded_options", fixture.ordinary_operations),
                      ("http_askpass_credentials", lambda: fixture.authentication()),
                      ("http_explicit_authentication_retry", lambda: fixture.authentication(retry=True)),
                      ("authentication_cancellation", lambda: fixture.authentication(cancel=True)),

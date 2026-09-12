@@ -584,8 +584,6 @@ export function GitLogToolWindow() {
           <button role="tab" aria-selected={panel === "log"} onClick={() => setPanel("log")}>{t("git.console.log")}</button>
           <button role="tab" aria-selected={panel === "console"} onClick={() => setPanel("console")}>{t("git.console.title")}</button>
         </div>
-        <button className="ml-auto" disabled={!repoPath || isReferenceMutationPending} onClick={() => void fetchReferences()}>{t("git.fetch")}</button>
-        <button aria-label={t("git.fetch.options")} title={t("git.fetch.options")} disabled={!repoPath || isReferenceMutationPending} onClick={() => setShowFetchOptions(true)}>⋯</button>
       </div>
       {panel === "console" ? <GitExecutionConsole repoPath={repoPath} /> : <>
       {loadState === "failed" && history.commits.length > 0 ? (
@@ -636,6 +634,7 @@ export function GitLogToolWindow() {
               onSetUpstream={(branch, upstream) => void setSelectedBranchUpstream(branch, upstream)}
               onManageRemotes={() => setShowRemoteManager(true)}
               onFetch={() => void fetchReferences()}
+              onFetchOptions={() => setShowFetchOptions(true)}
               onNavigateToHead={navigateToSelectedBranchHead}
               canNavigateToHead={
                 loadState === "ready" &&

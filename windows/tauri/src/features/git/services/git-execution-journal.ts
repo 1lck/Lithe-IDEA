@@ -53,6 +53,9 @@ export class GitExecutionJournal {
       this.authentication = this.authentication.filter((request) => request.operationId !== operationId);
       this.active.delete(operationId);
       if (this.hidden.delete(operationId)) return;
+      // A successful parser-only request has no visible Git invocation.
+      // Remove its provisional row instead of reporting a fictitious failure.
+      if (!event.error) this.records = this.records.filter((record) => record.id !== operationId);
       const records = this.records.filter((record) => record.operationId === operationId);
       const last = records[records.length - 1];
       if (last && event.error) last.error = redactConsoleText([event.error.message, event.error.details].filter(Boolean).join("\n"));
