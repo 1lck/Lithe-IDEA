@@ -777,7 +777,8 @@ pub fn test_results(
     let mut section = None;
     let mut current_failure = None;
     let mut failure_details: Vec<MavenTestFailureResponse> = Vec::new();
-    let mut source_resolver = MavenTestSourceResolver::new(&workspace_root);
+    let mut source_index = None;
+    let mut source_cache = HashMap::new();
 
     for raw_line in request.output.lines() {
         crate::protocol::cancellation::check()?;
@@ -837,7 +838,9 @@ pub fn test_results(
             continue;
         }
 
-        if trimmed.eq_ignore_ascii_case("Failures:") {
+        if trimmed.eq_ignore_ascii_case("Failures:")
+            || trimmed.eq_ignore_ascii_case("Failed tests:")
+        {
             section = Some(MavenTestFailureKind::Failure);
             current_failure = None;
             continue;
@@ -862,20 +865,23 @@ pub fn test_results(
                     continue;
                 }
                 let line_number = captures[3].parse::<usize>().ok();
-                let location = match line_number {
-                    Some(line_number) => source_resolver
-                        .resolve(
-                            captures
-                                .get(1)
-                                .map(|value| value.as_str())
-                                .unwrap_or_default(),
-                            captures
-                                .get(2)
-                                .map(|value| value.as_str())
-                                .unwrap_or_default(),
-                        )?
-                        .map(|path| (path, line_number)),
-                    None => None,
+                let location = if let Some(line_number) = line_number {
+                    resolve_test_source_path(
+                        &workspace_root,
+                        captures
+                            .get(1)
+                            .map(|value| value.as_str())
+                            .unwrap_or_default(),
+                        captures
+                            .get(2)
+                            .map(|value| value.as_str())
+                            .unwrap_or_default(),
+                        &mut source_index,
+                        &mut source_cache,
+                    )?
+                    .map(|path| (path, line_number))
+                } else {
+                    None
                 };
                 if let Some(detail) = failure_details.get_mut(index) {
                     let detail: &mut MavenTestFailureResponse = detail;
@@ -905,25 +911,34 @@ pub fn test_results(
             .filter(|value| !value.is_empty())
             .map(str::to_string);
         // Surefire's compact footer encodes the source line as
-        // `TestName:line message`. The detailed entry owns source locations;
-        // strip the line token here while merging the footer into it.
-        let message = raw_message.map(|value| {
+        // `TestName:line message`. Preserve a detailed entry's location, or use
+        // the footer line when legacy output provides no usable stack frame.
+        let (footer_line, message) = raw_message.map_or((None, None), |value| {
             let mut parts = value.splitn(2, char::is_whitespace);
             match parts.next() {
-                Some(token) if token.parse::<usize>().is_ok() => parts
-                    .next()
-                    .map(str::trim)
-                    .filter(|rest| !rest.is_empty())
-                    .map(str::to_string),
-                _ => Some(value),
+                Some(token) if token.parse::<usize>().is_ok() => (
+                    token.parse::<usize>().ok(),
+                    parts
+                        .next()
+                        .map(str::trim)
+                        .filter(|rest| !rest.is_empty())
+                        .map(str::to_string),
+                ),
+                _ => (None, Some(value)),
             }
         });
-        current_failure = Some(record_maven_failure(
-            &mut failure_details,
-            name,
-            kind,
-            message.flatten(),
-        )?);
+        let index = record_maven_failure(&mut failure_details, name, kind, message)?;
+        if let Some(line_number) = footer_line {
+            resolve_footer_source_location(
+                &workspace_root,
+                &mut failure_details[index],
+                name,
+                line_number,
+                &mut source_index,
+                &mut source_cache,
+            )?;
+        }
+        current_failure = Some(index);
     }
 
     let (tests_run, failures, errors, skipped) = if saw_footer_summary {
@@ -1041,130 +1056,26 @@ fn record_maven_failure(
     Ok(details.len() - 1)
 }
 
-struct MavenTestSourceResolver<'a> {
-    root: &'a Path,
-    index: Option<MavenTestSourceIndex>,
-    cache: HashMap<(String, String), Option<String>>,
-}
-
-struct MavenTestSourceIndex {
-    paths: Vec<String>,
-    complete: bool,
-}
-
-impl<'a> MavenTestSourceResolver<'a> {
-    fn new(root: &'a Path) -> Self {
-        Self {
-            root,
-            index: None,
-            cache: HashMap::new(),
-        }
-    }
-
-    fn resolve(&mut self, class_name: &str, file_name: &str) -> Result<Option<String>, CoreError> {
-        crate::protocol::cancellation::check()?;
-        let cache_key = (class_name.to_string(), file_name.to_string());
-        if let Some(cached) = self.cache.get(&cache_key) {
-            return Ok(cached.clone());
-        }
-
-        let file_path = Path::new(file_name);
-        if file_path.is_absolute() {
-            let resolved = workspace_relative_path(self.root, file_path);
-            self.cache.insert(cache_key, resolved.clone());
-            return Ok(resolved);
-        }
-
-        if self.index.is_none() {
-            self.index = Some(index_maven_test_sources(self.root)?);
-        }
-        let index = self
-            .index
-            .as_ref()
-            .expect("Maven source index should exist");
-        // A truncated index cannot prove that an otherwise unique candidate has
-        // no duplicate in the unvisited part of the workspace.
-        let resolved = if index.complete {
-            resolve_indexed_test_source(&index.paths, class_name, file_name)
-        } else {
-            None
-        };
-        self.cache.insert(cache_key, resolved.clone());
-        Ok(resolved)
-    }
-}
-
-fn index_maven_test_sources(root: &Path) -> Result<MavenTestSourceIndex, CoreError> {
-    let mut directories = vec![root.to_path_buf()];
-    let mut paths = Vec::new();
-    let mut visited = 0_usize;
-    while let Some(directory) = directories.pop() {
-        crate::protocol::cancellation::check()?;
-        if visited >= MAX_MAVEN_TEST_SOURCE_SEARCH_DIRECTORIES {
-            return Ok(MavenTestSourceIndex {
-                paths,
-                complete: false,
-            });
-        }
-        visited += 1;
-        let Ok(entries) = fs::read_dir(&directory) else {
-            continue;
-        };
-        let mut children = Vec::new();
-        for entry in entries {
-            crate::protocol::cancellation::check()?;
-            let Ok(entry) = entry else { continue };
-            let Ok(file_type) = entry.file_type() else {
-                continue;
-            };
-            let path = entry.path();
-            if file_type.is_dir() {
-                if !should_skip_test_source_directory(&path) {
-                    children.push(path);
-                }
-            } else if file_type.is_file()
-                && path
-                    .extension()
-                    .and_then(|value| value.to_str())
-                    .is_some_and(|value| value.eq_ignore_ascii_case("java"))
-            {
-                // `root` is canonical and traversal never follows symlinked
-                // directories, so stripping it here avoids two filesystem
-                // canonicalization calls for every indexed Java file.
-                if let Some(path) = indexed_source_path(root, &path) {
-                    paths.push(path);
-                }
-            }
-        }
-        children.sort_by(|left, right| {
-            left.to_string_lossy()
-                .to_ascii_lowercase()
-                .cmp(&right.to_string_lossy().to_ascii_lowercase())
-                .then_with(|| left.cmp(right))
-        });
-        directories.extend(children.into_iter().rev());
-    }
-    paths.sort_by(|left, right| {
-        left.to_ascii_lowercase()
-            .cmp(&right.to_ascii_lowercase())
-            .then_with(|| left.cmp(right))
-    });
-    Ok(MavenTestSourceIndex {
-        paths,
-        complete: true,
-    })
-}
-
-fn indexed_source_path(root: &Path, path: &Path) -> Option<String> {
-    let relative = path.strip_prefix(root).ok()?;
-    Some(relative.to_string_lossy().replace('\\', "/"))
-}
-
-fn resolve_indexed_test_source(
-    paths: &[String],
+fn resolve_test_source_path(
+    root: &Path,
     class_name: &str,
     file_name: &str,
-) -> Option<String> {
+    source_index: &mut Option<MavenTestSourceIndex>,
+    source_cache: &mut HashMap<(String, String), Option<String>>,
+) -> Result<Option<String>, CoreError> {
+    crate::protocol::cancellation::check()?;
+    let cache_key = (class_name.to_string(), file_name.to_string());
+    if let Some(cached) = source_cache.get(&cache_key) {
+        return Ok(cached.clone());
+    }
+    let file_path = Path::new(file_name);
+    if file_path.is_absolute() {
+        if let Some(path) = workspace_relative_path(root, file_path) {
+            source_cache.insert(cache_key, Some(path.clone()));
+            return Ok(Some(path));
+        }
+    }
+
     let class_name = class_name
         .rsplit_once('.')
         .map(|(class_name, _)| class_name)
@@ -1177,23 +1088,225 @@ fn resolve_indexed_test_source(
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or(file_name);
-    let exact =
-        unique_test_source_match(paths.iter().filter(|path| {
-            path.as_str() == class_path || path.ends_with(&format!("/{class_path}"))
-        }));
-    exact.or_else(|| {
-        unique_test_source_match(paths.iter().filter(|path| {
-            Path::new(path)
-                .file_name()
-                .and_then(|value| value.to_str())
-                .is_some_and(|value| value == simple_file_name)
-        }))
-    })
+    if source_index.is_none() {
+        *source_index = Some(MavenTestSourceIndex::build(root)?);
+    }
+    let index = source_index
+        .as_ref()
+        .expect("source index should exist after construction");
+    let resolved = index.resolve(&class_path, simple_file_name);
+    source_cache.insert(cache_key, resolved.clone());
+    Ok(resolved)
 }
 
-fn unique_test_source_match<'a>(mut matches: impl Iterator<Item = &'a String>) -> Option<String> {
-    let first = matches.next()?.clone();
-    matches.next().is_none().then_some(first)
+fn resolve_footer_source_location(
+    root: &Path,
+    detail: &mut MavenTestFailureResponse,
+    name: &str,
+    line_number: usize,
+    source_index: &mut Option<MavenTestSourceIndex>,
+    source_cache: &mut HashMap<(String, String), Option<String>>,
+) -> Result<(), CoreError> {
+    if detail.path.is_some() {
+        return Ok(());
+    }
+    let normalized = normalized_maven_test_name(name);
+    let Some((class_name, _)) = normalized.rsplit_once('.') else {
+        return Ok(());
+    };
+    let simple_class = class_name
+        .rsplit('.')
+        .next()
+        .unwrap_or(class_name)
+        .split('$')
+        .next()
+        .unwrap_or(class_name);
+    let file_name = format!("{simple_class}.java");
+    if let Some(path) =
+        resolve_test_source_path(root, &normalized, &file_name, source_index, source_cache)?
+    {
+        detail.path = Some(path);
+        detail.line = Some(line_number);
+    }
+    Ok(())
+}
+
+/// One lazily built, parse-wide index bounds source traversal to 10,000
+/// directories total instead of repeating that cost for every stack frame.
+struct MavenTestSourceIndex {
+    paths: Vec<String>,
+    complete: bool,
+}
+
+impl MavenTestSourceIndex {
+    fn build(root: &Path) -> Result<Self, CoreError> {
+        let mut directories = vec![root.to_path_buf()];
+        let mut paths = Vec::new();
+        let mut visited = 0;
+        let mut complete = true;
+        while let Some(directory) = directories.pop() {
+            crate::protocol::cancellation::check()?;
+            if visited >= MAX_MAVEN_TEST_SOURCE_SEARCH_DIRECTORIES {
+                complete = false;
+                break;
+            }
+            visited += 1;
+            let entries = match fs::read_dir(&directory) {
+                Ok(entries) => entries,
+                Err(_) => {
+                    complete = false;
+                    continue;
+                }
+            };
+            let mut children = Vec::new();
+            for entry in entries {
+                crate::protocol::cancellation::check()?;
+                let entry = match entry {
+                    Ok(entry) => entry,
+                    Err(_) => {
+                        complete = false;
+                        continue;
+                    }
+                };
+                let file_type = match entry.file_type() {
+                    Ok(file_type) => file_type,
+                    Err(_) => {
+                        complete = false;
+                        continue;
+                    }
+                };
+                if file_type.is_dir() {
+                    if !should_skip_test_source_directory(&entry.path()) {
+                        children.push((entry.path(), true));
+                    }
+                } else if file_type.is_file()
+                    && matches!(
+                        entry.path().extension().and_then(|value| value.to_str()),
+                        Some("java" | "kt")
+                    )
+                {
+                    children.push((entry.path(), false));
+                }
+            }
+            children.sort_by(|left, right| {
+                left.0
+                    .to_string_lossy()
+                    .to_ascii_lowercase()
+                    .cmp(&right.0.to_string_lossy().to_ascii_lowercase())
+                    .then_with(|| left.0.cmp(&right.0))
+            });
+            for (path, is_directory) in children.into_iter().rev() {
+                if is_directory {
+                    directories.push(path);
+                } else if let Ok(relative) = path.strip_prefix(root) {
+                    // Traversal starts at root and excludes symlinks via file_type,
+                    // so lexical paths avoid two canonicalizations per source file.
+                    // Absolute paths from process output still require containment checks.
+                    paths.push(relative.to_string_lossy().replace('\\', "/"));
+                } else {
+                    complete = false;
+                }
+            }
+        }
+        paths.sort_by(|left, right| {
+            left.to_ascii_lowercase()
+                .cmp(&right.to_ascii_lowercase())
+                .then_with(|| left.cmp(right))
+        });
+        Ok(Self { paths, complete })
+    }
+
+    fn resolve(&self, class_path: &str, simple_file_name: &str) -> Option<String> {
+        // A partial index cannot prove uniqueness, so returning any candidate
+        // would risk navigating to a same-named source in another module.
+        if !self.complete {
+            return None;
+        }
+
+        let mut exact_matches = self
+            .paths
+            .iter()
+            .filter(|path| path_has_suffix(path, class_path));
+        if let Some(path) = exact_matches.next() {
+            return exact_matches.next().is_none().then(|| path.clone());
+        }
+
+        let mut file_name_matches = self.paths.iter().filter(|path| {
+            Path::new(path).file_name().and_then(|value| value.to_str()) == Some(simple_file_name)
+        });
+        let path = file_name_matches.next()?;
+        file_name_matches.next().is_none().then(|| path.clone())
+    }
+}
+
+fn path_has_suffix(path: &str, suffix: &str) -> bool {
+    path == suffix
+        || path
+            .strip_suffix(suffix)
+            .is_some_and(|prefix| prefix.ends_with('/'))
+}
+
+#[cfg(test)]
+mod test_source_index_tests {
+    use super::MavenTestSourceIndex;
+
+    #[test]
+    fn source_index_prefers_the_unique_package_path() {
+        let index = MavenTestSourceIndex {
+            paths: vec![
+                "src/test/java/AppTest.java".to_string(),
+                "service/src/test/java/com/example/AppTest.java".to_string(),
+            ],
+            complete: true,
+        };
+
+        assert_eq!(
+            index.resolve("com/example/AppTest.java", "AppTest.java"),
+            Some("service/src/test/java/com/example/AppTest.java".to_string())
+        );
+    }
+
+    #[test]
+    fn source_index_rejects_ambiguous_or_incomplete_results() {
+        let duplicate_index = MavenTestSourceIndex {
+            paths: vec![
+                "service-one/src/test/java/com/example/AppTest.java".to_string(),
+                "service-two/src/test/java/com/example/AppTest.java".to_string(),
+            ],
+            complete: true,
+        };
+        let incomplete_index = MavenTestSourceIndex {
+            paths: vec!["service/src/test/java/com/example/AppTest.java".to_string()],
+            complete: false,
+        };
+
+        assert_eq!(
+            duplicate_index.resolve("com/example/AppTest.java", "AppTest.java"),
+            None
+        );
+        assert_eq!(
+            incomplete_index.resolve("com/example/AppTest.java", "AppTest.java"),
+            None
+        );
+    }
+
+    #[test]
+    fn source_index_requires_a_path_boundary_and_unique_filename_fallback() {
+        let mut index = MavenTestSourceIndex {
+            paths: vec!["src/test/java/notcom/example/AppTest.java".to_string()],
+            complete: true,
+        };
+        assert_eq!(
+            index.resolve("com/example/AppTest.java", "AppTest.java"),
+            Some("src/test/java/notcom/example/AppTest.java".to_string())
+        );
+        index.paths.push("other/AppTest.java".to_string());
+        // The partial package suffix must not bypass ambiguous filename fallback.
+        assert_eq!(
+            index.resolve("com/example/AppTest.java", "AppTest.java"),
+            None
+        );
+    }
 }
 
 fn should_skip_test_source_directory(path: &Path) -> bool {

@@ -133,7 +133,7 @@ stable error code and a user-facing message:
 | `java.sourceDefinition` | Locate a Java type, method, or field declaration in source text |
 | `java.testMethods` | Discover JUnit 4/5 test methods and their source ranges |
 | `java.serverPort` | Parse Spring server port settings from properties or YAML text |
-| `java.structure` | Parse Java editor folds, inlay hints, and portable syntax roles |
+| `java.structure` | Parse Java editor folds, inlay hints, portable syntax roles, and JUnit test methods |
 | `spring.index` | Build a deterministic Spring configuration, bean, injection, and endpoint index |
 | `mybatis.index` | Build a deterministic MyBatis mapper-interface and XML statement index |
 | `runConfig.inspect` | Inspect `.lithe` run documents, versions, and staleness without writing files |
@@ -209,8 +209,12 @@ limited to 500,000 characters. The response is:
 ```
 
 `kind` is `failure` or `error`; `path` is a workspace-relative source path
-when the first matching stack frame exists, and all locations use one-based
-lines with nullable columns. `passed` is derived from the summary and never
+when a stack frame or failure footer can be resolved unambiguously. Relative
+source lookup requires a complete workspace index, prefers a unique full
+package-path suffix at a path boundary, and falls back to a unique filename
+only when no package-path candidate exists. Ambiguous matches or an incomplete
+scan (including the 10,000-directory limit) leave the location `null`.
+All locations use one-based lines with nullable columns. `passed` is derived from the summary and never
 negative. A final `Results` summary is preferred; when Maven only prints
 per-class summaries, the counts are aggregated. Failure details retain Maven's output order and are bounded to
 10,000 entries. A parser or size violation returns the standard
@@ -227,7 +231,10 @@ current branch's tracking counts and are zero when no upstream is configured.
 repository first when present, then repositories under the opened workspace by
 workspace containment, depth, and path. Each entry contains an absolute native
 `path` because repository roots are platform boundary values and may be outside
-the opened folder when the folder is nested inside a checkout. Core treats both
+the opened folder when the folder is nested inside a checkout. Canonical paths
+are reported in plain native form: Core strips the Windows verbatim `\\?\`
+prefix so roots remain valid Git working directories and stay resolvable after
+consumers normalize separators. Core treats both
 `.git` directories and `.git` files as repository markers. The default traversal
 visits the entire workspace tree, including build and dependency folders, and
 continues below discovered repositories. Git metadata itself is not traversed.
@@ -322,10 +329,14 @@ validation or probe fails after at least one subprocess was recorded, the
 response retains the invocation trace and includes the failure as
 `operationError`.
 
+`git.command` and typed Git writers share the repository's write lease, including
+linked worktrees. A competing request fails with `invalid_request` while a writer
+is active; it does not wait behind a mutex outside its cancellation deadline.
+
 `git.write` accepts a typed mutation request. Its required `operation` values are
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `excludePatterns`, `unexcludePatterns`, `cherryPick`, `revert`,
 `reset`, `undoCommit`, `editCommitMessage`, `deleteCommit`, `squashCommits`, `createBranch`, `publishBranch`,
-`renameBranch`, `setUpstream`, `unsetUpstream`, `deleteBranch`, `merge`, `rebase`, `createWorktree`,
+`renameBranch`, `setUpstream`, `unsetUpstream`, `deleteBranch`, `updateBranch`, `merge`, `rebase`, `createWorktree`,
 `removeWorktree`, `lockWorktree`, `unlockWorktree`, `repairWorktrees`, `pruneWorktrees`,
 `fetch`, `pull`, `push`, `checkout`, `checkoutAndRebase`, `checkoutRevision`, `clone`, `stashPush`,
 `stashApply`, `stashPop`, `stashDrop`, `deleteRemoteBranch`, `operationContinue`,
@@ -360,6 +371,13 @@ primary, or locked worktree; dirty worktrees require an explicit `force` value.
 `repairWorktrees` refreshes administrative links after a repository or worktree
 has moved. `pruneWorktrees` removes registrations whose checkout is already missing and
 does not recursively delete an arbitrary directory.
+
+`updateBranch` requires a typed, non-current local `gitReference`. Core resolves
+that branch's configured remote upstream and performs an atomic Fetch that
+refreshes the remote-tracking ref and fast-forwards the local branch without
+switching HEAD. Git rejects diverged branches and branches checked out by any
+worktree, so the operation cannot discard local commits or mutate another active
+checkout.
 Successful process launch returns `{ "arguments": string[], "output": string,
 "stdout": string, "stderr": string, "exitCode": number, "invocations":
 GitCommandInvocation[], "operationError": CoreError?, "stashRestore":
@@ -653,7 +671,16 @@ core clamps it to `1...5000`). It remains the compatibility command that
 combines `git.references` with the first `git.historyPage`. New clients use
 `git.references` with `{ "root": string }` and request commits separately with
 `git.historyPage` using `root`, optional full `reference`, nullable opaque
-`cursor`, and `limit`. The first request omits `cursor`; each later request
+`cursor`, `limit`, and optional `order` (`"topo"` or `"date"`). Omitted
+`order` preserves the original `git log --topo-order` behavior. `"date"` uses
+`git log --date-order`: committer date descending whenever the child-before-
+parent constraint permits, independently of the displayed author date. macOS
+requests date order for the log page and repository graph; existing clients
+retain topology order. A cursor is bound to its root, reference, and order;
+continuations must repeat the same order. A mismatched order returns
+`invalid_request` without consuming the cursor. The portable request example is
+`shared/fixtures/git/history-page-date-request-v1.json`.
+The first request omits `cursor`; each later request
 returns the prior page's `nextCursor`. Core keeps one bounded, backpressured
 `git log` stream behind that cursor and clamps the stream to the first 5,000
 commits, so later pages continue traversal instead of replaying earlier commits.
@@ -676,7 +703,8 @@ remote references, and tags return zero for both fields. Portable examples are
 
 For compatibility, a request that explicitly contains the deprecated numeric
 `offset` field still uses the bounded offset implementation and returns
-`nextOffset`. New clients must omit `offset`; repository size does not select
+`nextOffset`; it honors the same optional `order`. New clients must omit
+`offset`; repository size does not select
 between the two protocols.
 
 `git.commit` accepts `root` and a revision, returning one `commit` object.
@@ -1308,10 +1336,12 @@ test annotations, ignores annotations and braces inside comments, strings,
 characters, and text blocks, and does not start a Java process or contact JDT.
 
 `java.structure` accepts Java `source` and optional `declarationSources`. It
-returns `foldRegions`, `inlayHints`, and
-`syntaxHighlights`. Line numbers are zero-based because these values are editor
+returns `foldRegions`, `inlayHints`, `syntaxHighlights`, and `testMethods`.
+Fold and inlay line numbers are zero-based because these values are editor
 offsets; UTF-16 columns and hidden ranges match the native text editor coordinate
-system. Syntax highlights contain document-relative `utf16Start`,
+system. Each JUnit 4/5 test method contains its name plus inclusive one-based
+`line` and `endLine` values and comes from the Java syntax tree, so comments and
+method calls cannot create runnable test entries. Syntax highlights contain document-relative `utf16Start`,
 `utf16Length`, and a role from the shared editor syntax-theme contract. They
 are sorted and non-overlapping, so native renderers can apply semantic colors
 without maintaining another Java parser. The parser is platform-independent

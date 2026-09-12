@@ -590,6 +590,7 @@ struct RustGitOperations: GitOperations, Sendable {
             reference: reference?.fullName,
             cursor: cursor,
             limit: limit,
+            order: "date",
             operationID: operationID
         )?.makePage()
     }

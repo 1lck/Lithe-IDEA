@@ -247,6 +247,48 @@ struct ExecutionModuleTests {
     }
 
     @Test
+    func mavenReloadCancellationReleasesJavaWaitWithoutAcceptingTheCandidate() async throws {
+        let (service, root) = await makeReloadService()
+        let entered = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let waiting = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        var javaWaitEnded = false
+        service.markPomChanged(root.appendingPathComponent("pom.xml"))
+        let reload = Task {
+            await service.reloadProject(files: [root.appendingPathComponent("new")], rescan: true) {
+                entered.continuation.yield(())
+                for await _ in waiting.stream { }
+                javaWaitEnded = true
+                try Task.checkCancellation()
+            }
+        }
+        let watchdog = Task {
+            // test-stability: allow(swift-real-sleep) reason: bounds cancellation regression when the Java readiness stand-in fails to terminate.
+            do { try await Task.sleep(for: .seconds(2)) } catch { return }
+            Issue.record("Maven reload did not cancel its Java readiness wait")
+            entered.continuation.finish()
+            waiting.continuation.finish()
+            reload.cancel()
+            service.stop()
+        }
+        defer {
+            watchdog.cancel()
+            entered.continuation.finish()
+            waiting.continuation.finish()
+            reload.cancel()
+            service.reset()
+        }
+        for await _ in entered.stream { break }
+        // Cancel the caller, not the Java stand-in: the service must forward it.
+        reload.cancel()
+        await reload.value
+        #expect(javaWaitEnded)
+        #expect(service.project?.artifactID == "old")
+        #expect(service.isProjectReloadRequired)
+        #expect(service.reloadError != nil)
+        #expect(!service.isReloading)
+    }
+
+    @Test
     func configuredServerPortUsesArgumentsEnvironmentResourcesAndFrameworkDefault() async throws {
         let root = URL(fileURLWithPath: "/workspace/service-port", isDirectory: true)
         let properties = root.appendingPathComponent("src/main/resources/application.properties")
@@ -364,6 +406,40 @@ struct ExecutionModuleTests {
         #expect(service.generationState == .projectNotReady)
         #expect(operations.generateCallCount == 0)
         #expect(service.configurationStatus == .missing)
+    }
+
+    @Test
+    func selectingBetweenRunningServicesSynchronizesLogIdentityAndControls() async {
+        let first = RunConfiguration(id: "service:a", name: "A", kind: .javaMain,
+                                     execution: .service, modulePath: nil, mainClass: "demo.A")
+        let second = RunConfiguration(id: "service:b", name: "B", kind: .javaMain,
+                                      execution: .service, modulePath: nil, mainClass: "demo.B")
+        let service = RunService(
+            runtime: TestRuntime(), process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: SelectionRunConfigurationOperations(configurations: [first, second]),
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        defer { service.reset() }
+        await service.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [], mavenProject: nil)
+        // Model two already-running sessions: changing selection must not need
+        // a process transition or a new output event to update the log target.
+        service.startConfiguration(first)
+        service.startConfiguration(second)
+        let feature = RunFeatureModel(service: service)
+        for configuration in [second, first, second] {
+            feature.select(configuration)
+            #expect(feature.selectedProjectSessionID == configuration.id)
+            #expect(feature.isSelectedConfigurationRunning)
+            #expect(feature.moduleSessions.first { $0.id == feature.selectedProjectSessionID }?.title == configuration.name)
+            #expect(feature.moduleSessions.filter(\.isRunning).count == 2)
+        }
+        feature.select(.currentFile)
+        #expect(feature.selectedProjectSessionID == nil)
+        #expect(!feature.isSelectedConfigurationRunning)
     }
 
     /// Once the project is bound, identification must behave exactly as before.
@@ -670,7 +746,6 @@ struct ExecutionModuleTests {
         firstProcess.onOutput?("Tests run: 3, Failures: 1, Errors: 0, Skipped: 1\n")
         firstProcess.onTermination?(1)
         try await awaitTestValue(service.$state, matching: { $0 == .failed(exitCode: 1) })
-
         #expect(service.state == .failed(exitCode: 1))
         #expect(service.results == parsedResults)
         #expect(parser.calls == 1)
@@ -755,7 +830,6 @@ struct ExecutionModuleTests {
 
         process.onTermination?(0)
         try await awaitTestValue(service.$state, matching: { $0 == .passed })
-
         #expect(service.state == .passed)
         #expect(service.results == nil)
         #expect(parser.calls == 0)
@@ -1150,6 +1224,28 @@ struct ExecutionModuleTests {
             EmptyWorkspaceModule()
         }
     }
+}
+
+private struct SelectionRunConfigurationOperations: RunConfigurationOperations {
+    let configurations: [RunConfiguration]
+    func inspect(at _: URL) -> ProjectRunConfigurationInspection {
+        ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
+    }
+    func generate(at _: URL, files _: [URL], modulePaths _: [String]) throws -> RunConfigurationGenerationResult {
+        RunConfigurationGenerationResult(entryCount: configurations.count)
+    }
+    func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
+        RunConfigurationResolution(
+            configurations: ([.currentFile] + configurations).map {
+                EffectiveRunConfiguration(configuration: $0, options: RunOptions())
+            }, diagnostics: [], defaultConfigurationID: configurations.first?.id
+        )
+    }
+    func launchPlan(at _: URL, configurationID: String, currentFile _: String?, classPath _: String?, debugPort _: Int?) throws -> SharedLaunchPlan {
+        SharedLaunchPlan(executable: .toolchain("java"), arguments: [configurationID], workingDirectory: ".")
+    }
+    func createConfiguration(_ draft: RunConfigurationDraft, at _: URL) throws -> String { draft.name }
+    func migrateLegacySettings(at _: URL, configurationIDs _: [String]) throws {}
 }
 
 @MainActor

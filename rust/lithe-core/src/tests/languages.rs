@@ -850,6 +850,9 @@ fn java_core_commands_return_shared_runtime_and_structure_data() {
         structure_response["data"]["foldRegions"][0]["kind"],
         "imports"
     );
+    assert!(structure_response["data"]["testMethods"]
+        .as_array()
+        .is_some_and(Vec::is_empty));
     assert!(structure_response["data"]
         .get("implementationMarkers")
         .is_none());
@@ -990,6 +993,23 @@ fn java_test_methods_handle_inline_annotations_and_ignore_non_code_text() {
         serde_json::json!([
             {"name": "inlineJUnit4", "line": 7, "endLine": 7},
             {"name": "parameterized", "line": 11, "endLine": 14}
+        ])
+    );
+    let structure: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "java-structure-test-methods",
+            "command": "java.structure",
+            "payload": {"source": source}
+        })
+        .to_string(),
+    ))
+    .expect("Java structure response should be JSON");
+    assert_eq!(structure["ok"], true, "{structure}");
+    assert_eq!(
+        structure["data"]["testMethods"],
+        serde_json::json!([
+            {"name": "inlineJUnit4", "line": 8, "endLine": 8},
+            {"name": "parameterized", "line": 12, "endLine": 15}
         ])
     );
 }

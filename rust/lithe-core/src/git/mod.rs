@@ -755,7 +755,7 @@ pub fn workspace_repositories(
             break;
         }
 
-        let canonical_directory = match directory.canonicalize() {
+        let canonical_directory = match canonicalize_simplified(&directory) {
             Ok(path) => path,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(error) => return Err(repository_scan_error(error)),
@@ -825,6 +825,10 @@ pub fn workspace_repositories(
 pub fn command(request: GitCommandRequest) -> Result<GitCommandResponse, CoreError> {
     with_git_invocation_trace(|| {
         let root = validate_root(&request.root)?;
+        // Raw compatibility commands can also mutate refs and configuration.
+        // Share the typed writers' fail-fast lease instead of waiting on a mutex
+        // that cannot observe the request's cancellation or deadline.
+        let _lease = rewrite::RewriteLease::acquire(&root)?;
         execute_git(&root, &request.arguments, request.input)
     })
 }
@@ -1077,6 +1081,7 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
             ]
         }
         "repairWorktrees" => arguments = vec!["worktree".into(), "repair".into()],
+        "updateBranch" => return update_local_branch(&root, &request),
         "fetch" => arguments = vec!["fetch".into(), "--all".into(), "--prune".into()],
         // Strategy comes from the caller because only the user can decide whether a
         // divergent history should be merged or replayed. Absent a choice we stay on
@@ -2847,9 +2852,33 @@ pub fn blame(request: GitBlameRequest) -> Result<GitBlameResponse, CoreError> {
     Ok(GitBlameResponse { lines })
 }
 
+/// Removes the Windows verbatim prefix that `Path::canonicalize` adds.
+///
+/// Canonical Windows paths come back as `\\?\C:\...` or `\\?\UNC\server\share`.
+/// Once a consumer normalizes separators, both forms turn into `//?/...`,
+/// which no longer resolves to the original location. Repository roots cross
+/// the platform boundary as identifiers and are reused as Git working
+/// directories, so they must stay in plain native form. Non-Windows paths are
+/// returned unchanged.
+pub(crate) fn simplified_canonical_path(path: PathBuf) -> PathBuf {
+    let simplified = {
+        let text = path.to_string_lossy();
+        if let Some(network_path) = text.strip_prefix(r"\\?\UNC\") {
+            Some(PathBuf::from(format!(r"\\{network_path}")))
+        } else {
+            text.strip_prefix(r"\\?\").map(PathBuf::from)
+        }
+    };
+    simplified.unwrap_or(path)
+}
+
+/// Canonicalizes `path` and strips the Windows verbatim prefix from the result.
+fn canonicalize_simplified(path: &Path) -> std::io::Result<PathBuf> {
+    path.canonicalize().map(simplified_canonical_path)
+}
+
 fn validate_root(raw_root: &str) -> Result<String, CoreError> {
-    let root = PathBuf::from(raw_root)
-        .canonicalize()
+    let root = canonicalize_simplified(Path::new(raw_root))
         .map_err(|_| CoreError::new(ErrorCode::WorkspaceNotFound, "Workspace does not exist"))?;
     if !root.is_dir() {
         return Err(CoreError::new(
@@ -2881,8 +2910,7 @@ fn discover_containing_repository(root: &Path) -> Result<Option<PathBuf>, CoreEr
     if repository_root.is_empty() {
         return Ok(None);
     }
-    let path = PathBuf::from(repository_root)
-        .canonicalize()
+    let path = canonicalize_simplified(Path::new(repository_root))
         .unwrap_or_else(|_| PathBuf::from(repository_root));
     Ok(Some(path))
 }
@@ -4758,9 +4786,6 @@ fn push(
             arguments.push(tag_argument.into());
         }
     }
-    if should_set_upstream && expected_push.is_none() {
-        arguments.push("--set-upstream".into());
-    }
     let source = expected_push
         .map(|expected| expected.local_head.clone())
         .unwrap_or_else(|| format!("refs/heads/{}", target.local_branch));
@@ -4780,7 +4805,7 @@ fn push(
         );
     }
     let pushed = execute_git(root, &arguments, None)?;
-    if pushed.exit_code != 0 || !should_set_upstream || expected_push.is_none() {
+    if pushed.exit_code != 0 || !should_set_upstream {
         return Ok(pushed);
     }
 
@@ -4826,9 +4851,8 @@ fn list_worktrees(root: &str) -> Result<Vec<GitWorktreeResponse>, CoreError> {
                 .with_details(response.output),
         );
     }
-    let current_root = repository_root(root)?
-        .canonicalize()
-        .unwrap_or_else(|_| PathBuf::from(root));
+    let current_root =
+        canonicalize_simplified(&repository_root(root)?).unwrap_or_else(|_| PathBuf::from(root));
     let mut records = Vec::new();
     let mut fields = Vec::new();
     for field in response.stdout.split('\0') {
@@ -4913,9 +4937,8 @@ fn parse_worktree_record(
     let lock = value_after_marker("locked");
     let prunable = value_after_marker("prunable");
     let reported_path = PathBuf::from(path);
-    let normalized_path = reported_path
-        .canonicalize()
-        .unwrap_or_else(|_| reported_path.clone());
+    let normalized_path =
+        canonicalize_simplified(&reported_path).unwrap_or_else(|_| reported_path.clone());
     Ok(GitWorktreeResponse {
         path: normalized_path.to_string_lossy().to_string(),
         head,
@@ -5070,6 +5093,73 @@ fn mutate_worktree(root: &str, request: &GitWriteRequest) -> Result<GitCommandRe
     }
     arguments.extend(["--".into(), destination]);
     execute_git(root, &arguments, None)
+}
+
+fn update_local_branch(
+    root: &str,
+    request: &GitWriteRequest,
+) -> Result<GitCommandResponse, CoreError> {
+    let reference = request
+        .git_reference
+        .as_ref()
+        .ok_or_else(invalid_git_reference)
+        .and_then(|reference| validated_git_reference(root, reference))?;
+    if reference.kind != "local" {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Branch update requires a local Git reference",
+        ));
+    }
+    if optional_current_branch(root)?.is_some_and(|current| {
+        reference.full_name == current || reference.full_name == format!("refs/heads/{current}")
+    }) {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "The current branch must be updated through pull",
+        ));
+    }
+
+    let upstream = execute_git_readonly(
+        root,
+        &[
+            "for-each-ref".into(),
+            "--format=%(upstream)".into(),
+            reference.full_name.clone(),
+        ],
+        None,
+    )?;
+    if upstream.exit_code != 0 {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not inspect the branch upstream",
+        )
+        .with_details(upstream.output));
+    }
+    let upstream_reference = upstream.stdout.trim();
+    if upstream_reference.is_empty() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "The selected branch has no upstream",
+        ));
+    }
+    let (remote, remote_branch) = mutations::remote_branch_components(root, upstream_reference)?;
+
+    // One atomic fetch refreshes the tracking ref and fast-forwards the selected
+    // local branch without changing HEAD. Git rejects non-fast-forward updates
+    // and branches checked out by any worktree.
+    execute_git(
+        root,
+        &[
+            "fetch".into(),
+            "--atomic".into(),
+            "--no-tags".into(),
+            "--".into(),
+            remote,
+            format!("+refs/heads/{remote_branch}:{upstream_reference}"),
+            format!("refs/heads/{remote_branch}:{}", reference.full_name),
+        ],
+        None,
+    )
 }
 
 fn configure_branch_upstream(
@@ -6067,8 +6157,7 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
 pub fn watch_context(
     request: GitWatchContextRequest,
 ) -> Result<Option<GitWatchContextResponse>, CoreError> {
-    let root = PathBuf::from(&request.root)
-        .canonicalize()
+    let root = canonicalize_simplified(Path::new(&request.root))
         .map_err(|_| CoreError::new(ErrorCode::WorkspaceNotFound, "Workspace does not exist"))?;
     if !root.is_dir() {
         return Err(CoreError::new(
@@ -6104,7 +6193,7 @@ fn canonical_git_output(output: std::process::Output, label: &str) -> Result<Str
     }
     let raw_path = String::from_utf8_lossy(&output.stdout);
     let path = PathBuf::from(raw_path.trim());
-    path.canonicalize()
+    canonicalize_simplified(&path)
         .map(|path| path.to_string_lossy().into_owned())
         .map_err(|error| {
             CoreError::new(
@@ -6238,8 +6327,7 @@ fn branch_requires_publish(root: &str, branch: &str) -> bool {
 
 /// Returns the normalized repository status and branch context.
 pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError> {
-    let root = PathBuf::from(&request.root)
-        .canonicalize()
+    let root = canonicalize_simplified(Path::new(&request.root))
         .map_err(|_| CoreError::new(ErrorCode::WorkspaceNotFound, "Workspace does not exist"))?;
     if !root.is_dir() {
         return Err(CoreError::new(
@@ -6259,9 +6347,8 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
     }
     let repository_root_text = String::from_utf8_lossy(&repository_root_output.stdout);
     let repository_root_path = PathBuf::from(repository_root_text.trim());
-    let repository_root = repository_root_path
-        .canonicalize()
-        .unwrap_or(repository_root_path);
+    let repository_root =
+        canonicalize_simplified(&repository_root_path).unwrap_or(repository_root_path);
     let branch = run_git(&repository_root, &["branch", "--show-current"])
         .ok()
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
@@ -6389,14 +6476,106 @@ fn relative_or_absolute(path: &Path, root: &Path) -> String {
 mod tests {
     use super::{
         annotation_message_from_tag_object, line_similarity, pair_diff_entries, parse_diff,
-        structured_diff_from_output, DiffEntry, GitCommandInvocation, GitCommandResponse,
-        GitProcessOutput, MAX_ALIGNMENT_CELLS,
+        simplified_canonical_path, structured_diff_from_output, DiffEntry, GitCommandInvocation,
+        GitCommandResponse, GitProcessOutput, MAX_ALIGNMENT_CELLS,
     };
     use crate::protocol::{
         CoreError, ErrorCode, GitCommitResponse, GitHistoryPageResponse, GitHistoryResponse,
         GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse, GitReferencesResponse,
     };
     use serde_json::Value;
+    use std::path::PathBuf;
+
+    #[test]
+    fn simplified_canonical_path_strips_windows_verbatim_prefixes() {
+        // Windows canonicalization yields verbatim paths. Consumers normalize
+        // separators, which would turn them into `//?/C:/...` and break every
+        // later lookup of the discovered repository root.
+        assert_eq!(
+            simplified_canonical_path(PathBuf::from(r"\\?\C:\work\repo")),
+            PathBuf::from(r"C:\work\repo")
+        );
+        assert_eq!(
+            simplified_canonical_path(PathBuf::from(r"\\?\UNC\server\share\repo")),
+            PathBuf::from(r"\\server\share\repo")
+        );
+        assert_eq!(
+            simplified_canonical_path(PathBuf::from("/work/repo")),
+            PathBuf::from("/work/repo")
+        );
+    }
+
+    #[test]
+    fn argument_and_typed_writes_reject_an_active_repository_lease() {
+        struct Repository(std::path::PathBuf);
+        impl Drop for Repository {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).expect("temporary repository should be removed");
+            }
+        }
+
+        let repository = Repository(std::env::temp_dir().join(format!(
+            "lithe-write-lease-{}-{}",
+            std::process::id(),
+            super::TEMPORARY_INDEX_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        )));
+        std::fs::create_dir_all(&repository.0).unwrap();
+        let root = repository.0.to_string_lossy().into_owned();
+        let _deadline = crate::protocol::cancellation::Scope::begin(None, Some(5_000));
+        let initialized = super::command(super::GitCommandRequest {
+            root: root.clone(),
+            arguments: vec!["init".into(), "-q".into()],
+            input: None,
+        })
+        .unwrap();
+        assert_eq!(initialized.exit_code, 0);
+
+        let lease = super::rewrite::RewriteLease::acquire(&root).unwrap();
+        let (completed, completion) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let results = [
+                (
+                    "git.command",
+                    serde_json::json!({"arguments":["config", "test.writer", "raw"]}),
+                ),
+                ("git.write", serde_json::json!({"operation":"stageAll"})),
+            ]
+            .map(|(command, mut payload)| {
+                payload["root"] = serde_json::json!(root);
+                serde_json::from_str::<Value>(&crate::execute_json(
+                    &serde_json::json!({
+                        "id": command,
+                        "command": command,
+                        "timeoutMilliseconds": 2_000,
+                        "payload": payload,
+                    })
+                    .to_string(),
+                ))
+                .unwrap()
+            });
+            let _ = completed.send(results);
+        });
+
+        // The competing commands must finish while the writer still owns its
+        // lease. Always release it before asserting, so a blocking regression
+        // can terminate and be joined even when the first deadline is missed.
+        let results = completion.recv_timeout(std::time::Duration::from_secs(5));
+        drop(lease);
+        if results.is_err() {
+            completion
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("competing writer should terminate after lease cleanup");
+        }
+        worker.join().expect("competing writer should not panic");
+        for result in results.expect("competing writers must fail without waiting for the lease") {
+            assert_eq!(result["ok"], false, "{result}");
+            assert_eq!(result["error"]["code"], "invalid_request", "{result}");
+            assert_eq!(
+                result["error"]["message"],
+                "Another Git write operation is running in this repository"
+            );
+        }
+    }
 
     #[test]
     fn tag_annotation_parser_preserves_crlf_and_trailing_blank_lines() {

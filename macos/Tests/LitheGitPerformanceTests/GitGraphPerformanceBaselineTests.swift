@@ -17,11 +17,12 @@ struct GitGraphPerformanceBaselineTests {
         #expect(first.reduce(0) { $0 + $1.parentHashes.count } == 1_299)
     }
 
-    @Test("The 1,000-commit graph preserves the initial work baseline")
+    @Test("The 1,000-commit graph preserves the compact routing baseline")
     func oneThousandCommitLayoutBaseline() {
         let commits = SyntheticGitGraphFixture.mergeHeavy(commitCount: 1_000)
         let layout = GitGraphLayoutService.layout(commits: commits)
 
+        print("Compact graph 1000: \(GitGraphStructureBaseline(layout: layout)), signature=\(GitGraphStructureBaseline.signature(of: layout))")
         #expect(GitGraphStructureBaseline(layout: layout) == .expected(commitCount: 1_000))
         #expect(
             GitGraphStructureBaseline.signature(of: layout)
@@ -34,9 +35,11 @@ struct GitGraphPerformanceBaselineTests {
     @Test("The 5,000-commit graph scales within the committed work envelope")
     func fiveThousandCommitLayoutBaseline() {
         let commits = SyntheticGitGraphFixture.mergeHeavy(commitCount: 5_000)
-        let layout = GitGraphLayoutService.layout(commits: commits)
+        // Exercise the production path, including the full repository graph.
+        let layout = GitGraphLayoutService.layout(commits: commits, repositoryCommits: commits)
 
         #expect(SyntheticGitGraphFixture.parentsFollowChildren(in: commits))
+        print("Compact graph 5000: \(GitGraphStructureBaseline(layout: layout)), signature=\(GitGraphStructureBaseline.signature(of: layout))")
         #expect(GitGraphStructureBaseline(layout: layout) == .expected(commitCount: 5_000))
         #expect(
             GitGraphStructureBaseline.signature(of: layout)
@@ -63,7 +66,8 @@ struct GitGraphPerformanceBaselineTests {
     func nativeGraphViewFrameSample() {
         let commits = SyntheticGitGraphFixture.mergeHeavy(commitCount: 1_000)
         let layout = GitGraphLayoutService.layout(commits: commits)
-        let view = GitGraphFrameSamplingView(rows: layout.rows, rowHeight: 30)
+        let view = GitGraphNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 1_000 * 30))
+        view.update(snapshot: GitGraphLayoutService.routingSnapshot(for: layout), width: 120, rowHeight: 30)
         let bitmap = NSBitmapImageRep(
             bitmapDataPlanes: nil,
             pixelsWide: 120,
@@ -109,6 +113,8 @@ struct GitGraphPerformanceBaselineTests {
         for (index, pair) in zip(layout.rows, snapshot.rows).enumerated() {
             let (layoutRow, snapshotRow) = pair
             #expect(snapshotRow.rowIndex == index)
+            #expect(snapshotRow.printElements == layoutRow.printElements)
+            #expect(snapshotRow.nodeColorIndex == layoutRow.nodeColorIndex)
             #expect(snapshotRow.nodeLane == layoutRow.lane)
             #expect(snapshotRow.incoming.map(\.lane) == layoutRow.incomingLaneColors.enumerated().compactMap { lane, color in color.map { _ in lane } })
             #expect(snapshotRow.routes.map(\.targetLane) == layoutRow.parentEdges.map(\.targetLane))
@@ -954,7 +960,7 @@ private func appendVisibleFileTreeItems(
 
 @MainActor
 private func sampleFrame(
-    view: GitGraphFrameSamplingView,
+    view: NSView,
     context: NSGraphicsContext,
     clock: ContinuousClock
 ) -> Double {
@@ -971,45 +977,4 @@ private func sampleFrame(
 private func milliseconds(_ duration: Duration) -> Double {
     let components = duration.components
     return Double(components.seconds) * 1_000 + Double(components.attoseconds) / 1_000_000_000_000_000
-}
-
-private final class GitGraphFrameSamplingView: NSView {
-    private let rows: [GitGraphRow]
-    private let rowHeight: CGFloat
-
-    init(rows: [GitGraphRow], rowHeight: CGFloat) {
-        self.rows = rows
-        self.rowHeight = rowHeight
-        super.init(frame: NSRect(x: 0, y: 0, width: 120, height: CGFloat(rows.count) * rowHeight))
-        wantsLayer = false
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { nil }
-
-    override var isFlipped: Bool { true }
-
-    override func draw(_ dirtyRect: NSRect) {
-        guard let context = NSGraphicsContext.current?.cgContext else { return }
-        context.setShouldAntialias(true)
-        let firstRow = max(0, Int(floor(dirtyRect.minY / rowHeight)))
-        let lastRow = min(rows.count - 1, Int(ceil(dirtyRect.maxY / rowHeight)))
-        guard firstRow <= lastRow else { return }
-        for index in firstRow...lastRow {
-            let row = rows[index]
-            let centerY = CGFloat(index) * rowHeight + rowHeight / 2
-            let x = 8 + CGFloat(row.lane) * 13
-            context.setFillColor(NSColor.systemBlue.cgColor)
-            context.fillEllipse(in: CGRect(x: x - 4, y: centerY - 4, width: 8, height: 8))
-            context.setStrokeColor(NSColor.systemBlue.cgColor)
-            context.setLineWidth(1.6)
-            for edge in row.parentEdges {
-                guard let targetLane = edge.targetLane else { continue }
-                let targetX = 8 + CGFloat(targetLane) * 13
-                context.move(to: CGPoint(x: x, y: centerY))
-                context.addLine(to: CGPoint(x: targetX, y: centerY + rowHeight / 2))
-                context.strokePath()
-            }
-        }
-    }
 }

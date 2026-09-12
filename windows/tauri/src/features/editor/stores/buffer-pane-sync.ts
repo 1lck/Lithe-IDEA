@@ -55,8 +55,13 @@ export const syncBufferToPane = (bufferId: string, workspaceId?: string) => {
 
 export const syncAndFocusBufferInPane = (bufferId: string, workspaceId?: string) => {
   const paneStore = getPaneState(workspaceId);
-  const paneWithBuffer = paneStore.actions.getPaneByBufferId(bufferId);
+  const activePane = paneStore.actions.getActivePane();
+  if (activePane?.bufferIds.includes(bufferId)) {
+    ensureBufferInPane(activePane.id, bufferId, true, workspaceId);
+    return;
+  }
 
+  const paneWithBuffer = paneStore.actions.getPaneByBufferId(bufferId);
   if (paneWithBuffer) {
     ensureBufferInPane(paneWithBuffer.id, bufferId, true, workspaceId);
     return;
