@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import type { GitReference } from "../types/git.types";
 import {
   getGitReferenceActions,
+  getGitReferenceToolbarState,
+  isGitReferencePullAction,
   suggestWorktreeBranchName,
 } from "./git-reference-actions";
 
@@ -56,6 +58,19 @@ describe("Git reference actions", () => {
     expect(actions).not.toContain("rename");
   });
 
+  test("identifies only reference actions that run a Pull operation", () => {
+    const current = reference("local", "main", true);
+    const other = reference("local", "feature/orders");
+    const remote = reference("remote", "origin/feature/orders");
+
+    expect(isGitReferencePullAction("update", current)).toBe(true);
+    expect(isGitReferencePullAction("update", other)).toBe(false);
+    expect(isGitReferencePullAction("checkoutAndUpdate", other)).toBe(true);
+    expect(isGitReferencePullAction("pullRebaseIntoCurrent", remote)).toBe(true);
+    expect(isGitReferencePullAction("pullMergeIntoCurrent", remote)).toBe(true);
+    expect(isGitReferencePullAction("mergeIntoCurrent", remote)).toBe(false);
+  });
+
   test("suggests a safe display-derived worktree branch without parsing remote identity", () => {
     const remote = reference("remote", "team/origin/feature/orders");
     expect(suggestWorktreeBranchName(remote)).toBe("orders-worktree");
@@ -68,5 +83,52 @@ describe("Git reference actions", () => {
       "compareWithCurrent",
       "diffWithWorkingTree",
     ]);
+  });
+
+  test("enables toolbar mutations only for applicable selected references", () => {
+    const current = {
+      ...reference("local", "main", true),
+      upstreamShortName: "origin/main",
+    };
+    const behind = {
+      ...reference("local", "release"),
+      upstreamShortName: "origin/release",
+      behind: 3,
+    };
+
+    expect(getGitReferenceToolbarState(current, current, false)).toMatchObject({
+      canCreateBranch: true,
+      canUpdateSelected: true,
+      canDeleteBranch: false,
+      canCompareWithCurrent: false,
+    });
+    expect(getGitReferenceToolbarState(behind, current, false)).toMatchObject({
+      canUpdateSelected: true,
+      canDeleteBranch: true,
+      canCompareWithCurrent: true,
+    });
+    expect(
+      getGitReferenceToolbarState(reference("local", "feature"), current, false),
+    ).toMatchObject({
+      canUpdateSelected: false,
+      canDeleteBranch: true,
+      canCompareWithCurrent: true,
+    });
+    expect(getGitReferenceToolbarState(behind, current, true)).toMatchObject({
+      canCreateBranch: false,
+      canUpdateSelected: false,
+      canDeleteBranch: false,
+      canCompareWithCurrent: false,
+      canFetch: false,
+      canToggleMark: true,
+    });
+    expect(
+      getGitReferenceToolbarState(reference("remote", "origin/main"), current, false),
+    ).toMatchObject({
+      canToggleMark: false,
+    });
+    expect(getGitReferenceToolbarState(reference("tag", "v1.0.0"), current, false)).toMatchObject({
+      canToggleMark: false,
+    });
   });
 });

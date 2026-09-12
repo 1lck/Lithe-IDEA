@@ -1186,6 +1186,11 @@
 "Collapsed" = "已折叠";
 "Expanded" = "已展开";
 "Run configurations" = "运行配置";
+"Other run configurations" = "其他运行配置";
+"Run selected services" = "运行选中的服务";
+"Choose services to run" = "选择要运行的服务";
+"Run all services?" = "是否运行所有服务？";
+"This will start %lld detected services." = "这将启动检测到的 %lld 个服务。";
 "Hide configuration list" = "收起运行配置列表";
 "Show configuration list" = "展开运行配置列表";
 "Run a configuration to see process output." = "运行配置后将在这里显示进程输出。";
@@ -1438,6 +1443,22 @@
 "Saved to %@" = "已保存到 %@";
 "Only the files below are collected. Credentials, tokens, and home-directory paths are redacted automatically; workspace source, editor buffers, and terminal history are never included." = "仅收集下列文件。凭据、令牌和用户目录路径会被自动脱敏；工作区源代码、编辑器缓冲区内容和终端历史绝不会被包含。";
 "Package the redacted application log with an environment and performance snapshot into a zip you can attach to a bug report. Credentials, tokens, and home-directory paths are removed automatically, and you can review the file list before anything is written." = "将脱敏后的应用日志与环境和性能快照打包成一个 zip 压缩包，可附在错误报告中。凭据、令牌和用户目录路径会被自动移除，你也可以在写入任何内容之前先查看文件清单。";
+"Passed" = "通过";
+"Skipped" = "跳过";
+"Cancelled" = "已取消";
+"Results" = "测试结果";
+"Failures" = "失败详情";
+"Timed Out" = "已超时";
+"Rerun last test" = "重新运行上次测试";
+"%@ %lld" = "%@ %lld";
+"%@ test run timed out after %@ seconds." = "%@ 测试运行在 %@ 秒后超时。";
+"Maven POM changed" = "Maven POM 已变化";
+"Maven configuration changed" = "Maven 配置已变化";
+"Reloading Maven..." = "正在重新加载 Maven…";
+"Reload" = "重新加载";
+"Maven reload was cancelled or timed out." = "Maven 重新加载已取消或超时。";
+"The Maven project could not be reloaded. The previous model is still available." = "无法重新加载 Maven 项目，仍可使用之前的模型。";
+"Java runtime is not ready. Retry Maven reload." = "Java 运行时尚未就绪，请重试 Maven 重新加载。";
 "Dependencies" = "依赖";
 "Resolving dependencies..." = "正在解析依赖…";
 "Dependency resolution cancelled" = "依赖解析已取消";
@@ -1454,6 +1475,13 @@
 "Unable to parse Maven dependencies for this module." = "无法解析此模块的 Maven 依赖。";
 "Unable to resolve Maven dependencies." = "无法解析 Maven 依赖。";
 "Maven dependency output exceeded the supported limit." = "Maven 依赖输出超出支持的大小限制。";
+"Source Roots" = "源码目录";
+"main Java" = "主代码";
+"main resources" = "主资源";
+"test Java" = "测试代码";
+"test resources" = "测试资源";
+"generated main" = "生成的主代码";
+"generated test" = "生成的测试代码";
 
 /* Git history editing, rebase, worktree and patch workflows. */
 "Undo Commit…" = "撤销最近一次提交（保留更改）…";
@@ -1795,3 +1823,7 @@
 "Build %@ → %@" = "构建 %@ → %@";
 "Built %@" = "构建于 %@";
 "This preview contains changes that have not been officially released and may be unstable." = "此预览版包含尚未正式发布的改动，可能不稳定。";
+"Show long graph edges" = "显示完整长连线";
+"Collapse long graph edges" = "收束长连线";
+"Go to parent commit %@" = "跳转到父提交 %@";
+"Go to child commit %@" = "跳转到子提交 %@";

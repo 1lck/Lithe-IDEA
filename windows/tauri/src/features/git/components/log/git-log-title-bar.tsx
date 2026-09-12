@@ -1,8 +1,7 @@
 import {
-  ArrowClockwiseIcon as Refresh,
-  CopyIcon as Copy,
+  ArrowsClockwiseIcon as Refresh,
+  GearIcon as Settings,
   GitBranchIcon,
-  GitDiffIcon as GitDiff,
   MinusIcon,
 } from "@/ui/icons";
 import { Button } from "@/ui/button";
@@ -11,28 +10,16 @@ import { useTranslation } from "@/i18n/locale-provider";
 export function GitLogTitleBar({
   referenceName,
   isRefreshing,
-  isOpeningDiff,
-  isComparing,
-  hasSelectedCommit,
-  canCompareWithHead,
   onShowAll,
   onRefresh,
-  onOpenDiff,
-  onCompareWithHead,
-  onCopyHash,
+  onOpenSettings,
   onClose,
 }: {
   referenceName: string;
   isRefreshing: boolean;
-  isOpeningDiff: boolean;
-  isComparing: boolean;
-  hasSelectedCommit: boolean;
-  canCompareWithHead: boolean;
   onShowAll: () => void;
   onRefresh: () => void;
-  onOpenDiff: () => void;
-  onCompareWithHead: () => void;
-  onCopyHash: () => void;
+  onOpenSettings: () => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
@@ -61,6 +48,16 @@ export function GitLogTitleBar({
         >
           <Refresh className={isRefreshing ? "animate-spin" : undefined} />
         </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          onClick={onOpenSettings}
+          tooltip={t("git.log.settings")}
+          aria-label={t("git.log.settings")}
+        >
+          <Settings />
+        </Button>
         <span className="ml-auto text-subtle-foreground">{t("footer.readOnly")}</span>
         <Button
           type="button"
@@ -71,38 +68,6 @@ export function GitLogTitleBar({
           aria-label={t("git.log.hide")}
         >
           <MinusIcon />
-        </Button>
-      </div>
-      <div className="flex h-8 items-center gap-1 border-border border-t px-2">
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          disabled={!hasSelectedCommit || isOpeningDiff}
-          onClick={onOpenDiff}
-        >
-          <GitDiff />
-          {t("git.log.openDiff")}
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          disabled={!canCompareWithHead || isComparing}
-          onClick={onCompareWithHead}
-        >
-          <GitBranchIcon />
-          {t("git.log.compareWithHead")}
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          disabled={!hasSelectedCommit}
-          onClick={onCopyHash}
-        >
-          <Copy />
-          {t("git.log.copyHash")}
         </Button>
       </div>
     </div>

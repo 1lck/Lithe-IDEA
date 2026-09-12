@@ -16,6 +16,13 @@ struct MavenDependencyLocalizationTests {
         let chinese = try localization(.simplifiedChinese)
         let english = try localization(.english)
         let expected = [
+            "Source Roots": "源码目录",
+            "main Java": "主代码",
+            "main resources": "主资源",
+            "test Java": "测试代码",
+            "test resources": "测试资源",
+            "generated main": "生成的主代码",
+            "generated test": "生成的测试代码",
             "Dependencies": "依赖",
             "Resolving dependencies...": "正在解析依赖…",
             "Dependency resolution cancelled": "依赖解析已取消",

@@ -163,6 +163,16 @@ struct ProjectSidebarView: View {
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(LitheTheme.secondaryText)
             Spacer()
+            if let activeURL = model.activeDocument?.url,
+               model.canRevealInProjectTree(activeURL) {
+                Button {
+                    model.revealInProjectTree(activeURL)
+                } label: {
+                    LitheSystemIcon(systemImage: "scope")
+                }
+                .litheIconButton()
+                .help("Reveal Active File in Project Tree")
+            }
             if model.isRefreshingWorkspace {
                 ProgressView()
                     .controlSize(.small)

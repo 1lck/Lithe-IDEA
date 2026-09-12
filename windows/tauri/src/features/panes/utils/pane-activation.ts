@@ -17,10 +17,14 @@ export function activatePaneAndSyncBuffer(paneId: string) {
   }
 }
 
-export function activateBufferInPaneAndSync(paneId: string, bufferId: string) {
-  ensureBufferInPane(paneId, bufferId, true);
+export function activateBufferInPaneAndSync(paneId: string, bufferId: string): string | null {
+  const activatedPaneId = ensureBufferInPane(paneId, bufferId, true);
+  if (!activatedPaneId) return null;
+
   const bufferStore = useBufferStore.getState();
   if (bufferStore.activeBufferId !== bufferId) {
     bufferStore.actions.setActiveBuffer(bufferId);
   }
+
+  return activatedPaneId;
 }
