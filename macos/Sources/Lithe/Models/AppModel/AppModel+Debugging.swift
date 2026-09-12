@@ -94,7 +94,7 @@ extension AppModel {
         showDebugToolWindow()
     }
 
-    private func startDebuggingAfterActivation() async {
+    func startDebuggingAfterActivation(configuration requestedConfiguration: RunConfiguration? = nil) async {
         guard let identity = currentWorkspaceIdentity else { return }
         guard let execution = await activateExecutionModule(),
               isCurrentWorkspace(identity) else { return }
@@ -112,6 +112,12 @@ extension AppModel {
         guard isCurrentWorkspace(identity) else { return }
         guard await activateDebugModule() != nil,
               isCurrentWorkspace(identity) else { return }
+        guard !Task.isCancelled else { return }
+        if let requestedConfiguration {
+            guard runFeature.configurations.contains(requestedConfiguration),
+                  genericDebugFeatureIfActive?.isSessionActive != true else { return }
+            runFeature.select(requestedConfiguration)
+        }
         let configurationReadiness = runWorkflowCoordinator.configurationReadiness(
             status: runFeature.configurationStatus,
             selected: runFeature.selectedConfiguration
@@ -171,6 +177,7 @@ extension AppModel {
     }
 
     func stopDebugging() {
+        runWorkflowCoordinator.cancelModuleOperation()
         cancelJavaTestDebugLaunch()
         guard let feature = genericDebugFeatureIfActive else {
             stopDebugTerminalProcesses()
@@ -376,13 +383,17 @@ extension AppModel {
         fileURL: URL,
         document: EditorDocument?
     ) async {
-        guard let workspaceURL,
+        guard let identity = currentWorkspaceIdentity,
+              let workspaceURL,
               let provider = languageProviderCatalog.provider(for: fileURL),
               let runFeature = await activateExecutionModule()?.runFeature,
               let genericDebugFeature = await activateDebugModule()?.genericFeature else {
             showNotification("No language provider is available for this file")
             return
         }
+        guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
+        let selectedConfiguration = runFeature.selectedConfiguration
+        let mavenContext = mavenFeatureIfActive?.launchContext
         // Debug is the second execution mode for the Run selection. Re-apply
         // the selection here so its project-scoped Java runtime override is
         // active even when the Run panel was never opened in this session.
@@ -409,9 +420,13 @@ extension AppModel {
                 }
             )
         } catch {
+            guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
             showNotification(error.localizedDescription)
             return
         }
+        guard isCurrentWorkspace(identity), !Task.isCancelled,
+              mavenFeatureIfActive?.launchContext == mavenContext,
+              runFeature.selectedConfiguration == selectedConfiguration else { return }
         guard featureGraph.debugLaunchPreparation.start(
             configuration: configuration,
             launch: {

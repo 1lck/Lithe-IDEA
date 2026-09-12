@@ -6,6 +6,7 @@ import LitheModuleAPI
 @MainActor
 package final class RunService: ObservableObject {
     @Published package private(set) var configurations: [RunConfiguration] = [.currentFile]
+    package private(set) var defaultConfigurationID: String?
     @Published package var selectedConfigurationID = RunConfiguration.currentFileID {
         didSet {
             guard let projectURL else { return }
@@ -192,6 +193,7 @@ package final class RunService: ObservableObject {
         let modelRevision = mavenModelRevision
         projectLoadID = loadID
         let workspace = projectURL.standardizedFileURL
+        defaultConfigurationID = nil
         isLoadingProject = true
         projectLoadState = .loading(workspace: workspace)
         defer {
@@ -242,6 +244,7 @@ package final class RunService: ObservableObject {
                     preferredConfigurationID: preferredID
                 )
                 configurationDiagnostics += resolution.diagnostics
+                defaultConfigurationID = resolution.defaultConfigurationID
                 apply(
                     resolution.configurations,
                     projectToolchain: resolution.projectToolchain,
@@ -317,6 +320,7 @@ package final class RunService: ObservableObject {
                         ?? resolution.defaultConfigurationID
                 )
                 configurationStatus = .ready
+                defaultConfigurationID = resolution.defaultConfigurationID
                 recoveryAction = .none
                 recoveryPath = nil
                 configurationDiagnostics = operations.inspect(at: projectURL).diagnostics + resolution.diagnostics
@@ -485,7 +489,7 @@ package final class RunService: ObservableObject {
         lastExitCode = nil
         lastRunConfiguration = configuration
         lastCurrentFileURL = currentFileURL
-        let mavenContext = configuration.kind.isMavenBacked ? mavenContextProvider() : nil
+        let mavenContext = mavenContext(for: configuration)
         let options = effectiveOptions(for: configuration, mavenContext: mavenContext)
         let usesGenericCurrentFile = configuration.kind == .currentFile
             && isGenericCurrentFile(currentFileURL)
@@ -675,6 +679,7 @@ package final class RunService: ObservableObject {
         projectFiles = []
         mavenProject = nil
         configurations = [.currentFile]
+        defaultConfigurationID = nil
         selectedConfigurationID = RunConfiguration.currentFileID
         optionsByConfigurationID = [:]
         projectToolchain = ProjectToolchainSelection()
@@ -991,7 +996,7 @@ package final class RunService: ObservableObject {
             ))
             return
         }
-        let mavenContext = configuration.kind.isMavenBacked ? mavenContextProvider() : nil
+        let mavenContext = mavenContext(for: configuration)
         let options = effectiveOptions(for: configuration, mavenContext: mavenContext)
         let configuredJavaHome = (options.mavenJavaHomePath.isEmpty
             ? options.javaHomePath
@@ -1329,6 +1334,14 @@ package final class RunService: ObservableObject {
             options.mavenJavaHomePath = mavenContext.javaHomePath ?? ""
         }
         return options
+    }
+
+    private func mavenContext(for configuration: RunConfiguration) -> MavenLaunchContext? {
+        guard let context = mavenContextProvider() else { return nil }
+        if let reactor = configuration.mavenReactorPath {
+            return reactor == context.reactorPath ? context : nil
+        }
+        return configuration.kind.isMavenBacked ? context : nil
     }
 
     private func resolvedWorkingDirectory(_ path: String, fallback: URL) -> URL {

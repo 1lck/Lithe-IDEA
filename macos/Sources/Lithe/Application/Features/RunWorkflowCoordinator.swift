@@ -64,6 +64,31 @@ final class RunWorkflowCoordinator {
     /// notification through `onPendingActionChange` so a defer/resume is visible
     /// to observers without loading a feature.
     private(set) var pendingAction: PendingRunAction?
+    private var moduleOperation: Task<Void, Never>?
+    private var moduleOperationID: UUID?
+    var isModuleOperationStarting: Bool { moduleOperationID != nil }
+
+    func startModuleOperation(_ operation: @escaping @MainActor () async -> Void) {
+        guard moduleOperationID == nil else { return }
+        let id = UUID()
+        moduleOperationID = id
+        onPendingActionChange()
+        moduleOperation = Task { [weak self] in
+            await operation()
+            guard let self, moduleOperationID == id else { return }
+            moduleOperation = nil
+            moduleOperationID = nil
+            onPendingActionChange()
+        }
+    }
+
+    func cancelModuleOperation() {
+        guard moduleOperationID != nil else { return }
+        moduleOperation?.cancel()
+        moduleOperation = nil
+        moduleOperationID = nil
+        onPendingActionChange()
+    }
 
     private let pluginCatalog: ValidatedPluginCatalog
     private let moduleRuntime: ModuleRuntime
@@ -303,6 +328,7 @@ final class RunWorkflowCoordinator {
 
     /// Drops any deferred action, used when a workspace opens or closes.
     func resetPendingAction() {
+        cancelModuleOperation()
         setPendingAction(nil)
     }
 
