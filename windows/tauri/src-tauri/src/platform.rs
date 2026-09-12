@@ -800,10 +800,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(references_command, "git.references");
-        assert_eq!(
-            references_payload,
-            json!({ "root": "C:/work", "operationId": "refs-1" })
-        );
+        // platform_invoke moves operation identity into the request envelope;
+        // strict Git payloads must retain only the command's own parameters.
+        assert_eq!(references_payload, json!({ "root": "C:/work" }));
 
         let (page_command, page_payload) = translate(
             "git_history_page",
@@ -823,8 +822,7 @@ mod tests {
                 "root": "C:/work",
                 "reference": "refs/heads/main",
                 "cursor": "cursor-50",
-                "limit": 50,
-                "operationId": "page-2"
+                "limit": 50
             })
         );
 
