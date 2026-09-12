@@ -85,6 +85,8 @@ jobs:
         with:
           swiftpm: "true"
           cargo: "true"
+          cargo-build: "true"
+          cargo-build-architecture: ${{ matrix.architecture }}
           jdtls: "true"
           jdk: "true"
           jdk-architecture: ${{ matrix.architecture }}
@@ -134,6 +136,7 @@ jobs:
         run: zsh scripts/create-sparkle-update.sh
 
       - name: Upload preview artifacts
+        id: artifacts
         uses: actions/upload-artifact@v7
         with:
           name: macos-preview-${{ matrix.architecture }}
@@ -142,7 +145,24 @@ jobs:
             dist/Lithe-${{ env.PREVIEW_VERSION }}-${{ matrix.architecture }}.dmg.sha256
             dist/sparkle-${{ matrix.architecture }}/*
           if-no-files-found: error
+          compression-level: 0
           retention-days: 14
+
+      - name: Add preview download link
+        env:
+          ARTIFACT_URL: ${{ steps.artifacts.outputs.artifact-url }}
+          PACKAGE_ARCHITECTURE: ${{ matrix.architecture }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.sha }}
+        shell: bash
+        run: |
+          {
+            echo "### macOS preview ($PACKAGE_ARCHITECTURE)"
+            echo "[Download this build]($ARTIFACT_URL)"
+            echo ""
+            echo "Source: $SOURCE_SHA"
+            echo ""
+            echo "Requires GitHub sign-in; retained for 14 days. Available before the rolling Release finishes publishing."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   publish:
     name: Publish rolling macOS preview

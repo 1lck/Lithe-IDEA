@@ -10,6 +10,8 @@ struct MavenView: View {
     @State private var isAddProfilePresented = false
     @State private var customGoal = ""
     @State private var customProfile = ""
+    @State private var goalModule: MavenModule?
+    @State private var goalProject: MavenProject?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -49,6 +51,7 @@ struct MavenView: View {
             }
         }
         .onChange(of: feature.project?.id) { _ in
+            isGoalSheetPresented = false
             resetTreeState()
         }
         .sheet(isPresented: $isGoalSheetPresented) {
@@ -88,17 +91,16 @@ struct MavenView: View {
                 LitheSystemIcon(systemImage: "play.fill")
             }
             .litheIconButton()
-            .disabled(selectedPhase == nil || feature.isRunning)
+            .disabled(selectedPhase == nil || model.isMavenOperationBusy)
             .help("Run selected Maven lifecycle phase")
 
             Button {
-                customGoal = ""
-                isGoalSheetPresented = true
+                presentGoal(for: selectedModule)
             } label: {
                 LitheSystemIcon(systemImage: "terminal")
             }
             .litheIconButton()
-            .disabled(feature.isRunning)
+            .disabled(model.isMavenOperationBusy)
             .help("Execute Maven goal")
 
             Button(action: refreshProject) {
@@ -106,9 +108,9 @@ struct MavenView: View {
             }
             .litheIconButton()
             .help("Reload Maven project")
-            .disabled(feature.isReloading)
+            .disabled(model.isMavenOperationBusy)
 
-            if feature.isRunning {
+            if feature.isRunning || model.runWorkflowCoordinator.isModuleOperationStarting {
                 Button(action: model.stopMaven) {
                     Image(systemName: "stop.fill")
                 }
@@ -218,6 +220,7 @@ struct MavenView: View {
                     subtitle: project.packaging,
                     systemImage: "m.circle",
                     isSelected: selectedModuleID == nil,
+                    hasModuleMenu: true,
                     onLabelAction: { selectedModuleID = nil }
                 ) {
                     sourceRootsNode(
@@ -245,6 +248,8 @@ struct MavenView: View {
                 subtitle: module.relativePath,
                 systemImage: "m.circle",
                 isSelected: selectedModuleID == module.id,
+                hasModuleMenu: true,
+                menuModule: module,
                 onLabelAction: { selectedModuleID = module.id }
             ) {
                 sourceRootsNode(ownerID: moduleNodeID(module), sourceRoots: module.sourceRoots)
@@ -596,8 +601,13 @@ struct MavenView: View {
         .buttonStyle(.plain)
         .lithePointer()
         .simultaneousGesture(TapGesture(count: 2).onEnded {
-            guard !feature.isRunning else { return }
+            guard !model.isMavenOperationBusy else { return }
             feature.run(phase: phase, module: module)
+        })
+        .litheContextMenu(items: {
+            [.action(dependencyLocalization.text("Run"), isEnabled: !model.isMavenOperationBusy) {
+                feature.run(phase: phase, module: module)
+            }]
         })
     }
 
@@ -607,6 +617,8 @@ struct MavenView: View {
         subtitle: String? = nil,
         systemImage: String,
         isSelected: Bool = false,
+        hasModuleMenu: Bool = false,
+        menuModule: MavenModule? = nil,
         onToggleAction: (() -> Void)? = nil,
         onLabelAction: @escaping () -> Void,
         @ViewBuilder content: @escaping () -> Content
@@ -659,6 +671,9 @@ struct MavenView: View {
                 .buttonStyle(.plain)
                 .lithePointer()
             }
+            .litheContextMenu(items: {
+                hasModuleMenu ? moduleContextMenu(menuModule) : []
+            })
 
             if isNodeExpanded(id) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -672,6 +687,44 @@ struct MavenView: View {
     private var mavenSearchRoots: [URL] {
         guard let project = feature.project else { return [] }
         return [project.rootURL] + moduleURLs(project.modules)
+    }
+
+    private func moduleContextMenu(_ module: MavenModule?) -> [LitheContextMenuItem] {
+        [
+            .action(dependencyLocalization.text("Run"),
+                    isEnabled: !model.isMavenOperationBusy && model.mavenModuleConfiguration(module, debug: false) != nil) {
+                model.startMavenModule(module, debug: false)
+            },
+            .action(dependencyLocalization.text("Debug"),
+                    isEnabled: !model.isMavenOperationBusy && model.genericDebugFeatureIfActive?.isSessionActive != true
+                        && model.mavenModuleConfiguration(module, debug: true) != nil) {
+                model.startMavenModule(module, debug: true)
+            },
+            .separator,
+            .action(dependencyLocalization.text("Test"), isEnabled: !model.isMavenOperationBusy) {
+                feature.run(phase: .test, module: module)
+            },
+            .action(dependencyLocalization.text("Package"), isEnabled: !model.isMavenOperationBusy) {
+                feature.run(phase: .packagePhase, module: module)
+            },
+            .action(dependencyLocalization.text("Execute Maven Goal"), isEnabled: !model.isMavenOperationBusy) {
+                presentGoal(for: module)
+            },
+            .separator,
+            .action(dependencyLocalization.text("Open pom.xml")) {
+                if let pom = module?.url.appendingPathComponent("pom.xml") ?? feature.project?.pomURL {
+                    model.openFile(pom)
+                }
+            },
+            .action(dependencyLocalization.text("Reload"), isEnabled: !model.isMavenOperationBusy, action: refreshProject)
+        ]
+    }
+
+    private func presentGoal(for module: MavenModule?) {
+        goalModule = module
+        goalProject = feature.project
+        customGoal = ""
+        isGoalSheetPresented = true
     }
 
     private func moduleURLs(_ modules: [MavenModule]) -> [URL] {
@@ -816,15 +869,16 @@ struct MavenView: View {
     }
 
     private func runSelected() {
-        guard let phase = selectedPhase, !feature.isRunning else { return }
+        guard let phase = selectedPhase, !model.isMavenOperationBusy else { return }
         feature.run(phase: phase, module: selectedModule)
     }
 
     private func executeCustomGoal() {
         let goal = customGoal.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !goal.isEmpty else { return }
+        guard !goal.isEmpty, !model.isMavenOperationBusy,
+              goalProject == feature.project else { return }
         isGoalSheetPresented = false
-        feature.runCustomGoal(goal, module: selectedModule)
+        feature.runCustomGoal(goal, module: goalModule)
     }
 
     private func addCustomProfile() {

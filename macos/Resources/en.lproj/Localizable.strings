@@ -173,6 +173,10 @@
 "Excluded" = "Excluded";
 "Module Root" = "Module Root";
 "Package" = "Package";
+"Open pom.xml" = "Open pom.xml";
+"Execute Maven Goal" = "Execute Maven Goal";
+"Test" = "Test";
+"Choose a Run configuration for this Maven module" = "Choose a Run configuration for this Maven module";
 "Normal Folder" = "Normal Folder";
 "Unlock Worktree" = "Unlock Worktree";
 "Lock Worktree" = "Lock Worktree";
