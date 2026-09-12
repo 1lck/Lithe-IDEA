@@ -1831,3 +1831,20 @@
 "Collapse long graph edges" = "收束长连线";
 "Go to parent commit %@" = "跳转到父提交 %@";
 "Go to child commit %@" = "跳转到子提交 %@";
+
+/* Services browser */
+"All configurations" = "全部配置";
+"Application types" = "应用类型";
+"No configurations in this scope" = "当前范围内没有配置";
+"Run selected" = "启动所选配置";
+"Stop selected" = "停止所选配置";
+"Clear selection" = "清除勾选";
+"%lld selected" = "已勾选 %lld 项";
+"Run checked configurations without restarting running services" = "启动勾选的配置，已运行的服务保持运行";
+"Select configurations for batch actions" = "勾选配置以批量操作";
+"Select %@" = "勾选 %@";
+"Partially selected" = "部分勾选";
+"Not selected" = "未勾选";
+"Start this configuration to see its output here." = "启动此配置后，输出将显示在这里。";
+"Could not save service selection" = "无法保存服务勾选状态";
+"Selected" = "已勾选";

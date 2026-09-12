@@ -807,3 +807,20 @@
 "Collapse long graph edges" = "Collapse long graph edges";
 "Go to parent commit %@" = "Go to parent commit %@";
 "Go to child commit %@" = "Go to child commit %@";
+
+/* Services browser */
+"All configurations" = "All configurations";
+"Application types" = "Application types";
+"No configurations in this scope" = "No configurations in this scope";
+"Run selected" = "Run selected";
+"Stop selected" = "Stop selected";
+"Clear selection" = "Clear selection";
+"%lld selected" = "%lld selected";
+"Run checked configurations without restarting running services" = "Run checked configurations without restarting running services";
+"Select configurations for batch actions" = "Select configurations for batch actions";
+"Select %@" = "Select %@";
+"Partially selected" = "Partially selected";
+"Not selected" = "Not selected";
+"Start this configuration to see its output here." = "Start this configuration to see its output here.";
+"Could not save service selection" = "Could not save service selection";
+"Selected" = "Selected";
