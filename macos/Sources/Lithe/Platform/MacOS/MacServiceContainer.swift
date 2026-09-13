@@ -558,6 +558,7 @@ final class MacServiceContainer {
             debugBreakpointPersistence: debugBreakpointStore,
             workspaceOperations: workspaceOperations,
             documentLifecycleDecider: RustDocumentLifecycleDecider(core: rustCore),
+            lineEditing: RustLineEditing(core: rustCore),
             javaMavenOperations: javaMavenOperations,
             markdownRenderer: markdownRenderer,
             markdownImageImporter: markdownImageImporter,
