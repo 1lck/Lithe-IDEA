@@ -40,9 +40,10 @@ extension AppModel {
 
             let baseItems = execution.tests.itemsByProviderID["java"] ?? []
             let javaFiles = baseItems.filter { $0.kind == .file && $0.fileURL != nil }
-            guard !javaFiles.isEmpty else { return }
+            guard !javaFiles.isEmpty, !languageToolingFeature.isDisabled("java") else { return }
             do {
                 let sessions = try await languageSessionsForWorkspaceMaintenance()
+                guard !languageToolingFeature.isDisabled("java") else { return }
                 let projected = try await javaTestWorkflowState.projectDiscoveredItems(
                     baseItems,
                     workspaceURL: workspaceURL,

@@ -57,7 +57,7 @@ if rg -n 'Contents/PlugIns' scripts/package-app.sh scripts/preview.sh; then
     exit 1
 fi
 
-if rg -n "final class (WorkspaceFoundation|Database|Git|Search|History|LanguageIntelligence|Execution|Debug|Terminal|AIAssistance)Module" macos/Sources/Lithe; then
+if rg -n "final class (WorkspaceFoundation|Database|Git|Search|History|LanguageIntelligence|Execution|Debug|Terminal|AIAssistance)Module([[:space:]:{])" macos/Sources/Lithe; then
     print -u2 "Module lifecycle implementation leaked back into the executable target"
     exit 1
 fi

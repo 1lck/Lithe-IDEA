@@ -1197,6 +1197,15 @@ final class AppModel: ObservableObject, Identifiable {
     func activateLanguageServerIfAvailable(for document: EditorDocument) -> Bool {
         guard let workspaceURL,
               let descriptor = languageProviderCatalog.provider(for: document.url) else { return false }
+        guard !languageToolingFeature.isDisabled(descriptor.id) else {
+            languageToolingSessionsIfActive?.recordLanguageServerLog(
+                providerID: descriptor.id,
+                level: .info,
+                message: "Language server activation skipped",
+                detail: "Disabled in this workspace"
+            )
+            return false
+        }
         if descriptor.id == "java" {
             switch prepareJavaLanguageServerRuntimeIfNeeded(for: document) {
             case .ready: break
@@ -1261,15 +1270,6 @@ final class AppModel: ObservableObject, Identifiable {
                     )
                 }
             }
-            return false
-        }
-        guard !languageToolingFeature.isDisabled(descriptor.id) else {
-            languageToolingSessionsIfActive?.recordLanguageServerLog(
-                providerID: descriptor.id,
-                level: .info,
-                message: "Language server activation skipped",
-                detail: "Disabled in this workspace"
-            )
             return false
         }
         do {

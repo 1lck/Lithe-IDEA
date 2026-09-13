@@ -132,6 +132,15 @@ struct EditorTabLayoutTests {
     }
 
     @Test
+    func middleMouseReleaseClosesHoveredTabsOnly() {
+        #expect(EditorTabMiddleClick.shouldCloseTab(eventType: .otherMouseUp, buttonNumber: 2))
+        #expect(!EditorTabMiddleClick.shouldCloseTab(eventType: .otherMouseDown, buttonNumber: 2))
+        #expect(!EditorTabMiddleClick.shouldCloseTab(eventType: .leftMouseUp, buttonNumber: 0))
+        #expect(!EditorTabMiddleClick.shouldCloseTab(eventType: .rightMouseUp, buttonNumber: 1))
+        #expect(!EditorTabMiddleClick.shouldCloseTab(eventType: .otherMouseUp, buttonNumber: 3))
+    }
+
+    @Test
     func terminalTabPasteboardUsesTheActiveDragWhenPromisedDataIsNotReady() {
         let sessionID = UUID()
         _ = TerminalTabDragPayload.provider(for: sessionID)

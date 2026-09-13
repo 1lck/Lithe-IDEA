@@ -595,6 +595,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         }
         struct Configuration: Codable, Sendable {
             struct Maven: Codable, Sendable {
+                var reactorPath: String? = nil
                 let module: String?
                 let mainClass: String?
                 let jvmArguments: [String]?

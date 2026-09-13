@@ -35,6 +35,7 @@ protocol RunWorkflowActions: EditorDocumentSaving {
     func startDebugging()
     func startRunConfiguration(_ configuration: RunConfiguration)
     func startSelectedServiceConfigurations(_ configurations: [RunConfiguration])
+    func startRunConfigurations(_ configurationIDs: [String])
     func runAllServiceConfigurations()
     func restartSelectedRun()
 }

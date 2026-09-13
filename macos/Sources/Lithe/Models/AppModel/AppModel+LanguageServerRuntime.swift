@@ -25,15 +25,17 @@ extension AppModel {
     }
 
     func setLanguageServerEnabled(_ enabled: Bool, providerID: String) {
-        if enabled {
-            languageToolingFeature.setEnabled(true, providerID: providerID)
-        } else {
-            languageToolingFeature.setEnabled(false, providerID: providerID)
+        if providerID == "java", !enabled {
+            cancelJavaLanguageServerPreparation()
+        }
+        languageToolingFeature.setEnabled(enabled, providerID: providerID)
+        if providerID == "java", enabled, let workspaceURL {
+            prepareJavaLanguageServerForWorkspaceIfNeeded(at: workspaceURL, files: projectFiles)
         }
     }
 
     func disableLanguageServerForCurrentWorkspace(providerID: String) {
-        languageToolingFeature.setEnabled(false, providerID: providerID)
+        setLanguageServerEnabled(false, providerID: providerID)
     }
 
     func prepareJavaLanguageServerRuntimeIfNeeded(
@@ -58,6 +60,8 @@ extension AppModel {
         fallbackDocument: EditorDocument? = nil
     ) {
         let normalizedRoot = workspaceURL.standardizedFileURL
+        guard self.workspaceURL?.standardizedFileURL == normalizedRoot,
+              !languageToolingFeature.isDisabled("java") else { return }
         guard services.javaMavenOperations.javaWorkspacePolicy(
             at: normalizedRoot,
             files: files,
@@ -207,6 +211,7 @@ extension AppModel {
         }
         await feature.reloadProject(files: files, rescan: rescan) { [weak self] in
             guard let self, self.isCurrentWorkspace(identity) else { throw CancellationError() }
+            guard !self.languageToolingFeature.isDisabled("java") else { return }
             guard self.services.javaMavenOperations.javaWorkspacePolicy(
                 at: identity.url, files: files, changedFiles: []
             )?.shouldStart == true else {
@@ -216,6 +221,7 @@ extension AppModel {
             let preparation = await self.services.projectRuntimeService.prepareJavaLanguageServerRuntime()
             try Task.checkCancellation()
             guard self.isCurrentWorkspace(identity) else { throw CancellationError() }
+            guard !self.languageToolingFeature.isDisabled("java") else { return }
             switch preparation {
             case .ready: break
             case .failed(let message):
@@ -228,6 +234,7 @@ extension AppModel {
             let sessions = try await self.languageSessionsForWorkspaceMaintenance()
             try Task.checkCancellation()
             guard self.isCurrentWorkspace(identity) else { throw CancellationError() }
+            guard !self.languageToolingFeature.isDisabled("java") else { return }
             self.cancelJavaLanguageServerPreparation()
             try await sessions.reloadJavaWorkspace(rootURL: identity.url)
         }
@@ -237,7 +244,7 @@ extension AppModel {
         workspaceURL: URL,
         operationID: UUID
     ) -> Bool {
-        javaFeature.ownsLanguageServerPreparation(
+        !languageToolingFeature.isDisabled("java") && javaFeature.ownsLanguageServerPreparation(
             workspaceURL: workspaceURL,
             operationID: operationID,
             activeWorkspaceURL: self.workspaceURL

@@ -6,6 +6,7 @@ import LitheModuleAPI
 package enum LanguageToolingSessionError: LocalizedError, Equatable, Sendable {
     case noProvider(fileExtension: String)
     case providerNotInstalled(String)
+    case providerDisabled(String)
     case toolingUnavailable(String)
     case capabilityUnavailable(provider: String, capability: String)
     case invalidJavaDebugServerPort
@@ -16,6 +17,8 @@ package enum LanguageToolingSessionError: LocalizedError, Equatable, Sendable {
             return "No language provider handles .\(fileExtension) files."
         case .providerNotInstalled(let provider):
             return "The \(provider) language provider is not installed."
+        case .providerDisabled(let provider):
+            return "The \(provider) language server is disabled in this workspace. Enable it in Settings > LSP."
         case .toolingUnavailable(let message):
             return message
         case .capabilityUnavailable(let provider, let capability):
@@ -42,6 +45,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
     package var onLanguageServerStateChange: ((String, LanguageServerSessionState, UUID?) -> Void)?
     private var catalog: LanguageProviderCatalog
     private let extensionRequiredProviderIDs: Set<String>
+    private let isLanguageServerEnabled: (String, URL) -> Bool
 
     package var catalogSnapshot: LanguageProviderCatalog { catalog }
     private var runtimesByID: [String: any LanguageProviderRuntime]
@@ -70,6 +74,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
         builtinCore: (any BuiltinLanguageFeatureCore)? = nil,
         languageFeatureProviders: [any LanguageFeatureProvider] = [],
         extensionRequiredProviderIDs: Set<String> = [],
+        isLanguageServerEnabled: @escaping (String, URL) -> Bool = { _, _ in true },
         workspaceFingerprintProvider: @escaping (LanguageProviderDescriptor, URL) throws -> String? = { _, _ in nil },
         workspaceStateResetter: ((LanguageProviderDescriptor, URL, String?) throws -> Void)? = nil,
         workspaceStateCleaner: ((LanguageProviderDescriptor, URL, String?) throws -> Int)? = nil
@@ -77,6 +82,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
         self.catalog = catalog
         self.runtimeFactory = runtimeFactory
         self.extensionRequiredProviderIDs = extensionRequiredProviderIDs
+        self.isLanguageServerEnabled = isLanguageServerEnabled
         self.workspaceFingerprintProvider = workspaceFingerprintProvider
         self.workspaceStateResetter = workspaceStateResetter
         self.workspaceStateCleaner = workspaceStateCleaner
@@ -1209,6 +1215,11 @@ package final class LanguageToolingSessionManager: ObservableObject,
         rootURL: URL,
         operationID requestedOperationID: UUID?
     ) throws -> any LanguageServerSession {
+        // All entry points, including Maven reload, testing, and debugging, must
+        // recheck the current workspace preference before creating or reusing a session.
+        guard isLanguageServerEnabled(descriptor.id, rootURL) else {
+            throw LanguageToolingSessionError.providerDisabled(descriptor.displayName)
+        }
         if let active = languageServers[descriptor.id],
            active.isRunning,
            languageServerRoots[descriptor.id] == rootURL {

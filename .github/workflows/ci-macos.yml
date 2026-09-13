@@ -228,11 +228,17 @@ jobs:
         run: ./scripts/verify-rust-core.sh
 
   release-build:
-    name: Release package verification
+    name: Release package verification (${{ matrix.architecture }})
     needs: changes
     if: needs.changes.outputs.macos_release == 'true'
     runs-on: macos-14
     timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        # PRs compile each architecture concurrently. Main and manual runs also
+        # exercise the default universal assembly path and its negative checks.
+        architecture: ${{ fromJSON(github.event_name == 'pull_request' && '["arm64","x86_64"]' || '["universal"]') }}
 
     steps:
       - name: Check out source
@@ -246,13 +252,18 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: ${{ matrix.architecture == 'arm64' && 'aarch64-apple-darwin' || matrix.architecture == 'x86_64' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin,x86_64-apple-darwin' }}
 
       - name: Prepare verified dependency caches
         uses: ./.github/actions/prepare-macos-dependency-cache
         with:
           swiftpm: "true"
           cargo: "true"
+          cargo-build: "true"
+          cargo-build-architecture: ${{ matrix.architecture }}
+          jdtls: "true"
+          jdk: "true"
+          jdk-architecture: ${{ matrix.architecture }}
 
       - name: Check packaging scripts and metadata
         shell: zsh {0}
@@ -269,14 +280,80 @@ jobs:
           plutil -lint macos/Resources/Info.plist
 
       - name: Build and verify default universal package
+        if: matrix.architecture == 'universal'
         env:
           # Temporary: capture disk image state around create-dmg.sh while the
           # intermittent "hdiutil: create failed - Resource busy" is diagnosed.
           LITHE_DMG_DIAGNOSTICS: "1"
         run: |
           ./scripts/verify-macos-package.sh
+
+      - name: Verify Sparkle update packaging
+        run: |
           sparkle_tools=$(zsh scripts/prepare-sparkle-tools.sh)
           ruby scripts/test-sparkle-update.rb "$sparkle_tools"
+
+      - name: Build complete macOS test package
+        id: package
+        env:
+          LITHE_ARCH: ${{ matrix.architecture }}
+          LITHE_BUILD_NUMBER: ${{ github.run_number }}.${{ github.run_attempt }}
+        shell: bash
+        run: |
+          # The universal smoke test uses Java fixtures in a temporary folder.
+          # Assemble again with real tools, reusing its compiled Swift/Rust files.
+          ./scripts/package-app.sh
+          ./scripts/create-dmg.sh
+          version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' macos/Resources/Info.plist)
+          suffix="-$LITHE_ARCH"
+          if [[ "$LITHE_ARCH" == "universal" ]]; then suffix=""; fi
+          app_path="dist/Lithe${suffix}.app"
+          dmg_name="Lithe-${version}${suffix}.dmg"
+          codesign --verify --deep --strict "$app_path"
+          architectures=("$LITHE_ARCH")
+          if [[ "$LITHE_ARCH" == "universal" ]]; then architectures=(arm64 x86_64); fi
+          for executable in \
+            "$app_path/Contents/MacOS/Lithe" \
+            "$app_path/Contents/Frameworks/Sparkle.framework/Sparkle" \
+            "$app_path/Contents/Helpers/lithe-db-sidecar" \
+            "$app_path/Contents/Helpers/lithe-db-mcp"; do
+            test -x "$executable"
+            lipo "$executable" -verify_arch "${architectures[@]}"
+          done
+          hdiutil imageinfo "dist/$dmg_name" > /dev/null
+          test -s "dist/$dmg_name"
+          (cd dist && shasum -a 256 "$dmg_name" > "$dmg_name.sha256" && shasum -a 256 -c "$dmg_name.sha256")
+          echo "dmg=dist/$dmg_name" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload macOS test package
+        id: installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: Lithe-macos-${{ matrix.architecture }}-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            ${{ steps.package.outputs.dmg }}
+            ${{ steps.package.outputs.dmg }}.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Add macOS download link
+        env:
+          ARTIFACT_URL: ${{ steps.installer.outputs.artifact-url }}
+          PACKAGE_ARCHITECTURE: ${{ matrix.architecture }}
+          SOURCE_SHA: ${{ steps.package.outputs.sha }}
+        shell: bash
+        run: |
+          {
+            echo "### macOS test download ($PACKAGE_ARCHITECTURE)"
+            echo "[Download DMG and SHA-256 checksum]($ARTIFACT_URL)"
+            echo ""
+            echo "Source: $SOURCE_SHA"
+            echo ""
+            echo "Requires GitHub sign-in. Retained for 14 days. Includes the bundled Java tools."
+            echo "The app is ad-hoc signed for testing. Check the CI gate for the combined test result."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   gate:
     name: macOS CI gate

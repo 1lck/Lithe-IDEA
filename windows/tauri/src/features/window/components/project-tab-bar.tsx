@@ -8,6 +8,7 @@ import { cn } from "@/utils/cn";
 import { getProjectDisplayLabel } from "../utils/project-display-label";
 import { getProjectTabBarItems, shouldShowProjectTabBar } from "../utils/project-tab-bar-model";
 
+// Note: Windows 项目 Tab 的显示、切换、关闭和单项目隐藏规则见 .agents/notes/implemented/feature/2026-08-17-windows-project-tab-bar.md
 interface ProjectTabBarProps {
   hideWhenSingle?: boolean;
 }

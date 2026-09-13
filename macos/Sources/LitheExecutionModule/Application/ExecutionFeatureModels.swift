@@ -147,6 +147,7 @@ package final class RunFeatureModel: ObservableObject {
     }
 
     package var configurations: [RunConfiguration] { service.configurations }
+    package var defaultConfigurationID: String? { service.defaultConfigurationID }
     package var selectedConfiguration: RunConfiguration? { service.selectedConfiguration }
     package var lastRunFileURL: URL? { service.lastRunFileURL }
     package var lastConfiguration: RunConfiguration? { service.lastConfiguration }

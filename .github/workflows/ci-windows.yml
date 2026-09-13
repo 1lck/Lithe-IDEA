@@ -218,10 +218,56 @@ jobs:
           }
           ./scripts/validate-windows-build-caches.ps1 @validation
 
-      - name: Build Windows Tauri application
+      - name: Build Windows test installer
+        id: package
         if: needs.changes.outputs.windows == 'true'
         shell: pwsh
-        run: ./scripts/build-windows.ps1 -Configuration Release
+        run: |
+          # NSIS packaging performs the same release build and frontend type
+          # check; do not compile once with --no-bundle and then rebuild it.
+          $config = Get-Content windows/tauri/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          Push-Location .
+          try {
+            ./scripts/package-windows.ps1 -Configuration Release -Version $config.version
+          } finally {
+            Pop-Location
+          }
+          $installer = "dist/Lithe-$($config.version)-windows-x64.exe"
+          $expected = ((Get-Content "$installer.sha256" -Raw) -split '\s+')[0]
+          $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer).Hash.ToLowerInvariant()
+          if ($expected -ne $actual) { throw "Installer checksum mismatch" }
+          "installer=$installer" >> $env:GITHUB_OUTPUT
+          "sha=$((git rev-parse HEAD).Trim())" >> $env:GITHUB_OUTPUT
+
+      - name: Upload Windows test installer
+        id: installer
+        if: needs.changes.outputs.windows == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: Lithe-windows-x64-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            ${{ steps.package.outputs.installer }}
+            ${{ steps.package.outputs.installer }}.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Add Windows download link
+        if: needs.changes.outputs.windows == 'true'
+        env:
+          ARTIFACT_URL: ${{ steps.installer.outputs.artifact-url }}
+          SOURCE_SHA: ${{ steps.package.outputs.sha }}
+        shell: pwsh
+        run: |
+          @"
+          ### Windows x64 test download
+          [Download installer and SHA-256 checksum]($env:ARTIFACT_URL)
+
+          Source: $env:SOURCE_SHA
+
+          Requires GitHub sign-in. Retained for 14 days. Includes the bundled Java tools.
+          The installer is unsigned for testing. Check the CI gate for the combined test result.
+          "@ >> $env:GITHUB_STEP_SUMMARY
 
       - name: Verify Windows boundaries
         if: needs.changes.outputs.windows == 'true'
