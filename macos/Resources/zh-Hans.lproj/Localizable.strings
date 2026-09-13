@@ -1985,3 +1985,8 @@
 "Start this configuration to see its output here." = "启动此配置后，输出将显示在这里。";
 "Could not save service selection" = "无法保存服务勾选状态";
 "Selected" = "已勾选";
+
+/* Git console completion notices */
+"Running Git; waiting for output." = "正在执行 Git，等待输出。";
+"Git completed successfully with no output." = "执行成功，没有输出。";
+"Fetch completed with no reference changes." = "获取完成，没有引用变化。";

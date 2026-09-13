@@ -961,3 +961,8 @@
 "Start this configuration to see its output here." = "Start this configuration to see its output here.";
 "Could not save service selection" = "Could not save service selection";
 "Selected" = "Selected";
+
+/* Git console completion notices */
+"Running Git; waiting for output." = "Running Git; waiting for output.";
+"Git completed successfully with no output." = "Git completed successfully with no output.";
+"Fetch completed with no reference changes." = "Fetch completed with no reference changes.";

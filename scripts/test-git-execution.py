@@ -284,6 +284,22 @@ class Fixture:
         assert events[-1]["type"] == "requestFinished" and events[-1]["error"], events
         self.git("config", "remote.origin.url", str(self.bare), root=self.repo)
 
+    def remote_url_lookup(self):
+        fixture = json.loads((ROOT / "shared/fixtures/git/remote-url-v1.json").read_text())
+        root = self.directory / "remote-url-lookup"
+        self.git("init", "--template=", str(root))
+        for sample in fixture["cases"]:
+            if sample["configuredURL"] is not None:
+                self.git("config", f'remote.{sample["remote"]}.url', sample["configuredURL"], root=root)
+            response, events = self.call("git.remoteUrl", {"root": str(root), "remote": sample["remote"]})
+            assert response["ok"] and response["data"]["url"] == sample["expectedURL"], (sample, response)
+            assert [event["type"] for event in events] == ["requestStarted", "requestFinished"], events
+            assert events[-1]["error"] is None, events
+        # Explicitly requesting the same Git command still remains visible.
+        response, events = self.call("git.command", {"root": str(root), "arguments": ["config", "--get", "remote.origin.url"]})
+        assert response["data"]["exitCode"] == 0
+        assert any(event["type"] == "started" for event in events)
+
     def authentication(self, retry=False, cancel=False, ssh=False):
         password = "fixture-password"
         if ssh:
@@ -370,7 +386,8 @@ def main():
     try:
         with tempfile.TemporaryDirectory(prefix="lithe-execution-integration-") as directory:
             fixture = Fixture(Path(directory))
-            cases = [("configuration_scope_precedence_and_stale_save", fixture.configuration),
+            cases = [("remote_url_lookup_remains_silent", fixture.remote_url_lookup),
+                     ("configuration_scope_precedence_and_stale_save", fixture.configuration),
                      ("executable_capabilities_and_temporary_policy", fixture.executable_and_temporary_policy),
                      ("per_remote_preview_partial_success_and_pruning", fixture.remotes),
                      ("ordinary_git_operations_emit_commands_and_folded_options", fixture.ordinary_operations),

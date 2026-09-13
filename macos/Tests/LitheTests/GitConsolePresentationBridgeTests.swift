@@ -3,7 +3,7 @@ import Foundation
 import SwiftUI
 import Testing
 import LitheCoreContracts
-import LitheGitModule
+@testable import LitheGitModule
 @testable import Lithe
 
 @Suite("Git console Core presentation bridge")
@@ -93,6 +93,9 @@ struct GitConsolePresentationBridgeTests {
                 arguments: ["worktree", "add", "--detach", "--", "/workspace/review-checkout", "HEAD"], output: "Preparing worktree (detached HEAD abcd123)\nHEAD is now at abcd123 initial commit\n", exitCode: 0),
             GitConsoleEntry(timestamp: date, workingDirectory: root,
                 arguments: ["commit", "--amend", "-m", "First line\nMore details in the commit message"], output: "", exitCode: 0),
+            GitConsoleEntry(timestamp: date, workingDirectory: root,
+                arguments: ["fetch", "origin", "--prune"], output: "", exitCode: 0,
+                remoteResult: .init(remote: "origin", succeeded: true, updatedReferences: [], deletedReferences: [])),
         ]
         let request = GitConsolePresentationRequest(entries: entries, search: "Counting")
         let presentation = try #require(RustGitOperations(core: core).consolePresentation(request))
@@ -101,9 +104,9 @@ struct GitConsolePresentationBridgeTests {
                 GitConsoleEntryView(entry: entry, wrapsLines: true, presentation: presentation.entries[index], expanded: .constant([]))
             }
         }
-        .padding(16).frame(width: 1200, height: 420, alignment: .topLeading).background(Color.white)
+        .padding(16).frame(width: 1200, height: 520, alignment: .topLeading).background(Color.white)
         let host = NSHostingView(rootView: view)
-        host.frame = NSRect(x: 0, y: 0, width: 1200, height: 420)
+        host.frame = NSRect(x: 0, y: 0, width: 1200, height: 520)
         host.layoutSubtreeIfNeeded()
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
@@ -116,6 +119,8 @@ struct GitConsolePresentationBridgeTests {
         #expect(presentation.entries[1].output.allSatisfy { $0.kind == "text" })
         #expect(presentation.entries[2].command.contains { $0.kind == "text" && $0.text == "--amend" })
         #expect(presentation.entries[2].command.contains { $0.kind == "text" && $0.text.contains("\n") })
+        #expect(presentation.entries[2].notice == "completedWithoutOutput")
+        #expect(presentation.entries[3].notice == "fetchUnchanged")
     }
 
     private var repositoryRoot: URL {

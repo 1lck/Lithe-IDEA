@@ -222,6 +222,8 @@ pub enum CoreCommand {
     GitWrite,
     /// Projects retained Git console records without executing Git (`git.consolePresentation`).
     GitConsolePresentation,
+    /// Reads an optional remote URL without a visible command (`git.remoteUrl`).
+    GitRemoteUrl,
     /// Plans Fetch arguments without launching Git or changing configuration (`git.fetchPlan`).
     GitFetchPlan,
     /// Inspects Git configuration and its sources (`git.executionInspect`).
@@ -398,6 +400,7 @@ impl CoreCommand {
             "git.command" => Some(Self::GitCommand),
             "git.write" => Some(Self::GitWrite),
             "git.consolePresentation" => Some(Self::GitConsolePresentation),
+            "git.remoteUrl" => Some(Self::GitRemoteUrl),
             "git.fetchPlan" => Some(Self::GitFetchPlan),
             "git.executionInspect" => Some(Self::GitExecutionInspect),
             "git.executionConfigure" => Some(Self::GitExecutionConfigure),

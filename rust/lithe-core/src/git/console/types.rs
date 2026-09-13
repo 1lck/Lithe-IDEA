@@ -53,12 +53,66 @@ pub struct Record {
     pub error: Option<String>,
     pub executable: Option<String>,
     pub progress: Option<String>,
+    /// A transfer's measured result; absent counts must never imply no changes.
+    pub remote_result: Option<RemoteResult>,
+    #[serde(default)]
+    pub truncated: bool,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Only complete reference counts can justify a no-reference-changes notice.
+pub struct RemoteResult {
+    pub succeeded: bool,
+    pub references_available: Option<bool>,
+    pub updated_reference_count: Option<usize>,
+    pub deleted_reference_count: Option<usize>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+/// Native hosts localize these status notices separately from raw Git output.
+pub enum Notice {
+    WaitingForOutput,
+    CompletedWithoutOutput,
+    FetchUnchanged,
+}
+
 impl Record {
     pub(super) fn failed(&self) -> bool {
         self.error.is_some()
             || self.state == "unconfirmed"
             || (self.state == "completed" && self.exit_code != Some(0) && !self.expected_exit)
+    }
+
+    pub(super) fn notice(&self) -> Option<Notice> {
+        if !self.lines.is_empty()
+            || self.progress.as_ref().is_some_and(|s| !s.is_empty())
+            || self.truncated
+            || self.failed()
+        {
+            return None;
+        }
+        if self.state == "running" {
+            return Some(Notice::WaitingForOutput);
+        }
+        if self.state != "completed" || self.exit_code != Some(0) {
+            return None;
+        }
+        let fetch = crate::git::execution_policy::command_index(&self.arguments)
+            .is_some_and(|i| self.arguments[i] == "fetch");
+        if fetch
+            && self.remote_result.as_ref().is_some_and(|result| {
+                result.succeeded
+                    && result.references_available == Some(true)
+                    && result.updated_reference_count == Some(0)
+                    && result.deleted_reference_count == Some(0)
+            })
+        {
+            Some(Notice::FetchUnchanged)
+        } else {
+            Some(Notice::CompletedWithoutOutput)
+        }
     }
 }
 
@@ -102,6 +156,7 @@ pub struct Entry {
     pub command: Vec<CommandFragment>,
     pub output: Vec<OutputFragment>,
     pub failed: bool,
+    pub notice: Option<Notice>,
 }
 
 /// Compatibility grouping envelope. IDEA-style display retains one command per group.

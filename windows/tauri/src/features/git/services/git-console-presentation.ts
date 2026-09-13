@@ -11,6 +11,7 @@ export interface ConsoleOutputFragment {
 export interface ConsolePresentationEntry {
   id: string; repositoryLabel: string; command: ConsoleCommandFragment[];
   output: ConsoleOutputFragment[]; failed: boolean;
+  notice?: "waitingForOutput" | "completedWithoutOutput" | "fetchUnchanged" | null;
 }
 export interface ConsoleSearchHit { recordId: string; fragmentId: string; lineIndex: number | null }
 export interface ConsolePresentation {
@@ -26,6 +27,7 @@ export function consolePresentationRequest(records: GitConsoleRecord[], search: 
     expectedExit: record.expectedExit ?? false, exitCode: record.exitCode ?? null, error: record.error ?? null,
     executable: record.executable ?? null, progress: record.progress ?? null,
     source: record.source ?? "unknown", truncated: record.truncated,
+    remoteResult: record.remoteResult ?? null,
   })) };
 }
 export function consoleSearchAnchor(hit: ConsoleSearchHit): string {

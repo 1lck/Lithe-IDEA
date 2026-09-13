@@ -10,6 +10,9 @@ struct GitExecutionTests {
             let clear: Bool?
             let commands: [[String]]
             let running: [String]
+            let errors: [String]?
+            let roots: [String]?
+            let states: [String]?
         }
         struct Sample: Decodable { let name: String; let steps: [Step] }
         struct Fixture: Decodable { let cases: [Sample] }
@@ -24,8 +27,30 @@ struct GitExecutionTests {
                 if let event = step.event { journal.receive(event) }
                 #expect(journal.snapshot.map(\.arguments) == step.commands, "\(sample.name)")
                 #expect(journal.runningOperationIDs.sorted() == step.running, "\(sample.name)")
+                if let errors = step.errors { #expect(journal.snapshot.compactMap(\.operationErrorMessage) == errors) }
+                if let roots = step.roots { #expect(journal.snapshot.map(\.workingDirectory.path) == roots) }
+                if let states = step.states { #expect(journal.snapshot.map { String(describing: $0.state) } == states) }
             }
         }
+    }
+
+    @Test
+    func preflightFailureHistoryIsBoundedAndRetiredRequestsDoNotReappear() {
+        let journal = GitExecutionJournal()
+        for index in 0..<201 {
+            let id = "preflight-\(index)"
+            journal.receive(GitExecutionEvent(operationId: id, type: "requestStarted"), at: URL(fileURLWithPath: "/workspace"))
+            journal.receive(GitExecutionEvent(operationId: id, type: "requestFinished",
+                error: .init(code: "process_start_failed", message: "Could not inspect Git executable")))
+        }
+        #expect(journal.snapshot.count == 200)
+        #expect(journal.hasOmittedHistory)
+        #expect(journal.snapshot.allSatisfy { $0.arguments.isEmpty && $0.state == .unconfirmed })
+        journal.clear()
+        journal.receive(GitExecutionEvent(operationId: "preflight-200", type: "requestFinished",
+            error: .init(code: "process_start_failed", message: "Stale failure")))
+        #expect(journal.snapshot.isEmpty)
+        #expect(journal.runningOperationIDs.isEmpty)
     }
 
     @Test
@@ -135,11 +160,13 @@ struct GitExecutionTests {
         #expect(missing.updatedCount == 0)
         #expect(missing.deletedCount == 0)
         #expect(missing.referencesAvailable)
+        #expect(!missing.referenceCountsKnown)
         #expect(!missing.truncated)
 
         let inferred = try receiveResult(#"{"operationId":"operation","type":"remoteResult","remote":"origin","succeeded":true,"updatedReferences":["refs/remotes/origin/main"],"deletedReferences":["refs/remotes/origin/old"]}"#)
         #expect(inferred.remote == "origin")
         #expect(inferred.succeeded)
+        #expect(inferred.referenceCountsKnown)
         #expect(inferred.updatedCount == 1)
         #expect(inferred.deletedCount == 1)
 

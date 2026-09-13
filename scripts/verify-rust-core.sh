@@ -64,6 +64,6 @@ LITHE_RUN_GIT_EXECUTION_INTEGRATION=1 \
     ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
     --suite-timeout-seconds 900 \
     --report .artifacts/test-stability/git-console-bridge.json \
-    -- --filter 'MacGitHubGitOperationsTests|GitConsolePresentationBridgeTests' -Xlinker -force_load -Xlinker "$RUST_LIBRARY"
+    -- --filter 'MacGitHubGitOperationsTests|GitConsolePresentationBridgeTests|GitConsoleLifecycleBridgeTests' -Xlinker -force_load -Xlinker "$RUST_LIBRARY"
 
 print "Rust Core verification passed: comments, Rust tests, Swift bridge, linked symbols, and Git execution integration"

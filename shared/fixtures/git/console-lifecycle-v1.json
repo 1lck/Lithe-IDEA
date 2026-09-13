@@ -201,6 +201,79 @@
           "running": []
         }
       ]
+    },
+    {
+      "name": "preflight failures retain their reason without a command",
+      "steps": [
+        {
+          "event": {
+            "operationId": "preflight-failure",
+            "type": "requestStarted",
+            "workingDirectory": "/workspace/repository"
+          },
+          "commands": [],
+          "running": []
+        },
+        {
+          "event": {
+            "operationId": "preflight-failure",
+            "type": "requestFinished",
+            "error": {
+              "code": "process_start_failed",
+              "message": "Could not inspect Git executable",
+              "details": "Permission denied"
+            }
+          },
+          "commands": [
+            []
+          ],
+          "running": [],
+          "errors": [
+            "Could not inspect Git executable\nPermission denied"
+          ],
+          "roots": [
+            "/workspace/repository"
+          ],
+          "states": [
+            "unconfirmed"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cleared preflight failures remain hidden",
+      "steps": [
+        {
+          "event": {
+            "operationId": "preflight-failure",
+            "type": "requestStarted",
+            "workingDirectory": "/workspace/repository"
+          },
+          "commands": [],
+          "running": []
+        },
+        {
+          "clear": true,
+          "commands": [],
+          "running": []
+        },
+        {
+          "event": {
+            "operationId": "preflight-failure",
+            "type": "requestFinished",
+            "error": {
+              "code": "process_start_failed",
+              "message": "Could not inspect Git executable",
+              "details": "Permission denied"
+            }
+          },
+          "commands": [],
+          "running": [],
+          "errors": [],
+          "roots": [],
+          "states": []
+        }
+      ]
     }
   ]
 }

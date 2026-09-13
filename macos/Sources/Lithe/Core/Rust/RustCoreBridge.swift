@@ -3041,6 +3041,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     }
 
 
+    func gitRemoteURL(at rootURL: URL, remote: String) -> Result<String?, CoreCallError> {
+        struct Request: Encodable { let root: String; let remote: String }
+        struct Response: Decodable { let url: String? }
+        let result: Result<Response, CoreCallError> = executeResult(command: "git.remoteUrl",
+            payload: Request(root: rootURL.standardizedFileURL.path, remote: remote))
+        return result.map(\.url)
+    }
+
     func gitCommand(
         at rootURL: URL,
         arguments: [String],

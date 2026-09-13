@@ -215,7 +215,9 @@ package final class GitExecutionContext: @unchecked Sendable {
             updatedReferences: updatedReferences, deletedReferences: deletedReferences,
             updatedCount: updatedCount, deletedCount: deletedCount,
             truncated: event.referencesTruncated ?? false,
-            referencesAvailable: event.referencesAvailable ?? true)
+            referencesAvailable: event.referencesAvailable ?? true,
+            referenceCountsKnown: (event.updatedReferenceCount != nil || event.updatedReferences != nil)
+                && (event.deletedReferenceCount != nil || event.deletedReferences != nil))
     }
 
     package func drainChallenges() -> [GitAuthenticationChallenge] {
@@ -247,6 +249,7 @@ package struct GitRemoteOutcome: Equatable, Sendable {
     package var deletedCount = 0
     package var truncated = false
     package var referencesAvailable = true
+    package var referenceCountsKnown = true
 }
 
 /// Shared start order includes executions in other repositories and feature contexts.

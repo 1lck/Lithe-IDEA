@@ -6,10 +6,19 @@ import LitheRustCore
 private final class GitExecutionReceiver {
     let context: GitExecutionContext?
     let journal: GitExecutionJournal?
+    let root: URL?
 
-    init(context: GitExecutionContext?, journal: GitExecutionJournal?) {
+    init(context: GitExecutionContext?, journal: GitExecutionJournal?, request: String) {
         self.context = context
         self.journal = journal
+        // Preflight errors have no process-start event. Preserve the caller's
+        // diagnostic directory without inventing an executed argument vector.
+        struct Metadata: Decodable {
+            struct Payload: Decodable { let root: String? }
+            let payload: Payload
+        }
+        let path = (try? JSONDecoder().decode(Metadata.self, from: Data(request.utf8)))?.payload.root
+        root = path.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
     }
 
     func receive(_ event: GitExecutionEvent) {
@@ -19,7 +28,7 @@ private final class GitExecutionReceiver {
             }
             context.receive(event)
         } else {
-            journal?.receive(event)
+            journal?.receive(event, at: root)
         }
     }
 }
@@ -29,7 +38,7 @@ extension RustCoreBridge {
         _ request: String, context: GitExecutionContext?, journal: GitExecutionJournal? = nil
     ) -> UnsafeMutablePointer<CChar>? {
         guard context != nil || journal != nil else { return lithe_bridge_execute_json(request) }
-        let receiver = GitExecutionReceiver(context: context, journal: journal)
+        let receiver = GitExecutionReceiver(context: context, journal: journal, request: request)
         return withExtendedLifetime(receiver) {
             lithe_bridge_execute_json_with_events(request, { pointer, opaque in
                 guard let pointer, let opaque else { return }

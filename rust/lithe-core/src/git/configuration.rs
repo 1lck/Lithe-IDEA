@@ -43,6 +43,32 @@ fn local_scope() -> String {
     "local".into()
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// Reads one remote URL for repository discovery, independently of user commands.
+struct RemoteUrlRequest {
+    root: String,
+    remote: String,
+}
+
+/// Missing remote configuration is a successful lookup with a null URL.
+/// Real inspection failures still propagate through the request's error event.
+pub(crate) fn remote_url(payload: Value) -> Result<Value, CoreError> {
+    let request: RemoteUrlRequest = serde_json::from_value(payload).map_err(|error| {
+        CoreError::new(ErrorCode::InvalidRequest, "Invalid Git remote URL request")
+            .with_details(error.to_string())
+    })?;
+    if request.remote.is_empty() || request.remote.chars().any(char::is_control) {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Invalid Git remote name",
+        ));
+    }
+    let root = validate_root(&request.root)?;
+    let url = super::read_git_config_value(&root, &format!("remote.{}.url", request.remote))?;
+    Ok(json!({ "url": url }))
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// A config occurrence in Git's original precedence order. Values are diagnostic-safe.
@@ -313,6 +339,19 @@ fn inspect(root: &str, scope: &str) -> Result<Value, CoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn remote_url_rejects_invalid_requests_before_accessing_a_repository() {
+        for remote in ["", "origin\nother", "origin\0"] {
+            let error = remote_url(json!({ "root": "/fixture", "remote": remote })).unwrap_err();
+            assert!(matches!(error.code, ErrorCode::InvalidRequest));
+        }
+        assert!(remote_url(json!({ "root": "/fixture" })).is_err());
+        assert!(remote_url(
+            json!({ "root": "/fixture", "remote": "origin", "arguments": ["push"] })
+        )
+        .is_err());
+    }
+
     #[test]
     fn provenance_retains_precedence_and_redacts_credentials_without_exposing_unrelated_config() {
         let records = entries(b"global\0file:global.conf\0fetch.prune\nfalse\0local\0file:.git/config\0fetch.prune\ntrue\0local\0file:.git/config\0remote.origin.url\nhttps://user:fake@example.invalid/repo?token=private\0local\0file:.git/config\0unrelated.secret\nhidden\0").unwrap();

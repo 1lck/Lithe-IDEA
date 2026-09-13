@@ -10,6 +10,7 @@ package final class GitExecutionJournal: @unchecked Sendable {
     private var contexts: [String: GitExecutionContext] = [:]
     // Request bookkeeping survives preflight and clearing without inventing a command row.
     private var activeRequests: Set<String> = []
+    private var requestRoots: [String: URL] = [:]
     private var runningOperations: Set<String> = []
     private var entries: [GitConsoleEntry] = []
     private var entryIDs: [String: Set<UUID>] = [:]
@@ -54,15 +55,16 @@ package final class GitExecutionJournal: @unchecked Sendable {
         }
     }
 
-    package func receive(_ event: GitExecutionEvent) {
-        let changed = lock.withLock { receiveLocked(event) }
+    package func receive(_ event: GitExecutionEvent, at root: URL? = nil) {
+        let changed = lock.withLock { receiveLocked(event, root: root) }
         if changed { changes.send() }
     }
 
-    private func receiveLocked(_ event: GitExecutionEvent) -> Bool {
+    private func receiveLocked(_ event: GitExecutionEvent, root: URL?) -> Bool {
         let operationID = event.operationId
         if event.type == "requestStarted" {
             activeRequests.insert(operationID)
+            requestRoots[operationID] = root ?? event.workingDirectory.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
             return false
         }
         if event.type == "requestFinished" {
@@ -71,9 +73,15 @@ package final class GitExecutionJournal: @unchecked Sendable {
             defer {
                 contexts.removeValue(forKey: operationID)
                 entryIDs.removeValue(forKey: operationID)
+                requestRoots.removeValue(forKey: operationID)
             }
             if hidden.remove(operationID) != nil { return wasRunning }
-            guard let context = contexts[operationID] else { return wasRunning }
+            guard let context = contexts[operationID] else {
+                guard let error = event.error, let root = requestRoots[operationID] ?? root else { return wasRunning }
+                retain([GitConsoleEntry(workingDirectory: root, arguments: [], output: "", exitCode: -1,
+                    state: .unconfirmed, operationErrorMessage: [error.message, error.details].compactMap { $0 }.joined(separator: "\n"))])
+                return true
+            }
             context.receive(event)
             if let snapshot = context.drainSnapshot() { retain(snapshot) }
             return true

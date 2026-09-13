@@ -98,3 +98,20 @@ test("optional query exit and transfer summaries preserve their execution identi
   expect(request.records[1]!.exitCode).toBe(1);
   expect(request.records[1]!.source).toBe("background");
 });
+
+test("silent completion and running notices are visible without changing copied output", async () => {
+  const notices = [
+    ["running command waits for output", "正在执行 Git，等待输出。"],
+    ["successful command with no output", "执行成功，没有输出。"],
+    ["fetch without reference changes", "获取完成，没有引用变化。"],
+  ];
+  for (const [name, message] of notices) {
+    const index = fixture.cases.findIndex((sample) => sample.name === name);
+    expect(index).toBeGreaterThanOrEqual(0);
+    const record = recordFromSample(index);
+    await render(record, fixture.cases[index]!.presentation as ConsolePresentation);
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(message);
+    expect(record.output).toBe("");
+    expect(consolePresentationRequest([record], "").records[0]!.lines).toEqual([]);
+  }
+});

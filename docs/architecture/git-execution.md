@@ -234,6 +234,17 @@ without creating a console error row. Broad configuration output and custom
 helper/script values use an explicit redaction marker; arbitrary secrets never
 enter the retained console. Supported settings remain inspectable in Git Settings.
 Real preflight failures, user configuration saves and transport failures remain visible.
+GitHub repository discovery uses `git.remoteUrl`; a missing `origin` is an empty
+lookup result, rather than a visible `git.command` failure. Explicit commands,
+including an explicitly requested configuration query, still remain visible.
+
+A completed command with no output now receives a localized status line. A
+successful Fetch with complete zero reference-change counts says that no
+references changed. Missing counts only justify saying that Git completed
+without output. An empty running command says that it is waiting for output.
+Rust Core chooses these notices; native views localize them separately from
+stdout/stderr. Failed, truncated, or nonempty output never gains a synthetic
+success notice, and copying raw output never copies these status lines.
 
 The Console is available independently of commit history. An unborn repository
 can open it directly without configuring commit identity. Basic Git settings
@@ -249,8 +260,11 @@ actual started operations across checkout changes. Clearing the console removes
 the window history and suppresses late output from cleared operations, including
 requests still in preflight when the user clears it. Request bookkeeping is
 tracked separately from visible invocations: successful internal queries create
-no placeholder rows and cannot evict actual command history. A failed Windows
-preflight retains its reason and directory as an unconfirmed request failure.
+no placeholder rows and cannot evict actual command history. Both native receivers
+retain the originating directory so a failed preflight keeps its reason as an
+unconfirmed request failure without invented
+arguments or an exit status. macOS recovers that directory from the encoded
+request; Windows carries it alongside the invoke channel.
 
 The console's stop action also cancels running journal requests from other
 features, including GitHub. Clearing their text does not remove their cancellation

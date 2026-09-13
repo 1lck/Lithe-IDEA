@@ -10,10 +10,14 @@ describe("Git execution journal", () => {
     for (const sample of lifecycle.cases) {
       const journal = new GitExecutionJournal(() => 0);
       for (const raw of sample.steps) {
-        const step = raw as { clear?: boolean; event?: GitExecutionEvent; commands: string[][]; running: string[] };
+        const step = raw as { clear?: boolean; event?: GitExecutionEvent; commands: string[][]; running: string[];
+          errors?: string[]; roots?: string[]; states?: string[] };
         if (step.clear) journal.clear();
         if (step.event) journal.receive(step.event);
         expect(journal.records.map((record) => record.arguments)).toEqual(step.commands);
+        if (step.errors) expect(journal.records.flatMap((record) => record.error ? [record.error] : [])).toEqual(step.errors);
+        if (step.roots) expect(journal.records.map((record) => record.root)).toEqual(step.roots);
+        if (step.states) expect(journal.records.map((record) => record.state)).toEqual(step.states);
         for (const operationId of step.running) expect(journal.active.has(operationId)).toBe(true);
         if (step.event?.type === "requestFinished") expect(journal.active.has(step.event.operationId)).toBe(false);
       }

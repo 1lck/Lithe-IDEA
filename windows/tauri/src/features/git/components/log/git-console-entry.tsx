@@ -75,6 +75,7 @@ export function GitConsoleEntry({ record, presentation, selectedHit, searchNavig
           {(fragment.kind === "text" || outputExpanded(fragment.id)) && Array.from({ length: fragment.end - fragment.start }, (_, offset) => outputLine(fragment.start + offset))}
         </Fragment>) : record.lines.map((_, index) => outputLine(index))}
         {record.progress && <div data-console-anchor={`${record.id}:progress`} className={target === `${record.id}:progress` ? "bg-warning/20" : "text-subtle-foreground"}>{record.progress}</div>}
+        {presentation?.notice && <div className="text-subtle-foreground" role="status">{t(`git.console.notice.${presentation.notice}`)}</div>}
         {record.truncated && <div className="text-subtle-foreground">{t("git.console.truncated")}</div>}
         {record.error && <div data-console-anchor={`${record.id}:error`} className={`text-destructive ${target === `${record.id}:error` ? "bg-warning/20" : ""}`}>{redactConsoleText(record.error)}</div>}
         {record.state === "unconfirmed" && <div className="text-destructive">{t("git.console.unconfirmed")}</div>}

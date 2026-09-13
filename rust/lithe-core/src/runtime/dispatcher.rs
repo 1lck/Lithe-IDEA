@@ -1831,6 +1831,10 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::GitRemoteUrl => match git::configuration::remote_url(parsed.payload) {
+            Ok(value) => CoreResponse::success(id, value),
+            Err(error) => CoreResponse::failure(id, error),
+        },
         CoreCommand::GitConsolePresentation => {
             match serde_json::from_value::<git::console::Request>(parsed.payload)
                 .map_err(|error| {

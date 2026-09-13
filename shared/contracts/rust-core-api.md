@@ -155,7 +155,8 @@ stable error code and a user-facing message:
 | `git.command` | Execute one argument-based Git operation and return its arguments, streams, exit code, and ordered subprocess invocations |
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
 | `git.fetchPlan` | Validate Fetch choices; optionally inspect a repository to expand enabled per-remote commands |
-| `git.consolePresentation` | Pure IDEA-style configuration/progress folds and search ranges over retained diagnostic snapshots |
+| `git.consolePresentation` | Pure IDEA-style configuration/progress folds, empty-output notices and search ranges over retained diagnostic snapshots |
+| `git.remoteUrl` | Read a configured remote URL silently; a missing remote returns a null URL |
 | `git.executionInspect` | Inspect executable capabilities, configuration provenance and effective Fetch preferences |
 | `git.executionConfigure` | Explicitly save or clear one allowlisted value in a selected config scope |
 | `git.authRespond` | Answer or cancel a live authentication challenge once |
@@ -376,6 +377,12 @@ Fetch's existing explicit flags remain in the argument vector for compatibility.
 `LC_ALL=C`, pager suppression and no terminal prompting are child-local policy.
 Transfer progress is requested explicitly. No config file is implicitly modified.
 
+`git.remoteUrl` accepts `{ root, remote }` and returns `{ url: string | null }`.
+It uses the internal configuration-read path: a missing key is successful and
+produces no command row. Invalid requests and real access/executable failures
+remain structured errors. The configured value is used for repository discovery;
+it is not console output. See `shared/fixtures/git/remote-url-v1.json`.
+
 `git.executionInspect` takes `{ root, scope?: "local" | "global" }`, default local.
 It returns `{ executable, version, scope, entries, fields, temporaryConfig,
 fetchOptions, fetchError, fetchSources, credentialHelperEnabled,
@@ -435,10 +442,22 @@ are redacted diagnostics; preview alone is not proof of process startup. An
 unknown exit status remains null. A failed start may produce `finished` without
 `started`; consumers must not fabricate an executed command from that event.
 Native journals track `requestStarted` separately from visible command records.
-It must not allocate a placeholder or consume command-history capacity. Clearing
+The native receiver retains the originating request directory so a failure before
+`started` can be shown as an unconfirmed request with no fabricated arguments or
+exit code. Successfully completed internal queries still produce no history row.
+A request-start event must not allocate a placeholder or consume command-history capacity. Clearing
 history suppresses late invocations from requests already in preflight, while
 started operations remain cancellable until `requestFinished`, even after their
 text is cleared. See `shared/fixtures/git/console-lifecycle-v1.json`.
+Console presentation entries include an optional `notice`: `waitingForOutput`,
+`completedWithoutOutput`, or `fetchUnchanged`. Native hosts localize this as a
+status line, separate from retained Git stdout/stderr and copied command output.
+Notices require empty retained output, no progress, no truncation and no failure.
+`fetchUnchanged` additionally requires a completed successful Fetch and a
+`remoteResult` with `succeeded: true`, `referencesAvailable: true`, and explicit
+zero `updatedReferenceCount` and `deletedReferenceCount`. Missing counts must not
+be treated as zero. Other successful empty results use `completedWithoutOutput`.
+
 `displayArguments` and `globalArguments` are additive console projections: the
 former starts at the subcommand, and the latter contains temporary configuration
 as `-c key=value` pairs followed by the original global argument prefix. Consoles

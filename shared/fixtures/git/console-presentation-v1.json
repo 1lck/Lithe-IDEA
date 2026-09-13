@@ -99,7 +99,8 @@
             "failed": false,
             "id": "one",
             "output": [],
-            "repositoryLabel": "/workspace/repo"
+            "repositoryLabel": "/workspace/repo",
+            "notice": "completedWithoutOutput"
           }
         ],
         "groups": [
@@ -292,7 +293,8 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "/workspace/repo"
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
           }
         ],
         "groups": [
@@ -546,7 +548,8 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "/workspace/repo"
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
           }
         ],
         "groups": [
@@ -1076,7 +1079,8 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "/workspace/repo"
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
           }
         ],
         "groups": [
@@ -1449,7 +1453,8 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "/workspace/repo"
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
           }
         ],
         "groups": [
@@ -1702,7 +1707,8 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "/workspace/repo"
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
           }
         ],
         "groups": [
@@ -1964,7 +1970,8 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "/workspace/repo"
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
           }
         ],
         "groups": [
@@ -2226,7 +2233,8 @@
             "failed": false,
             "id": "one",
             "output": [],
-            "repositoryLabel": "/workspace/repo"
+            "repositoryLabel": "/workspace/repo",
+            "notice": "completedWithoutOutput"
           }
         ],
         "groups": [
@@ -2331,7 +2339,8 @@
             "failed": false,
             "id": "one",
             "output": [],
-            "repositoryLabel": "/workspace/repo"
+            "repositoryLabel": "/workspace/repo",
+            "notice": "completedWithoutOutput"
           }
         ],
         "groups": [
@@ -2568,7 +2577,8 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "/workspace/repo"
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
           },
           {
             "command": [
@@ -2604,7 +2614,8 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "/workspace/repo"
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
           },
           {
             "command": [
@@ -2640,7 +2651,8 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "/workspace/repo"
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
           },
           {
             "command": [
@@ -2676,7 +2688,8 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "/workspace/repo"
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
           },
           {
             "command": [
@@ -2712,7 +2725,8 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "/workspace/repo"
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
           },
           {
             "command": [
@@ -2748,7 +2762,8 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "/workspace/repo"
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
           }
         ],
         "groups": [
@@ -2962,7 +2977,8 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "/workspace/repo"
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
           },
           {
             "command": [
@@ -2998,7 +3014,8 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "/workspace/repo"
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
           },
           {
             "command": [
@@ -3034,7 +3051,8 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "/workspace/repo"
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
           },
           {
             "command": [
@@ -3070,7 +3088,8 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "/workspace/repo"
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
           }
         ],
         "groups": [
@@ -3200,7 +3219,8 @@
             "failed": false,
             "id": "0",
             "output": [],
-            "repositoryLabel": "/workspace/repo"
+            "repositoryLabel": "/workspace/repo",
+            "notice": "completedWithoutOutput"
           },
           {
             "command": [
@@ -3232,7 +3252,8 @@
             "failed": false,
             "id": "1",
             "output": [],
-            "repositoryLabel": "/workspace/repo"
+            "repositoryLabel": "/workspace/repo",
+            "notice": "completedWithoutOutput"
           }
         ],
         "groups": [
@@ -3334,7 +3355,8 @@
             "failed": false,
             "id": "a",
             "output": [],
-            "repositoryLabel": "/workspace/a/repo"
+            "repositoryLabel": "/workspace/a/repo",
+            "notice": "completedWithoutOutput"
           },
           {
             "command": [
@@ -3358,7 +3380,8 @@
             "failed": false,
             "id": "b",
             "output": [],
-            "repositoryLabel": "/workspace/b/repo"
+            "repositoryLabel": "/workspace/b/repo",
+            "notice": "completedWithoutOutput"
           }
         ],
         "groups": [
@@ -3618,7 +3641,8 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "/workspace/repo"
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
           }
         ],
         "groups": [
@@ -3699,7 +3723,8 @@
             "failed": false,
             "id": "before",
             "output": [],
-            "repositoryLabel": "/workspace/one/project"
+            "repositoryLabel": "/workspace/one/project",
+            "notice": "completedWithoutOutput"
           },
           {
             "command": [
@@ -3715,7 +3740,8 @@
             "failed": false,
             "id": "after",
             "output": [],
-            "repositoryLabel": "/workspace/one/project"
+            "repositoryLabel": "/workspace/one/project",
+            "notice": "completedWithoutOutput"
           }
         ],
         "groups": [
@@ -3880,7 +3906,8 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "/workspace/repository"
+            "repositoryLabel": "/workspace/repository",
+            "notice": null
           }
         ],
         "groups": [
@@ -3900,6 +3927,528 @@
           }
         ],
         "totalMatches": 1
+      }
+    },
+    {
+      "name": "running command waits for output",
+      "input": {
+        "records": [
+          {
+            "id": "status-notice",
+            "root": "/workspace/repository",
+            "arguments": [
+              "fetch",
+              "origin"
+            ],
+            "temporaryConfig": [],
+            "lines": [],
+            "state": "running",
+            "exitCode": null
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "notice": "waitingForOutput"
+      },
+      "presentation": {
+        "entries": [
+          {
+            "id": "status-notice",
+            "repositoryLabel": "/workspace/repository",
+            "command": [
+              {
+                "id": "argument-0",
+                "kind": "text",
+                "text": "fetch",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              },
+              {
+                "id": "argument-1",
+                "kind": "text",
+                "text": "origin",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              }
+            ],
+            "output": [],
+            "failed": false,
+            "notice": "waitingForOutput"
+          }
+        ],
+        "groups": [
+          {
+            "id": "status-notice",
+            "recordIds": [
+              "status-notice"
+            ],
+            "matches": 0
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "successful command with no output",
+      "input": {
+        "records": [
+          {
+            "id": "status-notice",
+            "root": "/workspace/repository",
+            "arguments": [
+              "checkout",
+              "main"
+            ],
+            "temporaryConfig": [],
+            "lines": [],
+            "state": "completed",
+            "exitCode": 0
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "notice": "completedWithoutOutput"
+      },
+      "presentation": {
+        "entries": [
+          {
+            "id": "status-notice",
+            "repositoryLabel": "/workspace/repository",
+            "command": [
+              {
+                "id": "argument-0",
+                "kind": "text",
+                "text": "checkout",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              },
+              {
+                "id": "argument-1",
+                "kind": "text",
+                "text": "main",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              }
+            ],
+            "output": [],
+            "failed": false,
+            "notice": "completedWithoutOutput"
+          }
+        ],
+        "groups": [
+          {
+            "id": "status-notice",
+            "recordIds": [
+              "status-notice"
+            ],
+            "matches": 0
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "fetch without reference changes",
+      "input": {
+        "records": [
+          {
+            "id": "status-notice",
+            "root": "/workspace/repository",
+            "arguments": [
+              "fetch",
+              "origin"
+            ],
+            "temporaryConfig": [],
+            "lines": [],
+            "state": "completed",
+            "exitCode": 0,
+            "remoteResult": {
+              "succeeded": true,
+              "referencesAvailable": true,
+              "updatedReferenceCount": 0,
+              "deletedReferenceCount": 0
+            }
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "notice": "fetchUnchanged"
+      },
+      "presentation": {
+        "entries": [
+          {
+            "id": "status-notice",
+            "repositoryLabel": "/workspace/repository",
+            "command": [
+              {
+                "id": "argument-0",
+                "kind": "text",
+                "text": "fetch",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              },
+              {
+                "id": "argument-1",
+                "kind": "text",
+                "text": "origin",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              }
+            ],
+            "output": [],
+            "failed": false,
+            "notice": "fetchUnchanged"
+          }
+        ],
+        "groups": [
+          {
+            "id": "status-notice",
+            "recordIds": [
+              "status-notice"
+            ],
+            "matches": 0
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "unknown reference counts do not imply no changes",
+      "input": {
+        "records": [
+          {
+            "id": "status-notice",
+            "root": "/workspace/repository",
+            "arguments": [
+              "fetch",
+              "origin"
+            ],
+            "temporaryConfig": [],
+            "lines": [],
+            "state": "completed",
+            "exitCode": 0,
+            "remoteResult": {
+              "succeeded": true
+            }
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "notice": "completedWithoutOutput"
+      },
+      "presentation": {
+        "entries": [
+          {
+            "id": "status-notice",
+            "repositoryLabel": "/workspace/repository",
+            "command": [
+              {
+                "id": "argument-0",
+                "kind": "text",
+                "text": "fetch",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              },
+              {
+                "id": "argument-1",
+                "kind": "text",
+                "text": "origin",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              }
+            ],
+            "output": [],
+            "failed": false,
+            "notice": "completedWithoutOutput"
+          }
+        ],
+        "groups": [
+          {
+            "id": "status-notice",
+            "recordIds": [
+              "status-notice"
+            ],
+            "matches": 0
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "failed reference inspection does not imply no changes",
+      "input": {
+        "records": [
+          {
+            "id": "status-notice",
+            "root": "/workspace/repository",
+            "arguments": [
+              "fetch",
+              "origin"
+            ],
+            "temporaryConfig": [],
+            "lines": [],
+            "state": "completed",
+            "exitCode": 0,
+            "remoteResult": {
+              "succeeded": true,
+              "referencesAvailable": false,
+              "updatedReferenceCount": 0,
+              "deletedReferenceCount": 0
+            }
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "notice": "completedWithoutOutput"
+      },
+      "presentation": {
+        "entries": [
+          {
+            "id": "status-notice",
+            "repositoryLabel": "/workspace/repository",
+            "command": [
+              {
+                "id": "argument-0",
+                "kind": "text",
+                "text": "fetch",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              },
+              {
+                "id": "argument-1",
+                "kind": "text",
+                "text": "origin",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              }
+            ],
+            "output": [],
+            "failed": false,
+            "notice": "completedWithoutOutput"
+          }
+        ],
+        "groups": [
+          {
+            "id": "status-notice",
+            "recordIds": [
+              "status-notice"
+            ],
+            "matches": 0
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "truncated output does not imply empty output",
+      "input": {
+        "records": [
+          {
+            "id": "status-notice",
+            "root": "/workspace/repository",
+            "arguments": [
+              "fetch",
+              "origin"
+            ],
+            "temporaryConfig": [],
+            "lines": [],
+            "state": "completed",
+            "exitCode": 0,
+            "truncated": true
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "notice": null
+      },
+      "presentation": {
+        "entries": [
+          {
+            "id": "status-notice",
+            "repositoryLabel": "/workspace/repository",
+            "command": [
+              {
+                "id": "argument-0",
+                "kind": "text",
+                "text": "fetch",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              },
+              {
+                "id": "argument-1",
+                "kind": "text",
+                "text": "origin",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              }
+            ],
+            "output": [],
+            "failed": false,
+            "notice": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "status-notice",
+            "recordIds": [
+              "status-notice"
+            ],
+            "matches": 0
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "failed command never reports success",
+      "input": {
+        "records": [
+          {
+            "id": "status-notice",
+            "root": "/workspace/repository",
+            "arguments": [
+              "fetch",
+              "origin"
+            ],
+            "temporaryConfig": [],
+            "lines": [],
+            "state": "completed",
+            "exitCode": 1,
+            "error": "Fetch failed"
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "notice": null
+      },
+      "presentation": {
+        "entries": [
+          {
+            "id": "status-notice",
+            "repositoryLabel": "/workspace/repository",
+            "command": [
+              {
+                "id": "argument-0",
+                "kind": "text",
+                "text": "fetch",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              },
+              {
+                "id": "argument-1",
+                "kind": "text",
+                "text": "origin",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              }
+            ],
+            "output": [],
+            "failed": true,
+            "notice": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "status-notice",
+            "recordIds": [
+              "status-notice"
+            ],
+            "matches": 0
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "active progress needs no extra waiting notice",
+      "input": {
+        "records": [
+          {
+            "id": "status-notice",
+            "root": "/workspace/repository",
+            "arguments": [
+              "fetch",
+              "origin"
+            ],
+            "temporaryConfig": [],
+            "lines": [],
+            "state": "running",
+            "exitCode": null,
+            "progress": "Receiving objects: 50%"
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "notice": null
+      },
+      "presentation": {
+        "entries": [
+          {
+            "id": "status-notice",
+            "repositoryLabel": "/workspace/repository",
+            "command": [
+              {
+                "id": "argument-0",
+                "kind": "text",
+                "text": "fetch",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              },
+              {
+                "id": "argument-1",
+                "kind": "text",
+                "text": "origin",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              }
+            ],
+            "output": [],
+            "failed": false,
+            "notice": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "status-notice",
+            "recordIds": [
+              "status-notice"
+            ],
+            "matches": 0
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
       }
     }
   ]

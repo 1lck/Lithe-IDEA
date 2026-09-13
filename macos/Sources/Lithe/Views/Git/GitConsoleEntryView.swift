@@ -56,6 +56,14 @@ struct GitConsoleEntryView: View {
                 line(Text(verbatim: progress).foregroundColor(LitheTheme.secondaryText))
                     .id(entry.id.uuidString + ":progress")
             }
+            if let notice = presentation?.notice {
+                switch notice {
+                case "waitingForOutput": line(Text("Running Git; waiting for output.").foregroundColor(LitheTheme.secondaryText))
+                case "completedWithoutOutput": line(Text("Git completed successfully with no output.").foregroundColor(LitheTheme.secondaryText))
+                case "fetchUnchanged": line(Text("Fetch completed with no reference changes.").foregroundColor(LitheTheme.secondaryText))
+                default: EmptyView()
+                }
+            }
             if entry.isOutputTruncated {
                 line(Text("Earlier Git output was omitted to limit memory use.").foregroundColor(LitheTheme.secondaryText))
             }

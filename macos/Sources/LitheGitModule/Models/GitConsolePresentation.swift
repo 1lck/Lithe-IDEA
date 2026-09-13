@@ -35,6 +35,13 @@ package struct GitConsolePresentationRequest: Encodable, Hashable, Sendable {
         let progress: String?
         let source: GitExecutionSource
         let truncated: Bool
+        let remoteResult: RemoteResult?
+        struct RemoteResult: Encodable, Hashable, Sendable {
+            let succeeded: Bool
+            let referencesAvailable: Bool
+            let updatedReferenceCount: Int?
+            let deletedReferenceCount: Int?
+        }
         init(_ entry: GitConsoleEntry) {
             id = entry.id.uuidString
             sequence = entry.sequence
@@ -50,6 +57,9 @@ package struct GitConsolePresentationRequest: Encodable, Hashable, Sendable {
             source = entry.source
             expectedExit = entry.expectedExit
             truncated = entry.isOutputTruncated
+            remoteResult = entry.remoteResult.map { RemoteResult(succeeded: $0.succeeded,
+                referencesAvailable: $0.referencesAvailable, updatedReferenceCount: $0.referenceCountsKnown ? $0.updatedCount : nil,
+                deletedReferenceCount: $0.referenceCountsKnown ? $0.deletedCount : nil) }
         }
     }
 }
@@ -66,6 +76,7 @@ package struct GitConsolePresentation: Decodable, Equatable, Sendable {
         package let command: [CommandFragment]
         package let output: [OutputFragment]
         package let failed: Bool
+        package let notice: String?
     }
     package struct CommandFragment: Decodable, Equatable, Sendable, Identifiable {
         package let id: String

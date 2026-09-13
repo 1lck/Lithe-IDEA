@@ -62,6 +62,7 @@ pub fn present(request: Request) -> Result<Presentation, CoreError> {
             command: command::project(record),
             output: output::project(record),
             failed: record.failed(),
+            notice: record.notice(),
         };
         if !query.is_empty() {
             add_matches(

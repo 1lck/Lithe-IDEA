@@ -84,6 +84,14 @@ fn presentation_matches_shared_console_cases_without_rewriting_retained_output()
         if let Some(matches) = expected["matches"].as_u64() {
             assert_eq!(result.total_matches, matches as usize);
         }
+        if let Some(notice) = expected.get("notice") {
+            assert_eq!(
+                serde_json::to_value(&entry.notice).unwrap(),
+                *notice,
+                "{}",
+                case["name"]
+            );
+        }
         for (entry, raw) in result
             .entries
             .iter()
