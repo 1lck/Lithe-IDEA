@@ -18,7 +18,7 @@ struct RustLineEditing: EditorLineEditing {
         core.editorLineEdit(operation, source: source, selection: selection)
     }
 
-    func lineCommentToken(forExtension fileExtension: String) -> String? {
-        core.editorLineCommentToken(forExtension: fileExtension)
+    func lineCommentToken(forIdentifier identifier: String) -> String? {
+        core.editorLineCommentToken(forIdentifier: identifier)
     }
 }

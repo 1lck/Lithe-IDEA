@@ -162,16 +162,52 @@ struct EditorLineEditingCoordinatorTests {
             nil
         }
 
-        func lineCommentToken(forExtension _: String) -> String? {
+        func lineCommentToken(forIdentifier _: String) -> String? {
             token
+        }
+    }
+
+    /// Thread-safe recorder for the queried identifier.
+    private final class IdentifierRecorder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value: String?
+
+        func record(_ identifier: String) {
+            lock.lock()
+            defer { lock.unlock() }
+            value = identifier
+        }
+
+        var recorded: String? {
+            lock.lock()
+            defer { lock.unlock() }
+            return value
+        }
+    }
+
+    private struct RecordingLineEditing: EditorLineEditing {
+        let recorder: IdentifierRecorder
+        let token: String?
+
+        func lineEdit(
+            _: EditorLineEditOperation,
+            source _: String,
+            selection _: NSRange
+        ) -> EditorLineEditResult? {
+            nil
+        }
+
+        func lineCommentToken(forIdentifier identifier: String) -> String? {
+            recorder.record(identifier)
+            return token
         }
     }
 
     /// Regression: the comment token was cached once in makeNSView, so
     /// renaming an open document (relocate(to:) updates the URL in place
     /// while the editor keeps the same document id) left the old extension's
-    /// token active. The token must be resolved from the current extension
-    /// at action time.
+    /// token active. The token must be resolved from the current name at
+    /// action time.
     @Test
     func renamedDocumentResolvesTokenFromCurrentExtension() {
         let document = EditorDocument(
@@ -193,5 +229,27 @@ struct EditorLineEditingCoordinatorTests {
             using: FakeLineEditing(token: "#")
         )
         #expect(pythonToken == "#")
+    }
+
+    /// Regression: Foundation reports an empty pathExtension for dotfiles,
+    /// so the coordinator must pass the full last path component and Core
+    /// resolves the basename (`.env` → `#`).
+    @Test
+    func dotfileDocumentResolvesTokenThroughBasename() {
+        let document = EditorDocument(
+            url: URL(fileURLWithPath: "/tmp/.env"),
+            text: "",
+            modificationDate: nil
+        )
+
+        let recorder = IdentifierRecorder()
+        let recording = RecordingLineEditing(recorder: recorder, token: "#")
+        let token = CodeEditorView.Coordinator.lineCommentToken(
+            for: document,
+            using: recording
+        )
+
+        #expect(token == "#")
+        #expect(recorder.recorded == ".env")
     }
 }

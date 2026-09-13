@@ -32,7 +32,8 @@ protocol EditorLineEditing: Sendable {
         selection: NSRange
     ) -> EditorLineEditResult?
 
-    /// Resolves the line comment token for a file extension or language id;
-    /// nil for file types without a line comment token.
-    func lineCommentToken(forExtension fileExtension: String) -> String?
+    /// Resolves the line comment token for a file extension, file name
+    /// (including dotfiles such as `.env`), or language id; nil for file
+    /// types without a line comment token.
+    func lineCommentToken(forIdentifier identifier: String) -> String?
 }

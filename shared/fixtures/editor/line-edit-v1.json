@@ -359,7 +359,7 @@
     {
       "name": "resolve line comment token for extension",
       "request": {
-        "fileExtension": "py"
+        "identifier": "py"
       },
       "expected": {
         "token": "#"
@@ -368,10 +368,36 @@
     {
       "name": "resolve line comment token for unknown extension",
       "request": {
-        "fileExtension": "json"
+        "identifier": "json"
       },
       "expected": {
         "token": null
+      }
+    },
+    {
+      "name": "move down normalizes a caret inside a CRLF separator",
+      "request": {
+        "operation": "moveLineDown",
+        "source": "a\r\nb",
+        "selectionStart": 2,
+        "selectionLength": 0
+      },
+      "expected": {
+        "applied": true,
+        "text": "b\r\na",
+        "replacedStart": 0,
+        "replacedLength": 4,
+        "selectionStart": 4,
+        "selectionLength": 0
+      }
+    },
+    {
+      "name": "resolve line comment token for dotfile basename",
+      "request": {
+        "identifier": ".env"
+      },
+      "expected": {
+        "token": "#"
       }
     }
   ]

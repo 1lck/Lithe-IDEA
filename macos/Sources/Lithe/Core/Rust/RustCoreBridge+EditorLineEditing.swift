@@ -19,7 +19,7 @@ extension RustCoreBridge {
     }
 
     private struct EditorLineCommentTokenRequest: Encodable {
-        let fileExtension: String
+        let identifier: String
     }
 
     private struct EditorLineCommentTokenOutcome: Decodable {
@@ -83,10 +83,10 @@ extension RustCoreBridge {
     }
 
     /// Resolves the line comment token; nil for file types without one.
-    func editorLineCommentToken(forExtension fileExtension: String) -> String? {
+    func editorLineCommentToken(forIdentifier identifier: String) -> String? {
         let call: Result<EditorLineCommentTokenOutcome, CoreCallError> = executeResult(
             command: "editor.lineCommentToken",
-            payload: EditorLineCommentTokenRequest(fileExtension: fileExtension)
+            payload: EditorLineCommentTokenRequest(identifier: identifier)
         )
         guard case .success(let outcome) = call else { return nil }
         return outcome.token

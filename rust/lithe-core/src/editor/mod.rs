@@ -1,9 +1,10 @@
-//! Editor text-transform commands shared by macOS and Windows.
+//! Editor text-transform commands owned by Rust Core.
 //!
-//! Both products route deterministic line-level editing through this package
-//! so selection mapping and comment-token semantics cannot drift between
-//! platforms. Platform code only applies the returned replacement through
-//! its native text engine.
+//! macOS routes deterministic line-level editing through this package and
+//! applies the returned replacement through its native text engine. Windows
+//! still uses its local TypeScript implementation and is expected to adopt
+//! the same contract in a follow-up change; the contract and fixtures here
+//! are the canonical reference for that migration.
 
 pub(crate) mod line_edit;
 

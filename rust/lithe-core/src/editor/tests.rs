@@ -511,7 +511,14 @@ fn line_comment_token_maps_common_extensions_and_language_ids() {
         ("ts", "//"),
         ("csharp", "//"),
         ("zig", "//"),
+        ("javascript", "//"),
+        ("javascriptreact", "//"),
+        ("typescript", "//"),
+        ("typescriptreact", "//"),
+        ("kotlin", "//"),
         ("py", "#"),
+        ("python", "#"),
+        ("ruby", "#"),
         ("yaml", "#"),
         ("properties", "#"),
         ("shell", "#"),
@@ -520,7 +527,7 @@ fn line_comment_token_maps_common_extensions_and_language_ids() {
         ("lua", "--"),
     ] {
         let token = line_comment_token(LineCommentTokenRequest {
-            file_extension: extension.to_string(),
+            identifier: extension.to_string(),
         });
         assert_eq!(
             token.token.as_deref(),
@@ -534,9 +541,93 @@ fn line_comment_token_maps_common_extensions_and_language_ids() {
 fn line_comment_token_returns_none_for_unknown_extension() {
     for extension in ["json", ""] {
         let token = line_comment_token(LineCommentTokenRequest {
-            file_extension: extension.to_string(),
+            identifier: extension.to_string(),
         });
         assert_eq!(token.token, None, "extension {extension}");
+    }
+}
+
+#[test]
+fn line_comment_token_resolves_dotfile_basenames() {
+    // Regression: macOS pathExtension is empty for dotfiles such as .env,
+    // so callers pass the basename and Core resolves the last dot segment.
+    for (name, expected) in [(".env", Some("#")), ("Foo.py", Some("#")), ("README", None)] {
+        let token = line_comment_token(LineCommentTokenRequest {
+            identifier: name.to_string(),
+        });
+        assert_eq!(token.token.as_deref(), expected, "file name {name}");
+    }
+}
+
+#[test]
+fn move_down_maps_crlf_separator_caret_to_valid_selection() {
+    // Regression: a caret between \r and \n once mapped to an offset
+    // beyond the edited document.
+    let outcome = applied("moveLineDown", "a\r\nb", 2, 0, None);
+    assert_eq!(outcome["text"], json!("b\r\na"));
+    assert_eq!(outcome["selectionStart"], json!(4));
+    assert_eq!(outcome["selectionLength"], json!(0));
+}
+
+/// Regression helper for the exhaustive sweep: computes the edited UTF-16
+/// length (sourceLength - replacedLength + textLength) plus the mapped
+/// selection.
+fn edited_length_and_selection(source_length: usize, outcome: &Value) -> (usize, usize, usize) {
+    let replaced_length = outcome["replacedLength"].as_u64().expect("replaced length") as usize;
+    let text_length = outcome["text"]
+        .as_str()
+        .expect("text")
+        .encode_utf16()
+        .count();
+    (
+        source_length - replaced_length + text_length,
+        outcome["selectionStart"].as_u64().expect("selection start") as usize,
+        outcome["selectionLength"]
+            .as_u64()
+            .expect("selection length") as usize,
+    )
+}
+
+#[test]
+fn every_operation_maps_selections_inside_the_edited_document() {
+    // Exhaustive sweep over the reviewer's reproduction corpus: every start
+    // and length against LF and CRLF documents, all operations. The edited
+    // document length is sourceLength - replacedLength + textLength.
+    let sources = ["a\r\nb", "a\r\nb\r\nc", "a\nb\nc", "x", ""];
+    let operations = [
+        "toggleLineComment",
+        "duplicateLine",
+        "deleteLine",
+        "moveLineUp",
+        "moveLineDown",
+        "copyLineUp",
+        "copyLineDown",
+    ];
+    for source in sources {
+        let length = source.encode_utf16().count();
+        for start in 0..=length {
+            for selection_length in 0..=(length - start) {
+                for operation in operations {
+                    let token = if operation == "toggleLineComment" {
+                        Some("//")
+                    } else {
+                        None
+                    };
+                    let outcome = edit(operation, source, start, selection_length, token);
+                    if outcome["applied"] != json!(true) {
+                        continue;
+                    }
+                    let (edited_length, mapped_start, mapped_length) =
+                        edited_length_and_selection(length, &outcome);
+                    assert!(
+                        mapped_start + mapped_length <= edited_length,
+                        "{operation} on {source:?} selection ({start}, {selection_length}) \
+                         produced selection ({mapped_start}, {mapped_length}) \
+                         outside the edited document length {edited_length}: {outcome}"
+                    );
+                }
+            }
+        }
     }
 }
 

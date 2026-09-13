@@ -1103,14 +1103,16 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         /// Resolves the comment token at action time from the document's
-        /// current extension. The token must never be cached: relocate(to:)
+        /// current name. The token must never be cached: relocate(to:)
         /// renames a document in place while the editor keeps reusing the
-        /// same document id, so a cached token would go stale.
+        /// same document id, so a cached token would go stale. The full
+        /// last path component is passed so dotfiles such as `.env` (whose
+        /// pathExtension is empty) resolve through their basename.
         static func lineCommentToken(
             for document: EditorDocument,
             using lineEditing: any EditorLineEditing
         ) -> String? {
-            lineEditing.lineCommentToken(forExtension: document.url.pathExtension)
+            lineEditing.lineCommentToken(forIdentifier: document.url.lastPathComponent)
         }
 
         func attachViewportTracking(to scrollView: NSScrollView) {

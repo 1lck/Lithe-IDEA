@@ -756,10 +756,16 @@ to restore. `applied: false` with every other field omitted marks a legitimate
 no-op such as moving the first line up; callers must leave their text view
 unchanged and must not consume the keyboard shortcut.
 
-`editor.lineCommentToken` accepts `{ "fileExtension": "py" }` (case
-insensitive; file extensions and language ids share one table) and returns
-`{ "token": "#" }` or `{ "token": null }` for file types without a line
-comment token. Deterministic cases are pinned by
+`editor.lineCommentToken` accepts `{ "identifier": "py" }` (case
+insensitive; the identifier may be a file extension, a file name including
+dotfiles such as `.env`, or a language id — extensions, dotfile basenames,
+and language ids share one table) and returns `{ "token": "#" }` or
+`{ "token": null }` for file types without a line comment token.
+
+macOS consumes both commands today. Windows still uses its local TypeScript
+implementations (`comment-toggle.ts`, `line-operations.ts`) and is expected
+to adopt the same contract in a follow-up change; the fixture pins the
+canonical behavior for that migration. Deterministic cases are pinned by
 `shared/fixtures/editor/line-edit-v1.json`.
 
 The `debug.*` commands are the shared Debug Adapter Protocol boundary. Rust

@@ -49,8 +49,9 @@ pub struct LineEditRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LineCommentTokenRequest {
-    /// File extension or language id, matched case-insensitively.
-    pub file_extension: String,
+    /// File extension, file name (including dotfiles such as `.env`), or
+    /// language id, matched case-insensitively.
+    pub identifier: String,
 }
 
 /// Result of `editor.lineEdit`. When `applied` is false the operation is a
@@ -112,27 +113,41 @@ pub struct LineCommentToken {
     pub token: Option<String>,
 }
 
-/// Resolves the line comment token for a file extension or language id.
-/// The table is the single cross-platform source of truth and covers both
-/// file extensions (`swift`, `py`) and language ids (`csharp`, `shell`).
+/// Resolves the line comment token for a file extension, file name, or
+/// language id. The table is the single shared source of truth; it covers
+/// file extensions (`swift`, `py`), language ids (`python`, `javascript`),
+/// and dotfile names whose basename matches an entry (`.env`).
 pub fn line_comment_token(request: LineCommentTokenRequest) -> LineCommentToken {
-    let key = request.file_extension.to_lowercase();
-    let token = match key.as_str() {
+    let key = request.identifier.to_lowercase();
+    let token = lookup_line_comment_token(&key).or_else(|| {
+        // Dotfiles report an empty pathExtension on macOS, so callers pass
+        // the basename: fall back to the segment after the last dot so
+        // `.env` resolves through `env` and `Foo.py` through `py`.
+        let last_segment = key.rsplit('.').next()?;
+        if last_segment.is_empty() || last_segment == key {
+            return None;
+        }
+        lookup_line_comment_token(last_segment)
+    });
+    LineCommentToken {
+        token: token.map(str::to_string),
+    }
+}
+
+fn lookup_line_comment_token(identifier: &str) -> Option<&'static str> {
+    match identifier {
         // C family and other double-slash languages
         "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hxx" | "java" | "kt" | "kts" | "swift"
         | "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" | "go" | "rs" | "cs" | "csharp" | "php"
-        | "dart" | "scala" | "groovy" | "m" | "mm" | "zig" => Some("//"),
+        | "dart" | "scala" | "groovy" | "m" | "mm" | "zig" | "javascript" | "javascriptreact"
+        | "typescript" | "typescriptreact" | "kotlin" => Some("//"),
         // Hash languages
-        "py" | "rb" | "sh" | "bash" | "zsh" | "shell" | "yml" | "yaml" | "toml" | "ini" | "cfg"
-        | "conf" | "properties" | "env" | "dotenv" | "r" | "rmarkdown" | "pl" | "elixir" | "ex" => {
-            Some("#")
-        }
+        "py" | "python" | "rb" | "ruby" | "sh" | "bash" | "zsh" | "shell" | "yml" | "yaml"
+        | "toml" | "ini" | "cfg" | "conf" | "properties" | "env" | "dotenv" | "r" | "rmarkdown"
+        | "pl" | "elixir" | "ex" => Some("#"),
         // Dash languages
         "sql" | "lua" | "hs" | "haskell" => Some("--"),
         _ => None,
-    };
-    LineCommentToken {
-        token: token.map(str::to_string),
     }
 }
 
@@ -140,8 +155,15 @@ pub fn line_comment_token(request: LineCommentTokenRequest) -> LineCommentToken 
 /// an error for legitimate boundary cases such as moving the first line up.
 pub fn line_edit(request: LineEditRequest) -> Result<LineEditOutcome, CoreError> {
     let units: Vec<u16> = request.source.encode_utf16().collect();
-    let selection_start = request.selection_start.min(units.len());
-    let selection_length = request.selection_length.min(units.len() - selection_start);
+    // A caret between the \r and \n of a CRLF pair is not a position text
+    // engines can represent; normalize it to the end of the terminated line
+    // so the mapped selection always lands on an acceptable offset.
+    let selection_start = normalize_crlf_caret(&units, request.selection_start.min(units.len()));
+    let selection_end = normalize_crlf_caret(
+        &units,
+        (selection_start + request.selection_length).min(units.len()),
+    );
+    let selection_length = selection_end.saturating_sub(selection_start);
     let token = request.comment_token.as_deref();
     let outcome = match request.operation {
         LineEditOperation::ToggleLineComment => {
@@ -181,12 +203,18 @@ pub fn line_edit(request: LineEditRequest) -> Result<LineEditOutcome, CoreError>
             let text = String::from_utf16(&edit.replacement).map_err(|_| {
                 CoreError::new(ErrorCode::Unknown, "Line edit produced invalid UTF-16")
             })?;
+            // The contract guarantees the returned selection fits inside the
+            // edited document; clamp as the final safeguard so no mapping
+            // edge case can hand an out-of-bounds range to a text engine.
+            let edited_length = units.len() - edit.replaced_length + edit.replacement.len();
+            let selection_start = edit.selection_start.min(edited_length);
+            let selection_length = edit.selection_length.min(edited_length - selection_start);
             Ok(LineEditOutcome::applied(
                 text,
                 edit.replaced_start,
                 edit.replaced_length,
-                edit.selection_start,
-                edit.selection_length,
+                selection_start,
+                selection_length,
             ))
         }
         None => Ok(LineEditOutcome::not_applied()),
@@ -217,6 +245,16 @@ enum CopyDirection {
 
 fn is_separator(char_value: u16) -> bool {
     char_value == 0x0A || char_value == 0x0D
+}
+
+/// Normalizes an offset that falls between the `\r` and `\n` of a CRLF
+/// pair onto the end of the line the separator terminates.
+fn normalize_crlf_caret(units: &[u16], offset: usize) -> usize {
+    if offset > 0 && offset < units.len() && units[offset - 1] == 0x0D && units[offset] == 0x0A {
+        offset - 1
+    } else {
+        offset
+    }
 }
 
 /// Line separator length at `index` (`\r\n` is 2, `\n` or `\r` is 1).
