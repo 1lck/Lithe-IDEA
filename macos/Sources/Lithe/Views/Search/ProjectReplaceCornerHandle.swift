@@ -37,14 +37,7 @@ final class ProjectReplaceCornerHandleView: NSView {
     private weak var trackingWindow: NSWindow?
 
     var resizeCursor: NSCursor {
-        if #available(macOS 15.0, *) {
-            switch corner {
-            case .topLeading: return .frameResize(position: .topLeft, directions: .all)
-            case .topTrailing: return .frameResize(position: .topRight, directions: .all)
-            case .bottomLeading: return .frameResize(position: .bottomLeft, directions: .all)
-            case .bottomTrailing: return .frameResize(position: .bottomRight, directions: .all)
-            }
-        }
+        // Use cached diagonal cursors supported by the CI AppKit SDK as well as local builds.
         return corner.isLeading == corner.isTop ? Self.northwestSoutheast : Self.northeastSouthwest
     }
 
