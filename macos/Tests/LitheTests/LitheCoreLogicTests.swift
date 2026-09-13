@@ -5134,17 +5134,91 @@ struct EditorDocumentTests {
         }
         #expect(await operations.waitUntilReadingA())
 
-        await model.openFileAsync(
-            workspace.appendingPathComponent("nested/../A.swift"),
-            isReadOnly: false,
-            displayPath: nil,
-            activateWhenReady: true
-        )
+        let foregroundStarted = TestGate()
+        let foreground = Task { @MainActor in
+            foregroundStarted.open()
+            await model.openFileAsync(
+                workspace.appendingPathComponent("nested/../A.swift"),
+                isReadOnly: false,
+                displayPath: nil,
+                activateWhenReady: true
+            )
+        }
+        defer { foreground.cancel(); pendingA.cancel() }
+        #expect(await foregroundStarted.waitUntilOpen())
         operations.releaseA()
+        await foreground.value
         await pendingA.value
 
         #expect(model.openDocuments.count == 1)
         #expect(model.activeDocumentID == model.openDocuments.first?.id)
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    @MainActor
+    func returningToPendingPreviewWaitsForSharedLoad(readFails: Bool, resetBeforeCompletion: Bool) async {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-preview-load-tests")
+        let fileA = workspace.appendingPathComponent("A.swift")
+        let operations = BlockingWorkspaceOperations(readAValue: readFails ? nil : "A")
+        defer { operations.releaseA() }
+        let model = DocumentFeatureModel(
+            operations: operations,
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+        model.configure(
+            workspaceURLProvider: { workspace },
+            autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 },
+            notify: { _ in },
+            onDocumentOpened: { _ in },
+            onDocumentChanged: { _ in },
+            onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in },
+            onRecordDiscard: { _ in },
+            onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {},
+            onProjectCloseReady: {}
+        )
+
+        let first = Task { @MainActor in await model.previewDocument(at: fileA) }
+        defer { first.cancel() }
+        #expect(await operations.waitUntilReadingA())
+        first.cancel()
+        let documentB = await model.previewDocument(at: workspace.appendingPathComponent("B.swift"))
+        #expect(documentB?.text == "B")
+
+        let returningStarted = TestGate()
+        var returnedBeforeRelease = false
+        let returning = Task { @MainActor in
+            returningStarted.open()
+            let result = await model.previewDocument(at: workspace.appendingPathComponent("nested/../A.swift"))
+            returnedBeforeRelease = true
+            return result
+        }
+        defer { returning.cancel() }
+        // The main-actor caller has entered the pending load before this gate resumes us.
+        #expect(await returningStarted.waitUntilOpen())
+        #expect(!returnedBeforeRelease, "A duplicate open must await the existing read")
+        if resetBeforeCompletion { model.reset() }
+        operations.releaseA()
+        let result = await returning.value
+        #expect(await first.value == nil, "The cancelled preview must not publish a document")
+        #expect(operations.readACount == 1)
+        if readFails || resetBeforeCompletion {
+            #expect(result == nil)
+            #expect(!model.openDocuments.contains { $0.url == fileA })
+        } else {
+            #expect(result?.text == "A")
+            #expect(result === model.openDocuments.first { $0.url == fileA })
+        }
+        #expect(model.activeDocumentID == nil, "Preview loading must not activate a tab")
+        // Completed/failed/reset loads must release their pending entry for a later request.
+        let retry = await model.previewDocument(at: fileA)
+        #expect((retry != nil) == !readFails)
+        #expect(operations.readACount == (readFails || resetBeforeCompletion ? 2 : 1))
     }
 
     @Test
@@ -5813,6 +5887,18 @@ private struct EmptyWorkspaceOperations: WorkspaceOperations {
 }
 
 private final class BlockingWorkspaceOperations: WorkspaceOperations, @unchecked Sendable {
+    private let readAValue: String?
+    private let readLock = NSLock()
+    private var readCount = 0
+
+    init(readAValue: String? = "A") { self.readAValue = readAValue }
+
+    var readACount: Int {
+        readLock.lock()
+        defer { readLock.unlock() }
+        return readCount
+    }
+
     private let startedA = TestGate()
     private let releaseAGate = TestGate()
 
@@ -5856,9 +5942,12 @@ private final class BlockingWorkspaceOperations: WorkspaceOperations, @unchecked
 
     func readFile(at rootURL: URL, relativePath: String) -> String? {
         if relativePath == "A.swift" {
+            readLock.lock()
+            readCount += 1
+            readLock.unlock()
             startedA.open()
             _ = releaseAGate.waitSynchronously()
-            return "A"
+            return readAValue
         }
         return "B"
     }

@@ -57,25 +57,27 @@ private struct ProjectReplaceOverlay: View {
                         session.isProjectReplaceVisible = false
                     }
 
-                if let feature = model.searchFeatureIfActive {
-                    ProjectReplaceView(
-                        feature: feature,
-                        session: session,
-                        previewReplacement: { await model.previewProjectReplacement(query: $0, replacement: $1, options: $2) },
-                        applyReplacement: { await model.applyProjectReplacement(query: $0) },
-                        close: { session.isProjectReplaceVisible = false },
-                        openFile: { model.openFile($0, displayPath: $1) },
-                        revealInFinder: { model.revealProjectItemInFinder($0) },
-                        copyPath: { model.copyProjectItemPath($0, relative: $1) }
-                    )
-                } else {
-                    WorkbenchModuleUIRegistry.moduleLoadingView
-                        .frame(width: 650, height: 614)
-                        .task {
-                            if await model.activateSearchModule() == nil {
-                                session.isProjectReplaceVisible = false
+                ProjectReplaceFloatingPanel {
+                    if let feature = model.searchFeatureIfActive {
+                        ProjectReplaceView(
+                            feature: feature,
+                            session: session,
+                            previewReplacement: { await model.previewProjectReplacement(query: $0, replacement: $1, options: $2) },
+                            loadPreviewDocument: { await model.documentFeature.previewDocument(at: $0) },
+                            close: { session.isProjectReplaceVisible = false },
+                            openFile: { model.openFile($0, displayPath: $1) },
+                            revealInFinder: { model.revealProjectItemInFinder($0) },
+                            copyPath: { model.copyProjectItemPath($0, relative: $1) }
+                        )
+                    } else {
+                        WorkbenchModuleUIRegistry.moduleLoadingView
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .task {
+                                if await model.activateSearchModule() == nil {
+                                    session.isProjectReplaceVisible = false
+                                }
                             }
-                        }
+                    }
                 }
             }
             .background(ProjectReplaceKeyMonitor(session: session))

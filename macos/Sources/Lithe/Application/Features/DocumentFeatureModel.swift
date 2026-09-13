@@ -52,6 +52,13 @@ final class DocumentFeatureModel: ObservableObject {
     @Published private(set) var isPendingProjectClose = false
     @Published private(set) var projectTreeRevealRequest: ProjectTreeRevealRequest?
 
+    /// Uses the managed document so edits in the search preview survive dismissal.
+    func previewDocument(at url: URL) async -> EditorDocument? {
+        await openFileAsync(url, isReadOnly: false, displayPath: nil, activateWhenReady: false)
+        guard !Task.isCancelled else { return nil }
+        return openDocuments.first { $0.url.standardizedFileURL == url.standardizedFileURL }
+    }
+
     private let operations: any WorkspaceOperations
     private let documentLifecycleDecider: any DocumentLifecycleDeciding
     private let fileOperations: any WorkspaceFileOperations
@@ -70,7 +77,7 @@ final class DocumentFeatureModel: ObservableObject {
     private var onDocumentCollectionChanged: (@MainActor () -> Void)?
     private var onProjectCloseReady: (@MainActor () -> Void)?
     private var autoSaveTasks: [UUID: Task<Void, Never>] = [:]
-    private var pendingFileOpenRequests: [String: UUID] = [:]
+    private var pendingFileOpenRequests: [String: (id: UUID, task: Task<Void, Never>)] = [:]
     private var latestFileOpenRequestID: UUID?
     private var pendingCloseQueue: [EditorDocument] = []
     private var pendingClosePreferredDocumentID: UUID?
@@ -273,19 +280,33 @@ final class DocumentFeatureModel: ObservableObject {
             return
         }
 
-        let requestID = UUID()
-        if let pendingRequestID = pendingFileOpenRequests[filePath] {
+        if let pending = pendingFileOpenRequests[filePath] {
             if activateWhenReady {
-                latestFileOpenRequestID = pendingRequestID
+                latestFileOpenRequestID = pending.id
             }
+            await pending.task.value
             return
         }
-        pendingFileOpenRequests[filePath] = requestID
+        let requestID = UUID()
         if activateWhenReady {
             latestFileOpenRequestID = requestID
         }
+        // One owned load serves every caller; cancelling a preview must not cancel another caller's load.
+        let task = Task { @MainActor in
+            await loadFile(normalizedURL, isReadOnly: isReadOnly, displayPath: displayPath,
+                           activateWhenReady: activateWhenReady, requestID: requestID)
+        }
+        pendingFileOpenRequests[filePath] = (requestID, task)
+        await task.value
+    }
+
+    private func loadFile(
+        _ normalizedURL: URL, isReadOnly: Bool, displayPath: String?,
+        activateWhenReady: Bool, requestID: UUID
+    ) async {
+        let filePath = normalizedURL.path
         defer {
-            if pendingFileOpenRequests[filePath] == requestID {
+            if pendingFileOpenRequests[filePath]?.id == requestID {
                 pendingFileOpenRequests[filePath] = nil
             }
         }
@@ -321,7 +342,7 @@ final class DocumentFeatureModel: ObservableObject {
                 )
             }.value
             guard workspaceURLProvider() == openingWorkspaceURL,
-                  pendingFileOpenRequests[filePath] == requestID else { return }
+                  pendingFileOpenRequests[filePath]?.id == requestID else { return }
             let shouldActivate = activateWhenReady && latestFileOpenRequestID == requestID
             if let header,
                await binaryFileViewerRegistry.openIfSupported(
@@ -334,7 +355,8 @@ final class DocumentFeatureModel: ObservableObject {
             notify?("This file cannot be displayed as text")
             return
         }
-        guard workspaceURLProvider() == openingWorkspaceURL else { return }
+        guard workspaceURLProvider() == openingWorkspaceURL,
+              pendingFileOpenRequests[filePath]?.id == requestID else { return }
 
         let document = EditorDocument(
             url: normalizedURL,

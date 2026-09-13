@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Testing
 @testable import Lithe
 
@@ -327,6 +328,7 @@ struct EditorJavaViewportTests {
             coordinator.primeJavaImportFold(fold)
             view.insertText("Renamed", replacementRange: (source as NSString).range(of: "Demo"))
             #expect(view.string == source.replacingOccurrences(of: "Demo", with: "Renamed"))
+            #expect(view.currentFindMatchCountForTesting == 0)
             #expect(coordinator.document?.text == view.string)
             #expect(coordinator.collapsedFoldIDs == [fold.id])
             #expect(view.isCharacterHiddenByFold(fold.hiddenRange.location))
@@ -449,6 +451,88 @@ struct EditorJavaViewportTests {
         view.string = source
         view.rebuildLineIndex()
         return (view, layout)
+    }
+
+    @Test
+    func searchPreviewNavigationPreservesCaretAfterEditingManagedDocument() throws {
+        withCoordinator(source: "<root>\n22\n</root>", fileExtension: "xml") { coordinator in
+            let view = CodeTextView(frame: .zero)
+            view.string = "<root>\n22\n</root>"
+            coordinator.textView = view
+            coordinator.applyPreviewLine(2)
+            #expect(view.selectedRange().location == 7)
+            coordinator.lastFindVisible = true
+            coordinator.lastFindQuery = "22"
+            view.syncFindState(isVisible: true, query: "22", options: .default)
+            #expect(coordinator.textView(view, shouldChangeTextIn: NSRange(location: 8, length: 1), replacementString: "3"))
+            view.string = "<root>\n23\n</root>"
+            coordinator.textDidChange(Notification(name: NSText.didChangeNotification, object: view))
+            #expect(coordinator.document?.text == view.string)
+            #expect(coordinator.document?.isDirty == true)
+            view.setSelectedRange(NSRange(location: 8, length: 0))
+            // Re-rendering the same result must not jump the caret away from the user's edit.
+            coordinator.applyPreviewLine(2)
+            #expect(view.selectedRange().location == 8)
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func mountedPreviewKeepsCommandsAndFindStateLocal(isPreview: Bool) async throws {
+        let store = ViewportTestStore()
+        let settings = AppSettings(store: store)
+        let services = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services
+        let model = AppModel(settings: settings, services: services)
+        let document = EditorDocument(url: URL(fileURLWithPath: "/fixture/Preview.xml"),
+                                      text: "<root>needle needle</root>", modificationDate: nil)
+        // Even previewing the active file must not overwrite the workbench's other query.
+        model.activeDocumentID = document.id
+        model.editorChrome.setFindBarQuery("other")
+        model.editorChrome.updateFindState(currentIndex: 4, count: 7)
+        let chrome = isPreview ? EditorChromeModel() : model.editorChrome
+        chrome.setFindBarVisible(true)
+        chrome.setFindBarQuery("needle")
+        let hosting = NSHostingView(rootView:
+            CodeEditorView(document: document, shouldFocus: false,
+                           previewLine: isPreview ? 1 : nil, viewportStore: EditorViewportStore())
+                .environmentObject(model).environmentObject(chrome)
+                .environmentObject(settings).environmentObject(model.editorDiagnosticsStore))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 650, height: 300),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        func editor(in view: NSView) -> CodeTextView? {
+            if let text = view as? CodeTextView { return text }
+            return view.subviews.lazy.compactMap { editor(in: $0) }.first
+        }
+        let textView = try #require(editor(in: hosting))
+        #expect(textView.isEditable)
+        #expect((textView.onCompletionSelected == nil) == isPreview)
+        #expect((textView.onRenameRequested == nil) == isPreview)
+        #expect((textView.onFormatRequested == nil) == isPreview)
+        #expect((textView.onCodeActionsRequested == nil) == isPreview)
+        #expect((textView.onGoToLineRequested == nil) == isPreview)
+        #expect((textView.onFindRequested == nil) == isPreview)
+        if isPreview { #expect(textView.languageServerFeatures.isEmpty) }
+        let updated = await awaitChange(on: chrome, timeout: .seconds(2)) { chrome.findMatchCount == 2 }
+        #expect(updated, "Native find results must reach the editor's own chrome")
+        if isPreview {
+            #expect(model.editorChrome.findBarQuery == "other")
+            #expect(model.editorChrome.findMatchCount == 7)
+            #expect(model.editorChrome.currentFindMatchIndex == 4)
+            let selection = textView.selectedRange()
+            NotificationCenter.default.post(name: .litheFindNavigate, object: nil,
+                userInfo: [FindNotificationKeys.direction: 1])
+            #expect(textView.selectedRange() == selection)
+            NotificationCenter.default.post(name: .litheFindReplaceAll, object: nil,
+                userInfo: [FindNotificationKeys.documentID: document.id, FindNotificationKeys.replacement: "wrong"])
+            #expect(document.text == "<root>needle needle</root>")
+            NotificationCenter.default.post(name: .litheFindQueryChanged, object: nil,
+                userInfo: [FindNotificationKeys.query: "absent"])
+            NotificationCenter.default.post(name: .litheFindDismiss, object: nil)
+            #expect(textView.currentFindMatchCountForTesting == 2)
+        }
     }
 
     private func withCoordinator(
