@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { Button } from "@/ui/button";
@@ -148,6 +148,13 @@ export function RunConfigurationEditor({
   const [scope, setScope] = useState<RunSaveScope>("local");
   const [envText, setEnvText] = useState(environmentText(options.environment));
   const [saving, setSaving] = useState(false);
+
+  // The Maven fields snapshot the store at mount; keep them in sync so values
+  // saved from the settings page (or loaded after mount) always show up here.
+  useEffect(() => {
+    setSharedMavenPaths({ mavenExecutablePath, mavenJavaHomePath });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setSharedMavenPaths is stable per render and updates both drafts
+  }, [mavenExecutablePath, mavenJavaHomePath]);
 
   const projectUsesMaven = configurationUsesMaven(configuration);
   const projectUsesJava = configurationUsesJava(configuration);

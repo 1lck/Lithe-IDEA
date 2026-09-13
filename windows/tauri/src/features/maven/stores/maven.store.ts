@@ -663,8 +663,9 @@ export const createMavenStore = (
               activeTestRun: null,
               lastTestRun: null,
             });
+          } finally {
+            void get().actions.resolveEffectiveConfiguration();
           }
-          void get().actions.resolveEffectiveConfiguration();
         },
 
         markPomReloadRequired: (changedPath) => markReloadRequired(changedPath, true),
