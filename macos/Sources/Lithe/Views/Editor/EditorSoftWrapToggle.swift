@@ -8,6 +8,15 @@ struct EditorSoftWrapToggle: View {
     @EnvironmentObject private var chrome: EditorChromeModel
 
     var body: some View {
+        // 查找栏是覆盖在编辑器顶部的悬浮弹层，窄面板（分屏、展开侧边
+        // 工具窗口）下会占满可用宽度。此时隐藏本开关，避免盖住查找栏
+        // 关闭按钮的点击区域。
+        if !chrome.isFindBarVisible {
+            softWrapButton
+        }
+    }
+
+    private var softWrapButton: some View {
         Button {
             settings.editorSoftWrapEnabled.toggle()
         } label: {

@@ -11,6 +11,26 @@ enum LitheTextViewportLayout {
         lineCount <= softWrapMaximumLineCount
     }
 
+    /// 按编辑器 `TextLineIndex` 的同一套行终止符语义统计文本行数，
+    /// 用于在缓冲区尚未替换时判定"本次即将显示的内容"。
+    static func lineCount(of text: String) -> Int {
+        TextLineIndex(source: text as NSString).lineCount
+    }
+
+    /// 一次更新中软换行的最终判定。`incomingLineCount` 是待替换内容
+    /// （外部重载、模型驱动整文替换）的行数：替换发生在 chrome 应用
+    /// 之后，必须按它而不是旧缓冲区判定，否则大文件会先进入折行布局、
+    /// 绕过重排保护；无待替换时用缓冲区 O(1) 行数即可。
+    static func resolveSoftWrap(
+        enabled: Bool,
+        bufferedLineCount: Int,
+        incomingLineCount: Int?
+    ) -> (isAvailable: Bool, isEffective: Bool) {
+        let lineCount = incomingLineCount ?? bufferedLineCount
+        let isAvailable = isSoftWrapSupported(lineCount: lineCount)
+        return (isAvailable, enabled && isAvailable)
+    }
+
     /// Keep the document wider than the viewport so resizing a surrounding
     /// pane moves the viewport instead of rewrapping every line in the file.
     @MainActor

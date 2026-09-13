@@ -742,11 +742,15 @@ struct CodeEditorView: NSViewRepresentable {
         textView.importsGraphics = false
         textView.allowsUndo = true
         // 软换行按 AppSettings 全局开关应用；超大文件超出行数阈值时退回
-        // 不换行几何，避免拖分栏时整文件 rewrap 卡顿。
-        let softWrapAvailable = LitheTextViewportLayout.isSoftWrapSupported(
-            lineCount: (textView as? CodeTextView)?.lineCount() ?? 0
+        // 不换行几何，避免拖分栏时整文件 rewrap 卡顿。makeNSView 的缓冲
+        // 区就是本次待显示内容，无需 incoming 修正。
+        let softWrapResolution = LitheTextViewportLayout.resolveSoftWrap(
+            enabled: settings.editorSoftWrapEnabled,
+            bufferedLineCount: (textView as? CodeTextView)?.lineCount() ?? 0,
+            incomingLineCount: nil
         )
-        let softWrapEffective = settings.editorSoftWrapEnabled && softWrapAvailable
+        let softWrapAvailable = softWrapResolution.isAvailable
+        let softWrapEffective = softWrapResolution.isEffective
         LitheTextViewportLayout.apply(
             to: textView,
             in: scrollView,
@@ -927,10 +931,23 @@ struct CodeEditorView: NSViewRepresentable {
         let languageFeatures = model.languageToolingSessionsIfActive?.features(for: document.url) ?? []
         let fontSize = settings.editorFontSize
         let tabWidth = settings.tabWidth
+        // Keep IME marked text (for example, an active Chinese pinyin
+        // composition) in the NSTextView until the input method commits it.
+        // 待替换判定必须先于 chrome 应用：软换行可用性要按本次即将显示
+        // 的内容判定——外部重载在 chrome 之后才替换缓冲区，若仍按旧缓冲
+        // 区行数判定，大文件会先进入折行布局、绕过重排保护；反向缩回
+        // 阈值内也会滞留旧的禁用状态。
+        let textChanged = textView.string != document.text
+            && !textView.hasMarkedText()
+            && !context.coordinator.isApplyingEditorChange
+        let incomingSoftWrapLineCount = textChanged
+            ? LitheTextViewportLayout.lineCount(of: document.text)
+            : nil
         let chromeChanged = context.coordinator.applyEditorChromeIfNeeded(
             fontSize: fontSize,
             tabWidth: tabWidth,
             softWrapEnabled: settings.editorSoftWrapEnabled,
+            incomingSoftWrapLineCount: incomingSoftWrapLineCount,
             languageFeatures: languageFeatures,
             isReadOnly: document.isReadOnly,
             isTransparent: true,
@@ -939,15 +956,9 @@ struct CodeEditorView: NSViewRepresentable {
             gutter: container.gutter
         )
 
-        // Keep IME marked text (for example, an active Chinese pinyin
-        // composition) in the NSTextView until the input method commits it.
-        var textChanged = false
-        if textView.string != document.text,
-           !textView.hasMarkedText(),
-           !context.coordinator.isApplyingEditorChange {
+        if textChanged {
             context.coordinator.replaceText(document.text)
             context.coordinator.scheduleFoldRefresh()
-            textChanged = true
         }
         if appearanceChanged {
             context.coordinator.resetHighlightCache()
@@ -1462,6 +1473,7 @@ struct CodeEditorView: NSViewRepresentable {
             fontSize: CGFloat,
             tabWidth: Int,
             softWrapEnabled: Bool,
+            incomingSoftWrapLineCount: Int?,
             languageFeatures: LanguageServerFeatureSet,
             isReadOnly: Bool,
             isTransparent: Bool,
@@ -1499,22 +1511,25 @@ struct CodeEditorView: NSViewRepresentable {
                     appliedTabWidth = tabWidth
                     changed = true
                 }
-                // 折行开关只在最终状态提交一次布局：可用性随文档行数在
-                // updateNSView 里重算，文本增长越过阈值时自动退回不换行。
-                let lineCount = codeTextView.lineCount()
-                let softWrapAvailable = LitheTextViewportLayout.isSoftWrapSupported(lineCount: lineCount)
-                let effectiveSoftWrap = softWrapEnabled && softWrapAvailable
-                codeTextView.isSoftWrapAvailable = softWrapAvailable
-                codeTextView.isSoftWrapEnabled = effectiveSoftWrap
-                model?.editorChrome.updateSoftWrapAvailability(softWrapAvailable)
-                if appliedSoftWrap != effectiveSoftWrap,
+                // 折行开关只在最终状态提交一次布局：可用性按本次即将显示
+                // 的内容判定（有待替换内容时用其行数），文本增长越过阈值
+                // 时自动退回不换行。
+                let softWrapResolution = LitheTextViewportLayout.resolveSoftWrap(
+                    enabled: softWrapEnabled,
+                    bufferedLineCount: codeTextView.lineCount(),
+                    incomingLineCount: incomingSoftWrapLineCount
+                )
+                codeTextView.isSoftWrapAvailable = softWrapResolution.isAvailable
+                codeTextView.isSoftWrapEnabled = softWrapResolution.isEffective
+                model?.editorChrome.updateSoftWrapAvailability(softWrapResolution.isAvailable)
+                if appliedSoftWrap != softWrapResolution.isEffective,
                    let scrollView = container?.scrollView {
                     LitheTextViewportLayout.apply(
                         to: textView,
                         in: scrollView,
-                        softWrap: effectiveSoftWrap
+                        softWrap: softWrapResolution.isEffective
                     )
-                    appliedSoftWrap = effectiveSoftWrap
+                    appliedSoftWrap = softWrapResolution.isEffective
                     gutter?.refreshLineNumberLayout()
                     gutter?.needsDisplay = true
                     editorOverlayLayoutRevision &+= 1
@@ -2132,7 +2147,10 @@ struct CodeEditorView: NSViewRepresentable {
     }
 }
 
-private struct TextLineIndex {
+/// 编辑器逻辑行索引：行终止符为 `\n` 或独立 `\r`（CRLF 只算一次），
+/// 结尾换行不产生新行。模块内可见供 `LitheTextViewportLayout` 复用
+/// 同一套行数语义。
+struct TextLineIndex {
     var textLength: Int
     var starts: [Int]
 
