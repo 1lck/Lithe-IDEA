@@ -663,20 +663,11 @@ fn discover_toolchains_with_overrides(
             .then(left.home_path.cmp(&right.home_path))
     });
 
-    let mut maven = Vec::new();
-    let mut seen_executables = std::collections::HashSet::new();
-    let mut executables = maven_executable_candidates(project_root);
-    if let Some(path) = maven_executable_path.filter(|value| !value.trim().is_empty()) {
-        executables.splice(0..0, custom_maven_executable_candidates(Path::new(path)));
-    }
-    for executable in executables {
-        if !seen_executables.insert(executable.clone()) {
-            continue;
-        }
-        if let Some(runtime) = probe_maven(&executable) {
-            maven.push(runtime);
-        }
-    }
+    let maven = discover_maven_candidates(
+        maven_executable_candidates(project_root),
+        maven_executable_path,
+        probe_maven,
+    );
 
     let mut runtimes = Vec::new();
     let mut seen_runtimes = std::collections::HashSet::new();
@@ -706,6 +697,28 @@ fn discover_toolchains_with_overrides(
         maven,
         runtimes,
     }
+}
+
+// Keep candidate selection separate from machine discovery and process probes,
+// so custom-path tests do not launch every installed JDK, Maven and Node runtime.
+fn discover_maven_candidates(
+    mut executables: Vec<PathBuf>,
+    override_path: Option<&str>,
+    mut probe: impl FnMut(&Path) -> Option<MavenRuntime>,
+) -> Vec<MavenRuntime> {
+    if let Some(path) = override_path.filter(|value| !value.trim().is_empty()) {
+        executables.splice(0..0, custom_maven_executable_candidates(Path::new(path)));
+    }
+    let mut maven = Vec::new();
+    let mut seen_executables = std::collections::HashSet::new();
+    for executable in executables {
+        if seen_executables.insert(executable.clone()) {
+            if let Some(runtime) = probe(&executable) {
+                maven.push(runtime);
+            }
+        }
+    }
+    maven
 }
 
 fn node_executable_candidates(project_root: Option<&Path>) -> Vec<PathBuf> {
@@ -1789,23 +1802,48 @@ mod tests {
 
     #[test]
     fn custom_maven_home_discovers_its_bin_executable() {
-        let root = temp_project();
-        let home = root.join("apache-maven");
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                if let Err(error) = fs::remove_dir_all(&self.0) {
+                    eprintln!("Could not clean Maven discovery fixture: {error}");
+                }
+            }
+        }
+        let fixture = Fixture(temp_project());
+        let home = fixture.0.join("apache-maven");
         let executable = home.join("bin/mvn.cmd");
         fs::create_dir_all(executable.parent().unwrap()).unwrap();
-        fs::write(&executable, "@echo off\n").unwrap();
+        fs::write(&executable, "Maven fixture").unwrap();
 
-        let discovered = discover_toolchains_with_overrides(
-            Some(&root),
-            None,
-            Some(home.to_string_lossy().as_ref()),
-            None,
-        );
-        assert!(discovered
-            .maven
-            .iter()
-            .any(|runtime| { Path::new(&runtime.executable_path) == normalize_path(&executable) }));
-        fs::remove_dir_all(root).ok();
+        // The same executable can be found in the environment and the custom
+        // home. Probe fixture files only, preserving discovery and deduplication
+        // coverage without depending on the CI machine's installed toolchains.
+        for existing in [vec![], vec![executable.clone()]] {
+            let mut successful_probes = 0;
+            let discovered = discover_maven_candidates(
+                existing,
+                Some(home.to_string_lossy().as_ref()),
+                |candidate| {
+                    candidate.is_file().then(|| {
+                        successful_probes += 1;
+                        MavenRuntime {
+                            executable_path: normalize_path(candidate)
+                                .to_string_lossy()
+                                .into_owned(),
+                            version: "3.9.9".into(),
+                        }
+                    })
+                },
+            );
+            assert_eq!(successful_probes, 1);
+            assert_eq!(discovered.len(), 1);
+            assert_eq!(
+                Path::new(&discovered[0].executable_path),
+                normalize_path(&executable)
+            );
+            assert_eq!(discovered[0].version, "3.9.9");
+        }
     }
 
     #[test]
