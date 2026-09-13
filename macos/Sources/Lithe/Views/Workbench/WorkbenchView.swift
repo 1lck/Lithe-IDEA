@@ -127,15 +127,29 @@ final class ProjectReplaceKeyMonitorView: NSView {
     func handleKeyEvent(_ event: NSEvent) -> NSEvent? {
         guard let window, event.window === window,
               session.isProjectReplaceVisible else { return event }
+        let textInput = window.firstResponder as? NSTextInputClient
         if event.keyCode == 53 {
+            // Let the input method cancel marked text before treating Escape as dismissal.
+            if textInput?.hasMarkedText() == true { return event }
             session.isProjectReplaceVisible = false
             return nil
         }
 
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
         guard modifiers.contains(.command) else { return event }
-        let editingCommands: Set<String> = ["a", "c", "v", "x", "z"]
-        return editingCommands.contains(event.charactersIgnoringModifiers?.lowercased() ?? "") ? event : nil
+        let character = event.charactersIgnoringModifiers?.lowercased() ?? ""
+        if modifiers == .command && ["a", "c", "v", "x", "z"].contains(character) { return event }
+        if modifiers == [.command, .shift] && ["z", "v"].contains(character) { return event }
+        guard textInput != nil else { return nil }
+        if modifiers == [.command, .option, .shift] && character == "v" { return event }
+        // Native movement/selection and deletion use key codes, independent of keyboard layout.
+        if modifiers == .command || modifiers == [.command, .shift] {
+            switch event.keyCode {
+            case 123...126, 51, 117: return event
+            default: break
+            }
+        }
+        return nil
     }
 
     func removeKeyMonitor() {
