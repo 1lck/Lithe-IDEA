@@ -7,10 +7,6 @@ import { useToast } from "@/features/layout/contexts/toast-context";
 import { themeRegistry } from "@/extensions/themes/theme-registry";
 import { useRegisteredThemes } from "@/extensions/themes/use-registered-themes";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
-import {
-  resolveMavenEffectiveConfiguration,
-  type MavenEffectiveConfiguration,
-} from "@/features/maven/api/maven-host-api";
 import type { MavenSettings } from "@/features/maven/types/maven.types";
 import { useUpdater } from "@/features/settings/hooks/use-updater";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
@@ -397,7 +393,6 @@ function TerminalPanel() {
 
 function MavenPanel() {
   const { t } = useTranslation();
-  const root = useMavenStore((state) => state.root);
   const project = useMavenStore((state) => state.project);
   const projectStatus = useMavenStore((state) => state.projectStatus);
   const settingsPath = useMavenStore((state) => state.settingsPath);
@@ -405,6 +400,7 @@ function MavenPanel() {
   const mavenExecutablePath = useMavenStore((state) => state.mavenExecutablePath);
   const javaHomePath = useMavenStore((state) => state.javaHomePath);
   const configurationSaveError = useMavenStore((state) => state.configurationSaveError);
+  const effective = useMavenStore((state) => state.effectiveConfiguration);
   const updateLocalConfiguration = useMavenStore((state) => state.actions.updateLocalConfiguration);
   const [draft, setDraft] = useState<MavenSettings>({
     settingsPath,
@@ -412,7 +408,6 @@ function MavenPanel() {
     mavenExecutablePath,
     javaHomePath,
   });
-  const [effective, setEffective] = useState<MavenEffectiveConfiguration | null>(null);
 
   const fields = [
     { field: "settingsPath" as const, label: "settings.xml", directory: false },
@@ -426,39 +421,6 @@ function MavenPanel() {
   useEffect(() => {
     setDraft({ settingsPath, localRepositoryPath, mavenExecutablePath, javaHomePath });
   }, [settingsPath, localRepositoryPath, mavenExecutablePath, javaHomePath]);
-
-  // Resolve what the saved configuration actually uses on this machine. The
-  // detection is keyed to the persisted values: until Apply runs, the gray
-  // lines keep showing the configuration that launches would pick up.
-  useEffect(() => {
-    if (!root || !project) {
-      setEffective(null);
-      return;
-    }
-    let cancelled = false;
-    resolveMavenEffectiveConfiguration(root, project.relativePath, {
-      settingsPath,
-      localRepositoryPath,
-      mavenExecutablePath,
-      javaHomePath,
-    })
-      .then((value) => {
-        if (!cancelled) setEffective(value);
-      })
-      .catch(() => {
-        if (!cancelled) setEffective(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    root,
-    project,
-    settingsPath,
-    localRepositoryPath,
-    mavenExecutablePath,
-    javaHomePath,
-  ]);
 
   const dirty =
     draft.settingsPath !== settingsPath ||

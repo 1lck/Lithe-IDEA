@@ -12,10 +12,12 @@ import {
 } from "../api/maven-core-api";
 import {
   loadMavenConfiguration,
+  resolveMavenEffectiveConfiguration,
   resolveMavenLaunch,
   startMavenProcess,
   stopMavenProcess,
   writeMavenConfiguration,
+  type MavenEffectiveConfiguration,
 } from "../api/maven-host-api";
 import {
   createMavenPomWatchOperations,
@@ -65,6 +67,7 @@ export interface MavenStoreDependencies {
   parseMavenDependencies: typeof parseMavenDependencies;
   parseMavenTestResults: typeof parseMavenTestResults;
   resolveMavenLaunch: typeof resolveMavenLaunch;
+  resolveMavenEffectiveConfiguration: typeof resolveMavenEffectiveConfiguration;
   saveWorkspaceBeforeLaunch: typeof saveWorkspaceBeforeLaunch;
   scanMavenProject: typeof scanMavenProject;
   startMavenProcess: typeof startMavenProcess;
@@ -81,6 +84,7 @@ const defaultMavenStoreDependencies: MavenStoreDependencies = {
   parseMavenDependencies,
   parseMavenTestResults,
   resolveMavenLaunch,
+  resolveMavenEffectiveConfiguration,
   saveWorkspaceBeforeLaunch,
   scanMavenProject,
   startMavenProcess,
@@ -115,6 +119,7 @@ export interface MavenState {
   mavenExecutablePath: string;
   javaHomePath: string;
   configurationSaveError: string | null;
+  effectiveConfiguration: MavenEffectiveConfiguration | null;
   reloadRequired: boolean;
   projectReloadRequired: boolean;
   reloadRevision: number;
@@ -147,6 +152,8 @@ export interface MavenState {
     restoreDefaultProfiles: () => void;
     setSkipTests: (enabled: boolean) => void;
     updateLocalConfiguration: (settings: MavenSettings) => void;
+    seedLocalConfiguration: (settings: Partial<MavenSettings>) => void;
+    resolveEffectiveConfiguration: () => Promise<void>;
     acknowledgeReload: (revision?: number) => void;
     runGoals: (
       goals: string[],
@@ -280,6 +287,7 @@ export const createMavenStore = (
 ) => {
   let projectLoadRevision = 0;
   let configurationRevision = 0;
+  let effectiveRevision = 0;
   let launchRevision = 0;
   let diagnosticsRevision = 0;
   let dependencyRevision = 0;
@@ -481,6 +489,7 @@ export const createMavenStore = (
       mavenExecutablePath: "",
       javaHomePath: "",
       configurationSaveError: null,
+      effectiveConfiguration: null,
       reloadRequired: false,
       projectReloadRequired: false,
       reloadRevision: 0,
@@ -655,6 +664,7 @@ export const createMavenStore = (
               lastTestRun: null,
             });
           }
+          void get().actions.resolveEffectiveConfiguration();
         },
 
         markPomReloadRequired: (changedPath) => markReloadRequired(changedPath, true),
@@ -742,6 +752,65 @@ export const createMavenStore = (
           }
           set(next);
           configurationDidChange();
+          void get().actions.resolveEffectiveConfiguration();
+        },
+
+        // Fills only the empty local fields from another configuration surface
+        // (e.g. the run feature's project toolchain). Existing values win and
+        // the reload prompt stays off: this is a migration of an already
+        // effective value, not a user edit. Non-Maven projects never seed:
+        // the shared configuration only exists while a Maven project is loaded.
+        seedLocalConfiguration: (settings) => {
+          const state = get();
+          if (!state.project) return;
+          const next = {
+            settingsPath: state.settingsPath || normalizedPath(settings.settingsPath),
+            localRepositoryPath:
+              state.localRepositoryPath || normalizedPath(settings.localRepositoryPath),
+            mavenExecutablePath:
+              state.mavenExecutablePath || normalizedPath(settings.mavenExecutablePath),
+            javaHomePath: state.javaHomePath || normalizedPath(settings.javaHomePath),
+          };
+          if (
+            next.settingsPath === state.settingsPath &&
+            next.localRepositoryPath === state.localRepositoryPath &&
+            next.mavenExecutablePath === state.mavenExecutablePath &&
+            next.javaHomePath === state.javaHomePath
+          ) {
+            return;
+          }
+          set(next);
+          persistConfiguration();
+          void get().actions.resolveEffectiveConfiguration();
+        },
+
+        // Resolves the effective machine-level values (executable, JDK,
+        // settings.xml, local repository) for the saved configuration so every
+        // surface showing these fields can display what empty fields resolve to.
+        resolveEffectiveConfiguration: async () => {
+          const state = get();
+          if (!state.root || !state.project) {
+            if (get().effectiveConfiguration !== null) set({ effectiveConfiguration: null });
+            return;
+          }
+          const revision = ++effectiveRevision;
+          try {
+            const value = await dependencies.resolveMavenEffectiveConfiguration(
+              state.root,
+              state.project.relativePath,
+              {
+                settingsPath: state.settingsPath,
+                localRepositoryPath: state.localRepositoryPath,
+                mavenExecutablePath: state.mavenExecutablePath,
+                javaHomePath: state.javaHomePath,
+              },
+            );
+            if (effectiveRevision !== revision) return;
+            set({ effectiveConfiguration: value });
+          } catch {
+            if (effectiveRevision !== revision) return;
+            set({ effectiveConfiguration: null });
+          }
         },
 
         acknowledgeReload: (revision) => {

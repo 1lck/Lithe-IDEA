@@ -81,6 +81,7 @@ describe("Maven-backed Run context", () => {
       mavenLaunchContextForWorkspace,
       resolveRunLaunch,
       saveWorkspaceBeforeLaunch,
+      seedMavenLocalConfiguration: () => undefined,
       startRunProcess,
       stopRunProcess,
     };
@@ -139,6 +140,7 @@ describe("Maven-backed Run context", () => {
       saveWorkspaceBeforeLaunch: mock(async () => {
         throw new Error("Unable to start because modified files could not be saved: App.java.");
       }),
+      seedMavenLocalConfiguration: () => undefined,
       startRunProcess,
       stopRunProcess: mock(async () => undefined),
     };

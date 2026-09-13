@@ -218,6 +218,7 @@ for (const execution of ["service", "application"] as const) {
       const runDependencies: RunStoreDependencies = {
         saveWorkspaceBeforeLaunch: async () => undefined,
         mavenLaunchContextForWorkspace: async () => null,
+        seedMavenLocalConfiguration: () => undefined,
         createLaunchPlan: async () => ({
           executable: { toolchain: "project-maven" },
           arguments: [],

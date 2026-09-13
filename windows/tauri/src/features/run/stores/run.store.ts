@@ -2,7 +2,11 @@ import { createStore } from "zustand/vanilla";
 import { saveWorkspaceBeforeLaunch } from "@/features/editor/services/save-workspace-before-launch";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
-import { mavenLaunchContextForWorkspace } from "@/features/maven/stores/maven.store";
+import {
+  mavenLaunchContextForWorkspace,
+  useMavenStore,
+} from "@/features/maven/stores/maven.store";
+import type { MavenSettings } from "@/features/maven/types/maven.types";
 import {
   createLaunchPlan,
   generateRunConfiguration,
@@ -118,8 +122,22 @@ export interface RunStoreDependencies {
   mavenLaunchContextForWorkspace: typeof mavenLaunchContextForWorkspace;
   resolveRunLaunch: typeof resolveRunLaunch;
   saveWorkspaceBeforeLaunch: typeof saveWorkspaceBeforeLaunch;
+  seedMavenLocalConfiguration: (workspaceId: string, settings: Partial<MavenSettings>) => void;
   startRunProcess: typeof startRunProcess;
   stopRunProcess: typeof stopRunProcess;
+}
+
+// The Maven settings page owns the project-wide Maven paths. The run feature's
+// legacy project toolchain values migrate into it so both surfaces always show
+// and use the same configuration.
+function seedMavenLocalConfiguration(
+  workspaceId: string,
+  settings: Partial<MavenSettings>,
+): void {
+  useMavenStore
+    .getStore(workspaceId)
+    .getState()
+    .actions.seedLocalConfiguration(settings);
 }
 
 const defaultRunStoreDependencies: RunStoreDependencies = {
@@ -127,6 +145,7 @@ const defaultRunStoreDependencies: RunStoreDependencies = {
   mavenLaunchContextForWorkspace,
   resolveRunLaunch,
   saveWorkspaceBeforeLaunch,
+  seedMavenLocalConfiguration,
   startRunProcess,
   stopRunProcess,
 };
@@ -339,6 +358,10 @@ export const createRunStore = (
             return;
           }
           set(readyRunState(snapshot, get().selectedConfigurationId));
+          dependencies.seedMavenLocalConfiguration(workspaceId, {
+            mavenExecutablePath: snapshot.globalToolchain.mavenExecutablePath,
+            javaHomePath: snapshot.globalToolchain.mavenJavaHomePath,
+          });
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "Project run configuration is invalid";
@@ -466,6 +489,15 @@ export const createRunStore = (
             ? await dependencies.mavenLaunchContextForWorkspace(root, [], workspaceId)
             : null;
           if (!isCurrent()) return null;
+          // The Maven settings page owns the project-wide Maven paths, so its
+          // values win over any per-configuration copy persisted earlier.
+          if (mavenContext) {
+            dependencies.seedMavenLocalConfiguration(workspaceId, {
+              mavenExecutablePath: state.globalToolchain.mavenExecutablePath,
+              javaHomePath: state.globalToolchain.mavenJavaHomePath,
+            });
+          }
+          if (!isCurrent()) return null;
           const plan = await dependencies.createLaunchPlan(
             root,
             configuration.id,
@@ -480,9 +512,9 @@ export const createRunStore = (
             workingDirectory: plan.workingDirectory,
             javaHomePath: configuration.javaHomePath,
             mavenExecutablePath:
-              configuration.mavenExecutablePath || mavenContext?.mavenExecutablePath || "",
+              mavenContext?.mavenExecutablePath || configuration.mavenExecutablePath || "",
             mavenJavaHomePath:
-              configuration.mavenJavaHomePath || mavenContext?.javaHomePath || "",
+              mavenContext?.javaHomePath || configuration.mavenJavaHomePath || "",
             runtimeExecutablePaths: state.effectiveRuntimeExecutablePaths,
             environment: mergeLaunchEnvironment(configuration.env, plan),
           });

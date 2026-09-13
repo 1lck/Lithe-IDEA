@@ -148,6 +148,7 @@ function MavenSettingsDialog({
   onSave: (settings: MavenSettings) => void;
 }) {
   const { t } = useTranslation();
+  const effective = useMavenStore((state) => state.effectiveConfiguration);
   const [draft, setDraft] = useState(initial);
 
   const choosePath = async (field: keyof MavenSettings, directory: boolean) => {
@@ -251,6 +252,16 @@ function MavenSettingsDialog({
                 </Button>
               </Tooltip>
             </div>
+            {draft[field] || !effective ? null : (
+              <p
+                className="truncate font-mono text-subtle-foreground ui-text-xs"
+                title={effective[field] ?? undefined}
+              >
+                {effective[field]
+                  ? t("maven.detectedValue", { value: effective[field] })
+                  : t("maven.detectedMissing")}
+              </p>
+            )}
           </label>
         ))}
       </div>
