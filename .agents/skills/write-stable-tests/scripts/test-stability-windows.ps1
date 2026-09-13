@@ -69,9 +69,16 @@ function Invoke-TimedRustTests {
             $arguments += @("--package", $Package)
         }
         if ($Package -eq "lithe-core") {
-            # Native rebase tests create and rewrite real repositories with
-            # hundreds of Git subprocesses. Keep unit tests at the normal limit.
-            $arguments += @("--test-budget", "tests::git_history_rewrite::native_rebase_=30000")
+            # History-rewrite integration tests create and rewrite real repos,
+            # sometimes several per case. Keep unit tests at the normal limit.
+            foreach ($prefix in @(
+                "tests::git_history_rewrite::",
+                "tests::git::git_write_squashes_",
+                "tests::git::git_write_deletes_a_local_commit_",
+                "tests::git::git_write_edits_a_local_commit_message_"
+            )) {
+                $arguments += @("--test-budget", "${prefix}=30000")
+            }
         }
         return $arguments
     }

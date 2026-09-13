@@ -42,11 +42,13 @@ Every Bun and Rust lane writes JUnit XML plus a self-contained HTML dashboard
 below `.artifacts/test-stability/`. The dashboard groups Rust cases by crate
 module and Bun cases by their JUnit class or suite.
 
-Native rebase integration tests create and rewrite real repositories with many
-Git subprocesses. The SharedRust lane assigns the
-`tests::git_history_rewrite::native_rebase_` prefix a 30-second process budget;
-their Core rebase requests use a nested 20-second deadline. Other cases retain
-the normal 15-second budget. The Rust runner's repeatable
+History-rewrite integration tests create and rewrite real repositories with many
+Git subprocesses, sometimes rebuilding several repositories in one case. The
+SharedRust lane assigns the `tests::git_history_rewrite::` module and the older
+`tests::git::git_write_squashes_`, `git_write_deletes_a_local_commit_`, and
+`git_write_edits_a_local_commit_message_` scenarios a 30-second process budget.
+Core rebase requests use a nested 20-second deadline. Other cases retain the
+normal 15-second budget. The Rust runner's repeatable
 `--test-budget prefix=milliseconds` option uses the most specific matching
 prefix, records each case's effective budget in JSON, uses that budget for
 HTML/JUnit classification, and remains capped by the shared suite deadline.
