@@ -42,14 +42,14 @@ async function render(record: GitConsoleRecord, presentation: ConsolePresentatio
   </LocaleProvider>));
 }
 
-test("long output expands in place, stays expanded on refresh and copies retained data", async () => {
-  const record = recordFromSample(2);
-  const presentation = fixture.cases[2]!.presentation as ConsolePresentation;
+test("progress expands in place, stays expanded on refresh and retains original data", async () => {
+  const record = recordFromSample(15);
+  const presentation = fixture.cases[15]!.presentation as ConsolePresentation;
   const fragment = presentation.entries[0]!.output.find((value) => value.kind !== "text")!;
   const hidden = record.lines[fragment.start + 1]!.text;
   await render(record, presentation);
   expect(container.textContent).not.toContain(hidden);
-  const disclosure = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("展开中间"))!;
+  const disclosure = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("Compressing objects"))!;
   expect(disclosure.getAttribute("aria-expanded")).toBe("false");
   await act(async () => disclosure.click());
   expect(container.textContent).toContain(hidden);
@@ -61,8 +61,8 @@ test("long output expands in place, stays expanded on refresh and copies retaine
 });
 
 test("search opens the hidden output range and targets the retained original line", async () => {
-  const record = recordFromSample(2);
-  const presentation = fixture.cases[2]!.presentation as ConsolePresentation;
+  const record = recordFromSample(15);
+  const presentation = fixture.cases[15]!.presentation as ConsolePresentation;
   const hit = presentation.matches[0]!;
   await render(record, presentation);
   expect(container.querySelector(`[data-console-anchor="${record.id}:line-${hit.lineIndex}"]`)).toBeNull();
@@ -72,10 +72,10 @@ test("search opens the hidden output range and targets the retained original lin
   expect(line?.className).toContain("bg-warning");
 });
 
-test("shared fixtures retain every original line and every execution in grouped queries", () => {
+test("shared fixtures retain every original line and keep executions independent", () => {
   for (const sample of fixture.cases) {
     const presentation = sample.presentation as ConsolePresentation;
-    expect(presentation.groups.flatMap((group) => group.recordIds)).toEqual(sample.input.records.map((record) => record.id));
+    expect(presentation.groups.map((group) => group.recordIds)).toEqual(sample.input.records.map((record) => [record.id]));
     for (let index = 0; index < presentation.entries.length; index += 1) {
       const raw = sample.input.records[index]!;
       const entry = presentation.entries[index]!;

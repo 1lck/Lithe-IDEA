@@ -114,6 +114,7 @@ struct GitConsoleEntryView: View {
 
     @ViewBuilder private func outputLabel(_ fragment: GitConsolePresentation.OutputFragment) -> some View {
         switch fragment.kind {
+        case "progress": Text(verbatim: entry.outputLines[min(fragment.end, entry.outputLines.count) - 1].text)
         case "repeat": Text("Repeated \(fragment.count) times")
         case "files": Text("Other \(fragment.count) files")
         case "branches": Text("Other \(fragment.count) branches")

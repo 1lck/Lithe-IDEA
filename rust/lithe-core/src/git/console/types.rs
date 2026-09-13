@@ -1,7 +1,7 @@
 //! Native console snapshots and deterministic, lossless disclosure ranges.
 use serde::{Deserialize, Serialize};
 
-/// Only explicit background provenance permits merging repeated queries.
+/// Execution provenance is retained for diagnostics; display does not merge commands.
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum Source {
@@ -39,8 +39,6 @@ pub struct Request {
 #[serde(rename_all = "camelCase")]
 pub struct Record {
     pub id: String,
-    /// Native global start sequence prevents merging across filtered-out executions.
-    pub sequence: Option<u64>,
     pub root: String,
     pub arguments: Vec<String>,
     #[serde(default)]
@@ -55,17 +53,8 @@ pub struct Record {
     pub error: Option<String>,
     pub executable: Option<String>,
     pub progress: Option<String>,
-    #[serde(default)]
-    pub source: Source,
-    #[serde(default)]
-    pub truncated: bool,
 }
 impl Record {
-    pub(super) fn succeeded(&self) -> bool {
-        self.state == "completed"
-            && (self.exit_code == Some(0) || self.expected_exit)
-            && self.error.is_none()
-    }
     pub(super) fn failed(&self) -> bool {
         self.error.is_some()
             || self.state == "unconfirmed"
@@ -78,7 +67,7 @@ impl Record {
 #[serde(rename_all = "camelCase")]
 pub struct CommandFragment {
     pub id: String,
-    /// text, configuration, argument, files, or references; labels are localized by the UI.
+    /// text or configuration; configuration ranges fold in their original position.
     pub kind: String,
     /// Complete safely quoted text, including literal newlines inside quoted arguments.
     pub text: String,
@@ -94,9 +83,9 @@ pub struct OutputFragment {
     pub id: String,
     pub start: usize,
     pub end: usize,
-    /// text, lines, repeat, files, branches, tags, commits, or references.
+    /// text or progress; a folded progress range uses its last original line as its label.
     pub kind: String,
-    /// Includes the first visible occurrence for a repeat fragment.
+    /// Number of original lines in the range.
     pub count: usize,
     pub added: usize,
     pub updated: usize,
@@ -115,7 +104,7 @@ pub struct Entry {
     pub failed: bool,
 }
 
-/// Consecutive identical successful background queries; all original IDs survive.
+/// Compatibility grouping envelope. IDEA-style display retains one command per group.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Group {

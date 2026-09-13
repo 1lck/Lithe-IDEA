@@ -17,7 +17,7 @@ function flush() {
   useGitConsoleStore.setState({ historyTruncated: journal.historyTruncated, records: journal.records.map((record) => ({ ...record, lines: [...record.lines] })), active: new Map(journal.active), authentication: [...journal.authentication] });
 }
 export function dismissGitAuthentication(requestID: string) { journal.authentication = journal.authentication.filter((request) => request.requestId !== requestID); flush(); }
-export function clearGitConsole(root: string) { journal.clear(root); flush(); }
+export function clearGitConsole(root?: string) { journal.clear(root); flush(); }
 // Owned by the application lifetime; no interval is left running while idle.
 const unsubscribe = observeGitExecution((event) => {
   journal.receive(event);

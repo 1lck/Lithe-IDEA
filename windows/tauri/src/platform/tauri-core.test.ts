@@ -40,3 +40,14 @@ test("explicit automatic provenance is forwarded separately from native invoke o
   expect(calls[0]![1].gitEvents).toBeDefined();
   expect(calls[0]![2]).toBeUndefined();
 });
+
+test("native headers survive Git provenance forwarding", async () => {
+  const headers = { "X-Fixture": "console" };
+  await invoke("git_status", { repoPath: "C:/fixture/project", operationId: "headers-fixture" }, {
+    headers,
+    gitExecutionSource: "user",
+  });
+  const calls = tauriInvoke.mock.calls as unknown as [string, { gitExecution?: { source?: string } }, unknown][];
+  expect(calls[0]![1].gitExecution?.source).toBe("user");
+  expect(calls[0]![2]).toEqual({ headers });
+});

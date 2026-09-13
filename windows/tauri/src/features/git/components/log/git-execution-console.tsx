@@ -1,48 +1,45 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Search, WrapText, ArrowDownToLine, Square, Trash2, Copy } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { invoke } from "@/platform/tauri-core";
 import { useTranslation } from "@/i18n/locale-provider";
 import { tryWriteClipboardText } from "@/utils/clipboard";
 import { clearGitConsole, useGitConsoleStore } from "../../stores/git-console.store";
-import { gitConsoleCompleteCommand, gitConsoleTimestamp, redactConsoleText, sameGitRoot } from "../../services/git-execution-journal";
+import { gitConsoleCompleteCommand, gitConsoleTimestamp, redactConsoleText } from "../../services/git-execution-journal";
 
 import { consolePresentationRequest, consoleSearchAnchor, type ConsolePresentation } from "../../services/git-console-presentation";
 import type { GitConsoleRecord } from "../../services/git-execution-journal";
 import { useRepositoryStore } from "../../stores/git-repository.store";
 import { GitConsoleEntry } from "./git-console-entry";
 
-export function GitExecutionConsole({ repoPath }: { repoPath: string | null }) {
+export function GitExecutionConsole() {
   const { t } = useTranslation();
   const [wrapsLines, setWrapsLines] = useState(false);
   const allRecords = useGitConsoleStore((state) => state.records);
   const repositoryRoots = useRepositoryStore((state) => state.availableRepoPaths);
   const historyTruncated = useGitConsoleStore((state) => state.historyTruncated);
   const active = useGitConsoleStore((state) => state.active);
-  const currentRecords = useMemo(() => allRecords.filter((record) => sameGitRoot(record.root, repoPath)), [allRecords, repoPath]);
+  const currentRecords = allRecords;
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [matchIndex, setMatchIndex] = useState(0);
   const [navigation, setNavigation] = useState(0);
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set());
-  const [bundle, setBundle] = useState<{ records: GitConsoleRecord[]; root: string | null; search: string; presentation?: ConsolePresentation; failed?: boolean }>();
+  const [bundle, setBundle] = useState<{ records: GitConsoleRecord[]; search: string; presentation?: ConsolePresentation; failed?: boolean }>();
   useEffect(() => {
     let disposed = false;
     // The journal already batches streaming snapshots; cancellation discards stale projections.
     void invoke<ConsolePresentation>("git.consolePresentation", consolePresentationRequest(currentRecords, search, repositoryRoots)).then(
-      (presentation) => { if (!disposed) setBundle({ records: currentRecords, root: repoPath, search, presentation }); },
-      () => { if (!disposed) setBundle({ records: currentRecords, root: repoPath, search, failed: true }); },
+      (presentation) => { if (!disposed) setBundle({ records: currentRecords, search, presentation }); },
+      () => { if (!disposed) setBundle({ records: currentRecords, search, failed: true }); },
     );
     return () => { disposed = true; };
-  }, [currentRecords, repoPath, search, repositoryRoots]);
-  const currentBundle = bundle?.root === repoPath ? bundle : undefined;
+  }, [currentRecords, search, repositoryRoots]);
+  const currentBundle = bundle;
   const records = currentBundle?.records ?? currentRecords;
   const presentation = currentBundle?.presentation;
   const selectedHit = currentBundle?.search === search ? presentation?.matches[matchIndex] : undefined;
   const selectedAnchor = selectedHit ? consoleSearchAnchor(selectedHit) : undefined;
-  const selectedGroupId = presentation?.groups.find((group) => group.recordIds.includes(selectedHit?.recordId ?? ""))?.id;
   const entryById = new Map(presentation?.entries.map((entry) => [entry.id, entry]));
-  const groupByRecord = new Map(presentation?.groups.flatMap((group) => group.recordIds.map((id) => [id, group] as const)));
-  const firstById = new Map(records.map((record) => [record.id, record]));
   useEffect(() => { setMatchIndex(0); setNavigation((value) => value + 1); }, [search]);
   const moveMatch = (delta: number) => {
     const count = presentation?.matches.length ?? 0;
@@ -52,12 +49,11 @@ export function GitExecutionConsole({ repoPath }: { repoPath: string | null }) {
   const bottom = useRef<HTMLDivElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const followsOutput = useRef(true);
-  useEffect(() => { if (followsOutput.current) bottom.current?.scrollIntoView({ block: "end" }); }, [records, repoPath]);
+  useEffect(() => { if (followsOutput.current) bottom.current?.scrollIntoView({ block: "end" }); }, [records]);
   useEffect(() => {
     if (!selectedAnchor) return;
     followsOutput.current = false;
-    if (selectedGroupId) setExpandedGroups((previous) => previous.has(selectedGroupId) ? previous : new Set(previous).add(selectedGroupId));
-    // Wait for both the group and its target range to be mounted after disclosure.
+    // Wait for the target range to be mounted after disclosure.
     let nestedFrame: number | undefined;
     const frame = requestAnimationFrame(() => {
       nestedFrame = requestAnimationFrame(() => {
@@ -67,20 +63,20 @@ export function GitExecutionConsole({ repoPath }: { repoPath: string | null }) {
       });
     });
     return () => { cancelAnimationFrame(frame); if (nestedFrame != null) cancelAnimationFrame(nestedFrame); };
-  }, [selectedAnchor, selectedGroupId, navigation]);
-  const operations = [...active].filter(([, root]) => sameGitRoot(root, repoPath));
-  return <div className="flex min-h-0 flex-1 flex-col font-mono text-xs" onKeyDown={(event) => {
+  }, [selectedAnchor, navigation]);
+  const operations = [...active];
+  return <div className="flex min-h-0 flex-1 font-mono text-xs" onKeyDown={(event) => {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") { event.preventDefault(); setSearchOpen(true); }
   }}>
-    <div className="flex shrink-0 flex-wrap gap-x-4 gap-y-2 border-b px-3 py-2">
-      <button onClick={() => { if (searchOpen) setSearch(""); setSearchOpen((value) => !value); }}>{t("git.console.find")}</button>
-      <button aria-pressed={wrapsLines} onClick={() => setWrapsLines((value) => !value)}>{t("git.console.wrap")}</button>
-      <button onClick={() => { followsOutput.current = true; bottom.current?.scrollIntoView({ block: "end" }); }}>{t("git.console.scrollToEnd")}</button>
+    <div className="flex w-8 shrink-0 flex-col items-center gap-1 border-r py-1 [&>button]:flex [&>button]:size-6 [&>button]:items-center [&>button]:justify-center [&>button]:rounded [&>button:hover]:bg-accent [&>button:disabled]:opacity-40">
+      <button onClick={() => { if (searchOpen) setSearch(""); setSearchOpen((value) => !value); }} title={t("git.console.find")} aria-label={t("git.console.find")}><Search className="size-3.5" /></button>
+      <button aria-pressed={wrapsLines} onClick={() => setWrapsLines((value) => !value)} title={t("git.console.wrap")} aria-label={t("git.console.wrap")}><WrapText className="size-3.5" /></button>
+      <button onClick={() => { followsOutput.current = true; bottom.current?.scrollIntoView({ block: "end" }); }} title={t("git.console.scrollToEnd")} aria-label={t("git.console.scrollToEnd")}><ArrowDownToLine className="size-3.5" /></button>
       <button disabled={!operations.length} onClick={() => {
         for (const [id] of operations) void invoke("core_cancel", { operationId: id })
           .catch((error: unknown) => toast.error(String(error)));
-      }}>{t("git.console.cancel")}</button>
-      <button disabled={!records.length} onClick={() => repoPath && clearGitConsole(repoPath)}>{t("git.console.clear")}</button>
+      }} title={t("git.console.cancel")} aria-label={t("git.console.cancel")}><Square className="size-3.5" /></button>
+      <button disabled={!records.length} onClick={() => clearGitConsole()} title={t("git.console.clear")} aria-label={t("git.console.clear")}><Trash2 className="size-3.5" /></button>
       <button disabled={!records.length} onClick={() => void tryWriteClipboardText(redactConsoleText(records.map((record) => [
         `${gitConsoleTimestamp(record.timestamp)}: [${record.root}] ${gitConsoleCompleteCommand(record)}`,
         `${t(`git.console.${record.state}`)}${record.durationMilliseconds == null ? "" : ` · ${record.durationMilliseconds} ms`}${record.exitCode == null ? "" : ` · ${t("git.console.exit")} ${record.exitCode}`}`,
@@ -91,8 +87,9 @@ export function GitExecutionConsole({ repoPath }: { repoPath: string | null }) {
         record.progress,
         record.truncated ? t("git.console.truncated") : undefined,
         record.error,
-      ].filter(Boolean).join("\n")).join("\n\n")))}>{t("git.console.copy")}</button>
+      ].filter(Boolean).join("\n")).join("\n\n")))} title={t("git.console.copy")} aria-label={t("git.console.copy")}><Copy className="size-3.5" /></button>
     </div>
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
     {searchOpen && <div className="flex items-center gap-2 border-b px-3 py-1">
       <input autoFocus value={search} maxLength={256} aria-label={t("git.console.find")} placeholder={t("git.console.find")}
         className="min-w-0 flex-1 bg-transparent" onChange={(event) => setSearch(event.target.value)}
@@ -107,21 +104,11 @@ export function GitExecutionConsole({ repoPath }: { repoPath: string | null }) {
       {historyTruncated && <p className="text-subtle-foreground">{t("git.console.historyTruncated")}</p>}
       {!records.length && <p className="text-subtle-foreground">{t("git.console.empty")}</p>}
       <div className={wrapsLines ? "whitespace-pre-wrap break-words" : "w-max min-w-full whitespace-pre"}>
-        {records.map((record) => {
-          const group = groupByRecord.get(record.id);
-          const isFirst = !group || group.id === record.id;
-          const expanded = !group || expandedGroups.has(group.id);
-          // Preserve mounted row state even while its background group is folded.
-          return <div key={record.id} hidden={!isFirst && !expanded}>
-            <GitConsoleEntry record={record} presentation={entryById.get(record.id)} selectedHit={selectedHit} searchNavigation={navigation} />
-            {isFirst && group && group.recordIds.length > 1 && <button className="mb-1 inline border-0 bg-transparent p-0 font-[inherit] text-subtle-foreground"
-              aria-expanded={expanded} onClick={() => setExpandedGroups((previous) => {
-                const next = new Set(previous); if (next.has(group.id)) next.delete(group.id); else next.add(group.id); return next;
-              })}>{expanded ? "▾ " : "▸ "}{t("git.console.automaticQueries", { count: group.recordIds.length })}{group.matches > 0 ? ` · ${t("git.console.matches", { count: group.matches })}` : ""} · {gitConsoleTimestamp(record.timestamp)}–{gitConsoleTimestamp(firstById.get(group.recordIds[group.recordIds.length - 1]!)?.timestamp ?? record.timestamp)}</button>}
-          </div>;
-        })}
+        {records.map((record) => <GitConsoleEntry key={record.id} record={record}
+          presentation={entryById.get(record.id)} selectedHit={selectedHit} searchNavigation={navigation} />)}
       </div>
       <div ref={bottom} />
+    </div>
     </div>
   </div>;
 }

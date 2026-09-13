@@ -4,6 +4,25 @@ import Testing
 
 struct GitExecutionTests {
     @Test
+    func featureWorkflowHistoryUpdatesInPlaceAndClearSuppressesLateOutput() {
+        let journal = GitExecutionJournal()
+        let entry = GitConsoleEntry(workingDirectory: URL(fileURLWithPath: "/linked-checkout"),
+            arguments: ["worktree", "add", "--detach", "--", "/another-checkout", "HEAD"],
+            output: "Preparing worktree\n", exitCode: 0)
+        journal.record([entry], operationID: "worktree")
+        journal.record([entry.withOperationError("Could not complete checkout")], operationID: "worktree")
+        #expect(journal.snapshot.map(\.id) == [entry.id])
+        #expect(journal.snapshot.first?.operationErrorMessage == "Could not complete checkout")
+        journal.clear()
+        journal.record([entry], operationID: "worktree")
+        #expect(journal.snapshot.isEmpty)
+        journal.finishRecording("worktree")
+        journal.record([entry], operationID: "next-worktree-operation")
+        #expect(journal.snapshot.map(\.id) == [entry.id])
+        journal.finishRecording("next-worktree-operation")
+    }
+
+    @Test
     func journalRetainsInterleavedOperationsBeforeTheConsoleExists() throws {
         let journal = GitExecutionJournal()
         for (id, command) in [("stage", "add"), ("commit", "commit"), ("branch", "checkout"), ("publish", "push")] {

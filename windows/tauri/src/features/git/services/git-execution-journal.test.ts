@@ -92,6 +92,21 @@ describe("Git execution journal", () => {
     expect(journal.records[0].error).toBeUndefined();
     expect(journal.records[0].durationMilliseconds).toBe(42);
   });
+  test("project console keeps worktree operations together and clears all checkout paths", () => {
+    const journal = new GitExecutionJournal(() => 0);
+    for (const [operationId, root, action] of [["main", "C:/repo", "add"], ["linked", "C:/linked", "repair"]]) {
+      journal.receive({ operationId, type: "requestStarted", workingDirectory: root });
+      journal.receive({ operationId, type: "started", invocationId: 1, workingDirectory: root, arguments: ["worktree", action] });
+    }
+    expect(journal.records.map((record) => record.root)).toEqual(["C:/repo", "C:/linked"]);
+    journal.clear();
+    for (const operationId of ["main", "linked"]) {
+      journal.receive({ operationId, type: "output", invocationId: 1, text: "late output" });
+      journal.receive({ operationId, type: "requestFinished" });
+    }
+    expect(journal.records).toEqual([]);
+    expect(journal.active.size).toBe(0);
+  });
   test("output is bounded and preview formatting does not expose URL credentials", () => {
     const journal = new GitExecutionJournal();
     journal.receive({ operationId: "fetch", type: "started", invocationId: 1, workingDirectory: "C:/repo", arguments: ["fetch"] });

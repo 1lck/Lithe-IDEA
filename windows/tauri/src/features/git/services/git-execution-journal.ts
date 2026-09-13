@@ -41,10 +41,10 @@ export class GitExecutionJournal {
   private hidden = new Set<string>();
   private sequence = 0;
 
-  clear(root: string) {
-    this.records = this.records.filter((record) => !sameGitRoot(record.root, root));
+  clear(root?: string) {
+    this.records = this.records.filter((record) => root != null && !sameGitRoot(record.root, root));
     if (!this.records.length) this.historyTruncated = false;
-    for (const [id, directory] of this.active) if (sameGitRoot(directory, root)) this.hidden.add(id);
+    for (const [id, directory] of this.active) if (root == null || sameGitRoot(directory, root)) this.hidden.add(id);
   }
 
   receive(event: GitExecutionEvent) {

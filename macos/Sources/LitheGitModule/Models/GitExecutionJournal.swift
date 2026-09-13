@@ -1,8 +1,8 @@
 import Combine
 import Foundation
 
-/// Application-owned history for Git requests launched outside the Git feature's
-/// workflow context, including GitHub actions and calls made before it activates.
+/// Window-owned history shared by Git feature workflows, GitHub actions and
+/// requests made before the Git feature activates.
 /// Native callbacks only update bounded storage; consumers coalesce publication.
 package final class GitExecutionJournal: @unchecked Sendable {
     package let changes = PassthroughSubject<Void, Never>()
@@ -17,6 +17,38 @@ package final class GitExecutionJournal: @unchecked Sendable {
 
     package var hasOmittedHistory: Bool { lock.withLock { omittedHistory } }
     package var snapshot: [GitConsoleEntry] { lock.withLock { entries } }
+
+    /// Feature-owned workflows publish the same invocation IDs to window history,
+    /// so closing their panel or opening a linked checkout cannot lose the command.
+    package func record(_ snapshot: [GitConsoleEntry], operationID: String? = nil) {
+        guard !snapshot.isEmpty else { return }
+        let changed = lock.withLock {
+            if let operationID, hidden.contains(operationID) { return false }
+            retain(snapshot)
+            if let operationID { entryIDs[operationID] = Set(snapshot.map(\.id)) }
+            return true
+        }
+        if changed { changes.send() }
+    }
+
+    package func finishRecording(_ operationID: String) {
+        lock.withLock { entryIDs.removeValue(forKey: operationID); _ = hidden.remove(operationID) }
+    }
+
+    private func retain(_ snapshot: [GitConsoleEntry]) {
+        for entry in snapshot {
+            if let index = entries.firstIndex(where: { $0.id == entry.id }) {
+                entries[index] = entry
+            } else {
+                entries.append(entry)
+            }
+        }
+        if entries.count > 200 { omittedHistory = true; entries.removeFirst(entries.count - 200) }
+        while entries.count > 1 && entries.reduce(0, { $0 + $1.output.count }) > 1_048_576 {
+            omittedHistory = true
+            entries.removeFirst()
+        }
+    }
 
     package func receive(_ event: GitExecutionEvent) {
         let changed = lock.withLock { receiveLocked(event) }
@@ -39,19 +71,8 @@ package final class GitExecutionJournal: @unchecked Sendable {
         if let snapshot {
             // Update in place to retain start order even when wall-clock
             // timestamps coincide or concurrent commands finish out of order.
-            for entry in snapshot {
-                if let index = entries.firstIndex(where: { $0.id == entry.id }) {
-                    entries[index] = entry
-                } else {
-                    entries.append(entry)
-                }
-            }
+            retain(snapshot)
             entryIDs[operationID] = Set(snapshot.map(\.id))
-            if entries.count > 200 { omittedHistory = true; entries.removeFirst(entries.count - 200) }
-            while entries.count > 1 && entries.reduce(0, { $0 + $1.output.count }) > 1_048_576 {
-                omittedHistory = true
-                entries.removeFirst()
-            }
         }
         if event.type == "requestFinished" {
             contexts.removeValue(forKey: operationID)
@@ -60,9 +81,9 @@ package final class GitExecutionJournal: @unchecked Sendable {
         return snapshot != nil
     }
 
-    package func clear(at root: URL) {
+    package func clear(at root: URL? = nil) {
         lock.withLock {
-            let removed = Set(entries.filter { $0.workingDirectory == root }.map(\.id))
+            let removed = Set(entries.filter { root == nil || $0.workingDirectory.standardizedFileURL == root?.standardizedFileURL }.map(\.id))
             entries.removeAll { removed.contains($0.id) }
             if entries.isEmpty { omittedHistory = false }
             for (operationID, ids) in entryIDs where !ids.isDisjoint(with: removed) {

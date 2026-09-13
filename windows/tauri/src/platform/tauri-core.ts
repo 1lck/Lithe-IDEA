@@ -86,9 +86,12 @@ const nativeCommands = new Set([
   "write_patch_file",
 ]);
 
-export function invoke<T>(command: string, args?: InvokeArgs, options?: InvokeOptions & { gitExecutionSource?: "user" | "background" | "unknown" }): Promise<T> {
+export function invoke<T>(command: string, args?: InvokeArgs, options?: Partial<InvokeOptions> & { gitExecutionSource?: "user" | "background" | "unknown" }): Promise<T> {
   const { gitExecutionSource = "unknown", ...forwardedOptions } = options ?? {};
-  const nativeOptions = Object.keys(forwardedOptions).length ? forwardedOptions : undefined;
+  // Execution provenance is local metadata; Tauri requires headers only when native options are supplied.
+  const nativeOptions: InvokeOptions | undefined = Object.keys(forwardedOptions).length
+    ? { ...forwardedOptions, headers: forwardedOptions.headers ?? {} }
+    : undefined;
   const requiredCapability = capabilityForCommand(command);
   if (requiredCapability && !isBackendCapabilityAvailable(requiredCapability)) {
     return Promise.reject(

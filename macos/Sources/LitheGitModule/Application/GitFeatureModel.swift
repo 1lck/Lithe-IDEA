@@ -860,6 +860,7 @@ package final class GitFeatureModel: ObservableObject {
         activeGitExecutions[execution.operationID] = execution
         defer {
             activeGitExecutions.removeValue(forKey: execution.operationID)
+            executionJournal?.finishRecording(execution.operationID)
             authenticationChallenges.removeAll { $0.operationID == execution.operationID }
         }
         var publishedIDs: Set<UUID> = [plannedID]
@@ -867,11 +868,13 @@ package final class GitFeatureModel: ObservableObject {
             if generation == gitConsoleRepositoryGeneration, root == gitRepositoryRoot {
                 authenticationChallenges.append(contentsOf: execution.drainChallenges())
             }
-            guard generation == gitConsoleRepositoryGeneration, root == gitRepositoryRoot,
-                  clearGeneration == gitConsoleClearGeneration,
+            guard clearGeneration == gitConsoleClearGeneration,
                   let entries = execution.drainSnapshot() else { return }
+            executionJournal?.record(entries, operationID: execution.operationID)
+            guard generation == gitConsoleRepositoryGeneration, root == gitRepositoryRoot else { return }
             gitConsoleHistoryTruncated = gitConsoleHistoryTruncated || execution.hasOmittedHistory
-            gitConsoleEntries.removeAll { publishedIDs.contains($0.id) }
+            let entryIDs = Set(entries.map(\.id))
+            gitConsoleEntries.removeAll { publishedIDs.contains($0.id) || entryIDs.contains($0.id) }
             gitConsoleEntries.append(contentsOf: entries)
             publishedIDs = Set(entries.map(\.id))
             trimGitConsole()
@@ -899,18 +902,21 @@ package final class GitFeatureModel: ObservableObject {
                     gitConsoleEntries.removeAll { $0.id == plannedID }
                     let duration = elapsedMilliseconds(since: startedAt)
                     if command.invocations.isEmpty, let root = command.workingDirectory ?? root {
-                        gitConsoleEntries.append(GitConsoleEntry(workingDirectory: root,
+                        let entry = GitConsoleEntry(workingDirectory: root,
                             arguments: command.arguments.isEmpty ? plannedArguments ?? [] : command.arguments,
                             output: command.output, standardOutput: command.standardOutput,
                             standardError: command.standardError, exitCode: command.exitCode,
                             state: .unconfirmed, durationMilliseconds: duration, operationTitle: title,
-                            operationErrorMessage: command.operationErrorMessage))
+                            operationErrorMessage: command.operationErrorMessage)
+                        gitConsoleEntries.append(entry)
+                        executionJournal?.record([entry])
                     } else {
                         recordGitConsoleEntry(command, durationMilliseconds: duration, operationTitle: title)
                     }
                 } else if let message = command.operationErrorMessage,
                           let index = gitConsoleEntries.lastIndex(where: { publishedIDs.contains($0.id) }) {
                     gitConsoleEntries[index] = gitConsoleEntries[index].withOperationError(message)
+                    executionJournal?.record([gitConsoleEntries[index]])
                 }
             }
             trimGitConsole()
@@ -936,8 +942,11 @@ package final class GitFeatureModel: ObservableObject {
     private func publishGitJournal() {
         guard let executionJournal else { return }
         gitConsoleHistoryTruncated = gitConsoleHistoryTruncated || executionJournal.hasOmittedHistory
-        let entries = executionJournal.snapshot.filter { $0.workingDirectory == gitRepositoryRoot }
-        gitConsoleEntries.removeAll { journalEntryIDs.contains($0.id) }
+        // The journal belongs to this project window. Like IDEA, its console
+        // remains one stream when the selected repository or checkout changes.
+        let entries = executionJournal.snapshot
+        let incomingIDs = Set(entries.map(\.id))
+        gitConsoleEntries.removeAll { journalEntryIDs.contains($0.id) || incomingIDs.contains($0.id) }
         gitConsoleEntries.append(contentsOf: entries)
         gitConsoleEntries.sort { $0.timestamp < $1.timestamp }
         journalEntryIDs = Set(entries.map(\.id))
@@ -945,7 +954,7 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func clearGitConsole() {
-        if let gitRepositoryRoot { executionJournal?.clear(at: gitRepositoryRoot) }
+        executionJournal?.clear()
         journalEntryIDs = []
         gitConsoleClearGeneration &+= 1
         gitConsoleEntries = []
@@ -986,6 +995,7 @@ package final class GitFeatureModel: ObservableObject {
 
     private func recordGitConsoleEntry(_ result: GitService.CommandResult, durationMilliseconds: Int? = nil, operationTitle: String? = nil) {
         guard let workingDirectory = result.workingDirectory ?? gitRepositoryRoot else { return }
+        let existingIDs = Set(gitConsoleEntries.map(\.id))
         if result.invocations.isEmpty {
             gitConsoleEntries.append(
                 GitConsoleEntry(
@@ -1011,6 +1021,7 @@ package final class GitFeatureModel: ObservableObject {
             })
         }
         trimGitConsole()
+        executionJournal?.record(gitConsoleEntries.filter { !existingIDs.contains($0.id) })
     }
 
     package func setGitConflictFilter(_ paths: [String]) {

@@ -1,4 +1,4 @@
-//! Shared Git console compression, query grouping, repository labels and search locations.
+//! Shared IDEA-style Git console folding and search over retained command text.
 mod command;
 mod output;
 #[cfg(test)]
@@ -54,22 +54,11 @@ pub fn present(request: Request) -> Result<Presentation, CoreError> {
         total_matches: 0,
     };
     let query = request.search.to_lowercase();
-    let mut roots = request
-        .records
-        .iter()
-        .map(|r| r.root.replace('\\', "/"))
-        .collect::<Vec<_>>();
-    roots.extend(
-        request
-            .repository_roots
-            .iter()
-            .map(|root| root.replace('\\', "/")),
-    );
-    for (index, record) in request.records.iter().enumerate() {
+    for record in &request.records {
         let previous_matches = presentation.total_matches;
         let mut entry = Entry {
             id: record.id.clone(),
-            repository_label: repository_label(index, &roots),
+            repository_label: record.root.clone(),
             command: command::project(record),
             output: output::project(record),
             failed: record.failed(),
@@ -120,18 +109,12 @@ pub fn present(request: Request) -> Result<Presentation, CoreError> {
                 }
             }
         }
-        if index > 0 && can_merge(&request.records[index - 1], record) {
-            if let Some(group) = presentation.groups.last_mut() {
-                group.record_ids.push(record.id.clone());
-                group.matches += presentation.total_matches - previous_matches;
-            }
-        } else {
-            presentation.groups.push(Group {
-                matches: presentation.total_matches - previous_matches,
-                id: record.id.clone(),
-                record_ids: vec![record.id.clone()],
-            });
-        }
+        // Each visible execution stays independent, including repeated user actions.
+        presentation.groups.push(Group {
+            matches: presentation.total_matches - previous_matches,
+            id: record.id.clone(),
+            record_ids: vec![record.id.clone()],
+        });
         presentation.entries.push(entry);
     }
     Ok(presentation)
@@ -154,55 +137,4 @@ fn add_matches(
             line_index,
         });
     }
-}
-fn can_merge(left: &Record, right: &Record) -> bool {
-    let adjacent = match (left.sequence, right.sequence) {
-        (Some(left), Some(right)) => left.checked_add(1) == Some(right),
-        (None, None) => true,
-        _ => false,
-    };
-    adjacent
-        && left.source == Source::Background
-        && right.source == Source::Background
-        && left.succeeded()
-        && right.succeeded()
-        && !left.truncated
-        && !right.truncated
-        && command::is_query(left)
-        && command::is_query(right)
-        && left.root == right.root
-        && left.arguments == right.arguments
-        && left.temporary_config == right.temporary_config
-        && left.executable == right.executable
-        && left.exit_code == right.exit_code
-        && left.expected_exit == right.expected_exit
-        && left.lines == right.lines
-        && left.progress == right.progress
-}
-fn repository_label(index: usize, roots: &[String]) -> String {
-    let components = |root: &str| {
-        root.trim_end_matches('/')
-            .split('/')
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-            .collect::<Vec<_>>()
-    };
-    let parts = components(&roots[index]);
-    if parts.is_empty() {
-        return roots[index].clone();
-    }
-    for count in 1..=parts.len() {
-        let suffix = parts[parts.len() - count..].join("/");
-        let collision = roots.iter().enumerate().any(|(other, root)| {
-            if other == index || root == &roots[index] {
-                return false;
-            }
-            let parts = components(root);
-            parts.len() >= count && parts[parts.len() - count..].join("/") == suffix
-        });
-        if !collision {
-            return suffix;
-        }
-    }
-    roots[index].clone()
 }

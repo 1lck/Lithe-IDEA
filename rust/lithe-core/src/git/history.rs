@@ -1,8 +1,8 @@
 //! Bounded Git reference snapshots and incrementally consumable history pages.
 
 use super::{
-    command_value, execute_git_with_environment, git_process, parse_commit, parse_reference,
-    readonly_command, validate_root, GitCommandRequest, INTERNAL_REF_PREFIX,
+    command_value, execute_git_readonly_with_environment, git_process, parse_commit,
+    parse_reference, readonly_command, validate_root, GitCommandRequest, INTERNAL_REF_PREFIX,
 };
 use crate::protocol::{
     cancellation, CoreError, ErrorCode, GitCommitResponse, GitHistoryCursorCloseResponse,
@@ -145,11 +145,10 @@ pub fn references(request: GitReferencesRequest) -> Result<GitReferencesResponse
     ];
     // `upstream:track` is evaluated independently for each local branch. A fixed
     // locale keeps its machine-parsed ahead/behind labels deterministic.
-    let reference_output = execute_git_with_environment(
+    let reference_output = execute_git_readonly_with_environment(
         &root,
         &reference_arguments,
         None,
-        true,
         &[("LC_ALL".to_string(), "C".to_string())],
     )?;
     if reference_output.exit_code != 0 {
@@ -912,7 +911,7 @@ mod tests {
         // production cancellation watchdog with a local deadline for each one.
         let git = |arguments: &[&str], environment: &[(String, String)]| {
             let _deadline = crate::protocol::cancellation::Scope::begin(None, Some(3_000));
-            let response = super::execute_git_with_environment(
+            let response = crate::git::execute_git_with_environment(
                 &root,
                 &arguments.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
                 None,

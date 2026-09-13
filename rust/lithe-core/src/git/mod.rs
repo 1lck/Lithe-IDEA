@@ -1305,7 +1305,22 @@ pub(super) fn execute_git_readonly(
     arguments: &[String],
     input: Option<String>,
 ) -> Result<GitCommandResponse, CoreError> {
-    execute_git_with_options(root, arguments, input, true)
+    execute_git_readonly_with_environment(root, arguments, input, &[])
+}
+
+fn execute_git_readonly_with_environment(
+    root: &str,
+    arguments: &[String],
+    input: Option<String>,
+    environment: &[(String, String)],
+) -> Result<GitCommandResponse, CoreError> {
+    // Internal queries follow IDEA's silent handler policy. Keep their result for
+    // the owning workflow without filling the user's console with plumbing output.
+    let arguments = execution_policy::arguments(arguments);
+    let response = capture_git_with_environment(root, &arguments, input, true, environment)?
+        .into_command_response(&arguments);
+    record_git_invocation(&response);
+    Ok(response)
 }
 
 fn execute_git_with_options(
@@ -1461,7 +1476,11 @@ fn capture_git_process(
             .with_details(error.to_string())
         })?;
     }
-    let invocation = RefCell::new(execution_events::Invocation::current());
+    let invocation = RefCell::new(
+        visible
+            .then(execution_events::Invocation::current)
+            .flatten(),
+    );
     let mut authentication = if visible && execution_policy::current().interactive {
         let session = lithe_git_host::authentication::Session::new().map_err(|error| {
             CoreError::new(

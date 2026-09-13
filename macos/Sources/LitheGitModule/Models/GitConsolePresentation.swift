@@ -1,6 +1,6 @@
 import Foundation
 
-/// Provenance is explicit; unknown commands are never merged as automatic queries.
+/// Explicit request provenance; visible console commands remain independent.
 package enum GitExecutionSource: String, Codable, Hashable, Sendable {
     case user, background, unknown
     @TaskLocal package static var current: GitExecutionSource = .unknown

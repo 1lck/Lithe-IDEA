@@ -215,19 +215,22 @@ invocation trace, the UI does not assert that the planned command ran or that Gi
 actual Git exit code remains distinct from an operation-level failure.
 The default display follows IDEA's Console: millisecond timestamp, repository
 path, command, and continuous output in native event arrival order. Temporary
-configuration is folded into an inline `-c …` disclosure (an inspection-friendly
-equivalent of the process-local configuration environment and original global
-argument prefix). Core supplies the display projection so native clients do not
-parse Git flags or duplicate the old `--no-pager -c …` prefix outside the fold.
+configuration is represented as `-c key=value` pairs, then each contiguous run
+of `-c` pairs is folded into an inline `-c …` disclosure at its original position.
+Other global arguments, subcommands and behavior flags remain visible. Core
+supplies the display projection so native clients do not parse Git flags.
 The raw argument vector is preserved for copy and diagnostics. The command's
 context menu retains executable, status, duration, and per-remote results without
 adding a button or metadata rows to every command. stderr uses a separate color, including
 successful Git messages; only the exit/result state determines failure. Copying
 retains command configuration, status, duration, and output.
 
-Internal remote configuration reads also produce invocation records. An absent
-`remote.<name>.skipFetchAll` retains exit 1 with an explicit expected-result marker,
-so it does not create a false error row. Broad configuration output and custom
+Internal read-only queries remain silent in the console, including remote
+configuration lookup, repository validation and automatic status refresh. They
+still participate in workflow result capture. Explicit `git.command` requests
+and workflow mutations produce visible execution events. An absent
+`remote.<name>.skipFetchAll` retains its expected exit 1 in the internal result
+without creating a console error row. Broad configuration output and custom
 helper/script values use an explicit redaction marker; arbitrary secrets never
 enter the retained console. Supported settings remain inspectable in Git Settings.
 Real preflight failures, user configuration saves and transport failures remain visible.
@@ -238,8 +241,12 @@ show executable selection and credential-helper behavior. Configuration keys,
 origins, and Fetch/commit preferences are collapsed by default; repository
 configuration inspection starts only when its advanced section is opened.
 
-Live events and final results are bound to the repository generation. Clearing the console
-removes the pending record, and a late response cannot recreate it. Duration
+History belongs to the project window and includes Git feature workflows and
+other entry points such as GitHub. Changing the selected repository or opening
+a linked checkout does not filter out previously executed worktree commands.
+Repository generation still guards feature state, while the journal retains
+actual started operations across checkout changes. Clearing the console removes
+the window history and suppresses late output from cleared operations. Duration
 uses a monotonic clock; timestamps are only presentation metadata.
 
 ## Retention and validation
@@ -288,39 +295,48 @@ must not enter either native execution journal. macOS calls it through GitOperat
 and GitService; Windows uses the central platform invoke boundary. Requests and
 complete display plans are covered by `shared/fixtures/git/console-presentation-v1.json`.
 
-The request contains `records`, optional workspace `repositoryRoots` for label disambiguation, and a literal case-insensitive `search` string.
-Each record carries `id`, native diagnostic `root`, original `arguments`, named
-`temporaryConfig` pairs, ordered `{stream,text}` lines, state, nullable exit code,
-`expectedExit`, error, executable, progress, explicit source, optional global native start `sequence`, and truncation status.
+The request contains `records`, optional `repositoryRoots` retained for wire
+compatibility, and a literal case-insensitive `search` string. Each record carries
+its native diagnostic root, original arguments, temporary configuration, ordered
+output lines and completion state. Native provenance, sequence and truncation
+metadata remain available to consumers, but do not cause automatic grouping.
 The operation accepts at most 200 records, 4 MiB of retained data including
 collection overhead, and 1,024 UTF-8 bytes of search text. These bounds reject the
 request explicitly; they do not silently discard history.
 
-The result contains one entry per original execution, consecutive-query `groups`,
-search locations and the full match count. Command fragments carry stable IDs,
-complete quoted text, optional preview, type, item count and hidden match count.
-Output fragments are half-open ranges into the original retained line array;
-no rendered fold label becomes output. Unknown commands and custom formats use
-ordinary line ranges. Only strictly recognized list grammars get business counts.
-Small output stays visible; ordinary long output retains its first three and last
-two lines. Failures retain eight trailing lines and context around diagnostic
-anchors. Consecutive repeated text is a separate reversible fold. Live progress
-replaces the current phase, then emits that phase's final line before the next
-phase or completion; business summaries settle only after completion.
+The shared policy follows the IntelliJ implementation at revision
+`ef47a30d69bea05b46a4d64c127ad0f97dd67434`:
 
-Only explicit `background` provenance and consecutive, identical successful query
-results can merge. `user` and default `unknown` are independent executions. Changed
-results, exits, truncation, failures or intervening executions break the group.
-A gap in supplied native start sequence also breaks grouping, including an intervening command in a filtered-out repository. Transfer commands never merge. Source is request-local across worker hops, not
-inferred from a Git command name or a mutable global flag.
+- [GitVcsConsoleWriter](https://github.com/JetBrains/intellij-community/blob/ef47a30d69bea05b46a4d64c127ad0f97dd67434/plugins/git4idea/backend/src/util/GitVcsConsoleWriter.java)
+  owns a project console. Each visible command uses its full working directory,
+  millisecond timestamp and continuous text output.
+- [GitConsoleFoldingImpl](https://github.com/JetBrains/intellij-community/blob/ef47a30d69bea05b46a4d64c127ad0f97dd67434/plugins/git4idea/backend/src/console/GitConsoleFoldingImpl.kt)
+  folds contiguous configuration arguments and consecutive progress lines.
+  Lithe uses argument boundaries to preserve quoted configuration values and
+  folds only pre-subcommand `-c` pairs, leaving operation flags and paths intact.
+- [GitImplBase](https://github.com/JetBrains/intellij-community/blob/ef47a30d69bea05b46a4d64c127ad0f97dd67434/plugins/git4idea/backend/src/commands/GitImplBase.java)
+  defines the progress grammar. The collapsed label is the last original line
+  in that progress block. Ordinary output, including long lists and reflog,
+  remains visible. Failed records keep their diagnostic context expanded.
+- [GitHandler](https://github.com/JetBrains/intellij-community/blob/ef47a30d69bea05b46a4d64c127ad0f97dd67434/plugins/git4idea/backend/src/commands/GitHandler.java)
+  defaults internal read commands to silent; explicit workflows opt into the
+  console. Lithe likewise separates internal reads from visible workflow commands.
 
-Both native consoles render text disclosures in place, retain manual expansion
-by record/fragment ID and use a snapshot paired with its Core projection. Stale
-projection replies are discarded. Find shows hidden match counts and opens the
-matched range and group; navigation is bounded to the first 1,000 locations while
-the full match count remains visible. Copy actions use retained original content.
-Actual memory omissions remain explicitly marked and cannot be expanded. Scrolling
+The result contains one entry per execution. The compatibility `groups` field
+contains singleton groups; repeated user actions remain independent. Command
+fragments carry stable IDs, complete quoted text and hidden match counts. Output
+fragments are half-open ranges into the original retained line array. Only
+consecutive progress blocks are folded. There are no automatic list statistics,
+long-message summaries or repeated-query groups.
+
+Both native consoles render disclosures in place, retain manual expansion by
+record/fragment ID and pair each snapshot with its Core projection. Stale replies
+are discarded. Find shows hidden match counts and opens the matched range;
+navigation is bounded to the first 1,000 locations while the full match count
+remains visible. Copy actions use retained original content. Actual memory
+omissions remain explicitly marked and cannot be expanded. Live carriage-return
+progress updates replace the current phase and retain its final line. Scrolling
 up pauses automatic following; returning to the bottom resumes it. macOS owns this
 state in its console container and observes native user-scroll transitions rather
-than rebuilding the Git page on every pointer event. No compression preferences or
-extra operation-button row is required.
+than rebuilding the Git page on every pointer event. No compression preferences
+or extra Git operation-button row is required.

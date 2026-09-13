@@ -105,13 +105,19 @@ fn presentation_matches_shared_console_cases_without_rewriting_retained_output()
 }
 
 #[test]
-fn custom_configuration_and_force_options_are_never_common_config_folds() {
+fn configuration_folds_in_place_while_force_options_and_targets_stay_visible() {
     let request = serde_json::from_value(json!({"records":[{
         "id":"force", "root":"/repo", "arguments":["-c","core.hooksPath=/hooks","push","--force-with-lease","origin","main"],
         "temporaryConfig":[["credential.helper",""]],"lines":[],"state":"completed","exitCode":0
     }]})).unwrap();
     let result = present(request).unwrap();
-    assert!(result.entries[0].command.iter().all(|f| f.kind == "text"));
+    assert_eq!(result.entries[0].command[0].kind, "configuration");
+    assert!(result.entries[0].command[0]
+        .text
+        .contains("credential.helper="));
+    assert!(result.entries[0].command[0]
+        .text
+        .contains("core.hooksPath=/hooks"));
     let text = result.entries[0]
         .command
         .iter()
@@ -138,7 +144,7 @@ fn search_limits_locations_without_discarding_output_or_counts() {
 }
 
 #[test]
-fn running_range_ids_survive_growth_and_failures_keep_context() {
+fn ordinary_output_stays_visible_during_growth_and_failure() {
     let make = |count: usize, state: &str| -> Request {
         serde_json::from_value(json!({"search":"fatal", "records":[{
             "id":"stream", "root":"/repo", "arguments":["fetch","origin"], "state":state,
@@ -149,8 +155,11 @@ fn running_range_ids_survive_growth_and_failures_keep_context() {
     for count in [12, 20, 40] {
         let running = present(make(count, "running")).unwrap();
         assert_eq!(running.entries[0].output[3].id, "output-3");
-        assert_eq!(running.entries[0].output[3].kind, "lines");
-        assert_eq!(running.entries[0].output[3].end, count - 2);
+        assert!(running.entries[0]
+            .output
+            .iter()
+            .all(|fragment| fragment.kind == "text"));
+        assert_eq!(running.entries[0].output.len(), count);
     }
     let failed = present(make(40, "completed")).unwrap();
     assert!(failed.entries[0].failed);

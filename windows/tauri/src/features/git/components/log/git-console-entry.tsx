@@ -30,7 +30,9 @@ export function GitConsoleEntry({ record, presentation, selectedHit, searchNavig
     else { next.add(id); if (record.state === "running") next.add("running-output"); }
     return next;
   });
-  const foldLabel = (fragment: ConsoleOutputFragment) => fragment.kind === "references"
+  const foldLabel = (fragment: ConsoleOutputFragment) => fragment.kind === "progress"
+    ? record.lines[fragment.end - 1]?.text ?? ""
+    : fragment.kind === "references"
     ? t("git.console.referenceChanges", { added: fragment.added, updated: fragment.updated, deleted: fragment.deleted })
     : t(`git.console.fold.${fragment.kind}`, { count: fragment.count });
   const matchLabel = (count: number) => count ? ` · ${t("git.console.matches", { count })}` : "";

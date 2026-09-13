@@ -8,6 +8,30 @@ import Testing
 @MainActor
 struct GitModuleTests {
     @Test
+    func projectConsoleIncludesWorktreeCommandsOutsideTheSelectedRepository() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let journal = GitExecutionJournal()
+        for (index, directory) in ["/workspace", "/linked-checkout"].enumerated() {
+            journal.receive(GitExecutionEvent(operationId: "worktree-\(index)", type: "started", invocationId: 1,
+                workingDirectory: directory, arguments: ["worktree", "repair"]))
+            journal.receive(GitExecutionEvent(operationId: "worktree-\(index)", type: "finished", invocationId: 1, exitCode: 0))
+            journal.receive(GitExecutionEvent(operationId: "worktree-\(index)", type: "requestFinished"))
+        }
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []))), executionJournal: journal)
+        defer { feature.reset() }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        await feature.loadGitConsoleIfNeeded()
+        #expect(feature.gitConsoleEntries.map(\.workingDirectory.path) == ["/workspace", "/linked-checkout"])
+        #expect(Set(feature.gitConsoleEntries.map(\.id)).count == 2)
+        feature.clearGitConsole()
+        #expect(journal.snapshot.isEmpty)
+        #expect(feature.gitConsoleEntries.isEmpty)
+    }
+
+    @Test
     func consoleIncludesCommandsFromOtherFeaturesBeforeItWasOpened() async {
         let root = URL(fileURLWithPath: "/workspace")
         let journal = GitExecutionJournal()

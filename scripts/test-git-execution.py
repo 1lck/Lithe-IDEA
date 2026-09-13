@@ -223,6 +223,28 @@ class Fixture:
         # All calls used the same native event path as Fetch; there was no UI
         # action callback or command-specific event producer in this test.
 
+    def worktree_console(self):
+        destination = self.directory / "observed worktree"
+        for operation, action, fields in [
+            ("createWorktree", "add", {"worktreeMode": "detached", "revision": "HEAD", "destination": str(destination)}),
+            ("lockWorktree", "lock", {"destination": str(destination)}),
+            ("unlockWorktree", "unlock", {"destination": str(destination)}),
+            ("repairWorktrees", "repair", {}),
+            ("pruneWorktrees", "prune", {}),
+            ("removeWorktree", "remove", {"destination": str(destination)}),
+        ]:
+            result, events = self.call("git.write", {"root": str(self.repo), "operation": operation, **fields})
+            assert result["ok"] and result["data"]["exitCode"] == 0, result
+            commands = [event for event in events if event["type"] == "started"]
+            assert len(commands) == 1, commands
+            assert commands[0]["displayArguments"][:2] == ["worktree", action], commands
+        result, events = self.call("git.worktrees", {"root": str(self.repo)})
+        assert result["ok"], result
+        assert not any(event["type"] == "started" for event in events), events
+        result, events = self.call("git.command", {"root": str(self.repo), "arguments": ["worktree", "list", "--porcelain"]})
+        assert result["ok"], result
+        assert any(event.get("displayArguments", [])[:2] == ["worktree", "list"] for event in events), events
+
     def remotes(self):
         self.git("remote", "add", "origin", str(self.bare), root=self.repo)
         self.git("remote", "add", "upstream", str(self.bare), root=self.repo)
@@ -234,8 +256,7 @@ class Fixture:
         assert plan["data"]["commands"] == sample["commands"], plan
         response, events = self.call("git.write", payload)
         assert response["ok"] and response["data"]["exitCode"] == 0, response
-        # Internal lookups are visible too; missing optional keys retain exit 1
-        # with an explicit expected-result marker instead of a false failure.
+        # Internal lookups stay silent; transfer results retain their own invocation identity.
         starts = [event for event in events if event["type"] == "started" and event["displayArguments"][0] == "fetch"]
         assert len(starts) == 2 and all(event["displayArguments"][0] == "fetch" for event in starts), starts
         assert all(event["exitCode"] == 0 or event["expectedExit"] for event in events if event["type"] == "finished"), events
@@ -353,6 +374,7 @@ def main():
                      ("executable_capabilities_and_temporary_policy", fixture.executable_and_temporary_policy),
                      ("per_remote_preview_partial_success_and_pruning", fixture.remotes),
                      ("ordinary_git_operations_emit_commands_and_folded_options", fixture.ordinary_operations),
+                     ("worktree_actions_are_visible_and_internal_queries_are_silent", fixture.worktree_console),
                      ("http_askpass_credentials", lambda: fixture.authentication()),
                      ("http_explicit_authentication_retry", lambda: fixture.authentication(retry=True)),
                      ("authentication_cancellation", lambda: fixture.authentication(cancel=True)),

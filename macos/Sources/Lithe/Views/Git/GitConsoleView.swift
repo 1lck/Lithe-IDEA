@@ -12,7 +12,6 @@ struct GitConsoleView: View {
     @State private var matchIndex = 0
     @State private var navigation = 0
     @State private var expanded: [String: Set<String>] = [:]
-    @State private var expandedGroups: Set<String> = []
     @State private var bundle: Bundle?
     @FocusState private var searchFocused: Bool
 
@@ -52,11 +51,7 @@ struct GitConsoleView: View {
             bundle = Bundle(entries: entries, request: captured, presentation: result)
             let ids = Set(entries.map { $0.id.uuidString })
             expanded = expanded.filter { ids.contains($0.key) }
-            expandedGroups.formIntersection(ids)
             if matchIndex >= (result?.matches.count ?? 0) { matchIndex = 0 }
-        }
-        .onChange(of: feature.gitRepositoryRoot) { _ in
-            bundle = nil; expanded = [:]; expandedGroups = []; matchIndex = 0
         }
         .onChange(of: search) { _ in matchIndex = 0; navigation += 1 }
     }
@@ -72,7 +67,7 @@ struct GitConsoleView: View {
             Button(action: feature.cancelGitExecutions) { Image(systemName: "stop.fill") }
                 .disabled(!feature.isGitExecutionRunning).help("Cancel running Git operations")
             Button {
-                feature.clearGitConsole(); bundle = nil; expanded = [:]; expandedGroups = []
+                feature.clearGitConsole(); bundle = nil; expanded = [:]
             } label: { Image(systemName: "trash") }
                 .disabled(feature.gitConsoleEntries.isEmpty).help("Clear Git console")
             Button {
@@ -159,38 +154,15 @@ struct GitConsoleView: View {
 
     private func expand(_ hit: GitConsolePresentation.SearchHit) {
         expanded[hit.recordId, default: []].insert(hit.fragmentId)
-        if let group = bundle?.presentation?.groups.first(where: { $0.recordIds.contains(hit.recordId) }) {
-            expandedGroups.insert(group.id)
-        }
     }
 
     private var rows: some View {
         let plans = Dictionary(uniqueKeysWithValues: (bundle?.presentation?.entries ?? []).map { ($0.id, $0) })
-        let groups = bundle?.presentation?.groups ?? []
-        let byID = Dictionary(uniqueKeysWithValues: records.map { ($0.id.uuidString, $0) })
-        let groupByRecord = Dictionary(uniqueKeysWithValues: groups.flatMap { group in group.recordIds.map { ($0, group) } })
         return ForEach(records) { entry in
             let id = entry.id.uuidString
-            let group = groupByRecord[id]
-            if group == nil || group?.id == id || expandedGroups.contains(group?.id ?? "") {
-                GitConsoleEntryView(entry: entry, wrapsLines: wrapsLines, presentation: plans[id], selectedHit: selectedHit,
-                    expanded: Binding(get: { expanded[id, default: []] }, set: { expanded[id] = $0 }))
-                    .id(entry.id)
-                if let group, group.id == id, group.recordIds.count > 1 {
-                    Button {
-                        if expandedGroups.contains(id) { expandedGroups.remove(id) } else { expandedGroups.insert(id) }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text(expandedGroups.contains(id) ? "▾" : "▸")
-                            Text("Automatic query ×\(group.recordIds.count), identical results")
-                            if group.matches > 0 { Text(" · \(group.matches) matches") }
-                            Text(verbatim: " · " + GitConsoleEntryView.timestampFormatter.string(from: entry.timestamp) + "–"
-                                + GitConsoleEntryView.timestampFormatter.string(from: byID[group.recordIds.last ?? id]?.timestamp ?? entry.timestamp))
-                        }
-                    }
-                    .buttonStyle(.plain).font(.system(size: 12, weight: .regular, design: .monospaced)).foregroundStyle(LitheTheme.secondaryText)
-                }
-            }
+            GitConsoleEntryView(entry: entry, wrapsLines: wrapsLines, presentation: plans[id], selectedHit: selectedHit,
+                expanded: Binding(get: { expanded[id, default: []] }, set: { expanded[id] = $0 }))
+                .id(entry.id)
         }
     }
 }

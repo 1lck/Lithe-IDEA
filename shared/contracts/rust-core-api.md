@@ -155,7 +155,7 @@ stable error code and a user-facing message:
 | `git.command` | Execute one argument-based Git operation and return its arguments, streams, exit code, and ordered subprocess invocations |
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
 | `git.fetchPlan` | Validate Fetch choices; optionally inspect a repository to expand enabled per-remote commands |
-| `git.consolePresentation` | Pure console compression, grouping, labels and search ranges over retained diagnostic snapshots |
+| `git.consolePresentation` | Pure IDEA-style configuration/progress folds and search ranges over retained diagnostic snapshots |
 | `git.executionInspect` | Inspect executable capabilities, configuration provenance and effective Fetch preferences |
 | `git.executionConfigure` | Explicitly save or clear one allowlisted value in a selected config scope |
 | `git.authRespond` | Answer or cancel a live authentication challenge once |
@@ -437,10 +437,11 @@ unknown exit status remains null. A failed start may produce `finished` without
 `displayArguments` and `globalArguments` are additive console projections: the
 former starts at the subcommand, and the latter contains temporary configuration
 as `-c key=value` pairs followed by the original global argument prefix. Consoles
-fold the whole prefix once; raw `arguments` remain authoritative for copying and
-diagnostics. Older events without projections retain their legacy display.
-Every invocation through the shared process capture boundary, including internal
-queries, produces execution events. Missing optional config values retain their
+fold contiguous `-c` pairs at their original positions; other global arguments
+stay visible. Raw `arguments` remain authoritative for copying and diagnostics. Older events without projections retain their legacy display.
+Visible workflow commands and explicit `git.command` requests produce execution
+events. Internal read-only queries remain silent in the console while retaining
+normal workflow capture and result semantics. Missing optional config values retain their
 actual exit 1 with `expectedExit: true`; only the executing workflow can mark that
 normal result. Other nonzero exits and request errors remain failures. The
 `remoteResult` event carries the transfer's `invocationId` so later inspection

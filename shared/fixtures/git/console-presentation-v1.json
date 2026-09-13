@@ -48,20 +48,12 @@
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
                 "text": "-c color.ui=false"
-              },
-              {
-                "count": 0,
-                "id": "global",
-                "kind": "text",
-                "matches": 0,
-                "preview": "",
-                "text": "-C '../other repo'"
               },
               {
                 "count": 1,
@@ -69,7 +61,7 @@
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
-                "text": "reset"
+                "text": "-C"
               },
               {
                 "count": 1,
@@ -77,11 +69,27 @@
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
-                "text": "--hard"
+                "text": "'../other repo'"
               },
               {
                 "count": 1,
                 "id": "argument-4",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "reset"
+              },
+              {
+                "count": 1,
+                "id": "argument-5",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "--hard"
+              },
+              {
+                "count": 1,
+                "id": "argument-6",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -91,7 +99,7 @@
             "failed": false,
             "id": "one",
             "output": [],
-            "repositoryLabel": "repo"
+            "repositoryLabel": "/workspace/repo"
           }
         ],
         "groups": [
@@ -176,8 +184,8 @@
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
@@ -185,7 +193,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-0",
+                "id": "argument-2",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -284,7 +292,7 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "repo"
+            "repositoryLabel": "/workspace/repo"
           }
         ],
         "groups": [
@@ -301,7 +309,7 @@
       }
     },
     {
-      "name": "unknown long output retains head and tail",
+      "name": "ordinary long output remains visible",
       "input": {
         "records": [
           {
@@ -378,13 +386,7 @@
         "search": "line 6"
       },
       "expected": {
-        "folds": [
-          [
-            3,
-            10,
-            "lines"
-          ]
-        ],
+        "folds": [],
         "matches": 1
       },
       "presentation": {
@@ -392,8 +394,8 @@
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
@@ -401,7 +403,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-0",
+                "id": "argument-2",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -446,13 +448,79 @@
               },
               {
                 "added": 0,
-                "count": 7,
+                "count": 1,
+                "deleted": 0,
+                "end": 4,
+                "id": "output-3",
+                "kind": "text",
+                "matches": 0,
+                "start": 3,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 5,
+                "id": "output-4",
+                "kind": "text",
+                "matches": 0,
+                "start": 4,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 6,
+                "id": "output-5",
+                "kind": "text",
+                "matches": 0,
+                "start": 5,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 7,
+                "id": "output-6",
+                "kind": "text",
+                "matches": 1,
+                "start": 6,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 8,
+                "id": "output-7",
+                "kind": "text",
+                "matches": 0,
+                "start": 7,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 9,
+                "id": "output-8",
+                "kind": "text",
+                "matches": 0,
+                "start": 8,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
                 "deleted": 0,
                 "end": 10,
-                "id": "output-3",
-                "kind": "lines",
-                "matches": 1,
-                "start": 3,
+                "id": "output-9",
+                "kind": "text",
+                "matches": 0,
+                "start": 9,
                 "updated": 0
               },
               {
@@ -478,7 +546,7 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "repo"
+            "repositoryLabel": "/workspace/repo"
           }
         ],
         "groups": [
@@ -492,7 +560,7 @@
         ],
         "matches": [
           {
-            "fragmentId": "output-3",
+            "fragmentId": "output-6",
             "lineIndex": 6,
             "recordId": "one"
           }
@@ -501,7 +569,7 @@
       }
     },
     {
-      "name": "failure keeps labeled context and latest output",
+      "name": "failure keeps complete output context",
       "input": {
         "records": [
           {
@@ -650,18 +718,7 @@
         "search": ""
       },
       "expected": {
-        "folds": [
-          [
-            3,
-            8,
-            "lines"
-          ],
-          [
-            13,
-            22,
-            "lines"
-          ]
-        ],
+        "folds": [],
         "failed": true
       },
       "presentation": {
@@ -669,8 +726,8 @@
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
@@ -678,7 +735,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-0",
+                "id": "argument-2",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -723,13 +780,57 @@
               },
               {
                 "added": 0,
-                "count": 5,
+                "count": 1,
                 "deleted": 0,
-                "end": 8,
+                "end": 4,
                 "id": "output-3",
-                "kind": "lines",
+                "kind": "text",
                 "matches": 0,
                 "start": 3,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 5,
+                "id": "output-4",
+                "kind": "text",
+                "matches": 0,
+                "start": 4,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 6,
+                "id": "output-5",
+                "kind": "text",
+                "matches": 0,
+                "start": 5,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 7,
+                "id": "output-6",
+                "kind": "text",
+                "matches": 0,
+                "start": 6,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 8,
+                "id": "output-7",
+                "kind": "text",
+                "matches": 0,
+                "start": 7,
                 "updated": 0
               },
               {
@@ -789,13 +890,101 @@
               },
               {
                 "added": 0,
-                "count": 9,
+                "count": 1,
                 "deleted": 0,
-                "end": 22,
+                "end": 14,
                 "id": "output-13",
-                "kind": "lines",
+                "kind": "text",
                 "matches": 0,
                 "start": 13,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 15,
+                "id": "output-14",
+                "kind": "text",
+                "matches": 0,
+                "start": 14,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 16,
+                "id": "output-15",
+                "kind": "text",
+                "matches": 0,
+                "start": 15,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 17,
+                "id": "output-16",
+                "kind": "text",
+                "matches": 0,
+                "start": 16,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 18,
+                "id": "output-17",
+                "kind": "text",
+                "matches": 0,
+                "start": 17,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 19,
+                "id": "output-18",
+                "kind": "text",
+                "matches": 0,
+                "start": 18,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 20,
+                "id": "output-19",
+                "kind": "text",
+                "matches": 0,
+                "start": 19,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 21,
+                "id": "output-20",
+                "kind": "text",
+                "matches": 0,
+                "start": 20,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 22,
+                "id": "output-21",
+                "kind": "text",
+                "matches": 0,
+                "start": 21,
                 "updated": 0
               },
               {
@@ -887,7 +1076,7 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "repo"
+            "repositoryLabel": "/workspace/repo"
           }
         ],
         "groups": [
@@ -904,7 +1093,7 @@
       }
     },
     {
-      "name": "repeated text remains expandable",
+      "name": "repeated ordinary text remains independent",
       "input": {
         "records": [
           {
@@ -1013,21 +1202,15 @@
         "search": ""
       },
       "expected": {
-        "folds": [
-          [
-            1,
-            20,
-            "repeat"
-          ]
-        ]
+        "folds": []
       },
       "presentation": {
         "entries": [
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
@@ -1035,7 +1218,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-0",
+                "id": "argument-2",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -1058,17 +1241,215 @@
               },
               {
                 "added": 0,
-                "count": 20,
+                "count": 1,
                 "deleted": 0,
-                "end": 20,
+                "end": 2,
                 "id": "output-1",
-                "kind": "repeat",
+                "kind": "text",
                 "matches": 0,
                 "start": 1,
                 "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 3,
+                "id": "output-2",
+                "kind": "text",
+                "matches": 0,
+                "start": 2,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 4,
+                "id": "output-3",
+                "kind": "text",
+                "matches": 0,
+                "start": 3,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 5,
+                "id": "output-4",
+                "kind": "text",
+                "matches": 0,
+                "start": 4,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 6,
+                "id": "output-5",
+                "kind": "text",
+                "matches": 0,
+                "start": 5,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 7,
+                "id": "output-6",
+                "kind": "text",
+                "matches": 0,
+                "start": 6,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 8,
+                "id": "output-7",
+                "kind": "text",
+                "matches": 0,
+                "start": 7,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 9,
+                "id": "output-8",
+                "kind": "text",
+                "matches": 0,
+                "start": 8,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 10,
+                "id": "output-9",
+                "kind": "text",
+                "matches": 0,
+                "start": 9,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 11,
+                "id": "output-10",
+                "kind": "text",
+                "matches": 0,
+                "start": 10,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 12,
+                "id": "output-11",
+                "kind": "text",
+                "matches": 0,
+                "start": 11,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 13,
+                "id": "output-12",
+                "kind": "text",
+                "matches": 0,
+                "start": 12,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 14,
+                "id": "output-13",
+                "kind": "text",
+                "matches": 0,
+                "start": 13,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 15,
+                "id": "output-14",
+                "kind": "text",
+                "matches": 0,
+                "start": 14,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 16,
+                "id": "output-15",
+                "kind": "text",
+                "matches": 0,
+                "start": 15,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 17,
+                "id": "output-16",
+                "kind": "text",
+                "matches": 0,
+                "start": 16,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 18,
+                "id": "output-17",
+                "kind": "text",
+                "matches": 0,
+                "start": 17,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 19,
+                "id": "output-18",
+                "kind": "text",
+                "matches": 0,
+                "start": 18,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 20,
+                "id": "output-19",
+                "kind": "text",
+                "matches": 0,
+                "start": 19,
+                "updated": 0
               }
             ],
-            "repositoryLabel": "repo"
+            "repositoryLabel": "/workspace/repo"
           }
         ],
         "groups": [
@@ -1085,7 +1466,7 @@
       }
     },
     {
-      "name": "strict reflog rows allow commit counts",
+      "name": "reflog remains plain output",
       "input": {
         "records": [
           {
@@ -1162,21 +1543,15 @@
         "search": ""
       },
       "expected": {
-        "folds": [
-          [
-            3,
-            10,
-            "commits"
-          ]
-        ]
+        "folds": []
       },
       "presentation": {
         "entries": [
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
@@ -1184,7 +1559,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-0",
+                "id": "argument-2",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -1229,13 +1604,79 @@
               },
               {
                 "added": 0,
-                "count": 7,
+                "count": 1,
                 "deleted": 0,
-                "end": 10,
+                "end": 4,
                 "id": "output-3",
-                "kind": "commits",
+                "kind": "text",
                 "matches": 0,
                 "start": 3,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 5,
+                "id": "output-4",
+                "kind": "text",
+                "matches": 0,
+                "start": 4,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 6,
+                "id": "output-5",
+                "kind": "text",
+                "matches": 0,
+                "start": 5,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 7,
+                "id": "output-6",
+                "kind": "text",
+                "matches": 0,
+                "start": 6,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 8,
+                "id": "output-7",
+                "kind": "text",
+                "matches": 0,
+                "start": 7,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 9,
+                "id": "output-8",
+                "kind": "text",
+                "matches": 0,
+                "start": 8,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 10,
+                "id": "output-9",
+                "kind": "text",
+                "matches": 0,
+                "start": 9,
                 "updated": 0
               },
               {
@@ -1261,7 +1702,7 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "repo"
+            "repositoryLabel": "/workspace/repo"
           }
         ],
         "groups": [
@@ -1356,21 +1797,15 @@
         "search": ""
       },
       "expected": {
-        "folds": [
-          [
-            3,
-            10,
-            "lines"
-          ]
-        ]
+        "folds": []
       },
       "presentation": {
         "entries": [
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
@@ -1378,7 +1813,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-0",
+                "id": "argument-2",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -1386,7 +1821,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-1",
+                "id": "argument-3",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -1431,13 +1866,79 @@
               },
               {
                 "added": 0,
-                "count": 7,
+                "count": 1,
                 "deleted": 0,
-                "end": 10,
+                "end": 4,
                 "id": "output-3",
-                "kind": "lines",
+                "kind": "text",
                 "matches": 0,
                 "start": 3,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 5,
+                "id": "output-4",
+                "kind": "text",
+                "matches": 0,
+                "start": 4,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 6,
+                "id": "output-5",
+                "kind": "text",
+                "matches": 0,
+                "start": 5,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 7,
+                "id": "output-6",
+                "kind": "text",
+                "matches": 0,
+                "start": 6,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 8,
+                "id": "output-7",
+                "kind": "text",
+                "matches": 0,
+                "start": 7,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 9,
+                "id": "output-8",
+                "kind": "text",
+                "matches": 0,
+                "start": 8,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 10,
+                "id": "output-9",
+                "kind": "text",
+                "matches": 0,
+                "start": 9,
                 "updated": 0
               },
               {
@@ -1463,7 +1964,7 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "repo"
+            "repositoryLabel": "/workspace/repo"
           }
         ],
         "groups": [
@@ -1480,7 +1981,7 @@
       }
     },
     {
-      "name": "file lists retain two samples",
+      "name": "file arguments remain visible",
       "input": {
         "records": [
           {
@@ -1530,18 +2031,16 @@
       },
       "expected": {
         "commandFoldKinds": [
-          "configuration",
-          "files"
-        ],
-        "commandFoldCount": 18
+          "configuration"
+        ]
       },
       "presentation": {
         "entries": [
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
@@ -1549,7 +2048,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-0",
+                "id": "argument-2",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -1557,7 +2056,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-1",
+                "id": "argument-3",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -1565,7 +2064,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-2",
+                "id": "argument-4",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -1573,25 +2072,161 @@
               },
               {
                 "count": 1,
-                "id": "argument-3",
+                "id": "argument-5",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
                 "text": "'file 1.txt'"
               },
               {
-                "count": 18,
-                "id": "arguments-4",
-                "kind": "files",
+                "count": 1,
+                "id": "argument-6",
+                "kind": "text",
                 "matches": 0,
                 "preview": "",
-                "text": "'file 2.txt' 'file 3.txt' 'file 4.txt' 'file 5.txt' 'file 6.txt' 'file 7.txt' 'file 8.txt' 'file 9.txt' 'file 10.txt' 'file 11.txt' 'file 12.txt' 'file 13.txt' 'file 14.txt' 'file 15.txt' 'file 16.txt' 'file 17.txt' 'file 18.txt' 'file 19.txt'"
+                "text": "'file 2.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-7",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 3.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-8",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 4.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-9",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 5.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-10",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 6.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-11",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 7.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-12",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 8.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-13",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 9.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-14",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 10.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-15",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 11.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-16",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 12.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-17",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 13.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-18",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 14.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-19",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 15.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-20",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 16.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-21",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 17.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-22",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 18.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-23",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 19.txt'"
               }
             ],
             "failed": false,
             "id": "one",
             "output": [],
-            "repositoryLabel": "repo"
+            "repositoryLabel": "/workspace/repo"
           }
         ],
         "groups": [
@@ -1608,7 +2243,7 @@
       }
     },
     {
-      "name": "long message retains quotes and newlines",
+      "name": "message remains visible with quotes and newlines",
       "input": {
         "records": [
           {
@@ -1645,8 +2280,7 @@
           "-m"
         ],
         "commandFoldKinds": [
-          "configuration",
-          "argument"
+          "configuration"
         ]
       },
       "presentation": {
@@ -1654,8 +2288,8 @@
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
@@ -1663,7 +2297,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-0",
+                "id": "argument-2",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -1671,7 +2305,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-1",
+                "id": "argument-3",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -1679,7 +2313,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-2",
+                "id": "argument-4",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -1687,17 +2321,17 @@
               },
               {
                 "count": 1,
-                "id": "argument-3",
-                "kind": "argument",
+                "id": "argument-5",
+                "kind": "text",
                 "matches": 0,
-                "preview": "'first line' …",
+                "preview": "",
                 "text": "'first line\nmore content more content more content more content more content more content more content more content more content more content more content more content more content more content more content more content more content more content more content more content '"
               }
             ],
             "failed": false,
             "id": "one",
             "output": [],
-            "repositoryLabel": "repo"
+            "repositoryLabel": "/workspace/repo"
           }
         ],
         "groups": [
@@ -1714,7 +2348,7 @@
       }
     },
     {
-      "name": "only adjacent identical background queries merge",
+      "name": "repeated queries remain independent",
       "input": {
         "records": [
           {
@@ -1879,14 +2513,18 @@
       "expected": {
         "groups": [
           [
-            "0",
+            "0"
+          ],
+          [
             "1"
           ],
           [
             "2"
           ],
           [
-            "3",
+            "3"
+          ],
+          [
             "4"
           ],
           [
@@ -1899,8 +2537,8 @@
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
@@ -1908,7 +2546,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-0",
+                "id": "argument-2",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -1930,13 +2568,13 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "repo"
+            "repositoryLabel": "/workspace/repo"
           },
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
@@ -1944,7 +2582,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-0",
+                "id": "argument-2",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -1966,13 +2604,13 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "repo"
+            "repositoryLabel": "/workspace/repo"
           },
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
@@ -1980,7 +2618,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-0",
+                "id": "argument-2",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -2002,13 +2640,13 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "repo"
+            "repositoryLabel": "/workspace/repo"
           },
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
@@ -2016,7 +2654,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-0",
+                "id": "argument-2",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -2038,13 +2676,13 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "repo"
+            "repositoryLabel": "/workspace/repo"
           },
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
@@ -2052,7 +2690,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-0",
+                "id": "argument-2",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -2074,13 +2712,13 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "repo"
+            "repositoryLabel": "/workspace/repo"
           },
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
@@ -2088,7 +2726,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-0",
+                "id": "argument-2",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -2110,7 +2748,7 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "repo"
+            "repositoryLabel": "/workspace/repo"
           }
         ],
         "groups": [
@@ -2118,7 +2756,13 @@
             "id": "0",
             "matches": 0,
             "recordIds": [
-              "0",
+              "0"
+            ]
+          },
+          {
+            "id": "1",
+            "matches": 0,
+            "recordIds": [
               "1"
             ]
           },
@@ -2133,7 +2777,13 @@
             "id": "3",
             "matches": 0,
             "recordIds": [
-              "3",
+              "3"
+            ]
+          },
+          {
+            "id": "4",
+            "matches": 0,
+            "recordIds": [
               "4"
             ]
           },
@@ -2150,7 +2800,7 @@
       }
     },
     {
-      "name": "changed output and failure end grouping",
+      "name": "changed output and failures retain separate commands",
       "input": {
         "records": [
           {
@@ -2269,7 +2919,9 @@
             "1"
           ],
           [
-            "2",
+            "2"
+          ],
+          [
             "3"
           ]
         ]
@@ -2279,8 +2931,8 @@
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
@@ -2288,7 +2940,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-0",
+                "id": "argument-2",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -2310,13 +2962,13 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "repo"
+            "repositoryLabel": "/workspace/repo"
           },
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
@@ -2324,7 +2976,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-0",
+                "id": "argument-2",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -2346,13 +2998,13 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "repo"
+            "repositoryLabel": "/workspace/repo"
           },
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
@@ -2360,7 +3012,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-0",
+                "id": "argument-2",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -2382,13 +3034,13 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "repo"
+            "repositoryLabel": "/workspace/repo"
           },
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
@@ -2396,7 +3048,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-0",
+                "id": "argument-2",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -2418,7 +3070,7 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "repo"
+            "repositoryLabel": "/workspace/repo"
           }
         ],
         "groups": [
@@ -2440,7 +3092,13 @@
             "id": "2",
             "matches": 0,
             "recordIds": [
-              "2",
+              "2"
+            ]
+          },
+          {
+            "id": "3",
+            "matches": 0,
+            "recordIds": [
               "3"
             ]
           }
@@ -2515,8 +3173,8 @@
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
@@ -2524,7 +3182,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-0",
+                "id": "argument-2",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -2532,7 +3190,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-1",
+                "id": "argument-3",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -2542,13 +3200,13 @@
             "failed": false,
             "id": "0",
             "output": [],
-            "repositoryLabel": "repo"
+            "repositoryLabel": "/workspace/repo"
           },
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
@@ -2556,7 +3214,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-0",
+                "id": "argument-2",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -2564,7 +3222,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-1",
+                "id": "argument-3",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -2574,7 +3232,7 @@
             "failed": false,
             "id": "1",
             "output": [],
-            "repositoryLabel": "repo"
+            "repositoryLabel": "/workspace/repo"
           }
         ],
         "groups": [
@@ -2598,7 +3256,7 @@
       }
     },
     {
-      "name": "duplicate repository names include parent",
+      "name": "repository paths remain explicit",
       "input": {
         "records": [
           {
@@ -2648,8 +3306,8 @@
       },
       "expected": {
         "labels": [
-          "a/repo",
-          "b/repo"
+          "/workspace/a/repo",
+          "/workspace/b/repo"
         ]
       },
       "presentation": {
@@ -2657,8 +3315,8 @@
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
@@ -2666,7 +3324,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-0",
+                "id": "argument-2",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -2676,13 +3334,13 @@
             "failed": false,
             "id": "a",
             "output": [],
-            "repositoryLabel": "a/repo"
+            "repositoryLabel": "/workspace/a/repo"
           },
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
@@ -2690,7 +3348,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-0",
+                "id": "argument-2",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -2700,7 +3358,7 @@
             "failed": false,
             "id": "b",
             "output": [],
-            "repositoryLabel": "b/repo"
+            "repositoryLabel": "/workspace/b/repo"
           }
         ],
         "groups": [
@@ -2724,7 +3382,7 @@
       }
     },
     {
-      "name": "live output retains newest lines without business summaries",
+      "name": "live ordinary output remains visible",
       "input": {
         "records": [
           {
@@ -2801,21 +3459,15 @@
         "search": ""
       },
       "expected": {
-        "folds": [
-          [
-            3,
-            10,
-            "lines"
-          ]
-        ]
+        "folds": []
       },
       "presentation": {
         "entries": [
           {
             "command": [
               {
-                "count": 2,
-                "id": "configuration",
+                "count": 1,
+                "id": "configuration-0",
                 "kind": "configuration",
                 "matches": 0,
                 "preview": "-c …",
@@ -2823,7 +3475,7 @@
               },
               {
                 "count": 1,
-                "id": "argument-0",
+                "id": "argument-2",
                 "kind": "text",
                 "matches": 0,
                 "preview": "",
@@ -2868,13 +3520,79 @@
               },
               {
                 "added": 0,
-                "count": 7,
+                "count": 1,
                 "deleted": 0,
-                "end": 10,
+                "end": 4,
                 "id": "output-3",
-                "kind": "lines",
+                "kind": "text",
                 "matches": 0,
                 "start": 3,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 5,
+                "id": "output-4",
+                "kind": "text",
+                "matches": 0,
+                "start": 4,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 6,
+                "id": "output-5",
+                "kind": "text",
+                "matches": 0,
+                "start": 5,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 7,
+                "id": "output-6",
+                "kind": "text",
+                "matches": 0,
+                "start": 6,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 8,
+                "id": "output-7",
+                "kind": "text",
+                "matches": 0,
+                "start": 7,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 9,
+                "id": "output-8",
+                "kind": "text",
+                "matches": 0,
+                "start": 8,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 10,
+                "id": "output-9",
+                "kind": "text",
+                "matches": 0,
+                "start": 9,
                 "updated": 0
               },
               {
@@ -2900,7 +3618,7 @@
                 "updated": 0
               }
             ],
-            "repositoryLabel": "repo"
+            "repositoryLabel": "/workspace/repo"
           }
         ],
         "groups": [
@@ -2917,7 +3635,7 @@
       }
     },
     {
-      "name": "filtered executions break query grouping and workspace roots disambiguate labels",
+      "name": "other executions do not alter command identity",
       "input": {
         "search": "project",
         "repositoryRoots": [
@@ -2960,8 +3678,8 @@
           ]
         ],
         "labels": [
-          "one/project",
-          "one/project"
+          "/workspace/one/project",
+          "/workspace/one/project"
         ],
         "matches": 2
       },
@@ -2981,7 +3699,7 @@
             "failed": false,
             "id": "before",
             "output": [],
-            "repositoryLabel": "one/project"
+            "repositoryLabel": "/workspace/one/project"
           },
           {
             "command": [
@@ -2997,7 +3715,7 @@
             "failed": false,
             "id": "after",
             "output": [],
-            "repositoryLabel": "one/project"
+            "repositoryLabel": "/workspace/one/project"
           }
         ],
         "groups": [
@@ -3029,6 +3747,159 @@
           }
         ],
         "totalMatches": 2
+      }
+    },
+    {
+      "name": "IDEA progress folding uses a contiguous block and leaves diagnostics visible",
+      "input": {
+        "search": "Counting",
+        "records": [
+          {
+            "id": "progress",
+            "root": "/workspace/repository",
+            "arguments": [
+              "fetch",
+              "origin",
+              "--prune"
+            ],
+            "state": "completed",
+            "exitCode": 0,
+            "lines": [
+              {
+                "stream": "stderr",
+                "text": "remote: Enumerating objects: 8, done."
+              },
+              {
+                "stream": "stderr",
+                "text": "remote: Counting objects: 100% (8/8), done."
+              },
+              {
+                "stream": "stderr",
+                "text": "remote: Compressing objects: 100% (4/4), done."
+              },
+              {
+                "stream": "stderr",
+                "text": "remote: Total 8 (delta 3), reused 8 (delta 3)"
+              },
+              {
+                "stream": "stderr",
+                "text": "From https://example.invalid/repository"
+              },
+              {
+                "stream": "stderr",
+                "text": " abc1234..def5678 main -> origin/main"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "folds": [
+          [
+            0,
+            3,
+            "progress"
+          ]
+        ],
+        "matches": 1
+      },
+      "presentation": {
+        "entries": [
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "argument-0",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "fetch"
+              },
+              {
+                "count": 1,
+                "id": "argument-1",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "origin"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "--prune"
+              }
+            ],
+            "failed": false,
+            "id": "progress",
+            "output": [
+              {
+                "added": 0,
+                "count": 3,
+                "deleted": 0,
+                "end": 3,
+                "id": "output-0",
+                "kind": "progress",
+                "matches": 1,
+                "start": 0,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 4,
+                "id": "output-3",
+                "kind": "text",
+                "matches": 0,
+                "start": 3,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 5,
+                "id": "output-4",
+                "kind": "text",
+                "matches": 0,
+                "start": 4,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 6,
+                "id": "output-5",
+                "kind": "text",
+                "matches": 0,
+                "start": 5,
+                "updated": 0
+              }
+            ],
+            "repositoryLabel": "/workspace/repository"
+          }
+        ],
+        "groups": [
+          {
+            "id": "progress",
+            "matches": 1,
+            "recordIds": [
+              "progress"
+            ]
+          }
+        ],
+        "matches": [
+          {
+            "fragmentId": "output-0",
+            "lineIndex": 1,
+            "recordId": "progress"
+          }
+        ],
+        "totalMatches": 1
       }
     }
   ]

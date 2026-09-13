@@ -585,7 +585,7 @@ export function GitLogToolWindow() {
           <button role="tab" aria-selected={panel === "console"} onClick={() => setPanel("console")}>{t("git.console.title")}</button>
         </div>
       </div>
-      {panel === "console" ? <GitExecutionConsole repoPath={repoPath} /> : <>
+      {panel === "console" ? <GitExecutionConsole /> : <>
       {loadState === "failed" && history.commits.length > 0 ? (
         <div className="flex h-7 shrink-0 items-center gap-2 border-destructive/30 border-b bg-destructive/10 px-2 font-sans ui-text-sm text-destructive">
           <span className="min-w-0 flex-1 truncate">{error ?? t("git.log.unableToRefresh")}</span>
