@@ -1294,6 +1294,11 @@ struct EditorAreaView: View {
             .overlay(alignment: .top) {
                 FindBarOverlay()
             }
+            .overlay(alignment: .topTrailing) {
+                EditorSoftWrapToggle()
+                    .padding(.top, 8)
+                    .padding(.trailing, 10)
+            }
     }
 
     private func codeEditor(

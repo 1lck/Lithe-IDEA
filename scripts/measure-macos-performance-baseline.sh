@@ -109,12 +109,8 @@ prepare_baseline_app() {
     cp -R "$project_root/macos/Resources/IDEAIcons" "$app_dir/Contents/Resources/IDEAIcons"
     cp -R "$project_root/macos/Resources/GitGraph" "$app_dir/Contents/Resources/GitGraph"
     cp -R "$project_root/macos/Resources/DatabaseIcons" "$app_dir/Contents/Resources/DatabaseIcons"
-    for localization in en.lproj zh-Hans.lproj; do
-        if [[ -d "$project_root/macos/Resources/$localization" ]]; then
-            cp -R "$project_root/macos/Resources/$localization" \
-                "$app_dir/Contents/Resources/$localization"
-        fi
-    done
+    zsh "$project_root/scripts/package-macos-localizations.sh" \
+        "$project_root/macos/Resources" "$app_dir/Contents/Resources"
     /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $bundle_identifier" \
         "$app_dir/Contents/Info.plist"
     codesign --force --deep --sign - "$app_dir" >/dev/null

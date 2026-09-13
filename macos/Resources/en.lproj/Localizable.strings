@@ -515,6 +515,10 @@
 "Close Git console" = "Close Git console";
 "Disable soft wraps" = "Disable soft wraps";
 "Use soft wraps" = "Use soft wraps";
+"Soft Wraps" = "Soft Wraps";
+"Soft wrap is unavailable for very large files" = "Soft wrap is unavailable for very large files";
+"On" = "On";
+"Off" = "Off";
 "Disable automatic scrolling" = "Disable automatic scrolling";
 "Scroll to new Git output" = "Scroll to new Git output";
 "Clear Git console" = "Clear Git console";

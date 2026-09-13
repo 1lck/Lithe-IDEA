@@ -78,6 +78,11 @@ struct StandaloneEditorView: View {
                     FindBarView()
                 }
             }
+            .overlay(alignment: .topTrailing) {
+                EditorSoftWrapToggle()
+                    .padding(.top, 8)
+                    .padding(.trailing, 10)
+            }
     }
 
     private func failureView(_ failure: StandaloneFileOpenFailure) -> some View {
