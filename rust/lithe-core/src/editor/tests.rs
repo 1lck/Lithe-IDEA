@@ -511,6 +511,7 @@ fn line_comment_token_maps_common_extensions_and_language_ids() {
         ("ts", "//"),
         ("csharp", "//"),
         ("zig", "//"),
+        ("rust", "//"),
         ("javascript", "//"),
         ("javascriptreact", "//"),
         ("typescript", "//"),
@@ -586,6 +587,19 @@ fn edited_length_and_selection(source_length: usize, outcome: &Value) -> (usize,
             .as_u64()
             .expect("selection length") as usize,
     )
+}
+
+#[test]
+fn duplicate_preserves_selection_end_across_crlf_normalization() {
+    // Regression: normalizing the start before computing the end shifted
+    // the end left and silently shortened selections crossing a CRLF
+    // separator. Raw endpoints are clamped and normalized independently.
+    let outcome = applied("duplicateLine", "a\r\nb", 2, 2, None);
+    assert_eq!(outcome["text"], json!("\r\nb"));
+    assert_eq!(outcome["replacedStart"], json!(4));
+    assert_eq!(outcome["replacedLength"], json!(0));
+    assert_eq!(outcome["selectionStart"], json!(4));
+    assert_eq!(outcome["selectionLength"], json!(3));
 }
 
 #[test]

@@ -140,7 +140,7 @@ fn lookup_line_comment_token(identifier: &str) -> Option<&'static str> {
         "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hxx" | "java" | "kt" | "kts" | "swift"
         | "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" | "go" | "rs" | "cs" | "csharp" | "php"
         | "dart" | "scala" | "groovy" | "m" | "mm" | "zig" | "javascript" | "javascriptreact"
-        | "typescript" | "typescriptreact" | "kotlin" => Some("//"),
+        | "typescript" | "typescriptreact" | "kotlin" | "rust" => Some("//"),
         // Hash languages
         "py" | "python" | "rb" | "ruby" | "sh" | "bash" | "zsh" | "shell" | "yml" | "yaml"
         | "toml" | "ini" | "cfg" | "conf" | "properties" | "env" | "dotenv" | "r" | "rmarkdown"
@@ -157,12 +157,16 @@ pub fn line_edit(request: LineEditRequest) -> Result<LineEditOutcome, CoreError>
     let units: Vec<u16> = request.source.encode_utf16().collect();
     // A caret between the \r and \n of a CRLF pair is not a position text
     // engines can represent; normalize it to the end of the terminated line
-    // so the mapped selection always lands on an acceptable offset.
-    let selection_start = normalize_crlf_caret(&units, request.selection_start.min(units.len()));
-    let selection_end = normalize_crlf_caret(
-        &units,
-        (selection_start + request.selection_length).min(units.len()),
-    );
+    // so the mapped selection always lands on an acceptable offset. Each
+    // endpoint is clamped and normalized independently from the raw
+    // coordinates: normalizing the start first would shift the end and
+    // silently shorten non-zero selections that cross a CRLF separator.
+    let raw_start = request.selection_start.min(units.len());
+    let raw_end = raw_start
+        .saturating_add(request.selection_length)
+        .min(units.len());
+    let selection_start = normalize_crlf_caret(&units, raw_start);
+    let selection_end = normalize_crlf_caret(&units, raw_end);
     let selection_length = selection_end.saturating_sub(selection_start);
     let token = request.comment_token.as_deref();
     let outcome = match request.operation {
