@@ -41,6 +41,109 @@ private struct WorkbenchPopoverArrow: Shape {
     }
 }
 
+/// Owns observation of replacement visibility so the overlay can dismiss
+/// without reconstructing the complete workbench.
+private struct ProjectReplaceOverlay: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var session: SearchSessionFeatureModel
+
+    var body: some View {
+        if session.isProjectReplaceVisible {
+            ZStack {
+                Color.black.opacity(0.14)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        session.isProjectReplaceVisible = false
+                    }
+
+                if let feature = model.searchFeatureIfActive {
+                    ProjectReplaceView(
+                        feature: feature,
+                        session: session,
+                        previewReplacement: { await model.previewProjectReplacement(query: $0, replacement: $1, options: $2) },
+                        applyReplacement: { await model.applyProjectReplacement(query: $0) },
+                        close: { session.isProjectReplaceVisible = false },
+                        openFile: { model.openFile($0, displayPath: $1) },
+                        revealInFinder: { model.revealProjectItemInFinder($0) },
+                        copyPath: { model.copyProjectItemPath($0, relative: $1) }
+                    )
+                } else {
+                    WorkbenchModuleUIRegistry.moduleLoadingView
+                        .frame(width: 650, height: 614)
+                        .task {
+                            if await model.activateSearchModule() == nil {
+                                session.isProjectReplaceVisible = false
+                            }
+                        }
+                }
+            }
+            .background(ProjectReplaceKeyMonitor(session: session))
+        }
+    }
+
+}
+
+private struct ProjectReplaceKeyMonitor: NSViewRepresentable {
+    let session: SearchSessionFeatureModel
+
+    func makeNSView(context: Context) -> ProjectReplaceKeyMonitorView {
+        ProjectReplaceKeyMonitorView(session: session)
+    }
+
+    func updateNSView(_ view: ProjectReplaceKeyMonitorView, context: Context) {
+        view.session = session
+    }
+
+    static func dismantleNSView(_ view: ProjectReplaceKeyMonitorView, coordinator: ()) {
+        view.removeKeyMonitor()
+    }
+}
+
+/// Scopes replacement shortcuts to the native window hosting this overlay.
+final class ProjectReplaceKeyMonitorView: NSView {
+    var session: SearchSessionFeatureModel
+    private var keyMonitor: Any?
+
+    init(session: SearchSessionFeatureModel) {
+        self.session = session
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        removeKeyMonitor()
+        guard window != nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            return self.handleKeyEvent(event)
+        }
+    }
+
+    func handleKeyEvent(_ event: NSEvent) -> NSEvent? {
+        guard let window, event.window === window,
+              session.isProjectReplaceVisible else { return event }
+        if event.keyCode == 53 {
+            session.isProjectReplaceVisible = false
+            return nil
+        }
+
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard modifiers.contains(.command) else { return event }
+        let editingCommands: Set<String> = ["a", "c", "v", "x", "z"]
+        return editingCommands.contains(event.charactersIgnoringModifiers?.lowercased() ?? "") ? event : nil
+    }
+
+    func removeKeyMonitor() {
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
+        }
+    }
+}
+
 private struct ProjectSwitcherButtonBoundsPreferenceKey: PreferenceKey {
     static var defaultValue: Anchor<CGRect>?
 
@@ -402,28 +505,9 @@ struct WorkbenchView: View {
             }
         }
         .animation(.easeOut(duration: 0.12), value: model.isSearchEverywhereVisible)
-        // Replace in Files 挂在工作台层：搜索侧栏未打开时快捷键也能直接弹出。
-        .sheet(isPresented: $model.isProjectReplaceVisible) {
-            if let feature = model.searchFeatureIfActive {
-                ProjectReplaceView(
-                    feature: feature,
-                    session: model.searchSessionFeature,
-                    previewReplacement: { await model.previewProjectReplacement(query: $0, replacement: $1, options: $2) },
-                    applyReplacement: { await model.applyProjectReplacement(query: $0) },
-                    close: { model.isProjectReplaceVisible = false },
-                    openFile: { model.openFile($0, displayPath: $1) },
-                    revealInFinder: { model.revealProjectItemInFinder($0) },
-                    copyPath: { model.copyProjectItemPath($0, relative: $1) }
-                )
-            } else {
-                WorkbenchModuleUIRegistry.moduleLoadingView
-                    .frame(minWidth: 780, minHeight: 560)
-                    .task {
-                        if await model.activateSearchModule() == nil {
-                            model.isProjectReplaceVisible = false
-                        }
-                    }
-            }
+        // Replace in Files 是工作台上的自绘模态层，避免系统 sheet 的大圆角和标题栏。
+        .overlay {
+            ProjectReplaceOverlay(model: model, session: model.searchSessionFeature)
         }
         .onAppear {
             restoreLayout()
