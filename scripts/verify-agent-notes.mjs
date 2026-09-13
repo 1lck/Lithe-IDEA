@@ -211,8 +211,9 @@ function validateNote(path, lifecycle) {
     }
 
     const headings = lines.filter((line) => line.startsWith("## ")).map((line) => line.trimEnd());
-    if (headings[0] !== "## 问题") {
-        fail(`format: ${noteRel}`, "第一个二级标题必须是 `## 问题`");
+    const firstContentHeading = headings[0] === "## 先说结论" ? headings[1] : headings[0];
+    if (firstContentHeading !== "## 问题") {
+        fail(`format: ${noteRel}`, "正文必须先有 `## 先说结论`（可选）再进入 `## 问题`");
     }
     for (const heading of requiredHeadings[lifecycle]) {
         if (!headings.includes(heading)) {

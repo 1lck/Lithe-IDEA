@@ -21,6 +21,9 @@ those notes, load `.agents/skills/agent-notes/SKILL.md`.
   platform boundary document.
 - For cross-platform behavior, read `shared/contracts/application-boundary.md`,
   `shared/contracts/rust-core-api.md`, and the related fixtures.
+- For resizable panels, splitters, continuous dragging, or other high-frequency
+  UI interaction, also read
+  `.agents/notes/implemented/architecture/2026-09-13-resizable-ui-performance-boundaries.md`.
 - Do not introduce a new architectural direction as part of an unrelated task.
 
 ## Respect repository ownership
