@@ -757,6 +757,10 @@ struct CodeEditorView: NSViewRepresentable {
             NSRange(location: selectionLocation, length: selectionLength)
         )
         textView.isEditable = !document.isReadOnly
+        // 注释符在动作触发时经 Rust Core 解析，文档改名后无需失效缓存
+        textView.onLineEditingAction = { [weak coordinator = context.coordinator] action in
+            coordinator?.performLineEditing(action)
+        }
         textView.isSelectable = true
         textView.onWindowAttached = { [weak coordinator = context.coordinator] in
             coordinator?.requestInitialFocusIfNeeded()
@@ -1070,6 +1074,45 @@ struct CodeEditorView: NSViewRepresentable {
             if let viewportScrollObserver {
                 NotificationCenter.default.removeObserver(viewportScrollObserver)
             }
+        }
+
+        /// 经 Rust Core 的行级编辑端口解析编辑结果；注释符在触发时按当前
+        /// 文档扩展名解析，文档重命名后天然使用新值。
+        func performLineEditing(_ action: CodeTextView.LineEditingAction) -> EditorLineEditResult? {
+            guard let textView, let document, let model else { return nil }
+            let operation: EditorLineEditOperation
+            switch action {
+            case .toggleLineComment:
+                guard let token = Self.lineCommentToken(
+                    for: document,
+                    using: model.services.lineEditing
+                ) else { return nil }
+                operation = .toggleLineComment(token: token)
+            case .duplicate:
+                operation = .duplicateLine
+            case .moveUp:
+                operation = .moveLineUp
+            case .moveDown:
+                operation = .moveLineDown
+            }
+            return model.services.lineEditing.lineEdit(
+                operation,
+                source: textView.string,
+                selection: textView.selectedRange()
+            )
+        }
+
+        /// Resolves the comment token at action time from the document's
+        /// current name. The token must never be cached: relocate(to:)
+        /// renames a document in place while the editor keeps reusing the
+        /// same document id, so a cached token would go stale. The full
+        /// last path component is passed so dotfiles such as `.env` (whose
+        /// pathExtension is empty) resolve through their basename.
+        static func lineCommentToken(
+            for document: EditorDocument,
+            using lineEditing: any EditorLineEditing
+        ) -> String? {
+            lineEditing.lineCommentToken(forIdentifier: document.url.lastPathComponent)
         }
 
         func attachViewportTracking(to scrollView: NSScrollView) {
@@ -2150,6 +2193,16 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         }
     }
     var onPasteImage: (() -> Bool)?
+    /// 行级编辑动作交给 coordinator 经 Rust Core 解析；返回 nil 表示
+    /// 空操作（未知注释类型、边界拒绝），按键交回默认处理
+    var onLineEditingAction: ((LineEditingAction) -> EditorLineEditResult?)?
+
+    enum LineEditingAction: Equatable {
+        case toggleLineComment
+        case duplicate
+        case moveUp
+        case moveDown
+    }
 
     private var findMatchRanges: [NSRange] = []
     private var currentFindMatchIndex = 0
@@ -2337,7 +2390,91 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
             requestLanguageCompletions()
             return true
         }
+        if isEditable,
+           handleLineEditingShortcut(
+               modifiers: event.modifierFlags,
+               character: character,
+               keyCode: event.keyCode
+           ) {
+            return true
+        }
         return super.performKeyEquivalent(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        // 方向键不进入 performKeyEquivalent 等价键循环，必须在 keyDown
+        // 拦截，否则会落回系统默认的“按段落扩展选区”行为
+        if isEditable,
+           handleLineEditingShortcut(
+               modifiers: event.modifierFlags,
+               character: event.charactersIgnoringModifiers,
+               keyCode: event.keyCode
+           ) {
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    /// 行级编辑快捷键：Cmd+/ 切换行注释、Cmd+D 复制行/选区、
+    /// Option+Shift+↑/↓ 上下移动行。只有在 Rust Core 真正产出编辑时才
+    /// 消费按键；空操作（如空文档复制）交回默认处理。
+    private func handleLineEditingShortcut(
+        modifiers: NSEvent.ModifierFlags,
+        character: String?,
+        keyCode: UInt16
+    ) -> Bool {
+        guard isEditable,
+              let action = Self.lineEditingShortcut(
+                  modifiers: modifiers,
+                  character: character,
+                  keyCode: keyCode
+              ),
+              let result = onLineEditingAction?(action) else { return false }
+        performLineEditingOperation(result)
+        return true
+    }
+
+    /// 判断按键组合对应的行级编辑操作；不匹配返回 nil。
+    static func lineEditingShortcut(
+        modifiers: NSEvent.ModifierFlags,
+        character: String?,
+        keyCode: UInt16
+    ) -> LineEditingAction? {
+        // 功能键事件会附带 .function（数字小键盘键还有 .numericPad），
+        // Caps Lock 开启时还有 .capsLock；与快捷键探测器一致，只提取
+        // 四个快捷键修饰键后再比较。
+        let raw = modifiers.intersection(.deviceIndependentFlagsMask)
+        var modifiers: NSEvent.ModifierFlags = []
+        if raw.contains(.command) { modifiers.insert(.command) }
+        if raw.contains(.control) { modifiers.insert(.control) }
+        if raw.contains(.option) { modifiers.insert(.option) }
+        if raw.contains(.shift) { modifiers.insert(.shift) }
+        if modifiers == .command {
+            if character == "/" { return .toggleLineComment }
+            if character?.lowercased() == "d" { return .duplicate }
+            return nil
+        }
+        // 方向键用 keyCode 判断，与键盘布局无关
+        guard modifiers == [.option, .shift] else { return nil }
+        if keyCode == Self.upArrowKeyCode { return .moveUp }
+        if keyCode == Self.downArrowKeyCode { return .moveDown }
+        return nil
+    }
+
+    private static let upArrowKeyCode: UInt16 = 126
+    private static let downArrowKeyCode: UInt16 = 125
+
+    /// Applies the Rust Core result through the standard AppKit editing
+    /// pipeline: one shouldChangeText + didChangeText round trip forms a
+    /// single undo step and reuses document sync, line indexing, highlight,
+    /// and fold refresh.
+    private func performLineEditingOperation(_ result: EditorLineEditResult) {
+        guard isEditable else { return }
+        guard shouldChangeText(in: result.replacedRange, replacementString: result.text) else { return }
+        textStorage?.replaceCharacters(in: result.replacedRange, with: result.text)
+        didChangeText()
+        setSelectedRange(result.selection)
+        scrollRangeToVisible(result.selection)
     }
 
     static func isStandardPasteShortcut(_ event: NSEvent) -> Bool {
