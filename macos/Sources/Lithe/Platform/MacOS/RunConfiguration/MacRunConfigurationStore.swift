@@ -92,7 +92,10 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
                     kind: kind,
                     execution: value.execution.flatMap(RunConfigurationExecution.init(rawValue:)),
                     modulePath: maven?.module == "." ? nil : maven?.module,
-                    mainClass: maven?.mainClass
+                    mainClass: maven?.mainClass,
+                    mavenReactorPath: maven?.reactorPath,
+                    debugAdapter: value.debug?.adapter,
+                    disabled: value.disabled
                 ),
                 options: RunOptions(
                     javaHomePath: java?.homePath ?? "",

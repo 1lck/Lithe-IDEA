@@ -9,22 +9,25 @@ import LitheLanguageIntelligenceModule
 final class LanguageToolingFeatureModel: ObservableObject {
     @Published private(set) var catalog: LanguageProviderCatalog
     @Published private(set) var catalogSnapshot: LanguageProviderCatalogSnapshot
-    private(set) var disabledProviderIDs: Set<String> = []
+    @Published private(set) var disabledProviderIDs: Set<String> = []
     private(set) var startupFailures: [String: String] = [:]
 
     private let catalogSource: any LanguageProviderCatalogSource
+    private let preferences: any WorkspaceLanguageServerPreferencesStoring
+    private var workspaceURL: URL?
     private var sessionsProvider: @MainActor () -> LanguageToolingSessionManager?
     private var documentsProvider: (@MainActor () -> [EditorDocument])?
-    private var workspaceProvider: (@MainActor () -> URL?)?
     private var activateDocument: (@MainActor (EditorDocument) -> Bool)?
     private var notify: (@MainActor (String) -> Void)?
 
     init(
         catalogSource: any LanguageProviderCatalogSource,
         catalogSnapshot: LanguageProviderCatalogSnapshot,
+        preferences: any WorkspaceLanguageServerPreferencesStoring,
         sessionsProvider: @escaping @MainActor () -> LanguageToolingSessionManager?
     ) {
         self.catalogSource = catalogSource
+        self.preferences = preferences
         self.catalogSnapshot = catalogSnapshot
         catalog = catalogSnapshot.catalog
         self.sessionsProvider = sessionsProvider
@@ -32,12 +35,10 @@ final class LanguageToolingFeatureModel: ObservableObject {
 
     func configure(
         documentsProvider: @escaping @MainActor () -> [EditorDocument],
-        workspaceProvider: @escaping @MainActor () -> URL?,
         activateDocument: @escaping @MainActor (EditorDocument) -> Bool,
         notify: @escaping @MainActor (String) -> Void
     ) {
         self.documentsProvider = documentsProvider
-        self.workspaceProvider = workspaceProvider
         self.activateDocument = activateDocument
         self.notify = notify
     }
@@ -49,11 +50,15 @@ final class LanguageToolingFeatureModel: ObservableObject {
     }
 
     func resetWorkspaceState() {
-        disabledProviderIDs.removeAll()
         startupFailures.removeAll()
     }
 
     func reloadCatalog(for workspaceURL: URL?) {
+        self.workspaceURL = workspaceURL?.standardizedFileURL
+        // Restore preferences before workspace restoration can activate documents
+        // or prewarm Java. Runtime resets must not erase explicit user choices.
+        disabledProviderIDs = self.workspaceURL.map { preferences.disabledProviderIDs(for: $0) } ?? []
+        resetWorkspaceState()
         let snapshot = catalogSource.load(workspaceURL: workspaceURL)
         catalogSnapshot = snapshot
         catalog = snapshot.catalog
@@ -65,11 +70,16 @@ final class LanguageToolingFeatureModel: ObservableObject {
     }
 
     func setEnabled(_ enabled: Bool, providerID: String) {
+        guard let workspaceURL else { return }
         if enabled {
             disabledProviderIDs.remove(providerID)
-            synchronizeOpenDocuments(providerID: providerID)
         } else {
             disabledProviderIDs.insert(providerID)
+        }
+        preferences.saveDisabledProviderIDs(disabledProviderIDs, for: workspaceURL)
+        if enabled {
+            synchronizeOpenDocuments(providerID: providerID)
+        } else {
             sessionsProvider()?.recordLanguageServerLog(
                 providerID: providerID,
                 level: .warning,
@@ -81,14 +91,13 @@ final class LanguageToolingFeatureModel: ObservableObject {
     }
 
     func toolConfigurationDidChange(providerID: String) {
-        disabledProviderIDs.remove(providerID)
         startupFailures[providerID] = nil
         sessionsProvider()?.stopLanguageServer(providerID: providerID)
         sessionsProvider()?.recordLanguageServerLog(
             providerID: providerID,
             level: .info,
             message: "Language server tool configuration changed",
-            detail: "Workspace disable state cleared"
+            detail: "Workspace language server preference preserved"
         )
     }
 

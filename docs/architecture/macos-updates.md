@@ -1,5 +1,12 @@
 # macOS application updates
 
+Why Sparkle+EdDSA over requiring a Developer ID, why stable/preview stay on
+separate feeds and default-domain suites, why rollback only trusts the
+client-embedded key, and the asset-retention tradeoffs are recorded in
+[`.agents/notes/implemented/process/2026-09-13-macos-update-signing-and-release-strategy.md`](../../.agents/notes/implemented/process/2026-09-13-macos-update-signing-and-release-strategy.md).
+This document is the operational runbook: how to configure secrets, how the
+release workflows behave step by step, and how to verify a release.
+
 Lithe uses Sparkle 2.9.6 for in-app updates. The existing menu, welcome screen,
 and settings entry points keep Lithe's non-modal update offers, release details,
 Later and Skip Version actions. Sparkle's standard windows handle downloads and

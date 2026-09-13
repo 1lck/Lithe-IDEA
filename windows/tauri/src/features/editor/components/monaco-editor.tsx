@@ -77,7 +77,14 @@ import {
 } from "../utils/mouse-cursor-history";
 import { toggleCaseText } from "../utils/text-operations";
 import { editorAPI } from "../extensions/api";
-import { scheduleCachedViewStateRestore } from "../utils/view-state-restore";
+import {
+  createViewStateRestoreGate,
+  persistEditorViewportState,
+  restoreNativeEditorViewState,
+  scheduleCachedViewStateRestore,
+  type CachedScrollPosition,
+  type NativeEditorViewStateHandle,
+} from "../utils/view-state-restore";
 import type { MarkdownScrollMetrics } from "../markdown/scroll-sync";
 import type { EditorModelPositionResolver } from "../view-model/view-layout";
 import { syncContainedEditorFontOptions } from "../engines/monaco/contained-editors";
@@ -135,6 +142,94 @@ registerMonacoCodeLensProvider();
 
 const EMPTY_DIAGNOSTICS: Diagnostic[] = [];
 const INACTIVE_CURSOR_POSITION: Position = { line: 0, column: 0, offset: 0 };
+
+function monacoViewStateHandle(
+  editor: Monaco.editor.ICodeEditor,
+): NativeEditorViewStateHandle {
+  return {
+    save: () => editor.saveViewState(),
+    restore: (state) => {
+      editor.restoreViewState(state as Monaco.editor.ICodeEditorViewState);
+    },
+  };
+}
+
+function persistMonacoSurfaceViewState(
+  editor: Monaco.editor.IStandaloneCodeEditor,
+  viewKey: string,
+): void {
+  if (!viewKey) return;
+
+  const cached = useEditorStateStore.getState().actions.getCachedViewState(viewKey);
+  const scroll = persistEditorViewportState({
+    viewKey,
+    liveScroll: {
+      scrollTop: editor.getScrollTop(),
+      scrollLeft: editor.getScrollLeft(),
+    },
+    cached: cached
+      ? { scrollTop: cached.scrollTop, scrollLeft: cached.scrollLeft }
+      : null,
+    native: monacoViewStateHandle(editor),
+  });
+  const model = editor.getModel();
+  const position = editor.getPosition();
+  const selection = editor.getSelection();
+
+  useEditorStateStore.getState().actions.cacheViewStateForBuffer(viewKey, {
+    cursor:
+      model && position
+        ? toEditorPosition(model, position)
+        : (cached?.cursor ?? { line: 0, column: 0, offset: 0 }),
+    selection:
+      model && selection && !selection.isEmpty()
+        ? toEditorRange(model, selection)
+        : cached?.selection,
+    scrollTop: scroll.scrollTop,
+    scrollLeft: scroll.scrollLeft,
+  });
+}
+
+function cachedScrollForViewKey(viewKey: string): CachedScrollPosition | undefined {
+  const cached = useEditorStateStore.getState().actions.getCachedViewState(viewKey);
+  return cached
+    ? { scrollTop: cached.scrollTop, scrollLeft: cached.scrollLeft }
+    : undefined;
+}
+
+function applyMonacoSurfaceViewState(
+  editor: Monaco.editor.IStandaloneCodeEditor,
+  viewKey: string,
+): void {
+  if (!viewKey) return;
+
+  const cached = useEditorStateStore.getState().actions.getCachedViewState(viewKey);
+  const restoredNative = restoreNativeEditorViewState(viewKey, monacoViewStateHandle(editor));
+  if (!restoredNative && cached) {
+    const model = editor.getModel();
+    if (model) {
+      editor.setPosition(toClampedMonacoPosition(model, cached.cursor));
+      if (cached.selection) editor.setSelection(toMonacoRange(model, cached.selection));
+    }
+  }
+  if (!cached) return;
+  if (restoredNative && cached.scrollTop === 0 && cached.scrollLeft === 0) {
+    return;
+  }
+  editor.setScrollPosition({
+    scrollTop: cached.scrollTop,
+    scrollLeft: cached.scrollLeft,
+  });
+}
+
+function applyMonacoSurfaceViewport(
+  editor: Monaco.editor.IStandaloneCodeEditor,
+  viewKey: string,
+): void {
+  const cachedScroll = cachedScrollForViewKey(viewKey);
+  if (!cachedScroll) return;
+  editor.setScrollPosition(cachedScroll);
+}
 
 /** Imperative scroll access for embedders that mirror editor scrolling. */
 export interface MonacoEditorScrollApi {
@@ -231,7 +326,13 @@ export function MonacoEditor({
   const mouseSelectingRef = useRef(false);
   const mouseGestureStartRef = useRef<CursorHistoryEntry | null>(null);
   const suppressNextCursorSelectionSyncRef = useRef(false);
-  const restoringViewStateRef = useRef(false);
+  const viewStateRestoreGateRef = useRef<ReturnType<typeof createViewStateRestoreGate> | null>(
+    null,
+  );
+  if (viewStateRestoreGateRef.current === null) {
+    viewStateRestoreGateRef.current = createViewStateRestoreGate();
+  }
+  const viewStateRestoreGate = viewStateRestoreGateRef.current;
   const latestContentChangeRef = useRef(onContentChange);
   const isActiveSurfaceRef = useRef(isActiveSurface);
   const onScrollMetricsChangeRef = useRef(onScrollMetricsChange);
@@ -730,6 +831,7 @@ export function MonacoEditor({
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container || !editorBufferId) return;
+    const finishCreatedRestore = viewStateRestoreGate.begin();
     const fontOptions = { fontFamily, fontSize, lineHeight };
     syncMonacoHoverBounds(container);
     if (filePath && fileOpenBenchmark.has(filePath)) {
@@ -1159,7 +1261,7 @@ export function MonacoEditor({
       definitionLinkGesture,
       editor.onDidScrollChange((event) => {
         if (!isCurrentEditorSurface()) return;
-        if (restoringViewStateRef.current) return;
+        if (viewStateRestoreGate.isRestoring()) return;
         const viewKey = viewStateKey ?? activeBufferId ?? null;
         setScrollForBuffer(viewKey, event.scrollTop, event.scrollLeft);
         onScrollOffsetChange?.(event.scrollTop, event.scrollLeft);
@@ -1173,6 +1275,8 @@ export function MonacoEditor({
         setViewportHeight(info.height);
         syncBottomScrollPadding(info.height);
         scheduleMonacoHoverClamp();
+        if (!viewStateRestoreGate.isRestoring()) return;
+        applyMonacoSurfaceViewport(editor, viewStateKey ?? activeBufferId ?? "");
       }),
     ];
 
@@ -1237,7 +1341,24 @@ export function MonacoEditor({
     });
     scheduleInlineGitBlameRender();
 
+    const createdViewKey = viewStateKey ?? activeBufferId ?? "";
+    const createdNavigationRevision = editorAPI.getOwnerNavigationRevision(createdViewKey);
+    applyMonacoSurfaceViewState(editor, createdViewKey);
+    const cancelCreatedViewStateRestore = scheduleCachedViewStateRestore({
+      editor,
+      cachedScroll: cachedScrollForViewKey(createdViewKey),
+      isEditorCurrent: () => editorRef.current === editor,
+      isNavigationRevisionCurrent: () =>
+        editorAPI.getOwnerNavigationRevision(createdViewKey) === createdNavigationRevision,
+      focus: () => {
+        if (isActiveSurfaceRef.current) editor.focus();
+      },
+      onRestoreComplete: finishCreatedRestore,
+    });
+
     return () => {
+      cancelCreatedViewStateRestore();
+      finishCreatedRestore();
       if (benchmarkRafId !== null) cancelAnimationFrame(benchmarkRafId);
       if (benchmarkTimeoutId !== null) window.clearTimeout(benchmarkTimeoutId);
       if (filePath && fileOpenBenchmark.has(filePath)) {
@@ -1286,6 +1407,7 @@ export function MonacoEditor({
       }
       implementationMarkerOwnerRef.current = null;
       implementationMarkersRef.current = [];
+      persistMonacoSurfaceViewState(editor, viewStateKey ?? activeBufferId ?? "");
       if (editorRef.current === editor) editorRef.current = null;
       if (modelRef.current === model) modelRef.current = null;
       try {
@@ -1882,8 +2004,22 @@ export function MonacoEditor({
     });
     if (container) syncContainedEditorFontOptions(container, fontOptions);
 
+    const viewKey = viewStateKey ?? activeBufferId ?? "";
+    if (
+      viewKey &&
+      (viewStateRestoreGate.isRestoring() || !isActiveSurfaceRef.current) &&
+      useEditorStateStore.getState().actions.getCachedViewState(viewKey)
+    ) {
+      if (viewStateRestoreGate.isRestoring()) {
+        applyMonacoSurfaceViewport(editor, viewKey);
+      } else {
+        applyMonacoSurfaceViewState(editor, viewKey);
+      }
+    }
+
     return undefined;
   }, [
+    activeBufferId,
     autoCompletion,
     codeLens,
     editorBracketPairColorization,
@@ -1912,6 +2048,7 @@ export function MonacoEditor({
     alwaysConsumeMouseWheel,
     semanticTokens,
     tabSize,
+    viewStateKey,
     vimCurrentMode,
     vimModeEnabled,
     wordWrap,
@@ -2046,49 +2183,35 @@ export function MonacoEditor({
     const editor = editorRef.current;
     if (!editor) return;
 
-    // Switching panes can recreate the Monaco surface. Restore every recreated
-    // surface before paint so the pane that just became inactive keeps its own
-    // viewport instead of briefly rendering at the first line; the focus
-    // callback below remains limited to the active surface.
     const viewStateKeyForRestore = viewStateKey ?? activeBufferId ?? "";
-    const cached = useEditorStateStore
-      .getState()
-      .actions.getCachedViewState(viewStateKeyForRestore);
-    const navigationRevision = editorAPI.getOwnerNavigationRevision(viewStateKeyForRestore);
-
-    restoringViewStateRef.current = true;
-    editor.layout();
-    if (cached) {
-      const model = editor.getModel();
-      if (model) {
-        editor.setPosition(toClampedMonacoPosition(model, cached.cursor));
-        if (cached.selection) editor.setSelection(toMonacoRange(model, cached.selection));
-      }
-      editor.setScrollPosition({
-        scrollTop: cached.scrollTop,
-        scrollLeft: cached.scrollLeft,
-      });
+    if (!isActiveSurface) {
+      // Snapshot the live viewport before hidden layout and option updates can
+      // reset Monaco to the first line. Do not call layout() here.
+      persistMonacoSurfaceViewState(editor, viewStateKeyForRestore);
+      return;
     }
+
+    const navigationRevision = editorAPI.getOwnerNavigationRevision(viewStateKeyForRestore);
+    const finishActivationRestore = viewStateRestoreGate.begin();
+
+    editor.layout();
+    applyMonacoSurfaceViewState(editor, viewStateKeyForRestore);
 
     const cancelCachedViewStateRestore = scheduleCachedViewStateRestore({
       editor,
-      cachedScroll: cached
-        ? { scrollTop: cached.scrollTop, scrollLeft: cached.scrollLeft }
-        : undefined,
+      cachedScroll: cachedScrollForViewKey(viewStateKeyForRestore),
       isEditorCurrent: () => editorRef.current === editor,
       isNavigationRevisionCurrent: () =>
         editorAPI.getOwnerNavigationRevision(viewStateKeyForRestore) === navigationRevision,
       focus: () => {
         if (isActiveSurfaceRef.current) editor.focus();
       },
-      onRestoreComplete: () => {
-        restoringViewStateRef.current = false;
-      },
+      onRestoreComplete: finishActivationRestore,
     });
 
     return () => {
       cancelCachedViewStateRestore();
-      restoringViewStateRef.current = false;
+      finishActivationRestore();
     };
   }, [activeBufferId, isActiveSurface, viewStateKey]);
 

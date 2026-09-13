@@ -32,6 +32,8 @@ private struct MacDirectoryWatcherFactory: DirectoryWatcherFactory {
 /// UI models receive this container instead of constructing platform adapters
 /// themselves. Windows will provide an equivalent composition root without
 /// changing the application-facing orchestration.
+// Note: Module runtime boundaries and lifecycle rules live in
+// .agents/notes/implemented/architecture/2026-09-13-module-runtime-boundaries-and-lifecycle.md
 @MainActor
 final class MacServiceContainer {
     let services: AppServices
@@ -67,6 +69,7 @@ final class MacServiceContainer {
         moduleLaunchMode: ModuleLaunchMode = .normal,
         moduleStore providedModuleStore: MacModuleConfigurationStore? = nil,
         workspaceOperations providedWorkspaceOperations: (any WorkspaceOperations)? = nil,
+        javaMavenOperations providedJavaMavenOperations: (any JavaMavenOperations)? = nil,
         runConfigurationOperations providedRunConfigurationOperations: (any RunConfigurationOperations)? = nil,
         gitWatchContextProvider providedGitWatchContextProvider: (any GitWatchContextProviding)? = nil,
         runExecutableResolver providedRunExecutableResolver: (any RunExecutableResolving)? = nil,
@@ -82,11 +85,12 @@ final class MacServiceContainer {
             .appendingPathComponent(".m2/repository", isDirectory: true)
         let gradleRepositoryURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".gradle/caches/modules-2/files-2.1", isDirectory: true)
-        let javaMavenOperations = RustJavaMavenOperations(
+        let javaMavenOperations = providedJavaMavenOperations ?? RustJavaMavenOperations(
             core: rustCore,
             metadataRepositoryURLs: [mavenRepositoryURL, gradleRepositoryURL]
         )
         let fileStorage = MacFileStorage()
+        let workspaceLanguageServerPreferences = MacWorkspaceLanguageServerPreferencesStore(store: store)
         let directoryMarkStore = WorkspaceDirectoryMarkStore(store: store)
         let runConfigurationStore = MacRunConfigurationStore(
             core: rustCore,
@@ -292,6 +296,10 @@ final class MacServiceContainer {
                         runtimeFactory: runtimeFactory,
                         builtinCore: rustCore,
                         extensionRequiredProviderIDs: pluginLanguageIDs,
+                        isLanguageServerEnabled: { providerID, workspaceURL in
+                            !workspaceLanguageServerPreferences.disabledProviderIDs(for: workspaceURL)
+                                .contains(providerID)
+                        },
                         workspaceFingerprintProvider: { descriptor, workspaceRootURL in
                             guard descriptor.id == "java" else { return nil }
                             return try jdtWorkspaceState.fingerprint(
@@ -541,6 +549,7 @@ final class MacServiceContainer {
             pluginManager: pluginManager,
             pluginCatalog: pluginCatalog,
             languageProviderCatalogSource: languageProviderCatalogSource,
+            workspaceLanguageServerPreferences: workspaceLanguageServerPreferences,
             languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,
             debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver(
                 fileStorage: fileStorage,
@@ -551,6 +560,7 @@ final class MacServiceContainer {
             debugBreakpointPersistence: debugBreakpointStore,
             workspaceOperations: workspaceOperations,
             documentLifecycleDecider: RustDocumentLifecycleDecider(core: rustCore),
+            lineEditing: RustLineEditing(core: rustCore),
             javaMavenOperations: javaMavenOperations,
             markdownRenderer: markdownRenderer,
             markdownImageImporter: markdownImageImporter,

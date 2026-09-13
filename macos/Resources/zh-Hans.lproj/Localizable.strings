@@ -299,6 +299,10 @@
 "Excluded" = "已排除";
 "Module Root" = "模块根目录";
 "Package" = "包";
+"Open pom.xml" = "打开 pom.xml";
+"Execute Maven Goal" = "执行 Maven 目标";
+"Test" = "测试";
+"Choose a Run configuration for this Maven module" = "请为此 Maven 模块选择运行配置";
 "Normal Folder" = "普通文件夹";
 "Copy Relative Path" = "复制相对路径";
 "New Project…" = "新建项目…";
@@ -1693,6 +1697,10 @@
 "Close Git console" = "关闭 Git 控制台";
 "Disable soft wraps" = "禁用自动换行";
 "Use soft wraps" = "启用自动换行";
+"Soft Wraps" = "自动换行";
+"Soft wrap is unavailable for very large files" = "文件过大，自动换行不可用";
+"On" = "开";
+"Off" = "关";
 "Disable automatic scrolling" = "禁用自动滚动";
 "Scroll to new Git output" = "滚动到最新 Git 输出";
 "Clear Git console" = "清空 Git 控制台";
@@ -1827,3 +1835,20 @@
 "Collapse long graph edges" = "收束长连线";
 "Go to parent commit %@" = "跳转到父提交 %@";
 "Go to child commit %@" = "跳转到子提交 %@";
+
+/* Services browser */
+"All configurations" = "全部配置";
+"Application types" = "应用类型";
+"No configurations in this scope" = "当前范围内没有配置";
+"Run selected" = "启动所选配置";
+"Stop selected" = "停止所选配置";
+"Clear selection" = "清除勾选";
+"%lld selected" = "已勾选 %lld 项";
+"Run checked configurations without restarting running services" = "启动勾选的配置，已运行的服务保持运行";
+"Select configurations for batch actions" = "勾选配置以批量操作";
+"Select %@" = "勾选 %@";
+"Partially selected" = "部分勾选";
+"Not selected" = "未勾选";
+"Start this configuration to see its output here." = "启动此配置后，输出将显示在这里。";
+"Could not save service selection" = "无法保存服务勾选状态";
+"Selected" = "已勾选";

@@ -9,14 +9,21 @@ Follow these instructions for all work in this repository. Prefer the existing
 architecture, nearby code, and executable verification scripts over generic
 framework conventions.
 
+Architecture decisions and trade-offs live in Chinese Agent Notes under
+`.agents/notes/`. For creating, migrating, updating, archiving, or reviewing
+those notes, load `.agents/skills/agent-notes/SKILL.md`.
+
 ## Read the relevant source of truth
 
 - Read the implementation and tests around a change before editing it.
-- For ownership or dependency changes, read
-  `docs/architecture/repository-layout.md` and the relevant platform boundary
-  document.
+- For ownership or dependency changes, read the relevant `implemented` Agent
+  Note under `.agents/notes/implemented/architecture/` and the relevant
+  platform boundary document.
 - For cross-platform behavior, read `shared/contracts/application-boundary.md`,
   `shared/contracts/rust-core-api.md`, and the related fixtures.
+- For resizable panels, splitters, continuous dragging, or other high-frequency
+  UI interaction, also read
+  `.agents/notes/implemented/architecture/2026-09-13-resizable-ui-performance-boundaries.md`.
 - Do not introduce a new architectural direction as part of an unrelated task.
 
 ## Respect repository ownership
@@ -180,6 +187,7 @@ before handoff.
 
 | Change | Minimum relevant validation |
 | --- | --- |
+| Agent Notes or architecture decision migration | `./scripts/verify-agent-notes.sh` |
 | Test code or test infrastructure | `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`, then the affected platform timing harness from `write-stable-tests` |
 | Swift application or tests | `./scripts/test-macos.sh` |
 | Core, Services, Views, or composition boundaries | `./scripts/verify-service-boundaries.sh` |
@@ -203,9 +211,9 @@ unexecuted check passed.
   fix.
 - Do not use destructive Git commands, create commits, push branches, or change
   release metadata unless the task explicitly requests it.
-- Update architecture or contract documentation when behavior, ownership, or a
-  compatibility surface changes. Do not rewrite docs for an implementation-only
-  refactor that leaves the documented behavior intact.
+- Update the owning Agent Note when behavior, ownership, or a compatibility
+  surface changes. Do not rewrite notes for an implementation-only refactor
+  that leaves the documented decision intact.
 
 ## Complete the work honestly
 

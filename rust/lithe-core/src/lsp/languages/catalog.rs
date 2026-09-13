@@ -1,4 +1,24 @@
 //! Loading and validation for built-in and workspace language-provider catalogs.
+//!
+//! Note: LSP runtime ownership and provider-routing invariants are recorded in
+//! .agents/notes/implemented/architecture/2026-09-13-language-tooling-and-lsp-runtime-ownership.md
+//!
+//! Checklist for adding a new language server:
+//! 1. Define a stable `id`, file-match rules, `languageId`, candidate executable
+//!    names and arguments; declare side-effect-free `validationArguments` for
+//!    any shim/proxy tool.
+//! 2. Define `languageServerInstallation` only if an install entry point is
+//!    needed; do not add a provider-ID branch in Swift UI.
+//! 3. Confirm the server supports stdio with standard `Content-Length` framing.
+//! 4. Do not branch by language in UI or manager code; server differences
+//!    belong in the descriptor or a dedicated adapter.
+//! 5. Verify capability with the `initialize` response; never treat the
+//!    catalog's `languageServer` flag as proof of feature support.
+//! 6. Test at minimum: initialize timeout/error, didOpen/change/close, request
+//!    timeout/late response, shutdown/exit, forced stop, and abnormal exit.
+//! 7. Cover malformed/partial/multiple frames, dynamic capability changes,
+//!    stale diagnostics, UTF-16 positions, file URIs with spaces/non-ASCII
+//!    characters, and servers that emit output immediately on launch.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

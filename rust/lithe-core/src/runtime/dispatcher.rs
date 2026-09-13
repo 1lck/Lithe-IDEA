@@ -918,6 +918,42 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::EditorLineEdit => {
+            match serde_json::from_value::<crate::editor::LineEditRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid editor line edit request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::editor::line_edit)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Editor line edit response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::EditorLineCommentToken => {
+            match serde_json::from_value::<crate::editor::LineCommentTokenRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid editor line comment token request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .map(crate::editor::line_comment_token)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Comment token response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspPlainSnippet => {
             match serde_json::from_value::<crate::lsp::PlainSnippetRequest>(parsed.payload).map_err(
                 |error| {

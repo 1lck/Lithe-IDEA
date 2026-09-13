@@ -14,12 +14,20 @@ final class EditorChromeModel: ObservableObject {
     @Published private(set) var findOptions = FindInFileOptions()
     @Published private(set) var isReplaceVisible = false
     @Published private(set) var findReplaceText = ""
+    /// 超大文件（行数阈值见 `LitheTextViewportLayout`）不支持软换行，
+    /// 编辑器据此禁用 chrome 开关与右键菜单项。
+    @Published private(set) var isSoftWrapAvailable = true
     private(set) var findMatchCount = 0
     private(set) var currentFindMatchIndex = 0
 
     func update(caret: EditorCaret?) {
         guard self.caret != caret else { return }
         self.caret = caret
+    }
+
+    func updateSoftWrapAvailability(_ isAvailable: Bool) {
+        guard isSoftWrapAvailable != isAvailable else { return }
+        isSoftWrapAvailable = isAvailable
     }
 
     func update(selectedText: String) {

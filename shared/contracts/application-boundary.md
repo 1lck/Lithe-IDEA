@@ -191,7 +191,7 @@ server advertises them during initialize or dynamic registration. The shared
 core owns JSON-RPC state, stdio, process lifecycle, and normalized results;
 platform adapters own executable and provider-resource discovery. Detailed
 invariants are documented in
-[`language-tooling.md`](../../docs/architecture/language-tooling.md).
+[`.agents/notes/implemented/architecture/2026-09-13-language-tooling-and-lsp-runtime-ownership.md`](../../.agents/notes/implemented/architecture/2026-09-13-language-tooling-and-lsp-runtime-ownership.md).
 
 Session lifecycle is a single discriminated state, never a set of booleans.
 Capability negotiation is separately `unknown` or `known`; a known capability
