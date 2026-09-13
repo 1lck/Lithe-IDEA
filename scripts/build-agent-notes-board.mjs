@@ -15,6 +15,7 @@ const __filename = fileURLToPath(import.meta.url);
 const rootDir = resolve(dirname(__filename), "..");
 const templatePath = resolve(rootDir, "assets/agent-notes-board.html");
 const parserPath = resolve(dirname(__filename), "agent-notes-parser.mjs");
+const logoPath = resolve(rootDir, "macos/Resources/AppIcon.png");
 const args = process.argv.slice(2);
 
 const isInitMode = args.includes("--init");
@@ -131,6 +132,13 @@ function readBrowserParserSource() {
     );
 }
 
+function readLogoDataUri() {
+    if (!existsSync(logoPath)) {
+        throw new Error(`Lithe Logo 不存在：${logoPath}`);
+    }
+    return `data:image/png;base64,${readFileSync(logoPath).toString("base64")}`;
+}
+
 function renderTemplate(projectName, notes = null) {
     let template = readFileSync(templatePath, "utf8");
     const safeProjectName = escapeHtml(projectName);
@@ -143,6 +151,7 @@ function renderTemplate(projectName, notes = null) {
         'id="brand-project-title">Lithe 工程决策看板<',
         `id="brand-project-title">${safeProjectName}<`,
     );
+    template = template.replace("__LITHE_AGENT_NOTES_LOGO__", readLogoDataUri());
     template = template.replace(
         "/* __LITHE_AGENT_NOTES_PARSER__ */",
         readBrowserParserSource(),

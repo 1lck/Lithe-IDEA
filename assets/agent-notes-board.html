@@ -74,13 +74,8 @@
   .brand-group { display: flex; align-items: center; gap: 12px; }
   .brand-logo {
     width: 32px; height: 32px; border-radius: 6px;
-    background: #0F172A; border: 1px solid #0F172A;
-    display: flex; align-items: center; justify-content: center;
-    position: relative; box-shadow: 0 2px 6px rgba(15,23,42,0.15);
-  }
-  .brand-logo::before {
-    content: ''; position: absolute; width: 8px; height: 8px;
-    background: #60A5FA; border-radius: 50%;
+    display: block; object-fit: cover;
+    box-shadow: 0 2px 6px rgba(15,23,42,0.15);
   }
   .brand-text {
     font-family: var(--font-display); font-size: 16px; font-weight: 700;
@@ -554,6 +549,25 @@
   }
   .quad-title::after { content: ''; flex: 1; height: 1px; background: var(--border-normal); }
   .quad-content { font-size: 14.5px; line-height: 1.8; color: #334155; }
+  .quad-content h3, .quad-content h4, .quad-content h5 {
+    color: #0F172A; line-height: 1.45; margin: 18px 0 8px; font-family: var(--font-display);
+  }
+  .quad-content h3 { font-size: 16px; }
+  .quad-content h4 { font-size: 15px; }
+  .quad-content h5 { font-size: 14px; }
+  .quad-content ul, .quad-content ol { margin: 8px 0 12px 24px; }
+  .quad-content li { margin: 3px 0; }
+  .quad-content blockquote {
+    margin: 12px 0; padding: 8px 14px; border-left: 3px solid #93C5FD;
+    background: #F8FAFC; color: var(--text-secondary);
+  }
+  .quad-content hr { border: 0; border-top: 1px solid var(--border-normal); margin: 18px 0; }
+  .md-table-wrap { overflow-x: auto; margin: 12px 0 16px; }
+  .md-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 420px; }
+  .md-table th, .md-table td {
+    border: 1px solid var(--border-normal); padding: 7px 10px; text-align: left; vertical-align: top;
+  }
+  .md-table th { background: #F8FAFC; color: #0F172A; font-weight: 700; }
   .quad-content code { font-family: var(--font-mono); font-size: 13px; background: #F1F5F9; padding: 2px 6px; border-radius: 3px; color: #1D4ED8; }
   .quad-content pre { background: #0F172A; border: 1px solid #1E293B; border-radius: var(--radius-sm); padding: 16px; overflow-x: auto; margin: 14px 0; }
   .quad-content pre code { background: transparent; padding: 0; color: #F8FAFC; }
@@ -598,7 +612,7 @@
 <!-- 顶栏 HUD -->
 <header class="hud-topbar">
   <div class="brand-group">
-    <div class="brand-logo"></div>
+    <img class="brand-logo" src="__LITHE_AGENT_NOTES_LOGO__" alt="Lithe Logo">
     <div class="brand-text">
       <span id="brand-project-title">Lithe 工程决策看板</span>
       <span class="telemetry-chip" id="chip-total-count">0 项</span>
@@ -886,25 +900,148 @@ function escapeHtml(str) {
 
 function parseMarkdown(text) {
   if (!text) return '';
-  let s = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  s = s.replace(/```([\s\S]*?)```/g, (m, c) => `<pre><code>${c.trim()}</code></pre>`);
-  s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
-  s = s.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, linkText, href) => {
-    const cleanHref = href.trim();
-    if (/^(?:javascript|data|vbscript):/i.test(cleanHref)) {
-      return linkText;
+  const lines = String(text).replace(/\r\n?/g, '\n').split('\n');
+  const tokens = [];
+  const stash = (value) => {
+    const index = tokens.push(value) - 1;
+    return `\u0000${index}\u0000`;
+  };
+  const restore = (value) => value.replace(/\u0000(\d+)\u0000/g, (_, index) => tokens[Number(index)] ?? '');
+
+  function renderInline(raw) {
+    let value = escapeHtml(raw);
+    value = value.replace(/`([^`\n]+)`/g, (_, code) =>
+      stash(`<code>${escapeHtml(code)}</code>`),
+    );
+    value = value.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, linkText, href) => {
+      const cleanHref = href.replace(/&amp;/g, '&').trim();
+      if (/^(?:javascript|data|vbscript):/i.test(cleanHref)) return linkText;
+      return stash(
+        `<a href="javascript:void(0)" class="md-deep-link" data-deep-link="${escapeHtml(cleanHref)}" style="color:var(--brand-blue);text-decoration:underline;">${linkText}</a>`,
+      );
+    });
+    value = value
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/__([^_]+)__/g, '<strong>$1</strong>')
+      .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
+      .replace(/_([^_\n]+)_/g, '<em>$1</em>');
+    return restore(value);
+  }
+
+  function tableCells(line) {
+    const trimmed = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+    return trimmed.split(/(?<!\\)\|/).map(cell => cell.replace(/\\\|/g, '|').trim());
+  }
+
+  function isTableSeparator(line) {
+    return tableCells(line).length > 0 &&
+      tableCells(line).every(cell => /^:?-{3,}:?$/.test(cell));
+  }
+
+  const blocks = [];
+  let paragraph = [];
+  let index = 0;
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    blocks.push(`<p style="margin-bottom:10px;">${paragraph.map(renderInline).join('<br>')}</p>`);
+    paragraph = [];
+  };
+
+  while (index < lines.length) {
+    const line = lines[index];
+    const fence = line.match(/^\s*```([^\s`]*)\s*$/);
+    if (fence) {
+      flushParagraph();
+      const code = [];
+      index += 1;
+      while (index < lines.length && !/^\s*```\s*$/.test(lines[index])) {
+        code.push(lines[index]);
+        index += 1;
+      }
+      const language = fence[1] ? ` class="language-${escapeHtml(fence[1])}"` : '';
+      blocks.push(`<pre><code${language}>${escapeHtml(code.join('\n').trim())}</code></pre>`);
+      index += 1;
+      continue;
     }
-    const safeHref = escapeHtml(cleanHref);
-    return `<a href="javascript:void(0)" class="md-deep-link" data-deep-link="${safeHref}" style="color:var(--brand-cyan);text-decoration:underline;">${linkText}</a>`;
-  });
-  s = s.replace(/^- (.*)$/gm, '• $1');
-  return s.split(/\n{2,}/).map(p => {
-    p = p.trim();
-    if (!p) return '';
-    if (p.startsWith('<pre>')) return p;
-    return `<p style="margin-bottom:10px;">${p.replace(/\n/g, '<br>')}</p>`;
-  }).join('');
+
+    const heading = line.match(/^\s*(#{1,6})\s+(.+?)\s*#*\s*$/);
+    if (heading) {
+      flushParagraph();
+      const level = Math.min(Number(heading[1].length), 5);
+      blocks.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
+      index += 1;
+      continue;
+    }
+
+    if (line.trim() && index + 1 < lines.length && isTableSeparator(lines[index + 1])) {
+      flushParagraph();
+      const headers = tableCells(line);
+      const rows = [];
+      index += 2;
+      while (index < lines.length && lines[index].trim() && lines[index].includes('|')) {
+        rows.push(tableCells(lines[index]));
+        index += 1;
+      }
+      blocks.push(`
+        <div class="md-table-wrap">
+          <table class="md-table">
+            <thead><tr>${headers.map(cell => `<th>${renderInline(cell)}</th>`).join('')}</tr></thead>
+            <tbody>${rows.map(row => `<tr>${headers.map((_, cellIndex) => `<td>${renderInline(row[cellIndex] || '')}</td>`).join('')}</tr>`).join('')}</tbody>
+          </table>
+        </div>
+      `);
+      continue;
+    }
+
+    if (/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(line)) {
+      flushParagraph();
+      blocks.push('<hr>');
+      index += 1;
+      continue;
+    }
+
+    const unordered = line.match(/^\s*[-+*]\s+(.+)$/);
+    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (unordered || ordered) {
+      flushParagraph();
+      const tag = unordered ? 'ul' : 'ol';
+      const items = [];
+      while (index < lines.length) {
+        const match = lines[index].match(unordered ? /^\s*[-+*]\s+(.+)$/ : /^\s*\d+[.)]\s+(.+)$/);
+        if (!match) break;
+        items.push(`<li>${renderInline(match[1])}</li>`);
+        index += 1;
+      }
+      blocks.push(`<${tag}>${items.join('')}</${tag}>`);
+      continue;
+    }
+
+    const quote = line.match(/^\s*>\s?(.*)$/);
+    if (quote) {
+      flushParagraph();
+      const quoteLines = [];
+      while (index < lines.length) {
+        const match = lines[index].match(/^\s*>\s?(.*)$/);
+        if (!match) break;
+        quoteLines.push(renderInline(match[1]));
+        index += 1;
+      }
+      blocks.push(`<blockquote>${quoteLines.join('<br>')}</blockquote>`);
+      continue;
+    }
+
+    if (!line.trim()) {
+      flushParagraph();
+      index += 1;
+      continue;
+    }
+
+    paragraph.push(line);
+    index += 1;
+  }
+
+  flushParagraph();
+  return blocks.join('');
 }
 
 function parseNote(raw, relPath, slugToId = new Map()) {
