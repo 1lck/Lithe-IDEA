@@ -117,6 +117,9 @@ modify_rust_source_test() { printf '%s\n' '#[test]' 'fn source_test() { assert_e
 modify_database_rust() { printf '%s\n' 'fn main() { println!("updated"); }' > rust/lithe-db-sidecar/src/main.rs; }
 modify_database_docker() { printf '%s\n' 'services:' '  mariadb: {}' > infra/docker/database-validation/compose.yaml; }
 modify_macos_package_verifier() { printf '%s\n' '#!/bin/zsh' 'print -- updated-package' > scripts/verify-macos-package.sh; }
+modify_localization_packaging() { printf '%s\n' '#!/bin/zsh' 'print -- localizations' > scripts/package-macos-localizations.sh; }
+modify_macos_performance_baseline() { printf '%s\n' '#!/bin/zsh' 'print -- baseline' > scripts/measure-macos-performance-baseline.sh; }
+modify_unknown_script() { printf '%s\n' '#!/bin/zsh' 'print -- unknown' > scripts/unclassified-fixture.sh; }
 modify_swift_source() { printf '%s\n' 'struct UpdatedApp {}' > macos/Sources/Lithe/App.swift; }
 modify_swift_test() { printf '%s\n' 'struct UpdatedAppTests {}' > macos/Tests/LitheTests/AppTests.swift; }
 modify_plugin_manifest() { printf '%s\n' '{"id":"dev.lithe.go-support","version":"2.0.0"}' > Plugins/mac/Official/GoSupport/plugin.json; }
@@ -183,6 +186,15 @@ assert_classification macos-package-verifier \
 assert_classification swift-source \
     "$(classification true false false false false true false false false false)" \
     modify_swift_source
+assert_classification localization-packaging \
+    "$(classification true false false false false true false false false false)" \
+    modify_localization_packaging
+assert_classification macos-performance-baseline \
+    "$(classification false false false false false true false false false false)" \
+    modify_macos_performance_baseline
+assert_classification unknown-script \
+    "$(classification true true true true true true true true false false)" \
+    modify_unknown_script
 assert_classification swift-test \
     "$(classification true false false false false false false false false false)" \
     modify_swift_test

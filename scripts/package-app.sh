@@ -172,11 +172,8 @@ cp -R "$ROOT_DIR/macos/Resources/IDEAIcons" "$APP_DIR/Contents/Resources/IDEAIco
 cp -R "$ROOT_DIR/macos/Resources/GitGraph" "$APP_DIR/Contents/Resources/GitGraph"
 cp -R "$ROOT_DIR/macos/Resources/DatabaseIcons" "$APP_DIR/Contents/Resources/DatabaseIcons"
 cp -R "$ROOT_DIR/macos/Resources/Fonts" "$APP_DIR/Contents/Resources/Fonts"
-for localization in en.lproj zh-Hans.lproj; do
-    if [[ -d "$ROOT_DIR/macos/Resources/$localization" ]]; then
-        cp -R "$ROOT_DIR/macos/Resources/$localization" "$APP_DIR/Contents/Resources/$localization"
-    fi
-done
+zsh "$ROOT_DIR/scripts/package-macos-localizations.sh" \
+    "$ROOT_DIR/macos/Resources" "$APP_DIR/Contents/Resources"
 codesign --force --deep --sign "$SIGNING_IDENTITY" "$APP_DIR"
 
 echo "$APP_DIR"
