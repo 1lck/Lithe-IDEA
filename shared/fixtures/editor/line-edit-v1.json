@@ -1,0 +1,430 @@
+{
+  "protocolVersion": 1,
+  "cases": [
+    {
+      "name": "toggle comment inserts at line start and maps caret",
+      "request": {
+        "operation": "toggleLineComment",
+        "source": "let x = 1",
+        "selectionStart": 5,
+        "selectionLength": 0,
+        "commentToken": "//"
+      },
+      "expected": {
+        "applied": true,
+        "text": "// let x = 1",
+        "replacedStart": 0,
+        "replacedLength": 9,
+        "selectionStart": 8,
+        "selectionLength": 0
+      }
+    },
+    {
+      "name": "toggle comment inserts after leading indentation",
+      "request": {
+        "operation": "toggleLineComment",
+        "source": "  let x = 1",
+        "selectionStart": 0,
+        "selectionLength": 0,
+        "commentToken": "//"
+      },
+      "expected": {
+        "applied": true,
+        "text": "  // let x = 1",
+        "replacedStart": 0,
+        "replacedLength": 11,
+        "selectionStart": 0,
+        "selectionLength": 0
+      }
+    },
+    {
+      "name": "toggle comment removes token and one trailing space",
+      "request": {
+        "operation": "toggleLineComment",
+        "source": "// let x = 1",
+        "selectionStart": 0,
+        "selectionLength": 0,
+        "commentToken": "//"
+      },
+      "expected": {
+        "applied": true,
+        "text": "let x = 1",
+        "replacedStart": 0,
+        "replacedLength": 12,
+        "selectionStart": 0,
+        "selectionLength": 0
+      }
+    },
+    {
+      "name": "toggle comment covers both lines when selection ends at next line start",
+      "request": {
+        "operation": "toggleLineComment",
+        "source": "a\nb\nc",
+        "selectionStart": 0,
+        "selectionLength": 4,
+        "commentToken": "//"
+      },
+      "expected": {
+        "applied": true,
+        "text": "// a\n// b",
+        "replacedStart": 0,
+        "replacedLength": 3,
+        "selectionStart": 0,
+        "selectionLength": 10
+      }
+    },
+    {
+      "name": "toggle comment skips blank lines",
+      "request": {
+        "operation": "toggleLineComment",
+        "source": "a\n\nb",
+        "selectionStart": 0,
+        "selectionLength": 4,
+        "commentToken": "//"
+      },
+      "expected": {
+        "applied": true,
+        "text": "// a\n\n// b",
+        "replacedStart": 0,
+        "replacedLength": 4,
+        "selectionStart": 0,
+        "selectionLength": 10
+      }
+    },
+    {
+      "name": "uncomment maps endpoint inside later token to new coordinates",
+      "request": {
+        "operation": "toggleLineComment",
+        "source": "// a\n// b",
+        "selectionStart": 0,
+        "selectionLength": 6,
+        "commentToken": "//"
+      },
+      "expected": {
+        "applied": true,
+        "text": "a\nb",
+        "replacedStart": 0,
+        "replacedLength": 9,
+        "selectionStart": 0,
+        "selectionLength": 2
+      }
+    },
+    {
+      "name": "toggle comment round trip restores a non-first line",
+      "request": {
+        "operation": "toggleLineComment",
+        "source": "func f() {\n    let x = 1\n}",
+        "selectionStart": 23,
+        "selectionLength": 0,
+        "commentToken": "//"
+      },
+      "expected": {
+        "applied": true,
+        "text": "    // let x = 1",
+        "replacedStart": 11,
+        "replacedLength": 13,
+        "selectionStart": 26,
+        "selectionLength": 0
+      }
+    },
+    {
+      "name": "toggle comment covers both CRLF lines when selection ends at line start",
+      "request": {
+        "operation": "toggleLineComment",
+        "source": "a\r\nb\r\nc",
+        "selectionStart": 0,
+        "selectionLength": 6,
+        "commentToken": "//"
+      },
+      "expected": {
+        "applied": true,
+        "text": "// a\r\n// b",
+        "replacedStart": 0,
+        "replacedLength": 4,
+        "selectionStart": 0,
+        "selectionLength": 12
+      }
+    },
+    {
+      "name": "duplicate line keeps caret column",
+      "request": {
+        "operation": "duplicateLine",
+        "source": "abc\ndef",
+        "selectionStart": 1,
+        "selectionLength": 0
+      },
+      "expected": {
+        "applied": true,
+        "text": "abc\n",
+        "replacedStart": 4,
+        "replacedLength": 0,
+        "selectionStart": 5,
+        "selectionLength": 0
+      }
+    },
+    {
+      "name": "duplicate line on empty document inserts one newline",
+      "request": {
+        "operation": "duplicateLine",
+        "source": "",
+        "selectionStart": 0,
+        "selectionLength": 0
+      },
+      "expected": {
+        "applied": true,
+        "text": "\n",
+        "replacedStart": 0,
+        "replacedLength": 0,
+        "selectionStart": 1,
+        "selectionLength": 0
+      }
+    },
+    {
+      "name": "duplicate selected text as is",
+      "request": {
+        "operation": "duplicateLine",
+        "source": "hello world",
+        "selectionStart": 0,
+        "selectionLength": 5
+      },
+      "expected": {
+        "applied": true,
+        "text": "hello",
+        "replacedStart": 5,
+        "replacedLength": 0,
+        "selectionStart": 5,
+        "selectionLength": 5
+      }
+    },
+    {
+      "name": "duplicate preserves CRLF separator",
+      "request": {
+        "operation": "duplicateLine",
+        "source": "a\r\nb",
+        "selectionStart": 1,
+        "selectionLength": 0
+      },
+      "expected": {
+        "applied": true,
+        "text": "a\r\n",
+        "replacedStart": 3,
+        "replacedLength": 0,
+        "selectionStart": 4,
+        "selectionLength": 0
+      }
+    },
+    {
+      "name": "delete line removes covered line with separator",
+      "request": {
+        "operation": "deleteLine",
+        "source": "a\nb\nc",
+        "selectionStart": 2,
+        "selectionLength": 0
+      },
+      "expected": {
+        "applied": true,
+        "text": "",
+        "replacedStart": 2,
+        "replacedLength": 2,
+        "selectionStart": 2,
+        "selectionLength": 0
+      }
+    },
+    {
+      "name": "move up swaps with line above and shifts caret",
+      "request": {
+        "operation": "moveLineUp",
+        "source": "a\nb\nc",
+        "selectionStart": 2,
+        "selectionLength": 0
+      },
+      "expected": {
+        "applied": true,
+        "text": "b\na\n",
+        "replacedStart": 0,
+        "replacedLength": 4,
+        "selectionStart": 0,
+        "selectionLength": 0
+      }
+    },
+    {
+      "name": "move up on first line is a no-op",
+      "request": {
+        "operation": "moveLineUp",
+        "source": "a\nb",
+        "selectionStart": 0,
+        "selectionLength": 0
+      },
+      "expected": {
+        "applied": false
+      }
+    },
+    {
+      "name": "move down on last line is a no-op",
+      "request": {
+        "operation": "moveLineDown",
+        "source": "a\nb",
+        "selectionStart": 2,
+        "selectionLength": 0
+      },
+      "expected": {
+        "applied": false
+      }
+    },
+    {
+      "name": "move down moves whole block when selection ends at next line start",
+      "request": {
+        "operation": "moveLineDown",
+        "source": "a\nb\nc",
+        "selectionStart": 0,
+        "selectionLength": 4
+      },
+      "expected": {
+        "applied": true,
+        "text": "c\na\nb",
+        "replacedStart": 0,
+        "replacedLength": 5,
+        "selectionStart": 2,
+        "selectionLength": 3
+      }
+    },
+    {
+      "name": "move down to last line without newline clamps selection end",
+      "request": {
+        "operation": "moveLineDown",
+        "source": "a\nb",
+        "selectionStart": 0,
+        "selectionLength": 2
+      },
+      "expected": {
+        "applied": true,
+        "text": "b\na",
+        "replacedStart": 0,
+        "replacedLength": 3,
+        "selectionStart": 2,
+        "selectionLength": 1
+      }
+    },
+    {
+      "name": "move up preserves CRLF separator",
+      "request": {
+        "operation": "moveLineUp",
+        "source": "a\r\nb",
+        "selectionStart": 3,
+        "selectionLength": 0
+      },
+      "expected": {
+        "applied": true,
+        "text": "b\r\na",
+        "replacedStart": 0,
+        "replacedLength": 4,
+        "selectionStart": 0,
+        "selectionLength": 0
+      }
+    },
+    {
+      "name": "copy line up inserts copy above and keeps selection",
+      "request": {
+        "operation": "copyLineUp",
+        "source": "a\nb\nc",
+        "selectionStart": 2,
+        "selectionLength": 0
+      },
+      "expected": {
+        "applied": true,
+        "text": "b\n",
+        "replacedStart": 2,
+        "replacedLength": 0,
+        "selectionStart": 2,
+        "selectionLength": 0
+      }
+    },
+    {
+      "name": "copy line down behaves like duplicate",
+      "request": {
+        "operation": "copyLineDown",
+        "source": "abc\ndef",
+        "selectionStart": 1,
+        "selectionLength": 0
+      },
+      "expected": {
+        "applied": true,
+        "text": "abc\n",
+        "replacedStart": 4,
+        "replacedLength": 0,
+        "selectionStart": 5,
+        "selectionLength": 0
+      }
+    },
+    {
+      "name": "resolve line comment token for extension",
+      "request": {
+        "identifier": "py"
+      },
+      "expected": {
+        "token": "#"
+      }
+    },
+    {
+      "name": "resolve line comment token for unknown extension",
+      "request": {
+        "identifier": "json"
+      },
+      "expected": {
+        "token": null
+      }
+    },
+    {
+      "name": "move down normalizes a caret inside a CRLF separator",
+      "request": {
+        "operation": "moveLineDown",
+        "source": "a\r\nb",
+        "selectionStart": 2,
+        "selectionLength": 0
+      },
+      "expected": {
+        "applied": true,
+        "text": "b\r\na",
+        "replacedStart": 0,
+        "replacedLength": 4,
+        "selectionStart": 4,
+        "selectionLength": 0
+      }
+    },
+    {
+      "name": "resolve line comment token for dotfile basename",
+      "request": {
+        "identifier": ".env"
+      },
+      "expected": {
+        "token": "#"
+      }
+    },
+    {
+      "name": "duplicate preserves selection end across CRLF normalization",
+      "request": {
+        "operation": "duplicateLine",
+        "source": "a\r\nb",
+        "selectionStart": 2,
+        "selectionLength": 2
+      },
+      "expected": {
+        "applied": true,
+        "text": "\r\nb",
+        "replacedStart": 4,
+        "replacedLength": 0,
+        "selectionStart": 4,
+        "selectionLength": 3
+      }
+    },
+    {
+      "name": "resolve line comment token for the rust language id",
+      "request": {
+        "identifier": "rust"
+      },
+      "expected": {
+        "token": "//"
+      }
+    }
+  ]
+}
