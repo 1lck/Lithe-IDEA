@@ -80,6 +80,11 @@ struct StandaloneEditorView: View {
                         .padding(.horizontal, 12)
                 }
             }
+            .overlay(alignment: .topTrailing) {
+                EditorSoftWrapToggle()
+                    .padding(.top, 8)
+                    .padding(.trailing, 10)
+            }
     }
 
     private func failureView(_ failure: StandaloneFileOpenFailure) -> some View {
