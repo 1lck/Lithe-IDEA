@@ -3337,7 +3337,7 @@ struct LitheCoreLogicTests {
             from: [
                 GitCommitFile(status: "M", path: "README.md"),
                 GitCommitFile(status: "M", path: "docs/README.md"),
-                GitCommitFile(status: "M", path: "docs/architecture/repository-layout.md"),
+                GitCommitFile(status: "M", path: "docs/architecture/macos-updates.md"),
                 GitCommitFile(status: "A", path: "src/main/java/example/App.java"),
                 GitCommitFile(status: "A", path: "service/Service.java"),
                 GitCommitFile(status: "A", path: "service/impl/ServiceImpl.java")

@@ -1,6 +1,7 @@
 // Portions adapted from JetBrains IntelliJ Community, Copyright 2000-2024
 // JetBrains s.r.o. and contributors, under the Apache License, Version 2.0.
-// Swift adaptation: Lithe contributors. See docs/architecture/macos-git-graph.md
+// Swift adaptation: Lithe contributors. See
+// .agents/notes/implemented/feature/2026-09-13-macos-git-graph-intellij-layout.md
 // and macos/Resources/GitGraph/NOTICE.txt for the pinned sources and license.
 import Foundation
 

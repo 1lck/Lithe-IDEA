@@ -1,5 +1,9 @@
 # macOS Interaction Baseline
 
+长期性能测量决策见
+[`2026-09-13-macos-interaction-performance-baseline.md`](../../.agents/notes/implemented/testing/2026-09-13-macos-interaction-performance-baseline.md)。
+本文只保留场景、命令和运行步骤。
+
 Issue #490 provides the repeatable measurement entry point for the #467
 performance work. The product stays unchanged unless the baseline environment
 variable is set.
