@@ -124,6 +124,8 @@ public extension ModuleEvent {
     static let activityEndedName = "module.activity-ended"
 }
 
+// Note: Module runtime boundaries and lifecycle rules live in
+// .agents/notes/implemented/architecture/2026-09-13-module-runtime-boundaries-and-lifecycle.md
 @MainActor
 public protocol ModuleResource: AnyObject {
     var moduleResourceKind: String { get }

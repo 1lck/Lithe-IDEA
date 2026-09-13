@@ -1,0 +1,36 @@
+name: Verify Agent Notes
+
+on:
+  pull_request:
+    paths:
+      - ".agents/notes/**"
+      - ".agents/skills/agent-notes/**"
+      - "scripts/agent-notes-parser.mjs"
+      - "scripts/verify-agent-notes.mjs"
+      - "scripts/verify-agent-notes.sh"
+      - ".github/workflows/deploy-agent-notes-board.yml"
+      - ".github/workflows/verify-agent-notes.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-agent-notes-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify Agent Notes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Verify Agent Notes
+        run: node scripts/verify-agent-notes.mjs

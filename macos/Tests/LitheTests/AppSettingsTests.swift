@@ -34,6 +34,34 @@ struct AppSettingsTests {
     }
 
     @Test
+    func editorSoftWrapDefaultsToDisabledAndPersistsAcrossRelaunch() {
+        let store = AppSettingsTestStore()
+        let settings = AppSettings(store: store)
+
+        #expect(!settings.editorSoftWrapEnabled)
+
+        settings.editorSoftWrapEnabled = true
+
+        #expect(AppSettings(store: store).editorSoftWrapEnabled)
+
+        settings.editorSoftWrapEnabled = false
+
+        #expect(!AppSettings(store: store).editorSoftWrapEnabled)
+    }
+
+    @Test
+    func restoringDefaultsDisablesEditorSoftWrap() {
+        let store = AppSettingsTestStore()
+        let settings = AppSettings(store: store)
+        settings.editorSoftWrapEnabled = true
+
+        settings.restoreDefaults()
+
+        #expect(!settings.editorSoftWrapEnabled)
+        #expect(!AppSettings(store: store).editorSoftWrapEnabled)
+    }
+
+    @Test
     func lspGeneratedArtifactHiddenPatternsCanBeAddedAndRemovedOnce() {
         let store = AppSettingsTestStore()
         let settings = AppSettings(store: store)

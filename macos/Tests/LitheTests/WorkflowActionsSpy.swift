@@ -73,6 +73,10 @@ final class WorkflowActionsSpy: DebugSessionCleanupActions, RunWorkflowActions {
         events.append("start-selected-services:\(configurations.map(\.id).joined(separator: ","))")
     }
 
+    func startRunConfigurations(_ configurationIDs: [String]) {
+        events.append("batch:" + configurationIDs.joined(separator: ","))
+    }
+
     func runAllServiceConfigurations() {
         events.append("run-all-services")
     }

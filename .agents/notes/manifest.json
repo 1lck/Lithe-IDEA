@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "language": "zh-CN",
+  "root": ".agents/notes",
+  "lifecycles": [
+    "implemented",
+    "proposed",
+    "rejected",
+    "archived"
+  ],
+  "classes": [
+    "architecture",
+    "bug-fix",
+    "feature",
+    "process",
+    "simplification",
+    "testing"
+  ],
+  "noteFilePattern": "yyyy-mm-dd-topic.md",
+  "generatedBoard": {
+    "script": "scripts/build-agent-notes-board.mjs",
+    "artifact": ".artifacts/agent-notes-board/index.html"
+  },
+  "verification": {
+    "script": "scripts/verify-agent-notes.sh"
+  }
+}

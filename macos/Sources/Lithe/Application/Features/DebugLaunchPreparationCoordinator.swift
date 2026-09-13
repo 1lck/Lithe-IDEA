@@ -74,15 +74,21 @@ final class DebugLaunchPreparationCoordinator {
             throw PreparationError.portUnavailable(port)
         }
 
+        let selected = runFeature.selectedConfiguration
+        let configurations = runFeature.configurations
+        let selectedOptions = selected.map { runFeature.options(for: $0) }
         let javaTarget = provider.id == "java" ? try await resolveJavaTarget() : nil
+        try Task.checkCancellation()
         return try resolver.resolve(
             provider: provider,
             documentURL: fileURL,
             workspaceURL: workspaceURL,
-            configurations: runFeature.configurations,
-            selectedConfiguration: runFeature.selectedConfiguration,
+            configurations: configurations,
+            selectedConfiguration: selected,
             javaTarget: javaTarget,
-            options: { [runFeature] in runFeature.options(for: $0) }
+            options: { [runFeature] in
+                $0 == selected ? (selectedOptions ?? RunOptions()) : runFeature.options(for: $0)
+            }
         )
     }
 }

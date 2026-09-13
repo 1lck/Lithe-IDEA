@@ -48,13 +48,17 @@ struct DebugLaunchSourceResolver {
         let moduleFiles = filesInSelectedModule(
             javaFiles,
             modulePath: configuration.modulePath,
-            workspaceURL: workspaceURL
+            workspaceURL: configuration.mavenReactorPath.map {
+                workspaceURL.appendingPathComponent($0, isDirectory: true)
+            } ?? workspaceURL
         )
-        let preferredFiles = moduleFiles.isEmpty ? javaFiles : moduleFiles
+        // A detected Maven owner must never fall back to another reactor's class.
+        let isOwned = configuration.mavenReactorPath != nil
+        let preferredFiles = moduleFiles.isEmpty && !isOwned ? javaFiles : moduleFiles
 
         if let sourceSuffix = sourceSuffix(for: configuration.mainClass),
            let exactMatch = preferredFiles.first(where: { $0.path.hasSuffix(sourceSuffix) })
-                ?? javaFiles.first(where: { $0.path.hasSuffix(sourceSuffix) }) {
+                ?? (isOwned ? nil : javaFiles.first(where: { $0.path.hasSuffix(sourceSuffix) })) {
             return exactMatch
         }
 
@@ -70,9 +74,7 @@ struct DebugLaunchSourceResolver {
         modulePath: String?,
         workspaceURL: URL
     ) -> [URL] {
-        guard let modulePath = modulePath?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !modulePath.isEmpty,
-              modulePath != "." else { return files }
+        let modulePath = modulePath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "."
         let moduleURL = workspaceURL
             .appendingPathComponent(modulePath, isDirectory: true)
             .standardizedFileURL
