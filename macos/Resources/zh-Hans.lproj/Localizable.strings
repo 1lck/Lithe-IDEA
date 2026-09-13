@@ -1697,6 +1697,10 @@
 "Close Git console" = "关闭 Git 控制台";
 "Disable soft wraps" = "禁用自动换行";
 "Use soft wraps" = "启用自动换行";
+"Soft Wraps" = "自动换行";
+"Soft wrap is unavailable for very large files" = "文件过大，自动换行不可用";
+"On" = "开";
+"Off" = "关";
 "Disable automatic scrolling" = "禁用自动滚动";
 "Scroll to new Git output" = "滚动到最新 Git 输出";
 "Clear Git console" = "清空 Git 控制台";

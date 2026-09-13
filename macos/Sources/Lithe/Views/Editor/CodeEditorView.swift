@@ -741,7 +741,19 @@ struct CodeEditorView: NSViewRepresentable {
         textView.isRichText = false
         textView.importsGraphics = false
         textView.allowsUndo = true
-        LitheTextViewportLayout.applyUnwrappedScrolling(to: textView, in: scrollView)
+        // 软换行按 AppSettings 全局开关应用；超大文件超出行数阈值时退回
+        // 不换行几何，避免拖分栏时整文件 rewrap 卡顿。
+        let softWrapAvailable = LitheTextViewportLayout.isSoftWrapSupported(
+            lineCount: (textView as? CodeTextView)?.lineCount() ?? 0
+        )
+        let softWrapEffective = settings.editorSoftWrapEnabled && softWrapAvailable
+        LitheTextViewportLayout.apply(
+            to: textView,
+            in: scrollView,
+            softWrap: softWrapEffective
+        )
+        context.coordinator.appliedSoftWrap = softWrapEffective
+        model.editorChrome.updateSoftWrapAvailability(softWrapAvailable)
         textView.textContainerInset = NSSize(width: EditorLayoutMetrics.leadingInset, height: 0)
         textView.textContainer?.lineFragmentPadding = EditorLayoutMetrics.lineFragmentPadding
         textView.font = LitheTheme.editorFont(size: settings.editorFontSize)
@@ -760,6 +772,11 @@ struct CodeEditorView: NSViewRepresentable {
         // 注释符在动作触发时经 Rust Core 解析，文档改名后无需失效缓存
         textView.onLineEditingAction = { [weak coordinator = context.coordinator] action in
             coordinator?.performLineEditing(action)
+        }
+        textView.isSoftWrapAvailable = softWrapAvailable
+        textView.isSoftWrapEnabled = softWrapEffective
+        textView.onToggleSoftWrap = { [weak settings] in
+            settings?.editorSoftWrapEnabled.toggle()
         }
         textView.isSelectable = true
         textView.onWindowAttached = { [weak coordinator = context.coordinator] in
@@ -913,6 +930,7 @@ struct CodeEditorView: NSViewRepresentable {
         let chromeChanged = context.coordinator.applyEditorChromeIfNeeded(
             fontSize: fontSize,
             tabWidth: tabWidth,
+            softWrapEnabled: settings.editorSoftWrapEnabled,
             languageFeatures: languageFeatures,
             isReadOnly: document.isReadOnly,
             isTransparent: true,
@@ -1003,6 +1021,7 @@ struct CodeEditorView: NSViewRepresentable {
         private var syntaxHighlightState = EditorSyntaxHighlightState()
         private var appliedFontSize: CGFloat?
         private var appliedTabWidth: Int?
+        fileprivate var appliedSoftWrap = false
         private var appliedLanguageFeatures: LanguageServerFeatureSet?
         private var appliedReadOnly: Bool?
         private var appliedCodeVisionHints: [JavaCodeVisionHint]?
@@ -1442,6 +1461,7 @@ struct CodeEditorView: NSViewRepresentable {
         fileprivate func applyEditorChromeIfNeeded(
             fontSize: CGFloat,
             tabWidth: Int,
+            softWrapEnabled: Bool,
             languageFeatures: LanguageServerFeatureSet,
             isReadOnly: Bool,
             isTransparent: Bool,
@@ -1477,6 +1497,27 @@ struct CodeEditorView: NSViewRepresentable {
                 if appliedTabWidth != tabWidth {
                     codeTextView.indentationWidth = tabWidth
                     appliedTabWidth = tabWidth
+                    changed = true
+                }
+                // 折行开关只在最终状态提交一次布局：可用性随文档行数在
+                // updateNSView 里重算，文本增长越过阈值时自动退回不换行。
+                let lineCount = codeTextView.lineCount()
+                let softWrapAvailable = LitheTextViewportLayout.isSoftWrapSupported(lineCount: lineCount)
+                let effectiveSoftWrap = softWrapEnabled && softWrapAvailable
+                codeTextView.isSoftWrapAvailable = softWrapAvailable
+                codeTextView.isSoftWrapEnabled = effectiveSoftWrap
+                model?.editorChrome.updateSoftWrapAvailability(softWrapAvailable)
+                if appliedSoftWrap != effectiveSoftWrap,
+                   let scrollView = container?.scrollView {
+                    LitheTextViewportLayout.apply(
+                        to: textView,
+                        in: scrollView,
+                        softWrap: effectiveSoftWrap
+                    )
+                    appliedSoftWrap = effectiveSoftWrap
+                    gutter?.refreshLineNumberLayout()
+                    gutter?.needsDisplay = true
+                    editorOverlayLayoutRevision &+= 1
                     changed = true
                 }
                 if appliedLanguageFeatures != languageFeatures {
@@ -2196,6 +2237,11 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     /// 行级编辑动作交给 coordinator 经 Rust Core 解析；返回 nil 表示
     /// 空操作（未知注释类型、边界拒绝），按键交回默认处理
     var onLineEditingAction: ((LineEditingAction) -> EditorLineEditResult?)?
+    /// 软换行状态仅用于右键菜单项展示；切换统一回写 AppSettings，
+    /// 布局由 updateNSView 在最终状态提交。
+    var isSoftWrapEnabled = false
+    var isSoftWrapAvailable = true
+    var onToggleSoftWrap: (() -> Void)?
 
     enum LineEditingAction: Equatable {
         case toggleLineComment
@@ -3198,23 +3244,33 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
             actualCharacterRange: nil
         )
         guard glyphRange.location < layoutManager.numberOfGlyphs else { return }
-        let lineRect = layoutManager.lineFragmentRect(
-            forGlyphAt: glyphRange.location,
-            effectiveRange: nil
-        )
         let horizontalInset = EditorLayoutMetrics.currentLineHorizontalInset
         let visibleEditorRect = enclosingScrollView.map {
             convert($0.contentView.bounds, from: $0.contentView).intersection(bounds)
         } ?? bounds
-        let currentLineRect = NSRect(
-            x: visibleEditorRect.minX + horizontalInset,
-            y: textContainerOrigin.y + lineRect.minY,
-            width: max(0, visibleEditorRect.width - horizontalInset * 2),
-            height: lineRect.height
-        )
-        guard currentLineRect.intersects(rect) else { return }
-        currentLineColor.setFill()
-        currentLineRect.intersection(rect).fill()
+        // 折行时当前逻辑行占据多个视觉片段，逐片段铺色保证高亮覆盖
+        // 每一视觉行；不换行时该行只有一个片段，行为不变。
+        var fragmentGlyphRange = NSRange()
+        var glyphIndex = glyphRange.location
+        while glyphIndex < NSMaxRange(glyphRange) {
+            let fragmentRect = layoutManager.lineFragmentRect(
+                forGlyphAt: glyphIndex,
+                effectiveRange: &fragmentGlyphRange
+            )
+            let currentLineRect = NSRect(
+                x: visibleEditorRect.minX + horizontalInset,
+                y: textContainerOrigin.y + fragmentRect.minY,
+                width: max(0, visibleEditorRect.width - horizontalInset * 2),
+                height: fragmentRect.height
+            )
+            if currentLineRect.intersects(rect) {
+                currentLineColor.setFill()
+                currentLineRect.intersection(rect).fill()
+            }
+            let nextGlyph = NSMaxRange(fragmentGlyphRange)
+            guard nextGlyph > glyphIndex else { break }
+            glyphIndex = nextGlyph
+        }
     }
 
     private func lineFragmentRect(
@@ -3932,6 +3988,16 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
                 self.selectAll(nil)
             })
         ]
+        if isSoftWrapAvailable, let onToggleSoftWrap {
+            items.append(.separator)
+            items.append(
+                .action(
+                    isSoftWrapEnabled ? "Disable soft wraps" : "Use soft wraps",
+                    systemImage: "arrow.turn.down.left",
+                    action: onToggleSoftWrap
+                )
+            )
+        }
         return items
     }
 
@@ -4719,7 +4785,12 @@ final class LineNumberGutterView: NSView {
             let lineRange = codeTextView?.lineRange(forLine: lineNumber - 1, in: text)
                 ?? text.lineRange(for: NSRange(location: characterIndex, length: 0))
             let lineGlyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
-            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+            // 折行时一个逻辑行占多个视觉片段，行号与 gutter 标记必须锚定
+            // 在该行的第一个片段上，即使视口从中间视觉行进入也不漂移。
+            let lineRect = layoutManager.lineFragmentRect(
+                forGlyphAt: min(lineGlyphRange.location, layoutManager.numberOfGlyphs - 1),
+                effectiveRange: nil
+            )
             let y = lineRect.minY + textView.textContainerOrigin.y - visibleRect.minY
             let isCollapsedHiddenLine = codeTextView?.isCharacterHiddenByFold(lineRange.location)
                 ?? hiddenLines.contains(lineNumber - 1)
