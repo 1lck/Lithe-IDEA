@@ -38,12 +38,16 @@ SwiftUI（macOS 界面框架）接收显式语言环境后，所调用的 Founda
 应用仍可能重复加载二进制表，界面布局和终端启动等其他工作仍有开销。本决策不等同于消除全部卡顿。
 打包多一次资源转换；以后新增打包入口时也必须调用该脚本。
 
+CI 分类将翻译打包脚本映射到 Swift 回归测试与 macOS 双架构打包，将性能基线脚本映射到 macOS 打包，避免因路径未分类而启动 Windows、数据库和插件任务。
+未知文件仍走全量验证；修改分类器或其测试本身也仍跑全量，防止分类错误隐藏回归。因此加入这条分类规则的 PR 本身仍会全量验证。
+
 ## 验证
 
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter LocalizationPackagingTests`
 - `./scripts/build-macos.sh --configuration debug`
 - `./scripts/preview.sh`：确认输出包的翻译文件为二进制，检查四个面板切换与中英文往返切换。
 - `./scripts/verify-agent-notes.sh`
+- `./scripts/test-classify-ci-changes.sh`
 
 性能对照应固定应用可执行文件、项目、语言和操作序列，仅改变打包后的翻译格式。记录采样窗口和平台，不把样本数量当作精确点击耗时。
 
