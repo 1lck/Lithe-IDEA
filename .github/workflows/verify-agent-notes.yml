@@ -33,4 +33,4 @@ jobs:
           node-version: 20
 
       - name: Verify Agent Notes
-        run: ./scripts/verify-agent-notes.sh
+        run: node scripts/verify-agent-notes.mjs
