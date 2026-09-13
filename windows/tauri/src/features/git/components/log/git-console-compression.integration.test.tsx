@@ -30,7 +30,7 @@ afterEach(async () => {
 
 function recordFromSample(index: number): GitConsoleRecord {
   const raw = fixture.cases[index]!.input.records[0]! as unknown as GitConsoleRecord;
-  return { timestamp: 0, operationId: "fixture", action: "Git", truncated: false, ...raw,
+  return { ...raw, timestamp: 0, operationId: "fixture", action: "Git", truncated: raw.truncated ?? false,
     state: raw.state as GitConsoleRecord["state"], source: raw.source as GitConsoleRecord["source"],
     output: raw.lines.map((line) => line.text + "\n").join(""),
     lines: raw.lines as GitConsoleRecord["lines"],
