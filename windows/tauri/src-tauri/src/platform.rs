@@ -93,7 +93,7 @@ pub async fn platform_invoke(
 }
 
 fn observes_git_execution(command: &str) -> bool {
-    command.starts_with("git.") && command != "git.authRespond"
+    command.starts_with("git.") && command != "git.authRespond" && command != "git.consolePresentation"
 }
 
 fn core_response(
@@ -747,6 +747,7 @@ mod tests {
             assert!(super::observes_git_execution(command), "{command}");
         }
         assert!(!super::observes_git_execution("git.authRespond"));
+        assert!(!super::observes_git_execution("git.consolePresentation"));
         assert!(!super::observes_git_execution("workspace.scan"));
     }
 

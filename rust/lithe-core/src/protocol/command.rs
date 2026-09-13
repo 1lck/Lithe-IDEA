@@ -220,6 +220,8 @@ pub enum CoreCommand {
     GitCommand,
     /// Performs one supported Git mutation (`git.write`).
     GitWrite,
+    /// Projects retained Git console records without executing Git (`git.consolePresentation`).
+    GitConsolePresentation,
     /// Plans Fetch arguments without launching Git or changing configuration (`git.fetchPlan`).
     GitFetchPlan,
     /// Inspects Git configuration and its sources (`git.executionInspect`).
@@ -395,6 +397,7 @@ impl CoreCommand {
             "git.pullRequestContext" => Some(Self::GitPullRequestContext),
             "git.command" => Some(Self::GitCommand),
             "git.write" => Some(Self::GitWrite),
+            "git.consolePresentation" => Some(Self::GitConsolePresentation),
             "git.fetchPlan" => Some(Self::GitFetchPlan),
             "git.executionInspect" => Some(Self::GitExecutionInspect),
             "git.executionConfigure" => Some(Self::GitExecutionConfigure),

@@ -5,7 +5,7 @@
 
 use crate::protocol::CoreError;
 use serde::Serialize;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
@@ -37,6 +37,7 @@ enum Kind<'a> {
         error: Option<serde_json::Value>,
     },
     Started {
+        source: super::console::Source,
         executable: Option<String>,
         temporary_config: Vec<(String, String)>,
         invocation_id: u64,
@@ -54,6 +55,8 @@ enum Kind<'a> {
         truncated: bool,
     },
     Finished {
+        /// An operation-defined nonzero result, such as a missing optional config key.
+        expected_exit: bool,
         invocation_id: u64,
         exit_code: Option<i32>,
         duration_milliseconds: u128,
@@ -66,6 +69,8 @@ struct Context {
     sink: EventSink,
     operation_id: String,
     next_invocation: u64,
+    /// Transfer summaries remain attached to the transfer despite subsequent inspection queries.
+    last_transfer: Option<u64>,
 }
 thread_local! { static CURRENT: RefCell<Option<Context>> = const { RefCell::new(None) }; }
 
@@ -88,6 +93,7 @@ pub(crate) fn with_sink<T>(sink: EventSink, operation: impl FnOnce() -> T) -> T 
             sink,
             operation_id: String::new(),
             next_invocation: 0,
+            last_transfer: None,
         }))
     }));
     operation()
@@ -146,6 +152,11 @@ pub(super) struct Invocation {
     omitted: bool,
     stdout: LineDecoder,
     stderr: LineDecoder,
+    pending_progress: Option<PendingProgress>,
+    /// Broad config reads can contain arbitrary credentials and scripts. The command
+    /// stays visible while stdout is replaced with one explicit redaction marker.
+    redact_configuration: Cell<bool>,
+    configuration_marker_sent: bool,
 }
 impl Invocation {
     pub(super) fn current() -> Option<Self> {
@@ -163,10 +174,48 @@ impl Invocation {
                 omitted: false,
                 stdout: LineDecoder::default(),
                 stderr: LineDecoder::default(),
+                pending_progress: None,
+                redact_configuration: Cell::new(false),
+                configuration_marker_sent: false,
             })
         })
     }
     pub(super) fn started(&self, root: &str, arguments: &[String]) {
+        let config = super::execution_policy::command_index(arguments)
+            .is_some_and(|index| arguments[index] == "config");
+        let safe_config = arguments
+            .iter()
+            .any(|arg| arg == "--get" || arg == "--get-all")
+            && arguments.last().is_some_and(|key| {
+                matches!(
+                    key.as_str(),
+                    "user.name"
+                        | "user.email"
+                        | "remote.pushDefault"
+                        | "push.default"
+                        | "pull.rebase"
+                        | "pull.ff"
+                ) || key.starts_with("lithe.fetch.")
+                    || (key.starts_with("remote.")
+                        && (key.ends_with(".url") || key.ends_with(".skipFetchAll")))
+                    || (key.starts_with("branch.")
+                        && (key.ends_with(".remote")
+                            || key.ends_with(".merge")
+                            || key.ends_with(".pushRemote")))
+            });
+        self.redact_configuration.set(config && !safe_config);
+        if super::execution_policy::command_index(arguments).is_some_and(|index| {
+            matches!(
+                arguments[index].as_str(),
+                "fetch" | "push" | "pull" | "clone"
+            )
+        }) {
+            CURRENT.with(|current| {
+                if let Some(context) = current.borrow_mut().as_mut() {
+                    context.last_transfer = Some(self.id);
+                }
+            });
+        }
         let arguments = arguments
             .iter()
             .map(|argument| redact(argument))
@@ -184,6 +233,7 @@ impl Invocation {
             &self.sink,
             &self.operation_id,
             Kind::Started {
+                source: super::execution_policy::current().source,
                 executable: lithe_git_host::configuration::executable(
                     super::execution_policy::current().executable.as_deref(),
                 )
@@ -198,6 +248,14 @@ impl Invocation {
         );
     }
     pub(super) fn output(&mut self, stream: lithe_git_host::Stream, bytes: &[u8]) {
+        if self.redact_configuration.get() && matches!(stream, lithe_git_host::Stream::Stdout) {
+            if !bytes.is_empty() && !self.configuration_marker_sent {
+                self.configuration_marker_sent = true;
+                emit_output(&self.sink, &self.operation_id, self.id, &mut self.pending_progress,
+                    "stdout", "[Git configuration values redacted; inspect Git settings for supported values]".into(), false, false);
+            }
+            return;
+        }
         if self.omitted {
             return;
         }
@@ -206,16 +264,15 @@ impl Invocation {
             self.omitted = true;
             self.stdout = LineDecoder::default();
             self.stderr = LineDecoder::default();
-            send(
+            emit_output(
                 &self.sink,
                 &self.operation_id,
-                Kind::Output {
-                    invocation_id: self.id,
-                    stream: "stderr",
-                    text: "[Further Git output omitted: diagnostic limit]".into(),
-                    progress: false,
-                    truncated: true,
-                },
+                self.id,
+                &mut self.pending_progress,
+                "stderr",
+                "[Further Git output omitted: diagnostic limit]".into(),
+                false,
+                true,
             );
             return;
         }
@@ -228,6 +285,7 @@ impl Invocation {
         let id = self.id;
         let output_events = &mut self.output_events;
         let omitted = &mut self.omitted;
+        let pending_progress = &mut self.pending_progress;
         decoder.push(bytes, &mut |text, progress, truncated| {
             if *omitted {
                 return;
@@ -235,51 +293,70 @@ impl Invocation {
             *output_events += 1;
             if *output_events > MAX_OUTPUT_EVENTS {
                 *omitted = true;
-                send(
+                emit_output(
                     sink,
                     operation_id,
-                    Kind::Output {
-                        invocation_id: id,
-                        stream: name,
-                        text: "[Further Git output omitted: diagnostic limit]".into(),
-                        progress: false,
-                        truncated: true,
-                    },
+                    id,
+                    pending_progress,
+                    name,
+                    "[Further Git output omitted: diagnostic limit]".into(),
+                    false,
+                    true,
                 );
                 return;
             }
-            send(
+            emit_output(
                 sink,
                 operation_id,
-                Kind::Output {
-                    invocation_id: id,
-                    stream: name,
-                    text,
-                    progress,
-                    truncated,
-                },
+                id,
+                pending_progress,
+                name,
+                text,
+                progress,
+                truncated,
             );
         });
     }
-    pub(super) fn finished(mut self, exit_code: Option<i32>, error: Option<&CoreError>) {
+    #[cfg(test)]
+    pub(super) fn finished(self, exit_code: Option<i32>, error: Option<&CoreError>) {
+        self.finished_with_expected_exit(exit_code, error, false);
+    }
+    pub(super) fn finished_with_expected_exit(
+        mut self,
+        exit_code: Option<i32>,
+        error: Option<&CoreError>,
+        expected_exit: bool,
+    ) {
         if self.omitted {
             self.stdout = LineDecoder::default();
             self.stderr = LineDecoder::default();
         }
         for (name, decoder) in [("stdout", &mut self.stdout), ("stderr", &mut self.stderr)] {
             decoder.flush(&mut |text, progress, truncated| {
-                send(
+                emit_output(
                     &self.sink,
                     &self.operation_id,
-                    Kind::Output {
-                        invocation_id: self.id,
-                        stream: name,
-                        text,
-                        progress,
-                        truncated,
-                    },
+                    self.id,
+                    &mut self.pending_progress,
+                    name,
+                    text,
+                    progress,
+                    truncated,
                 )
             });
+        }
+        if let Some(pending) = self.pending_progress.take() {
+            send(
+                &self.sink,
+                &self.operation_id,
+                Kind::Output {
+                    invocation_id: self.id,
+                    stream: pending.stream,
+                    text: pending.text,
+                    progress: false,
+                    truncated: false,
+                },
+            );
         }
         // Errors may include native details. They use the same redaction as output.
         let error = error.map(|error| CoreError {
@@ -291,6 +368,7 @@ impl Invocation {
             &self.sink,
             &self.operation_id,
             Kind::Finished {
+                expected_exit,
                 invocation_id: self.id,
                 exit_code,
                 duration_milliseconds: self.clock.elapsed().as_millis(),
@@ -298,6 +376,63 @@ impl Invocation {
             },
         );
     }
+}
+
+/// The current phase is revised in place; its last retained line is finalized on
+/// a phase transition or process completion, including a CR-only final update.
+struct PendingProgress {
+    stream: &'static str,
+    text: String,
+    stage: String,
+}
+fn emit_output(
+    sink: &EventSink,
+    operation_id: &str,
+    id: u64,
+    pending: &mut Option<PendingProgress>,
+    stream: &'static str,
+    text: String,
+    progress: bool,
+    truncated: bool,
+) {
+    let stage = super::progress::parse(&text)
+        .map(|p| p.stage.to_string())
+        .or_else(|| text.split_once(':').map(|(prefix, _)| prefix.to_string()))
+        .unwrap_or_default();
+    if let Some(previous) = pending.take() {
+        let changed_stage = previous.stage != stage || previous.stream != stream;
+        if (changed_stage || (!progress && stage.is_empty())) && previous.text != text {
+            send(
+                sink,
+                operation_id,
+                Kind::Output {
+                    invocation_id: id,
+                    stream: previous.stream,
+                    text: previous.text,
+                    progress: false,
+                    truncated: false,
+                },
+            );
+        }
+    }
+    if progress && !truncated {
+        *pending = Some(PendingProgress {
+            stream,
+            text: text.clone(),
+            stage,
+        });
+    }
+    send(
+        sink,
+        operation_id,
+        Kind::Output {
+            invocation_id: id,
+            stream,
+            text,
+            progress,
+            truncated,
+        },
+    );
 }
 
 fn send(sink: &EventSink, operation_id: &str, kind: Kind<'_>) {
@@ -314,12 +449,18 @@ fn send(sink: &EventSink, operation_id: &str, kind: Kind<'_>) {
 /// Sends structured native diagnostics on the same ordered request channel.
 pub(super) fn emit(mut value: serde_json::Value) {
     let context = CURRENT.with(|current| {
-        current
-            .borrow()
-            .as_ref()
-            .map(|context| (context.sink.clone(), context.operation_id.clone()))
+        current.borrow().as_ref().map(|context| {
+            (
+                context.sink.clone(),
+                context.operation_id.clone(),
+                context.last_transfer,
+            )
+        })
     });
-    if let Some((sink, operation_id)) = context {
+    if let Some((sink, operation_id, transfer)) = context {
+        if value["type"] == "remoteResult" {
+            value["invocationId"] = transfer.into();
+        }
         value["operationId"] = operation_id.into();
         sink(&value.to_string());
     }
@@ -454,6 +595,98 @@ mod tests {
         assert_eq!(events.len(), MAX_OUTPUT_EVENTS + 4);
         assert_eq!(events[events.len() - 2]["truncated"], true);
         assert_eq!(events.last().unwrap()["type"], "finished");
+    }
+
+    #[test]
+    fn progress_keeps_each_final_phase_and_transfer_identity_across_queries() {
+        let captured = Arc::new(std::sync::Mutex::new(Vec::<serde_json::Value>::new()));
+        let sink_capture = captured.clone();
+        with_sink(
+            Arc::new(move |json| {
+                sink_capture
+                    .lock()
+                    .unwrap()
+                    .push(serde_json::from_str(json).unwrap())
+            }),
+            || {
+                request_started(Some("phases"));
+                let mut transfer = Invocation::current().unwrap();
+                transfer.started("/repo", &["fetch".into(), "origin".into()]);
+                for byte in b"Receiving objects: 50% (1/2)\rReceiving objects: 100% (2/2)\rResolving deltas: 50% (1/2)\rResolving deltas: 100% (2/2)\r" {
+                transfer.output(lithe_git_host::Stream::Stderr, &[*byte]);
+            }
+                transfer.finished(Some(0), None);
+                let query = Invocation::current().unwrap();
+                query.started("/repo", &["for-each-ref".into()]);
+                query.finished(Some(0), None);
+                emit(
+                    serde_json::json!({"type":"remoteResult", "remote":"origin", "succeeded":true}),
+                );
+            },
+        );
+        let events = captured.lock().unwrap();
+        let settled = events
+            .iter()
+            .filter(|event| event["type"] == "output" && event["progress"] == false)
+            .map(|event| event["text"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            settled,
+            [
+                "Receiving objects: 100% (2/2)",
+                "Resolving deltas: 100% (2/2)"
+            ]
+        );
+        assert_eq!(events.last().unwrap()["invocationId"], 1);
+    }
+
+    #[test]
+    fn broad_configuration_queries_are_visible_without_leaking_unrelated_secrets() {
+        let captured = Arc::new(std::sync::Mutex::new(Vec::<serde_json::Value>::new()));
+        let sink_capture = captured.clone();
+        with_sink(
+            Arc::new(move |json| {
+                sink_capture
+                    .lock()
+                    .unwrap()
+                    .push(serde_json::from_str(json).unwrap())
+            }),
+            || {
+                request_started(Some("config"));
+                let mut query = Invocation::current().unwrap();
+                query.started(
+                    "/repo",
+                    &["config".into(), "--null".into(), "--list".into()],
+                );
+                query.output(
+                    lithe_git_host::Stream::Stdout,
+                    b"custom.key\nfixture-private-value\0",
+                );
+                query.output(
+                    lithe_git_host::Stream::Stdout,
+                    b"credential.helper\n!echo fixture-helper-secret\0",
+                );
+                query.finished(Some(0), None);
+            },
+        );
+        let events = captured.lock().unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event["type"] == "started")
+                .count(),
+            1
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event["type"] == "output")
+                .count(),
+            1
+        );
+        let text = serde_json::to_string(&*events).unwrap();
+        assert!(text.contains("values redacted"));
+        assert!(!text.contains("fixture-private-value") && !text.contains("fixture-helper-secret"));
     }
 
     #[test]

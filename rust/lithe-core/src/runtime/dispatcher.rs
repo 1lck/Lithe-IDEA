@@ -1831,6 +1831,21 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::GitConsolePresentation => {
+            match serde_json::from_value::<git::console::Request>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid Git console snapshot")
+                        .with_details(error.to_string())
+                })
+                .and_then(git::console::present)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Console presentation should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::GitFetchPlan => {
             match serde_json::from_value::<git::GitFetchPlanRequest>(parsed.payload)
                 .map_err(|error| {

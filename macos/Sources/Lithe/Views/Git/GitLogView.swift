@@ -40,8 +40,6 @@ struct GitLogView: View {
     @State private var showLongGraphEdges = false
     @State private var graphNavigationRequest: GraphNavigationRequest?
     @State private var selectedGitToolTab = GitToolTab.log
-    @State private var gitConsoleAutoScrolls = true
-    @State private var gitConsoleWrapsLines = false
     @State private var showsFetchOptions = false
     @State private var selectedGitLogAuthor: GitLogAuthorSelection?
     @State private var selectedGitLogDatePreset = GitLogDatePreset.anyTime
@@ -511,100 +509,8 @@ struct GitLogView: View {
     }
 
     private var gitConsolePane: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 3) {
-                Button {
-                    gitConsoleWrapsLines.toggle()
-                } label: {
-                    ZStack(alignment: .bottomTrailing) {
-                        Image(systemName: "text.justify.leading")
-                            .font(.system(size: 12, weight: .regular))
-                        Image(systemName: "arrow.turn.down.left")
-                            .font(.system(size: 6.5, weight: .semibold))
-                            .offset(x: 2, y: 1)
-                    }
-                }
-                .litheIconButton()
-                .foregroundStyle(gitConsoleWrapsLines ? LitheTheme.accent : LitheTheme.secondaryText)
-                .help(LocalizedStringKey(gitConsoleWrapsLines ? "Disable soft wraps" : "Use soft wraps"))
-
-                Button {
-                    gitConsoleAutoScrolls.toggle()
-                } label: {
-                    Image(systemName: gitConsoleAutoScrolls ? "arrow.down.to.line.compact" : "arrow.down.to.line")
-                }
-                .litheIconButton()
-                .foregroundStyle(gitConsoleAutoScrolls ? LitheTheme.accent : LitheTheme.secondaryText)
-                .help(LocalizedStringKey(gitConsoleAutoScrolls ? "Disable automatic scrolling" : "Scroll to new Git output"))
-
-                Button(action: feature.cancelGitExecutions) {
-                    Image(systemName: "stop.fill")
-                }
-                .litheIconButton()
-                .disabled(!feature.isGitExecutionRunning)
-                .help("Cancel running Git operations")
-
-                Button(action: feature.clearGitConsole) {
-                    Image(systemName: "trash")
-                }
-                .litheIconButton()
-                .foregroundStyle(LitheTheme.secondaryText)
-                .disabled(feature.gitConsoleEntries.isEmpty)
-                .help("Clear Git console")
-
-                Spacer(minLength: 0)
-            }
-            .padding(.top, 6)
-            .frame(width: 28)
+        GitConsoleView(feature: feature)
             .background(background.hasImage ? Color.clear : LitheTheme.editor)
-
-            Rectangle()
-                .fill(LitheTheme.divider)
-                .frame(width: 1)
-
-            GeometryReader { geometry in
-                ScrollViewReader { proxy in
-                    ScrollView(gitConsoleWrapsLines ? .vertical : [.horizontal, .vertical]) {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            if feature.gitConsoleEntries.isEmpty {
-                                Text("Git command output will appear here.")
-                                    .font(GitVisual.monoMeta)
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                                    .frame(height: 20, alignment: .leading)
-                            } else {
-                                ForEach(feature.gitConsoleEntries) { entry in
-                                    GitConsoleEntryView(entry: entry, wrapsLines: gitConsoleWrapsLines)
-                                        .id(entry.id)
-                                }
-                            }
-
-                            Color.clear
-                                .frame(width: 1, height: 1)
-                                .id("git-console-bottom")
-                        }
-                        .padding(.leading, 18)
-                        .padding(.trailing, 8)
-                        .padding(.top, 4)
-                        .padding(.bottom, 8)
-                        .frame(
-                            minWidth: max(0, geometry.size.width),
-                            minHeight: max(0, geometry.size.height),
-                            alignment: .topLeading
-                        )
-                    }
-                    .litheScrollViewChrome()
-                    .onAppear {
-                        guard gitConsoleAutoScrolls else { return }
-                        proxy.scrollTo("git-console-bottom", anchor: .bottom)
-                    }
-                    .onChange(of: feature.gitConsoleEntries.last) { _ in
-                        guard gitConsoleAutoScrolls else { return }
-                        proxy.scrollTo("git-console-bottom", anchor: .bottom)
-                    }
-                }
-            }
-        }
-        .background(background.hasImage ? Color.clear : LitheTheme.editor)
     }
 
     private var primaryActionBar: some View {

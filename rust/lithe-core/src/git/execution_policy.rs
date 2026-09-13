@@ -19,6 +19,8 @@ pub struct GitExecutionOptions {
     pub fetch_defaults: GitFetchOptions,
     /// Request per-remote Fetch execution and structured outcomes.
     pub detailed_fetch: bool,
+    /// Explicit operation provenance; unknown requests must never be deduplicated.
+    pub source: super::console::Source,
 }
 impl Default for GitExecutionOptions {
     fn default() -> Self {
@@ -28,6 +30,7 @@ impl Default for GitExecutionOptions {
             use_credential_helper: true,
             fetch_defaults: GitFetchOptions::default(),
             detailed_fetch: false,
+            source: super::console::Source::Unknown,
         }
     }
 }

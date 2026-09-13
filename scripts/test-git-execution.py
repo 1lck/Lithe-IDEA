@@ -234,11 +234,11 @@ class Fixture:
         assert plan["data"]["commands"] == sample["commands"], plan
         response, events = self.call("git.write", payload)
         assert response["ok"] and response["data"]["exitCode"] == 0, response
-        # An unset skipFetchAll is a normal internal lookup, not a failed user
-        # operation. Verify actual event delivery, not just the final Fetch result.
-        starts = [event for event in events if event["type"] == "started"]
+        # Internal lookups are visible too; missing optional keys retain exit 1
+        # with an explicit expected-result marker instead of a false failure.
+        starts = [event for event in events if event["type"] == "started" and event["displayArguments"][0] == "fetch"]
         assert len(starts) == 2 and all(event["displayArguments"][0] == "fetch" for event in starts), starts
-        assert all(event["exitCode"] == 0 for event in events if event["type"] == "finished"), events
+        assert all(event["exitCode"] == 0 or event["expectedExit"] for event in events if event["type"] == "finished"), events
         assert [event["arguments"] for event in starts] == sample["commands"]
         assert all("-c" not in event["displayArguments"] and "--no-pager" not in event["displayArguments"] for event in starts)
         assert all("--no-pager" in event["globalArguments"] for event in starts)
@@ -306,7 +306,7 @@ class Fixture:
                 if retry:
                     assert next(event for event in events if event["type"] == "authentication").get("retry") is True
                     assert "fixture-wrong-password" in self.git("config", "--global", "--get", "credential.helper")
-                assert len([e for e in events if e["type"] == "started"]) == (2 if retry else 1)
+                assert len([e for e in events if e["type"] == "started" and e["displayArguments"][0] == "clone"]) == (2 if retry else 1)
             assert password not in json.dumps(events) and "fixture-wrong-password" not in json.dumps(events)
         finally:
             server.shutdown(); server.server_close(); worker.join(timeout=2)

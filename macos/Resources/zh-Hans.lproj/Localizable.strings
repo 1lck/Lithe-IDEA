@@ -1943,3 +1943,28 @@
 "Command details" = "命令详情";
 
 "Click the folded options to expand; right-click for command details." = "点击折叠参数可展开；右键查看命令详情。";
+
+// Unified Git console disclosure and search.
+"Copy repository path" = "复制仓库路径";
+"Copy complete command" = "复制完整命令";
+"Copy complete output" = "复制完整输出";
+"Copy complete console" = "复制完整控制台";
+"Compression is unavailable. Showing complete retained output." = "暂时无法压缩，正在显示完整保留的输出。";
+"Find in Git console" = "在 Git 控制台中查找";
+"First %lld locations" = "前 %lld 个位置";
+"Previous match" = "上一个匹配";
+"Next match" = "下一个匹配";
+"Close search" = "关闭查找";
+"Repeated %lld times" = "重复 %lld 次";
+"Other %lld files" = "其余 %lld 个文件";
+"Other %lld branches" = "其余 %lld 个分支";
+"Other %lld tags" = "其余 %lld 个标签";
+"Other %lld commits" = "其余 %lld 条提交";
+"Expand %lld lines" = "展开中间 %lld 行";
+"Other reference changes: %lld added, %lld updated, %lld deleted" = "其余引用变化：新增 %lld、更新 %lld、删除 %lld";
+"… %lld more files" = "… 另 %lld 个文件";
+"… %lld more references" = "… 另 %lld 个引用";
+" · %lld matches" = " · %lld 处匹配";
+"Automatic query ×%lld, identical results" = "自动查询 %lld 次，结果相同";
+
+"Earlier Git commands were truncated to limit memory use." = "为限制内存占用，较早的 Git 执行记录已截断，无法展开。";

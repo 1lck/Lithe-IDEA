@@ -225,10 +225,12 @@ adding a button or metadata rows to every command. stderr uses a separate color,
 successful Git messages; only the exit/result state determines failure. Copying
 retains command configuration, status, duration, and output.
 
-Internal remote configuration reads use the preflight capture path, so an
-absent `remote.<name>.skipFetchAll` does not create a red exit-code-1 row. Real
-preflight failures still reach the operation error; user configuration saves and
-actual transport failures remain visible.
+Internal remote configuration reads also produce invocation records. An absent
+`remote.<name>.skipFetchAll` retains exit 1 with an explicit expected-result marker,
+so it does not create a false error row. Broad configuration output and custom
+helper/script values use an explicit redaction marker; arbitrary secrets never
+enter the retained console. Supported settings remain inspectable in Git Settings.
+Real preflight failures, user configuration saves and transport failures remain visible.
 
 The Console is available independently of commit history. An unborn repository
 can open it directly without configuring commit identity. Basic Git settings
@@ -276,3 +278,49 @@ git diff --check
 
 Windows validation is delegated to CI at the user's request. macOS local tooling
 is Swift 6.3.3; the project's reference toolchain remains Swift 6.2.
+
+
+## Unified console presentation
+
+`git.consolePresentation` is a pure Rust Core operation over sanitized, retained
+native snapshots. It performs no process, filesystem or configuration access and
+must not enter either native execution journal. macOS calls it through GitOperations
+and GitService; Windows uses the central platform invoke boundary. Requests and
+complete display plans are covered by `shared/fixtures/git/console-presentation-v1.json`.
+
+The request contains `records`, optional workspace `repositoryRoots` for label disambiguation, and a literal case-insensitive `search` string.
+Each record carries `id`, native diagnostic `root`, original `arguments`, named
+`temporaryConfig` pairs, ordered `{stream,text}` lines, state, nullable exit code,
+`expectedExit`, error, executable, progress, explicit source, optional global native start `sequence`, and truncation status.
+The operation accepts at most 200 records, 4 MiB of retained data including
+collection overhead, and 1,024 UTF-8 bytes of search text. These bounds reject the
+request explicitly; they do not silently discard history.
+
+The result contains one entry per original execution, consecutive-query `groups`,
+search locations and the full match count. Command fragments carry stable IDs,
+complete quoted text, optional preview, type, item count and hidden match count.
+Output fragments are half-open ranges into the original retained line array;
+no rendered fold label becomes output. Unknown commands and custom formats use
+ordinary line ranges. Only strictly recognized list grammars get business counts.
+Small output stays visible; ordinary long output retains its first three and last
+two lines. Failures retain eight trailing lines and context around diagnostic
+anchors. Consecutive repeated text is a separate reversible fold. Live progress
+replaces the current phase, then emits that phase's final line before the next
+phase or completion; business summaries settle only after completion.
+
+Only explicit `background` provenance and consecutive, identical successful query
+results can merge. `user` and default `unknown` are independent executions. Changed
+results, exits, truncation, failures or intervening executions break the group.
+A gap in supplied native start sequence also breaks grouping, including an intervening command in a filtered-out repository. Transfer commands never merge. Source is request-local across worker hops, not
+inferred from a Git command name or a mutable global flag.
+
+Both native consoles render text disclosures in place, retain manual expansion
+by record/fragment ID and use a snapshot paired with its Core projection. Stale
+projection replies are discarded. Find shows hidden match counts and opens the
+matched range and group; navigation is bounded to the first 1,000 locations while
+the full match count remains visible. Copy actions use retained original content.
+Actual memory omissions remain explicitly marked and cannot be expanded. Scrolling
+up pauses automatic following; returning to the bottom resumes it. macOS owns this
+state in its console container and observes native user-scroll transitions rather
+than rebuilding the Git page on every pointer event. No compression preferences or
+extra operation-button row is required.

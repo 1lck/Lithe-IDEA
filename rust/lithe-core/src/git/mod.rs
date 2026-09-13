@@ -3,6 +3,7 @@
 // The initial projection/routing IR is deliberately not command- or host-facing
 // until both native products can consume the same versioned contract.
 pub(crate) mod configuration;
+pub(crate) mod console;
 pub(crate) mod execution_events;
 pub(crate) mod execution_policy;
 mod fetch;
@@ -1460,11 +1461,7 @@ fn capture_git_process(
             .with_details(error.to_string())
         })?;
     }
-    let invocation = RefCell::new(if visible {
-        execution_events::Invocation::current()
-    } else {
-        None
-    });
+    let invocation = RefCell::new(execution_events::Invocation::current());
     let mut authentication = if visible && execution_policy::current().interactive {
         let session = lithe_git_host::authentication::Session::new().map_err(|error| {
             CoreError::new(
@@ -1552,7 +1549,18 @@ fn capture_git_process(
         .as_ref()
         .and_then(std::process::ExitStatus::code);
     if let Some(invocation) = invocation.into_inner() {
-        invocation.finished(exit_code, error.as_ref());
+        // Optional internal config reads use exit 1 for a missing key. Preserve
+        // that actual code without presenting a normal preflight result as failure.
+        let expected_exit = !visible
+            && exit_code == Some(1)
+            && error.is_none()
+            && execution_policy::command_index(arguments).is_some_and(|index| {
+                arguments[index] == "config"
+                    && arguments[index + 1..]
+                        .iter()
+                        .any(|arg| matches!(arg.as_str(), "--get" | "--get-all" | "--get-regexp"))
+            });
+        invocation.finished_with_expected_exit(exit_code, error.as_ref(), expected_exit);
     }
     if let Some(error) = error {
         return Err(error);

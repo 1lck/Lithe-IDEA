@@ -919,3 +919,28 @@
 "Command details" = "Command details";
 
 "Click the folded options to expand; right-click for command details." = "Click the folded options to expand; right-click for command details.";
+
+// Unified Git console disclosure and search.
+"Copy repository path" = "Copy repository path";
+"Copy complete command" = "Copy complete command";
+"Copy complete output" = "Copy complete output";
+"Copy complete console" = "Copy complete console";
+"Compression is unavailable. Showing complete retained output." = "Compression is unavailable. Showing complete retained output.";
+"Find in Git console" = "Find in Git console";
+"First %lld locations" = "First %lld locations";
+"Previous match" = "Previous match";
+"Next match" = "Next match";
+"Close search" = "Close search";
+"Repeated %lld times" = "Repeated %lld times";
+"Other %lld files" = "Other %lld files";
+"Other %lld branches" = "Other %lld branches";
+"Other %lld tags" = "Other %lld tags";
+"Other %lld commits" = "Other %lld commits";
+"Expand %lld lines" = "Expand %lld lines";
+"Other reference changes: %lld added, %lld updated, %lld deleted" = "Other reference changes: %lld added, %lld updated, %lld deleted";
+"… %lld more files" = "… %lld more files";
+"… %lld more references" = "… %lld more references";
+" · %lld matches" = " · %lld matches";
+"Automatic query ×%lld, identical results" = "Automatic query ×%lld, identical results";
+
+"Earlier Git commands were truncated to limit memory use." = "Earlier Git commands were truncated to limit memory use.";

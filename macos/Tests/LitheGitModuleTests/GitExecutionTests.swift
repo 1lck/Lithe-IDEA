@@ -70,7 +70,7 @@ struct GitExecutionTests {
             #expect(entry.formattedTemporaryConfiguration == GitConsoleCommandFormatter.argumentLine(arguments: sample.globalArguments))
             #expect(entry.commandLine == GitConsoleCommandFormatter.commandLine(arguments: sample.arguments))
             #expect(entry.withOperationError("later error").formattedArguments == entry.formattedArguments)
-            #expect(entry.copyText.contains(entry.commandLine))
+            #expect(entry.copyText.contains(entry.completeCommandLine))
         }
     }
 
@@ -228,5 +228,88 @@ struct GitExecutionTests {
         let record = context.drainSnapshot()?.last
         #expect(record?.isOutputTruncated == true)
         #expect((record?.output.count ?? 0) <= 32_768)
+    }
+}
+
+struct GitConsolePresentationTests {
+    @Test
+    func omittedCommandsAreDistinguishedFromReversibleOutputFolds() {
+        let journal = GitExecutionJournal()
+        for index in 0..<205 {
+            let id = "query-\(index)"
+            journal.receive(GitExecutionEvent(operationId: id, type: "started", invocationId: 1,
+                workingDirectory: "/workspace", arguments: ["status"]))
+            journal.receive(GitExecutionEvent(operationId: id, type: "finished", invocationId: 1, exitCode: 0))
+            journal.receive(GitExecutionEvent(operationId: id, type: "requestFinished"))
+        }
+        #expect(journal.snapshot.count == 200)
+        #expect(journal.hasOmittedHistory)
+        journal.clear(at: URL(fileURLWithPath: "/workspace"))
+        #expect(!journal.hasOmittedHistory)
+    }
+
+    @Test
+    func sharedPresentationRangesAndSearchLocationsDecodeWithoutLosingRawOutput() throws {
+        struct InputRecord: Decodable { let id: String; let lines: [Line] }
+        struct Line: Decodable { let stream: String; let text: String }
+        struct Input: Decodable { let records: [InputRecord] }
+        struct Sample: Decodable { let input: Input; let presentation: GitConsolePresentation }
+        struct Fixture: Decodable { let cases: [Sample] }
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<4 { root.deleteLastPathComponent() }
+        let data = try Data(contentsOf: root.appendingPathComponent("shared/fixtures/git/console-presentation-v1.json"))
+        let fixture = try JSONDecoder().decode(Fixture.self, from: data)
+        for sample in fixture.cases {
+            for (raw, entry) in zip(sample.input.records, sample.presentation.entries) {
+                #expect(raw.id == entry.id)
+                let retained = entry.output.flatMap { fragment in raw.lines[fragment.start..<fragment.end].map(\.text) }
+                #expect(retained == raw.lines.map(\.text))
+                for hit in sample.presentation.matches where hit.recordId == raw.id {
+                    if let line = hit.lineIndex { #expect(raw.lines.indices.contains(line)) }
+                    #expect(hit.anchor.hasPrefix(raw.id + ":"))
+                }
+            }
+        }
+    }
+
+    @Test
+    func presentationRequestPreservesSourceExpectedExitAndLiteralMultilineArguments() throws {
+        let context = GitExecutionContext(operationID: "query", source: .background)
+        context.receive(GitExecutionEvent(operationId: "query", type: "started", invocationId: 1,
+            workingDirectory: "/workspace", arguments: ["config", "--get", "remote.origin.skipFetchAll"]))
+        context.receive(GitExecutionEvent(operationId: "query", type: "finished", invocationId: 1,
+            expectedExit: true, exitCode: 1))
+        let entry = try #require(context.drainSnapshot()?.last)
+        #expect(entry.succeeded)
+        #expect(entry.exitCode == 1)
+        #expect(entry.withOperationError("real failure").source == .background)
+        #expect(!entry.withOperationError("real failure").succeeded)
+        let request = GitConsolePresentationRequest(entries: [entry], search: "remote")
+        let value = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any])
+        let records = try #require(value["records"] as? [[String: Any]])
+        #expect(records[0]["source"] as? String == "background")
+        #expect(records[0]["expectedExit"] as? Bool == true)
+        let message = "first line\nsecond 'quoted' line"
+        let commit = GitConsoleEntry(workingDirectory: URL(fileURLWithPath: "/workspace"),
+            arguments: ["commit", "--amend", "-m", message], output: "retained output", exitCode: 0)
+        let raw = GitConsolePresentationRequest(entries: [commit], search: "quoted")
+        #expect(raw.records[0].arguments.last == message)
+        #expect(commit.output == "retained output")
+        #expect(commit.completeCommandLine.contains("first line\nsecond"))
+    }
+
+    @Test
+    func remoteSummaryTargetsTransferAfterAdditionalInspectionQueries() throws {
+        let context = GitExecutionContext(operationID: "transfer")
+        for (id, command) in [(1, "fetch"), (2, "for-each-ref")] {
+            context.receive(GitExecutionEvent(operationId: "transfer", type: "started", invocationId: id,
+                workingDirectory: "/workspace", arguments: [command]))
+            context.receive(GitExecutionEvent(operationId: "transfer", type: "finished", invocationId: id, exitCode: 0))
+        }
+        context.receive(GitExecutionEvent(operationId: "transfer", type: "remoteResult", remote: "origin",
+            succeeded: true, invocationId: 1))
+        let entries = try #require(context.drainSnapshot())
+        #expect(entries[0].remoteResult?.remote == "origin")
+        #expect(entries[1].remoteResult == nil)
     }
 }

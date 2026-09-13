@@ -2,6 +2,7 @@ import Foundation
 
 package struct GitExecutionOptions: Codable, Equatable, Sendable {
     package var executable: String?
+    package var source: GitExecutionSource = .unknown
     package var interactive = false
     package var useCredentialHelper = true
     package var fetchDefaults = GitFetchOptions()

@@ -101,3 +101,15 @@ describe("Git execution journal", () => {
     expect(gitConsoleCommand(["fetch", "https://user:fake@example.invalid/repo"])).not.toContain("fake");
   });
 });
+
+
+test("discarded execution history is marked separately from foldable retained output", () => {
+  const journal = new GitExecutionJournal(() => 0);
+  for (let index = 0; index < 205; index += 1) {
+    journal.receive({ operationId: `query-${index}`, type: "started", invocationId: 1, workingDirectory: "C:/repo", arguments: ["status"] });
+  }
+  expect(journal.records).toHaveLength(200);
+  expect(journal.historyTruncated).toBe(true);
+  journal.clear("C:/repo");
+  expect(journal.historyTruncated).toBe(false);
+});

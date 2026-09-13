@@ -6,36 +6,66 @@ import LitheGitModule
 struct GitConsoleEntryView: View {
     let entry: GitConsoleEntry
     let wrapsLines: Bool
-    @State private var showsConfiguration = false
+    var presentation: GitConsolePresentation.Entry? = nil
+    var selectedHit: GitConsolePresentation.SearchHit? = nil
+    @Binding var expanded: Set<String>
     @State private var showsDetails = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             line(Text(command))
-                .help("Click the folded options to expand; right-click for command details.")
+                .id(commandAnchor)
+                .help("\(entry.workingDirectory.path) · \(String(describing: entry.state)) · \(entry.exitCode)")
                 .environment(\.openURL, OpenURLAction { url in
-                    switch url.host {
-                    case "configuration": showsConfiguration.toggle()
-                    default: return .discarded
-                    }
+                    guard url.host == "fragment" else { return .discarded }
+                    let id = url.lastPathComponent
+                    if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
                     return .handled
                 })
-            ForEach(Array(entry.outputLines.enumerated()), id: \.offset) { _, output in
-                line(Text(verbatim: output.text.isEmpty ? " " : output.text)
-                    .foregroundColor(output.stream == .standardError ? LitheTheme.error : outputColor))
+            if let presentation {
+                ForEach(presentation.output) { fragment in
+                    if fragment.kind != "text" {
+                        Button {
+                            if isExpanded(fragment) {
+                                expanded.remove(fragment.id); expanded.remove("running-output")
+                            } else {
+                                expanded.insert(fragment.id)
+                                if entry.state == .running { expanded.insert("running-output") }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(isExpanded(fragment) ? "▾" : "▸")
+                                outputLabel(fragment)
+                                if fragment.matches > 0 { Text(" · \(fragment.matches) matches") }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .accessibilityValue(isExpanded(fragment) ? Text("Expanded") : Text("Collapsed"))
+                    }
+                    if fragment.kind == "text" || isExpanded(fragment) {
+                        ForEach(fragment.start..<min(fragment.end, entry.outputLines.count), id: \.self) { index in
+                            outputLine(index)
+                        }
+                    }
+                }
+            } else {
+                ForEach(entry.outputLines.indices, id: \.self) { outputLine($0) }
             }
             if let progress = entry.progressText {
                 line(Text(verbatim: progress).foregroundColor(LitheTheme.secondaryText))
+                    .id(entry.id.uuidString + ":progress")
             }
             if entry.isOutputTruncated {
                 line(Text("Earlier Git output was omitted to limit memory use.").foregroundColor(LitheTheme.secondaryText))
             }
             if let error = entry.operationErrorMessage {
                 line(Text(verbatim: error).foregroundColor(LitheTheme.error))
+                    .id(entry.id.uuidString + ":error")
             }
             if entry.state == .unconfirmed {
                 line(Text("No completed Git invocation was reported").foregroundColor(LitheTheme.error))
-            } else if entry.state == .completed && entry.exitCode != 0 {
+            } else if entry.state == .completed && entry.exitCode != 0 && !entry.expectedExit {
                 line(Text("Git exited with code \(entry.exitCode)").foregroundColor(LitheTheme.error))
             }
             if showsDetails { details }
@@ -45,6 +75,9 @@ struct GitConsoleEntryView: View {
         .padding(.bottom, 4)
         .litheContextMenu {
             [
+                .action("Copy repository path") { copy(entry.workingDirectory.path) },
+                .action("Copy complete command") { copy(entry.completeCommandLine) },
+                .action("Copy complete output") { copy(entry.output) },
                 .action("Command details") { showsDetails.toggle() },
                 .action("Copy") {
                     NSPasteboard.general.clearContents()
@@ -54,20 +87,74 @@ struct GitConsoleEntryView: View {
         }
     }
 
-    private var command: AttributedString {
-        var text = AttributedString("\(Self.timestampFormatter.string(from: entry.timestamp)): [\(entry.workingDirectory.path)] git ")
-        text.foregroundColor = commandColor
-        if !entry.formattedTemporaryConfiguration.isEmpty {
-            var configuration = AttributedString(showsConfiguration ? entry.formattedTemporaryConfiguration : "-c …")
-            configuration.link = URL(string: "lithe-git-console://configuration")
-            configuration.foregroundColor = outputColor
-            configuration.backgroundColor = LitheTheme.accent.opacity(0.12)
-            text.append(configuration)
-            text.append(AttributedString(" "))
+    private func isExpanded(_ fragment: GitConsolePresentation.OutputFragment) -> Bool {
+        expanded.contains(fragment.id) || expanded.contains("running-output")
+    }
+
+    private func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    private var commandAnchor: String {
+        if let selectedHit, selectedHit.recordId == entry.id.uuidString, selectedHit.lineIndex == nil, selectedHit.fragmentId != "error", selectedHit.fragmentId != "progress" {
+            return selectedHit.anchor
         }
-        var arguments = AttributedString(entry.formattedArguments)
-        arguments.foregroundColor = commandColor
-        text.append(arguments)
+        return entry.id.uuidString + ":command"
+    }
+
+    private func outputLine(_ index: Int) -> some View {
+        let output = entry.outputLines[index]
+        let anchor = entry.id.uuidString + ":line-\(index)"
+        return line(Text(verbatim: output.text.isEmpty ? " " : output.text)
+            .foregroundColor(output.stream == .standardError ? LitheTheme.error : outputColor))
+            .background(selectedHit?.anchor == anchor ? LitheTheme.accent.opacity(0.18) : .clear)
+            .id(anchor)
+    }
+
+    @ViewBuilder private func outputLabel(_ fragment: GitConsolePresentation.OutputFragment) -> some View {
+        switch fragment.kind {
+        case "repeat": Text("Repeated \(fragment.count) times")
+        case "files": Text("Other \(fragment.count) files")
+        case "branches": Text("Other \(fragment.count) branches")
+        case "tags": Text("Other \(fragment.count) tags")
+        case "commits": Text("Other \(fragment.count) commits")
+        case "references": Text("Other reference changes: \(fragment.added) added, \(fragment.updated) updated, \(fragment.deleted) deleted")
+        default: Text("Expand \(fragment.count) lines")
+        }
+    }
+
+    private func commandPreview(_ fragment: GitConsolePresentation.CommandFragment) -> String {
+        if !fragment.preview.isEmpty { return fragment.preview }
+        let key = fragment.kind == "files" ? "… %lld more files" : "… %lld more references"
+        return String(format: NSLocalizedString(key, comment: "Git argument disclosure"), fragment.count)
+    }
+
+    private var command: AttributedString {
+        var text = AttributedString("\(Self.timestampFormatter.string(from: entry.timestamp)): [\(presentation?.repositoryLabel ?? entry.workingDirectory.path)] git ")
+        text.foregroundColor = commandColor
+        if let presentation {
+            for (index, fragment) in presentation.command.enumerated() {
+                if index > 0 { text.append(AttributedString(" ")) }
+                let isFold = fragment.kind != "text"
+                var part = AttributedString(isFold && !expanded.contains(fragment.id) ? commandPreview(fragment) : fragment.text)
+                part.foregroundColor = commandColor
+                if isFold {
+                    part.link = URL(string: "lithe-git-console://fragment/" + fragment.id)
+                    part.backgroundColor = LitheTheme.accent.opacity(0.12)
+                    if !expanded.contains(fragment.id), fragment.matches > 0 {
+                        part.append(AttributedString(String(format: NSLocalizedString(" · %lld matches", comment: "Hidden search matches"), fragment.matches)))
+                    }
+                }
+                if selectedHit?.recordId == entry.id.uuidString, selectedHit?.fragmentId == fragment.id {
+                    part.backgroundColor = LitheTheme.accent.opacity(0.24)
+                }
+                text.append(part)
+            }
+        } else {
+            // A failed projection preserves full retained command data.
+            text.append(AttributedString(entry.formattedTemporaryConfiguration + " " + entry.commandLine.dropFirst(4)))
+        }
         return text
     }
 
@@ -118,7 +205,7 @@ struct GitConsoleEntryView: View {
         LitheTheme.link
     }
 
-    private static let timestampFormatter: DateFormatter = {
+    static let timestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "HH:mm:ss.SSS"

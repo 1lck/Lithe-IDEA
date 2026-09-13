@@ -238,6 +238,7 @@ package final class GitFeatureModel: ObservableObject {
     @Published package private(set) var isLoadingGitHistory = false
     @Published package private(set) var isLoadingMoreGitHistory = false
     @Published package private(set) var canLoadMoreGitHistory = false
+    @Published package private(set) var gitConsoleHistoryTruncated = false
     @Published package private(set) var gitConsoleEntries: [GitConsoleEntry] = []
     @Published package private(set) var branchComparison: GitBranchComparison?
     @Published package var selectedBranchComparisonFile: GitBranchComparisonFile?
@@ -849,7 +850,7 @@ package final class GitFeatureModel: ObservableObject {
         let root = gitRepositoryRoot
         let generation = gitConsoleRepositoryGeneration
         let clearGeneration = gitConsoleClearGeneration
-        let execution = GitExecutionContext()
+        let execution = GitExecutionContext(source: .user)
         let startedAt = ContinuousClock.now
         let plannedID = UUID()
         if let root, let plannedArguments {
@@ -869,6 +870,7 @@ package final class GitFeatureModel: ObservableObject {
             guard generation == gitConsoleRepositoryGeneration, root == gitRepositoryRoot,
                   clearGeneration == gitConsoleClearGeneration,
                   let entries = execution.drainSnapshot() else { return }
+            gitConsoleHistoryTruncated = gitConsoleHistoryTruncated || execution.hasOmittedHistory
             gitConsoleEntries.removeAll { publishedIDs.contains($0.id) }
             gitConsoleEntries.append(contentsOf: entries)
             publishedIDs = Set(entries.map(\.id))
@@ -923,14 +925,16 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     private func trimGitConsole() {
-        if gitConsoleEntries.count > 200 { gitConsoleEntries.removeFirst(gitConsoleEntries.count - 200) }
+        if gitConsoleEntries.count > 200 { gitConsoleHistoryTruncated = true; gitConsoleEntries.removeFirst(gitConsoleEntries.count - 200) }
         while gitConsoleEntries.count > 1 && gitConsoleEntries.reduce(0, { $0 + $1.output.count }) > 1_048_576 {
+            gitConsoleHistoryTruncated = true
             gitConsoleEntries.removeFirst()
         }
     }
 
     private func publishGitJournal() {
         guard let executionJournal else { return }
+        gitConsoleHistoryTruncated = gitConsoleHistoryTruncated || executionJournal.hasOmittedHistory
         let entries = executionJournal.snapshot.filter { $0.workingDirectory == gitRepositoryRoot }
         gitConsoleEntries.removeAll { journalEntryIDs.contains($0.id) }
         gitConsoleEntries.append(contentsOf: entries)
@@ -944,6 +948,7 @@ package final class GitFeatureModel: ObservableObject {
         journalEntryIDs = []
         gitConsoleClearGeneration &+= 1
         gitConsoleEntries = []
+        gitConsoleHistoryTruncated = false
         hasLoadedInitialGitConsoleEntry = true
     }
 
@@ -1004,9 +1009,7 @@ package final class GitFeatureModel: ObservableObject {
                 )
             })
         }
-        if gitConsoleEntries.count > 500 {
-            gitConsoleEntries.removeFirst(gitConsoleEntries.count - 500)
-        }
+        trimGitConsole()
     }
 
     package func setGitConflictFilter(_ paths: [String]) {
@@ -2137,7 +2140,17 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     /// Another checkout can move shared refs while this worktree's status stays unchanged.
+    package func consolePresentation(_ request: GitConsolePresentationRequest) async -> GitConsolePresentation? {
+        await service.consolePresentation(request)
+    }
+
     package func refreshGitFromMetadataChange(since historyVersion: Int? = nil) async {
+        await GitExecutionSource.$current.withValue(.background) {
+            await refreshGitMetadata(since: historyVersion)
+        }
+    }
+
+    private func refreshGitMetadata(since historyVersion: Int?) async {
         let root = gitRepositoryRoot
         let previousHistoryVersion = historyVersion ?? gitCommitsVersion
         await refreshGit()

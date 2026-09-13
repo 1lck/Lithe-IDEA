@@ -40,7 +40,8 @@
         "core.quotepath=false",
         "-c",
         "log.showSignature=false"
-      ]
+      ],
+      "source": "unknown"
     },
     {
       "operationId": "fixture",
@@ -75,7 +76,8 @@
       "invocationId": 1,
       "exitCode": 0,
       "durationMilliseconds": 0,
-      "error": null
+      "error": null,
+      "expectedExit": false
     },
     {
       "operationId": "fixture",

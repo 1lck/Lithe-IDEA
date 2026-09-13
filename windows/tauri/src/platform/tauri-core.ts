@@ -86,7 +86,9 @@ const nativeCommands = new Set([
   "write_patch_file",
 ]);
 
-export function invoke<T>(command: string, args?: InvokeArgs, options?: InvokeOptions): Promise<T> {
+export function invoke<T>(command: string, args?: InvokeArgs, options?: InvokeOptions & { gitExecutionSource?: "user" | "background" | "unknown" }): Promise<T> {
+  const { gitExecutionSource = "unknown", ...forwardedOptions } = options ?? {};
+  const nativeOptions = Object.keys(forwardedOptions).length ? forwardedOptions : undefined;
   const requiredCapability = capabilityForCommand(command);
   if (requiredCapability && !isBackendCapabilityAvailable(requiredCapability)) {
     return Promise.reject(
@@ -94,10 +96,10 @@ export function invoke<T>(command: string, args?: InvokeArgs, options?: InvokeOp
     );
   }
   if (isNativeCommand(command)) {
-    return tauriInvoke<T>(command, args, options);
+    return tauriInvoke<T>(command, args, nativeOptions);
   }
 
-  if (command.startsWith("git_") || command.startsWith("git.")) {
+  if ((command.startsWith("git_") || command.startsWith("git.")) && command !== "git.consolePresentation") {
     const payload = { ...(args as Record<string, unknown> ?? {}) };
     const operationId = typeof payload.operationId === "string" ? payload.operationId : crypto.randomUUID();
     payload.operationId = operationId;
@@ -106,14 +108,14 @@ export function invoke<T>(command: string, args?: InvokeArgs, options?: InvokeOp
       deliverGitExecution({ ...event, action: command,
         workingDirectory: event.workingDirectory ?? String(payload.repoPath ?? payload.root ?? "") });
     };
-    return tauriInvoke<unknown>("platform_invoke", { command, args: payload, gitEvents: channel, gitExecution: gitExecutionPreferences() }, options).then(
+    return tauriInvoke<unknown>("platform_invoke", { command, args: payload, gitEvents: channel, gitExecution: { ...gitExecutionPreferences(), source: gitExecutionSource } }, nativeOptions).then(
       (value) => {
         return adaptCoreResult<T>(command, args as Record<string, any> | undefined, value);
       },
       (error) => { throw error; },
     );
   }
-  return tauriInvoke<unknown>("platform_invoke", { command, args: args ?? {} }, options).then(
+  return tauriInvoke<unknown>("platform_invoke", { command, args: args ?? {} }, nativeOptions).then(
     (value) => adaptCoreResult<T>(command, args as Record<string, any> | undefined, value),
   );
 }

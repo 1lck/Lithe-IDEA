@@ -3,7 +3,9 @@ import type { GitExecutionEvent } from "@/platform/git-execution-events";
 export interface GitConsoleRecord {
   id: string;
   timestamp: number;
+  sequence?: number;
   operationId: string;
+  source?: GitExecutionEvent["source"];
   root: string;
   action: string;
   arguments: string[];
@@ -18,6 +20,7 @@ export interface GitConsoleRecord {
   remoteResult?: GitExecutionEvent;
   progress?: string;
   truncated: boolean;
+  expectedExit?: boolean;
   exitCode?: number;
   durationMilliseconds?: number;
   error?: string;
@@ -32,17 +35,21 @@ const MAX_TOTAL_OUTPUT = 1_048_576;
 export class GitExecutionJournal {
   constructor(private readonly now: () => number = Date.now) {}
   records: GitConsoleRecord[] = [];
+  historyTruncated = false;
   active = new Map<string, string>();
   authentication: GitExecutionEvent[] = [];
   private hidden = new Set<string>();
+  private sequence = 0;
 
   clear(root: string) {
     this.records = this.records.filter((record) => !sameGitRoot(record.root, root));
+    if (!this.records.length) this.historyTruncated = false;
     for (const [id, directory] of this.active) if (sameGitRoot(directory, root)) this.hidden.add(id);
   }
 
   receive(event: GitExecutionEvent) {
     const operationId = event.operationId;
+    if (event.type === "started") this.sequence += 1;
     if (event.type === "authentication") { this.authentication.push(event); return; }
     if (event.type === "requestStarted") {
       this.active.set(operationId, event.workingDirectory ?? "");
@@ -66,15 +73,15 @@ export class GitExecutionJournal {
     }
     if (this.hidden.has(operationId)) return;
     if (event.type === "remoteResult") {
-      const record = [...this.records].reverse().find((record) => record.operationId === operationId);
+      const record = [...this.records].reverse().find((record) => record.operationId === operationId && (event.invocationId == null || record.id === `${operationId}:${event.invocationId}`));
       if (record) { record.remoteResult = event; if (event.error) record.error = redactConsoleText(event.error.message); }
       return;
     }
     const id = `${operationId}:${event.invocationId}`;
     if (event.type === "started") {
       this.records = this.records.filter((record) => record.id !== operationId);
-      this.records.push({ id, operationId, timestamp: this.now(), root: event.workingDirectory ?? "", action: event.action ?? "Git",
-        arguments: event.arguments ?? [], executable: event.executable, temporaryConfig: event.temporaryConfig,
+      this.records.push({ id, operationId, timestamp: this.now(), sequence: this.sequence, root: event.workingDirectory ?? "", action: event.action ?? "Git",
+        source: event.source ?? "unknown", arguments: event.arguments ?? [], executable: event.executable, temporaryConfig: event.temporaryConfig,
         displayArguments: event.displayArguments, globalArguments: event.globalArguments, state: "running", output: "", lines: [], truncated: false });
     }
     const record = [...this.records].reverse().find((record) => record.id === id);
@@ -98,11 +105,13 @@ export class GitExecutionJournal {
     if (record && event.type === "finished") {
       record.state = event.exitCode == null ? "unconfirmed" : "completed";
       record.exitCode = event.exitCode ?? undefined;
+      record.expectedExit = event.expectedExit ?? false;
       record.durationMilliseconds = event.durationMilliseconds;
       record.error = event.error ? redactConsoleText([event.error.message, event.error.details].filter(Boolean).join("\n")) : undefined;
       record.progress = undefined;
     }
     while (this.records.length > MAX_RECORDS || (this.records.length > 1 && this.records.reduce((sum, record) => sum + record.output.length, 0) > MAX_TOTAL_OUTPUT)) {
+      this.historyTruncated = true;
       this.records.shift();
     }
   }
@@ -113,9 +122,10 @@ export function redactConsoleText(text: string): string {
     .replace(/([?&](?:token|access_token|password|secret|api_key)=)[^&\s]+/gi, "$1redacted");
 }
 
-export function gitConsoleCommand(arguments_: string[]): string {
+export function gitConsoleCommand(arguments_: string[], preservesNewlines = false): string {
   return "git " + arguments_.map((argument) => {
-    const value = redactConsoleText(argument).replace(/\r/g, "\\r").replace(/\n/g, "\\n");
+    let value = redactConsoleText(argument).replace(/\r/g, "\\r");
+    if (!preservesNewlines) value = value.replace(/\n/g, "\\n");
     return /^[a-zA-Z0-9_@%+=:,./-]+$/.test(value) ? value : "'" + value.replace(/'/g, "'\\''") + "'";
   }).join(" ");
 }
@@ -133,4 +143,9 @@ export function gitConsoleConfiguration(values: string[][] = []): string {
 export function sameGitRoot(left: string, right: string | null): boolean {
   const normalize = (value: string) => value.replace(/\\/g, "/").replace(/\/+$/, "").toLocaleLowerCase();
   return right !== null && normalize(left) === normalize(right);
+}
+
+/** Copy from actual argv and explicit temporary configuration, never a reordered display plan. */
+export function gitConsoleCompleteCommand(record: GitConsoleRecord): string {
+  return gitConsoleCommand([...(record.temporaryConfig ?? []).flatMap((pair) => ["-c", pair.join("=")]), ...record.arguments], true);
 }

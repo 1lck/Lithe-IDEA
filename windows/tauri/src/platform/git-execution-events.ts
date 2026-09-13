@@ -1,6 +1,9 @@
+export type GitExecutionSource = "user" | "background" | "unknown";
+
 /** Native diagnostics only; command input and environment are never included. */
 export interface GitExecutionEvent {
   operationId: string;
+  source?: GitExecutionSource;
   type: "requestStarted" | "started" | "output" | "finished" | "requestFinished" | "authentication" | "remoteResult";
   invocationId?: number;
   workingDirectory?: string;
@@ -9,6 +12,7 @@ export interface GitExecutionEvent {
   text?: string;
   progress?: boolean;
   truncated?: boolean;
+  expectedExit?: boolean;
   exitCode?: number | null;
   durationMilliseconds?: number;
   error?: { code?: string; message: string; details?: string } | null;

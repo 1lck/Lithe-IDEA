@@ -12,6 +12,7 @@ package struct NullGitPerformanceLogger: GitPerformanceLogger {
 }
 
 package protocol GitOperations: Sendable {
+    func consolePresentation(_ request: GitConsolePresentationRequest) -> GitConsolePresentation?
     func executionSettings(_ request: GitConfigurationEdit, save: Bool) -> Result<GitExecutionSettingsSnapshot, GitFetchFailure>
     func answerAuthentication(requestID: String, answer: String?) -> Bool
     func repositorySetup(at root: URL, scope: GitIdentityScope) -> Result<GitRepositorySetup, GitSetupFailure>
@@ -172,6 +173,7 @@ package protocol GitOperations: Sendable {
 }
 
 package extension GitOperations {
+    func consolePresentation(_ request: GitConsolePresentationRequest) -> GitConsolePresentation? { nil }
     func executionSettings(_ request: GitConfigurationEdit, save: Bool) -> Result<GitExecutionSettingsSnapshot, GitFetchFailure> { .failure(GitFetchFailure("Git configuration inspection is unavailable.")) }
     func answerAuthentication(requestID: String, answer: String?) -> Bool { false }
     func fetchPlan(options: GitFetchOptions, at root: URL) -> Result<GitFetchPlan, GitFetchFailure> { fetchPlan(options: options) }
@@ -1144,6 +1146,10 @@ package struct GitService: Sendable {
         return commandResult
     }
 
+    package func consolePresentation(_ request: GitConsolePresentationRequest) async -> GitConsolePresentation? {
+        await read { $0.consolePresentation(request) }
+    }
+
     private func read<T: Sendable>(
         priority: TaskPriority = .userInitiated,
         operationName: String = #function,
@@ -1151,8 +1157,9 @@ package struct GitService: Sendable {
     ) async -> T? {
         let operations = self.operations
         let startedAt = ContinuousClock.now
+        let source = GitExecutionSource.current
         let result = await Task.detached(priority: priority) {
-            operation(operations)
+            GitExecutionSource.$current.withValue(source) { operation(operations) }
         }.value
         performanceLogger.record(
             GitPerformanceLogFormatter.read(
@@ -1187,8 +1194,9 @@ package struct GitService: Sendable {
         _ operation: @escaping @Sendable (any GitOperations) -> T?
     ) async -> T? {
         let operations = self.operations
+        let source = GitExecutionSource.current
         let task = Task.detached(priority: priority) {
-            operation(operations)
+            GitExecutionSource.$current.withValue(source) { operation(operations) }
         }
         return await withTaskCancellationHandler {
             await task.value

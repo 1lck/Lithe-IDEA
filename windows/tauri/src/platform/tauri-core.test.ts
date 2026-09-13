@@ -25,3 +25,18 @@ test("Java index maintenance routes directly to the Tauri host", async () => {
 
   expect(tauriInvoke).toHaveBeenCalledWith("lsp_rebuild_java_index", args, undefined);
 });
+
+
+test("pure console projection bypasses execution events and Git settings", async () => {
+  const args = { records: [], search: "" };
+  await invoke("git.consolePresentation", args);
+  expect(tauriInvoke).toHaveBeenCalledWith("platform_invoke", { command: "git.consolePresentation", args }, undefined);
+});
+
+test("explicit automatic provenance is forwarded separately from native invoke options", async () => {
+  await invoke("git_status", { repoPath: "C:/fixture/project", operationId: "background-fixture" }, { gitExecutionSource: "background" });
+  const calls = tauriInvoke.mock.calls as unknown as [string, { gitExecution?: { source?: string }; gitEvents?: unknown }, unknown][];
+  expect(calls[0]![1].gitExecution?.source).toBe("background");
+  expect(calls[0]![1].gitEvents).toBeDefined();
+  expect(calls[0]![2]).toBeUndefined();
+});

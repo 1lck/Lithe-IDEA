@@ -4,6 +4,7 @@ import Foundation
 package struct GitExecutionEvent: Decodable, Sendable {
     package let operationId: String
     package let type: String
+    package var source: GitExecutionSource?
     package var executable: String?
     package var temporaryConfig: [[String]]?
     package var displayArguments: [String]?
@@ -29,6 +30,7 @@ package struct GitExecutionEvent: Decodable, Sendable {
     package var text: String?
     package var progress: Bool?
     package var truncated: Bool?
+    package var expectedExit: Bool?
     package var exitCode: Int32?
     package var durationMilliseconds: Int?
     package var error: Failure?
@@ -45,12 +47,14 @@ package struct GitExecutionEvent: Decodable, Sendable {
 package final class GitExecutionContext: @unchecked Sendable {
     @TaskLocal package static var current: GitExecutionContext?
     package let operationID: String
+    package let source: GitExecutionSource
     private let lock = NSLock()
     private var cancelled = false
     private var records: [Record] = []
     private var dirty = false
     private var challenges: [GitAuthenticationChallenge] = []
     private var receivedInvocation = false
+    private var omittedHistory = false
     private static let maxRecords = 200
     private static let maxStreamCharacters = 32_768
     private static let maxOutputLines = 2_000
@@ -60,8 +64,10 @@ package final class GitExecutionContext: @unchecked Sendable {
         let invocationID: Int
         let id = UUID()
         let timestamp = Date()
+        let sequence = GitConsoleSequenceCounter.shared.next()
         let root: URL
         let arguments: [String]
+        var source: GitExecutionSource = .unknown
         var executable: String?
         var temporaryConfig: [[String]] = []
         var displayArguments: [String]?
@@ -75,6 +81,7 @@ package final class GitExecutionContext: @unchecked Sendable {
         var progress: String?
         var truncated = false
         var state: GitConsoleEntryState = .running
+        var expectedExit = false
         var exitCode: Int32 = 0
         var duration: Int?
         var error: String?
@@ -99,14 +106,18 @@ package final class GitExecutionContext: @unchecked Sendable {
                 durationMilliseconds: duration, operationTitle: "Git",
                 operationErrorMessage: error, progressText: progress, isOutputTruncated: truncated,
                 executable: executable, temporaryConfig: temporaryConfig, phase: phase, remoteResult: remoteResult,
-                displayArguments: displayArguments, globalArguments: globalArguments)
+                displayArguments: displayArguments, globalArguments: globalArguments, source: source, expectedExit: expectedExit, sequence: sequence)
         }
     }
 
-    package init(operationID: String = UUID().uuidString) { self.operationID = operationID }
+    package init(operationID: String = UUID().uuidString, source: GitExecutionSource = .unknown) {
+        self.operationID = operationID
+        self.source = source
+    }
 
     package func requestCancellation() { lock.withLock { cancelled = true } }
     package var isCancellationRequested: Bool { lock.withLock { cancelled } }
+    package var hasOmittedHistory: Bool { lock.withLock { omittedHistory } }
     package var hasInvocations: Bool { lock.withLock { receivedInvocation } }
 
     package func receive(_ event: GitExecutionEvent) {
@@ -138,7 +149,7 @@ package final class GitExecutionContext: @unchecked Sendable {
             }
             return
         }
-        if event.type == "remoteResult", let index = records.indices.last {
+        if event.type == "remoteResult", let index = records.lastIndex(where: { event.invocationId == nil || $0.invocationID == event.invocationId }) {
             records[index].remoteResult = remoteOutcome(for: event)
             if let error = event.error { records[index].error = error.message }
             dirty = true
@@ -148,9 +159,9 @@ package final class GitExecutionContext: @unchecked Sendable {
         if event.type == "started", let root = event.workingDirectory, let arguments = event.arguments {
             receivedInvocation = true
             records.append(Record(invocationID: invocationID, root: URL(fileURLWithPath: root), arguments: arguments,
-                executable: event.executable, temporaryConfig: event.temporaryConfig ?? [],
+                source: event.source ?? source, executable: event.executable, temporaryConfig: event.temporaryConfig ?? [],
                 displayArguments: event.displayArguments, globalArguments: event.globalArguments))
-            if records.count > Self.maxRecords { records.removeFirst(records.count - Self.maxRecords) }
+            if records.count > Self.maxRecords { omittedHistory = true; records.removeFirst(records.count - Self.maxRecords) }
             dirty = true
             return
         }
@@ -177,11 +188,13 @@ package final class GitExecutionContext: @unchecked Sendable {
                 records[index].truncated = true
             }
             while records.count > 1 && records.reduce(0, { $0 + $1.stdout.count + $1.stderr.count + $1.lineCharacters }) > Self.maxTotalCharacters {
+                omittedHistory = true
                 records.removeFirst()
             }
         case "finished":
             records[index].state = event.exitCode == nil ? .unconfirmed : .completed
             records[index].exitCode = event.exitCode ?? -1
+            records[index].expectedExit = event.expectedExit ?? false
             records[index].duration = event.durationMilliseconds
             records[index].error = event.error.map { [$0.message, $0.details].compactMap { $0 }.joined(separator: "\n") }
             records[index].progress = nil
@@ -234,4 +247,12 @@ package struct GitRemoteOutcome: Equatable, Sendable {
     package var deletedCount = 0
     package var truncated = false
     package var referencesAvailable = true
+}
+
+/// Shared start order includes executions in other repositories and feature contexts.
+private final class GitConsoleSequenceCounter: @unchecked Sendable {
+    static let shared = GitConsoleSequenceCounter()
+    private let lock = NSLock()
+    private var value: UInt64 = 0
+    func next() -> UInt64 { lock.withLock { value &+= 1; return value } }
 }

@@ -155,6 +155,7 @@ stable error code and a user-facing message:
 | `git.command` | Execute one argument-based Git operation and return its arguments, streams, exit code, and ordered subprocess invocations |
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
 | `git.fetchPlan` | Validate Fetch choices; optionally inspect a repository to expand enabled per-remote commands |
+| `git.consolePresentation` | Pure console compression, grouping, labels and search ranges over retained diagnostic snapshots |
 | `git.executionInspect` | Inspect executable capabilities, configuration provenance and effective Fetch preferences |
 | `git.executionConfigure` | Explicitly save or clear one allowlisted value in a selected config scope |
 | `git.authRespond` | Answer or cancel a live authentication challenge once |
@@ -341,7 +342,7 @@ is active; it does not wait behind a mutex outside its cancellation deadline.
 
 Git requests may include optional envelope metadata `gitExecution`:
 `{ executable?: string | null, interactive?: boolean, useCredentialHelper?: boolean,
-fetchDefaults?: GitFetchOptions, detailedFetch?: boolean }`. Defaults are PATH,
+fetchDefaults?: GitFetchOptions, detailedFetch?: boolean, source?: "user" | "background" | "unknown" }`. Defaults are PATH,
 noninteractive, helper enabled, normal Fetch defaults, and legacy Fetch results.
 An executable must be an absolute native path to Git 2.31 or newer. Interactive
 commands require an event receiver. These values are request-scoped, including
@@ -421,9 +422,9 @@ Each event has `operationId` and `type`:
 | Type | Additional fields |
 | --- | --- |
 | `requestStarted` | none; cancellation is registered before delivery |
-| `started` | `invocationId`, `workingDirectory`, `arguments`, nullable resolved `executable`, `temporaryConfig` key/value pairs, `displayArguments`, `globalArguments` |
+| `started` | `invocationId`, `workingDirectory`, `arguments`, nullable resolved `executable`, `temporaryConfig` key/value pairs, `displayArguments`, `globalArguments`, `source` |
 | `output` | `invocationId`, `stream` (`stdout`/`stderr`), `text`, `progress`, `truncated`, optional `progressDetails` (`stage`, nullable `percent`, `completed`, `total`) |
-| `finished` | `invocationId`, nullable `exitCode`, monotonic `durationMilliseconds`, nullable `error` |
+| `finished` | `invocationId`, nullable `exitCode`, monotonic `durationMilliseconds`, nullable `error`, `expectedExit` |
 | `requestFinished` | nullable `error`, including failures before a child started |
 | `authentication` | `requestId`, `prompt`, `secret`, `attempt`, optional `retry`, `workingDirectory` |
 | `remoteResult` | `remote`, `succeeded`, nullable structured `error`, updated/deleted reference lists and counts, `referencesTruncated`, `referencesAvailable` |
@@ -438,10 +439,12 @@ former starts at the subcommand, and the latter contains temporary configuration
 as `-c key=value` pairs followed by the original global argument prefix. Consoles
 fold the whole prefix once; raw `arguments` remain authoritative for copying and
 diagnostics. Older events without projections retain their legacy display.
-Internal Fetch/Push configuration lookups are not console invocations. Missing
-optional values are normal preflight results; real inspection failures still
-propagate through the request error. Explicit user configuration writes remain
-visible. Final command response semantics remain unchanged.
+Every invocation through the shared process capture boundary, including internal
+queries, produces execution events. Missing optional config values retain their
+actual exit 1 with `expectedExit: true`; only the executing workflow can mark that
+normal result. Other nonzero exits and request errors remain failures. The
+`remoteResult` event carries the transfer's `invocationId` so later inspection
+queries cannot acquire its summary. Final command response semantics remain unchanged.
 
 A complete line is redacted before publication. Native diagnostic limits are
 16 KiB per line, 512 KiB raw diagnostic input and 4,096 output events per

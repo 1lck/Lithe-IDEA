@@ -11,9 +11,11 @@ package final class GitExecutionJournal: @unchecked Sendable {
     private var entries: [GitConsoleEntry] = []
     private var entryIDs: [String: Set<UUID>] = [:]
     private var hidden: Set<String> = []
+    private var omittedHistory = false
 
     package init() {}
 
+    package var hasOmittedHistory: Bool { lock.withLock { omittedHistory } }
     package var snapshot: [GitConsoleEntry] { lock.withLock { entries } }
 
     package func receive(_ event: GitExecutionEvent) {
@@ -32,6 +34,7 @@ package final class GitExecutionJournal: @unchecked Sendable {
         let context = contexts[operationID] ?? GitExecutionContext(operationID: operationID)
         contexts[operationID] = context
         context.receive(event)
+        omittedHistory = omittedHistory || context.hasOmittedHistory
         let snapshot = context.drainSnapshot()
         if let snapshot {
             // Update in place to retain start order even when wall-clock
@@ -44,8 +47,9 @@ package final class GitExecutionJournal: @unchecked Sendable {
                 }
             }
             entryIDs[operationID] = Set(snapshot.map(\.id))
-            if entries.count > 200 { entries.removeFirst(entries.count - 200) }
+            if entries.count > 200 { omittedHistory = true; entries.removeFirst(entries.count - 200) }
             while entries.count > 1 && entries.reduce(0, { $0 + $1.output.count }) > 1_048_576 {
+                omittedHistory = true
                 entries.removeFirst()
             }
         }
@@ -60,6 +64,7 @@ package final class GitExecutionJournal: @unchecked Sendable {
         lock.withLock {
             let removed = Set(entries.filter { $0.workingDirectory == root }.map(\.id))
             entries.removeAll { removed.contains($0.id) }
+            if entries.isEmpty { omittedHistory = false }
             for (operationID, ids) in entryIDs where !ids.isDisjoint(with: removed) {
                 hidden.insert(operationID)
                 contexts.removeValue(forKey: operationID)

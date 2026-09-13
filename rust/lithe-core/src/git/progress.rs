@@ -5,7 +5,7 @@ use serde::Serialize;
 #[serde(rename_all = "camelCase")]
 /// A percentage applies only to its named phase, never to an entire multi-remote operation.
 pub(super) struct Progress {
-    stage: &'static str,
+    pub(super) stage: &'static str,
     percent: Option<u8>,
     completed: Option<u64>,
     total: Option<u64>,

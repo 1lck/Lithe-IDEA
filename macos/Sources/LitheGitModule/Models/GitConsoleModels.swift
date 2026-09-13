@@ -23,6 +23,8 @@ package enum GitConsoleEntryState: Equatable, Sendable {
 /// A planned or completed Git invocation shown in the Git console.
 package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
     package let id: UUID
+    package let sequence: UInt64?
+    package let source: GitExecutionSource
     package let timestamp: Date
     package let workingDirectory: URL
     package let arguments: [String]
@@ -30,6 +32,7 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
     package let standardOutput: String?
     package let standardError: String?
     private let orderedOutputLines: [GitConsoleOutputLine]?
+    package let expectedExit: Bool
     package let exitCode: Int32
     package let state: GitConsoleEntryState
     package let durationMilliseconds: Int?
@@ -62,8 +65,12 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
         isOutputTruncated: Bool = false,
         executable: String? = nil, temporaryConfig: [[String]] = [],
         phase: GitPhaseProgress? = nil, remoteResult: GitRemoteOutcome? = nil,
-        displayArguments: [String]? = nil, globalArguments: [String]? = nil
+        displayArguments: [String]? = nil, globalArguments: [String]? = nil,
+        source: GitExecutionSource = .unknown, expectedExit: Bool = false, sequence: UInt64? = nil
     ) {
+        self.sequence = sequence
+        self.expectedExit = expectedExit
+        self.source = source
         self.executable = executable
         self.temporaryConfig = temporaryConfig.map { $0.map(GitConsoleRedactor.redact) }
         self.displayArguments = displayArguments?.map(GitConsoleRedactor.redact)
@@ -96,13 +103,18 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
             durationMilliseconds: durationMilliseconds, operationTitle: operationTitle,
             operationErrorMessage: message, progressText: progressText, isOutputTruncated: isOutputTruncated,
             executable: executable, temporaryConfig: temporaryConfig, phase: phase, remoteResult: remoteResult,
-            displayArguments: displayArguments, globalArguments: globalArguments)
+            displayArguments: displayArguments, globalArguments: globalArguments, source: source, expectedExit: expectedExit, sequence: sequence)
     }
 
-    package var succeeded: Bool { state == .completed && exitCode == 0 && operationErrorMessage == nil }
+    package var succeeded: Bool { state == .completed && (exitCode == 0 || expectedExit) && operationErrorMessage == nil }
 
     package var commandLine: String {
         GitConsoleCommandFormatter.commandLine(arguments: arguments)
+    }
+
+    package var completeCommandLine: String {
+        let configuration = temporaryConfig.flatMap { ["-c", $0.joined(separator: "=")] }
+        return "git " + GitConsoleCommandFormatter.argumentLine(arguments: configuration + arguments, preservesNewlines: true)
     }
 
     package var formattedArguments: String {
@@ -130,7 +142,7 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
     package var copyText: String {
         let configuration = temporaryConfig.map { $0.joined(separator: "=") }.joined(separator: ", ")
         let outcome = remoteResult.map { "\nRemote: \($0.remote) · \($0.succeeded ? "succeeded" : "failed")\nUpdated (\($0.updatedCount)): \($0.updatedReferences.joined(separator: ", "))\nDeleted (\($0.deletedCount)): \($0.deletedReferences.joined(separator: ", "))" } ?? ""
-        let header = "[\(workingDirectory.path)] \(commandLine)"
+        let header = "[\(workingDirectory.path)] \(completeCommandLine)"
         let status: String
         switch state {
         case .planned: status = "Planned Git command — waiting to start"
@@ -218,14 +230,14 @@ package enum GitConsoleCommandFormatter {
         return argumentLine.isEmpty ? "git" : "git \(argumentLine)"
     }
 
-    package static func argumentLine(arguments: [String]) -> String {
-        arguments.map(sanitizedArgument).joined(separator: " ")
+    package static func argumentLine(arguments: [String], preservesNewlines: Bool = false) -> String {
+        arguments.map { sanitizedArgument($0, preservesNewlines: preservesNewlines) }.joined(separator: " ")
     }
 
-    private static func sanitizedArgument(_ rawValue: String) -> String {
-        let redacted = GitConsoleRedactor.redact(rawValue)
+    private static func sanitizedArgument(_ rawValue: String, preservesNewlines: Bool) -> String {
+        var redacted = GitConsoleRedactor.redact(rawValue)
             .replacingOccurrences(of: "\r", with: "\\r")
-            .replacingOccurrences(of: "\n", with: "\\n")
+        if !preservesNewlines { redacted = redacted.replacingOccurrences(of: "\n", with: "\\n") }
         guard !redacted.isEmpty else { return "''" }
         if redacted.unicodeScalars.allSatisfy({ safeShellScalars.contains($0) }) {
             return redacted
