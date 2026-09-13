@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lithe Agent Notes"
+  short_description: "维护 Lithe 中文架构决策笔记"
+  default_prompt: "使用 $agent-notes 创建、迁移、更新或校验 Lithe Agent 笔记。"

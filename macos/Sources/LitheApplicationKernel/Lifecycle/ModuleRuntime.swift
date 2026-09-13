@@ -1,6 +1,8 @@
 import Foundation
 import LitheModuleAPI
 
+// Note: Module runtime boundaries and lifecycle rules live in
+// .agents/notes/implemented/architecture/2026-09-13-module-runtime-boundaries-and-lifecycle.md
 @MainActor
 public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishing, ModuleContributionPublishing {
     private struct Entry {

@@ -32,6 +32,8 @@ private struct MacDirectoryWatcherFactory: DirectoryWatcherFactory {
 /// UI models receive this container instead of constructing platform adapters
 /// themselves. Windows will provide an equivalent composition root without
 /// changing the application-facing orchestration.
+// Note: Module runtime boundaries and lifecycle rules live in
+// .agents/notes/implemented/architecture/2026-09-13-module-runtime-boundaries-and-lifecycle.md
 @MainActor
 final class MacServiceContainer {
     let services: AppServices

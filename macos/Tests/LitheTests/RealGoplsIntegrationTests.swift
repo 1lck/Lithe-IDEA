@@ -1,3 +1,20 @@
+// Real gopls integration: exercises the manager, Swift semantic facade, and a
+// real process-owning Rust Core. Disabled by default; run explicitly with:
+//
+//   scripts/build-rust-core.sh --debug --target aarch64-apple-darwin
+//
+//   LITHE_RUN_GOPLS_INTEGRATION=1 \
+//   LITHE_GOPLS_PATH="$HOME/.go/bin/gopls" \
+//   swift test --disable-sandbox --no-parallel \
+//     --triple arm64-apple-macosx \
+//     -Xswiftc -Xfrontend -Xswiftc -disable-round-trip-debug-types \
+//     -Xlinker -force_load \
+//     -Xlinker "$(pwd)/rust/target/macos/aarch64-apple-darwin/debug/liblithe_core.a" \
+//     --filter RealGoplsIntegrationTests
+//
+// -force_load is required: the test bundle also contains the C bridge's weak
+// fallback, so a normal link can succeed without the Rust archive loaded.
+// Intel macOS needs the target/triple and library path swapped to x86_64.
 import Foundation
 import LitheLanguageIntelligenceModule
 import Testing

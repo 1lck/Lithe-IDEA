@@ -1,0 +1,57 @@
+name: Deploy Agent Notes Board
+
+on:
+  push:
+    branches:
+      - preview
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: agent-notes-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Verify Agent Notes
+        run: ./scripts/verify-agent-notes.sh
+
+      - name: Build complete public board
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/lithe-agent-notes-site"
+          node scripts/build-agent-notes-board.mjs \
+            --bundle \
+            .agents/notes \
+            "$RUNNER_TEMP/lithe-agent-notes-site/index.html" \
+            "Lithe 工程决策看板"
+          touch "$RUNNER_TEMP/lithe-agent-notes-site/.nojekyll"
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ runner.temp }}/lithe-agent-notes-site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

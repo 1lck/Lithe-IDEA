@@ -1,5 +1,9 @@
 # CI builds and test downloads
 
+CI 构建缓存、架构并行、测试产物和 artifact 保留策略见
+[`2026-09-13-ci-build-cache-and-artifact-strategy.md`](../.agents/notes/implemented/process/2026-09-13-ci-build-cache-and-artifact-strategy.md)。
+本文只保留 CI 使用说明、下载方式和历史观测。
+
 macOS CI and Windows CI upload complete test packages whenever their product
 build lane is selected. Open the workflow run's **Summary** and use the
 **macOS test download** or **Windows x64 test download** link. The same files

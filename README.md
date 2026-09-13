@@ -226,7 +226,7 @@ Before submitting a change, run:
 `test-git-performance-baseline.sh` runs deterministic Git graph work gates and
 records an optimized multi-sample timing baseline under `.artifacts/`.
 
-See [Repository layout and shared boundaries](./docs/architecture/repository-layout.md) for directory ownership, cross-platform boundaries, sharing rules, and the required Rust Core comment standard. Include your verification steps and known limitations when submitting a change.
+See [Repository ownership and sharing boundaries](./.agents/notes/implemented/architecture/2026-09-13-repository-ownership-and-sharing-boundaries.md) for directory ownership, cross-platform boundaries, sharing rules, and the required Rust Core comment standard. Include your verification steps and known limitations when submitting a change.
 
 </details>
 

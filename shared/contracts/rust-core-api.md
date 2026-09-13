@@ -921,8 +921,8 @@ Each provider descriptor may include `languageServerLaunch` with ordered
 need to discover a real language-server executable; the selected launch plan is
 then submitted to the Rust-owned runtime. Built-in descriptors are merged by provider ID with the optional
 `.lithe/lsp/language-providers.json` workspace document. See
-[`language-tooling.md`](../../docs/architecture/language-tooling.md) for routing,
-discovery, lifecycle, and compatibility rules.
+[`.agents/notes/implemented/architecture/2026-09-13-language-tooling-and-lsp-runtime-ownership.md`](../../.agents/notes/implemented/architecture/2026-09-13-language-tooling-and-lsp-runtime-ownership.md)
+for routing, discovery, lifecycle, and compatibility rules.
 
 The `lsp.*Server`, `lsp.*Document`, `lsp.request`, `lsp.pollEvents`, and
 `lsp.waitEvents`

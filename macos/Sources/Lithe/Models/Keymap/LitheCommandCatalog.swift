@@ -8,6 +8,7 @@ struct LitheCommandDefinition: Identifiable, Equatable, Sendable {
     let defaultBindings: [KeyboardShortcutBinding]
 }
 
+// Note: macOS 快捷键的集中目录、覆盖与冲突规则见 .agents/notes/implemented/feature/2026-08-15-macos-keymap-customization.md
 enum LitheCommandCatalog {
     static let commands: [LitheCommandDefinition] = validated([
         command("open-project", "Open Project", "Open a local project folder", .project, "o", [.command]),
