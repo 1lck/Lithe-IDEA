@@ -434,6 +434,11 @@ absolute-path diagnostic, not a shared workspace identifier. Arguments/output
 are redacted diagnostics; preview alone is not proof of process startup. An
 unknown exit status remains null. A failed start may produce `finished` without
 `started`; consumers must not fabricate an executed command from that event.
+Native journals track `requestStarted` separately from visible command records.
+It must not allocate a placeholder or consume command-history capacity. Clearing
+history suppresses late invocations from requests already in preflight, while
+started operations remain cancellable until `requestFinished`, even after their
+text is cleared. See `shared/fixtures/git/console-lifecycle-v1.json`.
 `displayArguments` and `globalArguments` are additive console projections: the
 former starts at the subcommand, and the latter contains temporary configuration
 as `-c key=value` pairs followed by the original global argument prefix. Consoles

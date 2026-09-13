@@ -1,10 +1,59 @@
 import policy from "../../../../../../shared/fixtures/git/execution-policy-v1.json";
 import fixture from "../../../../../../shared/fixtures/git/execution-events-v1.json";
+import lifecycle from "../../../../../../shared/fixtures/git/console-lifecycle-v1.json";
 import type { GitExecutionEvent } from "@/platform/git-execution-events";
 import { describe, expect, test } from "bun:test";
 import { GitExecutionJournal, gitConsoleCommand, gitConsoleConfiguration, gitConsoleTimestamp } from "./git-execution-journal";
 
 describe("Git execution journal", () => {
+  test("shared lifecycle keeps preflight silent and suppresses cleared requests", () => {
+    for (const sample of lifecycle.cases) {
+      const journal = new GitExecutionJournal(() => 0);
+      for (const raw of sample.steps) {
+        const step = raw as { clear?: boolean; event?: GitExecutionEvent; commands: string[][]; running: string[] };
+        if (step.clear) journal.clear();
+        if (step.event) journal.receive(step.event);
+        expect(journal.records.map((record) => record.arguments)).toEqual(step.commands);
+        for (const operationId of step.running) expect(journal.active.has(operationId)).toBe(true);
+        if (step.event?.type === "requestFinished") expect(journal.active.has(step.event.operationId)).toBe(false);
+      }
+      expect(journal.active.size).toBe(0);
+    }
+  });
+  test("silent queries never consume or evict the full visible command history", () => {
+    const journal = new GitExecutionJournal(() => 0);
+    for (let index = 0; index < 200; index++) {
+      const operationId = `command-${index}`;
+      journal.receive({ operationId, type: "started", invocationId: 1, workingDirectory: "C:/repo", arguments: ["commit"] });
+      journal.receive({ operationId, type: "finished", invocationId: 1, exitCode: 0 });
+      journal.receive({ operationId, type: "requestFinished" });
+    }
+    const retained = journal.records;
+    const originalIds = retained.map((record) => record.id);
+    for (const operationId of ["status", "references", "worktrees"]) {
+      journal.receive({ operationId, type: "requestStarted", workingDirectory: "C:/repo" });
+      expect(journal.active.has(operationId)).toBe(true);
+      expect(journal.records.map((record) => record.id)).toEqual(originalIds);
+    }
+    for (const operationId of ["status", "references", "worktrees"]) journal.receive({ operationId, type: "requestFinished" });
+    expect(journal.records).toBe(retained);
+    expect(journal.historyTruncated).toBe(false);
+    expect(journal.active.size).toBe(0);
+  });
+  test("failed preflight retains its reason and directory without claiming Git started", () => {
+    const journal = new GitExecutionJournal(() => 0);
+    for (let index = 0; index < 201; index++) {
+      const operationId = `failed-${index}`;
+      journal.receive({ operationId, type: "requestStarted", workingDirectory: "C:/denied", action: "git_fetch" });
+      journal.receive({ operationId, type: "requestFinished", error: { message: "Could not open repository", details: "Permission denied" } });
+    }
+    expect(journal.records).toHaveLength(200);
+    expect(journal.records[199]).toMatchObject({ root: "C:/denied", action: "git_fetch", arguments: [], state: "unconfirmed",
+      error: "Could not open repository\nPermission denied" });
+    expect(journal.records[199]!.exitCode).toBeUndefined();
+    expect(journal.historyTruncated).toBe(true);
+    expect(journal.active.size).toBe(0);
+  });
   test("all operation sources share history before a console subscribes", () => {
     const journal = new GitExecutionJournal(() => 0);
     for (const command of ["add", "commit", "checkout", "push", "stash", "rebase", "worktree"]) {
@@ -79,7 +128,10 @@ describe("Git execution journal", () => {
     expect(journal.records).toEqual([]);
     expect(journal.active.size).toBe(0);
     journal.receive({ operationId: "new", type: "requestStarted", workingDirectory: "C:/repo" });
+    expect(journal.records).toEqual([]);
+    journal.receive({ operationId: "new", type: "started", invocationId: 1, workingDirectory: "C:/repo", arguments: ["fetch"] });
     expect(journal.records).toHaveLength(1);
+    journal.receive({ operationId: "new", type: "requestFinished" });
   });
   test("progress on stderr does not make a successful command fail", () => {
     const journal = new GitExecutionJournal();

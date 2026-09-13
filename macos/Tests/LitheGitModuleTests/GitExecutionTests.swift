@@ -4,6 +4,31 @@ import Testing
 
 struct GitExecutionTests {
     @Test
+    func sharedLifecycleKeepsPreflightSilentAndSuppressesClearedRequests() throws {
+        struct Step: Decodable {
+            let event: GitExecutionEvent?
+            let clear: Bool?
+            let commands: [[String]]
+            let running: [String]
+        }
+        struct Sample: Decodable { let name: String; let steps: [Step] }
+        struct Fixture: Decodable { let cases: [Sample] }
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<4 { root.deleteLastPathComponent() }
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf:
+            root.appendingPathComponent("shared/fixtures/git/console-lifecycle-v1.json")))
+        for sample in fixture.cases {
+            let journal = GitExecutionJournal()
+            for step in sample.steps {
+                if step.clear == true { journal.clear() }
+                if let event = step.event { journal.receive(event) }
+                #expect(journal.snapshot.map(\.arguments) == step.commands, "\(sample.name)")
+                #expect(journal.runningOperationIDs.sorted() == step.running, "\(sample.name)")
+            }
+        }
+    }
+
+    @Test
     func featureWorkflowHistoryUpdatesInPlaceAndClearSuppressesLateOutput() {
         let journal = GitExecutionJournal()
         let entry = GitConsoleEntry(workingDirectory: URL(fileURLWithPath: "/linked-checkout"),

@@ -246,8 +246,19 @@ other entry points such as GitHub. Changing the selected repository or opening
 a linked checkout does not filter out previously executed worktree commands.
 Repository generation still guards feature state, while the journal retains
 actual started operations across checkout changes. Clearing the console removes
-the window history and suppresses late output from cleared operations. Duration
-uses a monotonic clock; timestamps are only presentation metadata.
+the window history and suppresses late output from cleared operations, including
+requests still in preflight when the user clears it. Request bookkeeping is
+tracked separately from visible invocations: successful internal queries create
+no placeholder rows and cannot evict actual command history. A failed Windows
+preflight retains its reason and directory as an unconfirmed request failure.
+
+The console's stop action also cancels running journal requests from other
+features, including GitHub. Clearing their text does not remove their cancellation
+handles; request completion retires those handles even if no output changes.
+Resetting the Git feature cancels only its own workflows, preserving the lifecycle
+ownership of other features. These event sequences are covered by
+`shared/fixtures/git/console-lifecycle-v1.json` and both native journal test suites.
+Duration uses a monotonic clock; timestamps are only presentation metadata.
 
 ## Retention and validation
 

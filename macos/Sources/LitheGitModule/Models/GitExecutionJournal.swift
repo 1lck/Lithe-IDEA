@@ -8,6 +8,9 @@ package final class GitExecutionJournal: @unchecked Sendable {
     package let changes = PassthroughSubject<Void, Never>()
     private let lock = NSLock()
     private var contexts: [String: GitExecutionContext] = [:]
+    // Request bookkeeping survives preflight and clearing without inventing a command row.
+    private var activeRequests: Set<String> = []
+    private var runningOperations: Set<String> = []
     private var entries: [GitConsoleEntry] = []
     private var entryIDs: [String: Set<UUID>] = [:]
     private var hidden: Set<String> = []
@@ -17,6 +20,7 @@ package final class GitExecutionJournal: @unchecked Sendable {
 
     package var hasOmittedHistory: Bool { lock.withLock { omittedHistory } }
     package var snapshot: [GitConsoleEntry] { lock.withLock { entries } }
+    package var runningOperationIDs: Set<String> { lock.withLock { runningOperations } }
 
     /// Feature-owned workflows publish the same invocation IDs to window history,
     /// so closing their panel or opening a linked checkout cannot lose the command.
@@ -57,9 +61,32 @@ package final class GitExecutionJournal: @unchecked Sendable {
 
     private func receiveLocked(_ event: GitExecutionEvent) -> Bool {
         let operationID = event.operationId
-        if hidden.contains(operationID) {
-            if event.type == "requestFinished" { hidden.remove(operationID) }
+        if event.type == "requestStarted" {
+            activeRequests.insert(operationID)
             return false
+        }
+        if event.type == "requestFinished" {
+            activeRequests.remove(operationID)
+            let wasRunning = runningOperations.remove(operationID) != nil
+            defer {
+                contexts.removeValue(forKey: operationID)
+                entryIDs.removeValue(forKey: operationID)
+            }
+            if hidden.remove(operationID) != nil { return wasRunning }
+            guard let context = contexts[operationID] else { return wasRunning }
+            context.receive(event)
+            if let snapshot = context.drainSnapshot() { retain(snapshot) }
+            return true
+        }
+        let beganRunning: Bool
+        if event.type == "started" {
+            activeRequests.insert(operationID)
+            beganRunning = runningOperations.insert(operationID).inserted
+        } else {
+            beganRunning = false
+        }
+        if hidden.contains(operationID) {
+            return beganRunning
         }
         // Empty bookkeeping requests are not invented console commands.
         guard event.type == "started" || contexts[operationID] != nil else { return false }
@@ -74,10 +101,6 @@ package final class GitExecutionJournal: @unchecked Sendable {
             retain(snapshot)
             entryIDs[operationID] = Set(snapshot.map(\.id))
         }
-        if event.type == "requestFinished" {
-            contexts.removeValue(forKey: operationID)
-            entryIDs.removeValue(forKey: operationID)
-        }
         return snapshot != nil
     }
 
@@ -86,7 +109,9 @@ package final class GitExecutionJournal: @unchecked Sendable {
             let removed = Set(entries.filter { root == nil || $0.workingDirectory.standardizedFileURL == root?.standardizedFileURL }.map(\.id))
             entries.removeAll { removed.contains($0.id) }
             if entries.isEmpty { omittedHistory = false }
-            for (operationID, ids) in entryIDs where !ids.isDisjoint(with: removed) {
+            let suppressed = root == nil ? activeRequests.union(entryIDs.keys)
+                : Set(entryIDs.compactMap { $0.value.isDisjoint(with: removed) ? nil : $0.key })
+            for operationID in suppressed {
                 hidden.insert(operationID)
                 contexts.removeValue(forKey: operationID)
                 entryIDs.removeValue(forKey: operationID)

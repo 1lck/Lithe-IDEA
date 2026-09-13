@@ -981,6 +981,11 @@ package struct GitService: Sendable {
         _ = operations.cancel(operationID: context.operationID)
     }
 
+    /// Cancels a shared-journal request whose lifetime is owned by another feature.
+    package func cancelExecution(operationID: String) {
+        _ = operations.cancel(operationID: operationID)
+    }
+
     package func fetchPlan(options: GitFetchOptions, at root: URL? = nil) async -> Result<GitFetchPlan, GitFetchFailure> {
         let operations = self.operations
         return await Task.detached(priority: .userInitiated) { root.map { operations.fetchPlan(options: options, at: $0) } ?? operations.fetchPlan(options: options) }.value

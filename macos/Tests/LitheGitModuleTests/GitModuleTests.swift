@@ -8,6 +8,45 @@ import Testing
 @MainActor
 struct GitModuleTests {
     @Test
+    func sharedConsoleCancelsExternalOperationsEvenAfterClearingButResetPreservesTheirOwner() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let journal = GitExecutionJournal()
+        let probe = GitGraphHistoryProbe()
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []), graphHistoryProbe: probe)),
+            executionJournal: journal)
+        defer {
+            for operationID in ["github-push", "github-fetch"] {
+                journal.receive(GitExecutionEvent(operationId: operationID, type: "requestFinished"))
+            }
+            feature.reset()
+        }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        for (operationID, command) in [("github-push", "push"), ("github-fetch", "fetch")] {
+            journal.receive(GitExecutionEvent(operationId: operationID, type: "started", invocationId: 1,
+                workingDirectory: root.path, arguments: [command, "origin"]))
+        }
+        await feature.refreshGit()
+        #expect(feature.gitConsoleEntries.count == 2)
+        #expect(feature.isGitExecutionRunning)
+        feature.reset()
+        #expect(probe.cancelledOperationIDs.isEmpty)
+        #expect(journal.runningOperationIDs.count == 2)
+        await feature.refreshGit()
+        feature.clearGitConsole()
+        #expect(feature.gitConsoleEntries.isEmpty)
+        #expect(feature.isGitExecutionRunning)
+        feature.cancelGitExecutions()
+        #expect(probe.cancelledOperationIDs.sorted() == ["github-fetch", "github-push"])
+        for operationID in ["github-push", "github-fetch"] {
+            journal.receive(GitExecutionEvent(operationId: operationID, type: "requestFinished"))
+        }
+        await feature.loadGitConsoleIfNeeded()
+        #expect(!feature.isGitExecutionRunning)
+        #expect(feature.gitConsoleEntries.isEmpty)
+    }
+
+    @Test
     func projectConsoleIncludesWorktreeCommandsOutsideTheSelectedRepository() async {
         let root = URL(fileURLWithPath: "/workspace")
         let journal = GitExecutionJournal()
@@ -3131,6 +3170,7 @@ private final class GitGraphHistoryProbe: @unchecked Sendable {
         self.releaseOnCancel = releaseOnCancel
     }
     var closedCursors: [String] { lock.withLock { closed } }
+    var cancelledOperationIDs: [String] { lock.withLock { cancelled } }
     var requestedAllReferences: Bool { lock.withLock { allReferences } }
     var didTimeOut: Bool { lock.withLock { timedOut } }
     var graphWasCancelled: Bool { lock.withLock { graphOperationID.map(cancelled.contains) ?? false } }

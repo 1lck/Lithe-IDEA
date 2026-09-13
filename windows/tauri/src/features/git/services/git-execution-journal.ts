@@ -39,6 +39,7 @@ export class GitExecutionJournal {
   active = new Map<string, string>();
   authentication: GitExecutionEvent[] = [];
   private hidden = new Set<string>();
+  private pending = new Map<string, { root: string; action: string }>();
   private sequence = 0;
 
   clear(root?: string) {
@@ -53,22 +54,28 @@ export class GitExecutionJournal {
     if (event.type === "authentication") { this.authentication.push(event); return; }
     if (event.type === "requestStarted") {
       this.active.set(operationId, event.workingDirectory ?? "");
-      if (!this.hidden.has(operationId)) this.records.push({ id: operationId, operationId, timestamp: this.now(),
-        root: event.workingDirectory ?? "", action: event.action ?? "Git", arguments: [], state: "queued", output: "", lines: [], truncated: false });
+      this.pending.set(operationId, { root: event.workingDirectory ?? "", action: event.action ?? "Git" });
+      return;
     }
     if (event.type === "requestFinished") {
+      const pending = this.pending.get(operationId);
+      this.pending.delete(operationId);
       this.authentication = this.authentication.filter((request) => request.operationId !== operationId);
       this.active.delete(operationId);
       if (this.hidden.delete(operationId)) return;
-      // A successful parser-only request has no visible Git invocation.
-      // Remove its provisional row instead of reporting a fictitious failure.
-      if (!event.error) this.records = this.records.filter((record) => record.id !== operationId);
       const records = this.records.filter((record) => record.operationId === operationId);
-      const last = records[records.length - 1];
+      let last = records[records.length - 1];
+      // A failed preflight needs its reason, but is never presented as an executed command.
+      if (!last && event.error) {
+        last = { id: operationId, operationId, timestamp: this.now(), root: pending?.root ?? event.workingDirectory ?? "",
+          action: pending?.action ?? event.action ?? "Git", arguments: [], state: "unconfirmed", output: "", lines: [], truncated: false };
+        this.records.push(last);
+      }
       if (last && event.error) last.error = redactConsoleText([event.error.message, event.error.details].filter(Boolean).join("\n"));
       for (const record of records) {
         if (record.state === "running" || record.state === "queued") record.state = "unconfirmed";
       }
+      this.trimHistory();
       return;
     }
     if (this.hidden.has(operationId)) return;
@@ -79,7 +86,8 @@ export class GitExecutionJournal {
     }
     const id = `${operationId}:${event.invocationId}`;
     if (event.type === "started") {
-      this.records = this.records.filter((record) => record.id !== operationId);
+      this.pending.delete(operationId);
+      this.active.set(operationId, event.workingDirectory ?? "");
       this.records.push({ id, operationId, timestamp: this.now(), sequence: this.sequence, root: event.workingDirectory ?? "", action: event.action ?? "Git",
         source: event.source ?? "unknown", arguments: event.arguments ?? [], executable: event.executable, temporaryConfig: event.temporaryConfig,
         displayArguments: event.displayArguments, globalArguments: event.globalArguments, state: "running", output: "", lines: [], truncated: false });
@@ -110,6 +118,10 @@ export class GitExecutionJournal {
       record.error = event.error ? redactConsoleText([event.error.message, event.error.details].filter(Boolean).join("\n")) : undefined;
       record.progress = undefined;
     }
+    this.trimHistory();
+  }
+
+  private trimHistory() {
     while (this.records.length > MAX_RECORDS || (this.records.length > 1 && this.records.reduce((sum, record) => sum + record.output.length, 0) > MAX_TOTAL_OUTPUT)) {
       this.historyTruncated = true;
       this.records.shift();

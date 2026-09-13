@@ -287,9 +287,17 @@ package final class GitFeatureModel: ObservableObject {
     private var gitConsoleRepositoryGeneration: UInt64 = 0
     private var gitConsoleClearGeneration: UInt64 = 0
     @Published private var activeGitExecutions: [String: GitExecutionContext] = [:]
-    package var isGitExecutionRunning: Bool { !activeGitExecutions.isEmpty }
+    @Published private var journalRunningOperationIDs: Set<String> = []
+    package var isGitExecutionRunning: Bool { !activeGitExecutions.isEmpty || !journalRunningOperationIDs.isEmpty }
 
     package func cancelGitExecutions() {
+        cancelOwnedGitExecutions()
+        for operationID in executionJournal?.runningOperationIDs ?? [] where activeGitExecutions[operationID] == nil {
+            service.cancelExecution(operationID: operationID)
+        }
+    }
+
+    private func cancelOwnedGitExecutions() {
         for execution in activeGitExecutions.values { service.cancelExecution(execution) }
     }
     private var loadingLineChangeURLs: Set<URL> = []
@@ -442,7 +450,8 @@ package final class GitFeatureModel: ObservableObject {
         isLoadingGitHistory = false
         isLoadingMoreGitHistory = false
         canLoadMoreGitHistory = false
-        cancelGitExecutions()
+        cancelOwnedGitExecutions()
+        journalRunningOperationIDs = []
         authenticationChallenges = []
         executionSettings.reset()
         gitConsoleEntries = []
@@ -941,6 +950,7 @@ package final class GitFeatureModel: ObservableObject {
 
     private func publishGitJournal() {
         guard let executionJournal else { return }
+        journalRunningOperationIDs = executionJournal.runningOperationIDs
         gitConsoleHistoryTruncated = gitConsoleHistoryTruncated || executionJournal.hasOmittedHistory
         // The journal belongs to this project window. Like IDEA, its console
         // remains one stream when the selected repository or checkout changes.
