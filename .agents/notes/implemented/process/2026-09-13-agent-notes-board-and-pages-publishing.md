@@ -2,6 +2,10 @@
 
 状态：已实现
 
+## 先说结论
+
+看板只是 `.agents/notes/` 的只读网页，不保存第二份决策内容。每次 Note 变化时，PR 阶段先做格式和链接校验；合并到 `preview` 后再生成并发布 Pages，这样错误会在合并前暴露，网页内容也始终来自当前 Note。
+
 ## 问题
 
 `.agents/notes/` 已经成为 Lithe 架构决策的唯一中文来源，但只依靠目录检索不利于快速查看决策演进、被引用的核心约束和被否方案。看板如果单独维护一份内容，就会再次产生文档过期和双份事实源的问题。
@@ -15,7 +19,7 @@
 看板模板保存在
 [`assets/agent-notes-board.html`](../../../../assets/agent-notes-board.html)，本地开发模式使用浏览器的 File System Access API 读取项目目录并定时重新扫描；静态发布模式把当前 Note 数据内嵌到 HTML，不依赖后端、数据库或运行时服务。
 
-GitHub Pages 只从 `preview` 分支发布。工作流在构建前运行
+PR 阶段由独立的轻量工作流运行 `./scripts/verify-agent-notes.sh`，只做校验不部署。GitHub Pages 只从 `preview` 分支发布；部署工作流在构建前再次运行
 `./scripts/verify-agent-notes.sh`，校验通过后执行
 `scripts/build-agent-notes-board.mjs --bundle`，将完整看板上传为 Pages artifact。生成的 `index.html` 不提交到仓库，Note 仍是唯一源文件。
 
@@ -32,6 +36,7 @@ GitHub Pages 只从 `preview` 分支发布。工作流在构建前运行
 - 本地开发可以直接授权项目目录查看变更，GitHub Pages 可以公开展示完整决策正文。
 - 代价是公开看板会携带全部 Note 正文，后续若仓库可见性或内容敏感度变化，需要启用构建脚本的 `--metadata-only` 模式或调整发布权限。
 - Pages 当前跟随 `preview` 分支；切换稳定发布分支时必须同步修改工作流触发条件和发布说明。
+- PR 校验工作流只在 Agent Notes、解析器、校验器或看板发布配置变化时触发，避免普通代码 PR 增加无关检查。
 
 ## 验证
 
@@ -47,4 +52,5 @@ GitHub Pages 只从 `preview` 分支发布。工作流在构建前运行
 - `scripts/verify-agent-notes.mjs`
 - `.agents/skills/agent-notes/SKILL.md`
 - `.github/workflows/deploy-agent-notes-board.yml`
+- `.github/workflows/verify-agent-notes.yml`
 - `.agents/notes/`

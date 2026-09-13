@@ -52,3 +52,9 @@ node scripts/build-agent-notes-board.mjs \
 ```
 
 看板是从 Note 生成的只读视图，不要手写或提交生成的 `index.html`。
+
+在线查看：
+
+[工程决策看板](https://1lck.github.io/Lithe-IDEA/)
+
+该链接使用 GitHub Pages 默认地址，不依赖项目自有域名。

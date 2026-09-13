@@ -10,7 +10,7 @@
     <a href="#core-features">Core features</a> ·
     <a href="#product-tour">Product tour</a> ·
     <a href="#download-and-install">Download</a> ·
-    <a href="#architecture-overview">Architecture</a> ·
+    <a href="https://1lck.github.io/Lithe-IDEA/">Decision board</a> ·
     <a href="#develop-lithe">Develop Lithe</a>
   </p>
 
