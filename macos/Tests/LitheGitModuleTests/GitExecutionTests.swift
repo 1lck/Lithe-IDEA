@@ -4,6 +4,54 @@ import Testing
 
 struct GitExecutionTests {
     @Test
+    func contextKeepsPreflightFailuresSeparateFromEarlierRequests() throws {
+        let context = GitExecutionContext(operationID: "workflow", source: .user)
+        let root = URL(fileURLWithPath: "/workspace")
+        context.receive(GitExecutionEvent(operationId: "workflow", type: "requestStarted"), at: root)
+        context.receive(GitExecutionEvent(operationId: "workflow", type: "requestFinished"))
+        #expect(context.drainSnapshot() == nil)
+        #expect(!context.hasEntries)
+
+        context.receive(GitExecutionEvent(operationId: "workflow", type: "requestStarted"), at: root)
+        context.receive(GitExecutionEvent(operationId: "workflow", type: "started", invocationId: 1,
+            workingDirectory: root.path, arguments: ["config", "pull.rebase", "true"]))
+        context.receive(GitExecutionEvent(operationId: "workflow", type: "finished", invocationId: 1, exitCode: 0))
+        context.receive(GitExecutionEvent(operationId: "workflow", type: "requestFinished"))
+        let original = try #require(context.drainSnapshot()?.first)
+
+        let otherRoot = URL(fileURLWithPath: "/other-workspace")
+        context.receive(GitExecutionEvent(operationId: "workflow", type: "requestStarted"), at: otherRoot)
+        let failure = GitExecutionEvent(operationId: "workflow", type: "requestFinished",
+            error: .init(code: "process_start_failed", message: "Could not inspect Git executable", details: "Missing executable"))
+        context.receive(failure)
+        let entries = try #require(context.drainSnapshot())
+        #expect(entries.count == 2 && context.hasEntries)
+        #expect(entries.first?.id == original.id && entries.first?.succeeded == true)
+        #expect(entries.first?.operationErrorMessage == nil)
+        #expect(entries.last?.workingDirectory == otherRoot)
+        #expect(entries.last?.arguments.isEmpty == true && entries.last?.state == .unconfirmed)
+        #expect(entries.last?.source == .user)
+        #expect(entries.last?.operationErrorMessage == "Could not inspect Git executable\nMissing executable")
+        context.receive(failure)
+        #expect(context.drainSnapshot() == nil, "A completed request must not be recorded twice")
+    }
+
+    @Test
+    func contextPreflightFailureHistoryRemainsBounded() {
+        let context = GitExecutionContext(operationID: "workflow")
+        for index in 0..<201 {
+            context.receive(GitExecutionEvent(operationId: "workflow", type: "requestStarted"),
+                at: URL(fileURLWithPath: "/workspace"))
+            context.receive(GitExecutionEvent(operationId: "workflow", type: "requestFinished",
+                error: .init(code: "process_start_failed", message: "Failure \(index)")))
+        }
+        let entries = context.drainSnapshot()
+        #expect(entries?.count == 200 && context.hasOmittedHistory)
+        #expect(entries?.first?.operationErrorMessage == "Failure 1")
+        #expect(entries?.last?.operationErrorMessage == "Failure 200")
+    }
+
+    @Test
     func sharedLifecycleKeepsPreflightSilentAndSuppressesClearedRequests() throws {
         struct Step: Decodable {
             let event: GitExecutionEvent?

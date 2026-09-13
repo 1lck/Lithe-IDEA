@@ -27,12 +27,17 @@ impl Repository {
     fn request(&self, command: &str, mut payload: Value) -> Value {
         payload["root"] = json!(self.0);
         // Each real Git subprocess is governed by Core's local deadline; tests
-        // do not synchronize using sleeps or depend on a network remote. A rewrite
-        // starts many Git processes on Windows, so allow ten seconds within the
-        // outer 15-second per-test watchdog.
+        // do not synchronize using sleeps or depend on a network remote. Native
+        // rebase validates and replays real history, so its requests get 20 seconds
+        // within the dedicated 30-second integration-test watchdog on Windows.
+        let timeout = if command.starts_with("git.rebase") {
+            20_000
+        } else {
+            10_000
+        };
         serde_json::from_str(&execute_json(&json!({
             "id": format!("history-integration-{}", REQUEST_SEQUENCE.fetch_add(1, Ordering::Relaxed)),
-            "timeoutMilliseconds": 10_000,
+            "timeoutMilliseconds": timeout,
             "command": command,
             "payload": payload,
         }).to_string())).unwrap()

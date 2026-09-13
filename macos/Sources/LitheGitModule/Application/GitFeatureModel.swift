@@ -907,7 +907,7 @@ package final class GitFeatureModel: ObservableObject {
             let command = (result as? GitService.CommandResult) ?? (result as? GitRebaseMutationResult)?.command
             let commands = (result as? [GitService.CommandResult]) ?? command.map { [$0] } ?? []
             for command in commands {
-                if !execution.hasInvocations {
+                if !execution.hasEntries {
                     gitConsoleEntries.removeAll { $0.id == plannedID }
                     let duration = elapsedMilliseconds(since: startedAt)
                     if command.invocations.isEmpty, let root = command.workingDirectory ?? root {

@@ -63,8 +63,8 @@ function inferredSuite(report, test) {
 function normalizedEntries(reportEntries) {
   return reportEntries.flatMap(({ source, report }) => {
     const warnMs = Number(report.warnMs ?? 1000);
-    const maxMs = Number(report.maxMs ?? 15000);
     return report.tests.map((test) => {
+      const maxMs = Number(test.maxMs ?? report.maxMs ?? 15000);
       const durationMs = Number(test.durationMs ?? 0);
       const status = String(test.status ?? "unknown").toLowerCase();
       const failed = FAILURE_STATUSES.has(status);

@@ -53,7 +53,8 @@ package final class GitExecutionContext: @unchecked Sendable {
     private var records: [Record] = []
     private var dirty = false
     private var challenges: [GitAuthenticationChallenge] = []
-    private var receivedInvocation = false
+    private var requestRoot: URL?
+    private var requestInvocationID: UUID?
     private var omittedHistory = false
     private static let maxRecords = 200
     private static let maxStreamCharacters = 32_768
@@ -118,15 +119,20 @@ package final class GitExecutionContext: @unchecked Sendable {
     package func requestCancellation() { lock.withLock { cancelled = true } }
     package var isCancellationRequested: Bool { lock.withLock { cancelled } }
     package var hasOmittedHistory: Bool { lock.withLock { omittedHistory } }
-    package var hasInvocations: Bool { lock.withLock { receivedInvocation } }
+    package var hasEntries: Bool { lock.withLock { !records.isEmpty } }
 
-    package func receive(_ event: GitExecutionEvent) {
+    package func receive(_ event: GitExecutionEvent, at root: URL? = nil) {
         guard event.operationId == operationID else { return }
-        lock.withLock { receiveLocked(event) }
+        lock.withLock { receiveLocked(event, at: root) }
     }
 
     /// Called with the lock held so each event publishes an atomic snapshot.
-    private func receiveLocked(_ event: GitExecutionEvent) {
+    private func receiveLocked(_ event: GitExecutionEvent, at root: URL?) {
+        if event.type == "requestStarted" {
+            requestRoot = root ?? event.workingDirectory.map { URL(fileURLWithPath: $0) }
+            requestInvocationID = nil
+            return
+        }
         if event.type == "authentication", let id = event.requestId {
             let challenge = GitAuthenticationChallenge(
                 id: id, operationID: operationID,
@@ -138,14 +144,23 @@ package final class GitExecutionContext: @unchecked Sendable {
             return
         }
         if event.type == "requestFinished" {
+            defer { requestRoot = nil; requestInvocationID = nil }
             challenges.removeAll()
             for index in records.indices where records[index].state == .running {
                 records[index].state = .unconfirmed
                 dirty = true
             }
-            if let error = event.error, let index = records.indices.last {
-                records[index].error = [error.message, error.details].compactMap { $0 }.joined(separator: "\n")
-                dirty = true
+            if let error = event.error {
+                let message = [error.message, error.details].compactMap { $0 }.joined(separator: "\n")
+                if let index = records.lastIndex(where: { $0.id == requestInvocationID }) {
+                    records[index].error = message
+                    dirty = true
+                } else if let root = requestRoot {
+                    // A context can span several Core requests. Keep a preflight
+                    // failure separate from an earlier request's executed command.
+                    appendRecord(Record(invocationID: -1, root: root, arguments: [],
+                        source: source, state: .unconfirmed, exitCode: -1, error: message))
+                }
             }
             return
         }
@@ -157,12 +172,11 @@ package final class GitExecutionContext: @unchecked Sendable {
         }
         guard let invocationID = event.invocationId else { return }
         if event.type == "started", let root = event.workingDirectory, let arguments = event.arguments {
-            receivedInvocation = true
-            records.append(Record(invocationID: invocationID, root: URL(fileURLWithPath: root), arguments: arguments,
+            let record = Record(invocationID: invocationID, root: URL(fileURLWithPath: root), arguments: arguments,
                 source: event.source ?? source, executable: event.executable, temporaryConfig: event.temporaryConfig ?? [],
-                displayArguments: event.displayArguments, globalArguments: event.globalArguments))
-            if records.count > Self.maxRecords { omittedHistory = true; records.removeFirst(records.count - Self.maxRecords) }
-            dirty = true
+                displayArguments: event.displayArguments, globalArguments: event.globalArguments)
+            requestInvocationID = record.id
+            appendRecord(record)
             return
         }
         guard let index = records.lastIndex(where: { $0.invocationID == invocationID }) else { return }
@@ -200,6 +214,12 @@ package final class GitExecutionContext: @unchecked Sendable {
             records[index].progress = nil
         default: return
         }
+        dirty = true
+    }
+
+    private func appendRecord(_ record: Record) {
+        records.append(record)
+        if records.count > Self.maxRecords { omittedHistory = true; records.removeFirst(records.count - Self.maxRecords) }
         dirty = true
     }
 

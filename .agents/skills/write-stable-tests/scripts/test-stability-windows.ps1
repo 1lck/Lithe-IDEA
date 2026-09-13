@@ -68,6 +68,11 @@ function Invoke-TimedRustTests {
         if (-not [string]::IsNullOrWhiteSpace($Package)) {
             $arguments += @("--package", $Package)
         }
+        if ($Package -eq "lithe-core") {
+            # Native rebase tests create and rewrite real repositories with
+            # hundreds of Git subprocesses. Keep unit tests at the normal limit.
+            $arguments += @("--test-budget", "tests::git_history_rewrite::native_rebase_=30000")
+        }
         return $arguments
     }
 

@@ -26,7 +26,7 @@ private final class GitExecutionReceiver {
             if event.type == "requestStarted", context.isCancellationRequested {
                 context.operationID.withCString { _ = lithe_bridge_cancel($0) }
             }
-            context.receive(event)
+            context.receive(event, at: root)
         } else {
             journal?.receive(event, at: root)
         }

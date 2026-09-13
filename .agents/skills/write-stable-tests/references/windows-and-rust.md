@@ -42,6 +42,17 @@ Every Bun and Rust lane writes JUnit XML plus a self-contained HTML dashboard
 below `.artifacts/test-stability/`. The dashboard groups Rust cases by crate
 module and Bun cases by their JUnit class or suite.
 
+Native rebase integration tests create and rewrite real repositories with many
+Git subprocesses. The SharedRust lane assigns the
+`tests::git_history_rewrite::native_rebase_` prefix a 30-second process budget;
+their Core rebase requests use a nested 20-second deadline. Other cases retain
+the normal 15-second budget. The Rust runner's repeatable
+`--test-budget prefix=milliseconds` option uses the most specific matching
+prefix, records each case's effective budget in JSON, uses that budget for
+HTML/JUnit classification, and remains capped by the shared suite deadline.
+Use scoped budgets only for measured
+integration costs, never to bypass an unbounded wait or an assertion failure.
+
 ## Windows verification
 
 Run the PowerShell harness in a real Windows environment. A macOS boundary

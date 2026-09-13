@@ -5,6 +5,52 @@ import LitheGitModule
 
 @Suite("Git console lifecycle bridge")
 struct GitConsoleLifecycleBridgeTests {
+    @MainActor
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_RUN_GIT_EXECUTION_INTEGRATION"] == "1"), arguments: [false, true])
+    func featureSettingsPreflightFailureReachesConsoleUnlessCleared(clearDuringOperation: Bool) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-settings-console-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let setup = try await TestProcess.run(executableURL: URL(fileURLWithPath: "/usr/bin/git"),
+            arguments: ["init", "--template=", "-q"], currentDirectoryURL: root)
+        try #require(setup.terminationStatus == 0)
+        let journal = GitExecutionJournal()
+        let preferences = GitExecutionPreferences()
+        let core = RustCoreBridge(gitPreferences: preferences, gitExecutionJournal: journal)
+        try #require(core.isAvailable)
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: core)), executionJournal: journal)
+        defer { feature.reset() }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {}, onGitOperationBegan: {
+                // The lifecycle callback orders clearing before the failed Core
+                // request without sleeps or racing a background worker.
+                if clearDuringOperation { feature.clearGitConsole() }
+            })
+        await feature.refreshGit()
+        await feature.executionSettings.load(at: root)
+        let field = try #require(feature.executionSettings.snapshot?.fields.first { $0.key == "pull.rebase" })
+        #expect(journal.snapshot.isEmpty, "Successful internal settings reads stay silent")
+        var options = GitExecutionOptions()
+        options.executable = root.appendingPathComponent("missing-git-executable").path
+        preferences.update(options)
+        await feature.saveExecutionConfiguration(at: root, field: field, value: "true")
+        let error = try #require(feature.executionSettings.errorMessage)
+        #expect(journal.runningOperationIDs.isEmpty)
+        if clearDuringOperation {
+            #expect(feature.gitConsoleEntries.isEmpty && journal.snapshot.isEmpty)
+        } else {
+            #expect(feature.gitConsoleEntries.count == 1 && journal.snapshot.count == 1)
+            let entry = try #require(journal.snapshot.first)
+            #expect(feature.gitConsoleEntries.first?.id == entry.id)
+            #expect(entry.workingDirectory.standardizedFileURL == root.standardizedFileURL)
+            let diagnostic = try #require(entry.operationErrorMessage)
+            // Settings join the same message and details inline; the console
+            // keeps them on separate lines for diagnostic readability.
+            #expect(error == diagnostic.replacingOccurrences(of: "\n", with: ": "))
+            #expect(entry.arguments.isEmpty && entry.state == .unconfirmed && !entry.succeeded)
+        }
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_RUN_GIT_EXECUTION_INTEGRATION"] == "1"))
     func fetchWithoutRemoteChangesCompletesWithAnExplicitNotice() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-fetch-console-\(UUID().uuidString)")
