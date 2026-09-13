@@ -295,6 +295,17 @@ while IFS=$'\t' read -r status first_path _; do
             plugins=true
             swift_database=true
             ;;
+        scripts/package-macos-localizations.sh)
+            # Localization assembly has Swift regression tests and is shared by
+            # release, preview, and performance bundles; it cannot affect Windows.
+            swift=true
+            macos_release=true
+            ;;
+        scripts/measure-macos-performance-baseline.sh)
+            # The baseline harness assembles a macOS release app, without changing
+            # shared Core behavior or the isolated database/plugin test lanes.
+            macos_release=true
+            ;;
         scripts/verify-official-plugins.sh|scripts/build-official-plugins.sh)
             plugins=true
             ;;

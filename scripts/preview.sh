@@ -69,11 +69,8 @@ cp -R macos/Resources/IDEAIcons "$APP_DIR/Contents/Resources/IDEAIcons"
 cp -R macos/Resources/GitGraph "$APP_DIR/Contents/Resources/GitGraph"
 cp -R macos/Resources/DatabaseIcons "$APP_DIR/Contents/Resources/DatabaseIcons"
 cp -R macos/Resources/Fonts "$APP_DIR/Contents/Resources/Fonts"
-for localization in en.lproj zh-Hans.lproj; do
-    if [[ -d "macos/Resources/$localization" ]]; then
-        cp -R "macos/Resources/$localization" "$APP_DIR/Contents/Resources/$localization"
-    fi
-done
+zsh "$ROOT_DIR/scripts/package-macos-localizations.sh" \
+    "$ROOT_DIR/macos/Resources" "$APP_DIR/Contents/Resources"
 codesign --force --deep --sign - "$APP_DIR"
 
 # Keep the launcher non-blocking while a watcher owns cleanup. The
