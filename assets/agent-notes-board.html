@@ -943,7 +943,15 @@ function parseMarkdown(text) {
   let index = 0;
   const flushParagraph = () => {
     if (!paragraph.length) return;
-    blocks.push(`<p style="margin-bottom:10px;">${paragraph.map(renderInline).join('<br>')}</p>`);
+    // Source wrapping is a soft break; only explicit Markdown breaks force a new line.
+    const content = paragraph.map((line, lineIndex) => {
+      if (lineIndex === paragraph.length - 1) return line;
+      const trailingBackslashes = line.match(/\\+$/)?.[0].length ?? 0;
+      if (/ {2,}$/.test(line)) return line.replace(/ +$/, '') + stash('<br>');
+      if (trailingBackslashes % 2 === 1) return line.slice(0, -1) + stash('<br>');
+      return line;
+    }).join('\n');
+    blocks.push(`<p style="margin-bottom:10px;">${renderInline(content)}</p>`);
     paragraph = [];
   };
 
