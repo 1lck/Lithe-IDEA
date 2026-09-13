@@ -10,6 +10,7 @@ final class AppSettings: ObservableObject {
         static let themePreference = "settings.themePreference"
         static let language = "settings.language"
         static let editorFontSize = "settings.editorFontSize"
+        static let editorSoftWrap = "settings.editorSoftWrap"
         static let projectTreeRowHeight = "settings.projectTreeRowHeight"
         static let tabWidth = "settings.tabWidth"
         static let editorTabLayoutMode = "settings.editorTabLayoutMode"
@@ -52,6 +53,11 @@ final class AppSettings: ObservableObject {
     }
     @Published var language: AppLanguage { didSet { defaults.set(language.rawValue, forKey: Key.language) } }
     @Published var editorFontSize: Double { didSet { defaults.set(editorFontSize, forKey: Key.editorFontSize) } }
+    /// 主编辑器软换行开关。默认关闭，与 IDEA 代码编辑器一致；
+    /// 折行布局对超大文件有行数阈值兜底，见 `LitheTextViewportLayout`。
+    @Published var editorSoftWrapEnabled: Bool {
+        didSet { defaults.set(editorSoftWrapEnabled, forKey: Key.editorSoftWrap) }
+    }
     @Published var projectTreeRowHeight: Double {
         didSet { defaults.set(projectTreeRowHeight, forKey: Key.projectTreeRowHeight) }
     }
@@ -138,6 +144,7 @@ final class AppSettings: ObservableObject {
         ) ?? .dark
         language = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .english
         editorFontSize = defaults.object(forKey: Key.editorFontSize) as? Double ?? 13
+        editorSoftWrapEnabled = defaults.object(forKey: Key.editorSoftWrap) as? Bool ?? false
         projectTreeRowHeight = defaults.object(forKey: Key.projectTreeRowHeight) as? Double ?? 24
         tabWidth = defaults.object(forKey: Key.tabWidth) as? Int ?? 4
         editorTabLayoutMode = EditorTabLayoutMode(
@@ -268,6 +275,7 @@ final class AppSettings: ObservableObject {
         themePreference = .dark
         language = .english
         editorFontSize = 13
+        editorSoftWrapEnabled = false
         projectTreeRowHeight = 24
         tabWidth = 4
         editorTabLayoutMode = .singleLine
