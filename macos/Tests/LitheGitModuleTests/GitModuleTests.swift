@@ -897,6 +897,31 @@ struct GitModuleTests {
     }
 
     @Test
+    func batchDiscardRetainsEachFallbackResultAndStopsAtTheFirstFailure() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let changes = ["first.txt", "blocked.txt", "untouched.txt"].map {
+            GitChange(repositoryRoot: root, path: $0, originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        }
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            discardHandler: { change in
+                GitProcessResult(arguments: ["discard", change.path],
+                    output: change.path == "blocked.txt" ? "Access denied" : "",
+                    exitCode: change.path == "blocked.txt" ? 1 : 0)
+            }
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+                          notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        feature.clearGitConsole()
+        await feature.discardChanges(changes)
+        #expect(feature.gitConsoleEntries.map(\.arguments) == [["discard", "first.txt"], ["discard", "blocked.txt"]])
+        #expect(feature.gitConsoleEntries.map(\.exitCode) == [0, 1])
+        #expect(feature.gitConsoleEntries.allSatisfy { $0.state == .unconfirmed })
+    }
+
+    @Test
     func confirmedDiscardHunkSurvivesDialogDismissalAndReportsFailure() async throws {
         let root = URL(fileURLWithPath: "/workspace")
         let change = GitChange(repositoryRoot: root, path: "target.txt", originalPath: nil,

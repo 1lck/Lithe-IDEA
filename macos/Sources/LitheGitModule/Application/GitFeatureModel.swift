@@ -893,7 +893,8 @@ package final class GitFeatureModel: ObservableObject {
         if generation == gitConsoleRepositoryGeneration, root == gitRepositoryRoot,
            clearGeneration == gitConsoleClearGeneration {
             let command = (result as? GitService.CommandResult) ?? (result as? GitRebaseMutationResult)?.command
-            if let command {
+            let commands = (result as? [GitService.CommandResult]) ?? command.map { [$0] } ?? []
+            for command in commands {
                 if !execution.hasInvocations {
                     gitConsoleEntries.removeAll { $0.id == plannedID }
                     let duration = elapsedMilliseconds(since: startedAt)
@@ -1136,8 +1137,23 @@ package final class GitFeatureModel: ObservableObject {
     // Receive the confirmed value before SwiftUI dismisses and clears the dialog binding.
     package func confirmDiscardChange(_ change: GitChange) async {
         pendingDiscardChange = nil
-        let result = await withGitOperation { await service.discard(change) }
-        showResult(result, success: "Discarded \(change.path)")
+        await discardChanges([change])
+    }
+
+    package func discardChanges(_ changes: [GitChange]) async {
+        guard !changes.isEmpty else { return }
+        _ = await withGitOperation {
+            var results: [GitService.CommandResult] = []
+            for change in changes {
+                guard !Task.isCancelled else { break }
+                let result = await recordingGitCommand { await service.discard(change) }
+                results.append(result)
+                showResult(result, success: "Discarded \(change.path)")
+                // Stop on failure rather than silently discarding only part of the selection.
+                if !result.succeeded { break }
+            }
+            return results
+        }
         await refreshGit()
     }
 
