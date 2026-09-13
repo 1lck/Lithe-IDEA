@@ -68,6 +68,8 @@ stable error code and a user-facing message:
 | `community.discourse.topic` | Read one topic with ordered, sanitized post HTML |
 | `community.discourse.categories` | List normalized visible categories |
 | `community.discourse.search` | Search normalized topics and sanitized posts |
+| `editor.lineEdit` | Apply a deterministic line-level text transform and return the replacement plus selection to restore |
+| `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
 | `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths |
 | `workspace.repositories` | Discover deterministic Git repository roots for an opened workspace |
 | `workspace.search` | Search visible file names and UTF-8 text files |
@@ -414,7 +416,7 @@ total attempts. The AskPass C ABI is called only in the child app's early helper
 mode. Credential answers are never copied into events or settings.
 
 See `shared/fixtures/git/{fetch-plan,execution-events,execution-policy}-v1.json`
-and [Git execution layer](../../docs/architecture/git-execution.md).
+and [Git execution and project console](../../.agents/notes/implemented/architecture/2026-09-12-git-execution-and-project-console.md).
 
 The additive `lithe_core_execute_json_with_events(request, callback, context)`
 C ABI and Rust `execute_json_with_events` API deliver sanitized Git diagnostics
@@ -882,6 +884,34 @@ details `invalidRange`. Successful responses return `{ "text": string }`.
 after removing LSP tab stops and replacing simple placeholder defaults such as
 `${1:name}` with `name`.
 
+
+`editor.lineEdit` applies one deterministic line-level transform. All offsets
+are UTF-16 code units so both hosts can feed the result straight into their
+text engines. The payload is `{ "operation": "toggleLineComment" |
+"duplicateLine" | "deleteLine" | "moveLineUp" | "moveLineDown" | "copyLineUp" |
+"copyLineDown", "source": string, "selectionStart": 0, "selectionLength": 0,
+"commentToken": "//" }`. `selectionStart` and `selectionLength` are clamped
+into the document. `commentToken` is required by `toggleLineComment` and
+rejected with `invalid_request` otherwise. The response is
+`{ "applied": true, "text": "...", "replacedStart": 0, "replacedLength": 9,
+"selectionStart": 8, "selectionLength": 0 }` where `text` replaces
+`[replacedStart, replacedStart + replacedLength)` and `selection` is the range
+to restore. `applied: false` with every other field omitted marks a legitimate
+no-op such as moving the first line up; callers must leave their text view
+unchanged and must not consume the keyboard shortcut.
+
+`editor.lineCommentToken` accepts `{ "identifier": "py" }` (case
+insensitive; the identifier may be a file extension, a file name including
+dotfiles such as `.env`, or a language id — extensions, dotfile basenames,
+and language ids share one table) and returns `{ "token": "#" }` or
+`{ "token": null }` for file types without a line comment token.
+
+macOS consumes both commands today. Windows still uses its local TypeScript
+implementations (`comment-toggle.ts`, `line-operations.ts`) and is expected
+to adopt the same contract in a follow-up change; the fixture pins the
+canonical behavior for that migration. Deterministic cases are pinned by
+`shared/fixtures/editor/line-edit-v1.json`.
+
 The `debug.*` commands are the shared Debug Adapter Protocol boundary. Rust
 owns DAP framing, request sequences, response correlation, initialization and
 execution state, deterministic breakpoint sets, and normalized thread, stack,
@@ -1065,8 +1095,8 @@ Each provider descriptor may include `languageServerLaunch` with ordered
 need to discover a real language-server executable; the selected launch plan is
 then submitted to the Rust-owned runtime. Built-in descriptors are merged by provider ID with the optional
 `.lithe/lsp/language-providers.json` workspace document. See
-[`language-tooling.md`](../../docs/architecture/language-tooling.md) for routing,
-discovery, lifecycle, and compatibility rules.
+[`.agents/notes/implemented/architecture/2026-09-13-language-tooling-and-lsp-runtime-ownership.md`](../../.agents/notes/implemented/architecture/2026-09-13-language-tooling-and-lsp-runtime-ownership.md)
+for routing, discovery, lifecycle, and compatibility rules.
 
 The `lsp.*Server`, `lsp.*Document`, `lsp.request`, `lsp.pollEvents`, and
 `lsp.waitEvents`

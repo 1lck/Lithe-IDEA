@@ -134,6 +134,12 @@ pub enum CoreCommand {
     DebugDestroySession,
     /// Applies validated UTF-16 LSP text edits (`lsp.applyTextEdits`).
     LspApplyTextEdits,
+    /// Applies a deterministic line-level editing transform
+    /// (`editor.lineEdit`).
+    EditorLineEdit,
+    /// Resolves the line comment token for a file extension
+    /// (`editor.lineCommentToken`).
+    EditorLineCommentToken,
     /// Reduces an LSP snippet to insertion text (`lsp.plainSnippet`).
     LspPlainSnippet,
     /// Provides same-document fallback completions (`lsp.builtinCompletions`).
@@ -356,6 +362,8 @@ impl CoreCommand {
             "debug.disconnect" => Some(Self::DebugDisconnect),
             "debug.destroySession" => Some(Self::DebugDestroySession),
             "lsp.applyTextEdits" => Some(Self::LspApplyTextEdits),
+            "editor.lineEdit" => Some(Self::EditorLineEdit),
+            "editor.lineCommentToken" => Some(Self::EditorLineCommentToken),
             "lsp.plainSnippet" => Some(Self::LspPlainSnippet),
             "lsp.builtinCompletions" => Some(Self::LspBuiltinCompletions),
             "lsp.builtinHover" => Some(Self::LspBuiltinHover),

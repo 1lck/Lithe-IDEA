@@ -17,7 +17,7 @@ describe("Git execution journal", () => {
         expect(journal.records.map((record) => record.arguments)).toEqual(step.commands);
         if (step.errors) expect(journal.records.flatMap((record) => record.error ? [record.error] : [])).toEqual(step.errors);
         if (step.roots) expect(journal.records.map((record) => record.root)).toEqual(step.roots);
-        if (step.states) expect(journal.records.map((record) => record.state)).toEqual(step.states);
+        if (step.states) expect<string[]>(journal.records.map((record) => record.state)).toEqual(step.states);
         for (const operationId of step.running) expect(journal.active.has(operationId)).toBe(true);
         if (step.event?.type === "requestFinished") expect(journal.active.has(step.event.operationId)).toBe(false);
       }
