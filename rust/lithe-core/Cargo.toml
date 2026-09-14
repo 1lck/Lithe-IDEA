@@ -9,6 +9,7 @@ description = "Cross-platform application core for Lithe"
 crate-type = ["rlib", "staticlib", "cdylib"]
 
 [dependencies]
+lithe-git-host = { path = "../lithe-git-host" }
 ammonia = "4.1.4"
 base64 = "0.22"
 comrak = { version = "0.54.0", default-features = false, features = ["shortcodes"] }

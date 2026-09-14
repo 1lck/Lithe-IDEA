@@ -22,6 +22,8 @@ The dashboard separates correctness from performance:
 - `failed`, `error`, `timeout`, and `incomplete` are stability failures.
 - A duration at or above `maxMs` exceeds the hard performance budget and is
   emitted as a JUnit failure even when the underlying assertion passed.
+  A Rust case may carry its own `maxMs` for a scoped integration budget; otherwise
+  the report-level value applies. HTML and JUnit use the same effective value.
 - A duration at or above `warnMs` but below `maxMs` is a performance warning.
   It remains a passing JUnit case but appears in the optimization queue.
 - Faster passing cases are healthy. Skipped cases are reported separately.

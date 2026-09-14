@@ -5095,9 +5095,9 @@ struct EditorDocumentTests {
         #expect(model.activeDocumentID == documentB.id)
     }
 
-    @Test
+    @Test(arguments: [false, true])
     @MainActor
-    func foregroundRequestActivatesAnEquivalentPendingBackgroundOpen() async {
+    func foregroundRequestActivatesAnEquivalentPendingBackgroundOpen(asPreview: Bool) async {
         let workspace = URL(fileURLWithPath: "/tmp/lithe-equivalent-pending-open-tests")
         let fileA = workspace.appendingPathComponent("A.swift")
         let operations = BlockingWorkspaceOperations()
@@ -5129,22 +5129,212 @@ struct EditorDocumentTests {
                 fileA,
                 isReadOnly: false,
                 displayPath: nil,
-                activateWhenReady: false
+                activateWhenReady: false, asPreview: asPreview
             )
         }
         #expect(await operations.waitUntilReadingA())
 
-        await model.openFileAsync(
-            workspace.appendingPathComponent("nested/../A.swift"),
-            isReadOnly: false,
-            displayPath: nil,
-            activateWhenReady: true
-        )
+        let foregroundStarted = TestGate()
+        let foreground = Task { @MainActor in
+            foregroundStarted.open()
+            await model.openFileAsync(
+                workspace.appendingPathComponent("nested/../A.swift"),
+                isReadOnly: false,
+                displayPath: nil,
+                activateWhenReady: true
+            )
+        }
+        defer { foreground.cancel(); pendingA.cancel() }
+        #expect(await foregroundStarted.waitUntilOpen())
         operations.releaseA()
+        await foreground.value
         await pendingA.value
 
         #expect(model.openDocuments.count == 1)
         #expect(model.activeDocumentID == model.openDocuments.first?.id)
+    }
+
+    @Test(arguments: [false, true], ["none", "dismiss", "reset"])
+    @MainActor
+    func returningToPendingPreviewWaitsForSharedLoad(readFails: Bool, ending: String) async {
+        let discarded = ending != "none"
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-preview-load-tests")
+        let fileA = workspace.appendingPathComponent("A.swift")
+        let operations = BlockingWorkspaceOperations(readAValue: readFails ? nil : "A")
+        defer { operations.releaseA() }
+        let model = DocumentFeatureModel(
+            operations: operations,
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+        model.configure(
+            workspaceURLProvider: { workspace },
+            autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 },
+            notify: { _ in },
+            onDocumentOpened: { _ in },
+            onDocumentChanged: { _ in },
+            onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in },
+            onRecordDiscard: { _ in },
+            onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {},
+            onProjectCloseReady: {}
+        )
+
+        let first = Task { @MainActor in await model.previewDocument(at: fileA) }
+        defer { first.cancel() }
+        #expect(await operations.waitUntilReadingA())
+        first.cancel()
+        let documentB = await model.previewDocument(at: workspace.appendingPathComponent("B.swift"))
+        #expect(documentB?.text == "B")
+
+        let returningStarted = TestGate()
+        var returnedBeforeRelease = false
+        let returning = Task { @MainActor in
+            returningStarted.open()
+            let result = await model.previewDocument(at: workspace.appendingPathComponent("nested/../A.swift"))
+            returnedBeforeRelease = true
+            return result
+        }
+        defer { returning.cancel() }
+        // The main-actor caller has entered the pending load before this gate resumes us.
+        #expect(await returningStarted.waitUntilOpen())
+        #expect(!returnedBeforeRelease, "A duplicate open must await the existing read")
+        if ending == "dismiss" { model.discardPreviewDocuments() }
+        if ending == "reset" { model.reset() }
+        operations.releaseA()
+        let result = await returning.value
+        #expect(await first.value == nil, "The cancelled preview must not publish a document")
+        #expect(operations.readACount == 1)
+        if readFails || discarded {
+            #expect(result == nil)
+            #expect(!model.openDocuments.contains { $0.url == fileA })
+        } else {
+            #expect(result?.text == "A")
+            #expect(result === (await model.previewDocument(at: fileA)))
+        }
+        #expect(model.openDocuments.isEmpty, "Browsing results must not create tabs")
+        #expect(model.activeDocumentID == nil, "Preview loading must not activate a tab")
+        // Completed/failed/reset loads must release their pending entry for a later request.
+        let retry = await model.previewDocument(at: fileA)
+        #expect((retry != nil) == !readFails)
+        #expect(operations.readACount == (readFails || discarded ? 2 : 1))
+    }
+
+    @Test(arguments: ["watcher", "reopen", "promotion", "save"])
+    @MainActor
+    func previewExternalChangesNeverSilentlyOverwriteDisk(trigger: String) async throws {
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let file = workspace.appendingPathComponent("A.swift")
+        try "A".write(to: file, atomically: true, encoding: .utf8)
+        // Explicit timestamps avoid depending on filesystem clock resolution or sleeps.
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 100)], ofItemAtPath: file.path)
+        let operations = BlockingWorkspaceOperations()
+        operations.releaseA()
+        let model = DocumentFeatureModel(
+            operations: operations,
+            documentLifecycleDecider: PreviewExternalChangeLifecycleDecider(),
+            fileOperations: MacWorkspaceFileOperations(), fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry())
+        defer { model.reset() }
+        model.configure(
+            workspaceURLProvider: { workspace }, autoSaveEnabledProvider: { false }, autoSaveDelayProvider: { 0 },
+            notify: { _ in }, onDocumentOpened: { _ in }, onDocumentChanged: { _ in }, onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in }, onRecordDiscard: { _ in }, onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {}, onProjectCloseReady: {})
+        let document = try #require(await model.previewDocument(at: file))
+        if trigger == "save" { model.promotePreviewDocument(document) }
+        try "external".write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 200)], ofItemAtPath: file.path)
+
+        if trigger == "watcher" || trigger == "reopen" {
+            if trigger == "watcher" {
+                #expect(!model.processExternalChanges([file]))
+            } else {
+                #expect(await model.previewDocument(at: file) === document)
+            }
+            #expect(document.text == "external")
+            #expect(!document.isDirty)
+            #expect(model.openDocuments.isEmpty)
+            document.applyLiveEditorText("external + local")
+            model.promotePreviewDocument(document)
+            try model.save(document)
+            #expect(try String(contentsOf: file, encoding: .utf8) == "external + local")
+        } else {
+            // The watcher has not delivered its event before editing/promotion or saving.
+            document.applyLiveEditorText("A + local")
+            if trigger == "promotion" {
+                model.promotePreviewDocument(document)
+                #expect(document.hasExternalConflict)
+            }
+            #expect(throws: (any Error).self) { try model.save(document) }
+            #expect(document.hasExternalConflict)
+            #expect(document.text == "A + local")
+            #expect(try String(contentsOf: file, encoding: .utf8) == "external")
+            // Explicit conflict resolution remains the only way to replace that disk version.
+            model.keepEditorVersion(of: document)
+            try model.save(document)
+            #expect(try String(contentsOf: file, encoding: .utf8) == "A + local")
+        }
+    }
+
+    @Test(arguments: ["edit", "open", "asyncOpen"])
+    @MainActor
+    func previewOnlyCreatesATabWhenOpenedOrEdited(action: String) async throws {
+        let explicitOpen = action != "edit"
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-preview-promotion-tests")
+        let fileA = workspace.appendingPathComponent("A.swift")
+        let operations = BlockingWorkspaceOperations()
+        operations.releaseA()
+        let model = DocumentFeatureModel(
+            operations: operations,
+            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+        model.configure(
+            workspaceURLProvider: { workspace },
+            autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 },
+            notify: { _ in },
+            onDocumentOpened: { _ in },
+            onDocumentChanged: { _ in },
+            onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in },
+            onRecordDiscard: { _ in },
+            onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {},
+            onProjectCloseReady: {}
+        )
+
+        let order = EditorTabOrderFeatureModel()
+        let coordinator = EditorSessionCoordinator(document: model, media: MediaDocumentFeatureModel(),
+            terminalPlacement: TerminalPlacementFeatureModel(), tabOrder: order)
+        defer { withExtendedLifetime(coordinator) {}; model.reset() }
+        let first = try #require(await model.previewDocument(at: fileA))
+        _ = await model.previewDocument(at: workspace.appendingPathComponent("B.swift"))
+        #expect(order.items.isEmpty)
+        if action == "open" {
+            model.openFile(fileA)
+        } else if action == "asyncOpen" {
+            await model.openFileAsync(fileA, isReadOnly: false, displayPath: nil, activateWhenReady: true)
+        } else {
+            first.applyLiveEditorText("edited")
+            model.promotePreviewDocument(first)
+        }
+        model.discardPreviewDocuments()
+        #expect(model.openDocuments.count == 1)
+        #expect(model.openDocuments.first === first)
+        #expect(order.items == [.document(first.id)])
+        #expect(first.text == (explicitOpen ? "A" : "edited"))
+        #expect(await model.previewDocument(at: fileA) === first)
+        #expect(operations.readACount == 1)
     }
 
     @Test
@@ -5813,6 +6003,18 @@ private struct EmptyWorkspaceOperations: WorkspaceOperations {
 }
 
 private final class BlockingWorkspaceOperations: WorkspaceOperations, @unchecked Sendable {
+    private let readAValue: String?
+    private let readLock = NSLock()
+    private var readCount = 0
+
+    init(readAValue: String? = "A") { self.readAValue = readAValue }
+
+    var readACount: Int {
+        readLock.lock()
+        defer { readLock.unlock() }
+        return readCount
+    }
+
     private let startedA = TestGate()
     private let releaseAGate = TestGate()
 
@@ -5856,9 +6058,12 @@ private final class BlockingWorkspaceOperations: WorkspaceOperations, @unchecked
 
     func readFile(at rootURL: URL, relativePath: String) -> String? {
         if relativePath == "A.swift" {
+            readLock.lock()
+            readCount += 1
+            readLock.unlock()
             startedA.open()
             _ = releaseAGate.waitSynchronously()
-            return "A"
+            return readAValue
         }
         return "B"
     }
@@ -6095,5 +6300,27 @@ private final class TestDirectoryWatcherFactory: DirectoryWatcherFactory {
         let source = TestDirectoryChangeSource(onChange: onChange)
         self.source = source
         return source
+    }
+}
+
+/// Supplies lifecycle decisions so filesystem orchestration tests do not depend on a linked Rust runtime.
+private struct PreviewExternalChangeLifecycleDecider: DocumentLifecycleDeciding {
+    func decide(state: DocumentLifecycleState, event: DocumentLifecycleEvent,
+                operationID: String) throws -> DocumentLifecycleDecision {
+        switch event.type {
+        case .externalChanged:
+            if state.status == .clean { return .init(state: state, action: .reloadFromDisk) }
+            return .init(state: .init(status: .conflict, revision: state.revision,
+                                     savedRevision: state.savedRevision, saveRevision: nil, operationId: nil),
+                         action: .showConflict)
+        case .keepEditor:
+            return .init(state: .dirty(revision: state.revision, savedRevision: state.savedRevision ?? 0), action: .none)
+        case .saveStarted:
+            return .init(state: state, action: state.status == .conflict ? .showConflict : .writeToDisk)
+        case .saveSucceeded:
+            return .init(state: .clean(revision: state.revision), action: .none)
+        default:
+            throw CocoaError(.featureUnsupported)
+        }
     }
 }

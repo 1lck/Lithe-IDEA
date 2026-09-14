@@ -1,13 +1,15 @@
 import Foundation
 import Testing
+import LitheGitModule
 @testable import Lithe
 
 @Suite("macOS GitHub Git operations")
 struct MacGitHubGitOperationsTests {
-    @Test
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_RUN_GIT_EXECUTION_INTEGRATION"] == "1"))
     func detachedWorktreeIsPublishedThroughTheSharedCore() async throws {
-        let core = RustCoreBridge()
-        guard core.isAvailable else { return }
+        let journal = GitExecutionJournal()
+        let core = RustCoreBridge(gitExecutionJournal: journal)
+        try #require(core.isAvailable, "The Git execution integration lane must link Rust Core")
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-github-worktree-\(UUID().uuidString)")
         let remote = FileManager.default.temporaryDirectory
@@ -46,6 +48,12 @@ struct MacGitHubGitOperationsTests {
         let branch = try #require(context.suggestedPublishBranch)
 
         try operations.publishPullRequestBranch(named: branch, at: root)
+        // No GitFeatureModel context or Console view exists in this workflow.
+        // Both publication commands still reach the shared window journal.
+        let invocations = journal.snapshot
+        #expect(invocations.contains { $0.arguments.contains("switch") })
+        #expect(invocations.contains { $0.arguments.contains("push") })
+        #expect(invocations.filter { $0.arguments.contains("push") }.allSatisfy { $0.succeeded })
         let published = try operations.pullRequestBranchDefaults(at: root)
 
         #expect(published.head == branch)

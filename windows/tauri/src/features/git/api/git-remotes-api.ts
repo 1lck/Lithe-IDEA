@@ -21,6 +21,13 @@ import {
   resolveRepositoryPathOrThrow,
 } from "./git-repo-api";
 
+export type GitFetchOptions = {
+  remote: string | null;
+  prune: boolean;
+  submodules: "inherit" | "no" | "onDemand" | "yes";
+  tags: "inherit" | "all" | "none" | "prune";
+};
+
 export interface GitRemoteActionResult {
   success: boolean;
   error?: string;
@@ -137,10 +144,10 @@ export const executePullChanges = async (
   }
 };
 
-export const fetchChanges = async (repoPath: string): Promise<GitRemoteActionResult> => {
+export const fetchChanges = async (repoPath: string, fetchOptions?: GitFetchOptions): Promise<GitRemoteActionResult> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-    await tauriInvoke("git_fetch", { repoPath: resolvedRepoPath });
+    await tauriInvoke("git_fetch", { repoPath: resolvedRepoPath, ...(fetchOptions ? { fetchOptions } : {}) });
     emitGitChanged({
       repoPath: resolvedRepoPath,
       scopes: ["refs", "remotes"],

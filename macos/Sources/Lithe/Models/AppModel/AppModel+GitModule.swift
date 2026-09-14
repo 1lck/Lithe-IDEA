@@ -37,6 +37,7 @@ extension AppModel {
                 }
             )
         )
+        feature.fetchOptionsProvider = { [weak self] in self?.settings.gitFetchOptions ?? GitFetchOptions() }
         return feature
     }
 

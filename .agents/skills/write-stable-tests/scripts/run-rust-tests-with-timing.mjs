@@ -16,12 +16,13 @@ class SuiteTimeoutError extends Error {
   }
 }
 
-function parseArguments(arguments_) {
+export function parseArguments(arguments_) {
   const options = {
     manifest: null,
     package: null,
     warnMs: 1000,
     maxMs: 15000,
+    testBudgets: [],
     buildTimeoutMs: 1200000,
     suiteTimeoutMs: 1200000,
     report: null,
@@ -33,7 +34,12 @@ function parseArguments(arguments_) {
     else if (argument === "--package") options.package = arguments_[++index];
     else if (argument === "--warn-ms") options.warnMs = positiveInteger(arguments_[++index], "--warn-ms");
     else if (argument === "--max-ms") options.maxMs = positiveInteger(arguments_[++index], "--max-ms");
-    else if (argument === "--build-timeout-ms") {
+    else if (argument === "--test-budget") {
+      const value = arguments_[++index] ?? "";
+      const match = value.match(/^([^=]+)=(\d+)$/);
+      if (!match) throw new Error("--test-budget requires a nonempty test-name prefix followed by =milliseconds.");
+      options.testBudgets.push({ prefix: match[1], maxMs: positiveInteger(match[2], "--test-budget") });
+    } else if (argument === "--build-timeout-ms") {
       options.buildTimeoutMs = positiveInteger(arguments_[++index], "--build-timeout-ms");
     } else if (argument === "--suite-timeout-ms") {
       options.suiteTimeoutMs = positiveInteger(arguments_[++index], "--suite-timeout-ms");
@@ -45,6 +51,9 @@ function parseArguments(arguments_) {
   options.manifest = path.resolve(REPOSITORY_ROOT, options.manifest);
   options.report ??= path.join(REPOSITORY_ROOT, ".artifacts/test-stability/rust-tests.json");
   if (options.warnMs >= options.maxMs) throw new Error("--warn-ms must be lower than --max-ms.");
+  if (options.testBudgets.some((budget) => budget.maxMs <= options.warnMs)) {
+    throw new Error("--test-budget must be higher than --warn-ms.");
+  }
   return options;
 }
 
@@ -125,6 +134,7 @@ export async function run(
       package: options.package,
       warnMs: options.warnMs,
       maxMs: options.maxMs,
+      testBudgets: options.testBudgets ?? [],
       suiteTimeoutMs: options.suiteTimeoutMs,
       buildDurationMs,
       suite: {
@@ -230,7 +240,12 @@ export async function run(
 
       for (const testName of tests) {
         console.log(`RUN  ${artifact.target}::${testName}`);
-        const testBudget = timeoutBudget(`test ${artifact.target}::${testName}`, options.maxMs);
+        // The most specific integration-test prefix wins. The shared suite
+        // deadline still caps every subprocess, including longer native tests.
+        const maxMs = (options.testBudgets ?? [])
+          .filter((budget) => testName.startsWith(budget.prefix))
+          .sort((left, right) => right.prefix.length - left.prefix.length)[0]?.maxMs ?? options.maxMs;
+        const testBudget = timeoutBudget(`test ${artifact.target}::${testName}`, maxMs);
         const result = await runProcessImpl({
           command: artifact.executable,
           args: ["--exact", testName, "--test-threads", "1", "--color", "never"],
@@ -251,6 +266,7 @@ export async function run(
           name: testName,
           status,
           durationMs,
+          maxMs,
           ...(suiteDeadlineReached
             ? { details: `The shared suite deadline expired while this test was running.\n${result.stdout}${result.stderr}`.trim().slice(0, 8000) }
             : !["passed", "skipped"].includes(status)
@@ -290,9 +306,10 @@ export async function run(
       );
     }
     if (records.length === 0) throw new Error("No Rust tests were enumerated.");
-    const failures = records.filter((record) => !["passed", "skipped"].includes(record.status));
+    const failures = records.filter((record) => !["passed", "skipped"].includes(record.status)
+      || record.durationMs >= (record.maxMs ?? options.maxMs));
     if (failures.length > 0) {
-      throw new Error(`${failures.length} Rust test(s) failed or exceeded ${options.maxMs}ms.`);
+      throw new Error(`${failures.length} Rust test(s) failed or exceeded their time budget.`);
     }
   } catch (error) {
     if (error instanceof SuiteTimeoutError) {

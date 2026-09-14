@@ -9,6 +9,12 @@ import LitheGitModule
 struct RustGitOperations: GitOperations, Sendable {
     let core: RustCoreBridge
 
+    func consolePresentation(_ request: GitConsolePresentationRequest) -> GitConsolePresentation? {
+        let result: Result<GitConsolePresentation?, RustCoreBridge.CoreCallError> = core.executeNullableResult(
+            command: "git.consolePresentation", payload: request)
+        return try? result.get()
+    }
+
     func makeProcessResult(_ response: RustCoreBridge.GitCommandPayload) -> GitProcessResult {
         GitProcessResult(
             arguments: response.arguments ?? [],
