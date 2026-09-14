@@ -151,6 +151,14 @@ if ($Scope -in @("All", "WindowsRust")) {
 }
 
 if ($Scope -in @("All", "SharedRust")) {
+    # Dependency tests are not selected by -p lithe-core. Exercise the native
+    # process and AskPass adapter on Windows as a separate timed package.
+    Invoke-TimedRustTests `
+        -Manifest "rust/Cargo.toml" `
+        -Package "lithe-git-host" `
+        -TargetDirectory "rust/target" `
+        -Report (Join-Path $reportRoot "git-host-rust.json")
+
     Invoke-TimedRustTests `
         -Manifest "rust/Cargo.toml" `
         -Package "lithe-core" `

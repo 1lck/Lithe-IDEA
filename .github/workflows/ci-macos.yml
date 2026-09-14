@@ -227,12 +227,15 @@ jobs:
       - name: Run Rust Core tests and verify the Swift bridge
         run: ./scripts/verify-rust-core.sh
 
-      - name: Upload Git execution integration report
+      - name: Upload Git execution test reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: git-execution-integration-macos
-          path: .artifacts/test-stability/git-execution-integration.*
+          path: |
+            .artifacts/test-stability/git-execution-integration.*
+            .artifacts/test-stability/git-host-rust.*
+            .artifacts/test-stability/git-console-bridge.*
           if-no-files-found: ignore
           retention-days: 14
 

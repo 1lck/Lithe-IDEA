@@ -38,6 +38,11 @@ report. One suite deadline covers compilation, enumeration, every test process,
 and the clean cache retry; a timeout writes the completed records before the
 runner exits. This isolation makes the exact hanging test visible.
 
+SharedRust explicitly runs both `lithe-git-host` and `lithe-core`, keeping the
+native Git process/AskPass tests in `git-host-rust.json` and Core tests in
+`shared-rust.json`. Testing a Cargo package does not run its dependencies' own
+tests. macOS's `verify-rust-core.sh` runs the same native adapter timing lane.
+
 Every Bun and Rust lane writes JUnit XML plus a self-contained HTML dashboard
 below `.artifacts/test-stability/`. The dashboard groups Rust cases by crate
 module and Bun cases by their JUnit class or suite.

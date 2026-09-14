@@ -131,6 +131,9 @@ class Fixture:
             _, error = process.communicate(timeout=3)
             assert process.returncode == 0, error.decode()
             assert events[0]["type"] == "requestStarted" and events[-1]["type"] == "requestFinished"
+            # The C callback replies to authentication synchronously. Nested
+            # replies must not steal the outer request's observer or identity.
+            assert all(event["operationId"] == operation for event in events), events
             return response, events
         finally:
             if process.poll() is None:

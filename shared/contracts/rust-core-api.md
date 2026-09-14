@@ -358,7 +358,10 @@ into detailed Fetch and supply their application settings snapshot.
 `{ options, arguments, commands?: string[][] }`. Without `root` the operation is
 pure. With `root`, commands expand into sorted enabled remotes, using the same
 resolver as detailed execution. `remote.<name>.skipFetchAll` is respected when
-fetching all remotes. A selected name must exist; URLs and argument text are not
+fetching all remotes, using Git's boolean parser: a valueless key is true, an
+explicit empty value is false, and nonzero numbers are true. Invalid boolean
+values fail preflight rather than silently enabling a remote. A selected name
+must exist; URLs and argument text are not
 accepted as remote names. An empty enabled set is an explicit error.
 
 Defaults are all remotes, pruning enabled, and inherited submodule/tag policy.
@@ -423,6 +426,10 @@ C ABI and Rust `execute_json_with_events` API deliver sanitized Git diagnostics
 while the existing synchronous request runs. Event strings are borrowed only
 for the callback; clients must copy them before returning. Callbacks are serial
 on the caller's worker thread and complete before the final response returns.
+Callbacks may synchronously call Core, for example to answer `git.authRespond`.
+Nested requests do not inherit the outer observer; they can install a separate
+observer explicitly. Returning from a nested request restores the outer request's
+event identity, cancellation registration, and absolute deadline.
 No arbitrary environment values, authentication answers or command stdin are emitted.
 The named nonsecret temporary configuration is explicit diagnostic metadata.
 

@@ -43,6 +43,40 @@ fn references(root: &str) -> Result<BTreeMap<String, String>, CoreError> {
     .collect())
 }
 
+fn skip_fetch_all(root: &str, remote: &str) -> Result<bool, CoreError> {
+    // Let Git distinguish a valueless true from an empty false and normalize
+    // numeric/legacy boolean spellings. A string lookup loses that distinction.
+    let output = capture_git_with_options(
+        root,
+        &[
+            "config".into(),
+            "--type=bool".into(),
+            "--get".into(),
+            format!("remote.{remote}.skipFetchAll"),
+        ],
+        None,
+        true,
+    )?;
+    match output.exit_code {
+        1 => Ok(false), // Missing configuration leaves this remote enabled.
+        0 => match output.stdout.as_slice() {
+            b"true\n" | b"true\r\n" => Ok(true),
+            b"false\n" | b"false\r\n" => Ok(false),
+            _ => Err(CoreError::new(
+                ErrorCode::ParseFailed,
+                "Git returned an invalid Fetch boolean",
+            )),
+        },
+        _ => Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not inspect Fetch configuration",
+        )
+        .with_details(execution_events::redact(&String::from_utf8_lossy(
+            &output.stderr,
+        )))),
+    }
+}
+
 pub(super) fn remote_names(
     root: &str,
     options: &fetch::GitFetchOptions,
@@ -65,15 +99,7 @@ pub(super) fn remote_names(
     remotes.sort();
     let mut enabled = Vec::new();
     for remote in remotes {
-        let skip = all_remotes
-            && read_git_config_value(root, &format!("remote.{remote}.skipFetchAll"))?.is_some_and(
-                |value| {
-                    matches!(
-                        value.to_ascii_lowercase().as_str(),
-                        "true" | "yes" | "on" | "1"
-                    )
-                },
-            );
+        let skip = all_remotes && skip_fetch_all(root, &remote)?;
         if !skip {
             enabled.push(remote);
         }

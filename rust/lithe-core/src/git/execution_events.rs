@@ -74,29 +74,39 @@ struct Context {
 }
 thread_local! { static CURRENT: RefCell<Option<Context>> = const { RefCell::new(None) }; }
 
+/// Restores the caller's observer after a nested request or callback returns.
+struct ObserverScope(Option<Context>);
+impl ObserverScope {
+    fn begin(context: Option<Context>) -> Self {
+        Self(CURRENT.with(|current| current.replace(context)))
+    }
+}
+impl Drop for ObserverScope {
+    fn drop(&mut self) {
+        CURRENT.with(|current| current.replace(self.0.take()));
+    }
+}
+
 pub(super) fn has_sink() -> bool {
     CURRENT.with(|current| current.borrow().is_some())
 }
 
 /// Installs a consumer only for the duration of this synchronous request.
 pub(crate) fn with_sink<T>(sink: EventSink, operation: impl FnOnce() -> T) -> T {
-    struct Restore(Option<Context>);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            CURRENT.with(|current| {
-                current.replace(self.0.take());
-            });
-        }
-    }
-    let _restore = Restore(CURRENT.with(|current| {
-        current.replace(Some(Context {
-            sink,
-            operation_id: String::new(),
-            next_invocation: 0,
-            last_transfer: None,
-        }))
+    let _scope = ObserverScope::begin(Some(Context {
+        sink,
+        operation_id: String::new(),
+        next_invocation: 0,
+        last_transfer: None,
     }));
     operation()
+}
+
+fn deliver(sink: &EventSink, event: &str) {
+    // A host may synchronously call git.authRespond from this callback. That
+    // request must not inherit or overwrite the observed operation's identity.
+    let _scope = ObserverScope::begin(None);
+    sink(event);
 }
 
 /// Called after cancellation registration so immediate cancellation cannot race startup.
@@ -442,7 +452,7 @@ fn send(sink: &EventSink, operation_id: &str, kind: Kind<'_>) {
                 value["progressDetails"] = serde_json::to_value(progress).unwrap_or_default();
             }
         }
-        sink(&value.to_string());
+        deliver(sink, &value.to_string());
     }
 }
 
@@ -462,7 +472,7 @@ pub(super) fn emit(mut value: serde_json::Value) {
             value["invocationId"] = transfer.into();
         }
         value["operationId"] = operation_id.into();
-        sink(&value.to_string());
+        deliver(&sink, &value.to_string());
     }
 }
 
@@ -527,6 +537,84 @@ impl LineDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn callback_auth_reply_preserves_outer_events_and_cancellation() {
+        let events = Arc::new(std::sync::Mutex::new(Vec::<serde_json::Value>::new()));
+        let captured = events.clone();
+        let response = crate::execute_json_with_events(
+            r#"{"id":"callback-cancellation","command":"core.ping","timeoutMilliseconds":1000}"#,
+            Arc::new(move |event| {
+                let event: serde_json::Value = serde_json::from_str(event).unwrap();
+                captured.lock().unwrap().push(event.clone());
+                if event["type"] == "requestStarted"
+                    && event["operationId"] == "callback-cancellation"
+                {
+                    // Like the C AskPass host, synchronously reply through Core
+                    // before requesting cancellation of the observed operation.
+                    let reply: serde_json::Value = serde_json::from_str(&crate::execute_json(
+                        r#"{"id":"callback-auth-reply","command":"git.authRespond","payload":{"requestId":"expired-fixture","answer":null}}"#,
+                    )).unwrap();
+                    assert_eq!(reply["ok"], true);
+                    assert_eq!(reply["data"]["accepted"], false);
+                    assert!(crate::cancel_operation("callback-cancellation"));
+                }
+            }),
+        );
+        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(response["error"]["code"], "cancelled", "{response}");
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 2, "{events:?}");
+        assert_eq!(events[0]["type"], "requestStarted");
+        assert_eq!(events[1]["type"], "requestFinished");
+        assert!(events
+            .iter()
+            .all(|event| event["operationId"] == "callback-cancellation"));
+        assert!(!crate::cancel_operation("callback-cancellation"));
+    }
+
+    #[test]
+    fn callback_can_observe_a_nested_request_without_mixing_channels() {
+        let outer = Arc::new(std::sync::Mutex::new(Vec::<serde_json::Value>::new()));
+        let inner = Arc::new(std::sync::Mutex::new(Vec::<serde_json::Value>::new()));
+        let outer_capture = outer.clone();
+        let inner_capture = inner.clone();
+        let response = crate::execute_json_with_events(
+            r#"{"id":"outer-observer","command":"core.ping"}"#,
+            Arc::new(move |event| {
+                let event: serde_json::Value = serde_json::from_str(event).unwrap();
+                outer_capture.lock().unwrap().push(event.clone());
+                if event["type"] == "requestStarted" {
+                    let captured = inner_capture.clone();
+                    let response = crate::execute_json_with_events(
+                        r#"{"id":"inner-observer","command":"core.ping"}"#,
+                        Arc::new(move |event| {
+                            captured
+                                .lock()
+                                .unwrap()
+                                .push(serde_json::from_str(event).unwrap())
+                        }),
+                    );
+                    assert_eq!(
+                        serde_json::from_str::<serde_json::Value>(&response).unwrap()["ok"],
+                        true
+                    );
+                }
+            }),
+        );
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&response).unwrap()["ok"],
+            true
+        );
+        for (events, id) in [(outer, "outer-observer"), (inner, "inner-observer")] {
+            let events = events.lock().unwrap();
+            assert_eq!(events.len(), 2);
+            assert_eq!(events[0]["type"], "requestStarted");
+            assert_eq!(events[1]["type"], "requestFinished");
+            assert!(events.iter().all(|event| event["operationId"] == id));
+        }
+    }
+
     #[test]
     fn emitted_events_match_the_shared_fixture_and_observer_scope_is_released() {
         let captured = Arc::new(std::sync::Mutex::new(Vec::<serde_json::Value>::new()));
