@@ -1494,7 +1494,14 @@ fn git_write_executes_branch_pull_and_stash_mutations() {
     assert_eq!(explicit_pull["ok"], true, "{explicit_pull:?}");
     assert_eq!(
         explicit_pull["data"]["arguments"],
-        serde_json::json!(["pull", "--rebase", "--", "origin", "feature/core"])
+        serde_json::json!([
+            "pull",
+            "--progress",
+            "--rebase",
+            "--",
+            "origin",
+            "feature/core"
+        ])
     );
 
     fs::write(root.join("example.txt"), "working tree\n").expect("file should be writable");

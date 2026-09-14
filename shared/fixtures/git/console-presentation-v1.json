@@ -1,0 +1,4455 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "behavior flags remain visible",
+      "input": {
+        "records": [
+          {
+            "id": "one",
+            "root": "/workspace/repo",
+            "arguments": [
+              "-C",
+              "../other repo",
+              "reset",
+              "--hard",
+              "HEAD~3"
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [],
+            "state": "completed",
+            "exitCode": 0,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "unknown",
+            "truncated": false
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "visibleCommandContains": [
+          "-C",
+          "'../other repo'",
+          "reset",
+          "--hard",
+          "HEAD~3"
+        ],
+        "folds": []
+      },
+      "presentation": {
+        "entries": [
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "-C"
+              },
+              {
+                "count": 1,
+                "id": "argument-3",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'../other repo'"
+              },
+              {
+                "count": 1,
+                "id": "argument-4",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "reset"
+              },
+              {
+                "count": 1,
+                "id": "argument-5",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "--hard"
+              },
+              {
+                "count": 1,
+                "id": "argument-6",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'HEAD~3'"
+              }
+            ],
+            "failed": false,
+            "id": "one",
+            "output": [],
+            "repositoryLabel": "/workspace/repo",
+            "notice": "completedWithoutOutput"
+          }
+        ],
+        "groups": [
+          {
+            "id": "one",
+            "matches": 0,
+            "recordIds": [
+              "one"
+            ]
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "short output is complete",
+      "input": {
+        "records": [
+          {
+            "id": "one",
+            "root": "/workspace/repo",
+            "arguments": [
+              "status"
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [
+              {
+                "stream": "stdout",
+                "text": "line 0"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 1"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 2"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 3"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 4"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 5"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 6"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 7"
+              }
+            ],
+            "state": "completed",
+            "exitCode": 0,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "unknown",
+            "truncated": false
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "folds": []
+      },
+      "presentation": {
+        "entries": [
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "status"
+              }
+            ],
+            "failed": false,
+            "id": "one",
+            "output": [
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 1,
+                "id": "output-0",
+                "kind": "text",
+                "matches": 0,
+                "start": 0,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 2,
+                "id": "output-1",
+                "kind": "text",
+                "matches": 0,
+                "start": 1,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 3,
+                "id": "output-2",
+                "kind": "text",
+                "matches": 0,
+                "start": 2,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 4,
+                "id": "output-3",
+                "kind": "text",
+                "matches": 0,
+                "start": 3,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 5,
+                "id": "output-4",
+                "kind": "text",
+                "matches": 0,
+                "start": 4,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 6,
+                "id": "output-5",
+                "kind": "text",
+                "matches": 0,
+                "start": 5,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 7,
+                "id": "output-6",
+                "kind": "text",
+                "matches": 0,
+                "start": 6,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 8,
+                "id": "output-7",
+                "kind": "text",
+                "matches": 0,
+                "start": 7,
+                "updated": 0
+              }
+            ],
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "one",
+            "matches": 0,
+            "recordIds": [
+              "one"
+            ]
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "ordinary long output remains visible",
+      "input": {
+        "records": [
+          {
+            "id": "one",
+            "root": "/workspace/repo",
+            "arguments": [
+              "unknown-command"
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [
+              {
+                "stream": "stdout",
+                "text": "line 0"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 1"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 2"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 3"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 4"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 5"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 6"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 7"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 8"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 9"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 10"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 11"
+              }
+            ],
+            "state": "completed",
+            "exitCode": 0,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "unknown",
+            "truncated": false
+          }
+        ],
+        "search": "line 6"
+      },
+      "expected": {
+        "folds": [],
+        "matches": 1
+      },
+      "presentation": {
+        "entries": [
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "unknown-command"
+              }
+            ],
+            "failed": false,
+            "id": "one",
+            "output": [
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 1,
+                "id": "output-0",
+                "kind": "text",
+                "matches": 0,
+                "start": 0,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 2,
+                "id": "output-1",
+                "kind": "text",
+                "matches": 0,
+                "start": 1,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 3,
+                "id": "output-2",
+                "kind": "text",
+                "matches": 0,
+                "start": 2,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 4,
+                "id": "output-3",
+                "kind": "text",
+                "matches": 0,
+                "start": 3,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 5,
+                "id": "output-4",
+                "kind": "text",
+                "matches": 0,
+                "start": 4,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 6,
+                "id": "output-5",
+                "kind": "text",
+                "matches": 0,
+                "start": 5,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 7,
+                "id": "output-6",
+                "kind": "text",
+                "matches": 1,
+                "start": 6,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 8,
+                "id": "output-7",
+                "kind": "text",
+                "matches": 0,
+                "start": 7,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 9,
+                "id": "output-8",
+                "kind": "text",
+                "matches": 0,
+                "start": 8,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 10,
+                "id": "output-9",
+                "kind": "text",
+                "matches": 0,
+                "start": 9,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 11,
+                "id": "output-10",
+                "kind": "text",
+                "matches": 0,
+                "start": 10,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 12,
+                "id": "output-11",
+                "kind": "text",
+                "matches": 0,
+                "start": 11,
+                "updated": 0
+              }
+            ],
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "one",
+            "matches": 1,
+            "recordIds": [
+              "one"
+            ]
+          }
+        ],
+        "matches": [
+          {
+            "fragmentId": "output-6",
+            "lineIndex": 6,
+            "recordId": "one"
+          }
+        ],
+        "totalMatches": 1
+      }
+    },
+    {
+      "name": "failure keeps complete output context",
+      "input": {
+        "records": [
+          {
+            "id": "one",
+            "root": "/workspace/repo",
+            "arguments": [
+              "status"
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [
+              {
+                "stream": "stdout",
+                "text": "line 0"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 1"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 2"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 3"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 4"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 5"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 6"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 7"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 8"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 9"
+              },
+              {
+                "stream": "stderr",
+                "text": "fatal: cannot update reference"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 11"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 12"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 13"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 14"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 15"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 16"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 17"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 18"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 19"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 20"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 21"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 22"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 23"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 24"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 25"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 26"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 27"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 28"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 29"
+              }
+            ],
+            "state": "completed",
+            "exitCode": 128,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "unknown",
+            "truncated": false
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "folds": [],
+        "failed": true
+      },
+      "presentation": {
+        "entries": [
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "status"
+              }
+            ],
+            "failed": true,
+            "id": "one",
+            "output": [
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 1,
+                "id": "output-0",
+                "kind": "text",
+                "matches": 0,
+                "start": 0,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 2,
+                "id": "output-1",
+                "kind": "text",
+                "matches": 0,
+                "start": 1,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 3,
+                "id": "output-2",
+                "kind": "text",
+                "matches": 0,
+                "start": 2,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 4,
+                "id": "output-3",
+                "kind": "text",
+                "matches": 0,
+                "start": 3,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 5,
+                "id": "output-4",
+                "kind": "text",
+                "matches": 0,
+                "start": 4,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 6,
+                "id": "output-5",
+                "kind": "text",
+                "matches": 0,
+                "start": 5,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 7,
+                "id": "output-6",
+                "kind": "text",
+                "matches": 0,
+                "start": 6,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 8,
+                "id": "output-7",
+                "kind": "text",
+                "matches": 0,
+                "start": 7,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 9,
+                "id": "output-8",
+                "kind": "text",
+                "matches": 0,
+                "start": 8,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 10,
+                "id": "output-9",
+                "kind": "text",
+                "matches": 0,
+                "start": 9,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 11,
+                "id": "output-10",
+                "kind": "text",
+                "matches": 0,
+                "start": 10,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 12,
+                "id": "output-11",
+                "kind": "text",
+                "matches": 0,
+                "start": 11,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 13,
+                "id": "output-12",
+                "kind": "text",
+                "matches": 0,
+                "start": 12,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 14,
+                "id": "output-13",
+                "kind": "text",
+                "matches": 0,
+                "start": 13,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 15,
+                "id": "output-14",
+                "kind": "text",
+                "matches": 0,
+                "start": 14,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 16,
+                "id": "output-15",
+                "kind": "text",
+                "matches": 0,
+                "start": 15,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 17,
+                "id": "output-16",
+                "kind": "text",
+                "matches": 0,
+                "start": 16,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 18,
+                "id": "output-17",
+                "kind": "text",
+                "matches": 0,
+                "start": 17,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 19,
+                "id": "output-18",
+                "kind": "text",
+                "matches": 0,
+                "start": 18,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 20,
+                "id": "output-19",
+                "kind": "text",
+                "matches": 0,
+                "start": 19,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 21,
+                "id": "output-20",
+                "kind": "text",
+                "matches": 0,
+                "start": 20,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 22,
+                "id": "output-21",
+                "kind": "text",
+                "matches": 0,
+                "start": 21,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 23,
+                "id": "output-22",
+                "kind": "text",
+                "matches": 0,
+                "start": 22,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 24,
+                "id": "output-23",
+                "kind": "text",
+                "matches": 0,
+                "start": 23,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 25,
+                "id": "output-24",
+                "kind": "text",
+                "matches": 0,
+                "start": 24,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 26,
+                "id": "output-25",
+                "kind": "text",
+                "matches": 0,
+                "start": 25,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 27,
+                "id": "output-26",
+                "kind": "text",
+                "matches": 0,
+                "start": 26,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 28,
+                "id": "output-27",
+                "kind": "text",
+                "matches": 0,
+                "start": 27,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 29,
+                "id": "output-28",
+                "kind": "text",
+                "matches": 0,
+                "start": 28,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 30,
+                "id": "output-29",
+                "kind": "text",
+                "matches": 0,
+                "start": 29,
+                "updated": 0
+              }
+            ],
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "one",
+            "matches": 0,
+            "recordIds": [
+              "one"
+            ]
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "repeated ordinary text remains independent",
+      "input": {
+        "records": [
+          {
+            "id": "one",
+            "root": "/workspace/repo",
+            "arguments": [
+              "status"
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [
+              {
+                "stream": "stdout",
+                "text": "same response"
+              },
+              {
+                "stream": "stdout",
+                "text": "same response"
+              },
+              {
+                "stream": "stdout",
+                "text": "same response"
+              },
+              {
+                "stream": "stdout",
+                "text": "same response"
+              },
+              {
+                "stream": "stdout",
+                "text": "same response"
+              },
+              {
+                "stream": "stdout",
+                "text": "same response"
+              },
+              {
+                "stream": "stdout",
+                "text": "same response"
+              },
+              {
+                "stream": "stdout",
+                "text": "same response"
+              },
+              {
+                "stream": "stdout",
+                "text": "same response"
+              },
+              {
+                "stream": "stdout",
+                "text": "same response"
+              },
+              {
+                "stream": "stdout",
+                "text": "same response"
+              },
+              {
+                "stream": "stdout",
+                "text": "same response"
+              },
+              {
+                "stream": "stdout",
+                "text": "same response"
+              },
+              {
+                "stream": "stdout",
+                "text": "same response"
+              },
+              {
+                "stream": "stdout",
+                "text": "same response"
+              },
+              {
+                "stream": "stdout",
+                "text": "same response"
+              },
+              {
+                "stream": "stdout",
+                "text": "same response"
+              },
+              {
+                "stream": "stdout",
+                "text": "same response"
+              },
+              {
+                "stream": "stdout",
+                "text": "same response"
+              },
+              {
+                "stream": "stdout",
+                "text": "same response"
+              }
+            ],
+            "state": "completed",
+            "exitCode": 0,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "unknown",
+            "truncated": false
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "folds": []
+      },
+      "presentation": {
+        "entries": [
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "status"
+              }
+            ],
+            "failed": false,
+            "id": "one",
+            "output": [
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 1,
+                "id": "output-0",
+                "kind": "text",
+                "matches": 0,
+                "start": 0,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 2,
+                "id": "output-1",
+                "kind": "text",
+                "matches": 0,
+                "start": 1,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 3,
+                "id": "output-2",
+                "kind": "text",
+                "matches": 0,
+                "start": 2,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 4,
+                "id": "output-3",
+                "kind": "text",
+                "matches": 0,
+                "start": 3,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 5,
+                "id": "output-4",
+                "kind": "text",
+                "matches": 0,
+                "start": 4,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 6,
+                "id": "output-5",
+                "kind": "text",
+                "matches": 0,
+                "start": 5,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 7,
+                "id": "output-6",
+                "kind": "text",
+                "matches": 0,
+                "start": 6,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 8,
+                "id": "output-7",
+                "kind": "text",
+                "matches": 0,
+                "start": 7,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 9,
+                "id": "output-8",
+                "kind": "text",
+                "matches": 0,
+                "start": 8,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 10,
+                "id": "output-9",
+                "kind": "text",
+                "matches": 0,
+                "start": 9,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 11,
+                "id": "output-10",
+                "kind": "text",
+                "matches": 0,
+                "start": 10,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 12,
+                "id": "output-11",
+                "kind": "text",
+                "matches": 0,
+                "start": 11,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 13,
+                "id": "output-12",
+                "kind": "text",
+                "matches": 0,
+                "start": 12,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 14,
+                "id": "output-13",
+                "kind": "text",
+                "matches": 0,
+                "start": 13,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 15,
+                "id": "output-14",
+                "kind": "text",
+                "matches": 0,
+                "start": 14,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 16,
+                "id": "output-15",
+                "kind": "text",
+                "matches": 0,
+                "start": 15,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 17,
+                "id": "output-16",
+                "kind": "text",
+                "matches": 0,
+                "start": 16,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 18,
+                "id": "output-17",
+                "kind": "text",
+                "matches": 0,
+                "start": 17,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 19,
+                "id": "output-18",
+                "kind": "text",
+                "matches": 0,
+                "start": 18,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 20,
+                "id": "output-19",
+                "kind": "text",
+                "matches": 0,
+                "start": 19,
+                "updated": 0
+              }
+            ],
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "one",
+            "matches": 0,
+            "recordIds": [
+              "one"
+            ]
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "reflog remains plain output",
+      "input": {
+        "records": [
+          {
+            "id": "one",
+            "root": "/workspace/repo",
+            "arguments": [
+              "reflog"
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [
+              {
+                "stream": "stdout",
+                "text": "abcdef0 HEAD@{0}: commit: message 0"
+              },
+              {
+                "stream": "stdout",
+                "text": "abcdef0 HEAD@{1}: commit: message 1"
+              },
+              {
+                "stream": "stdout",
+                "text": "abcdef0 HEAD@{2}: commit: message 2"
+              },
+              {
+                "stream": "stdout",
+                "text": "abcdef0 HEAD@{3}: commit: message 3"
+              },
+              {
+                "stream": "stdout",
+                "text": "abcdef0 HEAD@{4}: commit: message 4"
+              },
+              {
+                "stream": "stdout",
+                "text": "abcdef0 HEAD@{5}: commit: message 5"
+              },
+              {
+                "stream": "stdout",
+                "text": "abcdef0 HEAD@{6}: commit: message 6"
+              },
+              {
+                "stream": "stdout",
+                "text": "abcdef0 HEAD@{7}: commit: message 7"
+              },
+              {
+                "stream": "stdout",
+                "text": "abcdef0 HEAD@{8}: commit: message 8"
+              },
+              {
+                "stream": "stdout",
+                "text": "abcdef0 HEAD@{9}: commit: message 9"
+              },
+              {
+                "stream": "stdout",
+                "text": "abcdef0 HEAD@{10}: commit: message 10"
+              },
+              {
+                "stream": "stdout",
+                "text": "abcdef0 HEAD@{11}: commit: message 11"
+              }
+            ],
+            "state": "completed",
+            "exitCode": 0,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "unknown",
+            "truncated": false
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "folds": []
+      },
+      "presentation": {
+        "entries": [
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "reflog"
+              }
+            ],
+            "failed": false,
+            "id": "one",
+            "output": [
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 1,
+                "id": "output-0",
+                "kind": "text",
+                "matches": 0,
+                "start": 0,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 2,
+                "id": "output-1",
+                "kind": "text",
+                "matches": 0,
+                "start": 1,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 3,
+                "id": "output-2",
+                "kind": "text",
+                "matches": 0,
+                "start": 2,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 4,
+                "id": "output-3",
+                "kind": "text",
+                "matches": 0,
+                "start": 3,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 5,
+                "id": "output-4",
+                "kind": "text",
+                "matches": 0,
+                "start": 4,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 6,
+                "id": "output-5",
+                "kind": "text",
+                "matches": 0,
+                "start": 5,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 7,
+                "id": "output-6",
+                "kind": "text",
+                "matches": 0,
+                "start": 6,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 8,
+                "id": "output-7",
+                "kind": "text",
+                "matches": 0,
+                "start": 7,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 9,
+                "id": "output-8",
+                "kind": "text",
+                "matches": 0,
+                "start": 8,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 10,
+                "id": "output-9",
+                "kind": "text",
+                "matches": 0,
+                "start": 9,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 11,
+                "id": "output-10",
+                "kind": "text",
+                "matches": 0,
+                "start": 10,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 12,
+                "id": "output-11",
+                "kind": "text",
+                "matches": 0,
+                "start": 11,
+                "updated": 0
+              }
+            ],
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "one",
+            "matches": 0,
+            "recordIds": [
+              "one"
+            ]
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "custom format never invents list semantics",
+      "input": {
+        "records": [
+          {
+            "id": "one",
+            "root": "/workspace/repo",
+            "arguments": [
+              "reflog",
+              "--format=custom"
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [
+              {
+                "stream": "stdout",
+                "text": "custom text 0"
+              },
+              {
+                "stream": "stdout",
+                "text": "custom text 1"
+              },
+              {
+                "stream": "stdout",
+                "text": "custom text 2"
+              },
+              {
+                "stream": "stdout",
+                "text": "custom text 3"
+              },
+              {
+                "stream": "stdout",
+                "text": "custom text 4"
+              },
+              {
+                "stream": "stdout",
+                "text": "custom text 5"
+              },
+              {
+                "stream": "stdout",
+                "text": "custom text 6"
+              },
+              {
+                "stream": "stdout",
+                "text": "custom text 7"
+              },
+              {
+                "stream": "stdout",
+                "text": "custom text 8"
+              },
+              {
+                "stream": "stdout",
+                "text": "custom text 9"
+              },
+              {
+                "stream": "stdout",
+                "text": "custom text 10"
+              },
+              {
+                "stream": "stdout",
+                "text": "custom text 11"
+              }
+            ],
+            "state": "completed",
+            "exitCode": 0,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "unknown",
+            "truncated": false
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "folds": []
+      },
+      "presentation": {
+        "entries": [
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "reflog"
+              },
+              {
+                "count": 1,
+                "id": "argument-3",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "--format=custom"
+              }
+            ],
+            "failed": false,
+            "id": "one",
+            "output": [
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 1,
+                "id": "output-0",
+                "kind": "text",
+                "matches": 0,
+                "start": 0,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 2,
+                "id": "output-1",
+                "kind": "text",
+                "matches": 0,
+                "start": 1,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 3,
+                "id": "output-2",
+                "kind": "text",
+                "matches": 0,
+                "start": 2,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 4,
+                "id": "output-3",
+                "kind": "text",
+                "matches": 0,
+                "start": 3,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 5,
+                "id": "output-4",
+                "kind": "text",
+                "matches": 0,
+                "start": 4,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 6,
+                "id": "output-5",
+                "kind": "text",
+                "matches": 0,
+                "start": 5,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 7,
+                "id": "output-6",
+                "kind": "text",
+                "matches": 0,
+                "start": 6,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 8,
+                "id": "output-7",
+                "kind": "text",
+                "matches": 0,
+                "start": 7,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 9,
+                "id": "output-8",
+                "kind": "text",
+                "matches": 0,
+                "start": 8,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 10,
+                "id": "output-9",
+                "kind": "text",
+                "matches": 0,
+                "start": 9,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 11,
+                "id": "output-10",
+                "kind": "text",
+                "matches": 0,
+                "start": 10,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 12,
+                "id": "output-11",
+                "kind": "text",
+                "matches": 0,
+                "start": 11,
+                "updated": 0
+              }
+            ],
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "one",
+            "matches": 0,
+            "recordIds": [
+              "one"
+            ]
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "file arguments remain visible",
+      "input": {
+        "records": [
+          {
+            "id": "one",
+            "root": "/workspace/repo",
+            "arguments": [
+              "add",
+              "--",
+              "file 0.txt",
+              "file 1.txt",
+              "file 2.txt",
+              "file 3.txt",
+              "file 4.txt",
+              "file 5.txt",
+              "file 6.txt",
+              "file 7.txt",
+              "file 8.txt",
+              "file 9.txt",
+              "file 10.txt",
+              "file 11.txt",
+              "file 12.txt",
+              "file 13.txt",
+              "file 14.txt",
+              "file 15.txt",
+              "file 16.txt",
+              "file 17.txt",
+              "file 18.txt",
+              "file 19.txt"
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [],
+            "state": "completed",
+            "exitCode": 0,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "unknown",
+            "truncated": false
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "commandFoldKinds": [
+          "configuration"
+        ]
+      },
+      "presentation": {
+        "entries": [
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "add"
+              },
+              {
+                "count": 1,
+                "id": "argument-3",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "--"
+              },
+              {
+                "count": 1,
+                "id": "argument-4",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 0.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-5",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 1.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-6",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 2.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-7",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 3.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-8",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 4.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-9",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 5.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-10",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 6.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-11",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 7.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-12",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 8.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-13",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 9.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-14",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 10.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-15",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 11.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-16",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 12.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-17",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 13.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-18",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 14.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-19",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 15.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-20",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 16.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-21",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 17.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-22",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 18.txt'"
+              },
+              {
+                "count": 1,
+                "id": "argument-23",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'file 19.txt'"
+              }
+            ],
+            "failed": false,
+            "id": "one",
+            "output": [],
+            "repositoryLabel": "/workspace/repo",
+            "notice": "completedWithoutOutput"
+          }
+        ],
+        "groups": [
+          {
+            "id": "one",
+            "matches": 0,
+            "recordIds": [
+              "one"
+            ]
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "message remains visible with quotes and newlines",
+      "input": {
+        "records": [
+          {
+            "id": "one",
+            "root": "/workspace/repo",
+            "arguments": [
+              "commit",
+              "--amend",
+              "-m",
+              "first line\nmore content more content more content more content more content more content more content more content more content more content more content more content more content more content more content more content more content more content more content more content "
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [],
+            "state": "completed",
+            "exitCode": 0,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "unknown",
+            "truncated": false
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "visibleCommandContains": [
+          "commit",
+          "--amend",
+          "-m"
+        ],
+        "commandFoldKinds": [
+          "configuration"
+        ]
+      },
+      "presentation": {
+        "entries": [
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "commit"
+              },
+              {
+                "count": 1,
+                "id": "argument-3",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "--amend"
+              },
+              {
+                "count": 1,
+                "id": "argument-4",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "-m"
+              },
+              {
+                "count": 1,
+                "id": "argument-5",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "'first line\nmore content more content more content more content more content more content more content more content more content more content more content more content more content more content more content more content more content more content more content more content '"
+              }
+            ],
+            "failed": false,
+            "id": "one",
+            "output": [],
+            "repositoryLabel": "/workspace/repo",
+            "notice": "completedWithoutOutput"
+          }
+        ],
+        "groups": [
+          {
+            "id": "one",
+            "matches": 0,
+            "recordIds": [
+              "one"
+            ]
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "repeated queries remain independent",
+      "input": {
+        "records": [
+          {
+            "id": "0",
+            "root": "/workspace/repo",
+            "arguments": [
+              "status"
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [
+              {
+                "stream": "stdout",
+                "text": "clean"
+              }
+            ],
+            "state": "completed",
+            "exitCode": 0,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "background",
+            "truncated": false
+          },
+          {
+            "id": "1",
+            "root": "/workspace/repo",
+            "arguments": [
+              "status"
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [
+              {
+                "stream": "stdout",
+                "text": "clean"
+              }
+            ],
+            "state": "completed",
+            "exitCode": 0,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "background",
+            "truncated": false
+          },
+          {
+            "id": "2",
+            "root": "/workspace/repo",
+            "arguments": [
+              "status"
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [
+              {
+                "stream": "stdout",
+                "text": "clean"
+              }
+            ],
+            "state": "completed",
+            "exitCode": 0,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "user",
+            "truncated": false
+          },
+          {
+            "id": "3",
+            "root": "/workspace/repo",
+            "arguments": [
+              "status"
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [
+              {
+                "stream": "stdout",
+                "text": "clean"
+              }
+            ],
+            "state": "completed",
+            "exitCode": 0,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "background",
+            "truncated": false
+          },
+          {
+            "id": "4",
+            "root": "/workspace/repo",
+            "arguments": [
+              "status"
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [
+              {
+                "stream": "stdout",
+                "text": "clean"
+              }
+            ],
+            "state": "completed",
+            "exitCode": 0,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "background",
+            "truncated": false
+          },
+          {
+            "id": "5",
+            "root": "/workspace/repo",
+            "arguments": [
+              "status"
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [
+              {
+                "stream": "stdout",
+                "text": "clean"
+              }
+            ],
+            "state": "completed",
+            "exitCode": 0,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "unknown",
+            "truncated": false
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "groups": [
+          [
+            "0"
+          ],
+          [
+            "1"
+          ],
+          [
+            "2"
+          ],
+          [
+            "3"
+          ],
+          [
+            "4"
+          ],
+          [
+            "5"
+          ]
+        ]
+      },
+      "presentation": {
+        "entries": [
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "status"
+              }
+            ],
+            "failed": false,
+            "id": "0",
+            "output": [
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 1,
+                "id": "output-0",
+                "kind": "text",
+                "matches": 0,
+                "start": 0,
+                "updated": 0
+              }
+            ],
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
+          },
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "status"
+              }
+            ],
+            "failed": false,
+            "id": "1",
+            "output": [
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 1,
+                "id": "output-0",
+                "kind": "text",
+                "matches": 0,
+                "start": 0,
+                "updated": 0
+              }
+            ],
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
+          },
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "status"
+              }
+            ],
+            "failed": false,
+            "id": "2",
+            "output": [
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 1,
+                "id": "output-0",
+                "kind": "text",
+                "matches": 0,
+                "start": 0,
+                "updated": 0
+              }
+            ],
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
+          },
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "status"
+              }
+            ],
+            "failed": false,
+            "id": "3",
+            "output": [
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 1,
+                "id": "output-0",
+                "kind": "text",
+                "matches": 0,
+                "start": 0,
+                "updated": 0
+              }
+            ],
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
+          },
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "status"
+              }
+            ],
+            "failed": false,
+            "id": "4",
+            "output": [
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 1,
+                "id": "output-0",
+                "kind": "text",
+                "matches": 0,
+                "start": 0,
+                "updated": 0
+              }
+            ],
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
+          },
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "status"
+              }
+            ],
+            "failed": false,
+            "id": "5",
+            "output": [
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 1,
+                "id": "output-0",
+                "kind": "text",
+                "matches": 0,
+                "start": 0,
+                "updated": 0
+              }
+            ],
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "0",
+            "matches": 0,
+            "recordIds": [
+              "0"
+            ]
+          },
+          {
+            "id": "1",
+            "matches": 0,
+            "recordIds": [
+              "1"
+            ]
+          },
+          {
+            "id": "2",
+            "matches": 0,
+            "recordIds": [
+              "2"
+            ]
+          },
+          {
+            "id": "3",
+            "matches": 0,
+            "recordIds": [
+              "3"
+            ]
+          },
+          {
+            "id": "4",
+            "matches": 0,
+            "recordIds": [
+              "4"
+            ]
+          },
+          {
+            "id": "5",
+            "matches": 0,
+            "recordIds": [
+              "5"
+            ]
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "changed output and failures retain separate commands",
+      "input": {
+        "records": [
+          {
+            "id": "0",
+            "root": "/workspace/repo",
+            "arguments": [
+              "status"
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [
+              {
+                "stream": "stdout",
+                "text": "clean"
+              }
+            ],
+            "state": "completed",
+            "exitCode": 0,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "background",
+            "truncated": false
+          },
+          {
+            "id": "1",
+            "root": "/workspace/repo",
+            "arguments": [
+              "status"
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [
+              {
+                "stream": "stdout",
+                "text": "clean"
+              }
+            ],
+            "state": "completed",
+            "exitCode": 1,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "background",
+            "truncated": false
+          },
+          {
+            "id": "2",
+            "root": "/workspace/repo",
+            "arguments": [
+              "status"
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [
+              {
+                "stream": "stdout",
+                "text": "changed"
+              }
+            ],
+            "state": "completed",
+            "exitCode": 0,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "background",
+            "truncated": false
+          },
+          {
+            "id": "3",
+            "root": "/workspace/repo",
+            "arguments": [
+              "status"
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [
+              {
+                "stream": "stdout",
+                "text": "changed"
+              }
+            ],
+            "state": "completed",
+            "exitCode": 0,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "background",
+            "truncated": false
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "groups": [
+          [
+            "0"
+          ],
+          [
+            "1"
+          ],
+          [
+            "2"
+          ],
+          [
+            "3"
+          ]
+        ]
+      },
+      "presentation": {
+        "entries": [
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "status"
+              }
+            ],
+            "failed": false,
+            "id": "0",
+            "output": [
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 1,
+                "id": "output-0",
+                "kind": "text",
+                "matches": 0,
+                "start": 0,
+                "updated": 0
+              }
+            ],
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
+          },
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "status"
+              }
+            ],
+            "failed": true,
+            "id": "1",
+            "output": [
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 1,
+                "id": "output-0",
+                "kind": "text",
+                "matches": 0,
+                "start": 0,
+                "updated": 0
+              }
+            ],
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
+          },
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "status"
+              }
+            ],
+            "failed": false,
+            "id": "2",
+            "output": [
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 1,
+                "id": "output-0",
+                "kind": "text",
+                "matches": 0,
+                "start": 0,
+                "updated": 0
+              }
+            ],
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
+          },
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "status"
+              }
+            ],
+            "failed": false,
+            "id": "3",
+            "output": [
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 1,
+                "id": "output-0",
+                "kind": "text",
+                "matches": 0,
+                "start": 0,
+                "updated": 0
+              }
+            ],
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "0",
+            "matches": 0,
+            "recordIds": [
+              "0"
+            ]
+          },
+          {
+            "id": "1",
+            "matches": 0,
+            "recordIds": [
+              "1"
+            ]
+          },
+          {
+            "id": "2",
+            "matches": 0,
+            "recordIds": [
+              "2"
+            ]
+          },
+          {
+            "id": "3",
+            "matches": 0,
+            "recordIds": [
+              "3"
+            ]
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "writes never merge even with background provenance",
+      "input": {
+        "records": [
+          {
+            "id": "0",
+            "root": "/workspace/repo",
+            "arguments": [
+              "fetch",
+              "origin"
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [],
+            "state": "completed",
+            "exitCode": 0,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "background",
+            "truncated": false
+          },
+          {
+            "id": "1",
+            "root": "/workspace/repo",
+            "arguments": [
+              "fetch",
+              "origin"
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [],
+            "state": "completed",
+            "exitCode": 0,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "background",
+            "truncated": false
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "groups": [
+          [
+            "0"
+          ],
+          [
+            "1"
+          ]
+        ]
+      },
+      "presentation": {
+        "entries": [
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "fetch"
+              },
+              {
+                "count": 1,
+                "id": "argument-3",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "origin"
+              }
+            ],
+            "failed": false,
+            "id": "0",
+            "output": [],
+            "repositoryLabel": "/workspace/repo",
+            "notice": "completedWithoutOutput"
+          },
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "fetch"
+              },
+              {
+                "count": 1,
+                "id": "argument-3",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "origin"
+              }
+            ],
+            "failed": false,
+            "id": "1",
+            "output": [],
+            "repositoryLabel": "/workspace/repo",
+            "notice": "completedWithoutOutput"
+          }
+        ],
+        "groups": [
+          {
+            "id": "0",
+            "matches": 0,
+            "recordIds": [
+              "0"
+            ]
+          },
+          {
+            "id": "1",
+            "matches": 0,
+            "recordIds": [
+              "1"
+            ]
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "repository paths remain explicit",
+      "input": {
+        "records": [
+          {
+            "id": "a",
+            "root": "/workspace/a/repo",
+            "arguments": [
+              "status"
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [],
+            "state": "completed",
+            "exitCode": 0,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "unknown",
+            "truncated": false
+          },
+          {
+            "id": "b",
+            "root": "/workspace/b/repo",
+            "arguments": [
+              "status"
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [],
+            "state": "completed",
+            "exitCode": 0,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "unknown",
+            "truncated": false
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "labels": [
+          "/workspace/a/repo",
+          "/workspace/b/repo"
+        ]
+      },
+      "presentation": {
+        "entries": [
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "status"
+              }
+            ],
+            "failed": false,
+            "id": "a",
+            "output": [],
+            "repositoryLabel": "/workspace/a/repo",
+            "notice": "completedWithoutOutput"
+          },
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "status"
+              }
+            ],
+            "failed": false,
+            "id": "b",
+            "output": [],
+            "repositoryLabel": "/workspace/b/repo",
+            "notice": "completedWithoutOutput"
+          }
+        ],
+        "groups": [
+          {
+            "id": "a",
+            "matches": 0,
+            "recordIds": [
+              "a"
+            ]
+          },
+          {
+            "id": "b",
+            "matches": 0,
+            "recordIds": [
+              "b"
+            ]
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "live ordinary output remains visible",
+      "input": {
+        "records": [
+          {
+            "id": "one",
+            "root": "/workspace/repo",
+            "arguments": [
+              "status"
+            ],
+            "temporaryConfig": [
+              [
+                "color.ui",
+                "false"
+              ]
+            ],
+            "lines": [
+              {
+                "stream": "stdout",
+                "text": "line 0"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 1"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 2"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 3"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 4"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 5"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 6"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 7"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 8"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 9"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 10"
+              },
+              {
+                "stream": "stdout",
+                "text": "line 11"
+              }
+            ],
+            "state": "running",
+            "exitCode": null,
+            "error": null,
+            "executable": null,
+            "progress": null,
+            "source": "unknown",
+            "truncated": false
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "folds": []
+      },
+      "presentation": {
+        "entries": [
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "configuration-0",
+                "kind": "configuration",
+                "matches": 0,
+                "preview": "-c …",
+                "text": "-c color.ui=false"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "status"
+              }
+            ],
+            "failed": false,
+            "id": "one",
+            "output": [
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 1,
+                "id": "output-0",
+                "kind": "text",
+                "matches": 0,
+                "start": 0,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 2,
+                "id": "output-1",
+                "kind": "text",
+                "matches": 0,
+                "start": 1,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 3,
+                "id": "output-2",
+                "kind": "text",
+                "matches": 0,
+                "start": 2,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 4,
+                "id": "output-3",
+                "kind": "text",
+                "matches": 0,
+                "start": 3,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 5,
+                "id": "output-4",
+                "kind": "text",
+                "matches": 0,
+                "start": 4,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 6,
+                "id": "output-5",
+                "kind": "text",
+                "matches": 0,
+                "start": 5,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 7,
+                "id": "output-6",
+                "kind": "text",
+                "matches": 0,
+                "start": 6,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 8,
+                "id": "output-7",
+                "kind": "text",
+                "matches": 0,
+                "start": 7,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 9,
+                "id": "output-8",
+                "kind": "text",
+                "matches": 0,
+                "start": 8,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 10,
+                "id": "output-9",
+                "kind": "text",
+                "matches": 0,
+                "start": 9,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 11,
+                "id": "output-10",
+                "kind": "text",
+                "matches": 0,
+                "start": 10,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 12,
+                "id": "output-11",
+                "kind": "text",
+                "matches": 0,
+                "start": 11,
+                "updated": 0
+              }
+            ],
+            "repositoryLabel": "/workspace/repo",
+            "notice": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "one",
+            "matches": 0,
+            "recordIds": [
+              "one"
+            ]
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "other executions do not alter command identity",
+      "input": {
+        "search": "project",
+        "repositoryRoots": [
+          "/workspace/two/project"
+        ],
+        "records": [
+          {
+            "id": "before",
+            "root": "/workspace/one/project",
+            "arguments": [
+              "status"
+            ],
+            "source": "background",
+            "state": "completed",
+            "exitCode": 0,
+            "lines": [],
+            "sequence": 1
+          },
+          {
+            "id": "after",
+            "root": "/workspace/one/project",
+            "arguments": [
+              "status"
+            ],
+            "source": "background",
+            "state": "completed",
+            "exitCode": 0,
+            "lines": [],
+            "sequence": 3
+          }
+        ]
+      },
+      "expected": {
+        "groups": [
+          [
+            "before"
+          ],
+          [
+            "after"
+          ]
+        ],
+        "labels": [
+          "/workspace/one/project",
+          "/workspace/one/project"
+        ],
+        "matches": 2
+      },
+      "presentation": {
+        "entries": [
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "argument-0",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "status"
+              }
+            ],
+            "failed": false,
+            "id": "before",
+            "output": [],
+            "repositoryLabel": "/workspace/one/project",
+            "notice": "completedWithoutOutput"
+          },
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "argument-0",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "status"
+              }
+            ],
+            "failed": false,
+            "id": "after",
+            "output": [],
+            "repositoryLabel": "/workspace/one/project",
+            "notice": "completedWithoutOutput"
+          }
+        ],
+        "groups": [
+          {
+            "id": "before",
+            "matches": 1,
+            "recordIds": [
+              "before"
+            ]
+          },
+          {
+            "id": "after",
+            "matches": 1,
+            "recordIds": [
+              "after"
+            ]
+          }
+        ],
+        "matches": [
+          {
+            "fragmentId": "repository",
+            "lineIndex": null,
+            "recordId": "before"
+          },
+          {
+            "fragmentId": "repository",
+            "lineIndex": null,
+            "recordId": "after"
+          }
+        ],
+        "totalMatches": 2
+      }
+    },
+    {
+      "name": "IDEA progress folding uses a contiguous block and leaves diagnostics visible",
+      "input": {
+        "search": "Counting",
+        "records": [
+          {
+            "id": "progress",
+            "root": "/workspace/repository",
+            "arguments": [
+              "fetch",
+              "origin",
+              "--prune"
+            ],
+            "state": "completed",
+            "exitCode": 0,
+            "lines": [
+              {
+                "stream": "stderr",
+                "text": "remote: Enumerating objects: 8, done."
+              },
+              {
+                "stream": "stderr",
+                "text": "remote: Counting objects: 100% (8/8), done."
+              },
+              {
+                "stream": "stderr",
+                "text": "remote: Compressing objects: 100% (4/4), done."
+              },
+              {
+                "stream": "stderr",
+                "text": "remote: Total 8 (delta 3), reused 8 (delta 3)"
+              },
+              {
+                "stream": "stderr",
+                "text": "From https://example.invalid/repository"
+              },
+              {
+                "stream": "stderr",
+                "text": " abc1234..def5678 main -> origin/main"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "folds": [
+          [
+            0,
+            3,
+            "progress"
+          ]
+        ],
+        "matches": 1
+      },
+      "presentation": {
+        "entries": [
+          {
+            "command": [
+              {
+                "count": 1,
+                "id": "argument-0",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "fetch"
+              },
+              {
+                "count": 1,
+                "id": "argument-1",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "origin"
+              },
+              {
+                "count": 1,
+                "id": "argument-2",
+                "kind": "text",
+                "matches": 0,
+                "preview": "",
+                "text": "--prune"
+              }
+            ],
+            "failed": false,
+            "id": "progress",
+            "output": [
+              {
+                "added": 0,
+                "count": 3,
+                "deleted": 0,
+                "end": 3,
+                "id": "output-0",
+                "kind": "progress",
+                "matches": 1,
+                "start": 0,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 4,
+                "id": "output-3",
+                "kind": "text",
+                "matches": 0,
+                "start": 3,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 5,
+                "id": "output-4",
+                "kind": "text",
+                "matches": 0,
+                "start": 4,
+                "updated": 0
+              },
+              {
+                "added": 0,
+                "count": 1,
+                "deleted": 0,
+                "end": 6,
+                "id": "output-5",
+                "kind": "text",
+                "matches": 0,
+                "start": 5,
+                "updated": 0
+              }
+            ],
+            "repositoryLabel": "/workspace/repository",
+            "notice": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "progress",
+            "matches": 1,
+            "recordIds": [
+              "progress"
+            ]
+          }
+        ],
+        "matches": [
+          {
+            "fragmentId": "output-0",
+            "lineIndex": 1,
+            "recordId": "progress"
+          }
+        ],
+        "totalMatches": 1
+      }
+    },
+    {
+      "name": "running command waits for output",
+      "input": {
+        "records": [
+          {
+            "id": "status-notice",
+            "root": "/workspace/repository",
+            "arguments": [
+              "fetch",
+              "origin"
+            ],
+            "temporaryConfig": [],
+            "lines": [],
+            "state": "running",
+            "exitCode": null
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "notice": "waitingForOutput"
+      },
+      "presentation": {
+        "entries": [
+          {
+            "id": "status-notice",
+            "repositoryLabel": "/workspace/repository",
+            "command": [
+              {
+                "id": "argument-0",
+                "kind": "text",
+                "text": "fetch",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              },
+              {
+                "id": "argument-1",
+                "kind": "text",
+                "text": "origin",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              }
+            ],
+            "output": [],
+            "failed": false,
+            "notice": "waitingForOutput"
+          }
+        ],
+        "groups": [
+          {
+            "id": "status-notice",
+            "recordIds": [
+              "status-notice"
+            ],
+            "matches": 0
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "successful command with no output",
+      "input": {
+        "records": [
+          {
+            "id": "status-notice",
+            "root": "/workspace/repository",
+            "arguments": [
+              "checkout",
+              "main"
+            ],
+            "temporaryConfig": [],
+            "lines": [],
+            "state": "completed",
+            "exitCode": 0
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "notice": "completedWithoutOutput"
+      },
+      "presentation": {
+        "entries": [
+          {
+            "id": "status-notice",
+            "repositoryLabel": "/workspace/repository",
+            "command": [
+              {
+                "id": "argument-0",
+                "kind": "text",
+                "text": "checkout",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              },
+              {
+                "id": "argument-1",
+                "kind": "text",
+                "text": "main",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              }
+            ],
+            "output": [],
+            "failed": false,
+            "notice": "completedWithoutOutput"
+          }
+        ],
+        "groups": [
+          {
+            "id": "status-notice",
+            "recordIds": [
+              "status-notice"
+            ],
+            "matches": 0
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "fetch without reference changes",
+      "input": {
+        "records": [
+          {
+            "id": "status-notice",
+            "root": "/workspace/repository",
+            "arguments": [
+              "fetch",
+              "origin"
+            ],
+            "temporaryConfig": [],
+            "lines": [],
+            "state": "completed",
+            "exitCode": 0,
+            "remoteResult": {
+              "succeeded": true,
+              "referencesAvailable": true,
+              "updatedReferenceCount": 0,
+              "deletedReferenceCount": 0
+            }
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "notice": "fetchUnchanged"
+      },
+      "presentation": {
+        "entries": [
+          {
+            "id": "status-notice",
+            "repositoryLabel": "/workspace/repository",
+            "command": [
+              {
+                "id": "argument-0",
+                "kind": "text",
+                "text": "fetch",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              },
+              {
+                "id": "argument-1",
+                "kind": "text",
+                "text": "origin",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              }
+            ],
+            "output": [],
+            "failed": false,
+            "notice": "fetchUnchanged"
+          }
+        ],
+        "groups": [
+          {
+            "id": "status-notice",
+            "recordIds": [
+              "status-notice"
+            ],
+            "matches": 0
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "unknown reference counts do not imply no changes",
+      "input": {
+        "records": [
+          {
+            "id": "status-notice",
+            "root": "/workspace/repository",
+            "arguments": [
+              "fetch",
+              "origin"
+            ],
+            "temporaryConfig": [],
+            "lines": [],
+            "state": "completed",
+            "exitCode": 0,
+            "remoteResult": {
+              "succeeded": true
+            }
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "notice": "completedWithoutOutput"
+      },
+      "presentation": {
+        "entries": [
+          {
+            "id": "status-notice",
+            "repositoryLabel": "/workspace/repository",
+            "command": [
+              {
+                "id": "argument-0",
+                "kind": "text",
+                "text": "fetch",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              },
+              {
+                "id": "argument-1",
+                "kind": "text",
+                "text": "origin",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              }
+            ],
+            "output": [],
+            "failed": false,
+            "notice": "completedWithoutOutput"
+          }
+        ],
+        "groups": [
+          {
+            "id": "status-notice",
+            "recordIds": [
+              "status-notice"
+            ],
+            "matches": 0
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "failed reference inspection does not imply no changes",
+      "input": {
+        "records": [
+          {
+            "id": "status-notice",
+            "root": "/workspace/repository",
+            "arguments": [
+              "fetch",
+              "origin"
+            ],
+            "temporaryConfig": [],
+            "lines": [],
+            "state": "completed",
+            "exitCode": 0,
+            "remoteResult": {
+              "succeeded": true,
+              "referencesAvailable": false,
+              "updatedReferenceCount": 0,
+              "deletedReferenceCount": 0
+            }
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "notice": "completedWithoutOutput"
+      },
+      "presentation": {
+        "entries": [
+          {
+            "id": "status-notice",
+            "repositoryLabel": "/workspace/repository",
+            "command": [
+              {
+                "id": "argument-0",
+                "kind": "text",
+                "text": "fetch",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              },
+              {
+                "id": "argument-1",
+                "kind": "text",
+                "text": "origin",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              }
+            ],
+            "output": [],
+            "failed": false,
+            "notice": "completedWithoutOutput"
+          }
+        ],
+        "groups": [
+          {
+            "id": "status-notice",
+            "recordIds": [
+              "status-notice"
+            ],
+            "matches": 0
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "truncated output does not imply empty output",
+      "input": {
+        "records": [
+          {
+            "id": "status-notice",
+            "root": "/workspace/repository",
+            "arguments": [
+              "fetch",
+              "origin"
+            ],
+            "temporaryConfig": [],
+            "lines": [],
+            "state": "completed",
+            "exitCode": 0,
+            "truncated": true
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "notice": null
+      },
+      "presentation": {
+        "entries": [
+          {
+            "id": "status-notice",
+            "repositoryLabel": "/workspace/repository",
+            "command": [
+              {
+                "id": "argument-0",
+                "kind": "text",
+                "text": "fetch",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              },
+              {
+                "id": "argument-1",
+                "kind": "text",
+                "text": "origin",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              }
+            ],
+            "output": [],
+            "failed": false,
+            "notice": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "status-notice",
+            "recordIds": [
+              "status-notice"
+            ],
+            "matches": 0
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "failed command never reports success",
+      "input": {
+        "records": [
+          {
+            "id": "status-notice",
+            "root": "/workspace/repository",
+            "arguments": [
+              "fetch",
+              "origin"
+            ],
+            "temporaryConfig": [],
+            "lines": [],
+            "state": "completed",
+            "exitCode": 1,
+            "error": "Fetch failed"
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "notice": null
+      },
+      "presentation": {
+        "entries": [
+          {
+            "id": "status-notice",
+            "repositoryLabel": "/workspace/repository",
+            "command": [
+              {
+                "id": "argument-0",
+                "kind": "text",
+                "text": "fetch",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              },
+              {
+                "id": "argument-1",
+                "kind": "text",
+                "text": "origin",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              }
+            ],
+            "output": [],
+            "failed": true,
+            "notice": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "status-notice",
+            "recordIds": [
+              "status-notice"
+            ],
+            "matches": 0
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    },
+    {
+      "name": "active progress needs no extra waiting notice",
+      "input": {
+        "records": [
+          {
+            "id": "status-notice",
+            "root": "/workspace/repository",
+            "arguments": [
+              "fetch",
+              "origin"
+            ],
+            "temporaryConfig": [],
+            "lines": [],
+            "state": "running",
+            "exitCode": null,
+            "progress": "Receiving objects: 50%"
+          }
+        ],
+        "search": ""
+      },
+      "expected": {
+        "notice": null
+      },
+      "presentation": {
+        "entries": [
+          {
+            "id": "status-notice",
+            "repositoryLabel": "/workspace/repository",
+            "command": [
+              {
+                "id": "argument-0",
+                "kind": "text",
+                "text": "fetch",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              },
+              {
+                "id": "argument-1",
+                "kind": "text",
+                "text": "origin",
+                "preview": "",
+                "count": 1,
+                "matches": 0
+              }
+            ],
+            "output": [],
+            "failed": false,
+            "notice": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "status-notice",
+            "recordIds": [
+              "status-notice"
+            ],
+            "matches": 0
+          }
+        ],
+        "matches": [],
+        "totalMatches": 0
+      }
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "missing origin is a successful empty lookup",
+      "remote": "origin",
+      "configuredURL": null,
+      "expectedURL": null
+    },
+    {
+      "name": "HTTPS origin is returned without a console command",
+      "remote": "origin",
+      "configuredURL": "https://example.invalid/team/repository.git",
+      "expectedURL": "https://example.invalid/team/repository.git"
+    },
+    {
+      "name": "named SSH remote is preserved",
+      "remote": "upstream",
+      "configuredURL": "git@example.invalid:team/repository.git",
+      "expectedURL": "git@example.invalid:team/repository.git"
+    }
+  ]
+}

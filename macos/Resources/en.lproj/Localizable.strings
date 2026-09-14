@@ -812,6 +812,143 @@
 "Go to parent commit %@" = "Go to parent commit %@";
 "Go to child commit %@" = "Go to child commit %@";
 
+"Fetch Options" = "Fetch Options";
+
+"Fetch Options…" = "Fetch Options…";
+
+"Fetch all remotes" = "Fetch all remotes";
+
+"Configured remote name" = "Configured remote name";
+
+"Prune stale remote-tracking references" = "Prune stale remote-tracking references";
+
+"Fetch submodules" = "Fetch submodules";
+
+"Use Git configuration" = "Use Git configuration";
+
+"Do not fetch submodules" = "Do not fetch submodules";
+
+"Fetch submodules on demand" = "Fetch submodules on demand";
+
+"Fetch all submodules" = "Fetch all submodules";
+
+"These choices apply to this Fetch only. Git configuration and credentials remain unchanged." = "These choices apply to this Fetch only. Git configuration and credentials remain unchanged.";
+
+"Planned command" = "Planned command";
+
+"Fetch in progress — planned command; waiting for result" = "Fetch in progress — planned command; waiting for result";
+
+"Fetch failed — no completed Git invocation was reported" = "Fetch failed — no completed Git invocation was reported";
+
+"Fetch command succeeded" = "Fetch command succeeded";
+
+"Fetch command failed" = "Fetch command failed";
+
+"Duration: %lld ms" = "Duration: %lld ms";
+
+"Planned Git command — waiting to start" = "Planned Git command — waiting to start";
+
+"Git command is running" = "Git command is running";
+
+"No completed Git invocation was reported" = "No completed Git invocation was reported";
+
+"Git command succeeded" = "Git command succeeded";
+
+"Git command failed" = "Git command failed";
+
+"Earlier Git output was omitted to limit memory use." = "Earlier Git output was omitted to limit memory use.";
+
+"Cancel running Git operations" = "Cancel running Git operations";
+
+"Fetch defaults" = "Fetch defaults";
+
+"Used for ordinary Fetch in every project. One-time choices can override these defaults." = "Used for ordinary Fetch in every project. One-time choices can override these defaults.";
+
+"Fetch tags" = "Fetch tags";
+
+"Fetch all tags" = "Fetch all tags";
+
+"Do not fetch tags" = "Do not fetch tags";
+
+"Synchronize tags and remove local tags missing from the remote" = "Synchronize tags and remove local tags missing from the remote";
+
+"Credentials use your existing Git helper and SSH configuration." = "Credentials use your existing Git helper and SSH configuration.";
+
+"Reset Fetch defaults" = "Reset Fetch defaults";
+
+/* Git execution policy and authentication */
+"Git execution" = "Git execution";
+"Git executable" = "Git executable";
+"Use Git from PATH" = "Use Git from PATH";
+"Use credential helper" = "Use credential helper";
+"Git can request credentials in Lithe. Passwords are not saved by Lithe; the selected Git helper controls credential storage." = "Git can request credentials in Lithe. Passwords are not saved by Lithe; the selected Git helper controls credential storage.";
+"Configuration sources" = "Configuration sources";
+"One-time choices override repository preferences, which override application defaults. Git configuration is changed only when you save or clear a field below." = "One-time choices override repository preferences, which override application defaults. Git configuration is changed only when you save or clear a field below.";
+"Temporary configuration" = "Temporary configuration";
+"Configuration key" = "Configuration key";
+"Configuration value" = "Configuration value";
+"Choose a value" = "Choose a value";
+"Overridden by a later value" = "Overridden by a later value";
+"Git configuration saved: %@" = "Git configuration saved: %@";
+"Git executable: %@" = "Git executable: %@";
+"Temporary configuration: %@" = "Temporary configuration: %@";
+"Git authentication" = "Git authentication";
+"Git requested credentials again. Check the previous answer." = "Git requested credentials again. Check the previous answer.";
+"Password or passphrase" = "Password or passphrase";
+"Response" = "Response";
+"This response is sent only to the running Git operation." = "This response is sent only to the running Git operation.";
+"Retry uses Lithe authentication for this operation only." = "Retry uses Lithe authentication for this operation only.";
+"Remote: %@" = "Remote: %@";
+"Remote Fetch succeeded" = "Remote Fetch succeeded";
+"Remote Fetch failed" = "Remote Fetch failed";
+"Updated references: %@" = "Updated references: %@";
+"Deleted references: %@" = "Deleted references: %@";
+"Git phase: %@" = "Git phase: %@";
+"Git progress" = "Git progress";
+
+"Effective Fetch options" = "Effective Fetch options";
+
+"Reference changes could not be inspected" = "Reference changes could not be inspected";
+
+"Reference list truncated; total updated: %lld, deleted: %lld" = "Reference list truncated; total updated: %lld, deleted: %lld";
+
+"Open Git Console" = "Open Git Console";
+
+"Advanced configuration and sources" = "Advanced configuration and sources";
+
+"Fetch and commit preferences" = "Fetch and commit preferences";
+
+"Expand temporary Git configuration or command details" = "Expand temporary Git configuration or command details";
+
+"Command details" = "Command details";
+
+"Click the folded options to expand; right-click for command details." = "Click the folded options to expand; right-click for command details.";
+
+// Unified Git console disclosure and search.
+"Copy repository path" = "Copy repository path";
+"Copy complete command" = "Copy complete command";
+"Copy complete output" = "Copy complete output";
+"Copy complete console" = "Copy complete console";
+"Compression is unavailable. Showing complete retained output." = "Compression is unavailable. Showing complete retained output.";
+"Find in Git console" = "Find in Git console";
+"First %lld locations" = "First %lld locations";
+"Previous match" = "Previous match";
+"Next match" = "Next match";
+"Close search" = "Close search";
+"Repeated %lld times" = "Repeated %lld times";
+"Other %lld files" = "Other %lld files";
+"Other %lld branches" = "Other %lld branches";
+"Other %lld tags" = "Other %lld tags";
+"Other %lld commits" = "Other %lld commits";
+"Expand %lld lines" = "Expand %lld lines";
+"Other reference changes: %lld added, %lld updated, %lld deleted" = "Other reference changes: %lld added, %lld updated, %lld deleted";
+"… %lld more files" = "… %lld more files";
+"… %lld more references" = "… %lld more references";
+" · %lld matches" = " · %lld matches";
+"Automatic query ×%lld, identical results" = "Automatic query ×%lld, identical results";
+
+"Earlier Git commands were truncated to limit memory use." = "Earlier Git commands were truncated to limit memory use.";
+
 /* Services browser */
 "All configurations" = "All configurations";
 "Application types" = "Application types";
@@ -828,3 +965,8 @@
 "Start this configuration to see its output here." = "Start this configuration to see its output here.";
 "Could not save service selection" = "Could not save service selection";
 "Selected" = "Selected";
+
+/* Git console completion notices */
+"Running Git; waiting for output." = "Running Git; waiting for output.";
+"Git completed successfully with no output." = "Git completed successfully with no output.";
+"Fetch completed with no reference changes." = "Fetch completed with no reference changes.";

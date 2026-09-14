@@ -1,3 +1,4 @@
+import type { GitExecutionSource } from "@/platform/git-execution-events";
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
 import type { GitStash } from "../types/git.types";
 import { emitGitChanged } from "../events/git-events";
@@ -8,17 +9,16 @@ import {
   resolveRepositoryPathOrThrow,
 } from "./git-repo-api";
 
-export const getStashes = async (repoPath: string): Promise<GitStash[]> => {
+export const getStashes = async (repoPath: string, source: GitExecutionSource = "unknown"): Promise<GitStash[]> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPath(repoPath);
     if (!resolvedRepoPath) {
       return [];
     }
 
-    return await runGitRead(resolvedRepoPath, "stashes", () =>
-      tauriInvoke<GitStash[]>("git_get_stashes", {
-        repoPath: resolvedRepoPath,
-      }),
+    return await runGitRead(resolvedRepoPath, source === "unknown" ? "stashes" : `stashes:${source}`, () => source === "unknown"
+      ? tauriInvoke<GitStash[]>("git_get_stashes", { repoPath: resolvedRepoPath })
+      : tauriInvoke<GitStash[]>("git_get_stashes", { repoPath: resolvedRepoPath }, { gitExecutionSource: source }),
     );
   } catch (error) {
     if (!isNotGitRepositoryError(error)) {

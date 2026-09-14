@@ -14,7 +14,10 @@ struct State {
     deadline: Option<Instant>,
 }
 
-static OPERATIONS: OnceLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
+// Each live scope owns a token. A nested request with the same ID temporarily
+// becomes the cancellation target without unregistering its still-live caller.
+type Registrations = HashMap<String, Vec<Arc<AtomicBool>>>;
+static OPERATIONS: OnceLock<Mutex<Registrations>> = OnceLock::new();
 
 thread_local! {
     static CURRENT: RefCell<Option<State>> = const { RefCell::new(None) };
@@ -26,6 +29,10 @@ thread_local! {
 /// thread-local state, including when a command exits through an error path.
 pub struct Scope {
     operation_id: Option<String>,
+    /// A synchronous callback may execute another Core request on this thread.
+    previous_state: Option<State>,
+    /// Remove only this registration, including when same-ID requests overlap.
+    cancelled: Arc<AtomicBool>,
 }
 
 impl Scope {
@@ -36,28 +43,39 @@ impl Scope {
             registry()
                 .lock()
                 .expect("operation registry should not be poisoned")
-                .insert(operation_id.to_string(), Arc::clone(&cancelled));
+                .entry(operation_id.to_string())
+                .or_default()
+                .push(Arc::clone(&cancelled));
         }
-        CURRENT.with(|current| {
-            *current.borrow_mut() = Some(State {
-                cancelled,
+        let previous_state = CURRENT.with(|current| {
+            current.replace(Some(State {
+                cancelled: Arc::clone(&cancelled),
                 deadline: timeout_milliseconds
                     .filter(|milliseconds| *milliseconds > 0)
                     .map(|milliseconds| Instant::now() + Duration::from_millis(milliseconds)),
-            });
+            }))
         });
-        Self { operation_id }
+        Self {
+            operation_id,
+            previous_state,
+            cancelled,
+        }
     }
 }
 
 impl Drop for Scope {
     fn drop(&mut self) {
-        CURRENT.with(|current| *current.borrow_mut() = None);
+        CURRENT.with(|current| current.replace(self.previous_state.take()));
         if let Some(operation_id) = self.operation_id.take() {
-            registry()
+            let mut registry = registry()
                 .lock()
-                .expect("operation registry should not be poisoned")
-                .remove(&operation_id);
+                .expect("operation registry should not be poisoned");
+            if let Some(tokens) = registry.get_mut(&operation_id) {
+                tokens.retain(|token| !Arc::ptr_eq(token, &self.cancelled));
+                if tokens.is_empty() {
+                    registry.remove(&operation_id);
+                }
+            }
         }
     }
 }
@@ -67,6 +85,7 @@ pub fn cancel(operation_id: &str) -> bool {
         .lock()
         .expect("operation registry should not be poisoned")
         .get(operation_id)
+        .and_then(|tokens| tokens.last())
         .map(|token| {
             token.store(true, Ordering::Release);
             true
@@ -117,7 +136,7 @@ pub(crate) fn with_cleanup_deadline<T>(timeout: Duration, operation: impl FnOnce
     operation()
 }
 
-fn registry() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
+fn registry() -> &'static Mutex<Registrations> {
     OPERATIONS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -127,6 +146,39 @@ mod tests {
     use crate::protocol::ErrorCode;
     use std::thread;
     use std::time::Duration;
+
+    #[test]
+    fn nested_scopes_restore_the_outer_cancellation_registration() {
+        let outer = Scope::begin(Some("nested-cancellation".into()), None);
+        {
+            let _inner = Scope::begin(Some("nested-cancellation".into()), None);
+            assert!(cancel("nested-cancellation"));
+            assert!(matches!(check().unwrap_err().code, ErrorCode::Cancelled));
+        }
+        assert!(
+            check().is_ok(),
+            "The inner cancellation must not replace the outer token"
+        );
+        assert!(cancel("nested-cancellation"));
+        assert!(matches!(check().unwrap_err().code, ErrorCode::Cancelled));
+        drop(outer);
+        assert!(!cancel("nested-cancellation"));
+    }
+
+    #[test]
+    fn nested_scopes_restore_the_outer_deadline() {
+        let _outer = Scope::begin(None, None);
+        // Install an already reached monotonic deadline, avoiding sleeps or a
+        // machine-speed dependency while testing restoration across a callback.
+        super::CURRENT.with(|state| {
+            state.borrow_mut().as_mut().unwrap().deadline = Some(std::time::Instant::now())
+        });
+        {
+            let _inner = Scope::begin(None, None);
+            assert!(check().is_ok());
+        }
+        assert!(matches!(check().unwrap_err().code, ErrorCode::TimedOut));
+    }
 
     #[test]
     fn cancellation_is_visible_to_the_active_scope() {
