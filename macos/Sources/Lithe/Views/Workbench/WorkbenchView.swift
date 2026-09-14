@@ -81,6 +81,7 @@ private struct ProjectReplaceOverlay: View {
                 }
             }
             .background(ProjectReplaceKeyMonitor(session: session))
+            .onDisappear { model.documentFeature.discardPreviewDocuments() }
         }
     }
 

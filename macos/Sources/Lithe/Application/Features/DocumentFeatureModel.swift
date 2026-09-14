@@ -52,11 +52,27 @@ final class DocumentFeatureModel: ObservableObject {
     @Published private(set) var isPendingProjectClose = false
     @Published private(set) var projectTreeRevealRequest: ProjectTreeRevealRequest?
 
-    /// Uses the managed document so edits in the search preview survive dismissal.
+    /// Clean previews stay outside the tab collection until opened or edited.
     func previewDocument(at url: URL) async -> EditorDocument? {
-        await openFileAsync(url, isReadOnly: false, displayPath: nil, activateWhenReady: false)
+        await openFileAsync(url, isReadOnly: false, displayPath: nil, activateWhenReady: false, asPreview: true)
         guard !Task.isCancelled else { return nil }
         return openDocuments.first { $0.url.standardizedFileURL == url.standardizedFileURL }
+            ?? previewDocuments[url.standardizedFileURL.path]
+    }
+
+    func promotePreviewDocument(_ document: EditorDocument) {
+        let path = document.url.standardizedFileURL.path
+        guard previewDocuments[path] === document else { return }
+        previewDocuments[path] = nil
+        openDocuments.append(document)
+        onDocumentCollectionChanged?()
+        onDocumentOpened?(document)
+    }
+
+    func discardPreviewDocuments() {
+        // A closed dialog must not retain clean buffers or accept its late reads.
+        previewDocuments.removeAll()
+        pendingFileOpenRequests = pendingFileOpenRequests.filter { !$0.value.isPreview }
     }
 
     private let operations: any WorkspaceOperations
@@ -77,7 +93,8 @@ final class DocumentFeatureModel: ObservableObject {
     private var onDocumentCollectionChanged: (@MainActor () -> Void)?
     private var onProjectCloseReady: (@MainActor () -> Void)?
     private var autoSaveTasks: [UUID: Task<Void, Never>] = [:]
-    private var pendingFileOpenRequests: [String: (id: UUID, task: Task<Void, Never>)] = [:]
+    private var pendingFileOpenRequests: [String: (id: UUID, task: Task<Void, Never>, isPreview: Bool)] = [:]
+    private var previewDocuments: [String: EditorDocument] = [:]
     private var latestFileOpenRequestID: UUID?
     private var pendingCloseQueue: [EditorDocument] = []
     private var pendingClosePreferredDocumentID: UUID?
@@ -142,6 +159,7 @@ final class DocumentFeatureModel: ObservableObject {
         autoSaveTasks.values.forEach { $0.cancel() }
         autoSaveTasks.removeAll()
         pendingFileOpenRequests.removeAll()
+        previewDocuments.removeAll()
         latestFileOpenRequestID = nil
         pendingCloseDocument = nil
         projectTreeRevealRequest = nil
@@ -165,10 +183,12 @@ final class DocumentFeatureModel: ObservableObject {
         // Apply that state change synchronously so repeated tree clicks feel immediate.
         if let existing = openDocuments.first(where: {
             $0.url.standardizedFileURL.path == filePath
-        }) {
+        }) ?? previewDocuments[filePath] {
+            let wasPreview = previewDocuments[filePath] === existing
+            promotePreviewDocument(existing)
             latestFileOpenRequestID = UUID()
             activeDocumentID = existing.id
-            if !isReadOnly {
+            if !isReadOnly && !wasPreview {
                 onDocumentOpened?(existing)
             }
             return
@@ -261,26 +281,30 @@ final class DocumentFeatureModel: ObservableObject {
         _ url: URL,
         isReadOnly: Bool,
         displayPath: String?,
-        activateWhenReady: Bool
+        activateWhenReady: Bool,
+        asPreview: Bool = false
     ) async {
         let normalizedURL = url.standardizedFileURL
         let filePath = normalizedURL.path
 
         if let existing = openDocuments.first(where: {
             $0.url.standardizedFileURL.path == filePath
-        }) {
+        }) ?? previewDocuments[filePath] {
+            let wasPreview = previewDocuments[filePath] === existing
+            if !asPreview { promotePreviewDocument(existing) }
             if activateWhenReady {
                 let requestID = UUID()
                 latestFileOpenRequestID = requestID
                 activeDocumentID = existing.id
             }
-            if !isReadOnly {
+            if !isReadOnly && !asPreview && !wasPreview {
                 onDocumentOpened?(existing)
             }
             return
         }
 
         if let pending = pendingFileOpenRequests[filePath] {
+            if !asPreview { pendingFileOpenRequests[filePath]?.isPreview = false }
             if activateWhenReady {
                 latestFileOpenRequestID = pending.id
             }
@@ -296,7 +320,7 @@ final class DocumentFeatureModel: ObservableObject {
             await loadFile(normalizedURL, isReadOnly: isReadOnly, displayPath: displayPath,
                            activateWhenReady: activateWhenReady, requestID: requestID)
         }
-        pendingFileOpenRequests[filePath] = (requestID, task)
+        pendingFileOpenRequests[filePath] = (requestID, task, asPreview)
         await task.value
     }
 
@@ -330,6 +354,7 @@ final class DocumentFeatureModel: ObservableObject {
             }
         }
         guard let text else {
+            if pendingFileOpenRequests[filePath]?.isPreview == true { return }
             // `file.read` accepts plain text regardless of suffix and rejects
             // binary content. Only after that path fails do we probe a small
             // header for an explicitly registered binary viewer. With the
@@ -368,6 +393,10 @@ final class DocumentFeatureModel: ObservableObject {
         guard !openDocuments.contains(where: {
             $0.url.standardizedFileURL.path == filePath
         }) else { return }
+        if pendingFileOpenRequests[filePath]?.isPreview == true {
+            previewDocuments[filePath] = document
+            return
+        }
         openDocuments.append(document)
         if latestFileOpenRequestID == requestID {
             activeDocumentID = document.id

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import LitheSearchModule
 import Testing
 @testable import Lithe
 
@@ -533,6 +534,46 @@ struct EditorJavaViewportTests {
             NotificationCenter.default.post(name: .litheFindDismiss, object: nil)
             #expect(textView.currentFindMatchCountForTesting == 2)
         }
+    }
+
+    @Test
+    func nativePreviewEditInvalidatesResultSnapshot() async throws {
+        let store = ViewportTestStore()
+        let settings = AppSettings(store: store)
+        let services = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services
+        let model = AppModel(settings: settings, services: services)
+        let document = EditorDocument(url: URL(fileURLWithPath: "/fixture/Preview.xml"),
+                                      text: "foo\nfoo", modificationDate: nil)
+        let file = ProjectReplacementFile(url: document.url, relativePath: "Preview.xml", matches: [
+            .init(line: 1, before: "foo", after: "bar", occurrenceCount: 1),
+            .init(line: 2, before: "foo", after: "bar", occurrenceCount: 1)
+        ])
+        var invalidated = false
+        let hosting = NSHostingView(rootView:
+            ProjectReplacementSourcePreview(file: file, line: 1, query: "foo", options: .default,
+                loadDocument: { _ in document }, onEdit: { invalidated = true })
+                .environmentObject(model).environmentObject(settings))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 650, height: 300),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = hosting
+        func editor(in view: NSView) -> CodeTextView? {
+            if let text = view as? CodeTextView { return text }
+            return view.subviews.lazy.compactMap { editor(in: $0) }.first
+        }
+        // Mounting follows the asynchronous load; poll only the native view boundary with a local deadline.
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while editor(in: hosting) == nil && clock.now < deadline {
+            hosting.layoutSubtreeIfNeeded()
+            await Task.yield()
+        }
+        let textView = try #require(editor(in: hosting))
+        #expect(!invalidated)
+        textView.insertText("\n\n", replacementRange: NSRange(location: 0, length: 3))
+        #expect(document.text == "\n\n\nfoo")
+        #expect(invalidated, "Do not allow another click on obsolete match lines after an edit")
     }
 
     private func withCoordinator(

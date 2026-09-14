@@ -12,6 +12,7 @@ struct ProjectReplaceView: View {
     let revealInFinder: (URL) -> Void
     let copyPath: (URL, Bool) -> Void
     @State private var selectedResult: String?
+    @State private var previewNeedsRefresh = false
     @State private var query = ""
     @State private var replacement = ""
     @State private var options = ProjectSearchOptions.default
@@ -155,6 +156,7 @@ struct ProjectReplaceView: View {
     private var footer: some View {
         HStack(spacing: 8) {
             Button("Preview") {
+                previewNeedsRefresh = false
                 Task { await previewReplacement(query, replacement, optionsForPreview) }
             }
             .buttonStyle(ProjectReplaceButtonStyle(isPrimary: true))
@@ -223,7 +225,10 @@ struct ProjectReplaceView: View {
                 } flexible: {
                     ProjectReplacementSourcePreview(
                         file: selected.file, line: selected.match.line,
-                        query: query, options: optionsForPreview, loadDocument: loadPreviewDocument
+                        query: query, options: optionsForPreview, loadDocument: loadPreviewDocument, onEdit: {
+                            previewNeedsRefresh = true
+                            clearPreview()
+                        }
                     )
                     .id(selected.file.id)
                 }
@@ -232,7 +237,7 @@ struct ProjectReplaceView: View {
             VStack(spacing: 8) {
                 Image(systemName: "doc.text.magnifyingglass")
                     .font(.system(size: 28, weight: .light))
-                Text(query.isEmpty ? "Enter text to preview project changes" : "No replacement matches")
+                Text(previewNeedsRefresh ? "File changed. Run Preview again to refresh results." : (query.isEmpty ? "Enter text to preview project changes" : "No replacement matches"))
             }
             .font(LitheTheme.uiFont)
             .foregroundStyle(LitheTheme.secondaryText)
@@ -245,10 +250,19 @@ struct ProjectReplaceView: View {
             selectedResult = resultID(file, match)
         } label: {
             HStack(spacing: 12) {
-                Text(ProjectReplacementPreviewText.highlighted(match.before, query: query, options: optionsForPreview, fileName: file.url.lastPathComponent, isDark: colorScheme == .dark))
-                    .font(.system(size: 12, design: .monospaced))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text("Before").foregroundStyle(LitheTheme.secondaryText)
+                        Text(ProjectReplacementPreviewText.highlighted(match.before, query: query, options: optionsForPreview, fileName: file.url.lastPathComponent, isDark: colorScheme == .dark))
+                    }
+                    HStack(spacing: 6) {
+                        Text("After").foregroundStyle(LitheTheme.secondaryText)
+                        Text(match.after).foregroundStyle(LitheTheme.primaryText)
+                    }
+                }
+                .font(.system(size: 12, design: .monospaced))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 (Text(ProjectReplacementPreviewText.highlighted(file.relativePath, query: query, options: optionsForPreview)) + Text("  \(match.line)"))
                     .font(.system(size: 11.5))
                     .foregroundStyle(LitheTheme.primaryText)
@@ -257,7 +271,7 @@ struct ProjectReplaceView: View {
                     .frame(maxWidth: 230, alignment: .trailing)
             }
             .padding(.horizontal, 8)
-            .frame(height: 26)
+            .frame(height: 46)
             .background(selected ? LitheTheme.selection : .clear)
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .contentShape(Rectangle())
@@ -280,7 +294,6 @@ struct ProjectReplaceView: View {
 
     private func clearPreview() {
         selectedResult = nil
-        guard !feature.projectReplacementFiles.isEmpty else { return }
         feature.clearProjectReplacementPreview()
     }
 }

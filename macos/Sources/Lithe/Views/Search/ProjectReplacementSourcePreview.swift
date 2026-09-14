@@ -2,20 +2,21 @@ import AppKit
 import SwiftUI
 import LitheSearchModule
 
-/// Edits the same managed document used by the main editor.
+/// Reuses open documents and promotes transient previews on their first edit.
 struct ProjectReplacementSourcePreview: View {
     let file: ProjectReplacementFile
     let line: Int
     let query: String
     let options: ProjectSearchOptions
     let loadDocument: (URL) async -> EditorDocument?
+    let onEdit: () -> Void
     @State private var document: EditorDocument?
     @State private var isLoading = true
 
     var body: some View {
         Group {
             if let document {
-                ProjectReplacementDocumentEditor(document: document, file: file, line: line, query: query, options: options)
+                ProjectReplacementDocumentEditor(document: document, file: file, line: line, query: query, options: options, onEdit: onEdit)
             } else {
                 VStack {
                     if isLoading { ProgressView() }
@@ -41,6 +42,7 @@ private struct ProjectReplacementDocumentEditor: View {
     let line: Int
     let query: String
     let options: ProjectSearchOptions
+    let onEdit: () -> Void
     @StateObject private var chrome = EditorChromeModel()
     @State private var viewportStore = EditorViewportStore()
     @State private var saveError: String?
@@ -74,6 +76,11 @@ private struct ProjectReplacementDocumentEditor: View {
                 .environmentObject(chrome)
                 .environmentObject(model.editorDiagnosticsStore)
                 .clipped()
+        }
+        .onReceive(document.textDidChange) {
+            // Preserve the first edit before invalidation removes this preview from the hierarchy.
+            if document.isDirty { model.documentFeature.promotePreviewDocument(document) }
+            onEdit()
         }
         .onAppear(perform: updateSearch)
         .onChange(of: query) { _ in updateSearch() }
