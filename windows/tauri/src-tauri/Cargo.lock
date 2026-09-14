@@ -2591,6 +2591,7 @@ dependencies = [
  "ammonia",
  "base64 0.22.1",
  "comrak",
+ "lithe-git-host",
  "quick-xml 0.37.5",
  "rand 0.8.7",
  "regex",
@@ -2606,6 +2607,17 @@ dependencies = [
  "tree-sitter-java",
  "url",
  "zip 2.4.2",
+]
+
+[[package]]
+name = "lithe-git-host"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "rand 0.8.7",
+ "serde",
+ "serde_json",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

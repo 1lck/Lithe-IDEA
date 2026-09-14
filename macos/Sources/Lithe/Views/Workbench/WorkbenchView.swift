@@ -233,6 +233,9 @@ struct WorkbenchView: View {
             statusBar
         }
         .background {
+            if let feature = model.gitFeatureIfActive { GitAuthenticationHost(feature: feature) }
+        }
+        .background {
             WorkbenchBackgroundImageView(
                 image: workbenchBackgroundImage,
                 opacity: settings.workbenchBackgroundOpacity

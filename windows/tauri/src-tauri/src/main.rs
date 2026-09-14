@@ -24,6 +24,19 @@ use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
 
 fn main() {
+    let mut arguments = std::env::args().skip(1);
+    if arguments.next().as_deref() == Some("--lithe-git-askpass") {
+        std::process::exit(lithe_core::git_askpass_main(
+            &arguments.next().unwrap_or_default(),
+        ));
+    }
+    if std::env::var("LITHE_GIT_ASKPASS_MODE").as_deref() == Ok("1")
+        && std::env::args().len() == 2
+    {
+        std::process::exit(lithe_core::git_askpass_main(
+            &std::env::args().nth(1).unwrap_or_default(),
+        ));
+    }
     let application = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, arguments, _| {
             host::enqueue_cli_arguments(app, arguments);

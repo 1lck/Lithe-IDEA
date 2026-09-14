@@ -1,3 +1,4 @@
+import type { GitExecutionSource } from "@/platform/git-execution-events";
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
 import { emitGitChanged } from "../events/git-events";
 import { runGitRead } from "../runtime/git-read-coordinator";
@@ -41,15 +42,17 @@ const blockingChangesMessage = (blockingPaths: string[]): string => {
 export const localBranchReference = (branchName: string): string =>
   branchName.startsWith("refs/heads/") ? branchName : `refs/heads/${branchName}`;
 
-export const getBranches = async (repoPath: string): Promise<string[]> => {
+export const getBranches = async (repoPath: string, source: GitExecutionSource = "unknown"): Promise<string[]> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPath(repoPath);
     if (!resolvedRepoPath) {
       return [];
     }
 
-    return await runGitRead(resolvedRepoPath, "branches", () =>
-      tauriInvoke<string[]>("git_branches", { repoPath: resolvedRepoPath }),
+    return await runGitRead(resolvedRepoPath, source === "unknown" ? "branches" : `branches:${source}`, () =>
+      source === "unknown"
+        ? tauriInvoke<string[]>("git_branches", { repoPath: resolvedRepoPath })
+        : tauriInvoke<string[]>("git_branches", { repoPath: resolvedRepoPath }, { gitExecutionSource: source }),
     );
   } catch (error) {
     if (!isNotGitRepositoryError(error)) {

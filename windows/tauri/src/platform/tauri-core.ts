@@ -1,3 +1,4 @@
+import { deliverGitExecution, gitExecutionPreferences, type GitExecutionEvent } from "./git-execution-events";
 import {
   Channel,
   convertFileSrc,
@@ -85,7 +86,12 @@ const nativeCommands = new Set([
   "write_patch_file",
 ]);
 
-export function invoke<T>(command: string, args?: InvokeArgs, options?: InvokeOptions): Promise<T> {
+export function invoke<T>(command: string, args?: InvokeArgs, options?: Partial<InvokeOptions> & { gitExecutionSource?: "user" | "background" | "unknown" }): Promise<T> {
+  const { gitExecutionSource = "unknown", ...forwardedOptions } = options ?? {};
+  // Execution provenance is local metadata; Tauri requires headers only when native options are supplied.
+  const nativeOptions: InvokeOptions | undefined = Object.keys(forwardedOptions).length
+    ? { ...forwardedOptions, headers: forwardedOptions.headers ?? {} }
+    : undefined;
   const requiredCapability = capabilityForCommand(command);
   if (requiredCapability && !isBackendCapabilityAvailable(requiredCapability)) {
     return Promise.reject(
@@ -93,10 +99,26 @@ export function invoke<T>(command: string, args?: InvokeArgs, options?: InvokeOp
     );
   }
   if (isNativeCommand(command)) {
-    return tauriInvoke<T>(command, args, options);
+    return tauriInvoke<T>(command, args, nativeOptions);
   }
 
-  return tauriInvoke<unknown>("platform_invoke", { command, args: args ?? {} }, options).then(
+  if ((command.startsWith("git_") || command.startsWith("git.")) && command !== "git.consolePresentation") {
+    const payload = { ...(args as Record<string, unknown> ?? {}) };
+    const operationId = typeof payload.operationId === "string" ? payload.operationId : crypto.randomUUID();
+    payload.operationId = operationId;
+    const channel = new Channel<GitExecutionEvent>();
+    channel.onmessage = (event) => {
+      deliverGitExecution({ ...event, action: command,
+        workingDirectory: event.workingDirectory ?? String(payload.repoPath ?? payload.root ?? "") });
+    };
+    return tauriInvoke<unknown>("platform_invoke", { command, args: payload, gitEvents: channel, gitExecution: { ...gitExecutionPreferences(), source: gitExecutionSource } }, nativeOptions).then(
+      (value) => {
+        return adaptCoreResult<T>(command, args as Record<string, any> | undefined, value);
+      },
+      (error) => { throw error; },
+    );
+  }
+  return tauriInvoke<unknown>("platform_invoke", { command, args: args ?? {} }, nativeOptions).then(
     (value) => adaptCoreResult<T>(command, args as Record<string, any> | undefined, value),
   );
 }

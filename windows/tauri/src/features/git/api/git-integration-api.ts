@@ -1,3 +1,4 @@
+import type { GitExecutionSource } from "@/platform/git-execution-events";
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
 import { emitGitChanged } from "../events/git-events";
 import { resolveRepositoryPathOrThrow } from "./git-repo-api";
@@ -49,11 +50,12 @@ const notifyOperationChanged = (repoPath: string, source: string, refreshStashes
 
 export const getOperationState = async (
   repoPath: string,
+  source: GitExecutionSource = "unknown",
 ): Promise<GitOperationState | null> => {
   const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-  return tauriInvoke<GitOperationState | null>("git_operation_state", {
-    repoPath: resolvedRepoPath,
-  });
+  return source === "unknown"
+    ? tauriInvoke<GitOperationState | null>("git_operation_state", { repoPath: resolvedRepoPath })
+    : tauriInvoke<GitOperationState | null>("git_operation_state", { repoPath: resolvedRepoPath }, { gitExecutionSource: source });
 };
 
 export const getConflictMarkerPaths = async (repoPath: string): Promise<string[]> => {

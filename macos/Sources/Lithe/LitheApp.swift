@@ -270,7 +270,6 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-@main
 struct LitheApp: App {
     @NSApplicationDelegateAdaptor(LitheAppDelegate.self) private var appDelegate
     @StateObject private var settings: AppSettings

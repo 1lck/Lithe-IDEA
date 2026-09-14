@@ -6,6 +6,7 @@ struct GitRepositoryEmptyView: View {
     @ObservedObject var setup: GitRepositorySetupFeatureModel
     let openSettings: () -> Void
     let openChanges: () -> Void
+    var openConsole: (() -> Void)? = nil
     @State private var confirmsInitialization = false
 
     var body: some View {
@@ -26,15 +27,14 @@ struct GitRepositoryEmptyView: View {
                     if let branch = state.branch { Text("Branch: \(branch)").font(LitheTheme.smallFont) }
                     Text("Stage your files in Changes, enter a commit message, and create the first commit.")
                         .font(LitheTheme.smallFont)
-                    if state.needsIdentity {
-                        Text("Set your Git name and email in Settings before committing.")
-                            .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.warning)
-                    }
                     Button("Open Changes") { openChanges() }.buttonStyle(.borderedProminent).lithePointer()
                 } else {
                     Text("No commits match this view")
                 }
-                if !state.isRepository || !state.hasCommits {
+                if let openConsole {
+                    Button("Open Git Console", action: openConsole).lithePointer()
+                }
+                if !state.isRepository {
                     Button("Open Git Settings") { openSettings() }.lithePointer()
                 }
             } else if feature.repositorySetupRoot == nil {
@@ -54,7 +54,7 @@ struct GitRepositoryEmptyView: View {
         .confirmationDialog("Initialize Git in this project folder?", isPresented: $confirmsInitialization, titleVisibility: .visible) {
             Button("Initialize Git Repository") {
                 Task {
-                    if await setup.initialize() { await feature.refreshGit() }
+                    if await feature.initializeGitRepository() { await feature.refreshGit() }
                 }
             }
         } message: {

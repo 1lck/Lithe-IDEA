@@ -1,0 +1,279 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "silent requests never allocate command rows",
+      "steps": [
+        {
+          "event": {
+            "operationId": "pending",
+            "type": "requestStarted"
+          },
+          "commands": [],
+          "running": []
+        },
+        {
+          "event": {
+            "operationId": "pending",
+            "type": "requestFinished"
+          },
+          "commands": [],
+          "running": []
+        }
+      ]
+    },
+    {
+      "name": "clearing preflight suppresses the old request and permits a new one",
+      "steps": [
+        {
+          "event": {
+            "operationId": "pending",
+            "type": "requestStarted"
+          },
+          "commands": [],
+          "running": []
+        },
+        {
+          "clear": true,
+          "commands": [],
+          "running": []
+        },
+        {
+          "event": {
+            "operationId": "pending",
+            "type": "started",
+            "invocationId": 1,
+            "workingDirectory": "/workspace/repository",
+            "arguments": [
+              "push",
+              "origin",
+              "feature"
+            ]
+          },
+          "commands": [],
+          "running": [
+            "pending"
+          ]
+        },
+        {
+          "event": {
+            "operationId": "pending",
+            "type": "output",
+            "invocationId": 1,
+            "text": "late output",
+            "stream": "stdout"
+          },
+          "commands": [],
+          "running": [
+            "pending"
+          ]
+        },
+        {
+          "event": {
+            "operationId": "pending",
+            "type": "requestFinished",
+            "error": {
+              "code": "cancelled",
+              "message": "Operation was cancelled"
+            }
+          },
+          "commands": [],
+          "running": []
+        },
+        {
+          "event": {
+            "operationId": "new",
+            "type": "requestStarted"
+          },
+          "commands": [],
+          "running": []
+        },
+        {
+          "event": {
+            "operationId": "new",
+            "type": "started",
+            "invocationId": 1,
+            "workingDirectory": "/workspace/repository",
+            "arguments": [
+              "worktree",
+              "repair"
+            ]
+          },
+          "commands": [
+            [
+              "worktree",
+              "repair"
+            ]
+          ],
+          "running": [
+            "new"
+          ]
+        },
+        {
+          "event": {
+            "operationId": "new",
+            "type": "finished",
+            "invocationId": 1,
+            "exitCode": 0
+          },
+          "commands": [
+            [
+              "worktree",
+              "repair"
+            ]
+          ],
+          "running": [
+            "new"
+          ]
+        },
+        {
+          "event": {
+            "operationId": "new",
+            "type": "requestFinished"
+          },
+          "commands": [
+            [
+              "worktree",
+              "repair"
+            ]
+          ],
+          "running": []
+        }
+      ]
+    },
+    {
+      "name": "cleared started commands stay cancellable until the request finishes",
+      "steps": [
+        {
+          "event": {
+            "operationId": "pending",
+            "type": "requestStarted"
+          },
+          "commands": [],
+          "running": []
+        },
+        {
+          "event": {
+            "operationId": "pending",
+            "type": "started",
+            "invocationId": 1,
+            "workingDirectory": "/workspace/repository",
+            "arguments": [
+              "fetch",
+              "origin"
+            ]
+          },
+          "commands": [
+            [
+              "fetch",
+              "origin"
+            ]
+          ],
+          "running": [
+            "pending"
+          ]
+        },
+        {
+          "clear": true,
+          "commands": [],
+          "running": [
+            "pending"
+          ]
+        },
+        {
+          "event": {
+            "operationId": "pending",
+            "type": "finished",
+            "invocationId": 1,
+            "exitCode": 0
+          },
+          "commands": [],
+          "running": [
+            "pending"
+          ]
+        },
+        {
+          "event": {
+            "operationId": "pending",
+            "type": "requestFinished"
+          },
+          "commands": [],
+          "running": []
+        }
+      ]
+    },
+    {
+      "name": "preflight failures retain their reason without a command",
+      "steps": [
+        {
+          "event": {
+            "operationId": "preflight-failure",
+            "type": "requestStarted",
+            "workingDirectory": "/workspace/repository"
+          },
+          "commands": [],
+          "running": []
+        },
+        {
+          "event": {
+            "operationId": "preflight-failure",
+            "type": "requestFinished",
+            "error": {
+              "code": "process_start_failed",
+              "message": "Could not inspect Git executable",
+              "details": "Permission denied"
+            }
+          },
+          "commands": [
+            []
+          ],
+          "running": [],
+          "errors": [
+            "Could not inspect Git executable\nPermission denied"
+          ],
+          "roots": [
+            "/workspace/repository"
+          ],
+          "states": [
+            "unconfirmed"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cleared preflight failures remain hidden",
+      "steps": [
+        {
+          "event": {
+            "operationId": "preflight-failure",
+            "type": "requestStarted",
+            "workingDirectory": "/workspace/repository"
+          },
+          "commands": [],
+          "running": []
+        },
+        {
+          "clear": true,
+          "commands": [],
+          "running": []
+        },
+        {
+          "event": {
+            "operationId": "preflight-failure",
+            "type": "requestFinished",
+            "error": {
+              "code": "process_start_failed",
+              "message": "Could not inspect Git executable",
+              "details": "Permission denied"
+            }
+          },
+          "commands": [],
+          "running": [],
+          "errors": [],
+          "roots": [],
+          "states": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import type { GitExecutionSource } from "@/platform/git-execution-events";
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
 import type {
   GitCommit,
@@ -101,6 +102,7 @@ export const getGitHistory = async (
   repoPath: string,
   limit = 50,
   reference?: string,
+  source: GitExecutionSource = "unknown",
 ): Promise<GitHistorySnapshot | null> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPath(repoPath);
@@ -108,12 +110,12 @@ export const getGitHistory = async (
       return null;
     }
 
-    return await runGitRead(resolvedRepoPath, `log:${reference ?? "all"}:${limit}`, () =>
-      tauriInvoke<GitHistorySnapshot>("git_log", {
-        repoPath: resolvedRepoPath,
-        limit,
-        ...(reference ? { reference } : {}),
-      }),
+    return await runGitRead(resolvedRepoPath, `log:${reference ?? "all"}:${limit}${source === "unknown" ? "" : `:${source}`}`, () => {
+      const args = { repoPath: resolvedRepoPath, limit, ...(reference ? { reference } : {}) };
+      return source === "unknown"
+        ? tauriInvoke<GitHistorySnapshot>("git_log", args)
+        : tauriInvoke<GitHistorySnapshot>("git_log", args, { gitExecutionSource: source });
+    },
     );
   } catch (error) {
     if (!isNotGitRepositoryError(error)) {
