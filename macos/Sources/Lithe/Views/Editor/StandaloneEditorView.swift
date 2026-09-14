@@ -76,8 +76,6 @@ struct StandaloneEditorView: View {
             .overlay(alignment: .top) {
                 if model.isFindBarVisible {
                     FindBarView()
-                        .padding(.top, 10)
-                        .padding(.horizontal, 12)
                 }
             }
             .overlay(alignment: .topTrailing) {
