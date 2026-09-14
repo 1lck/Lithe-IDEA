@@ -60,7 +60,7 @@ extension AppModel {
         phase: MavenLifecyclePhase,
         module: MavenModule?
     ) {
-        showToolWindow(.maven)
+        showToolWindow(.mavenOutput)
         Task { [weak self] in
             guard let feature = await self?.activateExecutionModule()?.mavenFeature else { return }
             feature.run(phase: phase, module: module)
@@ -68,7 +68,7 @@ extension AppModel {
     }
 
     func runMavenGoal(_ goal: String, module: MavenModule?) {
-        showToolWindow(.maven)
+        showToolWindow(.mavenOutput)
         Task { [weak self] in
             guard let feature = await self?.activateExecutionModule()?.mavenFeature else { return }
             feature.runCustomGoal(goal, module: module)

@@ -16,6 +16,7 @@ struct MavenView: View {
     var body: some View {
         VStack(spacing: 0) {
             toolWindowHeader
+            navigationToolbar
 
             if let error = feature.configurationSaveError {
                 configurationErrorBanner(error)
@@ -34,12 +35,7 @@ struct MavenView: View {
             } else if case .failed(let message) = feature.projectState {
                 failedState(message)
             } else if let project = feature.project {
-                HStack(spacing: 0) {
-                    projectPane(project)
-                        .frame(width: 260)
-                    Rectangle().fill(LitheTheme.divider).frame(width: 1)
-                    buildOutputPane
-                }
+                projectPane(project)
             } else {
                 emptyState
             }
@@ -66,93 +62,79 @@ struct MavenView: View {
             ideaAssetPath: "maven/toolWindowMaven.svg",
             subtitle: feature.project?.displayName,
             onMinimize: { model.workbenchFeature.setVisibility(.maven, isVisible: false) }
-        ) {
-            if let runningTitle = feature.runningTitle {
-                ProgressView()
-                    .controlSize(.mini)
-                Text(runningTitle)
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(1)
-            } else if feature.taskState == .cancelled {
-                Label("Cancelled", systemImage: "stop.circle.fill")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.warning)
-            } else if let exitCode = feature.lastExitCode {
-                Label(
-                    exitCode == 0 ? "Succeeded" : "Failed",
-                    systemImage: exitCode == 0 ? "checkmark.circle.fill" : "xmark.circle.fill"
-                )
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(exitCode == 0 ? LitheTheme.success : LitheTheme.error)
-            }
+        )
+    }
 
-            Button(action: runSelected) {
-                LitheSystemIcon(systemImage: "play.fill")
-            }
-            .litheIconButton()
-            .disabled(selectedPhase == nil || model.isMavenOperationBusy)
-            .help("Run selected Maven lifecycle phase")
-
-            Button {
-                presentGoal(for: selectedModule)
-            } label: {
-                LitheSystemIcon(systemImage: "terminal")
-            }
-            .litheIconButton()
-            .disabled(model.isMavenOperationBusy)
-            .help("Execute Maven goal")
-
-            Button(action: refreshProject) {
-                LitheSystemIcon(systemImage: "arrow.clockwise")
-            }
-            .litheIconButton()
-            .help("Reload Maven project")
-            .disabled(model.isMavenOperationBusy)
-
-            if feature.isRunning || model.runWorkflowCoordinator.isModuleOperationStarting {
-                Button(action: model.stopMaven) {
-                    Image(systemName: "stop.fill")
+    private var navigationToolbar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                Button {
+                    if isMavenTaskRunning {
+                        model.stopMaven()
+                    } else {
+                        runSelected()
+                    }
+                } label: {
+                    LitheSystemIcon(systemImage: isMavenTaskRunning ? "stop.fill" : "play.fill")
                 }
                 .litheIconButton()
-                .foregroundStyle(LitheTheme.warning)
-                .help("Stop Maven task")
-            }
+                .foregroundStyle(isMavenTaskRunning ? LitheTheme.warning : LitheTheme.secondaryText)
+                .disabled(!isMavenTaskRunning && (selectedPhase == nil || model.isMavenOperationBusy))
+                .help(isMavenTaskRunning
+                      ? String(localized: "Stop Maven task")
+                      : String(localized: "Run selected Maven lifecycle phase"))
 
-            Button {
-                feature.setSkipTests(!feature.skipTests)
-            } label: {
-                LitheSystemIcon(systemImage: feature.skipTests ? "checkmark.square.fill" : "square")
-            }
-            .litheIconButton()
-            .foregroundStyle(feature.skipTests ? LitheTheme.accent : LitheTheme.secondaryText)
-            .help("Skip tests")
+                Button {
+                    presentGoal(for: selectedModule)
+                } label: {
+                    LitheSystemIcon(systemImage: "terminal")
+                }
+                .litheIconButton()
+                .disabled(model.isMavenOperationBusy)
+                .help("Execute Maven goal")
 
-            Button {
-                expandedNodeIDs.removeAll()
-            } label: {
-                LitheSystemIcon(systemImage: "rectangle.compress.vertical")
-            }
-            .litheIconButton()
-            .help("Collapse all")
+                Button(action: refreshProject) {
+                    LitheSystemIcon(systemImage: "arrow.clockwise")
+                }
+                .litheIconButton()
+                .help("Reload Maven project")
+                .disabled(model.isMavenOperationBusy)
 
-            Button(action: { model.showSettings(category: .project) }) {
-                LitheSystemIcon(systemImage: "slider.horizontal.3")
-            }
-            .litheIconButton()
-            .help("Maven settings")
+                Button {
+                    feature.setSkipTests(!feature.skipTests)
+                } label: {
+                    LitheSystemIcon(systemImage: feature.skipTests ? "checkmark.square.fill" : "square")
+                }
+                .litheIconButton()
+                .foregroundStyle(feature.skipTests ? LitheTheme.accent : LitheTheme.secondaryText)
+                .help("Skip tests")
 
-            Button(action: feature.clearOutput) {
-                Image(systemName: "trash")
-            }
-            .litheIconButton()
-            .help("Clear build output")
+                Button {
+                    expandedNodeIDs.removeAll()
+                } label: {
+                    LitheSystemIcon(systemImage: "rectangle.compress.vertical")
+                }
+                .litheIconButton()
+                .help("Collapse all")
 
+                Button(action: { model.showSettings(category: .project) }) {
+                    LitheSystemIcon(systemImage: "slider.horizontal.3")
+                }
+                .litheIconButton()
+                .help("Maven settings")
+            }
+            .padding(.horizontal, 10)
         }
+        .frame(height: 36)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
     }
 
     private func refreshProject() {
         Task { await model.reloadMavenProject(rescan: true) }
+    }
+
+    private var isMavenTaskRunning: Bool {
+        feature.isRunning || model.runWorkflowCoordinator.isModuleOperationStarting
     }
 
     private var reloadBanner: some View {
@@ -602,11 +584,11 @@ struct MavenView: View {
         .lithePointer()
         .simultaneousGesture(TapGesture(count: 2).onEnded {
             guard !model.isMavenOperationBusy else { return }
-            feature.run(phase: phase, module: module)
+            runPhase(phase: phase, module: module)
         })
         .litheContextMenu(items: {
             [.action(dependencyLocalization.text("Run"), isEnabled: !model.isMavenOperationBusy) {
-                feature.run(phase: phase, module: module)
+                runPhase(phase: phase, module: module)
             }]
         })
     }
@@ -684,11 +666,6 @@ struct MavenView: View {
         }
     }
 
-    private var mavenSearchRoots: [URL] {
-        guard let project = feature.project else { return [] }
-        return [project.rootURL] + moduleURLs(project.modules)
-    }
-
     private func moduleContextMenu(_ module: MavenModule?) -> [LitheContextMenuItem] {
         [
             .action(dependencyLocalization.text("Run"),
@@ -702,10 +679,10 @@ struct MavenView: View {
             },
             .separator,
             .action(dependencyLocalization.text("Test"), isEnabled: !model.isMavenOperationBusy) {
-                feature.run(phase: .test, module: module)
+                runPhase(phase: .test, module: module)
             },
             .action(dependencyLocalization.text("Package"), isEnabled: !model.isMavenOperationBusy) {
-                feature.run(phase: .packagePhase, module: module)
+                runPhase(phase: .packagePhase, module: module)
             },
             .action(dependencyLocalization.text("Execute Maven Goal"), isEnabled: !model.isMavenOperationBusy) {
                 presentGoal(for: module)
@@ -725,80 +702,6 @@ struct MavenView: View {
         goalProject = feature.project
         customGoal = ""
         isGoalSheetPresented = true
-    }
-
-    private func moduleURLs(_ modules: [MavenModule]) -> [URL] {
-        modules.flatMap { [$0.url] + moduleURLs($0.modules) }
-    }
-
-    private var buildOutputPane: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Build Output")
-                    .font(.system(size: 12.5, weight: .semibold))
-                Spacer()
-                if !feature.issues.isEmpty {
-                    Label("\(feature.issues.count)", systemImage: "exclamationmark.triangle.fill")
-                        .font(.system(size: 11.5, weight: .medium))
-                        .foregroundStyle(LitheTheme.warning)
-                }
-            }
-            .foregroundStyle(LitheTheme.primaryText)
-            .padding(.horizontal, 12)
-            .frame(height: 36)
-            .litheWorkbenchSurface(LitheTheme.toolHeader)
-
-            if !feature.issues.isEmpty {
-                issueList
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            }
-
-            OutputTextView(
-                output: feature.output,
-                searchRoots: mavenSearchRoots,
-                fileExists: { model.fileExists(at: $0) },
-                emptyMessage: "Run a Maven lifecycle phase to see output."
-            ) { url, line, column in
-                model.openSourceLocation(url: url, line: line, column: column)
-            }
-        }
-    }
-
-    private var issueList: some View {
-        ScrollView(.vertical) {
-            LazyVStack(alignment: .leading, spacing: 2) {
-                ForEach(feature.issues) { issue in
-                    Button {
-                        model.openMavenIssue(issue)
-                    } label: {
-                        HStack(alignment: .top, spacing: 7) {
-                            Image(systemName: issue.severity.systemImage)
-                                .foregroundStyle(issue.severity == .error ? .red : LitheTheme.warning)
-                                .frame(width: 15)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(issue.locationTitle)
-                                    .font(.system(size: 11.5, weight: .medium))
-                                Text(issue.message)
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                                    .lineLimit(2)
-                            }
-                            Spacer(minLength: 0)
-                        }
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .lithePointer()
-                }
-            }
-            .padding(.vertical, 5)
-        }
-        .frame(maxHeight: 132)
-        .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
     private var emptyState: some View {
@@ -868,9 +771,15 @@ struct MavenView: View {
         )
     }
 
+    private func runPhase(phase: MavenLifecyclePhase, module: MavenModule?) {
+        guard !model.isMavenOperationBusy else { return }
+        model.showToolWindow(.mavenOutput)
+        feature.run(phase: phase, module: module)
+    }
+
     private func runSelected() {
         guard let phase = selectedPhase, !model.isMavenOperationBusy else { return }
-        feature.run(phase: phase, module: selectedModule)
+        runPhase(phase: phase, module: selectedModule)
     }
 
     private func executeCustomGoal() {
@@ -878,6 +787,7 @@ struct MavenView: View {
         guard !goal.isEmpty, !model.isMavenOperationBusy,
               goalProject == feature.project else { return }
         isGoalSheetPresented = false
+        model.showToolWindow(.mavenOutput)
         feature.runCustomGoal(goal, module: goalModule)
     }
 
