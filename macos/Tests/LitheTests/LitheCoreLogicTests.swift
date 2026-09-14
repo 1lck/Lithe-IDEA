@@ -1992,6 +1992,31 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func workspaceFileIconResolverUsesIdeaTextAndBinaryKindsForGenericFiles() async {
+        let storage = InMemoryFileStorage()
+        let textURL = URL(fileURLWithPath: "/in-memory/LICENSE")
+        let binaryURL = URL(fileURLWithPath: "/in-memory/tool.unknown")
+        storage.seed(Data("permission text\n".utf8), at: textURL)
+        storage.seed(Data([0x00, 0x01, 0x02]), at: binaryURL)
+
+        let text = await WorkspaceFileIconResolver.resolve(
+            for: textURL,
+            suggested: .generic,
+            storage: storage
+        )
+        let binary = await WorkspaceFileIconResolver.resolve(
+            for: binaryURL,
+            suggested: .generic,
+            storage: storage
+        )
+
+        #expect(text.kind == .plainText)
+        #expect(binary.kind == .binary)
+        #expect(!text.isExecutable)
+        #expect(!binary.isExecutable)
+    }
+
+    @Test
     @MainActor
     func standaloneEditorLoadsUtf8TextAndLeavesBinaryFilesInFailedState() async {
         let storage = InMemoryFileStorage()

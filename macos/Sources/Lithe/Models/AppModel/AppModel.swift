@@ -1020,6 +1020,13 @@ final class AppModel: ObservableObject, Identifiable {
         workspaceSessionCoordinator.openStandaloneFile(at: url)
     }
 
+    /// Launches an executable binary selected in the project tree using the
+    /// platform's normal open behavior (Terminal/app association on macOS).
+    func runExecutable(_ url: URL) {
+        guard services.fileStorage.isExecutable(at: url) else { return }
+        platformUI.open(url)
+    }
+
     func javaIconKind(for url: URL) async -> LitheIconKind? {
         await JavaFileIconResolver.resolve(for: url, storage: services.fileStorage)
     }

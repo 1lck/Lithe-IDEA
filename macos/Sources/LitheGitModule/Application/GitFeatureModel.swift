@@ -7,8 +7,18 @@ import LitheModuleAPI
 /// in AppModel. Git command construction and parsing remain in GitService/Core.
 @MainActor
 package final class GitFeatureModel: ObservableObject {
-    package lazy var repositorySetup = GitRepositorySetupFeatureModel(service: service)
-    package lazy var identitySettings = GitRepositorySetupFeatureModel(service: service)
+    package lazy var repositorySetup = GitRepositorySetupFeatureModel(
+        service: service,
+        recordMutation: { [weak self] root, arguments, result in
+            self?.recordGitSetupCommand(root: root, arguments: arguments, result: result)
+        }
+    )
+    package lazy var identitySettings = GitRepositorySetupFeatureModel(
+        service: service,
+        recordMutation: { [weak self] root, arguments, result in
+            self?.recordGitSetupCommand(root: root, arguments: arguments, result: result)
+        }
+    )
     package var repositorySetupRoot: URL? { gitRepositoryRoot ?? workspaceURLProvider?() }
     package lazy var patchExchange = makePatchExchange()
     package lazy var historyEditing = makeHistoryEditing()
@@ -2173,7 +2183,37 @@ package final class GitFeatureModel: ObservableObject {
         adding: Bool,
         at rootURL: URL
     ) async -> GitService.CommandResult {
-        await service.mutateLiteralLocalExcludePatterns(patterns, adding: adding, at: rootURL)
+        await withGitOperation {
+            await service.mutateLiteralLocalExcludePatterns(patterns, adding: adding, at: rootURL)
+        }
+    }
+
+    private func recordGitSetupCommand(
+        root: URL,
+        arguments: [String],
+        result: Result<GitRepositorySetup, GitSetupFailure>
+    ) {
+        let succeeded: Bool
+        let output: String
+        switch result {
+        case .success:
+            succeeded = true
+            output = ""
+        case .failure(let error):
+            succeeded = false
+            output = error.message
+        }
+        gitConsoleEntries.append(
+            GitConsoleEntry(
+                workingDirectory: root,
+                arguments: arguments,
+                output: output,
+                exitCode: succeeded ? 0 : 1
+            )
+        )
+        if gitConsoleEntries.count > 500 {
+            gitConsoleEntries.removeFirst(gitConsoleEntries.count - 500)
+        }
     }
 
     /// Another checkout can move shared refs while this worktree's status stays unchanged.

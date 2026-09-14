@@ -40,7 +40,8 @@ struct GitLogView: View {
     @State private var showLongGraphEdges = false
     @State private var graphNavigationRequest: GraphNavigationRequest?
     @State private var selectedGitToolTab = GitToolTab.log
-    @State private var showsFetchOptions = false
+    @State private var gitConsoleAutoScrolls = true
+    @State private var gitConsoleWrapsLines = false
     @State private var selectedGitLogAuthor: GitLogAuthorSelection?
     @State private var selectedGitLogDatePreset = GitLogDatePreset.anyTime
     @State private var gitLogPathFilter = ""
@@ -68,6 +69,8 @@ struct GitLogView: View {
         static let treeRowHeight: CGFloat = 28
         static let toolbarHeight: CGFloat = 38
         static let commitFileLoadDelay = Duration.milliseconds(120)
+        static let darkConsoleText = Color(red: 0.76, green: 0.77, blue: 0.79)
+        static let darkConsoleMetadata = Color(red: 0.69, green: 0.70, blue: 0.72)
     }
 
     private enum GitToolTab {
@@ -129,9 +132,8 @@ struct GitLogView: View {
             gitLogPathFilter = ""
             gitLogPathDraft = ""
         }
-        .onChange(of: feature.gitConsoleEntries.last) { entry in
-            guard let entry, entry.state == .completed || entry.state == .unconfirmed,
-                  !entry.succeeded else { return }
+        .onChange(of: feature.gitConsoleEntries.last?.id) { _ in
+            guard feature.gitConsoleEntries.last?.succeeded == false else { return }
             selectedGitToolTab = .console
         }
         .onAppear {
@@ -141,12 +143,6 @@ struct GitLogView: View {
         }
         .onDisappear {
             gitCommitFileLoadTask?.cancel()
-        }
-        .sheet(isPresented: $showsFetchOptions) {
-            GitFetchDialog(feature: feature) { options in
-                selectedGitToolTab = .console
-                Task { await feature.fetchGit(options: options) }
-            }
         }
         .sheet(item: $branchDialogRequest) { request in
             GitBranchNameDialog(request: request) { name, checkout in
@@ -386,7 +382,8 @@ struct GitLogView: View {
             )
             gitToolTabButton(
                 .worktrees,
-                title: "Worktrees"
+                title: "Worktrees",
+                detail: feature.gitRepositoryRoot?.path
             )
             gitToolTabButton(.console, title: "Console")
 
@@ -403,12 +400,8 @@ struct GitLogView: View {
 
             Menu {
                 Button("Fetch All Remotes") {
-                    selectedGitToolTab = .console
                     Task { await feature.fetchGit() }
                 }
-                .disabled(feature.isPerformingBranchOperation)
-                Button("Fetch Options…") { showsFetchOptions = true }
-                    .disabled(feature.isPerformingBranchOperation)
                 Button("Update Current Branch") {
                     guard let currentReference else { return }
                     Task { await feature.updateCurrentBranch(currentReference) }
@@ -509,14 +502,178 @@ struct GitLogView: View {
     }
 
     private var gitConsolePane: some View {
-        GitConsoleView(feature: feature)
+        HStack(spacing: 0) {
+            VStack(spacing: 3) {
+                Button {
+                    gitConsoleWrapsLines.toggle()
+                } label: {
+                    ZStack(alignment: .bottomTrailing) {
+                        Image(systemName: "text.justify.leading")
+                            .font(.system(size: 12, weight: .regular))
+                        Image(systemName: "arrow.turn.down.left")
+                            .font(.system(size: 6.5, weight: .semibold))
+                            .offset(x: 2, y: 1)
+                    }
+                }
+                .litheIconButton()
+                .foregroundStyle(gitConsoleWrapsLines ? LitheTheme.accent : LitheTheme.secondaryText)
+                .help(LocalizedStringKey(gitConsoleWrapsLines ? "Disable soft wraps" : "Use soft wraps"))
+
+                Button {
+                    gitConsoleAutoScrolls.toggle()
+                } label: {
+                    Image(systemName: gitConsoleAutoScrolls ? "arrow.down.to.line.compact" : "arrow.down.to.line")
+                }
+                .litheIconButton()
+                .foregroundStyle(gitConsoleAutoScrolls ? LitheTheme.accent : LitheTheme.secondaryText)
+                .help(LocalizedStringKey(gitConsoleAutoScrolls ? "Disable automatic scrolling" : "Scroll to new Git output"))
+
+                Button(action: feature.clearGitConsole) {
+                    Image(systemName: "trash")
+                }
+                .litheIconButton()
+                .foregroundStyle(LitheTheme.secondaryText)
+                .disabled(feature.gitConsoleEntries.isEmpty)
+                .help("Clear Git console")
+
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 6)
+            .frame(width: 28)
             .background(background.hasImage ? Color.clear : LitheTheme.editor)
+
+            Rectangle()
+                .fill(LitheTheme.divider)
+                .frame(width: 1)
+
+            GeometryReader { geometry in
+                ScrollViewReader { proxy in
+                    ScrollView(gitConsoleWrapsLines ? .vertical : [.horizontal, .vertical]) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            if feature.gitConsoleEntries.isEmpty {
+                                Text("Git command output will appear here.")
+                                    .font(GitVisual.monoMeta)
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                                    .frame(height: 20, alignment: .leading)
+                            } else {
+                                ForEach(feature.gitConsoleEntries) { entry in
+                                    gitConsoleEntry(entry)
+                                        .id(entry.id)
+                                }
+                            }
+
+                            Color.clear
+                                .frame(width: 1, height: 1)
+                                .id("git-console-bottom")
+                        }
+                        // Keep long console lines at their intrinsic width when
+                        // soft wraps are disabled so the enclosing ScrollView
+                        // exposes a real horizontal scroll range.
+                        .fixedSize(horizontal: !gitConsoleWrapsLines, vertical: false)
+                        .padding(.leading, 18)
+                        .padding(.trailing, 8)
+                        .padding(.top, 4)
+                        .padding(.bottom, 8)
+                        .frame(
+                            minWidth: max(0, geometry.size.width),
+                            minHeight: max(0, geometry.size.height),
+                            alignment: .topLeading
+                        )
+                    }
+                    .litheScrollViewChrome()
+                    .onAppear {
+                        guard gitConsoleAutoScrolls else { return }
+                        proxy.scrollTo("git-console-bottom", anchor: .bottom)
+                    }
+                    .onChange(of: feature.gitConsoleEntries.last?.id) { _ in
+                        guard gitConsoleAutoScrolls else { return }
+                        proxy.scrollTo("git-console-bottom", anchor: .bottom)
+                    }
+                }
+            }
+        }
+        .background(background.hasImage ? Color.clear : LitheTheme.editor)
     }
+
+    private func gitConsoleEntry(_ entry: GitConsoleEntry) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            gitConsoleLine(gitConsoleCommandText(entry))
+
+            if entry.outputLines.isEmpty {
+                if !entry.succeeded {
+                    gitConsoleLine(
+                        Text("Git exited with code \(entry.exitCode)")
+                            .foregroundColor(LitheTheme.error)
+                    )
+                }
+            } else {
+                ForEach(Array(entry.outputLines.enumerated()), id: \.offset) { _, line in
+                    gitConsoleLine(
+                        Text(line.text.isEmpty ? " " : line.text)
+                            .foregroundColor(
+                                line.stream == .standardError
+                                    ? LitheTheme.error
+                                    : gitConsoleTextColor
+                            )
+                    )
+                }
+            }
+        }
+        .font(.system(size: 13, weight: .regular, design: .monospaced))
+        .textSelection(.enabled)
+    }
+
+    private func gitConsoleLine(_ text: Text) -> some View {
+        text
+            .frame(
+                maxWidth: gitConsoleWrapsLines ? .infinity : nil,
+                minHeight: 20,
+                alignment: .leading
+            )
+            .fixedSize(horizontal: !gitConsoleWrapsLines, vertical: true)
+    }
+
+    private func gitConsoleCommandText(_ entry: GitConsoleEntry) -> Text {
+        let commandColor = entry.isDestructive ? LitheTheme.error : gitConsoleTextColor
+        let metadataColor = entry.isDestructive ? LitheTheme.error : gitConsoleMetadataColor
+        let location = Text("\(gitConsoleTimestamp(entry.timestamp)): [\(entry.workingDirectory.path)]")
+            .foregroundColor(metadataColor)
+        let executable = Text(" git")
+            .foregroundColor(commandColor)
+        guard !entry.formattedArguments.isEmpty else { return location + executable }
+        let arguments = Text(" \(entry.formattedArguments)")
+            .foregroundColor(commandColor)
+        return location + executable + arguments
+    }
+
+    private var gitConsoleTextColor: Color {
+        colorScheme == .dark ? GitVisual.darkConsoleText : LitheTheme.primaryText
+    }
+
+    private var gitConsoleMetadataColor: Color {
+        colorScheme == .dark ? GitVisual.darkConsoleMetadata : LitheTheme.link
+    }
+
+    private var gitConsoleArgumentColor: Color {
+        colorScheme == .dark ? GitVisual.darkConsoleText : LitheTheme.link
+    }
+
+    private func gitConsoleTimestamp(_ date: Date) -> String {
+        Self.gitConsoleTimestampFormatter.string(from: date)
+    }
+
+    // A DateFormatter is expensive to construct, so build it once instead of on
+    // every console row of every body pass.
+    private static let gitConsoleTimestampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm:ss.SSS"
+        return formatter
+    }()
 
     private var primaryActionBar: some View {
         HStack(spacing: 7) {
             Button {
-                selectedGitToolTab = .console
                 Task { await feature.fetchGit() }
             } label: {
                 Label("Fetch", systemImage: "arrow.down.circle")
@@ -524,14 +681,6 @@ struct GitLogView: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             .lithePointer()
-            .disabled(feature.isPerformingBranchOperation)
-
-            Button { showsFetchOptions = true } label: {
-                Image(systemName: "slider.horizontal.3")
-            }
-            .litheIconButton()
-            .help("Fetch Options…")
-            .accessibilityLabel("Fetch Options…")
             .disabled(feature.isPerformingBranchOperation)
 
             Button {
@@ -1020,8 +1169,7 @@ struct GitLogView: View {
 
             if (visibleCommitHashes?.isEmpty == true || (visibleCommitHashes == nil && feature.gitCommits.isEmpty)) && !feature.isLoadingGitHistory {
                 GitRepositoryEmptyView(feature: feature, setup: feature.repositorySetup,
-                                       openSettings: navigation.openGitSettings, openChanges: navigation.openChanges,
-                                       openConsole: { selectedGitToolTab = .console })
+                                       openSettings: navigation.openGitSettings, openChanges: navigation.openChanges)
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -1410,7 +1558,8 @@ struct GitLogView: View {
                 }
                 .buttonStyle(.plain)
                 .lithePointer()
-                .popover(isPresented: $showsGitLogBranchFilterPopover, arrowEdge: .bottom) {
+                .overlay {
+                    GitLogInstantPopover(isPresented: $showsGitLogBranchFilterPopover) {
                     GitLogBranchFilterPopover(
                         menu: GitLogFilterList.branchMenu(references: feature.gitReferences),
                         querySections: { query in
@@ -1427,6 +1576,7 @@ struct GitLogView: View {
                             Task { await feature.selectGitReference(item.reference) }
                         }
                     )
+                    }
                 }
 
                 if feature.selectedGitReference != nil || feature.isShowingAllGitReferences {
@@ -1444,7 +1594,8 @@ struct GitLogView: View {
                 }
                 .buttonStyle(.plain)
                 .lithePointer()
-                .popover(isPresented: $showsGitLogAuthorFilterPopover, arrowEdge: .bottom) {
+                .overlay {
+                    GitLogInstantPopover(isPresented: $showsGitLogAuthorFilterPopover) {
                     GitLogFilterPopover(
                         sectionsForQuery: { query in
                             GitLogFilterList.authorSections(
@@ -1462,6 +1613,7 @@ struct GitLogView: View {
                             selectedGitLogAuthor = item.selection
                         }
                     )
+                    }
                 }
 
                 if selectedGitLogAuthor != nil {
@@ -1509,8 +1661,10 @@ struct GitLogView: View {
                 }
                 .buttonStyle(.plain)
                 .lithePointer()
-                .popover(isPresented: $showsGitLogPathPopover, arrowEdge: .bottom) {
-                    gitLogPathPopover
+                .overlay {
+                    GitLogInstantPopover(isPresented: $showsGitLogPathPopover) {
+                        gitLogPathPopover
+                    }
                 }
 
                 if !gitLogPathFilter.isEmpty {
@@ -1522,6 +1676,13 @@ struct GitLogView: View {
             }
         }
         .lineLimit(1)
+        // Git Log filters follow IntelliJ's direct popup behavior. Keep their
+        // presentation state changes out of SwiftUI's implicit animation
+        // transaction so opening and dismissing a filter is immediate.
+        .transaction { transaction in
+            transaction.animation = nil
+            transaction.disablesAnimations = true
+        }
     }
 
     private var gitLogPathPopover: some View {
@@ -1756,6 +1917,72 @@ private struct GitLogFilterTaskIdentity: Hashable {
     let datePreset: GitLogDatePreset
     let path: String
     let commitHashes: [String]
+}
+
+/// Hosts Git Log filters in an AppKit popover so they open without SwiftUI's
+/// default presentation transition while retaining transient dismissal.
+private struct GitLogInstantPopover<Content: View>: NSViewRepresentable {
+    @Binding var isPresented: Bool
+    let content: () -> Content
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(isPresented: $isPresented, content: content)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.wantsLayer = false
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.content = content
+        guard isPresented, let window = nsView.window else {
+            if !isPresented { context.coordinator.dismiss() }
+            return
+        }
+        context.coordinator.present(relativeTo: nsView, in: window)
+    }
+
+    final class Coordinator: NSObject, NSPopoverDelegate {
+        var isPresented: Binding<Bool>
+        var content: () -> Content
+        private var popover: NSPopover?
+        private var hostingController: NSHostingController<Content>?
+
+        init(isPresented: Binding<Bool>, content: @escaping () -> Content) {
+            self.isPresented = isPresented
+            self.content = content
+        }
+
+        func present(relativeTo anchor: NSView, in window: NSWindow) {
+            if let hostingController {
+                hostingController.rootView = content()
+                return
+            }
+            let hostingController = NSHostingController(rootView: content())
+            let popover = NSPopover()
+            popover.contentViewController = hostingController
+            popover.behavior = .transient
+            popover.animates = false
+            popover.delegate = self
+            self.hostingController = hostingController
+            self.popover = popover
+            popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
+        }
+
+        func dismiss() {
+            popover?.close()
+            popover = nil
+            hostingController = nil
+        }
+
+        func popoverDidClose(_ notification: Notification) {
+            popover = nil
+            hostingController = nil
+            if isPresented.wrappedValue { isPresented.wrappedValue = false }
+        }
+    }
 }
 
 enum GitLogDatePreset: String, CaseIterable, Identifiable, Hashable {
