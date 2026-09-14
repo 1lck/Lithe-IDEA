@@ -14,17 +14,7 @@ import {
   StopIcon,
   TrashIcon,
   WarningIcon,
-  DotsThreeIcon,
 } from "@/ui/icons";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/ui/dropdown";
 import { Spinner } from "@/ui/spinner";
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
@@ -36,6 +26,7 @@ import {
   blockingToolchainDiagnosticForConfiguration,
   workspaceRelativePath,
 } from "../utils/run-configuration";
+import { RunServicesMenu } from "./run-services-menu";
 import { RunConfigurationEditor } from "./run-configuration-editor";
 import { RunConfigurationListSplit } from "./run-configuration-list-split";
 import { JavaCupIcon, RunIcon } from "./run-icon";
@@ -167,38 +158,14 @@ export default function RunPane() {
             {isSelectedRunning ? <StopIcon className="text-warning" /> : <PlayIcon className="text-success" />}
           </Button>
         </Tooltip>
-        {services.length > 0 ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={<Button variant="ghost" size="icon-xs" disabled={isLoading || isGenerating} aria-label={t("run.chooseServices")} />}
-            >
-              <DotsThreeIcon />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>{t("run.services")}</DropdownMenuLabel>
-              {services.map((service) => (
-                <DropdownMenuCheckboxItem
-                  key={service.id}
-                  checked={selectedServiceIDs.includes(service.id)}
-                  onCheckedChange={(checked) =>
-                    updateSelectedServices(
-                      checked
-                        ? [...selectedServiceIDs, service.id]
-                        : selectedServiceIDs.filter((id) => id !== service.id),
-                    )
-                  }
-                >
-                  {service.name}
-                </DropdownMenuCheckboxItem>
-              ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem disabled={isLoading || isGenerating || selectedServiceIDs.length === 0} onClick={runSelectedServices}>
-                {t("run.runSelectedServices")}
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled={isLoading || isGenerating} onClick={runAllServices}>{t("run.runAllServices")}</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
+        <RunServicesMenu
+          services={services}
+          selectedServiceIDs={selectedServiceIDs}
+          disabled={isLoading || isGenerating}
+          onSelectionChange={updateSelectedServices}
+          onRunSelected={runSelectedServices}
+          onRunAll={runAllServices}
+        />
         <Tooltip content={t("run.rescan")} side="bottom">
           <Button
             variant="ghost"
