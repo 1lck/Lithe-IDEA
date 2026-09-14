@@ -18,8 +18,6 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
     let onExpand: (DiffCollapsedRegion) -> Void
     let rowOverlay: (DiffRow, DiffSide) -> RowOverlay
 
-    @State private var horizontalOffset: CGFloat = 0
-    @State private var wheelScheduler = LitheDragUpdateScheduler()
     @State private var leftPaneWidth: CGFloat?
     @State private var paneDragStart: CGFloat = 0
 
@@ -64,49 +62,43 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
             paneViewportWidth,
             (contentWidth - gutterWidth) / 2
         )
-        let maximumHorizontalOffset = max(0, paneContentWidth - paneViewportWidth)
         let height = max(layout.contentHeight, minimumHeight)
 
-        ZStack(alignment: .bottom) {
-            ScrollView(.vertical) {
-                ZStack(alignment: .topLeading) {
-                    HStack(alignment: .top, spacing: 0) {
-                        sideViewport(
-                            layout.leftItems,
-                            side: .left,
-                            viewportWidth: paneViewportWidth,
-                            contentWidth: paneContentWidth,
-                            height: height
-                        )
-                        centerGutter
-                        sideViewport(
-                            layout.rightItems,
-                            side: .right,
-                            viewportWidth: rightPaneViewportWidth,
-                            contentWidth: max(
-                                rightPaneViewportWidth,
-                                contentWidth - gutterWidth - paneViewportWidth
-                            ),
-                            height: height
-                        )
-                    }
-
-                    DiffTransitionOverlay(
-                        transitions: layout.transitions,
-                        contentWidth: viewportWidth,
-                        contentHeight: height
+        DiffHorizontalOffsetLayer(
+            viewportWidth: viewportWidth,
+            contentWidth: paneContentWidth,
+            height: height
+        ) { horizontalOffset in
+            ZStack(alignment: .topLeading) {
+                HStack(alignment: .top, spacing: 0) {
+                    sideViewport(
+                        layout.leftItems,
+                        side: .left,
+                        viewportWidth: paneViewportWidth,
+                        contentWidth: paneContentWidth,
+                        height: height,
+                        horizontalOffset: horizontalOffset
+                    )
+                    centerGutter
+                    sideViewport(
+                        layout.rightItems,
+                        side: .right,
+                        viewportWidth: rightPaneViewportWidth,
+                        contentWidth: max(
+                            rightPaneViewportWidth,
+                            contentWidth - gutterWidth - paneViewportWidth
+                        ),
+                        height: height,
+                        horizontalOffset: horizontalOffset
                     )
                 }
-                .frame(width: viewportWidth, height: height, alignment: .topLeading)
-                .textSelection(.enabled)
-            }
-            .litheScrollViewChrome(hideHorizontal: true)
 
-            DiffHorizontalScroller(
-                offset: $horizontalOffset,
-                viewportWidth: paneViewportWidth,
-                contentWidth: paneContentWidth
-            )
+                DiffTransitionOverlay(
+                    transitions: layout.transitions,
+                    contentWidth: viewportWidth,
+                    contentHeight: height
+                )
+            }
         }
         .overlay(alignment: .topLeading) {
             SplitHandleView(
@@ -132,26 +124,6 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
             .frame(height: minimumHeight)
         }
         .frame(width: viewportWidth, height: minimumHeight, alignment: .topLeading)
-        .background {
-            DiffHorizontalScrollWheelMonitor { delta in
-                // Wheel deltas are incremental, so accumulate onto the in-flight
-                // target rather than the last applied offset. minimumChange: 0
-                // keeps sub-point wheel steps from being swallowed by the
-                // deadband, matching the pre-scheduler behavior.
-                let pendingOffset = wheelScheduler.pendingValue ?? horizontalOffset
-                wheelScheduler.submit(
-                    min(max(pendingOffset + delta, 0), maximumHorizontalOffset),
-                    minimumChange: 0
-                ) { nextOffset in
-                    horizontalOffset = nextOffset
-                }
-            }
-        }
-        .onChange(of: contentWidth) { _ in
-            wheelScheduler.cancel()
-            horizontalOffset = min(horizontalOffset, maximumHorizontalOffset)
-        }
-        .onDisappear { wheelScheduler.cancel() }
     }
 
     private func sideViewport(
@@ -159,7 +131,8 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
         side: DiffSide,
         viewportWidth: CGFloat,
         contentWidth: CGFloat,
-        height: CGFloat
+        height: CGFloat,
+        horizontalOffset: CGFloat
     ) -> some View {
         sideColumn(items, side: side, width: contentWidth)
             .offset(x: -horizontalOffset)
@@ -216,6 +189,7 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
                 isSearchMatch: searchMatchIDs.contains(row.id),
                 isCurrentSearchMatch: currentSearchMatchID == row.id
             )
+            .equatable()
             .frame(width: width)
             .overlay(alignment: .topTrailing) {
                 rowOverlay(row, side)
@@ -227,6 +201,72 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
                 cell
             }
         }
+    }
+}
+
+/// Owns the high-frequency horizontal scroll state below the diff layout
+/// owner. Updating the offset therefore does not re-evaluate
+/// `DiffSplitLayout.plan` or the pane-resizing state in `DiffSplitPaneView`.
+private struct DiffHorizontalOffsetLayer<Content: View>: View {
+    let viewportWidth: CGFloat
+    let contentWidth: CGFloat
+    let height: CGFloat
+    let content: (CGFloat) -> Content
+
+    @State private var horizontalOffset: CGFloat = 0
+    @State private var wheelScheduler = LitheDragUpdateScheduler()
+
+    init(
+        viewportWidth: CGFloat,
+        contentWidth: CGFloat,
+        height: CGFloat,
+        @ViewBuilder content: @escaping (CGFloat) -> Content
+    ) {
+        self.viewportWidth = viewportWidth
+        self.contentWidth = contentWidth
+        self.height = height
+        self.content = content
+    }
+
+    private var maximumHorizontalOffset: CGFloat {
+        max(0, contentWidth - viewportWidth)
+    }
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            ScrollView(.vertical) {
+                content(horizontalOffset)
+                    .frame(width: viewportWidth, height: height, alignment: .topLeading)
+                    .textSelection(.enabled)
+            }
+            .litheScrollViewChrome(hideHorizontal: true)
+
+            DiffHorizontalScroller(
+                offset: $horizontalOffset,
+                viewportWidth: viewportWidth,
+                contentWidth: contentWidth
+            )
+        }
+        .background {
+            DiffHorizontalScrollWheelMonitor { delta in
+                // Wheel deltas are incremental, so accumulate onto the in-flight
+                // target rather than the last applied offset. minimumChange: 0
+                // keeps sub-point wheel steps from being swallowed by the
+                // deadband, matching the pre-scheduler behavior.
+                let pendingOffset = wheelScheduler.pendingValue ?? horizontalOffset
+                wheelScheduler.submit(
+                    min(max(pendingOffset + delta, 0), maximumHorizontalOffset),
+                    minimumChange: 0
+                ) { nextOffset in
+                    horizontalOffset = nextOffset
+                }
+            }
+        }
+        .onChange(of: maximumHorizontalOffset) { newMaximum in
+            wheelScheduler.cancel()
+            horizontalOffset = min(horizontalOffset, newMaximum)
+        }
+        .onDisappear { wheelScheduler.cancel() }
     }
 }
 
@@ -261,7 +301,7 @@ extension DiffSplitPaneView where RowOverlay == EmptyView {
     }
 }
 
-private struct DiffSideRowView: View {
+private struct DiffSideRowView: View, Equatable {
     let row: DiffRow
     let kind: DiffRowKind
     let side: DiffSide
@@ -270,6 +310,30 @@ private struct DiffSideRowView: View {
     let isSelectedDifference: Bool
     let isSearchMatch: Bool
     let isCurrentSearchMatch: Bool
+
+    static func == (lhs: DiffSideRowView, rhs: DiffSideRowView) -> Bool {
+        let sameSide: Bool
+        switch (lhs.side, rhs.side) {
+        case (.left, .left), (.right, .right):
+            sameSide = true
+        default:
+            sameSide = false
+        }
+
+        return lhs.row.id == rhs.row.id
+            && lhs.row.oldLine == rhs.row.oldLine
+            && lhs.row.newLine == rhs.row.newLine
+            && lhs.row.left == rhs.row.left
+            && lhs.row.rightText == rhs.row.rightText
+            && lhs.row.kind == rhs.row.kind
+            && lhs.kind == rhs.kind
+            && sameSide
+            && lhs.fileExtension == rhs.fileExtension
+            && lhs.highlightsWords == rhs.highlightsWords
+            && lhs.isSelectedDifference == rhs.isSelectedDifference
+            && lhs.isSearchMatch == rhs.isSearchMatch
+            && lhs.isCurrentSearchMatch == rhs.isCurrentSearchMatch
+    }
 
     var body: some View {
         if kind == .information {
