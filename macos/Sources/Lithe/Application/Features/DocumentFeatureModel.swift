@@ -63,6 +63,10 @@ final class DocumentFeatureModel: ObservableObject {
     func promotePreviewDocument(_ document: EditorDocument) {
         let path = document.url.standardizedFileURL.path
         guard previewDocuments[path] === document else { return }
+        // A watcher event may still be queued when the user starts editing.
+        if document.hasPossibleExternalChange() {
+            processExternalChanges([document.url])
+        }
         previewDocuments[path] = nil
         openDocuments.append(document)
         onDocumentCollectionChanged?()
@@ -291,6 +295,9 @@ final class DocumentFeatureModel: ObservableObject {
             $0.url.standardizedFileURL.path == filePath
         }) ?? previewDocuments[filePath] {
             let wasPreview = previewDocuments[filePath] === existing
+            if wasPreview && asPreview && existing.hasPossibleExternalChange() {
+                processExternalChanges([existing.url])
+            }
             if !asPreview { promotePreviewDocument(existing) }
             if activateWhenReady {
                 let requestID = UUID()
@@ -665,7 +672,9 @@ final class DocumentFeatureModel: ObservableObject {
     func processExternalChanges(_ urls: [URL]) -> Bool {
         let changedPathSet = Set(urls.map { $0.standardizedFileURL.path })
         var conflictDetected = false
-        for document in openDocuments where changedPathSet.contains(document.url.standardizedFileURL.path) {
+        // Transient buffers need the same disk freshness and conflict policy as tabs.
+        let documents = openDocuments + previewDocuments.values.sorted { $0.url.path < $1.url.path }
+        for document in documents where changedPathSet.contains(document.url.standardizedFileURL.path) {
             guard document.hasPossibleExternalChange() else { continue }
             let operationID = UUID().uuidString
             do {
@@ -683,7 +692,9 @@ final class DocumentFeatureModel: ObservableObject {
                 case .none, .writeToDisk, .reportSaveFailure, .ignoreStaleResult:
                     break
                 }
-                onDocumentChanged?(document)
+                if openDocuments.contains(where: { $0 === document }) {
+                    onDocumentChanged?(document)
+                }
             } catch {
                 notify?("Could not process an external change to \(document.url.lastPathComponent)")
             }
@@ -739,6 +750,11 @@ final class DocumentFeatureModel: ObservableObject {
 
     private func saveDocument(_ document: EditorDocument) throws {
         guard !document.isReadOnly else { throw EditorDocument.DocumentError.readOnly }
+        // Do not overwrite an external version just because its watcher event has not arrived.
+        if document.hasPossibleExternalChange() {
+            processExternalChanges([document.url])
+            throw CocoaError(.userCancelled)
+        }
         let operationID = UUID().uuidString
         let saving = try documentLifecycleDecider.decide(
             state: document.lifecycleState,

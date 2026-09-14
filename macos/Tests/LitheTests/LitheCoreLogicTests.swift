@@ -5224,6 +5224,65 @@ struct EditorDocumentTests {
         #expect(operations.readACount == (readFails || discarded ? 2 : 1))
     }
 
+    @Test(arguments: ["watcher", "reopen", "promotion", "save"])
+    @MainActor
+    func previewExternalChangesNeverSilentlyOverwriteDisk(trigger: String) async throws {
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let file = workspace.appendingPathComponent("A.swift")
+        try "A".write(to: file, atomically: true, encoding: .utf8)
+        // Explicit timestamps avoid depending on filesystem clock resolution or sleeps.
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 100)], ofItemAtPath: file.path)
+        let operations = BlockingWorkspaceOperations()
+        operations.releaseA()
+        let model = DocumentFeatureModel(
+            operations: operations,
+            documentLifecycleDecider: PreviewExternalChangeLifecycleDecider(),
+            fileOperations: MacWorkspaceFileOperations(), fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry())
+        defer { model.reset() }
+        model.configure(
+            workspaceURLProvider: { workspace }, autoSaveEnabledProvider: { false }, autoSaveDelayProvider: { 0 },
+            notify: { _ in }, onDocumentOpened: { _ in }, onDocumentChanged: { _ in }, onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in }, onRecordDiscard: { _ in }, onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {}, onProjectCloseReady: {})
+        let document = try #require(await model.previewDocument(at: file))
+        if trigger == "save" { model.promotePreviewDocument(document) }
+        try "external".write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 200)], ofItemAtPath: file.path)
+
+        if trigger == "watcher" || trigger == "reopen" {
+            if trigger == "watcher" {
+                #expect(!model.processExternalChanges([file]))
+            } else {
+                #expect(await model.previewDocument(at: file) === document)
+            }
+            #expect(document.text == "external")
+            #expect(!document.isDirty)
+            #expect(model.openDocuments.isEmpty)
+            document.applyLiveEditorText("external + local")
+            model.promotePreviewDocument(document)
+            try model.save(document)
+            #expect(try String(contentsOf: file, encoding: .utf8) == "external + local")
+        } else {
+            // The watcher has not delivered its event before editing/promotion or saving.
+            document.applyLiveEditorText("A + local")
+            if trigger == "promotion" {
+                model.promotePreviewDocument(document)
+                #expect(document.hasExternalConflict)
+            }
+            #expect(throws: (any Error).self) { try model.save(document) }
+            #expect(document.hasExternalConflict)
+            #expect(document.text == "A + local")
+            #expect(try String(contentsOf: file, encoding: .utf8) == "external")
+            // Explicit conflict resolution remains the only way to replace that disk version.
+            model.keepEditorVersion(of: document)
+            try model.save(document)
+            #expect(try String(contentsOf: file, encoding: .utf8) == "A + local")
+        }
+    }
+
     @Test(arguments: ["edit", "open", "asyncOpen"])
     @MainActor
     func previewOnlyCreatesATabWhenOpenedOrEdited(action: String) async throws {
@@ -6241,5 +6300,27 @@ private final class TestDirectoryWatcherFactory: DirectoryWatcherFactory {
         let source = TestDirectoryChangeSource(onChange: onChange)
         self.source = source
         return source
+    }
+}
+
+/// Supplies lifecycle decisions so filesystem orchestration tests do not depend on a linked Rust runtime.
+private struct PreviewExternalChangeLifecycleDecider: DocumentLifecycleDeciding {
+    func decide(state: DocumentLifecycleState, event: DocumentLifecycleEvent,
+                operationID: String) throws -> DocumentLifecycleDecision {
+        switch event.type {
+        case .externalChanged:
+            if state.status == .clean { return .init(state: state, action: .reloadFromDisk) }
+            return .init(state: .init(status: .conflict, revision: state.revision,
+                                     savedRevision: state.savedRevision, saveRevision: nil, operationId: nil),
+                         action: .showConflict)
+        case .keepEditor:
+            return .init(state: .dirty(revision: state.revision, savedRevision: state.savedRevision ?? 0), action: .none)
+        case .saveStarted:
+            return .init(state: state, action: state.status == .conflict ? .showConflict : .writeToDisk)
+        case .saveSucceeded:
+            return .init(state: .clean(revision: state.revision), action: .none)
+        default:
+            throw CocoaError(.featureUnsupported)
+        }
     }
 }
