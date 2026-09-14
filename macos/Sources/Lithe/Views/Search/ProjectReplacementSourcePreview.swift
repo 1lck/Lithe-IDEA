@@ -78,7 +78,7 @@ private struct ProjectReplacementDocumentEditor: View {
                 .clipped()
         }
         .onReceive(document.textDidChange) {
-            // Preserve the first edit before invalidation removes this preview from the hierarchy.
+            // Promote the first edit so closing the dialog preserves unsaved changes.
             if document.isDirty { model.documentFeature.promotePreviewDocument(document) }
             onEdit()
         }

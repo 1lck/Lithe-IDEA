@@ -13,6 +13,7 @@ struct ProjectReplaceView: View {
     let copyPath: (URL, Bool) -> Void
     @State private var selectedResult: String?
     @State private var previewNeedsRefresh = false
+    @State private var retainedPreview: (file: ProjectReplacementFile, match: ProjectReplacementMatch)?
     @State private var query = ""
     @State private var replacement = ""
     @State private var options = ProjectSearchOptions.default
@@ -194,7 +195,7 @@ struct ProjectReplaceView: View {
                 return (file, match)
             }
         }
-        guard let file = feature.projectReplacementFiles.first, let match = file.matches.first else { return nil }
+        guard let file = feature.projectReplacementFiles.first, let match = file.matches.first else { return retainedPreview }
         return (file, match)
     }
 
@@ -222,12 +223,23 @@ struct ProjectReplaceView: View {
                         }
                         .padding(.horizontal, 8)
                     }
+                    .overlay {
+                        if previewNeedsRefresh && feature.projectReplacementFiles.isEmpty {
+                            Text("File changed. Run Preview again to refresh results.")
+                                .font(LitheTheme.uiFont)
+                                .foregroundStyle(LitheTheme.secondaryText)
+                                .padding()
+                        }
+                    }
                 } flexible: {
                     ProjectReplacementSourcePreview(
                         file: selected.file, line: selected.match.line,
                         query: query, options: optionsForPreview, loadDocument: loadPreviewDocument, onEdit: {
+                            // Keep the mounted editor (including its caret and undo stack)
+                            // while invalidating only the obsolete search snapshot.
+                            retainedPreview = selected
                             previewNeedsRefresh = true
-                            clearPreview()
+                            clearPreview(preservingEditor: true)
                         }
                     )
                     .id(selected.file.id)
@@ -292,7 +304,8 @@ struct ProjectReplaceView: View {
         }
     }
 
-    private func clearPreview() {
+    private func clearPreview(preservingEditor: Bool = false) {
+        if !preservingEditor { retainedPreview = nil }
         selectedResult = nil
         feature.clearProjectReplacementPreview()
     }

@@ -576,6 +576,59 @@ struct EditorJavaViewportTests {
         #expect(invalidated, "Do not allow another click on obsolete match lines after an edit")
     }
 
+    @Test
+    func replacementDialogKeepsEditorMountedAfterInvalidatingResults() async throws {
+        let store = ViewportTestStore()
+        let settings = AppSettings(store: store)
+        let services = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services
+        let model = AppModel(settings: settings, services: services)
+        let document = EditorDocument(url: URL(fileURLWithPath: "/fixture/Preview.xml"),
+                                      text: "foo\nfoo", modificationDate: nil)
+        let file = ProjectReplacementFile(url: document.url, relativePath: "Preview.xml", matches: [
+            .init(line: 1, before: "foo", after: "bar", occurrenceCount: 1)
+        ])
+        let feature = SearchFeatureModel(operations: PreviewEditorSearchOperations(file: file))
+        let session = SearchSessionFeatureModel()
+        await feature.previewProjectReplacement(
+            at: document.url.deletingLastPathComponent(), query: "foo", replacement: "bar",
+            paths: [file.relativePath], textOverrides: [:],
+            visibilityRules: .init(hiddenDirectoryNames: [], hiddenFilePatterns: []), isCurrent: { true })
+        let hosting = NSHostingView(rootView:
+            ProjectReplaceView(feature: feature, session: session,
+                previewReplacement: { _, _, _ in }, loadPreviewDocument: { _ in document },
+                close: {}, openFile: { _, _ in }, revealInFinder: { _ in }, copyPath: { _, _ in })
+                .environmentObject(model).environmentObject(settings))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 650, height: 614),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close(); feature.reset(); model.documentFeature.reset() }
+        window.contentView = hosting
+        func editor(in view: NSView) -> CodeTextView? {
+            if let text = view as? CodeTextView { return text }
+            return view.subviews.lazy.compactMap { editor(in: $0) }.first
+        }
+        // Await the native mounting boundary with a deadline, never a fixed rendering delay.
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while editor(in: hosting) == nil && clock.now < deadline {
+            hosting.layoutSubtreeIfNeeded()
+            await Task.yield()
+        }
+        let originalEditor = try #require(editor(in: hosting))
+        originalEditor.insertText("x", replacementRange: NSRange(location: 0, length: 0))
+        #expect(feature.projectReplacementFiles.isEmpty)
+        // Flush the parent view update: testing the child alone misses its removal by results.
+        hosting.layoutSubtreeIfNeeded()
+        let retainedEditor = try #require(editor(in: hosting))
+        #expect(retainedEditor === originalEditor)
+        retainedEditor.insertText("y", replacementRange: retainedEditor.selectedRange())
+        hosting.layoutSubtreeIfNeeded()
+        #expect(editor(in: hosting) === originalEditor)
+        #expect(document.text == "xyfoo\nfoo")
+        #expect(document.isDirty)
+        #expect(feature.projectReplacementFiles.isEmpty)
+    }
+
     private func withCoordinator(
         source: String,
         fileExtension: String = "java",
@@ -628,4 +681,13 @@ private final class ViewportLayoutRecorder: NSLayoutManager {
         requestedLineGlyphs.append(glyphIndex)
         return super.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: effectiveRange)
     }
+}
+
+private struct PreviewEditorSearchOperations: SearchOperations {
+    let file: ProjectReplacementFile
+    func search(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules) -> [FileSearchResult]? { [] }
+    func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules) -> SearchEverywhereResults? { .init() }
+    func previewReplacement(at rootURL: URL, query: String, replacement: String, options: ProjectSearchOptions, paths: [String], textOverrides: [String: String], visibilityRules: SearchVisibilityRules) -> [ProjectReplacementFile]? { [file] }
+    func readFile(at rootURL: URL, relativePath: String) -> String? { nil }
+    func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
 }
