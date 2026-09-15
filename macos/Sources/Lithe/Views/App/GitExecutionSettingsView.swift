@@ -38,7 +38,8 @@ struct GitExecutionSettingsView: View {
             DisclosureGroup(isExpanded: $showsAdvanced) {
                 if showsAdvanced, let feature {
                     GitExecutionConfigurationPane(feature: feature, editor: feature.executionSettings,
-                        preferencesKey: "\(settings.gitExecutable)|\(settings.gitUseCredentialHelper)|\(settings.gitFetchOptions)")
+                        preferencesKey: "\(settings.gitExecutable)|\(settings.gitUseCredentialHelper)|\(settings.gitFetchOptions)",
+                        applicationFetchDefaults: settings.gitFetchOptions)
                         .padding(.top, 12)
                 }
             } label: {
@@ -99,6 +100,7 @@ private struct GitExecutionConfigurationPane: View {
     @ObservedObject var feature: GitFeatureModel
     @ObservedObject var editor: GitExecutionSettingsFeatureModel
     let preferencesKey: String
+    let applicationFetchDefaults: GitFetchOptions
     @State private var scope = "local"
     @State private var remoteURL: String?
     @State private var showsTechnicalDetails = false
@@ -201,7 +203,9 @@ private struct GitExecutionConfigurationPane: View {
                             effectiveValueOverride: effectiveValueOverride(for: field.key, entries: entries),
                             effectiveSourceOverride: effectiveSourceOverride(for: field.key, entries: entries),
                             fallbackEffectiveValue: fallbackEffectiveValue(for: field.key, fetchOptions: fetchOptions, entries: entries),
-                            fallbackEffectiveSource: fallbackEffectiveSource(for: field.key, entries: entries),
+                            fallbackEffectiveSource: fallbackEffectiveSource(for: field.key, fetchOptions: fetchOptions, entries: entries),
+                            resetFallbackValue: fallbackEffectiveValue(for: field.key, fetchOptions: applicationFetchDefaults, entries: entries),
+                            resetFallbackSource: fallbackEffectiveSource(for: field.key, fetchOptions: applicationFetchDefaults, entries: entries),
                             showsTechnicalDetails: showsTechnicalDetails
                         ) { value in
                             save(field, value: value)
@@ -236,29 +240,15 @@ private struct GitExecutionConfigurationPane: View {
     }
 
     private func fallbackEffectiveValue(for key: String, fetchOptions: GitFetchOptions?, entries: [GitConfigurationEntry]) -> String? {
-        switch key {
-        case "fetch.prune", "fetch.prunetags": return "false"
-        case "fetch.recursesubmodules": return "false"
-        case "pull.rebase": return "false"
-        case "pull.ff": return "true"
-        case "push.default": return "simple"
-        case "credential.usehttppath": return "false"
-        case "lithe.fetch.prune": return fetchOptions.map { $0.prune ? "true" : "false" } ?? "true"
-        case "lithe.fetch.submodules":
-            if let gitValue = entries.last(where: { $0.key == "fetch.recursesubmodules" && $0.effective })?.value {
-                return gitValue
-            }
-            guard let submodules = fetchOptions?.submodules else { return "false" }
-            return submodules == .inherit ? "false" : submodules.rawValue
-        case "lithe.fetch.tags": return fetchOptions?.tags.rawValue ?? GitFetchTags.inherit.rawValue
-        default: return nil
-        }
+        GitConfigurationFallback.value(for: key, fetchOptions: fetchOptions, entries: entries)
     }
 
-    private func fallbackEffectiveSource(for key: String, entries: [GitConfigurationEntry]) -> LocalizedStringKey {
-        if key == "lithe.fetch.submodules",
-           let gitEntry = entries.last(where: { $0.key == "fetch.recursesubmodules" && $0.effective }) {
-            return LocalizedStringKey(sourceScope(gitEntry.scope))
+    private func fallbackEffectiveSource(for key: String, fetchOptions: GitFetchOptions?, entries: [GitConfigurationEntry]) -> LocalizedStringKey {
+        if key == "lithe.fetch.submodules", fetchOptions?.submodules == .inherit {
+            if let gitEntry = entries.last(where: { $0.key == "fetch.recursesubmodules" && $0.effective }) {
+                return LocalizedStringKey(sourceScope(gitEntry.scope))
+            }
+            return "Git default"
         }
         return key.hasPrefix("lithe.") ? "Lithe application default" : "Git default"
     }
@@ -367,15 +357,14 @@ private struct GitBranchContextView: View {
                 Text("Remote URL")
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
-                if let remoteURL, !remoteURL.isEmpty {
-                    let safeRemoteURL = Self.displayRemoteURL(remoteURL)
-                    Text(verbatim: safeRemoteURL)
+                if let remoteURL, let presentation = GitRemoteURLPresentation(remoteURL) {
+                    Text(verbatim: presentation.displayURL)
                         .font(.system(size: 10.5, design: .monospaced))
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .textSelection(.enabled)
-                        .help(Text(verbatim: safeRemoteURL))
-                    if let browserURL = Self.browserURL(from: remoteURL) {
+                        .help(Text(verbatim: presentation.displayURL))
+                    if let browserURL = presentation.browserURL {
                         Link("Open remote", destination: browserURL)
                             .font(.system(size: 10.5, weight: .medium))
                     }
@@ -436,56 +425,6 @@ private struct GitBranchContextView: View {
             ? "Loading branch details…"
             : "No remote URL"
     }
-
-    private static func browserURL(from value: String) -> URL? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let url = URL(string: trimmed), url.scheme == "http" || url.scheme == "https" {
-            return sanitizedHTTPURL(url)
-        }
-        if trimmed.hasPrefix("git@"), let separator = trimmed.firstIndex(of: ":") {
-            let hostStart = trimmed.index(trimmed.startIndex, offsetBy: 4)
-            let host = String(trimmed[hostStart..<separator])
-            let path = String(trimmed[trimmed.index(after: separator)...])
-            return URL(string: "https://\(host)/\(path)")
-        }
-        if trimmed.hasPrefix("ssh://"), var components = URLComponents(string: trimmed) {
-            components.scheme = "https"
-            components.user = nil
-            components.password = nil
-            components.port = nil
-            return components.url
-        }
-        return nil
-    }
-
-    private static func displayRemoteURL(_ value: String) -> String {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let url = URL(string: trimmed), let sanitized = sanitizedHTTPURL(url) {
-            return sanitized.absoluteString
-        }
-        if trimmed.hasPrefix("git@"), let separator = trimmed.firstIndex(of: ":") {
-            let hostStart = trimmed.index(trimmed.startIndex, offsetBy: 4)
-            let host = String(trimmed[hostStart..<separator])
-            let path = String(trimmed[trimmed.index(after: separator)...])
-            return "git@\(host):\(path)"
-        }
-        if let url = URL(string: trimmed), url.scheme == "ssh", let sanitized = sanitizedHTTPURL(url) {
-            return sanitized.absoluteString
-        }
-        return trimmed
-    }
-
-    private static func sanitizedHTTPURL(_ url: URL) -> URL? {
-        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              components.scheme == "http" || components.scheme == "https" else { return nil }
-        components.user = nil
-        components.password = nil
-        components.queryItems = components.queryItems?.map { item in
-            let sensitive = ["access_token", "api_key", "apikey", "auth", "authorization", "client_secret", "password", "passwd", "secret", "token"].contains(item.name.lowercased())
-            return sensitive ? URLQueryItem(name: item.name, value: "redacted") : item
-        }
-        return components.url
-    }
 }
 
 private struct GitEditableConfigurationRow: View {
@@ -496,6 +435,8 @@ private struct GitEditableConfigurationRow: View {
     let effectiveSourceOverride: LocalizedStringKey?
     let fallbackEffectiveValue: String?
     let fallbackEffectiveSource: LocalizedStringKey
+    let resetFallbackValue: String?
+    let resetFallbackSource: LocalizedStringKey
     let showsTechnicalDetails: Bool
     let onSave: (String?) -> Void
     @State private var selection = ""
@@ -528,8 +469,8 @@ private struct GitEditableConfigurationRow: View {
                     // even when that value is also the current effective entry.
                     if let inheritedEntry {
                         inheritedValueLine(label: "If reset, use", value: inheritedEntry.value, source: LocalizedStringKey(sourceScope(inheritedEntry.scope)), origin: inheritedEntry.origin)
-                    } else if let fallbackEffectiveValue {
-                        inheritedValueLine(label: "If reset, use", value: fallbackEffectiveValue, source: fallbackEffectiveSource, origin: nil)
+                    } else if let resetFallbackValue {
+                        inheritedValueLine(label: "If reset, use", value: resetFallbackValue, source: resetFallbackSource, origin: nil)
                     }
                 }
                 if showsTechnicalDetails {
