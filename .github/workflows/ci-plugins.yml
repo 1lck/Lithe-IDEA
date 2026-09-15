@@ -79,17 +79,15 @@ jobs:
     name: Plugin tests and package verification
     needs: changes
     if: needs.changes.outputs.plugins == 'true'
-    runs-on: macos-14
+    runs-on: macos-26
     timeout-minutes: 35
 
     steps:
       - name: Check out source
         uses: actions/checkout@v7
 
-      - name: Set up Swift
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: "6.2"
+      - name: Set up Swift 6.3.3 and Xcode
+        uses: ./.github/actions/setup-macos-toolchain
 
       - name: Prepare verified SwiftPM cache
         uses: ./.github/actions/prepare-macos-dependency-cache

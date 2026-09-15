@@ -1,0 +1,21 @@
+name: Set up macOS toolchain
+description: Select the Xcode SDK and verify the repository's pinned Swift compiler.
+runs:
+  using: composite
+  steps:
+    - name: Select Xcode 26.6
+      uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: "26.6"
+    - name: Verify Swift compiler
+      shell: bash
+      run: |
+        expected=$(cat "$GITHUB_WORKSPACE/.swift-version")
+        actual=$(swift --version | sed -nE 's/.*Swift version ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p')
+        if [[ "$actual" != "$expected" ]]; then
+          echo "::error::Expected Swift $expected from the selected Xcode, found $actual"
+          exit 1
+        fi
+        swift --version
+        xcodebuild -version
+        xcrun --sdk macosx --show-sdk-version
