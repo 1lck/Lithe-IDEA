@@ -368,12 +368,13 @@ private struct GitBranchContextView: View {
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
                 if let remoteURL, !remoteURL.isEmpty {
-                    Text(verbatim: remoteURL)
+                    let safeRemoteURL = Self.displayRemoteURL(remoteURL)
+                    Text(verbatim: safeRemoteURL)
                         .font(.system(size: 10.5, design: .monospaced))
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .textSelection(.enabled)
-                        .help(Text(verbatim: remoteURL))
+                        .help(Text(verbatim: safeRemoteURL))
                     if let browserURL = Self.browserURL(from: remoteURL) {
                         Link("Open remote", destination: browserURL)
                             .font(.system(size: 10.5, weight: .medium))
@@ -439,7 +440,7 @@ private struct GitBranchContextView: View {
     private static func browserURL(from value: String) -> URL? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if let url = URL(string: trimmed), url.scheme == "http" || url.scheme == "https" {
-            return url
+            return sanitizedHTTPURL(url)
         }
         if trimmed.hasPrefix("git@"), let separator = trimmed.firstIndex(of: ":") {
             let hostStart = trimmed.index(trimmed.startIndex, offsetBy: 4)
@@ -455,6 +456,35 @@ private struct GitBranchContextView: View {
             return components.url
         }
         return nil
+    }
+
+    private static func displayRemoteURL(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let url = URL(string: trimmed), let sanitized = sanitizedHTTPURL(url) {
+            return sanitized.absoluteString
+        }
+        if trimmed.hasPrefix("git@"), let separator = trimmed.firstIndex(of: ":") {
+            let hostStart = trimmed.index(trimmed.startIndex, offsetBy: 4)
+            let host = String(trimmed[hostStart..<separator])
+            let path = String(trimmed[trimmed.index(after: separator)...])
+            return "git@\(host):\(path)"
+        }
+        if let url = URL(string: trimmed), url.scheme == "ssh", let sanitized = sanitizedHTTPURL(url) {
+            return sanitized.absoluteString
+        }
+        return trimmed
+    }
+
+    private static func sanitizedHTTPURL(_ url: URL) -> URL? {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme == "http" || components.scheme == "https" else { return nil }
+        components.user = nil
+        components.password = nil
+        components.queryItems = components.queryItems?.map { item in
+            let sensitive = ["access_token", "api_key", "apikey", "auth", "authorization", "client_secret", "password", "passwd", "secret", "token"].contains(item.name.lowercased())
+            return sensitive ? URLQueryItem(name: item.name, value: "redacted") : item
+        }
+        return components.url
     }
 }
 
@@ -494,7 +524,9 @@ private struct GitEditableConfigurationRow: View {
                     .fixedSize(horizontal: false, vertical: true)
                 effectiveValueLine
                 if !field.configuredValues.isEmpty {
-                    if let inheritedEntry, let effectiveEntry, inheritedEntry.id != effectiveEntry.id {
+                    // Reset targets the nearest lower-priority configured scope,
+                    // even when that value is also the current effective entry.
+                    if let inheritedEntry {
                         inheritedValueLine(label: "If reset, use", value: inheritedEntry.value, source: LocalizedStringKey(sourceScope(inheritedEntry.scope)), origin: inheritedEntry.origin)
                     } else if let fallbackEffectiveValue {
                         inheritedValueLine(label: "If reset, use", value: fallbackEffectiveValue, source: fallbackEffectiveSource, origin: nil)
