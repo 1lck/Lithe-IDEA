@@ -17,6 +17,18 @@ fail locally with a useful diagnostic instead of waiting for a CI job timeout.
   uses the repository's Bun toolchain because the product tests run under Bun;
   this dependency is isolated to that scope.
 
+## Swift CI compatibility
+
+- Compile tests with the same Swift major/minor toolchain as CI before handing
+  them off. A newer local compiler can accept test syntax that the CI compiler
+  rejects.
+- A `weak` reference is mutable storage because the runtime may clear it;
+  declare it as `weak var`, never `weak let`. This is rejected by Swift 6.2 CI
+  even when a newer local toolchain accepts it.
+- When a CI compile fails before tests start, inspect the CI compiler diagnostic
+  first and reproduce the compile lane before diagnosing test timing or
+  concurrency behavior.
+
 ## Read the platform guidance
 
 - For Swift or macOS tests, read [references/macos-swift.md](references/macos-swift.md).

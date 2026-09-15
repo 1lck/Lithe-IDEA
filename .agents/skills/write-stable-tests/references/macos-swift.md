@@ -3,6 +3,24 @@
 The macOS harness requires only Swift, zsh, and Node.js. Bun is not installed,
 loaded, or invoked anywhere in this path.
 
+## Toolchain compatibility
+
+CI currently selects Swift 6.2. Local Xcode or Swift installations may be
+newer, so a local build can hide a CI compile error. Before attributing a failed
+CI lane to test timing, compare the compiler versions and reproduce the same
+lane when possible.
+
+Swift weak references must be declared with mutable storage:
+
+```swift
+weak var released = coordinator
+```
+
+Do not write `weak let released = coordinator`. Swift 6.2 rejects it with
+`'weak' must be a mutable variable, because it may change at runtime`; a newer
+compiler may only warn or accept the form, which makes this an easy CI-only
+failure to miss.
+
 ## Preferred synchronization
 
 - Prefer actor-owned state, checked continuations, `AsyncStream`, injected

@@ -5967,7 +5967,7 @@ struct EditorSessionCoordinatorTests {
         var coordinator: EditorSessionCoordinator? = EditorSessionCoordinator(
             document: document, media: media, terminalPlacement: terminal, tabOrder: order
         )
-        weak let released = coordinator
+        weak var released = coordinator
         #expect(coordinator != nil)
         coordinator = nil
         #expect(released == nil)
