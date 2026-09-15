@@ -19,12 +19,10 @@ fail locally with a useful diagnostic instead of waiting for a CI job timeout.
 
 ## Swift CI compatibility
 
-- Compile tests with the same Swift major/minor toolchain as CI before handing
-  them off. A newer local compiler can accept test syntax that the CI compiler
-  rejects.
+- Compile tests with the same Swift toolchain as CI before handing them off. A
+  local compiler that is newer or older can accept or reject syntax differently.
 - A `weak` reference is mutable storage because the runtime may clear it;
-  declare it as `weak var`, never `weak let`. This is rejected by Swift 6.2 CI
-  even when a newer local toolchain accepts it.
+  declare it as `weak var`.
 - When a CI compile fails before tests start, inspect the CI compiler diagnostic
   first and reproduce the compile lane before diagnosing test timing or
   concurrency behavior.
