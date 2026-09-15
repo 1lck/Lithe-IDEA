@@ -178,6 +178,12 @@ private final class MacShortcutDetector: ShortcutDetector, @unchecked Sendable {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             self.doubleShiftRecognizer.handleKeyDown()
+            // While an input method owns marked text, key events belong to
+            // NSTextInputClient. Consuming one as an application shortcut
+            // breaks Chinese/Japanese/Korean composition and confirmation.
+            if (event.window?.firstResponder as? NSTextInputClient)?.hasMarkedText() == true {
+                return event
+            }
             guard !self.isSuspended,
                   let binding = MacKeyboardShortcutEventMapper.binding(
                     keyCode: event.keyCode,

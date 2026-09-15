@@ -14,6 +14,16 @@ Rust Core、数据库辅助 crate 和前端构建的耗时来源不同；如果�
 
 ## 决策
 
+macOS CI 与发布工作流统一使用 `macos-26` runner 上的 Xcode 26.6，编译器
+固定为 `.swift-version` 中的 Swift 6.3.3。共用的 `setup-macos-toolchain` action
+选择 Xcode 后校验实际编译器版本；不一致就立即失败，不能悄悄使用 runner 的
+默认版本。SwiftPM 缓存键与完整性校验都读取这个版本文件。
+
+此前在旧 runner 上通过 Swiftly 安装独立工具链失败，测试未能启动。因此改用
+已预装的完整 Xcode，让 Swift、链接器和 SDK 保持匹配。升级编译器不改变应用
+的 Swift 5 语言模式、测试的 Swift 6 语言模式或 macOS 13 最低运行版本。
+后续升级必须一起验证安装选择、编译、测试和双架构打包。
+
 macOS PR 构建分别产出 Apple Silicon（`arm64`）和 Intel（`x86_64`）包，
 两个架构任务在资源允许时并行运行。推送到 `main` 或手动运行时，再使用相同
 编译产物组装通用 DMG；Windows 构建一次 Release 包和前端类型检查，产出
@@ -38,6 +48,13 @@ gate 失败；架构任务使用 `fail-fast: false`，以便另一架构仍可�
 和可用 runner 数量属于 CI 基础设施因素，不能与编译优化混为一谈。
 
 ## 考虑过的备选方案
+
+### 在旧 runner 上用 Swiftly 安装独立编译器
+
+这能单独选择 Swift，但安装器失败会阻断所有后续验证，且 SDK 与编译器可能
+来自不同版本。当前需要的 Swift 已随 Xcode 26.6 提供，所以使用预装 Xcode，
+不再额外下载工具链。runner 删除固定 Xcode 时，工作流会明确报错，届时重新
+验证并升级版本组合。
 
 ### 缓存最终可执行文件
 

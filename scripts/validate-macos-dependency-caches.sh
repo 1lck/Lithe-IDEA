@@ -86,7 +86,7 @@ if [[ "$SWIFTPM_ENABLED" == "true" ]]; then
     verifier_arguments+=(
         --swiftpm-cache "$swiftpm_root"
         --swiftpm-resolved "$ROOT_DIR/Package.resolved"
-        --swift-version 6.2
+        --swift-version "$(<"$ROOT_DIR/.swift-version")"
     )
 fi
 if [[ "$JDTLS_ENABLED" == "true" ]]; then

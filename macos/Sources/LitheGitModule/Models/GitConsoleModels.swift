@@ -108,6 +108,32 @@ package struct GitConsoleEntry: Identifiable, Equatable, Sendable {
 
     package var succeeded: Bool { state == .completed && (exitCode == 0 || expectedExit) && operationErrorMessage == nil }
 
+    /// Commands that remove or discard repository state are highlighted in the
+    /// console so destructive actions are easy to distinguish from inspection.
+    package var isDestructive: Bool {
+        guard let command = arguments.first?.lowercased() else { return false }
+        let options = Set(arguments.dropFirst().map { $0.lowercased() })
+        switch command {
+        case "branch", "tag":
+            // Both Git's -d and -D forms lower-case to -d above.
+            return options.contains("-d")
+        case "worktree":
+            return options.contains("remove") || options.contains("prune")
+        case "stash":
+            return options.contains("drop")
+        case "clean", "reset":
+            return true
+        case "update-ref":
+            return options.contains("-d")
+        case "config":
+            return options.contains("--unset-all") || options.contains("--unset")
+        case "apply":
+            return options.contains("--reverse")
+        default:
+            return false
+        }
+    }
+
     package var commandLine: String {
         GitConsoleCommandFormatter.commandLine(arguments: arguments)
     }

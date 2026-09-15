@@ -89,7 +89,6 @@ struct RunConfigurationEditorView: View {
         }
         .frame(width: 520, height: 470)
         .background(LitheTheme.window)
-        .preferredColorScheme(.dark)
         .fileImporter(
             isPresented: $isPathPickerPresented,
             allowedContentTypes: activePathPicker?.allowedContentTypes ?? [.folder]
@@ -116,8 +115,8 @@ struct RunConfigurationEditorView: View {
             }
             .pickerStyle(.segmented)
             Text(saveScope == .local
-                 ? "Saved in .lithe/run/local.json and excluded from Git."
-                 : "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared.")
+                 ? String(localized: "Saved in .lithe/run/local.json and excluded from Git.")
+                 : String(localized: "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared."))
                 .font(.system(size: 11))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -167,9 +166,9 @@ struct RunConfigurationEditorView: View {
 
     private var sourceTitle: String {
         switch feature.source(for: configuration) {
-        case .generated: "Automatically generated"
-        case .project: "Project configuration"
-        case .local: "This Mac"
+        case .generated: String(localized: "Automatically generated")
+        case .project: String(localized: "Project configuration")
+        case .local: String(localized: "This Mac")
         }
     }
 

@@ -7,8 +7,18 @@ import LitheModuleAPI
 /// in AppModel. Git command construction and parsing remain in GitService/Core.
 @MainActor
 package final class GitFeatureModel: ObservableObject {
-    package lazy var repositorySetup = GitRepositorySetupFeatureModel(service: service)
-    package lazy var identitySettings = GitRepositorySetupFeatureModel(service: service)
+    package lazy var repositorySetup = GitRepositorySetupFeatureModel(
+        service: service,
+        recordMutation: { [weak self] root, arguments, result in
+            self?.recordGitSetupCommand(root: root, arguments: arguments, result: result)
+        }
+    )
+    package lazy var identitySettings = GitRepositorySetupFeatureModel(
+        service: service,
+        recordMutation: { [weak self] root, arguments, result in
+            self?.recordGitSetupCommand(root: root, arguments: arguments, result: result)
+        }
+    )
     package var repositorySetupRoot: URL? { gitRepositoryRoot ?? workspaceURLProvider?() }
     package lazy var patchExchange = makePatchExchange()
     package lazy var historyEditing = makeHistoryEditing()
@@ -22,6 +32,18 @@ package final class GitFeatureModel: ObservableObject {
     }
     package func saveExecutionConfiguration(at root: URL, field: GitConfigurationField, value: String?) async {
         await withGitOperation { await executionSettings.save(at: root, field: field, value: value) }
+    }
+    package func refreshGitReferencesForSettings() async {
+        guard let root = gitRepositoryRoot, !Task.isCancelled else { return }
+        let operationID = "settings-references-\(UUID().uuidString)"
+        guard let snapshot = await service.references(at: root, operationID: operationID),
+              gitRepositoryRoot == root, !Task.isCancelled else { return }
+        gitReferences = snapshot.references
+        recentGitReferences = snapshot.recentReferences
+        gitIdentity = snapshot.identity
+    }
+    package func remoteURL(named remote: String, at root: URL) async -> String? {
+        await service.remoteURL(at: root, remote: remote)
     }
     package func answerAuthentication(_ challenge: GitAuthenticationChallenge, answer: String?) async {
         let accepted = await service.answerAuthentication(requestID: challenge.id, answer: answer)
@@ -2173,7 +2195,37 @@ package final class GitFeatureModel: ObservableObject {
         adding: Bool,
         at rootURL: URL
     ) async -> GitService.CommandResult {
-        await service.mutateLiteralLocalExcludePatterns(patterns, adding: adding, at: rootURL)
+        await withGitOperation {
+            await service.mutateLiteralLocalExcludePatterns(patterns, adding: adding, at: rootURL)
+        }
+    }
+
+    private func recordGitSetupCommand(
+        root: URL,
+        arguments: [String],
+        result: Result<GitRepositorySetup, GitSetupFailure>
+    ) {
+        let succeeded: Bool
+        let output: String
+        switch result {
+        case .success:
+            succeeded = true
+            output = ""
+        case .failure(let error):
+            succeeded = false
+            output = error.message
+        }
+        gitConsoleEntries.append(
+            GitConsoleEntry(
+                workingDirectory: root,
+                arguments: arguments,
+                output: output,
+                exitCode: succeeded ? 0 : 1
+            )
+        )
+        if gitConsoleEntries.count > 500 {
+            gitConsoleEntries.removeFirst(gitConsoleEntries.count - 500)
+        }
     }
 
     /// Another checkout can move shared refs while this worktree's status stays unchanged.
