@@ -6,6 +6,7 @@ struct StandaloneEditorView: View {
     @State private var editorViewportStore = EditorViewportStore()
 
     var body: some View {
+        let closeConfirmationID = model.pendingCloseConfirmationID
         VStack(spacing: 0) {
             header
             Rectangle()
@@ -20,7 +21,7 @@ struct StandaloneEditorView: View {
             "Save changes before closing?",
             isPresented: Binding(
                 get: { model.pendingCloseDocument != nil },
-                set: { if !$0 { model.cancelPendingClose() } }
+                set: { if !$0 { model.dismissPendingCloseConfirmation(closeConfirmationID) } }
             ),
             titleVisibility: .visible
         ) {

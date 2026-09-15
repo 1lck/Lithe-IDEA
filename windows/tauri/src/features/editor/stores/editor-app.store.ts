@@ -1,10 +1,12 @@
+import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { isLocalDocumentPath, readDocumentFile, saveDocumentFile } from "@/platform/document-files";
+import { decideDocumentLifecycle } from "@/platform/document-lifecycle";
 import { invoke } from "@/platform/tauri-core";
 import { toast } from "sonner";
 import { immer } from "zustand/middleware/immer";
 import { createStore } from "zustand/vanilla";
 import { extensionRegistry } from "@/extensions/registry/extension-registry";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
-import { useFileWatcherStore } from "@/features/file-system/stores/file-watcher.store";
 import { emitGitChanged } from "@/features/git/events/git-events";
 import { recordLocalHistoryFile } from "@/features/local-history/api/local-history-api";
 import {
@@ -67,7 +69,7 @@ async function claimDocumentSave(
     buffer.isDirty,
   );
   const decision = await beginDocumentSave(current, context);
-  if (!decision) return null;
+  if (!decision || !workspaceRuntimeRegistry.hasWorkspace(workspaceId)) return null;
   const bufferStore = useBufferStore.getStore(workspaceId);
   const latest = getBufferById(bufferStore.getState().buffers, buffer.id);
   if (!latest || !isEditorContent(latest)) {
@@ -90,11 +92,35 @@ async function claimDocumentSave(
   return { context };
 }
 
+async function persistClaimedDocument(workspaceId: string, claim: ClaimedDocumentSave, content: string, expectedContent: string | null): Promise<boolean> {
+  if (!workspaceRuntimeRegistry.hasWorkspace(workspaceId)) return false;
+  const current = getBufferById(useBufferStore.getStore(workspaceId).getState().buffers, claim.context.bufferId);
+  if (!current || !isEditorContent(current) || current.path !== claim.context.path ||
+      current.documentLifecycle?.status !== "saving" || current.documentLifecycle.operationId !== claim.context.operationId) return false;
+  if (!isLocalDocumentPath(claim.context.path)) {
+    await writeFile(claim.context.path, content);
+    return true;
+  }
+  const outcome = await saveDocumentFile(claim.context.path, content, expectedContent);
+  if (!workspaceRuntimeRegistry.hasWorkspace(workspaceId)) return false;
+  if (outcome.status === "saved") return true;
+  const store = useBufferStore.getStore(workspaceId);
+  const buffer = getBufferById(store.getState().buffers, claim.context.bufferId);
+  if (!buffer || !isEditorContent(buffer) || buffer.path !== claim.context.path) return false;
+  const decision = await decideDocumentLifecycle(restoreDocumentLifecycle(buffer.documentLifecycle, buffer.contentRevision ?? 0, buffer.isDirty), { type: "diskConflict" });
+  const latest = getBufferById(store.getState().buffers, claim.context.bufferId);
+  if (!latest || !isEditorContent(latest) || latest.path !== claim.context.path) return false;
+  store.getState().actions.updateBuffer({ ...latest, externalDiskContent: outcome.content });
+  store.getState().actions.applyDocumentLifecycle(latest.id, { ...decision.state, revision: latest.contentRevision ?? 0 });
+  return false;
+}
+
 async function finishDocumentSave(
   workspaceId: string,
   claim: ClaimedDocumentSave,
   savedContent: string,
 ) {
+  if (!workspaceRuntimeRegistry.hasWorkspace(workspaceId)) return;
   const bufferStore = useBufferStore.getStore(workspaceId);
   const latest = getBufferById(bufferStore.getState().buffers, claim.context.bufferId);
   if (!latest || !isEditorContent(latest)) return;
@@ -133,6 +159,7 @@ async function rejectDocumentSave(
   claim: ClaimedDocumentSave,
   error: unknown,
 ) {
+  if (!workspaceRuntimeRegistry.hasWorkspace(workspaceId)) return;
   const bufferStore = useBufferStore.getStore(workspaceId);
   const latest = getBufferById(bufferStore.getState().buffers, claim.context.bufferId);
   if (!latest || !isEditorContent(latest)) return;
@@ -207,7 +234,6 @@ async function saveEditorBufferById(
   const { buffers } = bufferStore.getState();
   const { markBufferDirty, updateBufferPath } = bufferStore.getState().actions;
   const { updateSettingsFromJSON } = useSettingsStore.getState().actions;
-  const { markPendingSave } = useFileWatcherStore.getStore(workspaceId).getState().actions;
   const activeBuffer = getBufferById(buffers, bufferId);
   if (!activeBuffer || !isEditorContent(activeBuffer) || activeBuffer.readOnly) return "failed";
 
@@ -224,9 +250,19 @@ async function saveEditorBufferById(
       });
       if (!result) return "cancelled";
 
-      await writeFile(result, activeBuffer.content);
+      const current = getBufferById(bufferStore.getState().buffers, bufferId);
+      if (!current || !isEditorContent(current) || current.path !== activeBuffer.path) return "cancelled";
+      const content = current.content;
+      const baseline = await readDocumentFile(result);
+      const outcome = await saveDocumentFile(result, content, baseline);
+      if (outcome.status !== "saved") { showSaveFailure(current.name); return "cancelled"; }
+      const latest = getBufferById(bufferStore.getState().buffers, bufferId);
+      if (!latest || !isEditorContent(latest) || latest.path !== current.path) return "cancelled";
       updateBufferPath(activeBuffer.id, result);
-      markBufferDirty(activeBuffer.id, false);
+      bufferStore.getState().actions.recordSuccessfulBufferSave(bufferId, content,
+        latest.content === content
+          ? { status: "clean", revision: latest.contentRevision ?? 0 }
+          : { status: "dirty", revision: latest.contentRevision ?? 0, savedRevision: current.contentRevision ?? 0 });
       return "saved";
     }
 
@@ -287,6 +323,8 @@ async function saveEditorBufferById(
       }
     }
 
+    const latestAfterFormat = getBufferById(bufferStore.getState().buffers, activeBuffer.id);
+    if (!latestAfterFormat || !isEditorContent(latestAfterFormat) || latestAfterFormat.content !== activeBuffer.content || latestAfterFormat.path !== activeBuffer.path) return "cancelled";
     if (contentToSave !== activeBuffer.content) {
       bufferStore.getState().actions.updateBufferContent(activeBuffer.id, contentToSave, true);
     }
@@ -294,10 +332,10 @@ async function saveEditorBufferById(
     if (!saveBuffer || !isEditorContent(saveBuffer)) return "cancelled";
     claimedSave = await claimDocumentSave(workspaceId, saveBuffer);
     if (!claimedSave) return "cancelled";
-    markPendingSave(activeBuffer.path);
 
     await recordLocalHistoryBeforeWrite(activeBuffer.path, "save");
-    await writeFile(activeBuffer.path, contentToSave);
+    const expectedContent = saveBuffer.acknowledgedDiskContent === undefined ? saveBuffer.savedContent : saveBuffer.acknowledgedDiskContent;
+    if (!await persistClaimedDocument(workspaceId, claimedSave, contentToSave, expectedContent)) return "cancelled";
     await finishDocumentSave(workspaceId, claimedSave, contentToSave);
 
     try {
@@ -415,7 +453,6 @@ const createEditorAppStore = (workspaceId: string) =>
           const { buffers } = bufferStore.getState();
           const { updateBufferContent, markBufferDirty } = bufferStore.getState().actions;
           const { settings } = useSettingsStore.getState();
-          const { markPendingSave } = useFileWatcherStore.getStore(workspaceId).getState().actions;
           const contentAlreadyApplied = options?.contentAlreadyApplied === true;
 
           const activeBuffer = getBufferById(buffers, bufferId);
@@ -491,9 +528,9 @@ const createEditorAppStore = (workspaceId: string) =>
                     autoSaveContext.operationId,
                   );
                   if (!claim) return;
-                  markPendingSave(activeBuffer.path);
                   await recordLocalHistoryBeforeWrite(activeBuffer.path, "auto-save");
-                  await writeFile(activeBuffer.path, content);
+                  const expectedContent = latestBeforeSave.acknowledgedDiskContent === undefined ? latestBeforeSave.savedContent : latestBeforeSave.acknowledgedDiskContent;
+                  if (!await persistClaimedDocument(workspaceId, claim, content, expectedContent)) return;
                   await finishDocumentSave(workspaceId, claim, content);
 
                   const rootFolderPath = useFileSystemStore

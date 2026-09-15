@@ -2012,6 +2012,9 @@
 "Could not save service selection" = "无法保存服务勾选状态";
 "Selected" = "已勾选";
 
+"This file was deleted outside Lithe. Your editor content is preserved." = "该文件已被外部删除，编辑器内容已保留。";
+"Allow Recreating File" = "允许重新创建文件";
+
 /* Git console completion notices */
 "Running Git; waiting for output." = "正在执行 Git，等待输出。";
 "Git completed successfully with no output." = "执行成功，没有输出。";

@@ -31,12 +31,12 @@ final class DebugLaunchPreparationCoordinator {
         self.actions = actions
     }
 
-    func saveDirtyDocumentIfNeeded(_ document: EditorDocument?) -> Bool {
+    func saveDirtyDocumentIfNeeded(_ document: EditorDocument?) async -> Bool {
         guard let document, document.isDirty else { return true }
         guard let actions else { return false }
         do {
             let previousText = document.savedText
-            try actions.save(document)
+            try await actions.save(document)
             actions.recordSave(document, previousText: previousText)
             return true
         } catch {

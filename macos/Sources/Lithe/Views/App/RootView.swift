@@ -412,13 +412,13 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
     private var closeCommandMonitor: Any?
     private var pendingNativeWindowCloseIntent: NativeWindowCloseIntent?
     private var nativeWindowCloseTask: Task<Void, Never>?
-    private let confirmUnsavedDocuments: @MainActor (any UnsavedDocumentHandling) -> Bool
+    private let confirmUnsavedDocuments: @MainActor (any UnsavedDocumentHandling) async -> Bool
     private var isDetached = false
 
     init(
         projectSessions: any ProjectWindowSessionHandling,
-        confirmUnsavedDocuments: @escaping @MainActor (any UnsavedDocumentHandling) -> Bool = {
-            LitheAppDelegate.confirmUnsavedDocuments(
+        confirmUnsavedDocuments: @escaping @MainActor (any UnsavedDocumentHandling) async -> Bool = {
+            await LitheAppDelegate.confirmUnsavedDocuments(
                 for: $0,
                 context: .projectWindowClose
             )
@@ -481,7 +481,6 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
         guard nativeWindowCloseTask == nil else { return false }
         if case .commandW? = pendingNativeWindowCloseIntent {
             pendingNativeWindowCloseIntent = nil
-            guard confirmUnsavedDocuments(projectSessions) else { return false }
             // Cmd+W closes this window's sessions only. Dedicated windows always
             // dismiss; primary windows either dismiss or tear down primary scope
             // without touching other project windows.
@@ -490,8 +489,7 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
         }
         if projectSessions.hasActiveProject || projectSessions.hasActiveStandaloneFile {
             if projectSessions.shouldDismissWindowWhenClosingActiveSession {
-                guard confirmUnsavedDocuments(projectSessions) else { return false }
-                pendingNativeWindowCloseIntent = .dismissActiveSession
+                    pendingNativeWindowCloseIntent = .dismissActiveSession
                 closeWindowAfterProjectCleanup(sender)
                 return false
             }
@@ -513,9 +511,10 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
         guard nativeWindowCloseTask == nil else { return }
         let projectSessions = projectSessions
         nativeWindowCloseTask = Task { @MainActor [weak self, weak sender] in
-            await projectSessions.resetForProjectWindowClose()
             guard let self else { return }
             defer { self.nativeWindowCloseTask = nil }
+            guard await self.confirmUnsavedDocuments(projectSessions), !self.isDetached else { return }
+            await projectSessions.resetForProjectWindowClose()
             guard !self.isDetached,
                   let sender,
                   self.window === sender else { return }

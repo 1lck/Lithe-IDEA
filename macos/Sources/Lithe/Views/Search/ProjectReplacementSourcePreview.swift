@@ -46,6 +46,7 @@ private struct ProjectReplacementDocumentEditor: View {
     @StateObject private var chrome = EditorChromeModel()
     @State private var viewportStore = EditorViewportStore()
     @State private var saveError: String?
+    @State private var saveTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -57,11 +58,22 @@ private struct ProjectReplacementDocumentEditor: View {
                 if document.isDirty { Text("•").accessibilityLabel("Unsaved changes") }
                 Spacer()
                 Button("Save") {
-                    do { try model.saveDocument(document); saveError = nil }
-                    catch { saveError = error.localizedDescription }
+                    guard saveTask == nil else { return }
+                    saveTask = Task { @MainActor in
+                        guard !Task.isCancelled else { return }
+                        defer { if !Task.isCancelled { saveTask = nil } }
+                        do {
+                            try await model.saveDocument(document)
+                            guard !Task.isCancelled else { return }
+                            saveError = nil
+                        } catch {
+                            guard !Task.isCancelled else { return }
+                            saveError = error.localizedDescription
+                        }
+                    }
                 }
                 .buttonStyle(.plain)
-                .disabled(!document.isDirty || document.isReadOnly)
+                .disabled(saveTask != nil || !document.isDirty || document.isReadOnly)
             }
             .font(.system(size: 12))
             .lineLimit(1)
@@ -81,6 +93,12 @@ private struct ProjectReplacementDocumentEditor: View {
             // Promote the first edit so closing the dialog preserves unsaved changes.
             if document.isDirty { model.documentFeature.promotePreviewDocument(document) }
             onEdit()
+        }
+        .onDisappear { saveTask?.cancel(); saveTask = nil }
+        .onChange(of: document.id) { _ in
+            saveTask?.cancel()
+            saveTask = nil
+            saveError = nil
         }
         .onAppear(perform: updateSearch)
         .onChange(of: query) { _ in updateSearch() }

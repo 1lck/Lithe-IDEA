@@ -317,7 +317,7 @@ extension AppModel {
             return
         }
         guard isCurrentWorkspace(identity) else { return }
-        guard runWorkflowCoordinator.saveDirtyCurrentFileIfNeeded(
+        guard await runWorkflowCoordinator.saveDirtyCurrentFileIfNeeded(
             configuration: configuration,
             document: activeDocument,
             saving: self
@@ -540,7 +540,7 @@ extension AppModel: RunWorkflowActions {
         await loadProjectServices(at: workspaceURL, files: files, snapshotID: snapshotID)
     }
 
-    func save(_ document: EditorDocument) throws {
-        try saveDocument(document)
+    func save(_ document: EditorDocument) async throws {
+        try await saveDocument(document)
     }
 }
