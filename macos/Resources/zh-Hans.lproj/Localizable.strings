@@ -1926,7 +1926,9 @@
 "Git execution" = "Git 执行";
 "Detect Installed Shells" = "检测已安装的 Shell";
 "System default · Shell not detected" = "系统默认 · 未检测到 Shell";
+"System default · %@ (%@)" = "系统默认 · %@（%@）";
 "Shell not found" = "未找到 Shell";
+"No default shell was detected. Choose a detected shell or run detection again." = "未检测到系统默认 Shell。请选择已检测到的 Shell，或重新执行检测。";
 "No shell was found at %@. Choose a detected shell or run detection again." = "在 %@ 未找到 Shell。请选择已检测到的 Shell，或重新执行检测。";
 "Shell is not available at this path" = "此路径没有可用的 Shell";
 "Git behavior and configuration" = "Git 行为与配置";

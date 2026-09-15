@@ -884,7 +884,9 @@
 "Used for new terminal sessions." = "Used for new terminal sessions.";
 "System default" = "System default";
 "System default · Shell not detected" = "System default · Shell not detected";
+"System default · %@ (%@)" = "System default · %@ (%@)";
 "Shell not found" = "Shell not found";
+"No default shell was detected. Choose a detected shell or run detection again." = "No default shell was detected. Choose a detected shell or run detection again.";
 "No shell was found at %@. Choose a detected shell or run detection again." = "No shell was found at %@. Choose a detected shell or run detection again.";
 "Shell is not available at this path" = "Shell is not available at this path";
 "Git behavior and configuration" = "Git behavior and configuration";

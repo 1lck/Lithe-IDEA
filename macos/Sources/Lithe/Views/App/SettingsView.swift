@@ -83,7 +83,11 @@ struct SettingsView: View {
             Button("OK", role: .cancel) { missingTerminalShellPath = nil }
         } message: {
             if let missingTerminalShellPath {
-                Text("No shell was found at \(missingTerminalShellPath). Choose a detected shell or run detection again.")
+                if missingTerminalShellPath.isEmpty {
+                    Text("No default shell was detected. Choose a detected shell or run detection again.")
+                } else {
+                    Text("No shell was found at \(missingTerminalShellPath). Choose a detected shell or run detection again.")
+                }
             }
         }
     }
@@ -654,8 +658,14 @@ struct SettingsView: View {
 
     private func terminalShellTitle(_ path: String) -> String {
         if path.isEmpty {
-            guard let detectedSystemShellPath else { return "System default · Shell not detected" }
-            return "System default · \(terminalShellName(detectedSystemShellPath)) (\(detectedSystemShellPath))"
+            guard let detectedSystemShellPath else {
+                return String(localized: "System default · Shell not detected")
+            }
+            return String(
+                format: String(localized: "System default · %@ (%@)"),
+                terminalShellName(detectedSystemShellPath),
+                detectedSystemShellPath
+            )
         }
         return "\(terminalShellName(path)) (\(path))"
     }
