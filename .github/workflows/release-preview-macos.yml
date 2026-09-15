@@ -71,7 +71,7 @@ jobs:
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Swift
-        uses: swift-actions/setup-swift@v2
+        uses: swift-actions/setup-swift@v3
         with:
           swift-version: "6.3.3"
 
