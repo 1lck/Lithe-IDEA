@@ -18,6 +18,7 @@ export type DocumentLifecycleEvent =
   | { type: "saveSucceeded"; operationId: string }
   | { type: "saveFailed"; operationId: string }
   | { type: "externalChanged" }
+  | { type: "diskConflict" }
   | { type: "reloadSucceeded"; revision: number }
   | { type: "keepEditor" }
   | { type: "loadDisk" };

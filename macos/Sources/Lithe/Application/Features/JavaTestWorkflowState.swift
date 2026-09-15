@@ -101,7 +101,7 @@ final class JavaTestWorkflowState {
         fileURL: URL,
         documents: [EditorDocument],
         saving: any EditorDocumentSaving
-    ) -> Bool {
+    ) async -> Bool {
         guard let document = documents.first(where: {
             $0.url.standardizedFileURL == fileURL.standardizedFileURL
         }), document.isDirty else {
@@ -109,7 +109,7 @@ final class JavaTestWorkflowState {
         }
         do {
             let previousText = document.savedText
-            try saving.save(document)
+            try await saving.save(document)
             saving.recordSave(document, previousText: previousText)
             return true
         } catch {

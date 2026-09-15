@@ -18,7 +18,7 @@ import LitheExecutionModule
 /// Local History.
 @MainActor
 protocol EditorDocumentSaving: AnyObject {
-    func save(_ document: EditorDocument) throws
+    func save(_ document: EditorDocument) async throws
     func recordSave(_ document: EditorDocument, previousText: String)
 }
 

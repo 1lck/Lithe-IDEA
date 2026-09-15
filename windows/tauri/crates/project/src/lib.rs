@@ -1,3 +1,5 @@
+pub mod document_file;
+pub mod document_watcher;
 use anyhow::{Context, Result, bail};
 pub mod git_watcher;
 use notify::RecursiveMode;
@@ -379,6 +381,14 @@ mod tests {
       fs::create_dir_all(&module_directory).expect("module directory should be created");
       let pom_path = module_directory.join("pom.xml");
       fs::write(&pom_path, "<project/>").expect("initial POM should be written");
+      // This watcher deliberately filters equal mtimes. Give the fixture an
+      // explicit baseline rather than depending on the host clock advancing.
+      fs::File::options()
+         .write(true)
+         .open(&pom_path)
+         .unwrap()
+         .set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(60))
+         .unwrap();
       let (sender, receiver) = mpsc::channel();
       let watcher = FileWatcher::new(Arc::new(ChannelEmitter(sender)));
 

@@ -100,6 +100,8 @@ pub enum DocumentLifecycleEvent {
     SaveFailed { operation_id: String },
     /// A watcher observed a disk change not attributed to the current save.
     ExternalChanged,
+    /// The platform observed a missing file or rejected a guarded write.
+    DiskConflict,
     /// A requested disk reload completed and installed this revision.
     ReloadSucceeded { revision: u64 },
     /// The user chose the live editor text after a conflict.
@@ -150,6 +152,21 @@ pub fn decide_document_lifecycle(
     let current_revision = request.state.revision();
 
     let decision = match (request.state, request.event) {
+        (state, DocumentLifecycleEvent::DiskConflict) => {
+            let saved_revision = match &state {
+                DocumentLifecycleState::Clean { revision } => *revision,
+                DocumentLifecycleState::Dirty { saved_revision, .. }
+                | DocumentLifecycleState::Saving { saved_revision, .. }
+                | DocumentLifecycleState::Conflict { saved_revision, .. } => *saved_revision,
+            };
+            decision(
+                DocumentLifecycleState::Conflict {
+                    revision: current_revision,
+                    saved_revision,
+                },
+                DocumentLifecycleAction::ShowConflict,
+            )
+        }
         (
             state,
             DocumentLifecycleEvent::Edited {

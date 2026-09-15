@@ -1,210 +1,95 @@
-import { readFileContent } from "@/features/file-system/controllers/file-operations";
-import {
-  decideDocumentLifecycle,
-  type DocumentLifecycleState,
-} from "@/platform/document-lifecycle";
+import { readDocumentFile } from "@/platform/document-files";
+import { decideDocumentLifecycle, type DocumentLifecycleState } from "@/platform/document-lifecycle";
 import { frontendTrace } from "@/utils/frontend-trace";
 
-export type ExternalBufferChangeResult = "reloaded" | "conflict" | "ignored" | "failed";
-
+export type ExternalBufferChangeResult = "reloaded" | "conflict" | "ignored" | "failed" | "deferred";
 export interface DocumentBufferSnapshot {
   bufferId: string;
   path: string;
   lifecycle: DocumentLifecycleState;
+  baseline: string | null;
+  externalContent?: string | null;
 }
-
 export interface DocumentBufferOwner {
   getSnapshot: () => DocumentBufferSnapshot | null;
   applyLifecycle: (state: DocumentLifecycleState) => void;
   replaceWithDiskContent: (content: string) => void;
+  observeConflict: (content: string | null) => void;
+  reportFailure?: () => void;
+  acknowledgeDisk: (content: string | null) => void;
 }
-
-interface ExternalChangeWorkflowInput {
-  owner: DocumentBufferOwner;
-  operationId: string;
-  dependencies?: ExternalChangeWorkflowDependencies;
-}
-
 export interface ExternalChangeWorkflowDependencies {
   decide?: typeof decideDocumentLifecycle;
-  readFile?: typeof readFileContent;
+  readFile?: typeof readDocumentFile;
   trace?: typeof trace;
 }
 
-/** Owns the external-change read and stale-result checks for one live document. */
-export async function handleExternalDocumentChange({
-  owner,
-  operationId,
-  dependencies = {},
-}: ExternalChangeWorkflowInput): Promise<ExternalBufferChangeResult> {
-  const initial = owner.getSnapshot();
-  if (!initial) return "ignored";
+/** Notifications are hints: compare real bytes before reloading or declaring a conflict. */
+export async function handleExternalDocumentChange({ owner, operationId, dependencies = {} }: {
+  owner: DocumentBufferOwner; operationId: string; dependencies?: ExternalChangeWorkflowDependencies;
+}): Promise<ExternalBufferChangeResult> {
+  const source = owner.getSnapshot();
+  if (!source) return "ignored";
+  if (source.lifecycle.status === "saving") return "deferred";
   const decide = dependencies.decide ?? decideDocumentLifecycle;
-  const readFile = dependencies.readFile ?? readFileContent;
-  const log = dependencies.trace ?? trace;
-
-  log("info", "external-change:start", initial, operationId, {
-    status: initial.lifecycle.status,
-  });
-
   try {
-    let source = initial;
-    let decision = await decide(
-      source.lifecycle,
-      { type: "externalChanged" },
-      { operationId },
-    );
-    const latestAfterDecision = owner.getSnapshot();
-    if (!latestAfterDecision) {
-      log("info", "external-change:cancelled", source, operationId, {
-        reason: "buffer-closed",
-      });
-      return "ignored";
+    const content = await (dependencies.readFile ?? readDocumentFile)(source.path);
+    let latest = owner.getSnapshot();
+    if (!latest || latest.path !== source.path) return "ignored";
+    if (latest.lifecycle.status === "saving") return "deferred";
+    if (latest.baseline !== source.baseline) return "deferred";
+    if (content === latest.baseline) return "ignored";
+    const observed = latest;
+    const decision = await decide(latest.lifecycle, { type: content === null ? "diskConflict" : "externalChanged" }, { operationId });
+    latest = owner.getSnapshot();
+    if (!latest || latest.path !== source.path) return "ignored";
+    if (!sameSnapshot(latest, observed)) return "deferred";
+    if (decision.action === "reloadFromDisk" && content !== null) {
+      owner.replaceWithDiskContent(content);
+      return "reloaded";
     }
-    if (!sameLifecycleSnapshot(latestAfterDecision, source)) {
-      source = latestAfterDecision;
-      decision = await decide(
-        source.lifecycle,
-        { type: "externalChanged" },
-        { operationId },
-      );
-    }
-
     if (decision.action === "showConflict") {
-      const latest = owner.getSnapshot();
-      if (!latest) return "ignored";
-      owner.applyLifecycle(conflictStateFor(latest.lifecycle));
-      log("warn", "external-change:conflict", latest, operationId);
+      owner.observeConflict(content);
+      owner.applyLifecycle(decision.state);
       return "conflict";
     }
-    if (decision.action !== "reloadFromDisk") {
-      log("info", "external-change:ignored", source, operationId, {
-        action: decision.action,
-      });
-      return "ignored";
-    }
-
-    const diskContent = await readFile(source.path);
-    const latestBeforeReload = owner.getSnapshot();
-    if (!latestBeforeReload) {
-      log("info", "external-change:cancelled", source, operationId, {
-        reason: "buffer-closed-during-read",
-      });
-      return "ignored";
-    }
-    if (!sameLifecycleSnapshot(latestBeforeReload, source)) {
-      const conflictDecision = await decide(
-        latestBeforeReload.lifecycle,
-        { type: "externalChanged" },
-        { operationId },
-      );
-      if (conflictDecision.action === "showConflict") {
-        const latestConflict = owner.getSnapshot();
-        if (!latestConflict) return "ignored";
-        owner.applyLifecycle(conflictStateFor(latestConflict.lifecycle));
-        log("warn", "external-change:conflict", latestConflict, operationId, {
-          reason: "edited-during-disk-read",
-        });
-        return "conflict";
-      }
-      return "ignored";
-    }
-
-    owner.replaceWithDiskContent(diskContent);
-    log("info", "external-change:success", source, operationId, { outcome: "reloaded" });
-    return "reloaded";
+    return "ignored";
   } catch (error) {
-    log("error", "external-change:failed", initial, operationId, {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    owner.reportFailure?.();
+    (dependencies.trace ?? trace)("error", "external-change:failed", source, operationId, { error: String(error) });
     return "failed";
   }
 }
 
-/** Applies one explicit user choice without allowing a stale disk read to win. */
-export async function resolveExternalDocumentConflict(
-  owner: DocumentBufferOwner,
-  resolution: "keepEditor" | "loadDisk",
-  operationId: string,
-  dependencies: ExternalChangeWorkflowDependencies = {},
-): Promise<void> {
+/** The choice authorizes only the observed disk version, never a future overwrite. */
+export async function resolveExternalDocumentConflict(owner: DocumentBufferOwner, resolution: "keepEditor" | "loadDisk", operationId: string, dependencies: ExternalChangeWorkflowDependencies = {}): Promise<void> {
   const source = owner.getSnapshot();
   if (!source || source.lifecycle.status !== "conflict") return;
   const decide = dependencies.decide ?? decideDocumentLifecycle;
-  const readFile = dependencies.readFile ?? readFileContent;
-  const log = dependencies.trace ?? trace;
-
-  log("info", "conflict-resolution:start", source, operationId, { resolution });
   try {
-    const decision = await decide(
-      source.lifecycle,
-      { type: resolution },
-      { operationId },
-    );
-    if (decision.action === "reloadFromDisk") {
-      const diskContent = await readFile(source.path);
+    if (resolution === "loadDisk") {
+      const content = await (dependencies.readFile ?? readDocumentFile)(source.path);
       const latest = owner.getSnapshot();
-      if (!latest || !sameLifecycleSnapshot(latest, source)) {
-        log("info", "conflict-resolution:cancelled", source, operationId, {
-          reason: "document-changed-during-read",
-        });
-        return;
-      }
-      owner.replaceWithDiskContent(diskContent);
+      if (content === null || !latest || !sameSnapshot(source, latest)) return;
+      owner.replaceWithDiskContent(content);
     } else {
+      if (source.externalContent === undefined) return;
+      const decision = await decide(source.lifecycle, { type: "keepEditor" }, { operationId });
       const latest = owner.getSnapshot();
-      if (!latest) return;
-      owner.applyLifecycle(
-        sameLifecycleSnapshot(latest, source)
-          ? decision.state
-          : dirtyStateFor(latest.lifecycle),
-      );
+      if (!latest || !sameSnapshot(source, latest) || latest.externalContent !== source.externalContent) return;
+      owner.acknowledgeDisk(source.externalContent);
+      owner.applyLifecycle(decision.state);
     }
-    log("info", "conflict-resolution:success", source, operationId, { resolution });
   } catch (error) {
-    log("error", "conflict-resolution:failed", source, operationId, {
-      resolution,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    owner.reportFailure?.();
+    (dependencies.trace ?? trace)("error", "conflict-resolution:failed", source, operationId, { error: String(error) });
   }
 }
 
-function sameLifecycleSnapshot(left: DocumentBufferSnapshot, right: DocumentBufferSnapshot) {
-  return (
-    left.bufferId === right.bufferId &&
-    left.lifecycle.revision === right.lifecycle.revision &&
-    left.lifecycle.status === right.lifecycle.status &&
-    savedRevisionOf(left.lifecycle) === savedRevisionOf(right.lifecycle) &&
-    (left.lifecycle.status === "saving" ? left.lifecycle.saveRevision : null) ===
-      (right.lifecycle.status === "saving" ? right.lifecycle.saveRevision : null) &&
-    (left.lifecycle.status === "saving" ? left.lifecycle.operationId : null) ===
-      (right.lifecycle.status === "saving" ? right.lifecycle.operationId : null)
-  );
+function sameSnapshot(left: DocumentBufferSnapshot, right: DocumentBufferSnapshot) {
+  return left.bufferId === right.bufferId && left.path === right.path && left.baseline === right.baseline &&
+    left.lifecycle.revision === right.lifecycle.revision && left.lifecycle.status === right.lifecycle.status;
 }
-
-function conflictStateFor(state: DocumentLifecycleState): DocumentLifecycleState {
-  return { status: "conflict", revision: state.revision, savedRevision: savedRevisionOf(state) };
-}
-
-function dirtyStateFor(state: DocumentLifecycleState): DocumentLifecycleState {
-  return { status: "dirty", revision: state.revision, savedRevision: savedRevisionOf(state) };
-}
-
-function savedRevisionOf(state: DocumentLifecycleState): number {
-  return state.status === "clean" ? state.revision : state.savedRevision;
-}
-
-function trace(
-  level: "info" | "warn" | "error",
-  message: string,
-  snapshot: DocumentBufferSnapshot,
-  operationId: string,
-  payload: Record<string, unknown> = {},
-) {
-  frontendTrace(level, "document.lifecycle", message, {
-    operationID: operationId,
-    bufferId: snapshot.bufferId,
-    path: snapshot.path,
-    ...payload,
-  });
+function trace(level: "info" | "warn" | "error", message: string, snapshot: DocumentBufferSnapshot, operationId: string, payload: Record<string, unknown> = {}) {
+  frontendTrace(level, "document.lifecycle", message, { operationID: operationId, bufferId: snapshot.bufferId, path: snapshot.path, ...payload });
 }

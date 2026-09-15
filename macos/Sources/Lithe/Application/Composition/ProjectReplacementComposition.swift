@@ -28,8 +28,11 @@ enum ProjectReplacementComposition {
                       }) else { return false }
                 let previousText = document.text
                 document.text = text
-                do { try model.saveDocument(document); return true }
-                catch { document.text = previousText; throw error }
+                do { try await model.saveDocument(document); return true }
+                catch {
+                    if document.text == text { document.text = previousText }
+                    throw error
+                }
             },
             refreshWorkspace: { [weak model] in await model?.refreshWorkspace() },
             markIdle: { [weak model] in try? model?.services.moduleRuntime.markIdle(.search) },
