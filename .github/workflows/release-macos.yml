@@ -85,6 +85,13 @@ jobs:
         with:
           swift-version: "6.3.3"
 
+      - name: Select Swift 6.3.3 toolchain
+        shell: bash
+        run: |
+          swiftly install 6.3.3
+          swiftly use 6.3.3
+          swift --version
+
       - name: Set up Rust target
         uses: dtolnay/rust-toolchain@stable
         with:
