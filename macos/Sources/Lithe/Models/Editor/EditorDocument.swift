@@ -194,6 +194,9 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
     }
 
     static func modificationDate(for url: URL) -> Date? {
-        try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        // URL resource values are cached; freshness checks must read the current disk metadata.
+        var freshURL = url
+        freshURL.removeCachedResourceValue(forKey: .contentModificationDateKey)
+        return try? freshURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
     }
 }

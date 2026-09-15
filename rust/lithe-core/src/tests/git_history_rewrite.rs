@@ -15,24 +15,34 @@ impl Repository {
         let result = Self(temporary_root(label));
         fs::create_dir_all(&result.0).unwrap();
         result.git(&["init", "-q", "-b", "main"]);
-        result.git(&["config", "user.name", "Lithe Fixture"]);
-        result.git(&["config", "user.email", "fixture@example.invalid"]);
-        result.git(&["config", "core.autocrlf", "false"]);
-        result.git(&["config", "commit.gpgSign", "false"]);
-        result.git(&["config", "gc.auto", "0"]);
-        result.git(&["config", "core.hooksPath", "disabled-fixture-hooks"]);
+        // This is fixture setup, not configuration behavior under test. Writing
+        // the local overrides together avoids six extra Core/Git command flows
+        // for every repository while preserving Git's init-generated settings.
+        let config_path = result.0.join(".git/config");
+        let mut config = fs::read_to_string(&config_path).unwrap();
+        config.push_str(concat!(
+            "\n[user]\nname = Lithe Fixture\nemail = fixture@example.invalid\n",
+            "[core]\nautocrlf = false\nhooksPath = disabled-fixture-hooks\n",
+            "[commit]\ngpgSign = false\n[gc]\nauto = 0\n",
+        ));
+        fs::write(config_path, config).unwrap();
         result
     }
 
     fn request(&self, command: &str, mut payload: Value) -> Value {
         payload["root"] = json!(self.0);
         // Each real Git subprocess is governed by Core's local deadline; tests
-        // do not synchronize using sleeps or depend on a network remote. A rewrite
-        // starts many Git processes on Windows, so allow ten seconds within the
-        // outer 15-second per-test watchdog.
+        // do not synchronize using sleeps or depend on a network remote. Native
+        // rebase validates and replays real history, so its requests get 20 seconds
+        // within the history-rewrite module's 30-second integration watchdog.
+        let timeout = if command.starts_with("git.rebase") {
+            20_000
+        } else {
+            10_000
+        };
         serde_json::from_str(&execute_json(&json!({
             "id": format!("history-integration-{}", REQUEST_SEQUENCE.fetch_add(1, Ordering::Relaxed)),
-            "timeoutMilliseconds": 10_000,
+            "timeoutMilliseconds": timeout,
             "command": command,
             "payload": payload,
         }).to_string())).unwrap()

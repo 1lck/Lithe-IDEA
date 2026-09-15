@@ -89,6 +89,7 @@ interface GitReferenceTreeProps {
   onSetUpstream: (branch: GitReference, upstream: GitReference | null) => void;
   onManageRemotes: () => void;
   onFetch: () => void;
+  onFetchOptions?: () => void;
   onNavigateToHead: () => void;
   canNavigateToHead?: boolean;
 }
@@ -173,6 +174,7 @@ function GitReferenceToolbar({
   hasReferences,
   onReferenceAction,
   onFetch,
+  onFetchOptions,
   onToggleMark,
   onExpandAll,
   onCollapseAll,
@@ -190,6 +192,7 @@ function GitReferenceToolbar({
   hasReferences: boolean;
   onReferenceAction: (action: GitReferenceAction, reference: GitReference) => void;
   onFetch: () => void;
+  onFetchOptions?: () => void;
   onToggleMark: () => void;
   onExpandAll: () => void;
   onCollapseAll: () => void;
@@ -251,6 +254,14 @@ function GitReferenceToolbar({
       onClick: onFetch,
       icon: <GitFetchIcon />,
     },
+    ...(onFetchOptions ? [{
+      id: "fetch-options",
+      section: "secondary" as const,
+      label: t("git.fetch.options"),
+      disabled: !state.canFetch,
+      onClick: onFetchOptions,
+      icon: <GitFetchIcon />,
+    }] : []),
     {
       id: "toggle-mark",
       section: "secondary",
@@ -704,6 +715,7 @@ export function GitReferenceTree({
   onSetUpstream,
   onManageRemotes,
   onFetch,
+  onFetchOptions,
   onNavigateToHead,
   canNavigateToHead = false,
 }: GitReferenceTreeProps) {
@@ -802,6 +814,7 @@ export function GitReferenceTree({
         hasReferences={references.length > 0}
         onReferenceAction={onReferenceAction}
         onFetch={onFetch}
+        onFetchOptions={onFetchOptions}
         onToggleMark={() => {
           if (selectedReference?.kind === "local") {
             toggleMarkedReference(repoPath, selectedReference.fullName);

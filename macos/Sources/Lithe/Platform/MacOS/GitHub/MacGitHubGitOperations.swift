@@ -15,15 +15,9 @@ struct MacGitHubGitOperations: GitHubGitOperations, Sendable {
     let core: RustCoreBridge
 
     func originRemote(at workspaceURL: URL) throws -> String {
-        let result = try core.gitCommandResult(
-            at: workspaceURL,
-            arguments: ["config", "--get", "remote.origin.url"]
-        ).get()
-        guard result.exitCode == 0 else {
-            throw GitError.commandFailed(result.output.isEmpty ? "This project has no origin remote" : result.output)
+        guard let remote = try core.gitRemoteURL(at: workspaceURL, remote: "origin").get() else {
+            throw GitError.commandFailed("This project has no origin remote")
         }
-        let remote = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !remote.isEmpty else { throw GitError.commandFailed("This project has no origin remote") }
         return remote
     }
 

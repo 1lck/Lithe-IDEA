@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { parseAddedLines, scanFile } from "./verify-test-stability.mjs";
 import { parseJUnitCases } from "./parse-junit-cases.mjs";
 import { run as runBunTestsWithTiming } from "./run-bun-tests-with-timing.mjs";
-import { run as runRustTestsWithTiming } from "./run-rust-tests-with-timing.mjs";
+import { parseArguments as parseRustTimingArguments, run as runRustTestsWithTiming } from "./run-rust-tests-with-timing.mjs";
 import {
   parseSwiftSuiteLine,
   parseSwiftTimingLine,
@@ -733,6 +733,7 @@ try {
         package: null,
         warnMs: 50,
         maxMs: 500,
+        testBudgets: [{ prefix: "tests::second", maxMs: 2000 }],
         buildTimeoutMs: 5000,
         suiteTimeoutMs: 1000,
         report: reportPath,
@@ -760,6 +761,54 @@ try {
   assert.ok(existsSync(path.join(deadlineFixtureRoot, "deadline.junit.xml")));
 } finally {
   rmSync(deadlineFixtureRoot, { recursive: true, force: true });
+}
+
+const budgetFixtureRoot = mkdtempSync(path.join(os.tmpdir(), "lithe-test-stability-budget-"));
+try {
+  const report = path.join(budgetFixtureRoot, "budget.json");
+  const options = parseRustTimingArguments([
+    "--manifest", path.join(budgetFixtureRoot, "Cargo.toml"), "--report", report,
+    "--warn-ms", "10", "--max-ms", "100", "--test-budget", "tests::native_=300",
+    "--test-budget", "tests::native=250",
+  ]);
+  for (const budget of ["=300", "tests::native_=0", "tests::native_=5", "invalid"]) {
+    assert.throws(() => parseRustTimingArguments(["--manifest", "Cargo.toml", "--test-budget", budget]));
+  }
+  let currentTime = 0;
+  const runProcessImpl = async ({ args, onStdoutLine, timeoutMs }) => {
+    let stdout = "";
+    let durationMs = 0;
+    let timedOut = false;
+    if (onStdoutLine) {
+      onStdoutLine(JSON.stringify({ reason: "compiler-artifact", profile: { test: true },
+        executable: path.join(budgetFixtureRoot, "fake-tests"), manifest_path: options.manifest,
+        target: { name: "budget-fixture" } }));
+    } else if (args[0] === "--list") {
+      stdout = "tests::unit: test\ntests::native_pass: test\ntests::native_hang: test\n";
+    } else {
+      assert.equal(timeoutMs, args[1] === "tests::unit" ? 100 : 300);
+      timedOut = args[1] === "tests::native_hang";
+      durationMs = args[1] === "tests::unit" ? 30 : timedOut ? 300 : 150;
+      stdout = "running 1 test\n";
+    }
+    currentTime += durationMs;
+    return { code: timedOut ? null : 0, timedOut, durationMs, stdout, stderr: "" };
+  };
+  await assert.rejects(runRustTestsWithTiming(options, { runProcessImpl, now: () => currentTime }), /1 Rust test/);
+  const result = JSON.parse(readFileSync(report, "utf8"));
+  assert.deepEqual(result.tests.map(({ status, maxMs }) => ({ status, maxMs })), [
+    { status: "passed", maxMs: 100 }, { status: "passed", maxMs: 300 }, { status: "timeout", maxMs: 300 },
+  ]);
+  // The native pass exceeds the ordinary budget but must remain a passing case
+  // in both HTML and JUnit. The hung native case still fails at its own deadline.
+  const junit = readFileSync(report.replace(".json", ".junit.xml"), "utf8");
+  assert.match(junit, /failures="0"/);
+  assert.match(junit, /errors="1"/);
+  assert.doesNotMatch(junit, /Performance budget exceeded: 150ms/);
+  assert.match(readFileSync(report.replace(".json", ".html"), "utf8"),
+    /<tr data-status="warning" data-search="[^"\n]*tests::native_pass"/);
+} finally {
+  rmSync(budgetFixtureRoot, { recursive: true, force: true });
 }
 
 console.log("Test stability verifier tests passed.");
