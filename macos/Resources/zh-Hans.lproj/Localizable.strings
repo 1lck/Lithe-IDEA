@@ -1062,6 +1062,8 @@
 "Hide Run tool window" = "隐藏运行工具窗口";
 "Hide Debug tool window" = "隐藏调试工具窗口";
 "Hide Maven tool window" = "隐藏 Maven 工具窗口";
+"Maven Build" = "Maven 构建";
+"Hide Maven Build tool window" = "隐藏 Maven 构建工具窗口";
 "Hide Problems tool window" = "隐藏问题工具窗口";
 "Hide Terminal tool window" = "隐藏终端工具窗口";
 

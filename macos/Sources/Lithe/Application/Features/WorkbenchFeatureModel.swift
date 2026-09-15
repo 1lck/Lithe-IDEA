@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 
-/// Owns the workbench selection and the mutually exclusive bottom tool window.
+/// Owns the independent Maven dock and the mutually exclusive bottom tool window.
 ///
 /// AppModel keeps compatibility accessors for existing callers while new
 /// workbench code can depend on this focused state model directly.
@@ -13,6 +13,7 @@ final class WorkbenchFeatureModel: ObservableObject {
         case references
         case problems
         case maven
+        case mavenOutput
         case spring
         case run
         case tests
@@ -29,6 +30,7 @@ final class WorkbenchFeatureModel: ObservableObject {
     @Published private(set) var requestedSettingsCategory: SettingsCategory = .general
     @Published var isCloneRepositoryPresented = false
     @Published private(set) var activeToolWindow: ToolWindow?
+    @Published private(set) var isMavenDockVisible = false
 
     private let layoutStore: WorkbenchLayoutStore?
     private var sidebarSelectionHandler: ((SidebarDestination) -> Void)?
@@ -44,10 +46,15 @@ final class WorkbenchFeatureModel: ObservableObject {
     }
 
     func isVisible(_ toolWindow: ToolWindow) -> Bool {
-        activeToolWindow == toolWindow
+        toolWindow == .maven ? isMavenDockVisible : activeToolWindow == toolWindow
     }
 
     func setVisibility(_ toolWindow: ToolWindow, isVisible: Bool) {
+        if toolWindow == .maven {
+            guard isMavenDockVisible != isVisible else { return }
+            isMavenDockVisible = isVisible
+            return
+        }
         if isVisible {
             guard activeToolWindow != toolWindow else { return }
             activeToolWindow = toolWindow
@@ -60,8 +67,13 @@ final class WorkbenchFeatureModel: ObservableObject {
         setVisibility(toolWindow, isVisible: !isVisible(toolWindow))
     }
 
-    func hideAllToolWindows() {
+    func hideBottomToolWindow() {
         activeToolWindow = nil
+    }
+
+    func hideAllToolWindows() {
+        hideBottomToolWindow()
+        isMavenDockVisible = false
     }
 
     func presentSettings(category: SettingsCategory) {
