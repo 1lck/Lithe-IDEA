@@ -58,6 +58,8 @@ struct LitheSettingsSelect<Value: Hashable>: View {
     private let width: CGFloat
     private let accessibilityLabel: String
     private let title: (Value) -> String
+    private let isAvailable: (Value) -> Bool
+    private let onUnavailableSelection: ((Value) -> Void)?
     @State private var isPresented = false
 
     init(
@@ -65,13 +67,17 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         options: [Value],
         width: CGFloat,
         accessibilityLabel: String,
-        title: @escaping (Value) -> String
+        title: @escaping (Value) -> String,
+        isAvailable: @escaping (Value) -> Bool = { _ in true },
+        onUnavailableSelection: ((Value) -> Void)? = nil
     ) {
         _selection = selection
         self.options = options
         self.width = width
         self.accessibilityLabel = accessibilityLabel
         self.title = title
+        self.isAvailable = isAvailable
+        self.onUnavailableSelection = onUnavailableSelection
     }
 
     var body: some View {
@@ -81,7 +87,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
             HStack(spacing: 8) {
                 Text(LocalizedStringKey(title(selection)))
                     .font(.system(size: 12.5))
-                    .foregroundStyle(LitheTheme.primaryText)
+                    .foregroundStyle(isAvailable(selection) ? LitheTheme.primaryText : LitheTheme.tertiaryText)
                     .lineLimit(1)
 
                 Spacer(minLength: 8)
@@ -110,7 +116,11 @@ struct LitheSettingsSelect<Value: Hashable>: View {
             VStack(spacing: 2) {
                 ForEach(options, id: \.self) { option in
                     Button {
-                        selection = option
+                        if isAvailable(option) {
+                            selection = option
+                        } else {
+                            onUnavailableSelection?(option)
+                        }
                         isPresented = false
                     } label: {
                         HStack(spacing: 8) {
@@ -122,7 +132,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
 
                             Text(LocalizedStringKey(title(option)))
                                 .font(.system(size: 12.5))
-                                .foregroundStyle(LitheTheme.primaryText)
+                                .foregroundStyle(isAvailable(option) ? LitheTheme.primaryText : LitheTheme.tertiaryText)
                                 .lineLimit(1)
 
                             Spacer(minLength: 8)
@@ -131,12 +141,13 @@ struct LitheSettingsSelect<Value: Hashable>: View {
                         .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
                         .litheRowHover(
                             isActive: selection == option,
-                            activeBackground: LitheTheme.subtleSelection
+                            activeBackground: LitheTheme.subtleSelection.opacity(isAvailable(option) ? 1 : 0.35)
                         )
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(LitheTreeRowButtonStyle())
                     .lithePointer()
+                    .help(isAvailable(option) ? "" : "Shell is not available at this path")
                 }
             }
             .padding(5)

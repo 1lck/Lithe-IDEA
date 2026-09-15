@@ -33,6 +33,18 @@ package final class GitFeatureModel: ObservableObject {
     package func saveExecutionConfiguration(at root: URL, field: GitConfigurationField, value: String?) async {
         await withGitOperation { await executionSettings.save(at: root, field: field, value: value) }
     }
+    package func refreshGitReferencesForSettings() async {
+        guard let root = gitRepositoryRoot, !Task.isCancelled else { return }
+        let operationID = "settings-references-\(UUID().uuidString)"
+        guard let snapshot = await service.references(at: root, operationID: operationID),
+              gitRepositoryRoot == root, !Task.isCancelled else { return }
+        gitReferences = snapshot.references
+        recentGitReferences = snapshot.recentReferences
+        gitIdentity = snapshot.identity
+    }
+    package func remoteURL(named remote: String, at root: URL) async -> String? {
+        await service.remoteURL(at: root, remote: remote)
+    }
     package func answerAuthentication(_ challenge: GitAuthenticationChallenge, answer: String?) async {
         let accepted = await service.answerAuthentication(requestID: challenge.id, answer: answer)
         authenticationChallenges.removeAll { $0.id == challenge.id }
