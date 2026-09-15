@@ -1,3 +1,6 @@
 import LitheCoreContracts
 
 typealias WorkspaceFileOperations = LitheCoreContracts.WorkspaceFileOperations
+
+typealias DocumentWriteResult = LitheCoreContracts.DocumentWriteResult
+typealias DocumentFileObservation = LitheCoreContracts.DocumentFileObservation

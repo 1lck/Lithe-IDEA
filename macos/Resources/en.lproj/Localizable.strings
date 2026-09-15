@@ -966,7 +966,12 @@
 "Could not save service selection" = "Could not save service selection";
 "Selected" = "Selected";
 
+"This file was deleted outside Lithe. Your editor content is preserved." = "This file was deleted outside Lithe. Your editor content is preserved.";
+"Allow Recreating File" = "Allow Recreating File";
+
 /* Git console completion notices */
 "Running Git; waiting for output." = "Running Git; waiting for output.";
 "Git completed successfully with no output." = "Git completed successfully with no output.";
 "Fetch completed with no reference changes." = "Fetch completed with no reference changes.";
+"Maven Build" = "Maven Build";
+"Hide Maven Build tool window" = "Hide Maven Build tool window";

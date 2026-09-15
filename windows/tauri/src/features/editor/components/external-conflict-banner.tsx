@@ -17,6 +17,10 @@ export function ExternalConflictBanner({ bufferId }: ExternalConflictBannerProps
     const buffer = getBufferById(state.buffers, bufferId);
     return buffer?.type === "editor" && buffer.documentLifecycle?.status === "conflict";
   });
+  const missing = useBufferStore((state) => {
+    const buffer = getBufferById(state.buffers, bufferId);
+    return buffer?.type === "editor" && buffer.externalDiskContent === null;
+  });
   const resolveExternalConflict = useBufferStore.use.actions().resolveExternalConflict;
 
   if (!hasConflict) return null;
@@ -37,17 +41,17 @@ export function ExternalConflictBanner({ bufferId }: ExternalConflictBannerProps
       role="alert"
     >
       <AlertTriangle aria-hidden="true" className="size-4 shrink-0 text-warning" />
-      <span className="min-w-0 flex-1">{t("editor.externalConflict")}</span>
+      <span className="min-w-0 flex-1">{t(missing ? "editor.externalDeleted" : "editor.externalConflict")}</span>
       <Button
         disabled={resolving}
         onClick={() => void resolve("keepEditor")}
         size="xs"
         variant="default"
       >
-        {t("editor.keepEditorVersion")}
+        {t(missing ? "editor.recreateFile" : "editor.keepEditorVersion")}
       </Button>
       <Button
-        disabled={resolving}
+        disabled={resolving || missing}
         onClick={() => void resolve("loadDisk")}
         size="xs"
         variant="danger"

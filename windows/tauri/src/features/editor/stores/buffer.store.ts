@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import { invoke } from "@/platform/tauri-core";
 import {
   applyLocalDocumentEdit,
@@ -45,7 +46,7 @@ import { ensureBufferInPane as ensureBufferInWorkspacePane } from "@/features/pa
 import { defaultSettings } from "@/features/settings/config/default-settings";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { createTranslator } from "@/i18n/locale";
-import { cleanupBufferHistoryTracking } from "@/features/editor/stores/buffer-history-tracking";
+import { cleanupBufferHistoryTracking, trackImmediateBufferHistoryChange } from "@/features/editor/stores/buffer-history-tracking";
 import type {
   EditorContent,
   MarkdownViewMode,
@@ -263,7 +264,19 @@ function makeDocumentBufferOwner(
         bufferId,
         path: buffer.path,
         lifecycle: lifecycleStateForBuffer(buffer),
+        baseline: buffer.acknowledgedDiskContent === undefined ? buffer.savedContent : buffer.acknowledgedDiskContent,
+        externalContent: buffer.externalDiskContent,
       };
+    },
+    reportFailure: () => {
+      const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
+      toast.error(t("editor.externalReadFailed"), { id: `document-sync-${bufferId}` });
+    },
+    observeConflict: (content) => {
+      mutateEditorBuffer((buffer) => { buffer.externalDiskContent = content; });
+    },
+    acknowledgeDisk: (content) => {
+      mutateEditorBuffer((buffer) => { buffer.acknowledgedDiskContent = content; buffer.externalDiskContent = undefined; });
     },
     applyLifecycle: (lifecycle) => {
       mutateEditorBuffer((buffer) => {
@@ -272,10 +285,14 @@ function makeDocumentBufferOwner(
       });
     },
     replaceWithDiskContent: (content) => {
+      const previous = getEditorBuffer();
+      if (previous) trackImmediateBufferHistoryChange({ bufferId, currentContent: previous.content, nextContent: content });
       mutateEditorBuffer((buffer) => {
         const revision = (buffer.contentRevision ?? 0) + 1;
         buffer.content = content;
         buffer.savedContent = content;
+        buffer.acknowledgedDiskContent = undefined;
+        buffer.externalDiskContent = undefined;
         buffer.contentRevision = revision;
         buffer.documentLifecycle = { status: "clean", revision };
         buffer.isDirty = false;
@@ -1591,6 +1608,8 @@ const createBufferStore = (workspaceId: string) => {
             const buffer = state.buffers.find((candidate) => candidate.id === bufferId);
             if (!buffer || buffer.type !== "editor") return;
             buffer.savedContent = savedContent;
+            buffer.acknowledgedDiskContent = undefined;
+            buffer.externalDiskContent = undefined;
             buffer.documentLifecycle = lifecycle;
             buffer.isDirty = lifecycle.status !== "clean";
           });

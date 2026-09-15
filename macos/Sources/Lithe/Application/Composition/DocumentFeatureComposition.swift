@@ -60,7 +60,8 @@ enum DocumentFeatureComposition {
                 guard session?.workspaceURL != nil else { return }
                 workspace?.scheduleWorkspaceSessionPersistence()
             },
-            onProjectCloseReady: { [weak session] in session?.projectCloseReady() }
+            onProjectCloseReady: { [weak session] in session?.projectCloseReady() },
+            onCloseFailed: { [weak session] in session?.cancelPendingClose() }
         )
         java.configure(
             documentProvider: { [weak document] in document?.activeDocument },

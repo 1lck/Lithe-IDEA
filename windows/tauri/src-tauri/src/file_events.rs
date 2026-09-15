@@ -25,3 +25,14 @@ impl GitMetadataEmitter for TauriFileChangeEmitter {
         }
     }
 }
+
+impl lithe_project::document_watcher::DocumentChangeEmitter for TauriFileChangeEmitter {
+    fn emit(&self, event: lithe_project::document_watcher::DocumentChange) {
+        if let Err(error) =
+            self.app_handle
+                .emit_to(event.owner.clone(), "document-file-changed", event)
+        {
+            eprintln!("Could not publish document change: {error}");
+        }
+    }
+}

@@ -1082,6 +1082,8 @@
 "Hide Run tool window" = "隐藏运行工具窗口";
 "Hide Debug tool window" = "隐藏调试工具窗口";
 "Hide Maven tool window" = "隐藏 Maven 工具窗口";
+"Maven Build" = "Maven 构建";
+"Hide Maven Build tool window" = "隐藏 Maven 构建工具窗口";
 "Hide Problems tool window" = "隐藏问题工具窗口";
 "Hide Terminal tool window" = "隐藏终端工具窗口";
 
@@ -2009,6 +2011,9 @@
 "Start this configuration to see its output here." = "启动此配置后，输出将显示在这里。";
 "Could not save service selection" = "无法保存服务勾选状态";
 "Selected" = "已勾选";
+
+"This file was deleted outside Lithe. Your editor content is preserved." = "该文件已被外部删除，编辑器内容已保留。";
+"Allow Recreating File" = "允许重新创建文件";
 
 /* Git console completion notices */
 "Running Git; waiting for output." = "正在执行 Git，等待输出。";

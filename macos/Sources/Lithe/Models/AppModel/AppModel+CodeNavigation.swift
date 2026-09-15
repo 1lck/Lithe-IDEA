@@ -497,7 +497,7 @@ extension AppModel {
     }
 
     func presentLanguageNavigationResults(_ kind: LanguageNavigationResultKind) {
-        workbenchFeature.hideAllToolWindows()
+        workbenchFeature.hideBottomToolWindow()
         isReferencesVisible = kind != .implementations
         isImplementationChooserVisible = kind == .implementations
     }

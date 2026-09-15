@@ -6,7 +6,7 @@ import Testing
 @MainActor
 struct DebugLaunchPreparationCoordinatorTests {
     @Test("saves a dirty debug document and records its previous text")
-    func savesDirtyDocument() {
+    func savesDirtyDocument() async {
         let document = EditorDocument(
             url: URL(fileURLWithPath: "/workspace/Main.java"),
             text: "before",
@@ -18,7 +18,7 @@ struct DebugLaunchPreparationCoordinatorTests {
         let coordinator = DebugLaunchPreparationCoordinator(notify: notifications.notify)
         coordinator.connect(actions: actions)
 
-        let ready = coordinator.saveDirtyDocumentIfNeeded(document)
+        let ready = await coordinator.saveDirtyDocumentIfNeeded(document)
 
         #expect(ready)
         #expect(actions.events == ["save", "record-save"])
@@ -27,7 +27,7 @@ struct DebugLaunchPreparationCoordinatorTests {
     }
 
     @Test("skips clean debug documents")
-    func skipsCleanDocument() {
+    func skipsCleanDocument() async {
         let document = EditorDocument(
             url: URL(fileURLWithPath: "/workspace/Main.java"),
             text: "source",
@@ -38,7 +38,7 @@ struct DebugLaunchPreparationCoordinatorTests {
         let coordinator = DebugLaunchPreparationCoordinator(notify: notifications.notify)
         coordinator.connect(actions: actions)
 
-        let ready = coordinator.saveDirtyDocumentIfNeeded(document)
+        let ready = await coordinator.saveDirtyDocumentIfNeeded(document)
 
         #expect(ready)
         #expect(actions.events.isEmpty)
@@ -48,7 +48,7 @@ struct DebugLaunchPreparationCoordinatorTests {
     /// A launch must not proceed from a source file the compiler will not see;
     /// a failed save aborts instead of debugging the stale text on disk.
     @Test("aborts the launch when the dirty document cannot be saved")
-    func abortsOnFailedSave() {
+    func abortsOnFailedSave() async {
         let document = EditorDocument(
             url: URL(fileURLWithPath: "/workspace/Main.java"),
             text: "before",
@@ -61,7 +61,7 @@ struct DebugLaunchPreparationCoordinatorTests {
         let coordinator = DebugLaunchPreparationCoordinator(notify: notifications.notify)
         coordinator.connect(actions: actions)
 
-        let ready = coordinator.saveDirtyDocumentIfNeeded(document)
+        let ready = await coordinator.saveDirtyDocumentIfNeeded(document)
 
         #expect(!ready)
         #expect(notifications.messages == ["Could not save Main.java"])
