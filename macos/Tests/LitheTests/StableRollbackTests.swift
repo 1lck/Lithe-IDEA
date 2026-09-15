@@ -117,8 +117,20 @@ struct StableRollbackTests {
             .write(to: app.appendingPathComponent("Contents/Info.plist"))
         let dmg = root.appendingPathComponent("stable.dmg")
         try await runFixtureTool("/usr/bin/codesign", ["--force", "--sign", "-", app.path])
-        try await runFixtureTool("/usr/bin/hdiutil", ["create", "-srcfolder", root.appendingPathComponent("payload").path,
-                                                   "-format", "UDRW", dmg.path])
+        // Creating a compressed image from a source folder can exceed the
+        // bounded process deadline on a loaded CI runner. Create a small blank
+        // image, then copy the already-signed fixture into its mounted volume.
+        try await runFixtureTool("/usr/bin/hdiutil", ["create", "-size", "32m", "-fs", "HFS+",
+                                                   "-volname", "Lithe", "-layout", "SPUD", dmg.path])
+        let imageMount = root.appendingPathComponent("image-mount")
+        try manager.createDirectory(at: imageMount, withIntermediateDirectories: false)
+        try await runFixtureTool("/usr/bin/hdiutil", ["attach", dmg.path, "-nobrowse", "-mountpoint", imageMount.path])
+        defer {
+            _ = MacProcessRunner().run(ProcessRequest(executablePath: "/usr/bin/hdiutil",
+                arguments: ["detach", imageMount.path, "-force"], timeoutMilliseconds: 10_000))
+        }
+        try await runFixtureTool("/usr/bin/ditto", [app.path, imageMount.appendingPathComponent("Lithe.app").path])
+        try await runFixtureTool("/usr/bin/hdiutil", ["detach", imageMount.path])
         let archiveData = try Data(contentsOf: dmg)
         let checksum = SHA256.hash(data: archiveData).map { String(format: "%02x", $0) }.joined()
         let publisher = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(repeating: 1, count: 32))
