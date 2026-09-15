@@ -49,10 +49,17 @@ struct GitLogView: View {
     @State private var showsGitLogPathPopover = false
     @State private var gitCommitFileLoadTask: Task<Void, Never>?
     @State private var showsGitLogBranchFilterPopover = false
+    @State private var showsFetchOptions = false
     @State private var showsGitLogAuthorFilterPopover = false
     @State private var graphPresentation = GitGraphPresentation.empty
     @FocusState private var gitLogSearchFocused: Bool
     @FocusState private var gitLogCommitListFocused: Bool
+
+    private struct ConsoleTailState: Equatable {
+        let id: UUID?
+        let state: GitConsoleEntryState?
+        let succeeded: Bool?
+    }
 
     /// IntelliJ's Git tool window uses the macOS system UI font throughout;
     /// only hashes and timestamps use a monospaced face. Keeping these values
@@ -132,9 +139,14 @@ struct GitLogView: View {
             gitLogPathFilter = ""
             gitLogPathDraft = ""
         }
-        .onChange(of: feature.gitConsoleEntries.last?.id) { _ in
-            guard feature.gitConsoleEntries.last?.succeeded == false else { return }
+        .onChange(of: consoleTailState) { tail in
+            guard tail.state == .completed || tail.state == .unconfirmed, tail.succeeded == false else { return }
             selectedGitToolTab = .console
+        }
+        .sheet(isPresented: $showsFetchOptions) {
+            GitFetchDialog(feature: feature) { options in
+                Task { await feature.fetchGit(options: options) }
+            }
         }
         .onAppear {
             if let commit = feature.selectedGitCommit {
@@ -267,6 +279,11 @@ struct GitLogView: View {
 
     /// The tab split lives outside `body` because the main expression is
     /// already close to the type-checker limit.
+    private var consoleTailState: ConsoleTailState {
+        let entry = feature.gitConsoleEntries.last
+        return ConsoleTailState(id: entry?.id, state: entry?.state, succeeded: entry?.succeeded)
+    }
+
     @ViewBuilder
     private var primaryContent: some View {
         switch selectedGitToolTab {
@@ -402,6 +419,8 @@ struct GitLogView: View {
                 Button("Fetch All Remotes") {
                     Task { await feature.fetchGit() }
                 }
+                Button("Fetch Options…") { showsFetchOptions = true }
+                    .disabled(feature.isPerformingBranchOperation)
                 Button("Update Current Branch") {
                     guard let currentReference else { return }
                     Task { await feature.updateCurrentBranch(currentReference) }
@@ -502,97 +521,8 @@ struct GitLogView: View {
     }
 
     private var gitConsolePane: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 3) {
-                Button {
-                    gitConsoleWrapsLines.toggle()
-                } label: {
-                    ZStack(alignment: .bottomTrailing) {
-                        Image(systemName: "text.justify.leading")
-                            .font(.system(size: 12, weight: .regular))
-                        Image(systemName: "arrow.turn.down.left")
-                            .font(.system(size: 6.5, weight: .semibold))
-                            .offset(x: 2, y: 1)
-                    }
-                }
-                .litheIconButton()
-                .foregroundStyle(gitConsoleWrapsLines ? LitheTheme.accent : LitheTheme.secondaryText)
-                .help(LocalizedStringKey(gitConsoleWrapsLines ? "Disable soft wraps" : "Use soft wraps"))
-
-                Button {
-                    gitConsoleAutoScrolls.toggle()
-                } label: {
-                    Image(systemName: gitConsoleAutoScrolls ? "arrow.down.to.line.compact" : "arrow.down.to.line")
-                }
-                .litheIconButton()
-                .foregroundStyle(gitConsoleAutoScrolls ? LitheTheme.accent : LitheTheme.secondaryText)
-                .help(LocalizedStringKey(gitConsoleAutoScrolls ? "Disable automatic scrolling" : "Scroll to new Git output"))
-
-                Button(action: feature.clearGitConsole) {
-                    Image(systemName: "trash")
-                }
-                .litheIconButton()
-                .foregroundStyle(LitheTheme.secondaryText)
-                .disabled(feature.gitConsoleEntries.isEmpty)
-                .help("Clear Git console")
-
-                Spacer(minLength: 0)
-            }
-            .padding(.top, 6)
-            .frame(width: 28)
+        GitConsoleView(feature: feature)
             .background(background.hasImage ? Color.clear : LitheTheme.editor)
-
-            Rectangle()
-                .fill(LitheTheme.divider)
-                .frame(width: 1)
-
-            GeometryReader { geometry in
-                ScrollViewReader { proxy in
-                    ScrollView(gitConsoleWrapsLines ? .vertical : [.horizontal, .vertical]) {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            if feature.gitConsoleEntries.isEmpty {
-                                Text("Git command output will appear here.")
-                                    .font(GitVisual.monoMeta)
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                                    .frame(height: 20, alignment: .leading)
-                            } else {
-                                ForEach(feature.gitConsoleEntries) { entry in
-                                    gitConsoleEntry(entry)
-                                        .id(entry.id)
-                                }
-                            }
-
-                            Color.clear
-                                .frame(width: 1, height: 1)
-                                .id("git-console-bottom")
-                        }
-                        // Keep long console lines at their intrinsic width when
-                        // soft wraps are disabled so the enclosing ScrollView
-                        // exposes a real horizontal scroll range.
-                        .fixedSize(horizontal: !gitConsoleWrapsLines, vertical: false)
-                        .padding(.leading, 18)
-                        .padding(.trailing, 8)
-                        .padding(.top, 4)
-                        .padding(.bottom, 8)
-                        .frame(
-                            minWidth: max(0, geometry.size.width),
-                            minHeight: max(0, geometry.size.height),
-                            alignment: .topLeading
-                        )
-                    }
-                    .litheScrollViewChrome()
-                    .onAppear {
-                        guard gitConsoleAutoScrolls else { return }
-                        proxy.scrollTo("git-console-bottom", anchor: .bottom)
-                    }
-                    .onChange(of: feature.gitConsoleEntries.last?.id) { _ in
-                        guard gitConsoleAutoScrolls else { return }
-                        proxy.scrollTo("git-console-bottom", anchor: .bottom)
-                    }
-                }
-            }
-        }
-        .background(background.hasImage ? Color.clear : LitheTheme.editor)
     }
 
     private func gitConsoleEntry(_ entry: GitConsoleEntry) -> some View {
@@ -681,6 +611,14 @@ struct GitLogView: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             .lithePointer()
+            .disabled(feature.isPerformingBranchOperation)
+
+            Button { showsFetchOptions = true } label: {
+                Image(systemName: "slider.horizontal.3")
+            }
+            .litheIconButton()
+            .help("Fetch Options…")
+            .accessibilityLabel("Fetch Options…")
             .disabled(feature.isPerformingBranchOperation)
 
             Button {
