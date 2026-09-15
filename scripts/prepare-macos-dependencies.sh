@@ -55,7 +55,7 @@ if ! node "$ROOT_DIR/scripts/verify-download-cache.mjs" \
     --skip-cargo \
     --swiftpm-cache "$CACHE_ROOT" \
     --swiftpm-resolved "$ROOT_DIR/Package.resolved" \
-    --swift-version 6.2 \
+    --swift-version 6.3.3 \
     --write-swiftpm-manifest; then
     warning "SwiftPM cache sealing failed" "Resolved checkouts remain available for this job, but the shared cache will be cleared instead of saving unverifiable content."
     rm -rf -- "$CACHE_ROOT"
