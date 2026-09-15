@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Lithe
 
@@ -68,6 +69,34 @@ struct WorkbenchFeatureModelTests {
     }
 
     @Test
+    func languageNavigationReplacesBottomToolWithoutClosingMavenDock() {
+        let store = WorkbenchFeatureModelTestStore()
+        let settings = AppSettings(store: store)
+        let services = MacServiceContainer(
+            store: store,
+            settings: settings,
+            moduleLaunchMode: .safeMode
+        ).services
+        let model = AppModel(settings: settings, services: services)
+        model.isMavenVisible = true
+        model.isTerminalVisible = true
+
+        model.presentLanguageNavigationResults(.references)
+
+        #expect(model.isMavenVisible)
+        #expect(model.isReferencesVisible)
+        #expect(!model.isTerminalVisible)
+
+        model.isTerminalVisible = true
+        model.presentLanguageNavigationResults(.implementations)
+
+        #expect(model.isMavenVisible)
+        #expect(model.isImplementationChooserVisible)
+        #expect(!model.isReferencesVisible)
+        #expect(!model.isTerminalVisible)
+    }
+
+    @Test
     func sidebarSelectionNotifiesOnlyWhenSelectionChanges() {
         let model = WorkbenchFeatureModel()
         var selections: [SidebarDestination] = []
@@ -80,4 +109,14 @@ struct WorkbenchFeatureModelTests {
         #expect(selections == [.changes])
         #expect(model.selectedSidebar == .changes)
     }
+}
+
+private final class WorkbenchFeatureModelTestStore: KeyValueStore, @unchecked Sendable {
+    private var values: [String: Any] = [:]
+
+    func data(forKey key: String) -> Data? { values[key] as? Data }
+    func object(forKey key: String) -> Any? { values[key] }
+    func string(forKey key: String) -> String? { values[key] as? String }
+    func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
+    func set(_ value: Any?, forKey key: String) { values[key] = value }
 }

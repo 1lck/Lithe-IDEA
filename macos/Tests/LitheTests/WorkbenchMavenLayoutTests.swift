@@ -47,11 +47,25 @@ struct WorkbenchMavenLayoutTests {
         }
     }
 
-    @Test func shrinkingAndRestoringWindowDoesNotOverwritePreferredWidth() {
-        let preferred: CGFloat = 410
-        let narrow = WorkbenchRightToolGeometry.resolvedWidth(preferred, in: 760)
-        #expect(narrow < preferred)
-        #expect(WorkbenchRightToolGeometry.resolvedWidth(preferred, in: 1440) == preferred)
+    @Test func narrowWindowDividerMouseUpDoesNotOverwritePreferredWidth() throws {
+        let store = WorkbenchLayoutStore(store: MavenLayoutTestStore())
+        let workspace = URL(fileURLWithPath: "/fixture/maven-layout/project")
+        store.save(WorkbenchLayout(sidebarWidth: 320, topPaneHeight: nil, mavenPaneWidth: 410), for: workspace)
+        let preferred = CGFloat(try #require(store.load(for: workspace).mavenPaneWidth))
+        let narrowWidth = WorkbenchRightToolGeometry.resolvedWidth(preferred, in: 760)
+        #expect(narrowWidth < preferred)
+
+        if let committedWidth = WorkbenchRightToolGeometry.committedWidth(narrowWidth, in: 760) {
+            store.save(
+                WorkbenchLayout(sidebarWidth: 320, topPaneHeight: nil, mavenPaneWidth: Double(committedWidth)),
+                for: workspace
+            )
+        }
+
+        let restored = CGFloat(try #require(store.load(for: workspace).mavenPaneWidth))
+        #expect(restored == preferred)
+        #expect(WorkbenchRightToolGeometry.resolvedWidth(restored, in: 1440) == preferred)
+        #expect(WorkbenchRightToolGeometry.committedWidth(380, in: 1440) == 380)
         #expect(WorkbenchRightToolGeometry.resolvedWidth(10, in: 1440) == 300)
         #expect(WorkbenchRightToolGeometry.resolvedWidth(900, in: 1440) == 520)
     }

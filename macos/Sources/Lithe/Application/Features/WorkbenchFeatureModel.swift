@@ -67,8 +67,12 @@ final class WorkbenchFeatureModel: ObservableObject {
         setVisibility(toolWindow, isVisible: !isVisible(toolWindow))
     }
 
-    func hideAllToolWindows() {
+    func hideBottomToolWindow() {
         activeToolWindow = nil
+    }
+
+    func hideAllToolWindows() {
+        hideBottomToolWindow()
         isMavenDockVisible = false
     }
 

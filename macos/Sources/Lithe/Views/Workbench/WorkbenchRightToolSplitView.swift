@@ -22,6 +22,15 @@ enum WorkbenchRightToolGeometry {
             maximum: maximumWidth(in: availableWidth)
         )
     }
+
+    /// A window with no usable resize range is showing a temporary fit value.
+    /// It must not replace the user's preferred width when a drag ends.
+    static func committedWidth(_ width: CGFloat, in availableWidth: CGFloat) -> CGFloat? {
+        guard maximumWidth(in: availableWidth) > CGFloat(WorkbenchLayout.minimumMavenPaneWidth) else {
+            return nil
+        }
+        return resolvedWidth(width, in: availableWidth)
+    }
 }
 
 /// The shared split container owns live drag state; the workbench receives only
@@ -56,7 +65,13 @@ struct WorkbenchRightToolSplitView<Workspace: View, Tool: View>: View {
                 minimum: WorkbenchRightToolGeometry.minimumWidth(in: geometry.size.width),
                 maximum: WorkbenchRightToolGeometry.maximumWidth(in: geometry.size.width),
                 showsIdleDivider: false,
-                onCommit: onCommit,
+                onCommit: { width in
+                    guard let committedWidth = WorkbenchRightToolGeometry.committedWidth(
+                        width,
+                        in: geometry.size.width
+                    ) else { return }
+                    onCommit(committedWidth)
+                },
                 sized: {
                     tool
                         .frame(maxHeight: .infinity)
