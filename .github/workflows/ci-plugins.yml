@@ -87,16 +87,9 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Set up Swift
-        uses: swift-actions/setup-swift@v3
+        uses: swift-actions/setup-swift@v2
         with:
-          swift-version: "6.3.3"
-
-      - name: Select Swift 6.3.3 toolchain
-        shell: bash
-        run: |
-          swiftly install 6.3.3
-          swiftly use 6.3.3
-          swift --version
+          swift-version: "6.2"
 
       - name: Prepare verified SwiftPM cache
         uses: ./.github/actions/prepare-macos-dependency-cache
