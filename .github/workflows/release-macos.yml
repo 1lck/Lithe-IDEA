@@ -67,7 +67,7 @@ jobs:
   build:
     name: Build ${{ matrix.architecture }} release
     needs: prepare
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -274,7 +274,7 @@ jobs:
   update-cask:
     name: Update Homebrew Cask
     needs: publish
-    runs-on: macos-14
+    runs-on: macos-15
     permissions:
       contents: write
       pull-requests: write
