@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Lithe
 
@@ -20,6 +21,82 @@ struct WorkbenchFeatureModelTests {
     }
 
     @Test
+    func mavenNavigationDoesNotReplaceBottomTools() {
+        let model = WorkbenchFeatureModel()
+        model.setVisibility(.terminal, isVisible: true)
+        model.setVisibility(.maven, isVisible: true)
+        #expect(model.activeToolWindow == .terminal)
+        #expect(model.isVisible(.maven))
+
+        model.setVisibility(.run, isVisible: true)
+        #expect(model.isVisible(.maven))
+        #expect(model.isVisible(.run))
+        #expect(!model.isVisible(.terminal))
+
+        model.setVisibility(.debug, isVisible: true)
+        #expect(model.isVisible(.maven))
+        #expect(model.isVisible(.debug))
+    }
+
+    @Test
+    func mavenNavigationAndOutputCloseIndependently() {
+        let model = WorkbenchFeatureModel()
+        model.setVisibility(.maven, isVisible: true)
+        model.setVisibility(.mavenOutput, isVisible: true)
+        model.setVisibility(.mavenOutput, isVisible: false)
+        #expect(model.isVisible(.maven))
+        #expect(model.activeToolWindow == nil)
+
+        model.setVisibility(.mavenOutput, isVisible: true)
+        model.toggleVisibility(.maven)
+        #expect(!model.isVisible(.maven))
+        #expect(model.isVisible(.mavenOutput))
+
+        model.toggleVisibility(.maven)
+        model.hideAllToolWindows()
+        #expect(!model.isVisible(.maven))
+        #expect(model.activeToolWindow == nil)
+    }
+
+    @Test
+    func workspaceResetClearsBothMavenAreas() {
+        let model = WorkbenchFeatureModel()
+        model.setVisibility(.maven, isVisible: true)
+        model.setVisibility(.mavenOutput, isVisible: true)
+        model.reset()
+        #expect(!model.isVisible(.maven))
+        #expect(!model.isVisible(.mavenOutput))
+    }
+
+    @Test
+    func languageNavigationReplacesBottomToolWithoutClosingMavenDock() {
+        let store = WorkbenchFeatureModelTestStore()
+        let settings = AppSettings(store: store)
+        let services = MacServiceContainer(
+            store: store,
+            settings: settings,
+            moduleLaunchMode: .safeMode
+        ).services
+        let model = AppModel(settings: settings, services: services)
+        model.isMavenVisible = true
+        model.isTerminalVisible = true
+
+        model.presentLanguageNavigationResults(.references)
+
+        #expect(model.isMavenVisible)
+        #expect(model.isReferencesVisible)
+        #expect(!model.isTerminalVisible)
+
+        model.isTerminalVisible = true
+        model.presentLanguageNavigationResults(.implementations)
+
+        #expect(model.isMavenVisible)
+        #expect(model.isImplementationChooserVisible)
+        #expect(!model.isReferencesVisible)
+        #expect(!model.isTerminalVisible)
+    }
+
+    @Test
     func sidebarSelectionNotifiesOnlyWhenSelectionChanges() {
         let model = WorkbenchFeatureModel()
         var selections: [SidebarDestination] = []
@@ -32,4 +109,14 @@ struct WorkbenchFeatureModelTests {
         #expect(selections == [.changes])
         #expect(model.selectedSidebar == .changes)
     }
+}
+
+private final class WorkbenchFeatureModelTestStore: KeyValueStore, @unchecked Sendable {
+    private var values: [String: Any] = [:]
+
+    func data(forKey key: String) -> Data? { values[key] as? Data }
+    func object(forKey key: String) -> Any? { values[key] }
+    func string(forKey key: String) -> String? { values[key] as? String }
+    func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
+    func set(_ value: Any?, forKey key: String) { values[key] = value }
 }
