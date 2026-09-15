@@ -8,12 +8,14 @@ function harness() {
   let checks = 0;
   let released = 0;
   const scheduled = new Set<() => void>();
+  const gitChanges: unknown[] = [];
   const buffer = { id: "a", type: "editor", path: "C:/project/sub/A.java", documentLifecycle: { status: "clean" } };
   const state = { buffers: [buffer], actions: { handleExternalBufferChange: async () => { checks++; return "ignored"; } } };
   const store = { getState: () => state };
   const stores = [store];
   const registrations: { generation: number; documents: { id: string; path: string }[] }[] = [];
   const dependencies: DocumentWatchDependencies = {
+    gitChanged: (change) => { gitChanges.push(change); },
     stores: () => stores as unknown as ReturnType<DocumentWatchDependencies["stores"]>,
     subscribe: (callback) => { changed = callback; return () => { released++; }; },
     focus: (callback) => { focus = callback; return () => { released++; }; },
@@ -21,7 +23,7 @@ function harness() {
     register: async (generation, documents) => { registrations.push({ generation, documents }); },
     schedule: (callback) => { scheduled.add(callback); return () => { scheduled.delete(callback); }; },
   };
-  return { dependencies, buffer, state, stores, registrations, changed: () => changed(), focus: () => focus(), event: (value: { generation: number; id: string }) => event(value), checks: () => checks, released: () => released,
+  return { gitChanges, dependencies, buffer, state, stores, registrations, changed: () => changed(), focus: () => focus(), event: (value: { generation: number; id: string }) => event(value), checks: () => checks, released: () => released,
     scheduledCount: () => scheduled.size,
     runScheduled: () => { const callbacks = [...scheduled]; scheduled.clear(); for (const callback of callbacks) callback(); },
   };
@@ -132,5 +134,34 @@ test("closing a document before its scheduled retry prevents another read", asyn
     h.runScheduled(); await flush();
     expect(attempts).toBe(4);
     expect(h.scheduledCount()).toBe(0);
+  } finally { await dispose(); }
+});
+
+for (const result of ["reloaded", "conflict", "ignored", "failed"]) {
+  test(`external ${result} sends only the required Git working-tree refresh`, async () => {
+    const h = harness();
+    h.buffer.path = "C:/project/tracked.txt";
+    h.state.actions.handleExternalBufferChange = async () => result;
+    const dispose = await createDocumentWatches(h.dependencies);
+    try {
+      await flush();
+      expect(h.gitChanges).toEqual(result === "reloaded" || result === "conflict" ? [{
+        filePath: h.buffer.path, scopes: ["working-tree"], source: "external-file-change",
+      }] : []);
+    } finally { await dispose(); }
+  });
+}
+
+test("deferred reconciliation does not refresh Git until it completes", async () => {
+  const h = harness();
+  let result = "deferred";
+  h.state.actions.handleExternalBufferChange = async () => result;
+  const dispose = await createDocumentWatches(h.dependencies);
+  try {
+    await flush();
+    expect(h.gitChanges).toEqual([]);
+    result = "reloaded";
+    h.runScheduled(); await flush();
+    expect(h.gitChanges).toHaveLength(1);
   } finally { await dispose(); }
 });

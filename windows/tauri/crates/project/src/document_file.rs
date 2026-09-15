@@ -164,11 +164,31 @@ fn save_with_precommit(
     }
     if expected.is_none() {
         // Creation must never replace a file created after the missing-file check.
-        fs::hard_link(&temporary.0, path)?;
+        create_without_replacing(&temporary.0, path)?;
     } else {
         replace(&temporary.0, path)?;
     }
     Ok(SaveOutcome::Saved)
+}
+
+// Same-directory publication must reject a concurrently created destination.
+#[cfg(windows)]
+fn create_without_replacing(from: &Path, to: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
+    let from: Vec<u16> = from.as_os_str().encode_wide().chain(Some(0)).collect();
+    let to: Vec<u16> = to.as_os_str().encode_wide().chain(Some(0)).collect();
+    // Zero flags prohibit replacement and cross-volume copying. Unlike hard
+    // links this also supports writable FAT/exFAT volumes.
+    if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), 0) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn create_without_replacing(from: &Path, to: &Path) -> io::Result<()> {
+    fs::hard_link(from, to)
 }
 
 #[cfg(not(windows))]
@@ -221,6 +241,21 @@ mod tests {
             fs::remove_dir_all(&self.0).unwrap();
         }
     }
+    #[test]
+    fn new_file_publication_never_replaces_a_concurrent_creator() {
+        let directory = Directory::new();
+        let target = directory.0.join("new.txt");
+        let staging = directory.0.join("staging.tmp");
+        fs::write(&staging, "mine").unwrap();
+        let cleanup = TemporaryFile(staging.clone());
+        // Another writer wins after the final baseline read, before publication.
+        fs::write(&target, "external").unwrap();
+        assert!(create_without_replacing(&staging, &target).is_err());
+        drop(cleanup);
+        assert_eq!(fs::read_to_string(&target).unwrap(), "external");
+        assert!(!staging.exists());
+    }
+
     #[test]
     fn rejects_external_change_even_when_mtime_and_size_match() {
         let directory = Directory::new();

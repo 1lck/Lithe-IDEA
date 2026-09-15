@@ -6211,6 +6211,11 @@ private struct ExistingWorkspaceFileOperations: WorkspaceFileOperations {
 }
 
 private struct EmptyWorkspaceFileOperations: WorkspaceFileOperations {
+    var guardedRead: (@Sendable () async throws -> String?)? = nil
+    func readDocumentTextAsync(from url: URL) async throws -> String? {
+        if let guardedRead { return try await guardedRead() }
+        return try readText(from: url)
+    }
     var guardedWrite: (@Sendable (String, String?) async throws -> DocumentWriteResult)? = nil
     func writeDocumentTextAsync(_ text: String, to url: URL, expectedContent: String?) async throws -> DocumentWriteResult {
         guard let guardedWrite else { throw CocoaError(.featureUnsupported) }
@@ -6348,7 +6353,11 @@ struct DocumentFeatureGuardedPersistenceTests {
         _ files: EmptyWorkspaceFileOperations,
         delay: @escaping @Sendable (Duration) async throws -> Void = { _ in }
     ) -> DocumentFeatureModel {
-        DocumentFeatureModel(operations: EmptyWorkspaceOperations(readFileValue: "baseline"),
+        var files = files
+        // These orchestration doubles do not own a disk image. Avoid inventing
+        // an external empty-file change when the post-save observer runs.
+        files.guardedRead = { throw CocoaError(.fileReadNoPermission) }
+        return DocumentFeatureModel(operations: EmptyWorkspaceOperations(readFileValue: "baseline"),
             documentLifecycleDecider: PersistenceDecider(),
             fileOperations: files, fileStorage: InMemoryFileStorage(),
             binaryFileViewerRegistry: BinaryFileViewerRegistry(), autoSaveDelay: delay)
@@ -6382,7 +6391,7 @@ struct DocumentFeatureGuardedPersistenceTests {
         }))
         defer { model.reset() }
         do { try await model.save(document); Issue.record("New input must prevent dependent workflows from proceeding") }
-        catch { #expect((error as NSError).domain == NSCocoaErrorDomain, "Unexpected save error: \(error)") }
+        catch { #expect(error is DocumentFeatureModel.SaveProgress, "Unexpected save error: \(error)") }
         #expect(document.text == "new input")
         #expect(document.savedText == "saving snapshot")
         #expect(document.isDirty)
@@ -6544,6 +6553,56 @@ struct DocumentFeatureGuardedPersistenceTests {
         await second.value
         #expect(document.savedText == "first")
         #expect(document.isDirty)
+    }
+
+    private actor OverlappingWrites {
+        let started = TestGate(), release = TestGate()
+        var contents: [String] = []
+        var baselines: [String?] = []
+        func write(_ content: String, baseline: String?) async -> DocumentWriteResult {
+            contents.append(content)
+            baselines.append(baseline)
+            if contents.count == 1 {
+                started.open()
+                #expect(await release.waitUntilOpen(), "Write gate timed out")
+            }
+            return .saved
+        }
+    }
+
+    @Test(arguments: ["continue", "disable", "close"])
+    func overlappingAutoSaveFinishesLatestRevisionUnlessCancelled(ending: String) async throws {
+        let writes = OverlappingWrites()
+        let delay = AutoSaveDelay()
+        let preference = AutoSavePreference()
+        let model = feature(EmptyWorkspaceFileOperations(guardedWrite: { content, baseline in
+            await writes.write(content, baseline: baseline)
+        }), delay: { try await delay.wait($0) })
+        configure(model, enabled: { preference.enabled })
+        defer { writes.release.open(); delay.releaseSecond.open(); model.reset() }
+        let document = try await open(model)
+        document.text = "A"
+        let first = try #require(model.documentDidChange(document))
+        defer { first.cancel() }
+        #expect(await writes.started.waitUntilOpen(), "First write did not start")
+        document.text = "B"
+        let second = try #require(model.documentDidChange(document))
+        defer { second.cancel() }
+        #expect(await delay.secondStarted.waitUntilOpen(), "Second delay did not start")
+        delay.releaseSecond.open()
+        if ending == "disable" { preference.enabled = false }
+        if ending == "close" { model.reset() }
+        writes.release.open()
+        await first.value
+        await second.value
+        let contents = await writes.contents
+        if ending == "continue" {
+            #expect(contents == ["A", "B"])
+            #expect(await writes.baselines == ["baseline", "A"])
+            #expect(!document.isDirty)
+        } else {
+            #expect(contents == ["A"])
+        }
     }
 
     @Test func failedSaveReleasesCloseRequestAndAllowsRetry() async throws {

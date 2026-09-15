@@ -60,6 +60,7 @@ final class DocumentFeatureModel: ObservableObject {
     @Published private(set) var isPendingProjectClose = false
     @Published private(set) var projectTreeRevealRequest: ProjectTreeRevealRequest?
 
+    enum SaveProgress: Error { case newerRevisionPending }
     private var persistenceGeneration = UUID()
     private var saveTasks: [UUID: Task<Void, Error>] = [:]
     private var externalChangeTasks: [UUID: Task<Void, Never>] = [:]
@@ -741,12 +742,21 @@ final class DocumentFeatureModel: ObservableObject {
                 }
             }
             guard !Task.isCancelled, self.autoSaveEnabledProvider?() == true, document.isDirty else { return }
-            do {
-                let previousText = document.savedText
-                try await self.saveDocument(document)
-                self.onRecordSave?(document, previousText)
-            } catch {
-                if !Task.isCancelled { self.notify?("Could not auto-save \(document.url.lastPathComponent)") }
+            while !Task.isCancelled, self.autoSaveTasks[document.id]?.id == id,
+                  self.autoSaveEnabledProvider?() == true, document.isDirty {
+                do {
+                    let previousText = document.savedText
+                    try await self.saveDocument(document)
+                    if !Task.isCancelled { self.onRecordSave?(document, previousText) }
+                    return
+                } catch SaveProgress.newerRevisionPending {
+                    // Only a completed write with newer local input may continue.
+                    // Conflicts and I/O failures must never become automatic retries.
+                    guard self.openDocuments.contains(where: { $0 === document }) else { return }
+                } catch {
+                    if !Task.isCancelled { self.notify?("Could not auto-save \(document.url.lastPathComponent)") }
+                    return
+                }
             }
         }
         autoSaveTasks[document.id] = (id, task)
@@ -923,19 +933,20 @@ final class DocumentFeatureModel: ObservableObject {
     private func saveDocument(_ document: EditorDocument) async throws {
         if let task = saveTasks[document.id] {
             try await task.value
-            guard !document.isDirty else { throw CocoaError(.userCancelled) }
+            guard !document.isDirty else { throw SaveProgress.newerRevisionPending }
             return
         }
         let generation = persistenceGeneration
         let task = Task { [weak self] in
-            guard let self, self.persistenceGeneration == generation else { throw CancellationError() }
+            guard let self else { throw CancellationError() }
+            defer {
+                self.saveTasks.removeValue(forKey: document.id)
+                self.processExternalChanges([document.url])
+            }
+            guard self.persistenceGeneration == generation else { throw CancellationError() }
             try await self.performDocumentSave(document, generation: generation)
         }
         saveTasks[document.id] = task
-        defer {
-            saveTasks.removeValue(forKey: document.id)
-            processExternalChanges([document.url])
-        }
         try await task.value
     }
 
@@ -962,7 +973,7 @@ final class DocumentFeatureModel: ObservableObject {
             switch result {
             case .saved:
                 try completeSave(document, operationID: operationID, savedContent: content)
-                guard !document.isDirty else { throw CocoaError(.userCancelled) }
+                guard !document.isDirty else { throw SaveProgress.newerRevisionPending }
             case .conflict(let content):
                 let conflict = try documentLifecycleDecider.decide(state: document.lifecycleState, event: .diskConflict, operationID: operationID)
                 document.observeDiskConflict(content)
@@ -971,6 +982,8 @@ final class DocumentFeatureModel: ObservableObject {
                 onDocumentChanged?(document)
                 throw CocoaError(.userCancelled)
             }
+        } catch SaveProgress.newerRevisionPending {
+            throw SaveProgress.newerRevisionPending
         } catch let saveError {
             do {
                 let failed = try documentLifecycleDecider.decide(

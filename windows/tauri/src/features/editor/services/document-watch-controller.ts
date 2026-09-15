@@ -1,3 +1,4 @@
+import { emitGitChanged, type GitChange } from "@/features/git/events/git-events";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invoke } from "@/platform/tauri-core";
 import { isLocalDocumentPath } from "@/platform/document-files";
@@ -23,6 +24,7 @@ export interface DocumentWatchDependencies {
   focus: (callback: () => void) => () => void;
   register: (generation: number, documents: { id: string; path: string }[]) => Promise<unknown>;
   schedule?: (callback: () => void) => () => void;
+  gitChanged?: (change: GitChange) => void;
 }
 
 /** One controller per WebView; native leases are independently owned by its window. */
@@ -68,6 +70,12 @@ export async function createDocumentWatches(dependencies: DocumentWatchDependenc
         if (buffer.documentLifecycle?.status === "saving") { pending.add(id); break; }
         const result = await target.store.getState().actions.handleExternalBufferChange(target.bufferId, crypto.randomUUID());
         if (stopped) break;
+        const latestTarget = targets.get(id);
+        if (latestTarget?.path === target.path && (result === "reloaded" || result === "conflict")) {
+          (dependencies.gitChanged ?? emitGitChanged)({
+            filePath: target.path, scopes: ["working-tree"], source: "external-file-change",
+          });
+        }
         if (result === "deferred") pending.add(id);
       }
     } finally {
