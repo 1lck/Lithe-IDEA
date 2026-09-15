@@ -40,8 +40,6 @@ struct GitLogView: View {
     @State private var showLongGraphEdges = false
     @State private var graphNavigationRequest: GraphNavigationRequest?
     @State private var selectedGitToolTab = GitToolTab.log
-    @State private var gitConsoleAutoScrolls = true
-    @State private var gitConsoleWrapsLines = false
     @State private var selectedGitLogAuthor: GitLogAuthorSelection?
     @State private var selectedGitLogDatePreset = GitLogDatePreset.anyTime
     @State private var gitLogPathFilter = ""
@@ -524,82 +522,6 @@ struct GitLogView: View {
         GitConsoleView(feature: feature)
             .background(background.hasImage ? Color.clear : LitheTheme.editor)
     }
-
-    private func gitConsoleEntry(_ entry: GitConsoleEntry) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            gitConsoleLine(gitConsoleCommandText(entry))
-
-            if entry.outputLines.isEmpty {
-                if !entry.succeeded {
-                    gitConsoleLine(
-                        Text("Git exited with code \(entry.exitCode)")
-                            .foregroundColor(LitheTheme.error)
-                    )
-                }
-            } else {
-                ForEach(Array(entry.outputLines.enumerated()), id: \.offset) { _, line in
-                    gitConsoleLine(
-                        Text(line.text.isEmpty ? " " : line.text)
-                            .foregroundColor(
-                                line.stream == .standardError
-                                    ? LitheTheme.error
-                                    : gitConsoleTextColor
-                            )
-                    )
-                }
-            }
-        }
-        .font(.system(size: 13, weight: .regular, design: .monospaced))
-        .textSelection(.enabled)
-    }
-
-    private func gitConsoleLine(_ text: Text) -> some View {
-        text
-            .frame(
-                maxWidth: gitConsoleWrapsLines ? .infinity : nil,
-                minHeight: 20,
-                alignment: .leading
-            )
-            .fixedSize(horizontal: !gitConsoleWrapsLines, vertical: true)
-    }
-
-    private func gitConsoleCommandText(_ entry: GitConsoleEntry) -> Text {
-        let commandColor = entry.isDestructive ? LitheTheme.error : gitConsoleTextColor
-        let metadataColor = entry.isDestructive ? LitheTheme.error : gitConsoleMetadataColor
-        let location = Text("\(gitConsoleTimestamp(entry.timestamp)): [\(entry.workingDirectory.path)]")
-            .foregroundColor(metadataColor)
-        let executable = Text(" git")
-            .foregroundColor(commandColor)
-        guard !entry.formattedArguments.isEmpty else { return location + executable }
-        let arguments = Text(" \(entry.formattedArguments)")
-            .foregroundColor(commandColor)
-        return location + executable + arguments
-    }
-
-    private var gitConsoleTextColor: Color {
-        colorScheme == .dark ? GitVisual.darkConsoleText : LitheTheme.primaryText
-    }
-
-    private var gitConsoleMetadataColor: Color {
-        colorScheme == .dark ? GitVisual.darkConsoleMetadata : LitheTheme.link
-    }
-
-    private var gitConsoleArgumentColor: Color {
-        colorScheme == .dark ? GitVisual.darkConsoleText : LitheTheme.link
-    }
-
-    private func gitConsoleTimestamp(_ date: Date) -> String {
-        Self.gitConsoleTimestampFormatter.string(from: date)
-    }
-
-    // A DateFormatter is expensive to construct, so build it once instead of on
-    // every console row of every body pass.
-    private static let gitConsoleTimestampFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "HH:mm:ss.SSS"
-        return formatter
-    }()
 
     private var primaryActionBar: some View {
         HStack(spacing: 7) {
