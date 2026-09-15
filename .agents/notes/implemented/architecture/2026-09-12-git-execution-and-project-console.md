@@ -173,6 +173,10 @@ stdout/stderr 分开，复制原始输出时不混入提示。没有完整变化
 - `./scripts/verify-agent-notes.sh`
 
 共享 fixture 覆盖命令、事件、生命周期、Fetch、远程查询和完整展示结果。
+本地 HTTP 认证测试服务器直接绑定数字回环地址，不做反向 DNS 查询。服务器
+启动不能在 Git 请求 deadline 之前引入无界网络等待；回归用例禁止调用
+`socket.getfqdn`，认证、重试与取消场景仍保留原有 15 秒预算。
+
 Rust 与 macOS 测试使用仓库计时工具；`scripts/test-git-execution.py` 通过
 C ABI 和隔离仓库、本地认证服务验证配置作用域、部分成功、重试、取消及
 包含空格的 AskPass 路径，要求已构建的 Core 和 macOS 应用。
