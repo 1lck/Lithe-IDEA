@@ -85,7 +85,7 @@ jobs:
     name: Swift database tests
     needs: changes
     if: needs.changes.outputs.swift_database == 'true'
-    runs-on: macos-15
+    runs-on: macos-14
     timeout-minutes: 20
 
     steps:

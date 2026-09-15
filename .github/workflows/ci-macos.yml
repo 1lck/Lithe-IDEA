@@ -131,7 +131,7 @@ jobs:
     name: Swift tests
     needs: changes
     if: needs.changes.outputs.swift == 'true'
-    runs-on: macos-15
+    runs-on: macos-14
     timeout-minutes: 40
 
     steps:
@@ -208,7 +208,7 @@ jobs:
     name: Rust Core and Swift bridge tests
     needs: changes
     if: needs.changes.outputs.rust_core == 'true'
-    runs-on: macos-15
+    runs-on: macos-14
     timeout-minutes: 20
 
     steps:
@@ -257,7 +257,7 @@ jobs:
     name: Release package verification (${{ matrix.architecture }})
     needs: changes
     if: needs.changes.outputs.macos_release == 'true'
-    runs-on: macos-15
+    runs-on: macos-14
     timeout-minutes: 40
     strategy:
       fail-fast: false

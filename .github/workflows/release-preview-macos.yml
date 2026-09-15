@@ -50,7 +50,7 @@ jobs:
     name: Build ${{ matrix.architecture }} preview
     needs: prepare
     if: github.actor == github.repository_owner || github.event_name == 'schedule'
-    runs-on: macos-15
+    runs-on: macos-14
     timeout-minutes: 30
     strategy:
       fail-fast: false
