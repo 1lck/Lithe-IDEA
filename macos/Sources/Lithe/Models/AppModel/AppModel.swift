@@ -12,7 +12,7 @@ import LitheWorkspaceModule
 import LitheCoreContracts
 
 @MainActor
-final class AppModel: ObservableObject, Identifiable {
+final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     let id = UUID()
     var workspaceURL: URL? { workspaceSessionCoordinator.workspaceURL }
     var standaloneFileURL: URL? { workspaceSessionCoordinator.standaloneFileURL }
@@ -1154,6 +1154,11 @@ final class AppModel: ObservableObject, Identifiable {
         documentFeature.closePendingDocument(discardingChanges: discardingChanges)
     }
 
+    func dismissPendingCloseConfirmation(_ confirmationID: UUID?) {
+        guard let confirmationID, confirmationID == documentFeature.pendingCloseConfirmationID else { return }
+        cancelPendingClose()
+    }
+
     func cancelPendingClose() {
         workspaceSessionCoordinator.cancelPendingClose()
         documentFeature.cancelPendingClose()
@@ -1163,17 +1168,21 @@ final class AppModel: ObservableObject, Identifiable {
         documentFeature.hasUnsavedDocuments
     }
 
+    var unsavedDocumentNames: [String] {
+        openDocuments.filter(\.isDirty).map(\.displayName)
+    }
+
     @discardableResult
-    func saveAllDocuments() -> Bool {
-        documentFeature.saveAllDocuments()
+    func saveAllDocuments() async -> Bool {
+        await documentFeature.saveAllDocuments()
     }
 
     func saveActiveDocument() {
         documentFeature.saveActiveDocument()
     }
 
-    func saveDocument(_ document: EditorDocument) throws {
-        try documentFeature.save(document)
+    func saveDocument(_ document: EditorDocument) async throws {
+        try await documentFeature.save(document)
     }
 
     func workspaceRelativePath(for url: URL, root: URL) -> String? {

@@ -9,7 +9,7 @@ extension AppModel {
             closeStandaloneFile()
             return true
         }
-        if pendingCloseDocument != nil || pendingTerminalCloseSessionID != nil {
+        if documentFeature.hasPendingDocumentClose || pendingTerminalCloseSessionID != nil {
             return true
         }
         if isImplementationChooserVisible {

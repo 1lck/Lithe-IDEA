@@ -12,7 +12,7 @@ final class ProjectReplacementCoordinator {
     private let overrides: (URL) -> [String: String]
     private let visibilityRules: () -> SearchVisibilityRules
     private let recordHistory: @MainActor @Sendable (String, URL) async -> Void
-    private let saveOverride: @MainActor @Sendable (URL, String) throws -> Bool
+    private let saveOverride: @MainActor @Sendable (URL, String) async throws -> Bool
     private let refreshWorkspace: () async -> Void
     private let markIdle: () -> Void
     private let notify: (String) -> Void
@@ -25,7 +25,7 @@ final class ProjectReplacementCoordinator {
         overrides: @escaping (URL) -> [String: String],
         visibilityRules: @escaping () -> SearchVisibilityRules,
         recordHistory: @escaping @MainActor @Sendable (String, URL) async -> Void,
-        saveOverride: @escaping @MainActor @Sendable (URL, String) throws -> Bool,
+        saveOverride: @escaping @MainActor @Sendable (URL, String) async throws -> Bool,
         refreshWorkspace: @escaping () async -> Void,
         markIdle: @escaping () -> Void,
         notify: @escaping (String) -> Void

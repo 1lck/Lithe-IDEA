@@ -828,3 +828,6 @@
 "Start this configuration to see its output here." = "Start this configuration to see its output here.";
 "Could not save service selection" = "Could not save service selection";
 "Selected" = "Selected";
+
+"This file was deleted outside Lithe. Your editor content is preserved." = "This file was deleted outside Lithe. Your editor content is preserved.";
+"Allow Recreating File" = "Allow Recreating File";

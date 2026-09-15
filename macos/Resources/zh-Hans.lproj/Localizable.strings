@@ -1852,3 +1852,6 @@
 "Start this configuration to see its output here." = "启动此配置后，输出将显示在这里。";
 "Could not save service selection" = "无法保存服务勾选状态";
 "Selected" = "已勾选";
+
+"This file was deleted outside Lithe. Your editor content is preserved." = "该文件已被外部删除，编辑器内容已保留。";
+"Allow Recreating File" = "允许重新创建文件";

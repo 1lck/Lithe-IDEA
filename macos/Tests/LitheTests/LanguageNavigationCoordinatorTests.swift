@@ -211,12 +211,12 @@ struct JavaTestWorkflowStateTests {
 
     @Test("does not require a save for an absent document")
     @MainActor
-    func absentDocumentIsReady() {
+    func absentDocumentIsReady() async {
         let notifications = NotificationSpy()
         let state = JavaTestWorkflowState(notify: notifications.notify)
         let actions = WorkflowActionsSpy()
 
-        let ready = state.prepareDirtyDocument(
+        let ready = await state.prepareDirtyDocument(
             fileURL: URL(fileURLWithPath: "/workspace/Test.java"),
             documents: [],
             saving: actions

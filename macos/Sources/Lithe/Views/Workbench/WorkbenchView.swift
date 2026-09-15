@@ -92,6 +92,7 @@ struct WorkbenchView: View {
     @State private var isRunConfigurationPickerPresented = false
 
     var body: some View {
+        let closeConfirmationID = model.pendingCloseConfirmationID
         let _ = LitheSignpost.bodyEvaluated("WorkbenchView")
         VStack(spacing: 0) {
             topBar
@@ -210,7 +211,7 @@ struct WorkbenchView: View {
             "Save changes before closing?",
             isPresented: Binding(
                 get: { model.pendingCloseDocument != nil },
-                set: { if !$0 { model.cancelPendingClose() } }
+                set: { if !$0 { model.dismissPendingCloseConfirmation(closeConfirmationID) } }
             ),
             titleVisibility: .visible
         ) {

@@ -124,6 +124,7 @@ export class WorkspaceRuntimeRegistry {
 
     const store = factory(workspaceId);
     runtime.stores.set(key, store);
+    this.emitChange();
     return store as StoreApi<T>;
   }
 

@@ -9,7 +9,7 @@ protocol UnsavedDocumentHandling: AnyObject {
     var unsavedDocumentNames: [String] { get }
 
     @discardableResult
-    func saveAllDocuments() -> Bool
+    func saveAllDocuments() async -> Bool
 }
 
 enum UnsavedDocumentsConfirmationContext {
@@ -111,31 +111,30 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
             break
         }
 
-        if isUpdateInstallTermination {
-            guard Self.confirmUnsavedDocuments(for: projectSessions, context: .applicationTermination) else {
-                if cancelStableRollbackTermination?() == true {
-                    isUpdateInstallTermination = false
+        terminationCleanupState = .cleaning
+        terminationCleanupTask = Task { @MainActor [weak self] in
+            guard let self else { sender.reply(toApplicationShouldTerminate: false); return }
+            guard await Self.confirmUnsavedDocuments(for: projectSessions, context: .applicationTermination) else {
+                if self.isUpdateInstallTermination, self.cancelStableRollbackTermination?() == true { self.isUpdateInstallTermination = false }
+                self.terminationCleanupState = .idle
+                self.terminationCleanupTask = nil
+                sender.reply(toApplicationShouldTerminate: false)
+                return
+            }
+            if self.isUpdateInstallTermination {
+                guard self.prepareStableRollbackTermination?() ?? true else {
+                    self.isUpdateInstallTermination = false
+                    self.terminationCleanupState = .idle
+                    self.terminationCleanupTask = nil
+                    sender.reply(toApplicationShouldTerminate: false)
+                    return
                 }
-                // Sparkle only announces relaunch once, even if the user retries
-                // after cancelling termination. Keep the pending-update marker.
-                return .terminateCancel
+                self.boundUpdateTermination()
             }
-            guard prepareStableRollbackTermination?() ?? true else {
-                isUpdateInstallTermination = false
-                return .terminateCancel
-            }
-            boundUpdateTermination()
-            return beginTerminationCleanup(
-                for: projectSessions,
-                sender: sender,
-                timeoutNanoseconds: Self.updateTerminationCleanupTimeoutNanoseconds
-            )
+            _ = self.beginTerminationCleanup(for: projectSessions, sender: sender,
+                timeoutNanoseconds: self.isUpdateInstallTermination ? Self.updateTerminationCleanupTimeoutNanoseconds : nil)
         }
-
-        return Self.confirmUnsavedDocuments(
-            for: projectSessions,
-            context: .applicationTermination
-        ) ? beginTerminationCleanup(for: projectSessions, sender: sender) : .terminateCancel
+        return .terminateLater
     }
 
     private func beginTerminationCleanup(
@@ -248,7 +247,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     static func confirmUnsavedDocuments(
         for documentOwner: any UnsavedDocumentHandling,
         context: UnsavedDocumentsConfirmationContext
-    ) -> Bool {
+    ) async -> Bool {
         guard documentOwner.hasUnsavedDocuments else { return true }
 
         let alert = NSAlert()
@@ -261,7 +260,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
 
         switch alert.runModal() {
         case .alertFirstButtonReturn:
-            return documentOwner.saveAllDocuments()
+            return await documentOwner.saveAllDocuments()
         case .alertSecondButtonReturn:
             return true
         default:
