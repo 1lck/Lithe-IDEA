@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import LitheGitModule
+import LitheModuleAPI
 
 enum WorkbenchLayoutMetrics {
     static let rightActivityBarWidth: CGFloat = 40
@@ -193,6 +194,7 @@ struct WorkbenchView: View {
     @StateObject private var linuxDoWebSession = LinuxDoAnonymousWebSession()
     @State private var sidebarWidth: CGFloat = 320
     @State private var rightSidebarWidth: CGFloat = 380
+    @State private var mavenPaneWidth = CGFloat(WorkbenchLayout.defaultMavenPaneWidth)
     @State private var hoveredRightSidebarContributionID: String?
     @State private var isRightSidebarPanelHovered = false
     @State private var rightSidebarDismissTask: Task<Void, Never>?
@@ -1295,24 +1297,25 @@ struct WorkbenchView: View {
                     .environmentObject(model)
             }
 
+            activityToolButton(
+                systemImage: "puzzlepiece.extension",
+                help: "Plugins",
+                isSelected: isPluginPanelPresented,
+                action: { isPluginPanelPresented.toggle() }
+            )
+
             ForEach(model.rightSidebarContributions) { contribution in
                 if let renderer = moduleUIRegistry.renderer(for: contribution),
                    renderer.isVisible(model) {
-                    Button { moduleUIRegistry.perform(contribution, model: model) } label: {
-                        Image(systemName: contribution.icon ?? "rectangle.rightthird.inset.filled")
-                            .frame(width: ActivityBarMetrics.buttonWidth, height: ActivityBarMetrics.buttonHeight)
-                            .litheRowHover(
-                                isActive: renderer.isSelected(model),
-                                cornerRadius: 4,
-                                activeBackground: LitheTheme.subtleSelection
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .lithePointer()
-                    .foregroundStyle(renderer.isSelected(model) ? LitheTheme.primaryText : LitheTheme.secondaryText)
-                    .help(contribution.title)
-                    .accessibilityLabel(contribution.title)
+                    activityToolButton(
+                        systemImage: contribution.icon ?? "rectangle.rightthird.inset.filled",
+                        ideaAssetPath: renderer.ideaAssetPath,
+                        help: contribution.title,
+                        isSelected: renderer.isSelected(model),
+                        action: { moduleUIRegistry.perform(contribution, model: model) }
+                    )
                     .onHover { isHovering in
+                        guard renderer.rightSidebarBehavior == .hover else { return }
                         if isHovering {
                             rightSidebarDismissTask?.cancel()
                             hoveredRightSidebarContributionID = contribution.id
@@ -1326,15 +1329,6 @@ struct WorkbenchView: View {
                     }
                 }
             }
-            Button { isPluginPanelPresented.toggle() } label: {
-                Image(systemName: "puzzlepiece.extension")
-                    .frame(width: ActivityBarMetrics.buttonWidth, height: ActivityBarMetrics.buttonHeight)
-                    .litheRowHover(isActive: isPluginPanelPresented, cornerRadius: 4, activeBackground: LitheTheme.subtleSelection)
-            }
-            .buttonStyle(.plain)
-            .lithePointer()
-            .foregroundStyle(isPluginPanelPresented ? LitheTheme.primaryText : LitheTheme.secondaryText)
-            .help("Plugins")
             Spacer()
         }
         .padding(.top, ActivityBarMetrics.edgeInset)
@@ -1348,9 +1342,9 @@ struct WorkbenchView: View {
 
     private var rightHoverRegion: some View {
         HStack(spacing: 0) {
-            if isRightSidebarVisible {
+            if isHoverSidebarVisible {
                 moduleUIRegistry.selectedToolContent(
-                    from: model.rightSidebarContributions,
+                    from: hoverSidebarContributions,
                     model: model
                 )
                 .equatable()
@@ -1391,7 +1385,7 @@ struct WorkbenchView: View {
         .fixedSize(horizontal: true, vertical: false)
         .animation(
             reduceMotion ? nil : .easeOut(duration: 0.14),
-            value: isRightSidebarVisible
+            value: isHoverSidebarVisible
         )
     }
 
@@ -1408,9 +1402,28 @@ struct WorkbenchView: View {
         }
     }
 
-    private var isRightSidebarVisible: Bool {
-        model.rightSidebarContributions.contains { contribution in
+    private var hoverSidebarContributions: [ModuleContribution] {
+        model.rightSidebarContributions.filter {
+            moduleUIRegistry.renderer(for: $0)?.rightSidebarBehavior == .hover
+        }
+    }
+
+    private var dockedSidebarContributions: [ModuleContribution] {
+        model.rightSidebarContributions.filter {
+            moduleUIRegistry.renderer(for: $0)?.rightSidebarBehavior == .docked
+        }
+    }
+
+    private var isHoverSidebarVisible: Bool {
+        hoverSidebarContributions.contains { contribution in
             moduleUIRegistry.renderer(for: contribution)?.isSelected(model) == true
+        }
+    }
+
+    private var isDockedSidebarVisible: Bool {
+        dockedSidebarContributions.contains { contribution in
+            guard let renderer = moduleUIRegistry.renderer(for: contribution) else { return false }
+            return renderer.isVisible(model) && renderer.isSelected(model)
         }
     }
 
@@ -1487,7 +1500,28 @@ struct WorkbenchView: View {
         .accessibilityLabel(Text(LocalizedStringKey(help)))
     }
 
+    @ViewBuilder
     private var workspaceArea: some View {
+        if isDockedSidebarVisible {
+            WorkbenchRightToolSplitView(
+                width: mavenPaneWidth,
+                hasWorkbenchBackground: model.workbenchBackgroundFeature.hasImage,
+                onCommit: { width in
+                    mavenPaneWidth = width
+                    saveLayout(sidebarWidth: sidebarWidth, topPaneHeight: topPaneHeight)
+                },
+                workspace: { workspaceContent },
+                tool: {
+                    moduleUIRegistry.selectedToolContent(from: dockedSidebarContributions, model: model)
+                        .equatable()
+                }
+            )
+        } else {
+            workspaceContent
+        }
+    }
+
+    private var workspaceContent: some View {
         WorkbenchWorkspaceSplitView(
             sidebarWidth: sidebarWidth,
             topPaneHeight: topPaneHeight,
@@ -1756,6 +1790,7 @@ struct WorkbenchView: View {
         let layout = model.loadWorkbenchLayout(for: workspaceURL)
         sidebarWidth = CGFloat(layout.sidebarWidth)
         topPaneHeight = layout.topPaneHeight.map { CGFloat($0) }
+        mavenPaneWidth = CGFloat(layout.mavenPaneWidth ?? WorkbenchLayout.defaultMavenPaneWidth)
         didRestoreLayout = true
     }
 
@@ -1764,7 +1799,8 @@ struct WorkbenchView: View {
         model.saveWorkbenchLayout(
             WorkbenchLayout(
                 sidebarWidth: Double(sidebarWidth),
-                topPaneHeight: topPaneHeight.map(Double.init)
+                topPaneHeight: topPaneHeight.map(Double.init),
+                mavenPaneWidth: Double(mavenPaneWidth)
             ),
             for: workspaceURL
         )
@@ -2039,7 +2075,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
     }
 }
 
-private extension View {
+extension View {
     /// Draws pane rounding without masking AppKit-backed editor and tool views.
     func workbenchPaneChrome(
         background: Color,

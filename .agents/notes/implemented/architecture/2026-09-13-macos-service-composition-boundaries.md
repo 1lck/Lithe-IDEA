@@ -63,7 +63,7 @@ coordinator，不要再加一个 `AppModel` 扩展。
 
 | Owner | 职责 |
 | --- | --- |
-| `WorkbenchFeatureModel` | 侧边栏选择、设置展示、互斥的底部工具窗口 |
+| `WorkbenchFeatureModel` | 侧边栏选择、设置展示、互斥的底部工具窗口，以及独立显示的右侧 Maven 导航 |
 | `CommitDraftFeatureModel` | 提交文案、amend 选择、生成状态、生成消息替换确认 |
 | `WorkspaceSessionCoordinator` | Workspace 与独立文件会话状态、最近项目、原生访问租约、关闭请求、workspace 重建任务归属、workspace 功能重置 |
 | `EditorSessionCoordinator` | Document/媒体标签归属、编辑器选择协调、恢复已保存的文档顺序与选择、重置编辑器内容 |
@@ -108,6 +108,24 @@ coordinator 可以用 spy 测试而不必依赖应用外壳，`verify-service-bo
 决定一个工作流的状态属于拥有该工作流的 coordinator，不属于聚合对象：
 `RunWorkflowCoordinator` 拥有 `pendingRunAction`，`LanguageNavigationCoordinator`
 拥有导航状态；聚合对象只为仍在观察它的视图暴露只读转发。
+
+### Maven 导航与构建输出
+
+Maven 项目树停靠在右侧，入口位于右侧工具栏的通知、插件按钮下方；
+构建输出保留在底部。这与 Windows 的 Maven 导航和运行输出分离设计一致，
+也避免项目树占用整个底部工作区。
+
+`WorkbenchFeatureModel` 管理独立的 Maven 导航可见状态，底部的 Maven
+构建输出仍与 Terminal、Run、Debug 互斥。不要把右侧导航重新放回底部
+互斥状态：例如打开 Terminal 后再打开 Maven，应同时看到两者；关闭
+构建输出也不能顺带关闭 Maven 项目树。工作区重置则必须清除两处状态。
+
+右侧按钮通过模块的工具窗口声明定位，宿主 renderer（把声明转换成原生
+视图的适配器）区分点击停靠和社区面板的悬停显示行为。Maven 不使用悬停
+自动打开/关闭；其宽度通过现有工作区布局存储保存。拖动复用
+`LitheSplitPaneView`，只在结束时回传宽度；窗口变窄时临时限制显示尺寸，
+不能自动覆盖用户原先保存的宽度。代价是多维护一个独立可见状态和旧布局
+中可缺省的宽度字段，需要用布局兼容和关闭行为测试保护。
 
 ### AppModel 扩展范围
 

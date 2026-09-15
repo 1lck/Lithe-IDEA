@@ -973,3 +973,5 @@
 "Running Git; waiting for output." = "Running Git; waiting for output.";
 "Git completed successfully with no output." = "Git completed successfully with no output.";
 "Fetch completed with no reference changes." = "Fetch completed with no reference changes.";
+"Maven Build" = "Maven Build";
+"Hide Maven Build tool window" = "Hide Maven Build tool window";
