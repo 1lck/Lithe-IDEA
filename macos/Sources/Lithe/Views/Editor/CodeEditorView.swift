@@ -492,10 +492,13 @@ struct EditorLanguageFeatureTransition: Equatable {
 }
 
 struct EditorGutterLayout: Equatable {
+    static let previewSpacing: CGFloat = 12
     static let lineNumberTrailingPadding: CGFloat = 3
     static let minimumLineNumberWidth: CGFloat = 28
     static let standardWidth = EditorGutterLayout(lineNumberTextWidth: 0).width
 
+    let isSearchPreview: Bool
+    var numberTrailingPadding: CGFloat { isSearchPreview ? Self.previewSpacing : Self.lineNumberTrailingPadding }
     let breakpointRange: Range<CGFloat>
     let implementationRange: Range<CGFloat>
     let lineNumberRange: Range<CGFloat>
@@ -507,19 +510,22 @@ struct EditorGutterLayout: Equatable {
     /// column as one forgiving interaction target. The marker is still drawn
     /// in `breakpointRange`, but users do not need to hit that narrow strip.
     var breakpointInteractionRange: Range<CGFloat> {
-        lineNumberRange.lowerBound..<breakpointRange.upperBound
+        isSearchPreview ? 0..<0 : lineNumberRange.lowerBound..<breakpointRange.upperBound
     }
 
-    init(lineNumberTextWidth: CGFloat) {
+    init(lineNumberTextWidth: CGFloat, isSearchPreview: Bool = false) {
+        self.isSearchPreview = isSearchPreview
+        let padding = isSearchPreview ? Self.previewSpacing : Self.lineNumberTrailingPadding
+        let leading = isSearchPreview ? Self.previewSpacing : 0
         let requiredLineNumberWidth = max(
             Self.minimumLineNumberWidth,
-            ceil(lineNumberTextWidth) + Self.lineNumberTrailingPadding
+            ceil(lineNumberTextWidth) + padding
         )
-        lineNumberRange = 0..<requiredLineNumberWidth
-        breakpointRange = lineNumberRange.upperBound..<(lineNumberRange.upperBound + 14)
-        implementationRange = breakpointRange.upperBound..<(breakpointRange.upperBound + 20)
-        foldRange = implementationRange.upperBound..<(implementationRange.upperBound + 15)
-        gitChangeRange = foldRange.upperBound..<(foldRange.upperBound + 3)
+        lineNumberRange = leading..<(leading + requiredLineNumberWidth)
+        breakpointRange = lineNumberRange.upperBound..<(lineNumberRange.upperBound + (isSearchPreview ? 0 : 14))
+        implementationRange = breakpointRange.upperBound..<(breakpointRange.upperBound + (isSearchPreview ? 0 : 20))
+        foldRange = implementationRange.upperBound..<(implementationRange.upperBound + (isSearchPreview ? Self.previewSpacing : 15))
+        gitChangeRange = foldRange.upperBound..<(foldRange.upperBound + (isSearchPreview ? 0 : 3))
         width = gitChangeRange.upperBound
     }
 
@@ -681,13 +687,20 @@ struct CodeEditorView: NSViewRepresentable {
     @EnvironmentObject private var settings: AppSettings
     @ObservedObject var document: EditorDocument
     var shouldFocus = true
+    var previewLine: Int? = nil
     var markdownScrollPosition: Binding<MarkdownScrollPosition>? = nil
     let viewportStore: EditorViewportStore
+
+    // ponytail: Disable preview language tools until their commands accept an explicit document.
+    private var languageFeatures: LanguageServerFeatureSet {
+        previewLine == nil ? model.languageToolingSessionsIfActive?.features(for: document.url) ?? [] : []
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
             document: document,
             model: model,
+            chrome: chrome,
             isDarkAppearance: colorScheme == .dark,
             colorTheme: settings.colorTheme,
             markdownScrollPosition: markdownScrollPosition,
@@ -716,6 +729,7 @@ struct CodeEditorView: NSViewRepresentable {
         scrollView.layer?.masksToBounds = true
 
         let gutter = LineNumberGutterView(frame: .zero)
+        gutter.isSearchPreview = previewLine != nil
         gutter.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(gutter)
         container.addSubview(scrollView)
@@ -734,6 +748,13 @@ struct CodeEditorView: NSViewRepresentable {
         gutterWidthConstraint.isActive = true
 
         let textView = CodeTextView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
+        if previewLine != nil {
+            // The preview has its own query and must not consume another editor's broadcasts.
+            for name in [Notification.Name.litheFindQueryChanged, .litheFindNavigate,
+                         .litheFindDismiss, .litheFindReplaceNext, .litheFindReplaceAll] {
+                NotificationCenter.default.removeObserver(textView, name: name, object: nil)
+            }
+        }
         textView.delegate = context.coordinator
         textView.layoutManager?.delegate = textView
         textView.string = document.text
@@ -790,61 +811,63 @@ struct CodeEditorView: NSViewRepresentable {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isContinuousSpellCheckingEnabled = false
-        textView.languageServerFeatures = model.languageToolingSessionsIfActive?.features(for: document.url) ?? []
+        textView.languageServerFeatures = languageFeatures
         textView.isLanguageNavigationEnabled = !textView.languageServerFeatures.intersection([
             .definition, .references, .implementation
         ]).isEmpty
-        textView.onNavigateToSymbol = { [weak model] line, utf16Column in
-            model?.navigateToSymbol(line: line, utf16Column: utf16Column, in: document.url)
-        }
-        textView.onGoToDefinition = { [weak model] in model?.goToDefinition() }
-        textView.onGoToImplementation = { [weak model] in model?.goToImplementation() }
-        textView.onFindUsages = { [weak model] in model?.findReferences() }
-        textView.onFindRequested = { [weak model] in model?.showFindBar() }
-        textView.onGoToLineRequested = { [weak model] in model?.showGoToLine() }
-        textView.onFindNextRequested = { [weak model] in model?.navigateFind(offset: 1) }
-        textView.onFindPreviousRequested = { [weak model] in model?.navigateFind(offset: -1) }
-        textView.onRunToCursor = { [weak model] line, column in
-            model?.runToCursor(
-                fileURL: document.url,
-                line: line + 1,
-                column: column + 1
-            )
-        }
-        textView.onDebugHover = { [weak model] expression, completion in
-            model?.requestDebugHover(expression: expression, completion: completion)
-        }
-        textView.onFindStateChange = { [weak coordinator = context.coordinator] index, count in
-            coordinator?.scheduleFindStateUpdate(currentIndex: index, count: count)
-        }
         textView.isLanguageIntelligenceEnabled = !textView.languageServerFeatures.intersection([
             .hover, .completion, .rename, .formatting, .codeActions
         ]).isEmpty
-        textView.onQuickDocumentation = { [weak model, weak textView] line, column in
-            model?.requestLanguageHover(line: line, utf16Column: column) { [weak textView] hover in
-                guard let textView else { return }
-                if let hover {
-                    textView.presentLanguageHover(hover)
-                } else {
-                    model?.showNotification("No documentation is available for this symbol")
+        textView.onFindStateChange = { [weak coordinator = context.coordinator] index, count in
+            coordinator?.scheduleFindStateUpdate(currentIndex: index, count: count)
+        }
+        if previewLine == nil {
+            textView.onNavigateToSymbol = { [weak model] line, utf16Column in
+                model?.navigateToSymbol(line: line, utf16Column: utf16Column, in: document.url)
+            }
+            textView.onGoToDefinition = { [weak model] in model?.goToDefinition() }
+            textView.onGoToImplementation = { [weak model] in model?.goToImplementation() }
+            textView.onFindUsages = { [weak model] in model?.findReferences() }
+            textView.onFindRequested = { [weak model] in model?.showFindBar() }
+            textView.onGoToLineRequested = { [weak model] in model?.showGoToLine() }
+            textView.onFindNextRequested = { [weak model] in model?.navigateFind(offset: 1) }
+            textView.onFindPreviousRequested = { [weak model] in model?.navigateFind(offset: -1) }
+            textView.onRunToCursor = { [weak model] line, column in
+                model?.runToCursor(
+                    fileURL: document.url,
+                    line: line + 1,
+                    column: column + 1
+                )
+            }
+            textView.onDebugHover = { [weak model] expression, completion in
+                model?.requestDebugHover(expression: expression, completion: completion)
+            }
+            textView.onQuickDocumentation = { [weak model, weak textView] line, column in
+                model?.requestLanguageHover(line: line, utf16Column: column) { [weak textView] hover in
+                    guard let textView else { return }
+                    if let hover {
+                        textView.presentLanguageHover(hover)
+                    } else {
+                        model?.showNotification("No documentation is available for this symbol")
+                    }
                 }
             }
-        }
-        textView.onCompletionRequested = { [weak model, weak textView] line, column in
-            model?.requestLanguageCompletions(line: line, utf16Column: column) { [weak textView] items in
-                textView?.presentLanguageCompletions(items)
+            textView.onCompletionRequested = { [weak model, weak textView] line, column in
+                model?.requestLanguageCompletions(line: line, utf16Column: column) { [weak textView] items in
+                    textView?.presentLanguageCompletions(items)
+                }
             }
-        }
-        textView.onCompletionSelected = { [weak model] item, range in
-            model?.applyLanguageCompletion(item, fallbackRange: range)
-        }
-        textView.onRenameRequested = { [weak model] line, column, newName in
-            model?.requestLanguageRename(line: line, utf16Column: column, newName: newName)
-        }
-        textView.onFormatRequested = { [weak model] in model?.requestLanguageFormatting() }
-        textView.onCodeActionsRequested = { [weak model, weak textView] line, column in
-            model?.requestLanguageCodeActions(line: line, utf16Column: column) { [weak textView, weak model] actions in
-                textView?.presentLanguageCodeActions(actions) { action in model?.applyLanguageCodeAction(action) }
+            textView.onCompletionSelected = { [weak model] item, range in
+                model?.applyLanguageCompletion(item, fallbackRange: range)
+            }
+            textView.onRenameRequested = { [weak model] line, column, newName in
+                model?.requestLanguageRename(line: line, utf16Column: column, newName: newName)
+            }
+            textView.onFormatRequested = { [weak model] in model?.requestLanguageFormatting() }
+            textView.onCodeActionsRequested = { [weak model, weak textView] line, column in
+                model?.requestLanguageCodeActions(line: line, utf16Column: column) { [weak textView, weak model] actions in
+                    textView?.presentLanguageCodeActions(actions) { action in model?.applyLanguageCodeAction(action) }
+                }
             }
         }
         textView.onPasteImage = { [weak coordinator = context.coordinator] in
@@ -904,6 +927,7 @@ struct CodeEditorView: NSViewRepresentable {
             || context.coordinator.colorTheme != settings.colorTheme
         context.coordinator.document = document
         context.coordinator.model = model
+        context.coordinator.chrome = chrome
         context.coordinator.shouldFocus = shouldFocus
         context.coordinator.markdownScrollPosition = markdownScrollPosition
         container.displaysTransparentBackground = true
@@ -928,7 +952,6 @@ struct CodeEditorView: NSViewRepresentable {
             codeTextView.isDebugHoverEnabled = debugFeature?.state == .paused
         }
 
-        let languageFeatures = model.languageToolingSessionsIfActive?.features(for: document.url) ?? []
         let fontSize = settings.editorFontSize
         let tabWidth = settings.tabWidth
         // Keep IME marked text (for example, an active Chinese pinyin
@@ -970,7 +993,11 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.updateCodeVisionAndBlame()
         context.coordinator.updateGitLineChanges()
         context.coordinator.updateDiagnostics()
-        context.coordinator.applyNavigationTargetIfNeeded()
+        if let previewLine {
+            context.coordinator.applyPreviewLine(previewLine)
+        } else {
+            context.coordinator.applyNavigationTargetIfNeeded()
+        }
         if let codeTextView = textView as? CodeTextView {
             codeTextView.documentID = document.id
             let findVisible = chrome.isFindBarVisible
@@ -992,6 +1019,7 @@ struct CodeEditorView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         weak var document: EditorDocument?
         weak var model: AppModel?
+        weak var chrome: EditorChromeModel?
         let fileName: String
         let fileExtension: String
         weak var textView: NSTextView?
@@ -1012,6 +1040,7 @@ struct CodeEditorView: NSViewRepresentable {
             let enabled: Bool
         }
 
+        private var appliedPreviewLine: Int?
         var appliedNavigationTargetID: UUID?
         var foldRegions: [JavaFoldRegion] = []
         var collapsedFoldIDs: Set<String> = []
@@ -1071,6 +1100,7 @@ struct CodeEditorView: NSViewRepresentable {
         init(
             document: EditorDocument,
             model: AppModel,
+            chrome: EditorChromeModel? = nil,
             isDarkAppearance: Bool,
             colorTheme: AppColorTheme,
             markdownScrollPosition: Binding<MarkdownScrollPosition>?,
@@ -1078,6 +1108,7 @@ struct CodeEditorView: NSViewRepresentable {
         ) {
             self.document = document
             self.model = model
+            self.chrome = chrome ?? model.editorChrome
             self.isDarkAppearance = isDarkAppearance
             self.colorTheme = colorTheme
             self.markdownScrollPosition = markdownScrollPosition
@@ -1179,6 +1210,12 @@ struct CodeEditorView: NSViewRepresentable {
             DispatchQueue.main.async { [weak self] in
                 guard let self, let document, let textView,
                       let scrollView = textView.enclosingScrollView else { return }
+                if self.appliedPreviewLine != nil {
+                    textView.scrollRangeToVisible(textView.selectedRange())
+                    self.isRestoringViewport = false
+                    self.persistViewport()
+                    return
+                }
                 if let target = self.model?.editorNavigationTarget,
                    target.url.standardizedFileURL == document.url.standardizedFileURL,
                    self.appliedNavigationTargetID == target.id {
@@ -1431,17 +1468,15 @@ struct CodeEditorView: NSViewRepresentable {
             pendingReplacement = nil
             if let codeTextView,
                let findReplacedRange,
-               model?.editorChrome.isFindBarVisible == true,
-               let query = model?.editorChrome.findBarQuery,
-               !query.isEmpty {
+               lastFindVisible,
+               !lastFindQuery.isEmpty {
                 codeTextView.applyFindEdit(
                     replacedRange: findReplacedRange,
                     insertedLength: findInsertedLength,
-                    query: query
+                    query: lastFindQuery
                 )
                 codeTextView.updateCaretDecorations()
-            } else if model?.editorChrome.isFindBarVisible == true,
-                      !(model?.editorChrome.findBarQuery.isEmpty ?? true) {
+            } else if lastFindVisible, !lastFindQuery.isEmpty {
                 scheduleDecorationRefresh()
             } else {
                 codeTextView?.updateCaretDecorations()
@@ -1700,8 +1735,8 @@ struct CodeEditorView: NSViewRepresentable {
             decorationRefreshTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .milliseconds(80))
                 guard !Task.isCancelled, let self, let textView = self.textView as? CodeTextView else { return }
-                if let model = self.model, model.isFindBarVisible, !model.findBarQuery.isEmpty {
-                    textView.updateFindMatches(query: model.findBarQuery, options: model.findOptions)
+                if self.lastFindVisible, !self.lastFindQuery.isEmpty {
+                    textView.updateFindMatches(query: self.lastFindQuery, options: self.lastFindOptions)
                 } else {
                     textView.updateEditorDecorations()
                 }
@@ -2055,6 +2090,18 @@ struct CodeEditorView: NSViewRepresentable {
             textView.updateDiagnostics(diagnostics)
         }
 
+        /// Search-result navigation should not steal focus from the query field.
+        func applyPreviewLine(_ line: Int) {
+            guard appliedPreviewLine != line, let textView else { return }
+            appliedPreviewLine = line
+            let range = GoToLineSelection.targetRange(
+                line: max(0, line - 1), utf16Column: 0,
+                selectsWholeLine: false, in: textView.string as NSString
+            )
+            textView.setSelectedRange(range)
+            textView.scrollRangeToVisible(range)
+        }
+
         func applyNavigationTargetIfNeeded() {
             guard let textView, let document, let target = model?.editorNavigationTarget,
                   target.url.standardizedFileURL == document.url.standardizedFileURL,
@@ -2075,7 +2122,7 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         func scheduleCaretUpdate() {
-            guard let textView, let document else { return }
+            guard chrome === model?.editorChrome, let textView, let document else { return }
             let text = textView.string as NSString
             let selection = textView.selectedRange()
             let selectedText = selectedText(in: text, range: selection)
@@ -2126,9 +2173,10 @@ struct CodeEditorView: NSViewRepresentable {
                       let self,
                       self.document?.id == documentID,
                       let textView = self.textView,
-                      self.model?.activeDocumentID == documentID
+                      self.chrome !== self.model?.editorChrome
+                        || self.model?.activeDocumentID == documentID
                         || textView.window?.firstResponder === textView else { return }
-                self.model?.updateFindState(currentIndex: currentIndex, count: count)
+                self.chrome?.updateFindState(currentIndex: currentIndex, count: count)
             }
         }
 
@@ -4383,6 +4431,9 @@ final class EditorContainerView: NSView {
 
 @MainActor
 final class LineNumberGutterView: NSView {
+    var isSearchPreview = false {
+        didSet { if oldValue != isSearchPreview { refreshLineNumberLayout() } }
+    }
     private var displaysTransparentBackground = false
     override var isOpaque: Bool { !displaysTransparentBackground }
     var onStandardWidthChange: ((CGFloat) -> Void)?
@@ -4481,7 +4532,7 @@ final class LineNumberGutterView: NSView {
         let textWidth = (String(maximumLineNumber) as NSString).size(
             withAttributes: [.font: lineNumberFont]
         ).width
-        let nextLayout = EditorGutterLayout(lineNumberTextWidth: textWidth)
+        let nextLayout = EditorGutterLayout(lineNumberTextWidth: textWidth, isSearchPreview: isSearchPreview)
         guard gutterLayout != nextLayout else { return }
         gutterLayout = nextLayout
         onStandardWidthChange?(nextLayout.width)
@@ -4848,30 +4899,32 @@ final class LineNumberGutterView: NSView {
                showsBlameMetadata(line: lineNumber - 1, firstVisibleLine: firstLine) {
                 drawBlame(blame, y: y, height: lineRect.height)
             }
-            if !isBlameVisible, let state = debugBreakpointStatesByLine[lineNumber - 1] {
-                drawDebugBreakpoint(y: y, height: lineRect.height, state: state)
-            } else if !isBlameVisible,
-                      hoveredDebugBreakpointLine == lineNumber - 1,
-                      canAddDebugBreakpoint?(lineNumber - 1) == true {
-                drawDebugBreakpointHover(y: y, height: lineRect.height)
-            } else {
-                let markers = implementationMarkers.filter { $0.line == lineNumber - 1 }
-                for marker in markers {
-                    drawImplementationMarker(
-                        marker,
-                        sharesLine: markers.count > 1,
-                        y: y,
-                        height: lineRect.height
-                    )
+            if !isSearchPreview {
+                if !isBlameVisible, let state = debugBreakpointStatesByLine[lineNumber - 1] {
+                    drawDebugBreakpoint(y: y, height: lineRect.height, state: state)
+                } else if !isBlameVisible,
+                          hoveredDebugBreakpointLine == lineNumber - 1,
+                          canAddDebugBreakpoint?(lineNumber - 1) == true {
+                    drawDebugBreakpointHover(y: y, height: lineRect.height)
+                } else {
+                    let markers = implementationMarkers.filter { $0.line == lineNumber - 1 }
+                    for marker in markers {
+                        drawImplementationMarker(
+                            marker,
+                            sharesLine: markers.count > 1,
+                            y: y,
+                            height: lineRect.height
+                        )
+                    }
                 }
-            }
-            // Draw the current execution marker after the breakpoint marker so
-            // a stopped frame remains visually dominant when both share a line.
-            if currentExecutionLine == lineNumber - 1 {
-                drawCurrentExecutionLine(y: y, height: lineRect.height)
-            }
-            if let marker = gitLineChangeMarkersByLine[lineNumber - 1] {
-                drawGitLineChange(marker, y: y, height: lineRect.height)
+                // Draw the current execution marker after the breakpoint marker so
+                // a stopped frame remains visually dominant when both share a line.
+                if currentExecutionLine == lineNumber - 1 {
+                    drawCurrentExecutionLine(y: y, height: lineRect.height)
+                }
+                if let marker = gitLineChangeMarkersByLine[lineNumber - 1] {
+                    drawGitLineChange(marker, y: y, height: lineRect.height)
+                }
             }
             drawLineNumber(lineNumber, y: y, height: lineRect.height)
             // This loop has already excluded hidden and offscreen lines. Reuse
@@ -4897,6 +4950,10 @@ final class LineNumberGutterView: NSView {
                 width: 1,
                 height: dirtyRect.height
             ).fill()
+        }
+        if isSearchPreview {
+            NSRect(x: gutterLayout.lineNumberRange.upperBound - 1,
+                   y: dirtyRect.minY, width: 1, height: dirtyRect.height).fill()
         }
         NSRect(
             x: bounds.width - 1,
@@ -4930,7 +4987,7 @@ final class LineNumberGutterView: NSView {
                     gutterLayout.lineNumberRange.lowerBound,
                     gutterLayout.lineNumberRange.upperBound
                         - size.width
-                        - EditorGutterLayout.lineNumberTrailingPadding
+                        - gutterLayout.numberTrailingPadding
                 ),
                 y: centeredY
             ),

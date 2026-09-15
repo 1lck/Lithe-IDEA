@@ -438,6 +438,12 @@ function normalizeAISettings(settings: Settings): Settings {
 
 export function normalizeSettings(settings: Settings): Settings {
   const normalizedSettings = normalizeAISettings(settings);
+  normalizedSettings.gitExecutable = typeof settings.gitExecutable === "string" ? settings.gitExecutable : "";
+  normalizedSettings.gitUseCredentialHelper = settings.gitUseCredentialHelper !== false;
+  normalizedSettings.gitFetchPrune = typeof settings.gitFetchPrune === "boolean" ? settings.gitFetchPrune : true;
+  normalizedSettings.gitFetchSubmodules = ["inherit", "no", "onDemand", "yes"].includes(settings.gitFetchSubmodules) ? settings.gitFetchSubmodules : "inherit";
+  normalizedSettings.gitFetchTags = ["inherit", "all", "none", "prune"].includes(settings.gitFetchTags) ? settings.gitFetchTags : "inherit";
+  if (normalizedSettings.gitFetchTags === "prune") normalizedSettings.gitFetchPrune = true;
   const persistedGitPanelMode = (normalizedSettings as { gitLastPanelMode?: string })
     .gitLastPanelMode;
 
@@ -573,6 +579,8 @@ export function normalizeSettingValue<K extends keyof Settings>(
   key: K,
   value: Settings[K],
 ): Settings[K] {
+  if (key === "gitFetchSubmodules") return (["inherit", "no", "onDemand", "yes"].includes(String(value)) ? value : "inherit") as Settings[K];
+  if (key === "gitFetchTags") return (["inherit", "all", "none", "prune"].includes(String(value)) ? value : "inherit") as Settings[K];
   if (key === "uiFontSize") {
     return normalizeUiFontSize(value as number) as Settings[K];
   }

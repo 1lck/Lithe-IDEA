@@ -57,6 +57,7 @@ import GitRemoteManager from "./git-remote-manager";
 import GitTagManager from "./git-tag-manager";
 import GitOperationBanner from "./git-operation-banner";
 import GitStatusPanel from "./status/git-status-panel";
+import { GitRepositoryEmptyState } from "./git-repository-empty-state";
 
 interface GitViewProps {
   repoPath?: string;
@@ -637,17 +638,21 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
           <SidebarTitleBar title={t("workbench.sourceControl")}>
             {renderActionsButton()}
           </SidebarTitleBar>
-          <Empty className="h-full">
-            <EmptyHeader>
-              <EmptyTitle>{t("git.noRepositorySelected")}</EmptyTitle>
-              {repoSelectionError ? (
-                <EmptyDescription className="text-destructive">
-                  {repoSelectionError}
-                </EmptyDescription>
-              ) : null}
-            </EmptyHeader>
-            <EmptyContent className="flex-row">{renderRepositoryEmptyActions()}</EmptyContent>
-          </Empty>
+          {repoPath ? (
+            <GitRepositoryEmptyState root={repoPath} context="changes" onRefresh={handleManualRefresh} />
+          ) : (
+            <Empty className="h-full">
+              <EmptyHeader>
+                <EmptyTitle>{t("git.noRepositorySelected")}</EmptyTitle>
+                {repoSelectionError ? (
+                  <EmptyDescription className="text-destructive">
+                    {repoSelectionError}
+                  </EmptyDescription>
+                ) : null}
+              </EmptyHeader>
+              <EmptyContent className="flex-row">{renderRepositoryEmptyActions()}</EmptyContent>
+            </Empty>
+          )}
         </SidebarPanel>
         {renderGitActionsMenu({ hasGitRepo: false, onRefresh: handleManualRefresh })}
       </>
@@ -684,7 +689,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
           <SidebarTitleBar title={t("workbench.sourceControl")}>
             {renderActionsButton()}
           </SidebarTitleBar>
-          {loadError}
+          <GitRepositoryEmptyState root={activeRepoPath} context="changes" onRefresh={handleManualRefresh} />
         </SidebarPanel>
         {renderGitActionsMenu({ hasGitRepo: false, onRefresh: handleManualRefresh })}
       </>

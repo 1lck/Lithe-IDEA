@@ -9,6 +9,7 @@ import { useCallback, useMemo, useState } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
@@ -134,50 +135,52 @@ const GitProjectSelector = ({ className, onRepositoryChange }: GitProjectSelecto
           />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-72">
-          <DropdownMenuLabel>{t("git.repositories")}</DropdownMenuLabel>
-          {isDiscovering && availableRepoPaths.length === 0 ? (
-            <DropdownMenuItem disabled>
-              <Spinner compact />
-              {t("git.detectingRepositories")}
-            </DropdownMenuItem>
-          ) : null}
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>{t("git.repositories")}</DropdownMenuLabel>
+            {isDiscovering && availableRepoPaths.length === 0 ? (
+              <DropdownMenuItem disabled>
+                <Spinner compact />
+                {t("git.detectingRepositories")}
+              </DropdownMenuItem>
+            ) : null}
 
-          {!isDiscovering && sortedRepoPaths.length === 0 ? (
-            <DropdownMenuItem disabled>{t("git.noRepositoriesFound")}</DropdownMenuItem>
-          ) : null}
+            {!isDiscovering && sortedRepoPaths.length === 0 ? (
+              <DropdownMenuItem disabled>{t("git.noRepositoriesFound")}</DropdownMenuItem>
+            ) : null}
 
-          <DropdownMenuRadioGroup
-            value={activeRepoPath ?? ""}
-            onValueChange={handleSelectRepositoryPath}
-          >
-            {sortedRepoPaths.map((repoPath) => {
-              const relativePath = workspaceRootPath
-                ? getRelativePath(repoPath, workspaceRootPath)
-                : repoPath;
+            <DropdownMenuRadioGroup
+              value={activeRepoPath ?? ""}
+              onValueChange={handleSelectRepositoryPath}
+            >
+              {sortedRepoPaths.map((repoPath) => {
+                const relativePath = workspaceRootPath
+                  ? getRelativePath(repoPath, workspaceRootPath)
+                  : repoPath;
 
-              return (
-                <DropdownMenuRadioItem
-                  key={repoPath}
-                  value={repoPath}
-                  closeOnClick
-                  className="min-w-0"
-                >
-                  <FolderOpen />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate">{getFolderName(repoPath)}</span>
-                    <span className="block truncate text-subtle-foreground ui-text-sm">
-                      {relativePath === "." ? repoPath : relativePath}
+                return (
+                  <DropdownMenuRadioItem
+                    key={repoPath}
+                    value={repoPath}
+                    closeOnClick
+                    className="min-w-0"
+                  >
+                    <FolderOpen />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{getFolderName(repoPath)}</span>
+                      <span className="block truncate text-subtle-foreground ui-text-sm">
+                        {relativePath === "." ? repoPath : relativePath}
+                      </span>
                     </span>
-                  </span>
-                  {manualRepoPaths.includes(repoPath) ? (
-                    <Badge variant="muted" size="compact" className="mr-4">
-                      {t("git.added")}
-                    </Badge>
-                  ) : null}
-                </DropdownMenuRadioItem>
-              );
-            })}
-          </DropdownMenuRadioGroup>
+                    {manualRepoPaths.includes(repoPath) ? (
+                      <Badge variant="muted" size="compact" className="mr-4">
+                        {t("git.added")}
+                      </Badge>
+                    ) : null}
+                  </DropdownMenuRadioItem>
+                );
+              })}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuGroup>
 
           <DropdownMenuSeparator />
           <DropdownMenuItem
@@ -202,9 +205,9 @@ const GitProjectSelector = ({ className, onRepositoryChange }: GitProjectSelecto
             </DropdownMenuItem>
           ) : null}
           {selectionError ? (
-            <DropdownMenuLabel className="whitespace-normal text-destructive" role="alert">
+            <div className="whitespace-normal px-2 py-1.5 font-medium text-destructive" role="alert">
               {selectionError}
-            </DropdownMenuLabel>
+            </div>
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>

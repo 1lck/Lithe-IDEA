@@ -122,12 +122,12 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
   }, [activeRepoPath, availableRepoPaths, gitActions, workspaceId]);
 
   const refreshGitData = useCallback(
-    async (scopes?: GitChangeScope[], throwOnError = false) => {
+    async (scopes?: GitChangeScope[], throwOnError = false, source: "user" | "background" = "user") => {
       if (!workspaceRuntimeRegistry.isWorkspaceReady(workspaceId)) return;
       const repoPath = activeRepoPath;
       if (!repoPath) return;
 
-      const refreshKey = `${repoPath}\0${scopes?.slice().sort().join(",") || "*"}`;
+      const refreshKey = `${repoPath}\0${source}\0${scopes?.slice().sort().join(",") || "*"}`;
       const requestId = requestIdRef.current;
       return refreshQueueRef.current.run(refreshKey, async () => {
         // The queue starts on a later microtask and may execute a trailing
@@ -146,15 +146,15 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
           const repoPaths = useRepositoryStore.getState().availableRepoPaths;
           const statusRepoPaths = repoPaths.length > 0 ? repoPaths : [repoPath];
           const [status, branches, stashes, history, operationStateResult] = await Promise.all([
-            getWorkspaceGitStatus(statusRepoPaths, repoPath),
-            shouldRefreshRefs ? getBranches(repoPath) : Promise.resolve(undefined),
-            shouldRefreshStashes ? getStashes(repoPath) : Promise.resolve(undefined),
+            getWorkspaceGitStatus(statusRepoPaths, repoPath, source),
+            shouldRefreshRefs ? getBranches(repoPath, source) : Promise.resolve(undefined),
+            shouldRefreshStashes ? getStashes(repoPath, source) : Promise.resolve(undefined),
             shouldRefreshHistory
-              ? getGitHistory(repoPath, Math.max(loadedCommitCount, 50))
+              ? getGitHistory(repoPath, Math.max(loadedCommitCount, 50), undefined, source)
               : Promise.resolve(undefined),
             // Operation state rides along on every refresh: staging a file or
             // an external Git command can end a conflict at any moment.
-            getOperationState(repoPath)
+            getOperationState(repoPath, source)
               .then((value) => ({ ok: true as const, value }))
               .catch((error) => {
                 console.error("Failed to refresh Git operation state:", error);
@@ -253,7 +253,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
 
   useEffect(() => {
     if (autoRefreshGitStatus && isActive && !wasActiveRef.current && gitStatus) {
-      void refreshGitData();
+      void refreshGitData(undefined, false, "background");
     }
     wasActiveRef.current = isActive;
   }, [autoRefreshGitStatus, gitStatus, isActive, refreshGitData]);
@@ -280,7 +280,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
         const scopes = pendingChangeScopesRef.current;
         changeRefreshTimerRef.current = null;
         pendingChangeScopesRef.current = undefined;
-        void refreshGitData(scopes);
+        void refreshGitData(scopes, false, "background");
       }, 100);
     });
 

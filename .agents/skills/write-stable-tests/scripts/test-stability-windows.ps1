@@ -68,6 +68,18 @@ function Invoke-TimedRustTests {
         if (-not [string]::IsNullOrWhiteSpace($Package)) {
             $arguments += @("--package", $Package)
         }
+        if ($Package -eq "lithe-core") {
+            # History-rewrite integration tests create and rewrite real repos,
+            # sometimes several per case. Keep unit tests at the normal limit.
+            foreach ($prefix in @(
+                "tests::git_history_rewrite::",
+                "tests::git::git_write_squashes_",
+                "tests::git::git_write_deletes_a_local_commit_",
+                "tests::git::git_write_edits_a_local_commit_message_"
+            )) {
+                $arguments += @("--test-budget", "${prefix}=30000")
+            }
+        }
         return $arguments
     }
 
@@ -145,6 +157,14 @@ if ($Scope -in @("All", "WindowsRust")) {
 }
 
 if ($Scope -in @("All", "SharedRust")) {
+    # Dependency tests are not selected by -p lithe-core. Exercise the native
+    # process and AskPass adapter on Windows as a separate timed package.
+    Invoke-TimedRustTests `
+        -Manifest "rust/Cargo.toml" `
+        -Package "lithe-git-host" `
+        -TargetDirectory "rust/target" `
+        -Report (Join-Path $reportRoot "git-host-rust.json")
+
     Invoke-TimedRustTests `
         -Manifest "rust/Cargo.toml" `
         -Package "lithe-core" `

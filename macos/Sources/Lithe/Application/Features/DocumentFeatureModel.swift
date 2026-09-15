@@ -70,7 +70,7 @@ final class DocumentFeatureModel: ObservableObject {
     private var observationID = UUID()
 
     private func updateDocumentObservation() {
-        let urls = openDocuments.filter { !$0.isReadOnly }.map(\.url).sorted { $0.path < $1.path }
+        let urls = observedDocuments.filter { !$0.isReadOnly }.map(\.url).sorted { $0.path < $1.path }
         let paths = urls.map(\.path)
         guard paths != observedDocumentPaths else { return }
         observedDocumentPaths = paths
@@ -96,6 +96,34 @@ final class DocumentFeatureModel: ObservableObject {
         for entry in autoSaveTasks.values { entry.task.cancel() }
     }
 
+    /// Clean previews stay outside the tab collection until opened or edited.
+    func previewDocument(at url: URL) async -> EditorDocument? {
+        await openFileAsync(url, isReadOnly: false, displayPath: nil, activateWhenReady: false, asPreview: true)
+        guard !Task.isCancelled else { return nil }
+        return openDocuments.first { $0.url.standardizedFileURL == url.standardizedFileURL }
+            ?? previewDocuments[url.standardizedFileURL.path]
+    }
+
+    func promotePreviewDocument(_ document: EditorDocument) {
+        let path = document.url.standardizedFileURL.path
+        guard previewDocuments[path] === document else { return }
+        openDocuments.append(document)
+        previewDocuments[path] = nil
+        processExternalChanges([document.url])
+        onDocumentCollectionChanged?()
+        onDocumentOpened?(document)
+    }
+
+    func discardPreviewDocuments() {
+        // A closed dialog must not retain clean buffers or accept its late reads.
+        for document in previewDocuments.values {
+            externalChangeTasks.removeValue(forKey: document.id)?.cancel()
+            externalChangeIDs.removeValue(forKey: document.id)
+        }
+        previewDocuments.removeAll()
+        pendingFileOpenRequests = pendingFileOpenRequests.filter { !$0.value.isPreview }
+    }
+
     private let operations: any WorkspaceOperations
     private let documentLifecycleDecider: any DocumentLifecycleDeciding
     private let fileOperations: any WorkspaceFileOperations
@@ -116,7 +144,16 @@ final class DocumentFeatureModel: ObservableObject {
     private var onCloseFailed: (@MainActor () -> Void)?
     private var autoSaveTasks: [UUID: (id: UUID, task: Task<Void, Never>)] = [:]
     private let autoSaveDelay: @Sendable (Duration) async throws -> Void
-    private var pendingFileOpenRequests: [String: UUID] = [:]
+    private var pendingFileOpenRequests: [String: (id: UUID, task: Task<Void, Never>, isPreview: Bool)] = [:]
+    private var previewDocuments: [String: EditorDocument] = [:] {
+        didSet { updateDocumentObservation() }
+    }
+
+    private var observedDocuments: [EditorDocument] {
+        let openIDs = Set(openDocuments.map(\.id))
+        return openDocuments + previewDocuments.values.filter { !openIDs.contains($0.id) }
+            .sorted { $0.url.path < $1.url.path }
+    }
     private var latestFileOpenRequestID: UUID?
     private var pendingCloseQueue: [EditorDocument] = []
     private var pendingClosePreferredDocumentID: UUID?
@@ -192,6 +229,7 @@ final class DocumentFeatureModel: ObservableObject {
         autoSaveTasks.values.forEach { $0.task.cancel() }
         autoSaveTasks.removeAll()
         pendingFileOpenRequests.removeAll()
+        previewDocuments.removeAll()
         latestFileOpenRequestID = nil
         pendingCloseDocument = nil
         projectTreeRevealRequest = nil
@@ -215,10 +253,12 @@ final class DocumentFeatureModel: ObservableObject {
         // Apply that state change synchronously so repeated tree clicks feel immediate.
         if let existing = openDocuments.first(where: {
             $0.url.standardizedFileURL.path == filePath
-        }) {
+        }) ?? previewDocuments[filePath] {
+            let wasPreview = previewDocuments[filePath] === existing
+            promotePreviewDocument(existing)
             latestFileOpenRequestID = UUID()
             activeDocumentID = existing.id
-            if !isReadOnly {
+            if !isReadOnly && !wasPreview {
                 onDocumentOpened?(existing)
             }
             return
@@ -311,38 +351,59 @@ final class DocumentFeatureModel: ObservableObject {
         _ url: URL,
         isReadOnly: Bool,
         displayPath: String?,
-        activateWhenReady: Bool
+        activateWhenReady: Bool,
+        asPreview: Bool = false
     ) async {
         let normalizedURL = url.standardizedFileURL
         let filePath = normalizedURL.path
 
         if let existing = openDocuments.first(where: {
             $0.url.standardizedFileURL.path == filePath
-        }) {
+        }) ?? previewDocuments[filePath] {
+            let wasPreview = previewDocuments[filePath] === existing
+            if wasPreview && asPreview {
+                await reconcileExternalChanges([existing.url])
+            }
+            if !asPreview { promotePreviewDocument(existing) }
             if activateWhenReady {
                 let requestID = UUID()
                 latestFileOpenRequestID = requestID
                 activeDocumentID = existing.id
             }
-            if !isReadOnly {
+            if !isReadOnly && !asPreview && !wasPreview {
                 onDocumentOpened?(existing)
             }
             return
         }
 
-        let requestID = UUID()
-        if let pendingRequestID = pendingFileOpenRequests[filePath] {
+        if let pending = pendingFileOpenRequests[filePath] {
+            if !asPreview { pendingFileOpenRequests[filePath]?.isPreview = false }
             if activateWhenReady {
-                latestFileOpenRequestID = pendingRequestID
+                latestFileOpenRequestID = pending.id
             }
+            await pending.task.value
             return
         }
-        pendingFileOpenRequests[filePath] = requestID
+        let requestID = UUID()
         if activateWhenReady {
             latestFileOpenRequestID = requestID
         }
+        // One owned load serves every caller; cancelling a preview must not cancel another caller's load.
+        let task = Task { @MainActor in
+            await loadFile(normalizedURL, isReadOnly: isReadOnly, displayPath: displayPath,
+                           activateWhenReady: activateWhenReady, requestID: requestID)
+        }
+        pendingFileOpenRequests[filePath] = (requestID, task, asPreview)
+        await task.value
+    }
+
+    private func loadFile(
+        _ normalizedURL: URL, isReadOnly: Bool, displayPath: String?,
+        activateWhenReady: Bool, requestID: UUID
+    ) async {
+        let filePath = normalizedURL.path
         defer {
-            if pendingFileOpenRequests[filePath] == requestID {
+            if pendingFileOpenRequests[filePath]?.id == requestID {
                 pendingFileOpenRequests[filePath] = nil
             }
         }
@@ -366,6 +427,7 @@ final class DocumentFeatureModel: ObservableObject {
             }
         }
         guard let text else {
+            if pendingFileOpenRequests[filePath]?.isPreview == true { return }
             // `file.read` accepts plain text regardless of suffix and rejects
             // binary content. Only after that path fails do we probe a small
             // header for an explicitly registered binary viewer. With the
@@ -378,7 +440,7 @@ final class DocumentFeatureModel: ObservableObject {
                 )
             }.value
             guard workspaceURLProvider() == openingWorkspaceURL,
-                  pendingFileOpenRequests[filePath] == requestID else { return }
+                  pendingFileOpenRequests[filePath]?.id == requestID else { return }
             let shouldActivate = activateWhenReady && latestFileOpenRequestID == requestID
             if let header,
                await binaryFileViewerRegistry.openIfSupported(
@@ -391,7 +453,8 @@ final class DocumentFeatureModel: ObservableObject {
             notify?("This file cannot be displayed as text")
             return
         }
-        guard workspaceURLProvider() == openingWorkspaceURL else { return }
+        guard workspaceURLProvider() == openingWorkspaceURL,
+              pendingFileOpenRequests[filePath]?.id == requestID else { return }
 
         let document = EditorDocument(
             url: normalizedURL,
@@ -403,6 +466,10 @@ final class DocumentFeatureModel: ObservableObject {
         guard !openDocuments.contains(where: {
             $0.url.standardizedFileURL.path == filePath
         }) else { return }
+        if pendingFileOpenRequests[filePath]?.isPreview == true {
+            previewDocuments[filePath] = document
+            return
+        }
         openDocuments.append(document)
         if latestFileOpenRequestID == requestID {
             activeDocumentID = document.id
@@ -704,7 +771,7 @@ final class DocumentFeatureModel: ObservableObject {
                 guard let content = try await self.fileOperations.readDocumentTextAsync(from: url),
                       !Task.isCancelled, document.url == url,
                       document.lifecycleState.revision == revision,
-                      self.openDocuments.contains(where: { $0.id == document.id }) else { return }
+                      self.observedDocuments.contains(where: { $0.id == document.id }) else { return }
                 let decision = try self.documentLifecycleDecider.decide(
                     state: document.lifecycleState, event: .loadDisk, operationID: id.uuidString)
                 guard decision.action == .reloadFromDisk else { return }
@@ -735,10 +802,25 @@ final class DocumentFeatureModel: ObservableObject {
         }
     }
 
+    /// Callers reopening a preview can wait for the same guarded reconciliation
+    /// used by watcher notifications without blocking the main actor on disk I/O.
+    func reconcileExternalChanges(_ urls: [URL]) async {
+        processExternalChanges(urls)
+        let paths = Set(urls.map { $0.standardizedFileURL.path })
+        // Native events may replace a read while it is suspended. Follow its
+        // successor too, but bound the wait during a continuous event burst.
+        for _ in 0..<4 {
+            let tasks = observedDocuments.filter { paths.contains($0.url.standardizedFileURL.path) }
+                .compactMap { externalChangeTasks[$0.id] }
+            guard !tasks.isEmpty, !Task.isCancelled else { return }
+            for task in tasks { await task.value }
+        }
+    }
+
     @discardableResult
     func processExternalChanges(_ urls: [URL]) -> Bool {
         let changedPaths = Set(urls.map { $0.standardizedFileURL.path })
-        for document in openDocuments where changedPaths.contains(document.url.standardizedFileURL.path) {
+        for document in observedDocuments where changedPaths.contains(document.url.standardizedFileURL.path) {
             externalChangeTasks[document.id]?.cancel()
             let id = UUID()
             externalChangeIDs[document.id] = id
@@ -757,7 +839,7 @@ final class DocumentFeatureModel: ObservableObject {
                 do {
                     let content = try await self.fileOperations.readDocumentTextAsync(from: url)
                     guard !Task.isCancelled, document.url == url,
-                          self.openDocuments.contains(where: { $0.id == document.id }) else { return }
+                          self.observedDocuments.contains(where: { $0.id == document.id }) else { return }
                     if document.lifecycleState.status == .saving { return }
                     guard baseline == document.expectedDiskContent.map({ Data($0.utf8) }) else {
                         self.processExternalChanges([url]); return
@@ -778,7 +860,9 @@ final class DocumentFeatureModel: ObservableObject {
                         self.autoSaveTasks.removeValue(forKey: document.id)?.task.cancel()
                     default: break
                     }
-                    self.onDocumentChanged?(document)
+                    if self.openDocuments.contains(where: { $0 === document }) {
+                        self.onDocumentChanged?(document)
+                    }
                 } catch {
                     if !Task.isCancelled { self.notify?("Could not process an external change to \(url.lastPathComponent)") }
                 }

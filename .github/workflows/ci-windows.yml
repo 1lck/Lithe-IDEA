@@ -323,6 +323,8 @@ jobs:
             node $runner --suite-timeout-ms 60000 --report ".artifacts/test-stability/windows-git-isolation-$seed.json" -- --randomize "--seed=$seed" @gitTests
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-execution-journal.json -- src/features/git/services/git-execution-journal.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test terminal discovery and profile selection
         if: needs.changes.outputs.windows == 'true'

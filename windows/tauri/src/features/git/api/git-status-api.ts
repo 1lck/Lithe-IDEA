@@ -1,3 +1,4 @@
+import type { GitExecutionSource } from "@/platform/git-execution-events";
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
 import { emitGitChanged } from "../events/git-events";
 import { createRepositoryWriteQueue } from "../services/git-operation-coordinator";
@@ -25,7 +26,9 @@ registerGitCacheInvalidator(({ repoPath }) => {
   }
 
   gitStatusGenerations.set(repoPath, (gitStatusGenerations.get(repoPath) ?? 0) + 1);
-  inFlightGitStatusRequests.delete(repoPath);
+  for (const key of inFlightGitStatusRequests.keys()) {
+    if (key.startsWith(`${repoPath}\0`)) inFlightGitStatusRequests.delete(key);
+  }
 });
 
 export const getGitStatus = async (repoPath: string): Promise<GitStatus | null> => {
@@ -39,14 +42,15 @@ export const getGitStatus = async (repoPath: string): Promise<GitStatus | null> 
 
 // Keep failures distinct from a missing repository for workspace refreshes.
 // Optional status consumers retain the nullable getGitStatus API.
-const queryGitStatus = async (repoPath: string): Promise<GitStatus | null> => {
+const queryGitStatus = async (repoPath: string, source: GitExecutionSource = "unknown"): Promise<GitStatus | null> => {
   const resolvedRepoPath = await resolveRepositoryPath(repoPath);
 
   if (!resolvedRepoPath) {
     return null;
   }
 
-  const existingRequest = inFlightGitStatusRequests.get(resolvedRepoPath);
+  const requestKey = `${resolvedRepoPath}\0${source}`;
+  const existingRequest = inFlightGitStatusRequests.get(requestKey);
   if (existingRequest) {
     return existingRequest;
   }
@@ -55,20 +59,22 @@ const queryGitStatus = async (repoPath: string): Promise<GitStatus | null> => {
   if (!gitStatusGenerations.has(resolvedRepoPath)) {
     gitStatusGenerations.set(resolvedRepoPath, generation);
   }
-  const request = tauriInvoke<GitStatus>("git_status", { repoPath: resolvedRepoPath })
+  const request = (source === "unknown"
+    ? tauriInvoke<GitStatus>("git_status", { repoPath: resolvedRepoPath })
+    : tauriInvoke<GitStatus>("git_status", { repoPath: resolvedRepoPath }, { gitExecutionSource: source }))
     .then((status) => {
       if (generation !== (gitStatusGenerations.get(resolvedRepoPath) ?? 0)) {
-        return queryGitStatus(resolvedRepoPath);
+        return queryGitStatus(resolvedRepoPath, source);
       }
       return status;
     })
     .finally(() => {
-      if (inFlightGitStatusRequests.get(resolvedRepoPath) === request) {
-        inFlightGitStatusRequests.delete(resolvedRepoPath);
+      if (inFlightGitStatusRequests.get(requestKey) === request) {
+        inFlightGitStatusRequests.delete(requestKey);
       }
     });
 
-  inFlightGitStatusRequests.set(resolvedRepoPath, request);
+  inFlightGitStatusRequests.set(requestKey, request);
   return request;
 };
 
@@ -95,13 +101,14 @@ function decorateWorkspaceFile(file: GitFile, repoPath: string, prefix: string):
 export const getWorkspaceGitStatus = async (
   repoPaths: readonly string[],
   activeRepoPath?: string,
+  source: GitExecutionSource = "unknown",
 ): Promise<GitStatus | null> => {
   const normalizedRepoPaths = normalizeStatusRepoPaths(repoPaths);
   if (normalizedRepoPaths.length === 0) return null;
   // These paths are already discovered/selected repositories. A null response
   // is an unavailable snapshot, not evidence that the workspace has no changes.
   const readStatus = async (repoPath: string): Promise<GitStatus> => {
-    const status = await queryGitStatus(repoPath);
+    const status = await queryGitStatus(repoPath, source);
     if (!status) throw new Error("Git status query returned no snapshot");
     return status;
   };

@@ -1743,8 +1743,6 @@ private struct FindBarOverlay: View {
     var body: some View {
         if chrome.isFindBarVisible {
             FindBarView()
-                .padding(.top, 10)
-                .padding(.horizontal, 12)
                 .transition(.move(edge: .top).combined(with: .opacity))
         }
     }
