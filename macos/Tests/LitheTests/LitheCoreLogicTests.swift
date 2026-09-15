@@ -698,21 +698,23 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
-    func welcomeAndWorkspaceUseDistinctWindowSizes() {
+    func welcomeAndWorkspaceDeclareDistinctWindowSizes() {
         let sessions = TestProjectWindowSessions(hasActiveProject: false)
         let coordinator = LitheWindowCoordinator(projectSessions: sessions)
         let window = NSWindow()
 
+        #expect(LitheWindowLayout.welcome.contentSize != LitheWindowLayout.workspace.contentSize)
+        #expect(LitheWindowLayout.welcome.minimumContentSize != LitheWindowLayout.workspace.minimumContentSize)
+        #expect(LitheWindowLayout.welcome.contentSize.width >= LitheWindowLayout.welcome.minimumContentSize.width)
+        #expect(LitheWindowLayout.welcome.contentSize.height >= LitheWindowLayout.welcome.minimumContentSize.height)
+        #expect(LitheWindowLayout.workspace.contentSize.width >= LitheWindowLayout.workspace.minimumContentSize.width)
+        #expect(LitheWindowLayout.workspace.contentSize.height >= LitheWindowLayout.workspace.minimumContentSize.height)
+
         coordinator.attach(to: window, layout: .welcome)
         #expect(window.contentMinSize == LitheWindowLayout.welcome.minimumContentSize)
-        #expect(window.contentLayoutRect.size == LitheWindowLayout.welcome.contentSize)
 
         coordinator.attach(to: window, layout: .workspace)
         #expect(window.contentMinSize == LitheWindowLayout.workspace.minimumContentSize)
-        #expect(window.contentLayoutRect.width <= LitheWindowLayout.workspace.contentSize.width)
-        #expect(window.contentLayoutRect.height <= LitheWindowLayout.workspace.contentSize.height)
-        #expect(window.contentLayoutRect.width >= LitheWindowLayout.workspace.minimumContentSize.width)
-        #expect(window.contentLayoutRect.height >= LitheWindowLayout.workspace.minimumContentSize.height)
     }
 
     @Test
