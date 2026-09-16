@@ -117,21 +117,12 @@ struct StableRollbackTests {
             .write(to: app.appendingPathComponent("Contents/Info.plist"))
         let dmg = root.appendingPathComponent("stable.dmg")
         try await runFixtureTool("/usr/bin/codesign", ["--force", "--sign", "-", app.path])
-        // Formatting an HFS+ image can exceed the bounded process deadline on
-        // a loaded CI runner. diskutil's APFS blank-image path is both faster
-        // and the current macOS-supported image creation API; the production
-        // rollback path still validates the same mounted disk-image contract.
-        try await runFixtureTool("/usr/sbin/diskutil", ["image", "create", "blank", "--size", "32m",
-                                                         "--fs", "APFS", "--volumeName", "Lithe", dmg.path])
-        let imageMount = root.appendingPathComponent("image-mount")
-        try manager.createDirectory(at: imageMount, withIntermediateDirectories: false)
-        try await runFixtureTool("/usr/bin/hdiutil", ["attach", dmg.path, "-nobrowse", "-mountpoint", imageMount.path])
-        defer {
-            _ = MacProcessRunner().run(ProcessRequest(executablePath: "/usr/bin/hdiutil",
-                arguments: ["detach", imageMount.path, "-force"], timeoutMilliseconds: 10_000))
-        }
-        try await runFixtureTool("/usr/bin/ditto", [app.path, imageMount.appendingPathComponent("Lithe.app").path])
-        try await runFixtureTool("/usr/bin/hdiutil", ["detach", imageMount.path])
+        // Let diskutil build a read-only APFS image directly from the already
+        // signed payload. This avoids a second test-only mount/copy/unmount
+        // cycle; StableRollbackPackage.prepare still exercises the production
+        // hdiutil mount and validates the complete disk-image contract.
+        try await runFixtureTool("/usr/sbin/diskutil", ["image", "create", "from", "--format", "UDRO",
+                                                         root.appendingPathComponent("payload").path, dmg.path])
         let archiveData = try Data(contentsOf: dmg)
         let checksum = SHA256.hash(data: archiveData).map { String(format: "%02x", $0) }.joined()
         let publisher = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(repeating: 1, count: 32))
