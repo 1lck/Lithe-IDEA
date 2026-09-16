@@ -1,3 +1,4 @@
+import { runEditorCommand } from "./editor-commands";
 import { IBulkEditService } from "monaco-editor/esm/vs/editor/browser/services/bulkEditService.js";
 import { StandaloneServices } from "monaco-editor/esm/vs/editor/standalone/browser/standaloneServices.js";
 import { mountNativeFind, type NativeFindInput } from "./native-find";
@@ -891,7 +892,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       const target = matching.find(view => view.hasTextFocus()) ?? matching[0];
       if (!target) return;
       if (payload?.query === undefined) {
-        await target.getAction("actions.find")?.run();
+        await runEditorCommand(target, { type: "find", replace: false }, false);
       } else {
         const findOptions = target.getOption(monaco.editor.EditorOption.find);
         // Monaco seeds the first search from the caret even when arguments include

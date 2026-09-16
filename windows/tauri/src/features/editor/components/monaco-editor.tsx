@@ -1,3 +1,4 @@
+import { runEditorCommand, type EditorCommand } from "@lithe/editor/editor-commands";
 import "../engines/monaco/monaco-environment";
 import "monaco-editor/min/vs/editor/editor.main.css";
 import "../styles/monaco-editor.css";
@@ -1476,19 +1477,21 @@ export function MonacoEditor({
     const container = containerRef.current;
     editorAPI.setTextareaRef(null);
     if (container) editorAPI.setViewportRef(container);
+    const executeCommand = (command: EditorCommand) => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      void runEditorCommand(editor, command, canEdit).catch((error) => {
+        console.error("Failed to execute editor command:", command.type, error);
+      });
+    };
     editorAPI.setActiveFindAdapter({
       ownerId: adapterOwnerId,
-      openFind: (replace) => {
-        editorRef.current?.trigger(
-          "lithe-keybinding",
-          replace ? "editor.action.startFindReplaceAction" : "actions.find",
-          null,
-        );
-      },
+      openFind: (replace) => executeCommand({ type: "find", replace }),
     });
 
     editorAPI.setActiveEditorAdapter({
       ownerId: adapterOwnerId,
+      executeCommand,
       insertText: (text, position) => {
         if (!canEdit) return;
         const editor = editorRef.current;

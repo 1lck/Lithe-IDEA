@@ -1,3 +1,4 @@
+import { runEditorCommand } from "@lithe/editor/editor-commands";
 import { ICommandService } from "monaco-editor/esm/vs/platform/commands/common/commands.js";
 import { IBulkEditService } from "monaco-editor/esm/vs/editor/browser/services/bulkEditService.js";
 import { CompletionItem } from "monaco-editor/esm/vs/editor/contrib/suggest/browser/suggest.js";
@@ -10,7 +11,7 @@ import { ILanguageFeaturesService } from "monaco-editor/esm/vs/editor/common/ser
 import { CancellationTokenSource, CancellationToken } from "monaco-editor/esm/vs/base/common/cancellation.js";
 import { ready } from "./workbench";
 import { acquireEditorModelSource, sourcePositionAt } from "@lithe/editor/model-source";
-import { editor as monacoEditor, languages, Range, Uri } from "monaco-editor/esm/vs/editor/editor.api.js";
+import { editor as monacoEditor, languages, Range, Selection, Uri } from "monaco-editor/esm/vs/editor/editor.api.js";
 
 // Real WebKit integration, using the exact workbench bundle and the existing
 // bounded native probe host. No DOM-based imitation of Monaco input.
@@ -1028,6 +1029,78 @@ async function verify() {
         "ended debug session retained variable values");
       assert(model.getVersionId() === version && model.getValue() === text, "debug decorations mutated document history");
     } finally { await window.lithe.retain([]); }
+  });
+  await check("editor commands preserve multi-selection undo and read-only ownership", async () => {
+    const container = document.createElement("div");
+    container.style.cssText = "height:400px;width:800px";
+    document.body.append(container);
+    const model = monacoEditor.createModel("alpha\nbeta\ngamma\ndelta", "plaintext");
+    const view = monacoEditor.create(container, { model });
+    try {
+      view.setSelections([new Selection(1, 1, 2, 1), new Selection(3, 1, 4, 1)]);
+      await runEditorCommand(view, { type: "copyLineDown" }, true);
+      assert(model.getValue() === "alpha\nalpha\nbeta\ngamma\ngamma\ndelta", "line command lost multiple selections");
+      await model.undo();
+      assert(model.getValue() === "alpha\nbeta\ngamma\ndelta", "line command did not undo atomically");
+      await runEditorCommand(view, { type: "deleteLine" }, false);
+      assert(model.getValue() === "alpha\nbeta\ngamma\ndelta", "host read-only policy allowed a menu edit");
+      view.setPosition({ lineNumber: 1, column: 3 });
+      await runEditorCommand(view, { type: "expandSelection" }, false);
+      assert(model.getValueInRange(view.getSelection()!) === "alpha", "smart selection did not expand to word");
+      await runEditorCommand(view, { type: "shrinkSelection" }, false);
+      assert(view.getSelection()!.isEmpty(), "smart selection did not restore caret");
+    } finally { view.dispose(); model.dispose(); container.remove(); }
+  });
+  await check("editor bracket and fold commands operate on their owning view", async () => {
+    const language = "plaintext";
+    const configuration = languages.setLanguageConfiguration(language, { brackets: [["{", "}"]], comments: { lineComment: "//" } });
+    const folding = languages.registerFoldingRangeProvider(language, {
+      provideFoldingRanges: () => [{ start: 1, end: 4 }, { start: 2, end: 3 }],
+    });
+    const container = document.createElement("div");
+    container.style.cssText = "height:400px;width:800px";
+    document.body.append(container);
+    const model = monacoEditor.createModel("{\n  {\n    value\n  }\n}", language);
+    const view = monacoEditor.create(container, { model, folding: true });
+    try {
+      view.setPosition({ lineNumber: 1, column: 1 });
+      await runEditorCommand(view, { type: "goToMatchingBracket" }, false);
+      assert(view.getPosition()!.lineNumber === 5, "bracket jump missed matching brace");
+      await runEditorCommand(view, { type: "selectToBracket", selectBrackets: false }, false);
+      assert(!model.getValueInRange(view.getSelection()!).includes("}\n}"), "bracket selection ignored interior option");
+      view.setPosition({ lineNumber: 3, column: 5 });
+      await runEditorCommand(view, { type: "toggleComment" }, true);
+      assert(model.getLineContent(3).includes("//"), "comment command ignored language configuration");
+      await model.undo();
+      await runEditorCommand(view, { type: "foldAll" }, false);
+      const foldedTop = view.getTopForLineNumber(5);
+      await runEditorCommand(view, { type: "unfoldAll" }, false);
+      const expandedTop = view.getTopForLineNumber(5);
+      assert(expandedTop > foldedTop, "fold/unfold menu commands did not change visible lines");
+      await runEditorCommand(view, { type: "foldLevel", level: 2 }, false);
+      const levelTop = view.getTopForLineNumber(5);
+      assert(levelTop > foldedTop && levelTop < expandedTop, "level folding did not collapse only the nested region");
+    } finally { view.dispose(); model.dispose(); container.remove(); folding.dispose(); configuration.dispose(); }
+  });
+  await check("Monaco find widget replaces regex captures and retains input focus", async () => {
+    const container = document.createElement("div");
+    container.style.cssText = "height:400px;width:800px";
+    document.body.append(container);
+    const model = monacoEditor.createModel("alpha 1\nalpha 2\nALPHA 3", "plaintext");
+    const view = monacoEditor.create(container, { model });
+    try {
+      await runEditorCommand(view, { type: "find", replace: true }, true);
+      const controller = view.getContribution("editor.contrib.findController") as any;
+      const state = controller.getState();
+      assert(state.isRevealed && state.isReplaceRevealed, "replace command did not open Monaco widget");
+      assert(document.activeElement?.closest(".find-widget"), "find command lost input focus");
+      state.change({ searchString: "alpha (\\d)", replaceString: "$1 alpha", isRegex: true, matchCase: true }, true);
+      assert(state.matchesCount === 2 && view.getSelection()!.endColumn === 8, "widget search did not locate while typing");
+      controller.replaceAll();
+      assert(model.getValue() === "1 alpha\n2 alpha\nALPHA 3", "widget replacement ignored regex captures");
+      await model.undo();
+      assert(model.getValue() === "alpha 1\nalpha 2\nALPHA 3", "widget replacement did not undo atomically");
+    } finally { view.dispose(); model.dispose(); container.remove(); }
   });
   await check("native find bar jumps while typing and replaces through Monaco undo", async () => {
     const id = "native-find", text = "public alpha\npublic beta\nPUBLIC gamma";
