@@ -18,6 +18,7 @@ import { CancellationError, isCancellationError } from "monaco-editor/esm/vs/bas
 export interface WorkbenchHost {
   request(payload: object): Promise<any>;
   palette: { defaults: Record<string, { light: string; dark: string }> };
+  javaNavigationIcons?: Record<"up-interface" | "up-inheritance" | "down-interface" | "down-inheritance", string>;
   keybindings?: { command: string; label: string; keybinding: number }[];
 }
 
@@ -36,7 +37,7 @@ function languageForFilename(filename: string | undefined): string {
 export function mountWorkbench(host: WorkbenchHost) {
   type GitMarker = { id: string; line: number; kind: "added" | "modified" | "deleted"; stage: boolean; unstage: boolean; discard: boolean };
   type BlameLine = { line: number; commit: string; author: string; date: string };
-  type JavaMarker = { id: string; line: number; direction: "up" | "down" };
+  type JavaMarker = { id: string; line: number; direction: "up" | "down"; relation?: "interface" | "inheritance" };
   type Entry = { source: SourceText; model: monaco.editor.ITextModel; release: () => void; revision: number; chain: Promise<unknown>; readonly: boolean; frozen: boolean; state: monaco.editor.ICodeEditorViewState | null; debugDecorations?: string[]; debugPaused?: boolean; debugGeneration?: number; closingHolds?: number };
   const entries = new Map<string, Entry>();
   const workers: Worker[] = [];
@@ -101,22 +102,23 @@ export function mountWorkbench(host: WorkbenchHost) {
     const valid = () => entries.get(id) === entry && !entry.model.isDisposed() &&
       entry.model.getVersionId() === version && state!.generation === generation;
     if (!valid()) return;
-    const revision = entry.revision;
-    const reply = entry.model.getLanguageId() === "java"
+    const revision = entry.revision, language = entry.model.getLanguageId();
+    const reply = language === "java"
       ? await languageRequest({ type: "javaNavigation", id, revision }) : { markers: [] };
-    if (!valid() || entry.revision !== revision || reply.cancelled) return;
+    if (!valid() || entry.revision !== revision || entry.model.getLanguageId() !== language || reply.cancelled) return;
     const markers: JavaMarker[] = (reply.markers ?? []).filter((marker: JavaMarker) => marker.line >= 1 &&
       marker.line <= entry.model.getLineCount() && (marker.direction === "up" || marker.direction === "down"));
-    const directionsByLine = new Map<number, Set<JavaMarker["direction"]>>();
+    const directionsByLine = new Map<number, Map<JavaMarker["direction"], JavaMarker>>();
     for (const marker of markers) {
       let directions = directionsByLine.get(marker.line);
-      if (!directions) directionsByLine.set(marker.line, directions = new Set());
-      directions.add(marker.direction);
+      if (!directions) directionsByLine.set(marker.line, directions = new Map());
+      if (!directions.has(marker.direction)) directions.set(marker.direction, marker);
     }
     state.decorations = entry.model.deltaDecorations(state.decorations, [...directionsByLine].map(([line, directions]) => {
-      const direction = directions.size === 2 ? "both" : [...directions][0];
+      const direction = directions.size === 2 ? "both" : [...directions.keys()][0];
+      const icons = [...directions.values()].map(marker => `lithe-java-navigation-${marker.direction}-${marker.relation === "interface" ? "interface" : "inheritance"}`).join(" ");
       return { range: new monaco.Range(line, 1, line, 1), options: {
-        glyphMarginClassName: `lithe-java-navigation lithe-java-navigation-${direction}`,
+        glyphMarginClassName: `lithe-java-navigation lithe-java-navigation-${direction} ${icons}`,
         glyphMargin: { position: monaco.editor.GlyphMarginLane.Left },
         glyphMarginHoverMessage: { value: direction === "up" ? "Go to super declaration" : direction === "down"
           ? "Go to implementations" : "Go to super declaration (left) or implementations (right)", isTrusted: false },
@@ -420,7 +422,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       const pair = [...entries].find(([, entry]) => entry.model === view.getModel());
       if (!pair) return;
       const [id, entry] = pair, state = navigationStates.get(entry);
-      if (!state || entry.model.isDisposed() || state.version !== entry.model.getVersionId() || state.revision !== entry.revision ||
+      if (!state || entry.model.isDisposed() || entry.model.getLanguageId() !== "java" || state.version !== entry.model.getVersionId() || state.revision !== entry.revision ||
           entry.frozen || entry.closingHolds || failed) return;
       return { id, entry, state, markers: state.markers.filter(marker => marker.line === line) };
     };
@@ -813,10 +815,14 @@ export function mountWorkbench(host: WorkbenchHost) {
     editor = monaco.editor.create(document.querySelector("#editor") as HTMLElement, displayOptions);
     attachDebugInteractions(editor);
     const debugStyle = document.createElement("style");
-    debugStyle.textContent = `.monaco-editor .lithe-java-navigation{cursor:pointer;font-family:monospace;font-size:12px}
-      .monaco-editor .lithe-java-navigation-up:before{content:'↑'}
-      .monaco-editor .lithe-java-navigation-down:before{content:'↓'}
-      .monaco-editor .lithe-java-navigation-both:before{content:'↑↓'}
+    const navigationIconStyles = Object.entries(host.javaNavigationIcons ?? {}).map(([kind, svg]) =>
+      `.monaco-editor .lithe-java-navigation-${kind}:${kind.startsWith("up-") ? "before" : "after"}{content:"";background-image:url("data:image/svg+xml,${encodeURIComponent(svg)}")}`).join("\n");
+    debugStyle.textContent = `.monaco-editor .lithe-java-navigation{cursor:pointer;font-family:monospace;font-size:12px;display:flex!important;align-items:center;justify-content:center}
+      .monaco-editor .lithe-java-navigation:before,.monaco-editor .lithe-java-navigation:after{width:12px;height:12px;background-size:contain;background-repeat:no-repeat;background-position:center;line-height:12px}
+      .monaco-editor .lithe-java-navigation-up:before,.monaco-editor .lithe-java-navigation-both:before{content:'↑'}
+      .monaco-editor .lithe-java-navigation-down:after,.monaco-editor .lithe-java-navigation-both:after{content:'↓'}
+      .monaco-editor .lithe-java-navigation-both:before,.monaco-editor .lithe-java-navigation-both:after{width:50%;max-width:12px}
+      ${navigationIconStyles}
       .monaco-editor .lithe-blame{display:inline-block;max-width:calc(100% - 5ch);float:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;text-align:left}
       .monaco-editor .lithe-blame-line{display:inline-block;min-width:4ch;text-align:right}
       .monaco-editor .lithe-git-marker{width:3px!important;margin-left:2px;cursor:pointer}

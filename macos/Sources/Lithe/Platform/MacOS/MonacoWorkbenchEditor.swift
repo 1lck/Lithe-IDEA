@@ -161,7 +161,8 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
     private var unconfirmedModels: Set<String> = []
     private var completionLists: [String: (revision: Int?, key: String, items: [LanguageServerCompletionItem])] = [:]
     private var codeActionLists: [String: (revision: Int?, key: String, items: [LanguageServerCodeAction])] = [:]
-    private var javaNavigationLists: [String: (revision: Int, markers: [JavaImplementationMarker])] = [:]
+    private var javaNavigationLists: [String: (revision: Int, url: URL, markers: [JavaImplementationMarker])] = [:]
+    private var javaNavigationRequests: [String: UUID] = [:]
     private var codeActionCommands: [String: (key: String, root: URL?, command: LanguageServerCommand)] = [:]
     private var subscriptions: [String: AnyCancellable] = [:]
     private var applyingEdit = false
@@ -505,6 +506,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             unconfirmedModels.remove(oldID)
             lastDebugStates[oldID] = nil
             javaNavigationLists[oldID] = nil
+            javaNavigationRequests[oldID] = nil
             lastGitStates[oldID] = nil
             gitLoads.removeValue(forKey: oldID)?.cancel()
             blameLoads.removeValue(forKey: oldID)?.cancel()
@@ -640,18 +642,22 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
                 reply(["markers": []], nil); return
             }
             let url = document.url
+            let requestID = UUID()
+            javaNavigationRequests[id] = requestID
             Task { @MainActor [weak self, weak document, weak model] in
                 guard let self, let document, let model else { reply(["cancelled": true], nil); return }
                 let markers = await model.javaNavigationMarkers(for: document)
-                guard self.documents[id] === document, self.revisions[id] == revision, document.url == url else {
+                guard self.documents[id] === document, self.revisions[id] == revision, document.url == url,
+                      self.javaNavigationRequests[id] == requestID else {
                     reply(["cancelled": true], nil); return
                 }
-                self.javaNavigationLists[id] = (revision, markers)
-                reply(["markers": markers.map { ["id": $0.id, "line": $0.line + 1, "direction": $0.direction.rawValue] as [String: Any] }], nil)
+                self.javaNavigationLists[id] = (revision, url, markers)
+                reply(["markers": markers.map { ["id": $0.id, "line": $0.line + 1, "direction": $0.direction.rawValue, "relation": $0.relation.rawValue] as [String: Any] }], nil)
             }
         case "javaNavigationAction":
             guard let model, !failed, let revision = body["revision"] as? Int, revision == revisions[id],
-                  let list = javaNavigationLists[id], list.revision == revision,
+                  let list = javaNavigationLists[id], list.revision == revision, list.url == document.url,
+                  document.url.pathExtension.lowercased() == "java",
                   let markerID = body["marker"] as? String,
                   let marker = list.markers.first(where: { $0.id == markerID }) else {
                 reply(["cancelled": true], nil); return

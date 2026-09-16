@@ -49,6 +49,15 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
     var gitLineActions: [String] = []
     var blameCommits: [String] = []
     var javaNavigationActions: [String] = []
+    var holdNavigation = false
+    var heldNavigation: ((Any?, String?) -> Void)?
+    var navigationWaiter: ((Any?, String?) -> Void)?
+    let navigationResult: [String: Any] = ["markers": [
+        ["id": "super", "line": 1, "direction": "up", "relation": "interface"],
+        ["id": "implementations", "line": 1, "direction": "down", "relation": "inheritance"],
+        ["id": "parent", "line": 2, "direction": "up", "relation": "inheritance"],
+        ["id": "implementers", "line": 2, "direction": "down", "relation": "interface"]
+    ]]
     var debugRequests: [[String: Any]] = []
     var fixtureDocuments: [String: (text: String, revision: Int)] = [:]
     var semanticCount = 0
@@ -117,10 +126,24 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
             }
             switch type {
             case "javaNavigation":
-                replyHandler(["markers": body["id"] as? String == "navigation" ? [
-                    ["id": "super", "line": 1, "direction": "up"],
-                    ["id": "implementations", "line": 1, "direction": "down"]
-                ] : []], nil)
+                if holdNavigation {
+                    holdNavigation = false
+                    heldNavigation = replyHandler
+                    navigationWaiter?(["ok": true], nil); navigationWaiter = nil
+                } else {
+                    replyHandler((body["id"] as? String)?.hasPrefix("navigation") == true ? navigationResult : ["markers": []], nil)
+                }
+            case "holdNavigation": holdNavigation = true; replyHandler(["ok": true], nil)
+            case "awaitNavigation":
+                if heldNavigation != nil { replyHandler(["ok": true], nil) }
+                else { navigationWaiter = replyHandler }
+            case "releaseNavigation":
+                holdNavigation = false
+                let result: [String: Any] = body["stale"] as? Bool == true
+                    ? ["markers": [["id": "stale", "line": 1, "direction": "down", "relation": "interface"]]] : navigationResult
+                heldNavigation?(result, nil); heldNavigation = nil
+                navigationWaiter?(["cancelled": true], nil); navigationWaiter = nil
+                replyHandler(["ok": true], nil)
             case "javaNavigationAction":
                 javaNavigationActions.append(body["marker"] as? String ?? "")
                 replyHandler(["ok": true], nil)

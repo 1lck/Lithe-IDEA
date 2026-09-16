@@ -510,15 +510,23 @@ async function verify() {
     });
   }
   await check("Java hierarchy markers route both directions and invalidate after edits and renames", async () => {
-    const text = "class Child extends Parent {}";
+    const text = "class Child extends Parent {\n}";
     await send({ type: "open", text });
     await window.lithe.activate({ id: "navigation", text, revision: 0, language: "java", readonly: false });
     const model = editor.getModel()!;
     try {
       await window.lithe.refreshJavaNavigation();
       const markers = model.getAllDecorations().filter(value => value.options.glyphMarginClassName?.includes("lithe-java-navigation"));
-      assert(markers.length === 1 && markers[0].options.glyphMarginClassName?.includes("both"), "same-line hierarchy directions were lost");
+      assert(markers.length === 2 && markers[0].options.glyphMarginClassName?.includes("both"), "same-line hierarchy directions were lost");
       assert(markers[0].options.glyphMargin?.position === monacoEditor.GlyphMarginLane.Left, "hierarchy marker occupied the breakpoint lane");
+      assert(markers[0].options.glyphMarginClassName?.includes("up-interface") && markers[0].options.glyphMarginClassName?.includes("down-inheritance"), "first-line relation icons were lost");
+      assert(markers[1].options.glyphMarginClassName?.includes("up-inheritance") && markers[1].options.glyphMarginClassName?.includes("down-interface"), "second-line relation icons were lost");
+      editor.render(true);
+      const glyphs = editor.getDomNode()!.querySelectorAll<HTMLElement>(".lithe-java-navigation");
+      assert(glyphs.length >= 2, "hierarchy glyphs did not render");
+      for (const glyph of glyphs) for (const pseudo of ["::before", "::after"]) {
+        assert(getComputedStyle(glyph, pseudo).backgroundImage.includes("data:image/svg+xml"), "native navigation asset was not bundled into the glyph");
+      }
       assert(model.getValue() === text && !model.canUndo(), "hierarchy rendering changed document text");
       editor.setPosition({ lineNumber: 1, column: 1 });
       await editor.getAction("lithe.javaNavigation.up")!.run();
@@ -532,6 +540,44 @@ async function verify() {
       assert(!model.getAllDecorations().some(value => value.options.glyphMarginClassName?.includes("lithe-java-navigation")), "non-Java rename retained hierarchy arrows");
     } finally { await window.lithe.retain([]); }
   });
+  for (const ending of ["edit", "rename", "close", "supersede"]) {
+    await check(`delayed Java hierarchy response cannot survive ${ending}`, async () => {
+      await send({ type: "open", text: "class Child {}" });
+      await window.lithe.activate({ id: "navigation-race", text: "class Child {}", revision: 0, language: "java", readonly: false });
+      await window.lithe.refreshJavaNavigation();
+      const model = editor.getModel()!;
+      let pending: Promise<unknown> | undefined;
+      try {
+        await send({ type: "holdNavigation" });
+        pending = window.lithe.refreshJavaNavigation();
+        let deadline: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([send({ type: "awaitNavigation" }), new Promise((_, reject) => {
+            deadline = setTimeout(() => reject(new Error("Hierarchy request never reached its gate")), 2000);
+          })]);
+        } finally { clearTimeout(deadline); }
+        if (ending === "edit") editor.executeEdits("integration", [{ range: new Range(1, 1, 1, 1), text: "//new\n" }]);
+        if (ending === "rename") await window.lithe.activate({ id: "navigation-race", filename: "child.txt", readonly: false });
+        if (ending === "close") await window.lithe.retain([]);
+        if (ending === "supersede") await window.lithe.refreshJavaNavigation();
+        await send({ type: "releaseNavigation", stale: true });
+        await pending;
+        if (ending === "close") assert(model.isDisposed(), "closed hierarchy model survived");
+        else {
+          editor.setPosition({ lineNumber: 1, column: 1 });
+          const before = (await send({ type: "javaNavigationActions" })).markers.length;
+          await editor.getAction("lithe.javaNavigation.down")!.run();
+          const actions = (await send({ type: "javaNavigationActions" })).markers;
+          assert(actions.at(-1) !== "stale", "old hierarchy response became actionable");
+          assert(actions.length === before + (ending === "supersede" ? 1 : 0), "hierarchy action validity did not follow latest state");
+        }
+      } finally {
+        await send({ type: "releaseNavigation" });
+        await pending;
+        await window.lithe.retain([]);
+      }
+    });
+  }
   await check("macOS product shortcuts edit through Monaco and preserve undo and CRLF", async () => {
     const source = "one\r\ntwo\r\nthree";
     await send({ type: "open", text: source });
