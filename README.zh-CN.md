@@ -283,6 +283,16 @@ open dist/Lithe.app
       <a href="https://codezsy.com/register?aff=fDyA"><strong>CodeZ</strong></a> 专注于 GPT 系列模型的稳定中转，为开发者在工具和项目中集成模型 API 提供简单直接的选择。其赞助为 Lithe 的持续开发与维护提供了助力。感谢 CodeZ 对本项目的支持！
     </td>
   </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://app.rainyun.com/apps/rcs/392785/detail?view=info">
+        <img src="./docs/assets/sponsors/rainyun.png" width="112" alt="雨云">
+      </a>
+    </td>
+    <td>
+      <a href="https://app.rainyun.com/apps/rcs/392785/detail?view=info"><strong>雨云</strong></a> 提供云服务器等云计算服务，为应用部署、网站搭建和开发测试提供灵活的云端环境。感谢雨云对 Lithe 的支持，助力项目持续开发与完善！
+    </td>
+  </tr>
 </table>
 
 ### ⭐ 特别鸣谢
