@@ -200,7 +200,7 @@ public final class SearchFeatureModel: ObservableObject {
         selectedPaths: Set<String>,
         textOverrides: [String: String],
         recordHistory: @escaping @MainActor (String, URL) async -> Void,
-        saveTextOverride: @escaping @MainActor (URL, String) throws -> Bool
+        saveTextOverride: @escaping @MainActor (URL, String) async throws -> Bool
     ) async -> ProjectReplacementApplyResult {
         let targets = projectReplacementFiles.filter { selectedPaths.contains($0.relativePath) }
         guard !targets.isEmpty else {
@@ -223,7 +223,7 @@ public final class SearchFeatureModel: ObservableObject {
 
             await recordHistory(currentText, target.url)
             do {
-                let savedOverride = try saveTextOverride(target.url, replacedText)
+                let savedOverride = try await saveTextOverride(target.url, replacedText)
                 if !savedOverride && !operations.writeFile(
                     replacedText,
                     at: workspaceURL,

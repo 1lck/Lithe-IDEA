@@ -5,6 +5,21 @@ import LitheModuleAPI
 
 @MainActor
 struct WorkbenchModuleUIRegistryTests {
+    @Test func mavenNavigationIsDockedAndBuildOutputStaysInTheActivityBar() throws {
+        let contributions = BuiltInModuleCatalog.contributions(for: .execution)
+        let navigation = try #require(contributions.first { $0.id == "execution.maven" })
+        let output = try #require(contributions.first { $0.id == "execution.maven.output" })
+        let registry = WorkbenchModuleUIComposition.builtIn
+
+        #expect(navigation.placement == .rightSidebar)
+        #expect(output.placement == .activityBar)
+        #expect(navigation.actionID != output.actionID)
+        #expect(registry.renderer(for: navigation)?.rightSidebarBehavior == .docked)
+        #expect(registry.renderer(for: navigation)?.ideaAssetPath == "maven/toolWindowMaven.svg")
+        #expect(registry.renderer(for: output) != nil)
+        try registry.validate(contributions: contributions)
+    }
+
     @Test func duplicateActionIDsAreRejected() {
         let first = WorkbenchModuleUIRegistry.Registration(actions: [
             .init(id: "test.action", perform: { _ in })

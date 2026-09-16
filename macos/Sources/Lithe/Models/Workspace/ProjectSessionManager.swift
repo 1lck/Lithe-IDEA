@@ -101,11 +101,7 @@ final class ProjectSessionManager: ObservableObject {
 
     @discardableResult
     func saveAllDocuments() async -> Bool {
-        var savedAll = true
-        for model in sessions where !(await model.saveAllDocuments()) {
-            savedAll = false
-        }
-        return savedAll
+        await DocumentSaveBatch.save { sessions }
     }
 
     func scope(for sessionID: UUID) -> ProjectWindowScope {

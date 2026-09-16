@@ -105,7 +105,7 @@ while IFS=$'\t' read -r status first_path _; do
         .github/workflows/release-windows.yml|.github/workflows/release-preview-windows.yml)
             windows=true
             ;;
-        .github/actions/prepare-macos-dependency-cache/*)
+        .github/actions/prepare-macos-dependency-cache/*|.github/actions/setup-macos-toolchain/*|.swift-version)
             swift=true
             plugins=true
             swift_database=true

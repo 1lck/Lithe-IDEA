@@ -258,6 +258,17 @@ assert_classification download-cache-validator \
 assert_classification test-stability-runner \
     "$(classification true true true true false false true true false false)" \
     modify_test_stability_runner
+modify_swift_version() { printf '%s\n' '6.3.3' > .swift-version; }
+modify_macos_toolchain_action() {
+    mkdir -p .github/actions/setup-macos-toolchain
+    printf '%s\n' 'name: Toolchain fixture' > .github/actions/setup-macos-toolchain/action.yml
+}
+assert_classification swift-version \
+    "$(classification true true true true false true false false false false)" \
+    modify_swift_version
+assert_classification macos-toolchain-action \
+    "$(classification true true true true false true false false false false)" \
+    modify_macos_toolchain_action
 assert_classification macos-cache-action \
     "$(classification true true true true false true false false false false)" \
     modify_macos_cache_action

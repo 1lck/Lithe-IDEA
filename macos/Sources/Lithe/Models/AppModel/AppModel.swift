@@ -12,7 +12,7 @@ import LitheWorkspaceModule
 import LitheCoreContracts
 
 @MainActor
-final class AppModel: ObservableObject, Identifiable {
+final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     let id = UUID()
     var workspaceURL: URL? { workspaceSessionCoordinator.workspaceURL }
     var standaloneFileURL: URL? { workspaceSessionCoordinator.standaloneFileURL }
@@ -1024,6 +1024,13 @@ final class AppModel: ObservableObject, Identifiable {
         workspaceSessionCoordinator.openStandaloneFile(at: url)
     }
 
+    /// Launches an executable binary selected in the project tree using the
+    /// platform's normal open behavior (Terminal/app association on macOS).
+    func runExecutable(_ url: URL) {
+        guard services.fileStorage.isExecutable(at: url) else { return }
+        platformUI.open(url)
+    }
+
     func javaIconKind(for url: URL) async -> LitheIconKind? {
         await JavaFileIconResolver.resolve(for: url, storage: services.fileStorage)
     }
@@ -1158,13 +1165,24 @@ final class AppModel: ObservableObject, Identifiable {
         documentFeature.closePendingDocument(discardingChanges: discardingChanges)
     }
 
+    func dismissPendingCloseConfirmation(_ confirmationID: UUID?) {
+        guard let confirmationID, confirmationID == documentFeature.pendingCloseConfirmationID else { return }
+        cancelPendingClose()
+    }
+
     func cancelPendingClose() {
         workspaceSessionCoordinator.cancelPendingClose()
         documentFeature.cancelPendingClose()
     }
 
+    var closingDocuments: [EditorDocument] { documentFeature.editorDocuments }
+
     var hasUnsavedDocuments: Bool {
         documentFeature.hasUnsavedDocuments
+    }
+
+    var unsavedDocumentNames: [String] {
+        openDocuments.filter(\.isDirty).map(\.displayName)
     }
 
     @discardableResult
@@ -1184,8 +1202,8 @@ final class AppModel: ObservableObject, Identifiable {
         documentFeature.saveEditorDocument(document)
     }
 
-    func saveDocument(_ document: EditorDocument) throws {
-        try documentFeature.save(document)
+    func saveDocument(_ document: EditorDocument) async throws {
+        try await documentFeature.save(document)
     }
 
     func workspaceRelativePath(for url: URL, root: URL) -> String? {

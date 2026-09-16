@@ -110,7 +110,8 @@ public enum BuiltInModuleCatalog {
             ModuleContribution(id: "debug.session", kind: .toolWindow, title: "Debug", icon: "ladybug", order: 700, actionID: "debug.toggle", rendererID: "debug.session")
         ],
         .execution: [
-            ModuleContribution(id: "execution.maven", kind: .toolWindow, title: "Maven", icon: "shippingbox", order: 400, actionID: "execution.maven.toggle", rendererID: "execution.maven", visibility: ["projectKind": "maven"]),
+            ModuleContribution(id: "execution.maven", kind: .toolWindow, title: "Maven", icon: "shippingbox", placement: .rightSidebar, order: 100, actionID: "execution.maven.toggle", rendererID: "execution.maven", visibility: ["projectKind": "maven"]),
+            ModuleContribution(id: "execution.maven.output", kind: .toolWindow, title: "Maven Build", icon: "terminal", order: 400, actionID: "execution.maven.output.toggle", rendererID: "execution.maven.output"),
             ModuleContribution(id: "execution.run", kind: .toolWindow, title: "Run", icon: "play.rectangle", order: 500, actionID: "execution.run.toggle", rendererID: "execution.run"),
             ModuleContribution(id: "execution.tests", kind: .toolWindow, title: "Tests", icon: "checkmark.seal", order: 600, actionID: "execution.tests.toggle", rendererID: "execution.tests")
         ],

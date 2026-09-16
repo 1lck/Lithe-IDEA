@@ -164,7 +164,7 @@ struct RunWorkflowCoordinatorTests {
     }
 
     @Test("saves a dirty current-file document before running")
-    func savesDirtyCurrentFile() {
+    func savesDirtyCurrentFile() async {
         let notifications = NotificationSpy()
         let coordinator = makeRunWorkflowCoordinator(notify: notifications.notify)
         let actions = WorkflowActionsSpy()
@@ -182,7 +182,7 @@ struct RunWorkflowCoordinatorTests {
         )
         document.text = "changed again"
 
-        let ready = coordinator.saveDirtyCurrentFileIfNeeded(
+        let ready = await coordinator.saveDirtyCurrentFileIfNeeded(
             configuration: configuration,
             document: document,
             saving: actions
@@ -197,7 +197,7 @@ struct RunWorkflowCoordinatorTests {
     /// Running a stale file would compile text the user never saved, so a failed
     /// save blocks the launch and says why.
     @Test("blocks the run when the current file cannot be saved")
-    func blocksRunOnFailedSave() {
+    func blocksRunOnFailedSave() async {
         let notifications = NotificationSpy()
         let coordinator = makeRunWorkflowCoordinator(notify: notifications.notify)
         let actions = WorkflowActionsSpy()
@@ -216,7 +216,7 @@ struct RunWorkflowCoordinatorTests {
         )
         document.text = "changed again"
 
-        let ready = coordinator.saveDirtyCurrentFileIfNeeded(
+        let ready = await coordinator.saveDirtyCurrentFileIfNeeded(
             configuration: configuration,
             document: document,
             saving: actions
@@ -227,7 +227,7 @@ struct RunWorkflowCoordinatorTests {
     }
 
     @Test("does not save a clean non-current-file configuration")
-    func skipsUnneededSave() {
+    func skipsUnneededSave() async {
         let notifications = NotificationSpy()
         let coordinator = makeRunWorkflowCoordinator(notify: notifications.notify)
         let actions = WorkflowActionsSpy()
@@ -239,7 +239,7 @@ struct RunWorkflowCoordinatorTests {
             mainClass: "Main"
         )
 
-        let ready = coordinator.saveDirtyCurrentFileIfNeeded(
+        let ready = await coordinator.saveDirtyCurrentFileIfNeeded(
             configuration: configuration,
             document: nil,
             saving: actions

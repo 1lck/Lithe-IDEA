@@ -211,7 +211,7 @@ struct GitConsoleEntryView: View {
     }
 
     private var commandColor: Color {
-        LitheTheme.link
+        entry.isDestructive ? LitheTheme.error : LitheTheme.link
     }
 
     static let timestampFormatter: DateFormatter = {

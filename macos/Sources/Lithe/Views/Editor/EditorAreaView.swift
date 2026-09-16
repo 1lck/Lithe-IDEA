@@ -140,14 +140,15 @@ struct EditorAreaView: View {
             HStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(LitheTheme.warning)
-                Text("This file changed outside Lithe while you had unsaved edits.")
+                Text(LocalizedStringKey(document.externalFileMissing ? "This file was deleted outside Lithe. Your editor content is preserved." : "This file changed outside Lithe while you had unsaved edits."))
                     .font(.system(size: 11.5, weight: .medium))
                 Spacer()
-                Button("Keep Editor") { model.keepEditorVersion(of: document) }
+                Button(LocalizedStringKey(document.externalFileMissing ? "Allow Recreating File" : "Keep Editor")) { model.keepEditorVersion(of: document) }
                     .buttonStyle(.bordered)
                     .lithePointer()
                     .controlSize(.small)
                 Button("Load Disk Version") { model.loadExternalVersion(of: document) }
+                    .disabled(document.externalFileMissing)
                     .buttonStyle(.borderedProminent)
                     .lithePointer()
                     .tint(LitheTheme.warning)

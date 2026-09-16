@@ -74,6 +74,10 @@ export interface EditorContent extends PaneContentBase {
   type: "editor";
   content: string;
   savedContent: string;
+  /** Explicitly acknowledged disk bytes; null authorizes recreation of a missing file. */
+  acknowledgedDiskContent?: string | null;
+  /** Last conflict observation; undefined means no observed conflict snapshot. */
+  externalDiskContent?: string | null;
   isDirty: boolean;
   /** Shared persistence state; optional only for restored pre-contract sessions. */
   documentLifecycle?: DocumentLifecycleState;

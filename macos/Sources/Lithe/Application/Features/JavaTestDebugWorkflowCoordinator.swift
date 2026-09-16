@@ -23,7 +23,7 @@ final class JavaTestDebugWorkflowCoordinator {
     func start(
         request: JavaTestDebugRequest,
         state: JavaTestWorkflowState,
-        prepareDirtyDocument: @escaping () -> Bool,
+        prepareDirtyDocument: @escaping () async -> Bool,
         prepareLaunch: @escaping () async throws -> PreparedJavaTestDebugLaunch,
         startDebug: @escaping (PreparedJavaTestDebugLaunch) -> Bool,
         errorMessage: @escaping () -> String?
@@ -33,7 +33,7 @@ final class JavaTestDebugWorkflowCoordinator {
             guard let self, let state else { return }
             defer { state.finishDebugLaunch(operationID, stopResultServer: false) }
             guard state.isCurrentDebugLaunch(operationID) else { return }
-            guard prepareDirtyDocument() else { return }
+            guard await prepareDirtyDocument() else { return }
 
             do {
                 let prepared = try await prepareLaunch()

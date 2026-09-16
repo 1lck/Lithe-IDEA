@@ -69,6 +69,26 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
     @Published private(set) var savedText: String
     private(set) var lifecycleState: DocumentLifecycleState
     private(set) var lastKnownModificationDate: Date?
+    private(set) var acknowledgedDiskContent: String?
+    private(set) var hasAcknowledgedDiskContent = false
+    private(set) var externalDiskContent: String?
+    private(set) var hasObservedDiskConflict = false
+    var expectedDiskContent: String? { hasAcknowledgedDiskContent ? acknowledgedDiskContent : savedText }
+    var externalFileMissing: Bool { hasObservedDiskConflict && externalDiskContent == nil }
+
+    func observeDiskConflict(_ content: String?) {
+        objectWillChange.send()
+        externalDiskContent = content
+        hasObservedDiskConflict = true
+    }
+
+    func acknowledgeObservedDiskContent() {
+        guard hasObservedDiskConflict else { return }
+        acknowledgedDiskContent = externalDiskContent
+        hasAcknowledgedDiskContent = true
+        hasObservedDiskConflict = false
+    }
+
     private var pendingLanguageServerChanges: [LanguageServerDocumentChange] = []
 
     init(
@@ -198,9 +218,15 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
 
     func reloadFromDisk() throws {
         let contents = try String(contentsOf: url, encoding: .utf8)
+        replaceWithDiskContent(contents)
+    }
+
+    func replaceWithDiskContent(_ contents: String) {
         storedText = contents
         textDidChange.send()
         savedText = contents
+        hasAcknowledgedDiskContent = false
+        hasObservedDiskConflict = false
         lifecycleState = .clean(revision: lifecycleState.revision + 1)
         lastKnownModificationDate = Self.modificationDate(for: url)
     }
@@ -231,8 +257,10 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
         lifecycleState = state
     }
 
-    func markSavedWithoutWriting(state: DocumentLifecycleState? = nil) {
-        savedText = text
+    func markSavedWithoutWriting(state: DocumentLifecycleState? = nil, savedContent: String? = nil) {
+        savedText = savedContent ?? text
+        hasAcknowledgedDiskContent = false
+        hasObservedDiskConflict = false
         lifecycleState = state ?? .clean(revision: lifecycleState.revision)
         lastKnownModificationDate = Self.modificationDate(for: url)
     }

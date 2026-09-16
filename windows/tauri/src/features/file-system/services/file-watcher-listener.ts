@@ -1,13 +1,10 @@
+import { initializeDocumentWatches, cleanupDocumentWatches } from "@/features/editor/services/document-watch-controller";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { dirname } from "@tauri-apps/api/path";
-import { useBufferStore } from "@/features/editor/stores/buffer.store";
-import { getBufferByPath } from "@/features/editor/utils/buffer-index";
-import { emitGitChanged } from "@/features/git/events/git-events";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { getBaseName, getRelativePath, pathStartsWithRoot } from "@/utils/path-helpers";
 import { useFileSystemStore } from "../stores/file-system.store";
-import { useFileWatcherStore } from "../stores/file-watcher.store";
 import {
   cancelFileWatcherRefreshes,
   scheduleFileWatcherRefresh,
@@ -50,6 +47,7 @@ function scheduleDirectoryRefresh(workspaceId: string, directoryPath: string) {
 
 export async function initializeFileWatcherListener() {
   await cleanupFileWatcherListener();
+  await initializeDocumentWatches();
 
   unlistenFileChanged = await listen<FileChangeEvent>("file-changed", async (event) => {
     const { path, event_type } = event.payload;
@@ -65,14 +63,13 @@ export async function initializeFileWatcherListener() {
       }),
     );
 
-    const pendingSave = useFileWatcherStore.getStore(workspaceId).getState().pendingSaves.has(path);
     if (mavenPomPath !== null) {
       useMavenStore.getStore(workspaceId).getState().actions.markPomReloadRequired(mavenPomPath);
     } else {
       scheduleJavaWorkspaceChange(workspaceId, rootFolderPath, {
         path,
         kind: event_type === "deleted" ? "deleted" : event_type === "opened" ? "created" : "changed",
-        includeSource: !pendingSave,
+        includeSource: true,
       });
     }
 
@@ -81,36 +78,12 @@ export async function initializeFileWatcherListener() {
       return;
     }
 
-    const fileWatcherState = useFileWatcherStore.getStore(workspaceId).getState();
-    if (pendingSave) {
-      return;
-    }
 
-    const bufferState = useBufferStore.getStore(workspaceId).getState();
-    const buffer = getBufferByPath(bufferState.buffers, path);
-    if (!buffer) {
-      return;
-    }
-
-    const result = await bufferState.actions.handleExternalBufferChange(
-      buffer.id,
-      crypto.randomUUID(),
-    );
-    if (result === "reloaded") {
-      window.dispatchEvent(new CustomEvent("file-reloaded", { detail: { path } }));
-    }
-    if (result === "failed" || result === "ignored") {
-      return;
-    }
-    emitGitChanged({
-      filePath: path,
-      scopes: ["working-tree"],
-      source: "external-file-change",
-    });
   });
 }
 
 export async function cleanupFileWatcherListener() {
+  await cleanupDocumentWatches();
   cancelFileWatcherRefreshes();
   cancelJavaWorkspaceChanges();
 

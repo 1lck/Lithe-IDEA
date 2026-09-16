@@ -16,10 +16,12 @@ import selectors
 import shutil
 import signal
 import socket
+import socketserver
 import subprocess
 import tempfile
 import threading
 import time
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / ".artifacts/test-stability/git-execution-integration.json"
@@ -67,6 +69,22 @@ def run(args, env, cwd=None):
         if process.poll() is None:
             os.killpg(process.pid, signal.SIGKILL)
             process.communicate(timeout=3)
+
+
+class LocalAuthenticationServer(http.server.ThreadingHTTPServer):
+    def server_bind(self):
+        # HTTPServer normally reverse-resolves the bound address with getfqdn.
+        # This fixture only uses a numeric loopback URL; runner DNS must never
+        # add an unbounded wait before the Git operation's deadline even starts.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+
+def http_server_does_not_resolve_dns():
+    with patch("socket.getfqdn", side_effect=AssertionError("Loopback fixture must not resolve DNS")):
+        with LocalAuthenticationServer(("127.0.0.1", 0), http.server.SimpleHTTPRequestHandler) as server:
+            assert server.server_name == "127.0.0.1"
+            assert server.server_port == server.socket.getsockname()[1] > 0
 
 
 class Fixture:
@@ -320,7 +338,7 @@ class Fixture:
                     super().do_GET()
             def log_message(self, *args):
                 pass
-        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Handler, directory=str(self.directory)))
+        server = LocalAuthenticationServer(("127.0.0.1", 0), functools.partial(Handler, directory=str(self.directory)))
         worker = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
         worker.start()
         retried = False
@@ -389,7 +407,8 @@ def main():
     try:
         with tempfile.TemporaryDirectory(prefix="lithe-execution-integration-") as directory:
             fixture = Fixture(Path(directory))
-            cases = [("remote_url_lookup_remains_silent", fixture.remote_url_lookup),
+            cases = [("http_server_does_not_resolve_dns", http_server_does_not_resolve_dns),
+                     ("remote_url_lookup_remains_silent", fixture.remote_url_lookup),
                      ("configuration_scope_precedence_and_stale_save", fixture.configuration),
                      ("executable_capabilities_and_temporary_policy", fixture.executable_and_temporary_policy),
                      ("per_remote_preview_partial_success_and_pruning", fixture.remotes),

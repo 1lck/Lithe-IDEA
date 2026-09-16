@@ -226,6 +226,15 @@ package struct GitReference: Identifiable, Hashable, Sendable {
 
     package var id: String { fullName }
     package var supportsTagDeletion: Bool { kind == .tag && peelsToCommit }
+    package var remoteName: String? {
+        guard let upstreamShortName else { return nil }
+        return upstreamShortName.split(separator: "/", maxSplits: 1).first.map(String.init)
+    }
+    package var upstreamBranchName: String? {
+        guard let upstreamShortName,
+              let separator = upstreamShortName.firstIndex(of: "/") else { return nil }
+        return String(upstreamShortName[upstreamShortName.index(after: separator)...])
+    }
 }
 
 package struct GitStash: Identifiable, Hashable, Sendable {

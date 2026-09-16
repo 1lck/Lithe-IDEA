@@ -283,7 +283,13 @@ one platform effect such as `writeToDisk`, `reloadFromDisk`, or
 `showConflict`. `saving` carries the snapshot revision and `operationId`, so a
 stale completion cannot clear newer edits. Live text, editor models, selections,
 watchers, and native file I/O stay platform-owned; local keystrokes update the
-same revision semantics in-process and never cross the Rust boundary. The
+same revision semantics in-process and never cross the Rust boundary.
+`diskConflict` preserves the current editor revision and enters `conflict` from
+any state when a native guarded write rejects its expected disk baseline or a
+file is missing. Native document saves compare the last acknowledged UTF-8 bytes
+with disk inside the platform write operation; watchers are refresh hints, not
+write authorization. Conflict resolution acknowledges only the disk snapshot
+observed by the user, and subsequent saves must validate that snapshot again. The
 portable examples are in `shared/fixtures/documents/lifecycle-v1.json`.
 
 GitHub command shapes, authorization behavior, and supported pull-request

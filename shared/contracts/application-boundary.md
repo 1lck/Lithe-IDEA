@@ -115,9 +115,33 @@ Persistence state is one of `clean`, `dirty`, `saving`, or `conflict`.
 `saving` retains `operationId` and the immutable revision being written. A save
 completion only clears dirty state when it still owns that operation and no
 newer revision exists. A watcher may reload a clean document, but an external
-change to a dirty or saving document enters `conflict` and preserves live text
-until the user chooses Keep Editor or Load Disk Version. Platforms own text and
-native I/O; Rust Core owns the deterministic boundary-event decisions.
+change to a dirty document enters `conflict` and preserves live text until the
+user chooses Keep Editor or Load Disk Version. Notifications during an in-flight
+save are reconciled after its result. A missing file uses `diskConflict`, including
+when the buffer was clean; it never silently clears the buffer or recreates the file.
+Platforms own text and native I/O; Rust Core owns the deterministic decisions.
+
+Local UTF-8 document saves carry the exact last-observed disk content (or an
+explicitly acknowledged missing-file state) into a native guarded write. The
+adapter compares bytes, stages a sibling file, checks again, and replaces the
+target. A conflict does not write. Keep Editor acknowledges only the observed
+version; another external edit must conflict again. Unsupported targets and I/O
+errors fail closed. This narrows, but cannot eliminate, the race between the last
+comparison and a write by an unrelated process.
+
+Open document owners lease parent-directory observations independently of project
+indexing. Windows routes events by window, document ID, and registration generation;
+focus renews registrations and reconciles disk content. macOS provides document
+observation through the native workspace file port. Closed or relocated documents
+reject stale reads. The Windows frontend bounds concurrent reconciliation to four
+per window; macOS runs native document I/O on a serial worker queue. Native local
+filesystem calls do not promise a hard cancellation deadline. Remote/WSL and virtual
+documents retain their separate adapters.
+
+Windows native document failures expose a stable `code`, actionable `message`, and
+platform `details`: `DOCUMENT_PERMISSION_DENIED`, `DOCUMENT_UNSUPPORTED`,
+`DOCUMENT_INVALID_TEXT`, `DOCUMENT_IO_FAILED`, or `DOCUMENT_WORKER_FAILED`.
+Watcher setup failures are logged and retried on focus; persistence remains guarded.
 
 Workspace visibility and project detection exclude nested checkout containers
 named `.worktree` or `.worktrees` by default, so a copied project is not treated

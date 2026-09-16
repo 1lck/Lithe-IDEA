@@ -683,7 +683,7 @@ struct CodeEditorView: NSViewRepresentable {
         // 区就是本次待显示内容，无需 incoming 修正。
         let softWrapResolution = LitheTextViewportLayout.resolveSoftWrap(
             enabled: settings.editorSoftWrapEnabled,
-            bufferedLineCount: (textView as? CodeTextView)?.lineCount() ?? 0,
+            bufferedLineCount: textView.lineCount(),
             incomingLineCount: nil
         )
         let softWrapAvailable = softWrapResolution.isAvailable
@@ -957,6 +957,7 @@ struct CodeEditorView: NSViewRepresentable {
         private var pendingHighlightRange: NSRange?
         private var pendingReplacedRange: NSRange?
         private var pendingReplacement: String?
+        private var pendingEditNeedsReconciliation = false
         private var foldRefreshTask: Task<Void, Never>?
         private var javaMarkerRefreshTask: Task<Void, Never>?
         private var decorationRefreshTask: Task<Void, Never>?
@@ -1317,6 +1318,11 @@ struct CodeEditorView: NSViewRepresentable {
                 model?.showNotification("Switch the experimental editor back to Native before editing this split")
                 return false
             }
+            // Marked-text updates can produce several proposals without a
+            // textDidChange notification. The final range then refers to the
+            // temporary IME buffer, not to the still-unmodified document.
+            pendingEditNeedsReconciliation = pendingEditNeedsReconciliation
+                || pendingReplacement != nil || textView.hasMarkedText()
             let inserted = replacementString ?? ""
             pendingReplacement = inserted
             pendingReplacedRange = affectedCharRange
@@ -1331,6 +1337,9 @@ struct CodeEditorView: NSViewRepresentable {
             guard document?.isReadOnly != true else { return }
             let codeTextView = textView as? CodeTextView
             let previousSource = document?.text
+            if pendingEditNeedsReconciliation, let previousSource {
+                reconcilePendingEdit(previousSource: previousSource, currentSource: textView.string)
+            }
             let replacesWholeText = pendingReplacedRange == nil || pendingReplacement == nil
                 || (pendingReplacedRange?.location == 0 && pendingReplacedRange?.length == previousSource?.utf16.count)
             if replacesWholeText {
@@ -1376,6 +1385,7 @@ struct CodeEditorView: NSViewRepresentable {
             pendingHighlightRange = nil
             pendingReplacedRange = nil
             pendingReplacement = nil
+            pendingEditNeedsReconciliation = false
             if let codeTextView,
                let findReplacedRange,
                lastFindVisible,
@@ -1396,6 +1406,35 @@ struct CodeEditorView: NSViewRepresentable {
             gutter?.needsDisplay = true
             isApplyingEditorChange = false
             scheduleCaretUpdate()
+        }
+
+        private func reconcilePendingEdit(previousSource: String, currentSource: String) {
+            // Only coalesced/IME edits need a snapshot comparison. Keep normal
+            // keystrokes on the existing incremental path. Scalar boundaries
+            // avoid splitting UTF-16 surrogate pairs in the resulting range.
+            let previous = previousSource.unicodeScalars
+            let current = currentSource.unicodeScalars
+            var previousStart = previous.startIndex
+            var currentStart = current.startIndex
+            while previousStart != previous.endIndex, currentStart != current.endIndex,
+                  previous[previousStart] == current[currentStart] {
+                previous.formIndex(after: &previousStart)
+                current.formIndex(after: &currentStart)
+            }
+            var previousEnd = previous.endIndex
+            var currentEnd = current.endIndex
+            while previousEnd != previousStart, currentEnd != currentStart {
+                let previousLast = previous.index(before: previousEnd)
+                let currentLast = current.index(before: currentEnd)
+                guard previous[previousLast] == current[currentLast] else { break }
+                previousEnd = previousLast
+                currentEnd = currentLast
+            }
+            let range = NSRange(previousStart..<previousEnd, in: previousSource)
+            let replacement = String(currentSource[currentStart..<currentEnd])
+            pendingReplacedRange = range
+            pendingReplacement = replacement
+            pendingHighlightRange = NSRange(location: range.location, length: replacement.utf16.count)
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {

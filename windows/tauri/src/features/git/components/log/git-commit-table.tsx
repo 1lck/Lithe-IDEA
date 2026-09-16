@@ -100,6 +100,7 @@ export function GitCommitTable({
   const { setFilterQuery, setFilterScope, setShowDecorations } =
     useGitLogPreferencesStore.use.actions();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
   const layout = useMemo(() => layoutGitGraph(commits), [commits]);
   const visibleRows = useMemo(
     () => layout.rows.filter((row) => matchesGitLogCommit(row.commit, query, scope)),
@@ -121,6 +122,25 @@ export function GitCommitTable({
     if (!element) return;
     return bindScrollContainerWheel(element);
   }, []);
+
+  useEffect(() => {
+    const root = scrollRef.current;
+    const sentinel = loadMoreRef.current;
+    if (!root || !sentinel || !hasMore) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting && !isLoadingMore) onLoadMore();
+      },
+      {
+        root,
+        // Start fetching before the user reaches the end so the next page is ready in time.
+        rootMargin: "0px 0px 240px 0px",
+      },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, isLoadingMore, onLoadMore]);
 
   useEffect(() => {
     if (!selectedCommit) return;
@@ -406,7 +426,10 @@ export function GitCommitTable({
               })}
             </div>
             {hasMore ? (
-              <div className="flex h-9 min-w-130 items-center justify-center border-border border-t">
+              <div
+                ref={loadMoreRef}
+                className="flex h-9 min-w-130 items-center justify-center border-border border-t"
+              >
                 <Button
                   type="button"
                   variant="ghost"

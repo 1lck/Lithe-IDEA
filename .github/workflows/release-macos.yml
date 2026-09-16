@@ -67,7 +67,7 @@ jobs:
   build:
     name: Build ${{ matrix.architecture }} release
     needs: prepare
-    runs-on: macos-14
+    runs-on: macos-26
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -85,10 +85,8 @@ jobs:
         with:
           bun-version-file: frontend/editor/package.json
 
-      - name: Set up Swift
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: "6.2"
+      - name: Set up Swift 6.3.3 and Xcode
+        uses: ./.github/actions/setup-macos-toolchain
 
       - name: Set up Rust target
         uses: dtolnay/rust-toolchain@stable

@@ -398,7 +398,7 @@ extension AppModel {
         // the selection here so its project-scoped Java runtime override is
         // active even when the Run panel was never opened in this session.
         runWorkflowCoordinator.reapplySelectedConfiguration(runFeature)
-        guard featureGraph.debugLaunchPreparation.saveDirtyDocumentIfNeeded(document) else {
+        guard await featureGraph.debugLaunchPreparation.saveDirtyDocumentIfNeeded(document) else {
             return
         }
         let configuration: DebugLaunchConfiguration

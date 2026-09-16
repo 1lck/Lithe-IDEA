@@ -61,11 +61,7 @@ final class PrimaryProjectWindowSessions: ProjectWindowSessionHandling {
     }
 
     func saveAllDocuments() async -> Bool {
-        var savedAll = true
-        for model in manager.primarySessions where !(await model.saveAllDocuments()) {
-            savedAll = false
-        }
-        return savedAll
+        await DocumentSaveBatch.save { manager.primarySessions }
     }
 
     func resetForProjectWindowClose() async {
@@ -137,11 +133,7 @@ final class DedicatedProjectWindowSessions: ProjectWindowSessionHandling {
     }
 
     func saveAllDocuments() async -> Bool {
-        var savedAll = true
-        for model in scopedSessions where !(await model.saveAllDocuments()) {
-            savedAll = false
-        }
-        return savedAll
+        await DocumentSaveBatch.save { scopedSessions }
     }
 
     func resetForProjectWindowClose() async {

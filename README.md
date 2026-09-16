@@ -189,7 +189,7 @@ flowchart LR
 <summary><strong>Develop Lithe</strong></summary>
 
 
-Development requires Swift 6.2 or later. Running the complete test suite requires Xcode; basic SwiftPM builds only need Command Line Tools.
+Development and CI use Swift 6.3.3, pinned in `.swift-version`, with Xcode 26.6. Running the complete test suite requires Xcode; basic SwiftPM builds only need matching Command Line Tools. `Package.swift` keeps its Swift 6.2 manifest API minimum; this does not select the compiler version.
 
 Run the development build from the repository root:
 
