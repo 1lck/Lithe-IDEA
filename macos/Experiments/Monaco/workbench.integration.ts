@@ -1084,6 +1084,40 @@ async function verify() {
       assert(model.getValue() === text, "displaying hints mutated source text");
     } finally { result?.dispose(); await window.lithe.retain([]); }
   });
+  await check("concurrent first close holds share one edit stream and release the model", async () => {
+    const id = "concurrent-close", text = "first\r\nlast";
+    const payload = { id, text, revision: 0, language: "plaintext", readonly: false };
+    await send({ type: "open", id, text });
+    let model: ReturnType<typeof editor.getModel>;
+    try {
+      // Both closes reach the same tokenizer await before the model exists.
+      // An ordinary activation may join them, but must not create another owner.
+      const [first, second] = await Promise.all([
+        window.lithe.holdForClose(id, "first-close", payload),
+        window.lithe.holdForClose(id, "second-close", payload),
+        window.lithe.activate(payload),
+      ]);
+      model = editor.getModel()!;
+      assert(first.text === text && second.text === text, "concurrent closes did not share the initial text");
+      window.lithe.releaseClose("first-close");
+      assert(editor.getOption(monacoEditor.EditorOption.readOnly), "one close released another owner's lock");
+      window.lithe.releaseClose("second-close");
+      assert(!editor.getOption(monacoEditor.EditorOption.readOnly), "cancelled closes left the document locked");
+      editor.executeEdits("integration", [{ range: new Range(2, 5, 2, 5), text: "!" }]);
+      const snapshot = await window.lithe.freeze(id);
+      const native = await send({ type: "fixtureSnapshot", id });
+      assert(snapshot.revision === 1 && native.revision === 1, "one input emitted multiple native edits");
+      assert(snapshot.text === "first\r\nlast!" && native.text === snapshot.text, "concurrent initialization broke source synchronization");
+      window.lithe.unlock(id);
+      await model.undo();
+      const undone = await window.lithe.freeze(id);
+      assert(undone.text === text && undone.revision === 2, "shared initialization lost undo or duplicated its edit");
+    } finally {
+      window.lithe.releaseClose("first-close"); window.lithe.releaseClose("second-close");
+      await window.lithe.retain([]);
+    }
+    assert(model!.isDisposed(), "concurrent initialization leaked a model reference");
+  });
   await check("closing holds survive ordinary save unlock and release independently", async () => {
     const id = "closing-hold", text = "unsaved";
     await send({ type: "open", text });

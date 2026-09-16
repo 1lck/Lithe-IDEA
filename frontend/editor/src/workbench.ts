@@ -200,6 +200,11 @@ export function mountWorkbench(host: WorkbenchHost) {
     if (!entry) {
       if (typeof payload.text !== "string") throw new Error("New model requires document text");
       await ensureMonacoLanguageTokenizer(language);
+      // Close preparation and workspace edits can initialize the same document
+      // outside the activation queue. Reuse the first owner's mirror/listener.
+      entry = entries.get(payload.id);
+    }
+    if (!entry) {
       const acquired = acquireMonacoModel(payload.text, language, monaco.Uri.parse(`lithe://document/${payload.id}`));
       const model = acquired.model;
       // Monaco owns normalized editing coordinates; the source mirror preserves disk newlines.
