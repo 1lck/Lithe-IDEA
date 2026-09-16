@@ -70,6 +70,8 @@ Bun 1.3.12 下样本的废弃分支保留堆增量由约 32.4 MB 降至 2.5 MB�
 但同一缓冲区的增量编辑和保存继续 drain，避免改名窗口期间丢输入。
 格式化、completion/resolve、hover、rename/code action、semantic/inlay、CodeVision 和图片粘贴
 在等待编辑队列之前捕获前端上下文，返回后重新验证；workspace 目标逐个打开后仍需保持原身份与修订。
+rename/code action 还在请求 LSP 前记录所有原生打开文档的身份与生命周期 revision，
+覆盖后台已打开、尚未创建 Monaco view 的编辑目标；resolve 和目标准备完成后重新核对。
 受控延迟测试覆盖改名、改回、关闭与关闭确认 hold；Swift 单测另覆盖已关闭对象仍被回调持有的情况。
 这些测试不能替代真实 WKWebView 的 IME、剪贴板、系统窗口关闭和 WebView2 人工验收。
 

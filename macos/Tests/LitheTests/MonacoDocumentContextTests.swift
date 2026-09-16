@@ -53,4 +53,24 @@ struct MonacoDocumentContextTests {
         document.relocate(to: document.url)
         #expect(context.matches(document: document, revision: 0, documents: [document], workspaceURL: root))
     }
+
+    @Test(arguments: ["edit", "rename-back", "close"])
+    func workspaceResultRejectsChangedTargetWithoutAMonacoView(change: String) {
+        let source = EditorDocument(url: root.appendingPathComponent("Source.java"), text: "source", modificationDate: nil)
+        let target = EditorDocument(url: root.appendingPathComponent("Target.java"), text: "target", modificationDate: nil)
+        var documents = [source, target]
+        let context = MonacoWorkspaceContext(documents: documents, workspaceURL: root)
+        #expect(context.matches(documents: documents, workspaceURL: root))
+        switch change {
+        case "edit": target.applyLiveEditorText("new target input")
+        case "rename-back":
+            let url = target.url
+            target.relocate(to: root.appendingPathComponent("Moved.java"))
+            target.relocate(to: url)
+        case "close": documents.removeLast()
+        default: Issue.record("Unknown target change")
+        }
+        #expect(!context.matches(documents: documents, workspaceURL: root))
+        #expect(source.text == "source")
+    }
 }

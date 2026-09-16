@@ -27,3 +27,27 @@ struct MonacoDocumentContext {
         self.revision == revision && matchesIdentity(document: document, documents: documents, workspaceURL: workspaceURL)
     }
 }
+
+/// Workspace edits can target open buffers that have never had a Monaco view.
+/// Their native revisions must be captured before asking the language server.
+@MainActor
+struct MonacoWorkspaceContext {
+    private let workspaceURL: URL?
+    private var snapshots: [UUID: (url: URL, location: UInt64, revision: UInt64)] = [:]
+
+    init(documents: [EditorDocument], workspaceURL: URL?) {
+        self.workspaceURL = workspaceURL
+        for document in documents {
+            snapshots[document.id] = (document.url, document.locationRevision, document.lifecycleState.revision)
+        }
+    }
+
+    func matches(documents: [EditorDocument], workspaceURL: URL?) -> Bool {
+        guard self.workspaceURL == workspaceURL else { return false }
+        return snapshots.allSatisfy { id, snapshot in
+            guard let document = documents.first(where: { $0.id == id }) else { return false }
+            return document.url == snapshot.url && document.locationRevision == snapshot.location
+                && document.lifecycleState.revision == snapshot.revision
+        }
+    }
+}
