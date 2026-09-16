@@ -269,12 +269,12 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
   </tr>
   <tr>
     <td width="112" align="center">
-      <a href="https://api.axis.fan/register?aff=4EZFN7322WTH">
-        <img src="./docs/assets/sponsors/yuanliu-token.png" width="64" alt="Yuanliu Token">
+      <a href="https://www.atlascloud.ai/zh">
+        <img src="./docs/assets/sponsors/atlas-cloud.png" width="112" alt="Atlas Cloud">
       </a>
     </td>
     <td>
-      <a href="https://api.axis.fan/register?aff=4EZFN7322WTH"><strong>Yuanliu Token</strong></a> offers relay access to multiple large language model APIs, giving developers a flexible entry point for experimenting with different models and building AI applications. Its sponsorship supports Lithe as the project expands and polishes its AI features. Thank you to Yuanliu Token for supporting this project!
+      <a href="https://www.atlascloud.ai/zh"><strong>Atlas Cloud</strong></a> provides AI model relay services with access to <strong>over 400 models</strong>. Its broad model selection gives developers more options to explore, compare, and choose models for their applications through one platform. Thank you to Atlas Cloud for supporting Lithe and the continued improvement of its AI-assisted development experience!
     </td>
   </tr>
   <tr>
