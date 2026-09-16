@@ -196,7 +196,8 @@ enum WorkbenchModuleUIComposition {
                         return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView)
                     }
                     return AnyView(GenericDebugView(feature: feature))
-                }
+                },
+                contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.genericDebugFeatureIfActive) }
             )
         ]
     )

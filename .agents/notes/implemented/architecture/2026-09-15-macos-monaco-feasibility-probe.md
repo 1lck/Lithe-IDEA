@@ -75,6 +75,15 @@ macOS 保留用户接受的 `FindBarView` 外观。`EditorChromeModel` 有意不
 新文件的匹配数量。真实 Monaco 回归覆盖这些情况以及输入定位、前后跳转、替换、
 正则、undo 和非法正则；原生输入框焦点与快捷键仍需真实 macOS 宿主验收。
 
+### Debug 面板加载
+
+打开 Debug 工具窗口只激活 Debug 模块，不先等待项目服务快照和运行配置扫描。
+真正启动调试仍由 `startDebuggingAfterActivation` 执行原有项目／工具链准备门禁。
+模块内容使用 feature 对象身份区分加载占位、已加载内容和重建后的实例，避免
+`ModuleToolContent.equatable()` 把不同状态当作同一画面而一直显示 `Starting module...`。
+这两处原生问题在 preview 已存在；本次因维护者在迁移验收中明确报告并要求修复，
+仅修 Debug 入口与身份，不推广修改其他模块的加载流程。
+
 ### 工作台实验
 
 原编辑器的定义跳转和 Markdown 双向滚动继续走平台已有能力：
