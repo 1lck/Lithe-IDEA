@@ -22,15 +22,17 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
     private(set) var url: URL
     /// Invalidates asynchronous requests even after a rename away and back.
     private(set) var locationRevision: UInt64 = 0
-    let isReadOnly: Bool
+    private let isProductReadOnly: Bool
+    @Published private(set) var isReadOnly: Bool
     let displayPath: String?
     /// Preview subscribers receive live edits without invalidating the editor hierarchy.
     let textDidChange = PassthroughSubject<Void, Never>()
-    /// A remote editor freezes input and drains its edit queue around a native action.
-    /// The adapter must complete or fail locally; synchronous callers cannot bypass it.
+    /// A remote editor establishes a revision barrier and drains its edit queue
+    /// around a native action. Input arriving after that snapshot remains a newer
+    /// dirty revision. The adapter must complete or fail locally.
     var synchronizeEditor: ((@escaping (Result<Void, Error>) -> Void) -> Void)?
     typealias EditorRelease = @MainActor () -> Void
-    /// Keeps remote input frozen across an asynchronous close/confirmation flow.
+    /// Keeps remote input read-only across an asynchronous close/confirmation flow.
     var holdEditorForClose: ((@escaping (Result<EditorRelease, Error>) -> Void) -> Void)?
     private var pendingSynchronizedActions: [(Result<Void, Error>) -> Void]?
     private var synchronizationID: UUID?
@@ -98,15 +100,23 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
         text: String,
         modificationDate: Date?,
         isReadOnly: Bool = false,
+        isFileWritable: Bool = true,
         displayPath: String? = nil
     ) {
         self.url = url
-        self.isReadOnly = isReadOnly
+        self.isProductReadOnly = isReadOnly
+        self.isReadOnly = isReadOnly || !isFileWritable
         self.displayPath = displayPath
         self.storedText = text
         self.savedText = text
         self.lifecycleState = .clean(revision: 0)
         self.lastKnownModificationDate = modificationDate
+    }
+
+    func updateFileSystemWritable(_ isWritable: Bool) {
+        let next = isProductReadOnly || !isWritable
+        guard isReadOnly != next else { return }
+        isReadOnly = next
     }
 
     var displayName: String {

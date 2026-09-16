@@ -41,13 +41,16 @@ export function mountWorkbench(host: WorkbenchHost) {
   type GitMarker = { id: string; line: number; kind: "added" | "modified" | "deleted"; stage: boolean; unstage: boolean; discard: boolean };
   type BlameLine = { line: number; commit: string; author: string; date: string };
   type JavaMarker = { id: string; line: number; direction: "up" | "down"; relation?: "interface" | "inheritance" };
-  type Entry = { source: SourceText; model: monaco.editor.ITextModel; release: () => void; revision: number; chain: Promise<unknown>; readonly: boolean; frozen: boolean; state: monaco.editor.ICodeEditorViewState | null; debugDecorations?: string[]; debugPaused?: boolean; debugGeneration?: number; closingHolds?: number; filename?: string; locationRevision: number; contextGeneration: number };
+  type Entry = { source: SourceText; model: monaco.editor.ITextModel; release: () => void; revision: number; chain: Promise<unknown>; readonly: boolean; frozen: boolean; freezeOperation?: string; pendingEdits: number; state: monaco.editor.ICodeEditorViewState | null; debugDecorations?: string[]; debugPaused?: boolean; debugGeneration?: number; closingHolds?: number; filename?: string; locationRevision: number; contextGeneration: number };
   const entries = new Map<string, Entry>();
   const workers: Worker[] = [];
   const closingOperations = new Map<string, { entry?: Entry; cancelled: boolean }>();
   let nativeFind: { view: monaco.editor.IStandaloneCodeEditor; model: monaco.editor.ITextModel;
     generation: number; input: NativeFindInput; search: ReturnType<typeof mountNativeFind>; changed: monaco.IDisposable; disposed: monaco.IDisposable } | undefined;
   let nativeFindGeneration = 0;
+  let freezeSequence = 0;
+  let lastFocusedView: monaco.editor.IStandaloneCodeEditor | undefined;
+  let nativeFindFocusTarget: { id: string; view: monaco.editor.IStandaloneCodeEditor; model: monaco.editor.ITextModel } | undefined;
   function dismissNativeFind() {
     const previous = nativeFind;
     nativeFind = undefined;
@@ -93,8 +96,25 @@ export function mountWorkbench(host: WorkbenchHost) {
   const allEditors = () => [editor, ...[...surfaces.values()].map(surface => surface.editor)].filter(Boolean);
   function applyReadOnly(entry: Entry) {
     for (const view of allEditors()) {
-      if (view.getModel() === entry.model) view.updateOptions({ readOnly: entry.readonly || entry.frozen || !!entry.closingHolds || failed });
+      if (view.getModel() === entry.model) view.updateOptions({ readOnly: entry.readonly || !!entry.closingHolds || failed });
     }
+  }
+  const nextInputTurn = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+  async function drainInput(entry: Entry) {
+    // WKWebView can deliver the native save/close request before a Monaco type
+    // command queued by the preceding key event. Give already queued input two
+    // browser task checkpoints, and drain every edit chain observed between
+    // them, before the revision snapshot is taken.
+    let passes = 0;
+    for (; passes < 3; passes++) {
+      await nextInputTurn();
+      const version = entry.model.getVersionId();
+      const chain = entry.chain;
+      await chain;
+      await nextInputTurn();
+      if (entry.model.getVersionId() === version && entry.chain === chain && entry.pendingEdits === 0) break;
+    }
+    return Math.min(passes + 1, 3);
   }
   let updating = false;
   let failed = false;
@@ -228,7 +248,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       const model = acquired.model;
       // Monaco owns normalized editing coordinates; the source mirror preserves disk newlines.
       model.setEOL(monaco.editor.EndOfLineSequence.LF);
-      entry = { source: new SourceText(payload.text, model.getAlternativeVersionId()), model, release: acquired.release, revision: payload.revision, chain: Promise.resolve(), readonly: payload.readonly, frozen: false, state: null, filename: payload.filename, locationRevision: payload.locationRevision ?? 0, contextGeneration: 0 };
+      entry = { source: new SourceText(payload.text, model.getAlternativeVersionId()), model, release: acquired.release, revision: payload.revision, chain: Promise.resolve(), readonly: payload.readonly, frozen: false, pendingEdits: 0, state: null, filename: payload.filename, locationRevision: payload.locationRevision ?? 0, contextGeneration: 0 };
       entries.set(payload.id, entry);
       const owned = entry;
       model.onDidChangeContent(event => {
@@ -236,10 +256,15 @@ export function mountWorkbench(host: WorkbenchHost) {
         if (updating) return;
         const baseRevision = owned.revision++;
         const changes = owned.source.apply(event.changes, model.getAlternativeVersionId());
+        owned.pendingEdits++;
         owned.chain = owned.chain.then(async () => {
           const reply = await send({ type: "edit", id: payload.id, baseRevision, changes });
           if (reply.revision !== owned.revision && reply.revision !== baseRevision + 1) throw new Error("Edit revision mismatch");
-        }).catch(error => { fail(error); throw error; });
+        }).then(() => { owned.pendingEdits--; }, error => {
+          owned.pendingEdits--;
+          fail(error);
+          throw error;
+        });
       });
     } else {
       const languageChanged = (payload.language || payload.filename) && entry.model.getLanguageId() !== language;
@@ -278,7 +303,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     editor.setModel(entry.model);
     scheduleNavigation(payload.id, entry);
     if (entry.state) editor.restoreViewState(entry.state);
-    editor.updateOptions({ readOnly: entry.readonly || entry.frozen || !!entry.closingHolds || failed });
+    editor.updateOptions({ readOnly: entry.readonly || !!entry.closingHolds || failed });
     if (payload.focus) editor.focus();
     const metrics = { reused, modelMs, attachMs: performance.now() - attachStarted,
       lines: entry.model.getLineCount(), utf16Length: entry.model.getValueLength() };
@@ -700,6 +725,7 @@ export function mountWorkbench(host: WorkbenchHost) {
             void send({ type: "save", id: surface!.id }).catch(fail);
           });
           view.onDidFocusEditorText(() => {
+            lastFocusedView = view;
             const position = view.getPosition();
             if (position) void send({ type: "focus", id: surface!.id,
               line: position.lineNumber - 1, column: position.column - 1 }).catch(fail);
@@ -740,10 +766,13 @@ export function mountWorkbench(host: WorkbenchHost) {
         throw new Error("Editor is unavailable");
       }
       operation.entry = entry;
+      const inputPasses = await drainInput(entry);
+      if (operation.cancelled) throw new Error("Close preparation was cancelled");
       entry.closingHolds = (entry.closingHolds ?? 0) + 1;
       applyReadOnly(entry);
       await entry.chain;
-      return { revision: entry.revision, text: entry.source.value };
+      return { revision: entry.revision, text: entry.source.value, modelVersion: entry.model.getVersionId(),
+        pendingEdits: entry.pendingEdits, inputPasses };
     },
     releaseClose(token: string) {
       const operation = closingOperations.get(token);
@@ -755,27 +784,40 @@ export function mountWorkbench(host: WorkbenchHost) {
         applyReadOnly(operation.entry);
       }
     },
-    async freeze(id: string) {
+    async freeze(id: string, operationID?: string) {
       await activation;
       const entry = entries.get(id);
       if (!entry || failed) throw new Error("Editor is unavailable");
+      const token = operationID ?? `editor-${++freezeSequence}`;
+      if (entry.frozen && entry.freezeOperation !== token) throw new Error("Editor is already synchronizing");
+      const inputPasses = await drainInput(entry);
       entry.frozen = true;
+      entry.freezeOperation = token;
       applyReadOnly(entry);
-      await entry.chain;
-      return { revision: entry.revision, text: entry.source.value };
+      // Capture a revision cut synchronously, then wait only for the edits that
+      // produced that cut to cross the bridge. Input arriving while native save
+      // work continues belongs to a newer dirty revision and remains editable.
+      const revision = entry.revision, text = entry.source.value;
+      const modelVersion = entry.model.getVersionId(), barrier = entry.chain;
+      await barrier;
+      return { revision, text, operationID: token, modelVersion, barrierDrained: true,
+        currentRevision: entry.revision, pendingEdits: entry.pendingEdits, inputPasses };
     },
     async freezeAll() {
       await activation;
       if (failed) throw new Error("Editor is unavailable");
+      await Promise.all([...entries.values()].map(drainInput));
       for (const view of allEditors()) view.updateOptions({ readOnly: true });
       for (const entry of entries.values()) entry.frozen = true;
       await Promise.all([...entries.values()].map(entry => entry.chain));
       return Object.fromEntries([...entries].map(([id, entry]) => [id, { revision: entry.revision, text: entry.source.value }]));
     },
-    unlock(id: string) {
+    unlock(id: string, operationID?: string) {
       const entry = entries.get(id);
       if (!entry) return;
+      if (operationID !== undefined && entry.freezeOperation !== operationID) return;
       entry.frozen = false;
+      entry.freezeOperation = undefined;
       applyReadOnly(entry);
     },
     async replace(payload: any) {
@@ -863,8 +905,10 @@ export function mountWorkbench(host: WorkbenchHost) {
       if (!input.visible || !entry || suspendedViews) { dismissNativeFind(); return; }
       const matching = allEditors().filter(view => view.getModel() === entry.model);
       const target = matching.find(view => view.hasTextFocus()) ??
+        (lastFocusedView && matching.includes(lastFocusedView) ? lastFocusedView : undefined) ??
         (nativeFind && matching.includes(nativeFind.view) ? nativeFind.view : matching[0]);
       if (!target) { dismissNativeFind(); return; }
+      nativeFindFocusTarget = { id: input.id, view: target, model: entry.model };
       if (nativeFind?.view !== target || nativeFind.model !== entry.model) {
         dismissNativeFind();
         const widget = captureFind(target);
@@ -880,6 +924,19 @@ export function mountWorkbench(host: WorkbenchHost) {
       nativeFind.input = input;
       nativeFind.generation = generation;
       return nativeFind.search.update(input, !entry.readonly && !entry.frozen && !entry.closingHolds && !failed);
+    },
+    async dismissNativeFind(id: string) {
+      await activation;
+      ++nativeFindGeneration;
+      const target = nativeFindFocusTarget;
+      dismissNativeFind();
+      nativeFindFocusTarget = undefined;
+      const entry = entries.get(id);
+      if (!target || target.id !== id || !entry || target.model !== entry.model ||
+          target.view.getModel() !== entry.model || !allEditors().includes(target.view) || suspendedViews) return false;
+      target.view.focus();
+      lastFocusedView = target.view;
+      return target.view.hasTextFocus();
     },
     async find(payload?: { id?: string; surface?: string; query?: string; matchCase?: boolean; wholeWord?: boolean; regex?: boolean }) {
       await activation;
@@ -1006,6 +1063,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       if (active) void send({ type: "save", id: active }).catch(fail);
     });
     editor.onDidFocusEditorText(() => {
+      lastFocusedView = editor;
       const position = editor.getPosition();
       if (active && position) void send({ type: "focus", id: active,
         line: position.lineNumber - 1, column: position.column - 1 }).catch(fail);

@@ -24,17 +24,27 @@ struct MacFileStorage: FileStorage {
     }
 
     func metadata(for url: URL) -> FileMetadata? {
-        guard let values = try? url.resourceValues(forKeys: [
+        var freshURL = url
+        freshURL.removeAllCachedResourceValues()
+        guard let values = try? freshURL.resourceValues(forKeys: [
             .fileSizeKey,
             .contentModificationDateKey,
             .isRegularFileKey,
-            .isDirectoryKey
+            .isDirectoryKey,
+            .isWritableKey
         ]) else { return nil }
+        let attributes = try? FileManager.default.attributesOfItem(atPath: freshURL.path)
+        let permissions = (attributes?[.posixPermissions] as? NSNumber)?.intValue
+        // `isWritable` accounts for ACL/current-user access. The mode-bit check
+        // also preserves the product's explicit read-only behavior when tests or
+        // privileged processes could technically replace a 0444 file.
+        let hasWritableMode = permissions.map { $0 & 0o222 != 0 } ?? true
         return FileMetadata(
             byteCount: values.fileSize,
             modificationDate: values.contentModificationDate,
             isRegularFile: values.isRegularFile == true,
-            isDirectory: values.isDirectory == true
+            isDirectory: values.isDirectory == true,
+            isWritable: values.isWritable == true && hasWritableMode
         )
     }
 

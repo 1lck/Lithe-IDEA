@@ -9,12 +9,24 @@ export interface NativeFindInput {
   replacement?: string;
 }
 
+function hostFindState(position: number, count: number) {
+  if (count <= 0) return { index: 0, count: 0 };
+  // Monaco exposes matchesPosition as one-based. The native chrome owns a
+  // zero-based index and adds one only when formatting its label.
+  return { index: Math.min(count - 1, Math.max(0, position - 1)), count };
+}
+
 // Use the pinned Monaco search/replace engine without its widget. The host owns
 // the find bar; Monaco still owns regex semantics, decorations and undo groups.
 export function mountNativeFind(view: monaco.editor.IStandaloneCodeEditor, report: (index: number, count: number) => void) {
   const state = new FindReplaceState();
   const search = new FindModelBoundToEditorModel(view, state);
-  const changed = state.onFindReplaceStateChange(() => report(state.matchesPosition, state.matchesCount));
+  const reportState = () => {
+    const value = hostFindState(state.matchesPosition, state.matchesCount);
+    report(value.index, value.count);
+    return value;
+  };
+  const changed = state.onFindReplaceStateChange(reportState);
   return {
     update(input: NativeFindInput, writable: boolean) {
       state.change({ searchString: input.query, matchCase: input.matchCase, wholeWord: input.wholeWord,
@@ -23,8 +35,7 @@ export function mountNativeFind(view: monaco.editor.IStandaloneCodeEditor, repor
       if (input.command === "previous") search.moveToPrevMatch();
       if (writable && input.command === "replace") search.replace();
       if (writable && input.command === "replaceAll") search.replaceAll();
-      report(state.matchesPosition, state.matchesCount);
-      return { index: state.matchesPosition, count: state.matchesCount };
+      return reportState();
     },
     dispose() { changed.dispose(); search.dispose(); state.dispose(); },
   };

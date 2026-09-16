@@ -164,6 +164,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
     private var javaNavigationRequests: [String: UUID] = [:]
     private var codeActionCommands: [String: (context: MonacoDocumentContext, key: String, root: URL?, command: LanguageServerCommand)] = [:]
     private var subscriptions: [String: AnyCancellable] = [:]
+    private var readOnlySubscriptions: [String: AnyCancellable] = [:]
     private var findSubscriptions: [AnyCancellable] = []
     private var lastFindPayload: Data?
     private var findToken = ""
@@ -171,6 +172,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
     private var ready = false
     private var activeIDs: [String: String] = [:]
     private var documentLocations: [String: UInt64] = [:]
+    private var documentReadOnlyStates: [String: Bool] = [:]
     private var hasSecondaryView = false
     private var latestUpdate: (() -> Void)?
     private var pending: [UUID: (Result<Any?, Error>) -> Void] = [:]
@@ -309,6 +311,14 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
                     self.synchronizeFind(command: action)
                 }.store(in: &findSubscriptions)
         }
+        NotificationCenter.default.publisher(for: .litheFindDismiss)
+            .sink { [weak self, weak model] notification in
+                guard let self, let model, notification.object as? AppModel === model,
+                      self.ready, !self.currentMountIsPreview, self.webView?.window?.isKeyWindow == true,
+                      let document = model.focusedEditorDocument ?? model.activeDocument,
+                      self.activeIDs.values.contains(document.id.uuidString) else { return }
+                self.call("window.lithe.dismissNativeFind(id)", arguments: ["id": document.id.uuidString])
+            }.store(in: &findSubscriptions)
     }
 
     private func synchronizeFind(command: String? = nil) {
@@ -374,6 +384,14 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             let previous = self.revisions[id] ?? 0
             self.revisions[id] = previous + 1
             self.call("window.lithe.replace(payload)", arguments: ["payload": ["id": id, "text": document.text, "previousRevision": previous, "revision": previous + 1]])
+        }
+        readOnlySubscriptions[id] = document.$isReadOnly.dropFirst().sink { [weak self, weak document] _ in
+            guard let self, let document, self.currentDocument(id) === document else { return }
+            self.documentReadOnlyStates[id] = document.isReadOnly
+            self.call("window.lithe.updateDocument(payload)", arguments: ["payload": [
+                "id": id, "filename": document.url.lastPathComponent,
+                "locationRevision": document.locationRevision, "readonly": document.isReadOnly
+            ]])
         }
     }
 
@@ -554,6 +572,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         let liveIDs = Set(model.documentFeature.editorDocuments.map { $0.id.uuidString })
         for oldID in Array(documentReferences.keys) where !liveIDs.contains(oldID) {
             documentLocations[oldID] = nil
+            documentReadOnlyStates[oldID] = nil
             documents[oldID]?.synchronizeEditor = nil
             documents[oldID]?.holdEditorForClose = nil
             completionLists[oldID] = nil
@@ -566,13 +585,16 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             lastGitStates[oldID] = nil
             gitLoads.removeValue(forKey: oldID)?.cancel()
             blameLoads.removeValue(forKey: oldID)?.cancel()
-            documentReferences[oldID] = nil; subscriptions[oldID] = nil; revisions[oldID] = nil; lastMarkers[oldID] = nil
+            documentReferences[oldID] = nil; subscriptions[oldID] = nil; readOnlySubscriptions[oldID] = nil
+            revisions[oldID] = nil; lastMarkers[oldID] = nil
         }
         let needsModel = documents[id] == nil || unconfirmedModels.contains(id)
         if needsModel { register(document) }
         let locationChanged = documentLocations[id] != document.locationRevision
+        let readOnlyChanged = documentReadOnlyStates[id] != document.isReadOnly
         documentLocations[id] = document.locationRevision
-        if activeIDs[surface] == id, locationChanged {
+        documentReadOnlyStates[id] = document.isReadOnly
+        if activeIDs[surface] == id, locationChanged || readOnlyChanged {
             call("window.lithe.updateDocument(payload)", arguments: ["payload": ["id": id,
                 "filename": document.url.lastPathComponent, "locationRevision": document.locationRevision,
                 "readonly": document.isReadOnly]])
@@ -650,21 +672,58 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         guard synchronizingIDs.insert(id).inserted else {
             completion(.failure(EditorDocument.DocumentError.editorNotSynchronized)); return
         }
-        call("window.lithe.freeze(id)", arguments: ["id": id]) { [weak self] result in
+        let operationID = UUID().uuidString
+        let started = ProcessInfo.processInfo.systemUptime
+        let nativeRevision = revisions[id] ?? -1
+        let nativeLength = documents[id]?.text.utf16.count ?? -1
+        NSLog("[monaco.sync] phase=freeze-request operationID=\(operationID) documentID=\(id) revision=\(nativeRevision) utf16Length=\(nativeLength)")
+        call("window.lithe.freeze(id, operationID)", arguments: ["id": id, "operationID": operationID]) { [weak self] result in
             guard let self else { completion(.failure(EditorDocument.DocumentError.editorNotSynchronized)); return }
-            defer {
-                self.synchronizingIDs.remove(id)
-                self.call("window.lithe.unlock(id)", arguments: ["id": id])
-            }
+            let synchronized: Result<Void, Error>
             switch result {
             case .success(let value):
-                guard !self.failed, let snapshot = value as? [String: Any],
-                      let document = self.documents[id], snapshot["text"] as? String == document.text,
-                      snapshot["revision"] as? Int == self.revisions[id] else {
-                    completion(.failure(EditorDocument.DocumentError.editorNotSynchronized)); return
+                let snapshot = value as? [String: Any]
+                let snapshotText = snapshot?["text"] as? String
+                let snapshotRevision = snapshot?["revision"] as? Int
+                let snapshotOperation = snapshot?["operationID"] as? String
+                let barrierDrained = snapshot?["barrierDrained"] as? Bool ?? false
+                let browserRevision = snapshot?["currentRevision"] as? Int ?? -1
+                let pendingEdits = snapshot?["pendingEdits"] as? Int ?? -1
+                let modelVersion = snapshot?["modelVersion"] as? Int ?? -1
+                let inputPasses = snapshot?["inputPasses"] as? Int ?? -1
+                let currentRevision = self.revisions[id] ?? -1
+                let currentLength = self.documents[id]?.text.utf16.count ?? -1
+                let exactSnapshot = snapshotRevision == currentRevision && snapshotText == self.documents[id]?.text
+                // Input remains writable during synchronization. A native
+                // revision ahead of the returned snapshot means a later edit
+                // already crossed the ordered bridge; saving the native model
+                // is therefore safe and must not discard that newer edit.
+                let nativeAdvanced = (snapshotRevision ?? Int.max) < currentRevision
+                let matches = !self.failed && snapshotOperation == operationID && barrierDrained &&
+                    (exactSnapshot || nativeAdvanced)
+                let durationMs = (ProcessInfo.processInfo.systemUptime - started) * 1_000
+                NSLog("[monaco.sync] phase=freeze-result operationID=\(operationID) documentID=\(id) status=\(matches ? "matched" : "mismatch") durationMs=\(String(format: "%.1f", durationMs)) snapshotRevision=\(snapshotRevision ?? -1) browserRevision=\(browserRevision) nativeRevision=\(currentRevision) modelVersion=\(modelVersion) barrierDrained=\(barrierDrained) pendingEdits=\(pendingEdits) inputPasses=\(inputPasses) snapshotUTF16Length=\(snapshotText?.utf16.count ?? -1) nativeUTF16Length=\(currentLength)")
+                if matches { synchronized = .success(()) }
+                else {
+                    synchronized = .failure(EditorDocument.DocumentError.editorNotSynchronized)
                 }
-                completion(.success(()))
-            case .failure(let error): completion(.failure(error))
+            case .failure(let error):
+                let nsError = error as NSError
+                let durationMs = (ProcessInfo.processInfo.systemUptime - started) * 1_000
+                NSLog("[monaco.sync] phase=freeze-result operationID=\(operationID) documentID=\(id) status=failed durationMs=\(String(format: "%.1f", durationMs)) domain=\(nsError.domain) code=\(nsError.code)")
+                synchronized = .failure(error)
+            }
+            self.call("window.lithe.unlock(id, operationID)", arguments: ["id": id, "operationID": operationID]) { [weak self] unlockResult in
+                guard let self else { completion(.failure(EditorDocument.DocumentError.editorNotSynchronized)); return }
+                self.synchronizingIDs.remove(id)
+                if case .failure(let error) = unlockResult {
+                    let nsError = error as NSError
+                    NSLog("[monaco.sync] phase=unlock operationID=\(operationID) documentID=\(id) status=failed domain=\(nsError.domain) code=\(nsError.code)")
+                    completion(.failure(error))
+                } else {
+                    NSLog("[monaco.sync] phase=unlock operationID=\(operationID) documentID=\(id) status=success")
+                    completion(synchronized)
+                }
             }
         }
     }
@@ -897,6 +956,11 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
                   let changes = body["changes"] as? [[String: Any]] else { reply(nil, "Stale editor edit"); return }
             var bound = (document.text as NSString).length
             let ordered = changes.sorted { ($0["offset"] as? Int ?? -1) > ($1["offset"] as? Int ?? -1) }
+            if synchronizingIDs.contains(id) {
+                let insertedLength = ordered.reduce(0) { $0 + (($1["text"] as? String)?.utf16.count ?? 0) }
+                let replacedLength = ordered.reduce(0) { $0 + ($1["length"] as? Int ?? 0) }
+                NSLog("[monaco.sync] phase=edit-during-freeze documentID=\(id) baseRevision=\(body["baseRevision"] as? Int ?? -1) nativeRevision=\(revisions[id] ?? -1) changeCount=\(ordered.count) insertedUTF16Length=\(insertedLength) replacedUTF16Length=\(replacedLength)")
+            }
             for change in ordered {
                 guard let offset = change["offset"] as? Int, let length = change["length"] as? Int,
                       change["text"] is String, offset >= 0, length >= 0, offset <= bound, length <= bound - offset else {
@@ -923,7 +987,8 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         case "findState":
             if let model, body["token"] as? String == findToken, model.isFindBarVisible,
                !currentMountIsPreview, (model.focusedEditorDocument ?? model.activeDocument)?.id.uuidString == id,
-               let index = body["index"] as? Int, let count = body["count"] as? Int {
+               let index = body["index"] as? Int, let count = body["count"] as? Int,
+               count >= 0, (count == 0 ? index == 0 : (0..<count).contains(index)) {
                 model.updateFindState(currentIndex: index, count: count)
             }
             reply(["ok": true], nil)

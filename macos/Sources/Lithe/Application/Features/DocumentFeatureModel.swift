@@ -83,7 +83,9 @@ final class DocumentFeatureModel: ObservableObject {
     private var observationID = UUID()
 
     private func updateDocumentObservation() {
-        let urls = observedDocuments.filter { !$0.isReadOnly }.map(\.url).sorted { $0.path < $1.path }
+        // Permission-only changes must also reach read-only documents so a file
+        // can become editable again without being closed and reopened.
+        let urls = observedDocuments.filter { $0.url.isFileURL }.map(\.url).sorted { $0.path < $1.path }
         let paths = urls.map(\.path)
         guard paths != observedDocumentPaths else { return }
         observedDocumentPaths = paths
@@ -350,7 +352,8 @@ final class DocumentFeatureModel: ObservableObject {
                 url: normalizedURL,
                 text: text,
                 modificationDate: EditorDocument.modificationDate(for: normalizedURL),
-                isReadOnly: false
+                isReadOnly: false,
+                isFileWritable: fileStorage.metadata(for: normalizedURL)?.isWritable ?? true
             )
             self.openDocuments = [document]
             self.activeDocumentID = document.id
@@ -504,6 +507,7 @@ final class DocumentFeatureModel: ObservableObject {
             text: text,
             modificationDate: EditorDocument.modificationDate(for: normalizedURL),
             isReadOnly: isReadOnly,
+            isFileWritable: fileStorage.metadata(for: normalizedURL)?.isWritable ?? true,
             displayPath: displayPath
         )
         guard !openDocuments.contains(where: {
@@ -864,7 +868,7 @@ final class DocumentFeatureModel: ObservableObject {
                 self.notify?("Saved \(document.url.lastPathComponent)")
             } catch {
                 if self.persistenceGeneration == generation, !Task.isCancelled {
-                    self.notify?("Could not save \(document.url.lastPathComponent)")
+                    self.notify?(self.saveFailureMessage(for: document, error: error))
                 }
             }
         }
@@ -992,6 +996,9 @@ final class DocumentFeatureModel: ObservableObject {
     func processExternalChanges(_ urls: [URL]) -> Bool {
         let changedPaths = Set(urls.map { $0.standardizedFileURL.path })
         for document in observedDocuments where changedPaths.contains(document.url.standardizedFileURL.path) {
+            if let metadata = fileStorage.metadata(for: document.url) {
+                document.updateFileSystemWritable(metadata.isWritable)
+            }
             externalChangeTasks[document.id]?.cancel()
             let id = UUID()
             externalChangeIDs[document.id] = id
@@ -1070,6 +1077,9 @@ final class DocumentFeatureModel: ObservableObject {
                 ? destinationURL
                 : destinationURL.appendingPathComponent(suffix)
             document.relocate(to: relocatedURL)
+            if let metadata = fileStorage.metadata(for: relocatedURL) {
+                document.updateFileSystemWritable(metadata.isWritable)
+            }
         }
         updateDocumentObservation()
         onDocumentCollectionChanged?()
@@ -1110,10 +1120,19 @@ final class DocumentFeatureModel: ObservableObject {
     }
 
     private func saveDocument(_ document: EditorDocument) async throws {
-        guard !document.isReadOnly else { throw EditorDocument.DocumentError.readOnly }
+        let operationID = UUID().uuidString
+        guard !document.isReadOnly else {
+            logSaveFailure(EditorDocument.DocumentError.readOnly, stage: "preflight",
+                           operationID: operationID, document: document)
+            throw EditorDocument.DocumentError.readOnly
+        }
         let generation = persistenceGeneration
         let wasOwned = observedDocuments.contains { $0 === document }
-        try await synchronizeEditor(document)
+        do { try await synchronizeEditor(document) }
+        catch {
+            logSaveFailure(error, stage: "synchronize", operationID: operationID, document: document)
+            throw error
+        }
         guard persistenceGeneration == generation,
               !wasOwned || observedDocuments.contains(where: { $0 === document }) else { throw CancellationError() }
         guard document.isDirty else { return }
@@ -1131,37 +1150,53 @@ final class DocumentFeatureModel: ObservableObject {
             }
             try Task.checkCancellation()
             guard self.persistenceGeneration == generation else { throw CancellationError() }
-            try await self.performDocumentSave(document, generation: generation)
+            try await self.performDocumentSave(document, generation: generation, operationID: operationID)
         }
         saveTasks[document.id] = task
         try await task.value
     }
 
-    private func performDocumentSave(_ document: EditorDocument, generation: UUID) async throws {
-        guard !document.isReadOnly else { throw EditorDocument.DocumentError.readOnly }
-        let operationID = UUID().uuidString
-        let saving = try documentLifecycleDecider.decide(
-            state: document.lifecycleState,
-            event: .saveStarted(operationID: operationID),
-            operationID: operationID
-        )
+    private func performDocumentSave(
+        _ document: EditorDocument, generation: UUID, operationID: String
+    ) async throws {
+        guard !document.isReadOnly else {
+            logSaveFailure(EditorDocument.DocumentError.readOnly, stage: "preflight-after-sync",
+                           operationID: operationID, document: document)
+            throw EditorDocument.DocumentError.readOnly
+        }
+        let saving: DocumentLifecycleDecision
+        do {
+            saving = try documentLifecycleDecider.decide(
+                state: document.lifecycleState,
+                event: .saveStarted(operationID: operationID),
+                operationID: operationID
+            )
+        } catch {
+            logSaveFailure(error, stage: "lifecycle-start", operationID: operationID, document: document)
+            throw error
+        }
         guard saving.action == .writeToDisk else {
             document.applyLifecycleState(saving.state)
-            throw CocoaError(.userCancelled)
+            let error = CocoaError(.userCancelled)
+            logSaveFailure(error, stage: "lifecycle-start", operationID: operationID, document: document)
+            throw error
         }
         document.applyLifecycleState(saving.state)
         let content = document.text
         let url = document.url
         let expectedContent = document.expectedDiskContent
 
+        var failureStage = "write"
         do {
             let result = try await fileOperations.writeDocumentTextAsync(content, to: url, expectedContent: expectedContent)
             guard persistenceGeneration == generation, document.url == url else { throw CancellationError() }
             switch result {
             case .saved:
+                failureStage = "lifecycle-complete"
                 try completeSave(document, operationID: operationID, savedContent: content)
                 guard !document.isDirty else { throw SaveProgress.newerRevisionPending }
             case .conflict(let content):
+                failureStage = "conflict"
                 let conflict = try documentLifecycleDecider.decide(state: document.lifecycleState, event: .diskConflict, operationID: operationID)
                 document.observeDiskConflict(content)
                 document.applyLifecycleState(conflict.state)
@@ -1170,8 +1205,10 @@ final class DocumentFeatureModel: ObservableObject {
                 throw CocoaError(.userCancelled)
             }
         } catch SaveProgress.newerRevisionPending {
+            NSLog("[document.save] outcome=superseded stage=post-write operationID=\(operationID) documentID=\(document.id.uuidString) revision=\(document.lifecycleState.revision)")
             throw SaveProgress.newerRevisionPending
         } catch let saveError {
+            logSaveFailure(saveError, stage: failureStage, operationID: operationID, document: document)
             do {
                 let failed = try documentLifecycleDecider.decide(
                     state: document.lifecycleState,
@@ -1180,14 +1217,38 @@ final class DocumentFeatureModel: ObservableObject {
                 )
                 document.applyLifecycleState(failed.state)
             } catch let recoveryError {
-                NSLog(
-                    "[document.lifecycle] outcome=failed stage=save-state-recovery operationID=%@ documentID=%@ error=%@",
-                    operationID,
-                    document.id.uuidString,
-                    recoveryError.localizedDescription
-                )
+                let recoveryValue = recoveryError as NSError
+                NSLog("[document.lifecycle] outcome=failed stage=save-state-recovery operationID=\(operationID) documentID=\(document.id.uuidString) domain=\(recoveryValue.domain) code=\(recoveryValue.code)")
             }
             throw saveError
+        }
+    }
+
+    private func logSaveFailure(
+        _ error: Error, stage: String, operationID: String, document: EditorDocument
+    ) {
+        let value = error as NSError
+        NSLog("[document.save] outcome=failed stage=\(stage) operationID=\(operationID) documentID=\(document.id.uuidString) revision=\(document.lifecycleState.revision) domain=\(value.domain) code=\(value.code)")
+    }
+
+    private func saveFailureMessage(for document: EditorDocument, error: Error) -> String {
+        let name = document.url.lastPathComponent
+        switch error {
+        case EditorDocument.DocumentError.readOnly:
+            return "Could not save \(name): the file is read-only"
+        case EditorDocument.DocumentError.editorNotSynchronized:
+            return "Could not save \(name): the editor has not finished synchronizing"
+        case SaveProgress.newerRevisionPending:
+            return "Newer edits in \(name) are still unsaved"
+        default:
+            let value = error as NSError
+            if value.domain == NSCocoaErrorDomain && value.code == CocoaError.Code.fileWriteNoPermission.rawValue {
+                return "Could not save \(name): permission denied"
+            }
+            if document.hasExternalConflict {
+                return "Could not save \(name): the file changed outside Lithe"
+            }
+            return "Could not save \(name)"
         }
     }
 

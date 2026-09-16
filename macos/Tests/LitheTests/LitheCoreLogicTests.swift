@@ -3789,6 +3789,43 @@ struct EditorDocumentTests {
     }
 
     @Test
+    @MainActor
+    func fileSystemReadOnlyStateCanRefreshWithoutOverridingProductPolicy() {
+        let file = EditorDocument(
+            url: URL(fileURLWithPath: "/tmp/permission-read-only.txt"),
+            text: "content", modificationDate: nil, isFileWritable: false
+        )
+        #expect(file.isReadOnly)
+        file.updateFileSystemWritable(true)
+        #expect(!file.isReadOnly)
+        file.updateFileSystemWritable(false)
+        #expect(file.isReadOnly)
+
+        let product = EditorDocument(
+            url: URL(fileURLWithPath: "/tmp/product-read-only.txt"),
+            text: "content", modificationDate: nil, isReadOnly: true
+        )
+        product.updateFileSystemWritable(true)
+        #expect(product.isReadOnly)
+    }
+
+    @Test
+    func macFileMetadataTreatsA0444RegularFileAsReadOnly() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-permissions-\(UUID().uuidString)", isDirectory: true)
+        let file = directory.appendingPathComponent("readonly.txt")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Data("READ_ONLY".utf8).write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: file.path)
+
+        #expect(MacFileStorage().metadata(for: file)?.isWritable == false)
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
+        #expect(MacFileStorage().metadata(for: file)?.isWritable == true)
+    }
+
+    @Test
     func virtualDocumentOpensFromMemoryAsReadOnly() throws {
         let model = DocumentFeatureModel(
             operations: EmptyWorkspaceOperations(),
@@ -5091,6 +5128,38 @@ struct EditorDocumentTests {
 
         model.reorderDocuments(orderedIDs: [ids[0], ids[2], ids[1]])
         #expect(model.openDocuments.map(\.url.lastPathComponent) == ["A.swift", "C.swift", "B.swift"])
+    }
+
+    @Test @MainActor
+    func manualSaveExplainsReadOnlyFailureAndKeepsTheDirtyBuffer() async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/read-only-save")
+        let file = workspace.appendingPathComponent("Probe.java")
+        let storage = InMemoryFileStorage()
+        let feature = DocumentFeatureModel(
+            operations: EmptyWorkspaceOperations(readFileValue: "initial"),
+            documentLifecycleDecider: DocumentFeatureGuardedPersistenceTests.PersistenceDecider(),
+            fileOperations: EmptyWorkspaceFileOperations(savedTextStorage: storage),
+            fileStorage: storage, binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+        var notifications: [String] = []
+        feature.configure(
+            workspaceURLProvider: { workspace }, autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 }, notify: { notifications.append($0) },
+            onDocumentOpened: { _ in }, onDocumentChanged: { _ in }, onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in }, onRecordDiscard: { _ in },
+            onRecordExternalChanges: { _ in }, onDocumentCollectionChanged: {}, onProjectCloseReady: {}
+        )
+        defer { feature.reset() }
+        await feature.openFileAsync(file, isReadOnly: true, displayPath: nil, activateWhenReady: true)
+        let document = try #require(feature.activeDocument)
+        document.applyLiveEditorText("must remain unsaved")
+
+        let save = try #require(feature.saveEditorDocument(document))
+        await save.value
+
+        #expect(notifications == ["Could not save Probe.java: the file is read-only"])
+        #expect(document.isDirty)
+        #expect(!storage.fileExists(at: file))
     }
 
     @Test(arguments: ["save", "cancel", "reset"]) @MainActor

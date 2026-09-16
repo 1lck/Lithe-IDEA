@@ -17,6 +17,10 @@ import { editor as monacoEditor, languages, Range, Selection, Uri } from "monaco
 // bounded native probe host. No DOM-based imitation of Monaco input.
 const send = (body: object) => window.webkit.messageHandlers.litheEditor.postMessage(body);
 const assert = (condition: unknown, message: string) => { if (!condition) throw new Error(message); };
+const assertRejects = async (operation: () => Promise<unknown>, message: string) => {
+  try { await operation(); } catch { return; }
+  throw new Error(message);
+};
 
 async function verify() {
   await ready;
@@ -236,6 +240,37 @@ async function verify() {
     assert(snapshot.text.includes("\r\n"), "CRLF was normalized on save");
     await send({ type: "save", revision: snapshot.revision, expected: snapshot.text });
     window.lithe.unlock("A");
+  });
+  await check("save barrier admits already queued input before freezing", async () => {
+    const id = "queued-input", text = "before";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, language: "plaintext", readonly: false, focus: true });
+    const model = editor.getModel()!;
+    editor.setPosition({ lineNumber: 1, column: model.getLineMaxColumn(1) });
+    const typed = new Promise<void>(resolve => setTimeout(() => {
+      editor.trigger("integration", "type", { text: "_ALIVE" });
+      resolve();
+    }, 0));
+    const snapshotPromise = window.lithe.freeze(id, "queued-input-save");
+    await typed;
+    const snapshot = await snapshotPromise;
+    assert(snapshot.text === "before_ALIVE", "freeze made the editor read-only before queued input was delivered");
+    assert(snapshot.barrierDrained && snapshot.pendingEdits === 0 && snapshot.operationID === "queued-input-save",
+      "freeze returned before its snapshot edit queue drained");
+    // The revision barrier must not make the editor read-only: input delivered
+    // while the native save call is in flight remains a newer dirty revision.
+    editor.trigger("integration", "type", { text: "_DURING_SAVE" });
+    assert(model.getValue() === "before_ALIVE_DURING_SAVE", "save barrier dropped input delivered during synchronization");
+    // A delayed unlock from an older save must not release the current token.
+    window.lithe.unlock(id, "older-save");
+    await assertRejects(() => window.lithe.freeze(id, "next-save"), "stale unlock released a newer save barrier");
+    window.lithe.unlock(id, "queued-input-save");
+    editor.trigger("integration", "type", { text: "_OK" });
+    assert(model.getValue() === "before_ALIVE_DURING_SAVE_OK", "matching unlock did not preserve editing");
+    const finalSnapshot = await window.lithe.freeze(id);
+    assert(finalSnapshot.text === "before_ALIVE_DURING_SAVE_OK" && finalSnapshot.barrierDrained && finalSnapshot.pendingEdits === 0,
+      "edits delivered during synchronization did not reach the next save snapshot");
+    await window.lithe.retain([]);
   });
   await check("workbench tab switch preserves model and undo history", async () => {
     await window.lithe.activate({ id: "B", text: "class Other {}", revision: 0, language: "java", readonly: false });
@@ -643,9 +678,13 @@ async function verify() {
       press({ key: "/", code: "Slash", keyCode: 191, metaKey: true, modifierCapsLock: true });
       await assertSource("// one\r\ntwo\r\nthree");
       await model.undo(); await assertSource(source);
-      await window.lithe.activate({ id: "keymap", readonly: true });
+      await window.lithe.updateDocument({ id: "keymap", filename: "readonly.java", locationRevision: 0, readonly: true });
       press({ key: "d", code: "KeyD", keyCode: 68, metaKey: true });
       assert(model.getValue() === "one\ntwo\nthree", "read-only shortcut changed source");
+      await window.lithe.updateDocument({ id: "keymap", filename: "writable.java", locationRevision: 0, readonly: false });
+      editor.setPosition({ lineNumber: 1, column: 1 });
+      editor.trigger("integration", "type", { text: "X" });
+      assert(model.getValue().startsWith("X"), "permission refresh did not restore editing");
     } finally { await window.lithe.retain([]); }
   });
   await check("blame metadata escapes authors and follows model and split lifecycles", async () => {
@@ -1111,14 +1150,16 @@ async function verify() {
     try {
       editor.setPosition({ lineNumber: 1, column: 1 });
       const result = await window.lithe.nativeFind(input);
-      assert(result.count === 3 && result.index === 1, "native bar did not receive live match count");
+      assert(result.count === 3 && result.index === 0, "native bar did not convert Monaco's match position to a host index");
       assert(editor.getSelection()?.endColumn === 4, "typing did not immediately select the first match");
       const widget = (editor.getContribution("editor.contrib.findController") as any).getState();
       assert(!widget.isRevealed, "native bar unexpectedly opened a second find widget");
       await window.lithe.nativeFind({ ...input, command: "next" });
       assert(editor.getSelection()?.startLineNumber === 2, "next did not jump to the next match");
+      assert((await window.lithe.nativeFind({ ...input, command: "next" })).index === 2, "next reported the wrong zero-based match index");
+      assert((await window.lithe.nativeFind({ ...input, command: "next" })).index === 0, "next did not wrap to the first match");
       await window.lithe.nativeFind({ ...input, command: "previous" });
-      assert(editor.getSelection()?.startLineNumber === 1, "previous did not jump back");
+      assert(editor.getSelection()?.startLineNumber === 3, "previous did not wrap to the last match");
       const exact = { ...input, token: "query-2", query: "public", matchCase: true, wholeWord: true };
       assert((await window.lithe.nativeFind(exact)).count === 2, "case/whole-word options ignored");
       await window.lithe.nativeFind({ ...exact, command: "replace", replacement: "private" });
@@ -1128,13 +1169,16 @@ async function verify() {
       assert(model.getValue() === "private alpha\nprivate beta\nPUBLIC gamma", "native replace-all targeted wrong matches");
       await model.undo();
       assert(model.getValue() === text, "replace-all was not one undoable edit");
+      const single = await window.lithe.nativeFind({ ...input, token: "query-single", query: "gamma", matchCase: true });
+      assert(single.count === 1 && single.index === 0, "single native match did not use a zero-based index");
       const regex = { ...input, token: "query-3", query: "public (\\w+)", regex: true, matchCase: true };
       editor.setPosition({ lineNumber: 1, column: 1 });
       await window.lithe.nativeFind(regex);
       await window.lithe.nativeFind({ ...regex, command: "replaceAll", replacement: "$1 public" });
       assert(model.getValue() === "alpha public\nbeta public\nPUBLIC gamma", "regex replacement lost capture groups");
       await model.undo();
-      assert((await window.lithe.nativeFind({ ...regex, query: "[" })).count === 0, "invalid regex retained old matches");
+      const none = await window.lithe.nativeFind({ ...regex, query: "[" });
+      assert(none.count === 0 && none.index === 0, "invalid regex retained old matches or index");
       await window.lithe.nativeFind({ ...input, visible: false });
       const snapshot = await window.lithe.freeze(id);
       assert(snapshot.text === text, "replace undo was not synchronized to the native document");
@@ -1152,6 +1196,12 @@ async function verify() {
     try {
       await window.lithe.nativeFind(input);
       assert(secondary.getSelection()?.endColumn === 7, "native search did not target the explicit secondary document");
+      secondary.blur();
+      assert(!secondary.hasTextFocus(), "split editor did not release focus to the native find bar simulation");
+      await window.lithe.nativeFind({ ...input, visible: false });
+      assert(await window.lithe.dismissNativeFind(right), "closing native find did not restore the owning split focus");
+      assert(secondary.hasTextFocus(), "native find restored focus to the wrong split");
+      await window.lithe.nativeFind(input);
       await window.lithe.nativeFind({ ...input, command: "replaceAll", replacement: "bad" });
       assert(secondary.getModel()?.getValue() === text && leftModel.getValue() === text, "readonly replacement changed a document");
       await window.lithe.holdForClose(id, "native-find-close");
