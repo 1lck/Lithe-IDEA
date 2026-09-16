@@ -337,7 +337,8 @@ async function verify() {
       secondary.pushUndoStop();
       let snapshot = await window.lithe.freeze("shared");
       assert(snapshot.text === "class Renamed {}", "secondary edit was lost or applied twice");
-      assert(editor.getOption(monacoEditor.EditorOption.readOnly) && secondary.getOption(monacoEditor.EditorOption.readOnly), "save did not freeze every view");
+      assert(!editor.getOption(monacoEditor.EditorOption.readOnly) && !secondary.getOption(monacoEditor.EditorOption.readOnly),
+        "save revision barrier made a shared view read-only");
       await send({ type: "save", revision: snapshot.revision, expected: snapshot.text });
       window.lithe.unlock("shared");
       await editor.getModel()!.undo();
