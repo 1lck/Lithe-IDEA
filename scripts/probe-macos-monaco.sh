@@ -29,7 +29,7 @@ elif [[ "${1:-}" == "--workbench-tests" ]]; then
     host_args+=(--logic-only)
 fi
 monaco_dir="${LITHE_MONACO_PACKAGE_DIR:-$root/frontend/editor/node_modules/monaco-editor}"
-mkdir -p "$run_output"
+mkdir -p "$output" "$run_output"
 if [[ "${1:-}" != "--manual" ]]; then
     print '{"status":"running","error":"Run did not complete"}' > "$run_output/result.json"
 fi
