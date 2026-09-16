@@ -788,7 +788,9 @@ export function mountWorkbench(host: WorkbenchHost) {
       await activation;
       const entry = entries.get(id);
       if (!entry || failed) throw new Error("Editor is unavailable");
-      const token = operationID ?? `editor-${++freezeSequence}`;
+      // Native hosts pass an operation ID and receive strict stale-operation
+      // protection. Keep legacy no-token probes idempotent while already held.
+      const token = operationID ?? entry.freezeOperation ?? `editor-${++freezeSequence}`;
       if (entry.frozen && entry.freezeOperation !== token) throw new Error("Editor is already synchronizing");
       const inputPasses = await drainInput(entry);
       entry.frozen = true;
