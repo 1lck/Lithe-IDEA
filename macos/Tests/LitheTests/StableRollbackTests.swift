@@ -122,7 +122,7 @@ struct StableRollbackTests {
         // cycle; StableRollbackPackage.prepare still exercises the production
         // hdiutil mount and validates the complete disk-image contract.
         try await runFixtureTool("/usr/sbin/diskutil", ["image", "create", "from", "--format", "UDRW",
-                                                         root.appendingPathComponent("payload").path, dmg.path])
+                                                         root.appendingPathComponent("payload").path, dmg.path], timeoutMilliseconds: 20_000)
         let archiveData = try Data(contentsOf: dmg)
         let checksum = SHA256.hash(data: archiveData).map { String(format: "%02x", $0) }.joined()
         let publisher = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(repeating: 1, count: 32))
@@ -240,11 +240,11 @@ struct StableRollbackTests {
     }
 }
 
-private func runFixtureTool(_ executable: String, _ arguments: [String]) async throws {
+private func runFixtureTool(_ executable: String, _ arguments: [String], timeoutMilliseconds: Int = 10_000) async throws {
     let result: ProcessResult = await withCheckedContinuation { continuation in
         DispatchQueue.global(qos: .utility).async {
             continuation.resume(returning: MacProcessRunner().run(ProcessRequest(executablePath: executable,
-                arguments: arguments, timeoutMilliseconds: 10_000)))
+                arguments: arguments, timeoutMilliseconds: timeoutMilliseconds)))
         }
     }
     #expect(result.succeeded, "\(result.output)")
