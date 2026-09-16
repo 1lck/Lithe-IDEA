@@ -5647,6 +5647,65 @@ struct EditorDocumentTests {
         }
     }
 
+    @Test(arguments: ["watcher", "reload"], ["unchanged", "rename", "rename-back", "saving"])
+    @MainActor
+    func externalSnapshotRevalidatesLocationAfterEditorDrain(trigger: String, transition: String) async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/external-drain")
+        let file = workspace.appendingPathComponent("A.swift")
+        let moved = workspace.appendingPathComponent("B.swift")
+        let model = DocumentFeatureModel(
+            operations: EmptyWorkspaceOperations(readFileValue: "baseline"),
+            documentLifecycleDecider: PreviewExternalChangeLifecycleDecider(),
+            fileOperations: EmptyWorkspaceFileOperations(guardedRead: { "external" }),
+            fileStorage: InMemoryFileStorage(), binaryFileViewerRegistry: BinaryFileViewerRegistry())
+        var changes = 0
+        model.configure(
+            workspaceURLProvider: { workspace }, autoSaveEnabledProvider: { false }, autoSaveDelayProvider: { 0 },
+            notify: { _ in }, onDocumentOpened: { _ in }, onDocumentChanged: { _ in changes += 1 },
+            onDocumentClosed: { _ in }, onRecordSave: { _, _ in }, onRecordDiscard: { _ in },
+            onRecordExternalChanges: { _ in }, onDocumentCollectionChanged: {}, onProjectCloseReady: {})
+        await model.openFileAsync(file, isReadOnly: false, displayPath: nil, activateWhenReady: true)
+        let document = try #require(model.activeDocument)
+        let started = TestGate(), finished = TestGate()
+        var acknowledge: ((Result<Void, Error>) -> Void)?
+        var releases = 0
+        document.holdEditorForClose = { completion in
+            completion(.success { releases += 1; finished.open() })
+        }
+        document.synchronizeEditor = { acknowledge = $0; started.open() }
+        defer {
+            acknowledge?(.failure(EditorDocument.DocumentError.editorNotSynchronized))
+            document.synchronizeEditor = nil
+            document.holdEditorForClose = nil
+            model.reset()
+        }
+        if trigger == "watcher" { model.processExternalChanges([file]) }
+        else { model.loadExternalVersion(of: document) }
+        try #require(await started.waitUntilOpen())
+        #expect(document.text == "baseline")
+        switch transition {
+        case "rename", "rename-back":
+            model.relocateOpenDocuments(from: file, to: moved)
+            if transition == "rename-back" { model.relocateOpenDocuments(from: moved, to: file) }
+        case "saving":
+            document.applyLifecycleState(.init(status: .saving, revision: document.lifecycleState.revision,
+                savedRevision: document.lifecycleState.savedRevision, saveRevision: document.lifecycleState.revision,
+                operationId: "concurrent-save"))
+        default: break
+        }
+        let complete = try #require(acknowledge)
+        acknowledge = nil
+        complete(.success(()))
+        try #require(await finished.waitUntilOpen())
+        let accepted = transition == "unchanged"
+        #expect(document.text == (accepted ? "external" : "baseline"))
+        #expect(document.savedText == (accepted ? "external" : "baseline"))
+        #expect(!document.hasExternalConflict)
+        #expect(changes == (accepted ? 1 : 0))
+        #expect(releases == 1)
+        if transition == "saving" { #expect(document.lifecycleState.status == .saving) }
+    }
+
     @Test(arguments: ["edit", "open", "asyncOpen"])
     @MainActor
     func previewOnlyCreatesATabWhenOpenedOrEdited(action: String) async throws {
@@ -7036,6 +7095,8 @@ private struct PreviewExternalChangeLifecycleDecider: DocumentLifecycleDeciding 
     func decide(state: DocumentLifecycleState, event: DocumentLifecycleEvent,
                 operationID: String) throws -> DocumentLifecycleDecision {
         switch event.type {
+        case .loadDisk:
+            return .init(state: state, action: .reloadFromDisk)
         case .diskConflict:
             return .init(state: .init(status: .conflict, revision: state.revision,
                 savedRevision: state.savedRevision, saveRevision: nil, operationId: nil), action: .showConflict)

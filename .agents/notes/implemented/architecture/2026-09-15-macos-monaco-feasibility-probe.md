@@ -83,6 +83,9 @@ Bun 1.3.12 下样本的废弃分支保留堆增量由约 32.4 MB 降至 2.5 MB�
 rename/code action 还在请求 LSP 前记录所有原生打开文档的身份与生命周期 revision，
 覆盖后台已打开、尚未创建 Monaco view 的编辑目标；resolve 和目标准备完成后重新核对。
 受控延迟测试覆盖改名、改回、关闭与关闭确认 hold；Swift 单测另覆盖已关闭对象仍被回调持有的情况。
+外部文件 watcher 与显式加载磁盘版本也要跨 editor hold/drain 重新检查位置代次、文档归属和 saving 状态；
+drain 期间改名、改回或开始保存时，旧磁盘快照不得替换当前缓冲区或制造冲突。
+有界回调测试覆盖这两条路径的正常更新和三种失效，并验证 hold 始终释放。
 这些测试不能替代真实 WKWebView 的 IME、剪贴板、系统窗口关闭和 WebView2 人工验收。
 
 Java 继承／实现导航标记独立于 CodeVision，继续调用现有 JDTLS 导航标记与解析

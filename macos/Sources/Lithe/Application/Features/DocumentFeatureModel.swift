@@ -921,6 +921,7 @@ final class DocumentFeatureModel: ObservableObject {
         let id = UUID()
         externalChangeIDs[document.id] = id
         let url = document.url
+        let locationRevision = document.locationRevision
         externalChangeTasks[document.id] = Task { [weak self, weak document] in
             guard let self, let document else { return }
             defer {
@@ -933,11 +934,15 @@ final class DocumentFeatureModel: ObservableObject {
                 let preparation = try await EditorClosingPreparation.acquire([document])
                 defer { preparation.release() }
                 try await self.synchronizeEditor(document)
+                guard document.url == url, document.locationRevision == locationRevision,
+                      document.lifecycleState.status != .saving,
+                      self.observedDocuments.contains(where: { $0 === document }) else { return }
                 let revision = document.lifecycleState.revision
                 guard let content = try await self.fileOperations.readDocumentTextAsync(from: url),
                       !Task.isCancelled, document.url == url,
+                      document.locationRevision == locationRevision, document.lifecycleState.status != .saving,
                       document.lifecycleState.revision == revision,
-                      self.observedDocuments.contains(where: { $0.id == document.id }) else { return }
+                      self.observedDocuments.contains(where: { $0 === document }) else { return }
                 let decision = try self.documentLifecycleDecider.decide(
                     state: document.lifecycleState, event: .loadDisk, operationID: id.uuidString)
                 guard decision.action == .reloadFromDisk else { return }
@@ -1000,11 +1005,12 @@ final class DocumentFeatureModel: ObservableObject {
                 }
                 guard document.lifecycleState.status != .saving else { return }
                 let url = document.url
+                let locationRevision = document.locationRevision
                 let revision = document.lifecycleState.revision
                 let baseline = document.expectedDiskContent.map { Data($0.utf8) }
                 do {
                     let content = try await self.fileOperations.readDocumentTextAsync(from: url)
-                    guard !Task.isCancelled, document.url == url,
+                    guard !Task.isCancelled, document.url == url, document.locationRevision == locationRevision,
                           self.observedDocuments.contains(where: { $0.id == document.id }) else { return }
                     if document.lifecycleState.status == .saving { return }
                     guard baseline == document.expectedDiskContent.map({ Data($0.utf8) }) else {
@@ -1014,7 +1020,11 @@ final class DocumentFeatureModel: ObservableObject {
                     let preparation = try await EditorClosingPreparation.acquire([document])
                     defer { preparation.release() }
                     try await self.synchronizeEditor(document)
-                    guard self.observedDocuments.contains(where: { $0 === document }),
+                    // Holding and draining the remote editor both suspend. The
+                    // disk snapshot must still belong to this exact location.
+                    guard document.url == url, document.locationRevision == locationRevision,
+                          document.lifecycleState.status != .saving,
+                          self.observedDocuments.contains(where: { $0 === document }),
                           baseline == document.expectedDiskContent.map({ Data($0.utf8) }) else { return }
                     // New local input stays owned by the editor. The reducer sees its latest state.
                     let decision = try self.documentLifecycleDecider.decide(state: document.lifecycleState,
