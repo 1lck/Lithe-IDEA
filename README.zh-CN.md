@@ -265,12 +265,12 @@ open dist/Lithe.app
   </tr>
   <tr>
     <td width="112" align="center">
-      <a href="https://api.axis.fan/register?aff=4EZFN7322WTH">
-        <img src="./docs/assets/sponsors/yuanliu-token.png" width="64" alt="元流 Token">
+      <a href="https://www.atlascloud.ai/zh">
+        <img src="./docs/assets/sponsors/atlas-cloud.png" width="112" alt="Atlas Cloud">
       </a>
     </td>
     <td>
-      <a href="https://api.axis.fan/register?aff=4EZFN7322WTH"><strong>元流 Token</strong></a> 提供多种大语言模型 API 的中转接入，为开发者体验不同模型、构建 AI 应用提供灵活入口。其赞助支持 Lithe 持续拓展并优化 AI 相关功能。感谢元流 Token 对本项目的支持！
+      <a href="https://www.atlascloud.ai/zh"><strong>Atlas Cloud</strong></a> 是一家提供 <strong>400 多种模型</strong>的 AI 中转服务平台，丰富的模型选择是它的一大特色。开发者可以在同一平台探索和比较不同模型，为自己的应用选择更合适的 AI 能力。感谢 Atlas Cloud 对 Lithe 的赞助，支持项目持续完善 AI 辅助开发体验！
     </td>
   </tr>
   <tr>
@@ -281,6 +281,16 @@ open dist/Lithe.app
     </td>
     <td>
       <a href="https://codezsy.com/register?aff=fDyA"><strong>CodeZ</strong></a> 专注于 GPT 系列模型的稳定中转，为开发者在工具和项目中集成模型 API 提供简单直接的选择。其赞助为 Lithe 的持续开发与维护提供了助力。感谢 CodeZ 对本项目的支持！
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://app.rainyun.com/apps/rcs/392785/detail?view=info">
+        <img src="./docs/assets/sponsors/rainyun.png" width="112" alt="雨云">
+      </a>
+    </td>
+    <td>
+      <a href="https://app.rainyun.com/apps/rcs/392785/detail?view=info"><strong>雨云</strong></a> 提供云服务器等云计算服务，为应用部署、网站搭建和开发测试提供灵活的云端环境。感谢雨云对 Lithe 的支持，助力项目持续开发与完善！
     </td>
   </tr>
 </table>
