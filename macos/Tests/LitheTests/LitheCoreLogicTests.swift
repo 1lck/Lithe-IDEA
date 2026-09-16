@@ -5101,7 +5101,7 @@ struct EditorDocumentTests {
         let storage = InMemoryFileStorage()
         let feature = DocumentFeatureModel(
             operations: EmptyWorkspaceOperations(readFileValue: "initial"),
-            documentLifecycleDecider: RustDocumentLifecycleDecider(core: RustCoreBridge()),
+            documentLifecycleDecider: DocumentFeatureGuardedPersistenceTests.PersistenceDecider(),
             fileOperations: EmptyWorkspaceFileOperations(savedTextStorage: storage),
             fileStorage: storage, binaryFileViewerRegistry: BinaryFileViewerRegistry()
         )
@@ -6702,7 +6702,7 @@ private final class TestDirectoryWatcherFactory: DirectoryWatcherFactory {
 struct DocumentFeatureGuardedPersistenceTests {
     // Unit tests exercise the persistence orchestration. Shared reducer behavior is
     // independently verified by the linked Core verifier and lifecycle fixtures.
-    private struct PersistenceDecider: DocumentLifecycleDeciding {
+    fileprivate struct PersistenceDecider: DocumentLifecycleDeciding {
         func decide(state: DocumentLifecycleState, event: DocumentLifecycleEvent, operationID: String) throws -> DocumentLifecycleDecision {
             switch event.type {
             case .saveStarted:
