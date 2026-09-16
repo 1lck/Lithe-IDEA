@@ -16,7 +16,10 @@ struct DebugModuleCoordinatorTests {
             try runtime.register(ModuleFactory(manifest: manifest) { EmptyDebugDependency(manifest: manifest) })
         }
         let graph = DebugPresentationTestGraph()
-        try runtime.register(ModuleFactory(manifest: DebugModule.moduleManifest) {
+        try runtime.register(ModuleFactory(
+            manifest: DebugModule.moduleManifest,
+            contributions: DebugModule.moduleContributions
+        ) {
             DebugModule(makeGraph: { graph })
         })
         var published = 0

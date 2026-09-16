@@ -22,7 +22,7 @@ export function parseSwiftTimingLine(line) {
     };
   }
   const swiftFinish = plain.match(
-    /(?:^|\s)Test (?!run\b|case\b)(.+?)(?: with (\d+) test cases)? (passed|failed|skipped) after ([0-9.]+) seconds\.$/,
+    /(?:^|\s)Test (?!run\b|case\b)(.+?)(?: with (\d+) test cases)? (passed|failed|skipped) after ([0-9.]+) seconds(?: with \d+ issues?)?\.$/,
   );
   if (swiftFinish) {
     return {

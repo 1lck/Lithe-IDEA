@@ -149,6 +149,10 @@ assert.deepEqual(
   { name: "deterministicGate()", event: "passed", durationMs: 24, caseCount: null },
 );
 assert.deepEqual(
+  parseSwiftTimingLine("✘ Test activationPublishes() failed after 0.041 seconds with 5 issues."),
+  { name: "activationPublishes()", event: "failed", durationMs: 41, caseCount: null },
+);
+assert.deepEqual(
   parseSwiftTimingLine("Test Case '-[LitheTests.Legacy testValue]' failed (1.250 seconds)."),
   { name: "-[LitheTests.Legacy testValue]", event: "failed", durationMs: 1250, caseCount: null },
 );

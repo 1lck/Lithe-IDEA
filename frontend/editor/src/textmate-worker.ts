@@ -45,6 +45,10 @@ self.onmessage = async ({ data }) => {
   try {
     if (data.type === "init") {
       grammar = (await createJavaGrammar(data.wasm, data.grammar)).grammar;
+      // vscode-textmate/Oniguruma lazily compiles grammar patterns on the first
+      // tokenization. Keep that one-time initialization outside the per-line
+      // production budget; subsequent document lines still retain the 20 ms cap.
+      grammar.tokenizeLine("class LitheTokenizerWarmup {}", INITIAL);
       postMessage({ type: "ready" }); return;
     }
     if (data.type === "open") {
