@@ -1,5 +1,6 @@
 import { IBulkEditService } from "monaco-editor/esm/vs/editor/browser/services/bulkEditService.js";
 import { StandaloneServices } from "monaco-editor/esm/vs/editor/standalone/browser/standaloneServices.js";
+import { mountNativeFind, type NativeFindInput } from "./native-find";
 import { mapCompletionKind } from "./completion-kind";
 import { mountDiffReview, type DiffReviewInput, type ReviewSelection } from "./diff-review";
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
@@ -43,6 +44,14 @@ export function mountWorkbench(host: WorkbenchHost) {
   const entries = new Map<string, Entry>();
   const workers: Worker[] = [];
   const closingOperations = new Map<string, { entry?: Entry; cancelled: boolean }>();
+  let nativeFind: { view: monaco.editor.IStandaloneCodeEditor; model: monaco.editor.ITextModel;
+    generation: number; input: NativeFindInput; search: ReturnType<typeof mountNativeFind>; changed: monaco.IDisposable; disposed: monaco.IDisposable } | undefined;
+  let nativeFindGeneration = 0;
+  function dismissNativeFind() {
+    const previous = nativeFind;
+    nativeFind = undefined;
+    previous?.changed.dispose(); previous?.disposed.dispose(); previous?.search.dispose();
+  }
   let active: string | undefined;
   let editor: monaco.editor.IStandaloneCodeEditor;
   let markdownScrollID: string | undefined;
@@ -608,6 +617,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     async suspendMain() {
       await activation;
       if (suspendedViews) return;
+      dismissNativeFind();
       suspendedViews = [{ role: "primary", id: active, state: editor.saveViewState(), find: captureFind(editor), focused: editor.hasTextFocus() },
         ...[...surfaces].map(([role, surface]) => ({ role, id: surface.id, state: surface.editor.saveViewState(), find: captureFind(surface.editor), focused: surface.editor.hasTextFocus() }))];
     },
@@ -830,6 +840,36 @@ export function mountWorkbench(host: WorkbenchHost) {
         }
         entry.release(); entries.delete(id);
       }
+    },
+    async nativeFind(input: NativeFindInput) {
+      const generation = input.command ? nativeFindGeneration : ++nativeFindGeneration;
+      const requestedEntry = entries.get(input.id);
+      const requestedVersion = requestedEntry?.model.getVersionId();
+      // Invalidate the previous callback immediately, before activation can yield.
+      await activation;
+      if (generation !== nativeFindGeneration) return;
+      const entry = entries.get(input.id);
+      if (input.command && (!entry || entry !== requestedEntry || entry.model.getVersionId() !== requestedVersion)) return;
+      if (!input.visible || !entry || suspendedViews) { dismissNativeFind(); return; }
+      const matching = allEditors().filter(view => view.getModel() === entry.model);
+      const target = matching.find(view => view.hasTextFocus()) ??
+        (nativeFind && matching.includes(nativeFind.view) ? nativeFind.view : matching[0]);
+      if (!target) { dismissNativeFind(); return; }
+      if (nativeFind?.view !== target || nativeFind.model !== entry.model) {
+        dismissNativeFind();
+        const widget = captureFind(target);
+        if (widget?.isRevealed) findController(target)?.getState().change({ ...widget, isRevealed: false }, false);
+        const report = (index: number, count: number) => {
+          const current = nativeFind;
+          if (!current || current.generation !== nativeFindGeneration || current.view !== target || current.model !== target.getModel()) return;
+          void languageRequest({ type: "findState", id: current.input.id, token: current.input.token, index, count });
+        };
+        nativeFind = { view: target, model: entry.model, generation, input, search: mountNativeFind(target, report),
+          changed: target.onDidChangeModel(dismissNativeFind), disposed: target.onDidDispose(dismissNativeFind) };
+      }
+      nativeFind.input = input;
+      nativeFind.generation = generation;
+      return nativeFind.search.update(input, !entry.readonly && !entry.frozen && !entry.closingHolds && !failed);
     },
     async find(payload?: { id?: string; surface?: string; query?: string; matchCase?: boolean; wholeWord?: boolean; regex?: boolean }) {
       await activation;
@@ -1173,6 +1213,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       codeVisionCommand.dispose(); codeVisionProvider.dispose(); codeVisionChanges.dispose();
       debugStyle.remove();
       for (const cancel of openingMeasurements) cancel();
+      ++nativeFindGeneration; dismissNativeFind();
       review?.dispose(); semanticChanges.dispose(); for (const view of allEditors()) view.dispose(); surfaces.clear(); entries.forEach(entry => entry.release()); textmate?.dispose(); workers.forEach(worker => worker.terminate()); URL.revokeObjectURL(url);
     });
     await send({ type: "ready" });

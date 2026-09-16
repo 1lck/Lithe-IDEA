@@ -168,7 +168,7 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                 codeVisionActions.append(body["action"] as? String ?? "")
                 replyHandler(["ok": true], nil)
             case "codeVisionActions": replyHandler(["actions": codeVisionActions], nil)
-            case "focus", "cursor": replyHandler(["ok": true], nil)
+            case "focus", "cursor", "findState": replyHandler(["ok": true], nil)
             case "editorNotification":
                 imagePasteNotification = body["message"] as? String
                 imagePasteNotificationWaiter?(["message": imagePasteNotification ?? ""], nil)

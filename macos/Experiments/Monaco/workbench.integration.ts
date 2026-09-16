@@ -1020,6 +1020,80 @@ async function verify() {
       assert(model.getVersionId() === version && model.getValue() === text, "debug decorations mutated document history");
     } finally { await window.lithe.retain([]); }
   });
+  await check("native find bar jumps while typing and replaces through Monaco undo", async () => {
+    const id = "native-find", text = "public alpha\npublic beta\nPUBLIC gamma";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, language: "plaintext", readonly: false });
+    const model = editor.getModel()!;
+    const input = { id, token: "query-1", visible: true, query: "pub", matchCase: false, wholeWord: false, regex: false };
+    try {
+      editor.setPosition({ lineNumber: 1, column: 1 });
+      const result = await window.lithe.nativeFind(input);
+      assert(result.count === 3 && result.index === 1, "native bar did not receive live match count");
+      assert(editor.getSelection()?.endColumn === 4, "typing did not immediately select the first match");
+      const widget = (editor.getContribution("editor.contrib.findController") as any).getState();
+      assert(!widget.isRevealed, "native bar unexpectedly opened a second find widget");
+      await window.lithe.nativeFind({ ...input, command: "next" });
+      assert(editor.getSelection()?.startLineNumber === 2, "next did not jump to the next match");
+      await window.lithe.nativeFind({ ...input, command: "previous" });
+      assert(editor.getSelection()?.startLineNumber === 1, "previous did not jump back");
+      const exact = { ...input, token: "query-2", query: "public", matchCase: true, wholeWord: true };
+      assert((await window.lithe.nativeFind(exact)).count === 2, "case/whole-word options ignored");
+      await window.lithe.nativeFind({ ...exact, command: "replace", replacement: "private" });
+      assert(model.getValue() === "private alpha\npublic beta\nPUBLIC gamma", "replace-next did not replace the selected match");
+      await model.undo();
+      await window.lithe.nativeFind({ ...exact, command: "replaceAll", replacement: "private" });
+      assert(model.getValue() === "private alpha\nprivate beta\nPUBLIC gamma", "native replace-all targeted wrong matches");
+      await model.undo();
+      assert(model.getValue() === text, "replace-all was not one undoable edit");
+      const regex = { ...input, token: "query-3", query: "public (\\w+)", regex: true, matchCase: true };
+      editor.setPosition({ lineNumber: 1, column: 1 });
+      await window.lithe.nativeFind(regex);
+      await window.lithe.nativeFind({ ...regex, command: "replaceAll", replacement: "$1 public" });
+      assert(model.getValue() === "alpha public\nbeta public\nPUBLIC gamma", "regex replacement lost capture groups");
+      await model.undo();
+      assert((await window.lithe.nativeFind({ ...regex, query: "[" })).count === 0, "invalid regex retained old matches");
+      await window.lithe.nativeFind({ ...input, visible: false });
+      const snapshot = await window.lithe.freeze(id);
+      assert(snapshot.text === text, "replace undo was not synchronized to the native document");
+    } finally { await window.lithe.nativeFind({ ...input, visible: false }); await window.lithe.freeze(id); await window.lithe.retain([]); }
+  });
+  await check("native find isolates split targets and rejects closing or stale commands", async () => {
+    const id = "native-find-left", right = "native-find-right", text = "public one public two";
+    await send({ type: "open", id, text });
+    await send({ type: "open", id: right, text });
+    await window.lithe.activate({ id, text, revision: 0, language: "plaintext", readonly: false });
+    await window.lithe.showSecondary({ id: right, text, revision: 0, language: "plaintext", readonly: true });
+    const leftModel = editor.getModel()!;
+    const secondary = monacoEditor.getEditors().find(view => view !== editor && view.getModel() !== leftModel)!;
+    const input = { id: right, token: "split", visible: true, query: "public", matchCase: true, wholeWord: false, regex: false };
+    try {
+      await window.lithe.nativeFind(input);
+      assert(secondary.getSelection()?.endColumn === 7, "native search did not target the explicit secondary document");
+      await window.lithe.nativeFind({ ...input, command: "replaceAll", replacement: "bad" });
+      assert(secondary.getModel()?.getValue() === text && leftModel.getValue() === text, "readonly replacement changed a document");
+      await window.lithe.holdForClose(id, "native-find-close");
+      await window.lithe.nativeFind({ ...input, id, command: "replaceAll", replacement: "bad" });
+      assert(leftModel.getValue() === text, "find replacement bypassed close hold");
+      window.lithe.releaseClose("native-find-close");
+      await Promise.all([
+        window.lithe.nativeFind({ ...input, id, query: "one", token: "old" }),
+        window.lithe.nativeFind({ ...input, id, query: "two", token: "latest" }),
+      ]);
+      assert(leftModel.getValueInRange(editor.getSelection()!) === "two", "older native query won activation race");
+      const staleReplacement = window.lithe.nativeFind({ ...input, id, command: "replaceAll", replacement: "bad" });
+      editor.executeEdits("concurrent-input", [{ range: new Range(1, 1, 1, 1), text: "X" }]);
+      await staleReplacement;
+      assert(leftModel.getValue() === "X" + text, "queued replacement survived a newer edit");
+      await leftModel.undo();
+      await window.lithe.nativeFind({ ...input, id: "closed", command: "replaceAll", replacement: "bad" });
+      assert(leftModel.getValue() === text, "missing document fell back to active editor");
+    } finally {
+      window.lithe.releaseClose("native-find-close");
+      await window.lithe.nativeFind({ ...input, visible: false });
+      await window.lithe.hideSecondary(); await window.lithe.freeze(id); await window.lithe.retain([]);
+    }
+  });
   await check("find matches track ordinary and multiline regex edits", async () => {
     for (const scenario of [
       { id: "find-shift", text: "alpha beta alpha", query: "alpha", regex: false,

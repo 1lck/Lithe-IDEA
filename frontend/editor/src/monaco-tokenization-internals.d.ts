@@ -62,3 +62,28 @@ declare module "monaco-editor/esm/vs/editor/common/languages/language.js" {
     languageIdCodec: { encodeLanguageId(language: string): number };
   }>;
 }
+
+// Native find chrome uses the same search engine as Monaco's built-in widget.
+// Private API boundary pinned to Monaco 0.55.1; exercised in real-editor tests.
+declare module "monaco-editor/esm/vs/editor/contrib/find/browser/findState.js" {
+  import type { IDisposable } from "monaco-editor";
+  export class FindReplaceState {
+    readonly matchesPosition: number;
+    readonly matchesCount: number;
+    onFindReplaceStateChange(listener: () => void): IDisposable;
+    change(state: { searchString: string; replaceString: string; matchCase: boolean; wholeWord: boolean; isRegex: boolean }, moveCursor: boolean): void;
+    dispose(): void;
+  }
+}
+declare module "monaco-editor/esm/vs/editor/contrib/find/browser/findModel.js" {
+  import type { editor } from "monaco-editor";
+  import type { FindReplaceState } from "monaco-editor/esm/vs/editor/contrib/find/browser/findState.js";
+  export class FindModelBoundToEditorModel {
+    constructor(editor: editor.IStandaloneCodeEditor, state: FindReplaceState);
+    moveToNextMatch(): void;
+    moveToPrevMatch(): void;
+    replace(): void;
+    replaceAll(): void;
+    dispose(): void;
+  }
+}

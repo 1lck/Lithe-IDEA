@@ -68,12 +68,7 @@ private struct MonacoWorkbenchContent: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .onChange(of: model.isFindBarVisible) { visible in
-            if visible {
-                session.call("window.lithe.find()")
-                model.isFindBarVisible = false
-            }
-        }
+
     }
 }
 
@@ -169,6 +164,9 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
     private var javaNavigationRequests: [String: UUID] = [:]
     private var codeActionCommands: [String: (context: MonacoDocumentContext, key: String, root: URL?, command: LanguageServerCommand)] = [:]
     private var subscriptions: [String: AnyCancellable] = [:]
+    private var findSubscriptions: [AnyCancellable] = []
+    private var lastFindPayload: Data?
+    private var findToken = ""
     private var applyingEdit = false
     private var ready = false
     private var activeIDs: [String: String] = [:]
@@ -260,6 +258,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
     func update(ownerID: UUID, document: EditorDocument, secondaryDocument: EditorDocument?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, model: AppModel, fontSize: Double, dark: Bool, wrap: Bool, markers: [EditorDiagnostic], secondaryMarkers: [EditorDiagnostic]) {
         guard mounts[ownerID] != nil else { return }
         self.model = model
+        observeFind(model: model)
         mounts[ownerID]?.update = { [weak self, weak document, weak secondaryDocument, weak model] in
             guard let self, let document, let model else { return }
             self.present(document: document, model: model, fontSize: fontSize, dark: dark, wrap: wrap, markers: markers)
@@ -276,6 +275,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
                 self.needsMainRestore = false
                 self.call("window.lithe.restoreMain()")
             }
+            self.synchronizeFind()
             if let preview, self.lastPreview != preview || self.previewDocumentID != document.id.uuidString {
                 self.lastPreview = preview
                 self.previewDocumentID = document.id.uuidString
@@ -289,6 +289,46 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             latestUpdate = mounts[ownerID]?.update
             if ready { latestUpdate?() }
         }
+    }
+
+    private func observeFind(model: AppModel) {
+        guard findSubscriptions.isEmpty else { return }
+        // Chrome deliberately does not republish AppModel on every query keystroke.
+        Publishers.CombineLatest3(model.editorChrome.$isFindBarVisible,
+            model.editorChrome.$findBarQuery, model.editorChrome.$findOptions)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.synchronizeFind() }
+            .store(in: &findSubscriptions)
+        for (name, command) in [(Notification.Name.litheFindNavigate, "navigate"),
+                                (.litheFindReplaceNext, "replace"), (.litheFindReplaceAll, "replaceAll")] {
+            NotificationCenter.default.publisher(for: name)
+                .sink { [weak self, weak model] notification in
+                    guard let self, let model, notification.object as? AppModel === model else { return }
+                    let action = command == "navigate"
+                        ? ((notification.userInfo?[FindNotificationKeys.direction] as? Int ?? 1) < 0 ? "previous" : "next") : command
+                    self.synchronizeFind(command: action)
+                }.store(in: &findSubscriptions)
+        }
+    }
+
+    private func synchronizeFind(command: String? = nil) {
+        guard ready, let model else { return }
+        let document = model.focusedEditorDocument ?? model.activeDocument
+        let id = document?.id.uuidString ?? ""
+        let visible = model.isFindBarVisible && !currentMountIsPreview && activeIDs.values.contains(id)
+        let options = model.findOptions
+        var payload: [String: Any] = ["id": id, "visible": visible, "query": model.findBarQuery,
+            "matchCase": options.matchCase, "wholeWord": options.wholeWords, "regex": options.regularExpression]
+        guard let signature = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else { return }
+        guard signature != lastFindPayload || command != nil else { return }
+        if signature != lastFindPayload {
+            lastFindPayload = signature
+            findToken = UUID().uuidString
+            model.updateFindState(currentIndex: 0, count: 0)
+        }
+        payload["token"] = findToken
+        if let command { payload["command"] = command; payload["replacement"] = model.findReplaceText }
+        call("window.lithe.nativeFind(payload)", arguments: ["payload": payload])
     }
 
     private func register(_ document: EditorDocument) {
@@ -880,8 +920,16 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             reply(["revision": revisions[id] ?? 0], nil)
         case "save":
             model?.saveEditorDocument(document); reply(["ok": true], nil)
+        case "findState":
+            if let model, body["token"] as? String == findToken, model.isFindBarVisible,
+               !currentMountIsPreview, (model.focusedEditorDocument ?? model.activeDocument)?.id.uuidString == id,
+               let index = body["index"] as? Int, let count = body["count"] as? Int {
+                model.updateFindState(currentIndex: index, count: count)
+            }
+            reply(["ok": true], nil)
         case "focus", "cursor":
             model?.editorDidFocus(document)
+            synchronizeFind()
             if let line = body["line"] as? Int, let column = body["column"] as? Int {
                 model?.editorCaret = EditorCaret(url: document.url, line: line, utf16Column: column)
             }
