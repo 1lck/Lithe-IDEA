@@ -40,10 +40,11 @@ Windows 的 Vite、TypeScript 和 Bun 测试直接解析 `frontend/editor/src`�
 可能保留旧副本，导致共享源码已修改而 Windows 仍执行旧逻辑；源码别名消除这条
 失效路径。Monaco 在 Windows 宿主中解析为单一安装实例，不能因为共享文件位于
 另一个目录就加载第二套模型注册表。依赖清单通过 Bun workspace 引用共享目录，并保留精确版本约束。
-Windows 的 Bun 1.3.12 在最小本地 `file:` 包上也会发生 EPERM 复制失败，
-workspace 安装可正常建立共享包关系；不通过修改系统权限或发布包副本绕过。
-Windows 包使用 Bun isolated 依赖布局，使外层共享目录自身也能解析已声明依赖。
-否则 Vite 构建的别名虽然有效，Bun 直接执行共享源码的测试仍会找不到 Monaco。
+Bun 1.3.12 在 Windows 上无法为指向工作区外部的 `../../frontend/editor` 建立链接。
+现在由仓库根 `package.json` 声明 `frontend/editor`、`windows/tauri` 两个子 workspace，
+共用根 `bun.lock` 和 isolated 布局；迁移保留原锁文件全部已解析依赖版本。
+Windows 安装及重试、下载缓存校验和各打包 workflow 使用根锁文件；重试清理根和两个子包的生成依赖目录。
+macOS 使用 `--filter @lithe/editor` 安装编辑器依赖，不额外安装 Windows 产品工具链。
 共享资源构建将 Monaco 包路径解析为真实路径，再处理直接导入；否则 workspace
 符号链接路径和相对导入的真实路径可能被打成两份注册表，导致 Java 后台上色失联。
 

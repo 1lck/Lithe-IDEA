@@ -3,6 +3,18 @@
   "configVersion": 0,
   "workspaces": {
     "": {
+      "name": "lithe-workspace",
+    },
+    "frontend/editor": {
+      "name": "@lithe/editor",
+      "version": "0.0.0",
+      "dependencies": {
+        "monaco-editor": "0.55.1",
+        "vscode-oniguruma": "1.7.0",
+        "vscode-textmate": "9.3.2",
+      },
+    },
+    "windows/tauri": {
       "name": "lithe",
       "dependencies": {
         "@base-ui/react": "^1.6.0",
@@ -127,15 +139,6 @@
         "typescript-language-server": "^5.3.0",
         "vite": "npm:@voidzero-dev/vite-plus-core@0.2.1",
         "vite-plus": "^0.2.1",
-      },
-    },
-    "../../frontend/editor": {
-      "name": "@lithe/editor",
-      "version": "0.0.0",
-      "dependencies": {
-        "monaco-editor": "0.55.1",
-        "vscode-oniguruma": "1.7.0",
-        "vscode-textmate": "9.3.2",
       },
     },
   },
@@ -460,7 +463,7 @@
 
     "@lezer/yaml": ["@lezer/yaml@1.0.4", "https://registry.npmmirror.com/@lezer/yaml/-/yaml-1.0.4.tgz", { "dependencies": { "@lezer/common": "^1.2.0", "@lezer/highlight": "^1.0.0", "@lezer/lr": "^1.4.0" } }, "sha512-2lrrHqxalACEbxIbsjhqGpSW8kWpUKuY6RHgnSAFZa6qK62wvnPxA8hGOwOoDbwHcOFs5M4o27mjGu+P7TvBmw=="],
 
-    "@lithe/editor": ["@lithe/editor@workspace:../../frontend/editor"],
+    "@lithe/editor": ["@lithe/editor@workspace:frontend/editor"],
 
     "@marijn/find-cluster-break": ["@marijn/find-cluster-break@1.0.3", "https://registry.npmmirror.com/@marijn/find-cluster-break/-/find-cluster-break-1.0.3.tgz", {}, "sha512-FY+MKLBoTsLNJF/eLWaOsXGdz6uh3Iu1axjPf6TUq92IYumcTcXWHoS747JARLkcdlJ/Waiaxc5wQfFO8jC6NA=="],
 
@@ -1395,6 +1398,8 @@
     "lightningcss-win32-arm64-msvc": ["lightningcss-win32-arm64-msvc@1.30.2", "https://registry.npmmirror.com/lightningcss-win32-arm64-msvc/-/lightningcss-win32-arm64-msvc-1.30.2.tgz", { "os": "win32", "cpu": "arm64" }, "sha512-FZn+vaj7zLv//D/192WFFVA0RgHawIcHqLX9xuWiQt7P0PtdFEVaxgF9rjM/IRYHQXNnk61/H/gb2Ei+kUQ4xQ=="],
 
     "lightningcss-win32-x64-msvc": ["lightningcss-win32-x64-msvc@1.30.2", "https://registry.npmmirror.com/lightningcss-win32-x64-msvc/-/lightningcss-win32-x64-msvc-1.30.2.tgz", { "os": "win32", "cpu": "x64" }, "sha512-5g1yc73p+iAkid5phb4oVFMB45417DkRevRbt/El/gKXJk4jid+vPFF/AXbxn05Aky8PapwzZrdJShv5C0avjw=="],
+
+    "lithe": ["lithe@workspace:windows/tauri"],
 
     "locate-path": ["locate-path@6.0.0", "https://registry.npmmirror.com/locate-path/-/locate-path-6.0.0.tgz", { "dependencies": { "p-locate": "^5.0.0" } }, "sha512-iPZK6eYjbxRu3uB4/WZ3EsEIMJFMqAoopl3R+zuq0UjcAm/MO6KCweDgPfP3elTztoKP3KtnVHxTn2NHBSDVUw=="],
 

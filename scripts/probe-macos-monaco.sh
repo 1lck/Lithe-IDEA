@@ -33,7 +33,7 @@ mkdir -p "$run_output"
 if [[ "${1:-}" != "--manual" ]]; then
     print '{"status":"running","error":"Run did not complete"}' > "$run_output/result.json"
 fi
-bun install --frozen-lockfile --cwd "$root/frontend/editor"
+bun install --frozen-lockfile --filter @lithe/editor --cwd "$root"
 bun "$root/macos/Experiments/Monaco/build.ts" "$monaco_dir" "${build_args[@]}"
 swiftc -O -swift-version 5 -framework AppKit -framework WebKit \
     "$root/macos/Experiments/Monaco/main.swift" -o "$output/LitheMonacoProbe"

@@ -20,12 +20,14 @@ for (const file of files(join(editor, "src"))) {
 }
 const shared = JSON.parse(readFileSync(join(editor, "package.json"), "utf8"));
 const windows = JSON.parse(readFileSync(join(root, "windows/tauri/package.json"), "utf8"));
-if (windows.dependencies["@lithe/editor"] !== "workspace:*" || !windows.workspaces?.includes("../../frontend/editor")) {
+const workspace = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+if (windows.dependencies["@lithe/editor"] !== "workspace:*" ||
+    !workspace.workspaces?.includes("frontend/editor") || !workspace.workspaces?.includes("windows/tauri") || windows.workspaces) {
   failures.push("Windows must consume the local shared editor package");
 }
-const bunConfig = readFileSync(join(root, "windows/tauri/bunfig.toml"), "utf8");
+const bunConfig = readFileSync(join(root, "bunfig.toml"), "utf8");
 if (!/^linker\s*=\s*"isolated"/m.test(bunConfig)) {
-  failures.push("Windows must give external editor workspace sources resolvable dependencies");
+  failures.push("Workspace packages must resolve shared sources through the same dependency graph");
 }
 if (windows.dependencies["monaco-editor"] !== shared.dependencies["monaco-editor"]) {
   failures.push("Both hosts must use the exact same Monaco version");

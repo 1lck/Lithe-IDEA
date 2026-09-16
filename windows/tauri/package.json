@@ -141,8 +141,5 @@
   "engines": {
     "node": ">=22.0.0"
   },
-  "packageManager": "bun@1.3.12",
-  "workspaces": [
-    "../../frontend/editor"
-  ]
+  "packageManager": "bun@1.3.12"
 }
