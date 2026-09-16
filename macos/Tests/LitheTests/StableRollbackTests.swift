@@ -117,11 +117,12 @@ struct StableRollbackTests {
             .write(to: app.appendingPathComponent("Contents/Info.plist"))
         let dmg = root.appendingPathComponent("stable.dmg")
         try await runFixtureTool("/usr/bin/codesign", ["--force", "--sign", "-", app.path])
-        // Creating a compressed image from a source folder can exceed the
-        // bounded process deadline on a loaded CI runner. Create a small blank
-        // image, then copy the already-signed fixture into its mounted volume.
-        try await runFixtureTool("/usr/bin/hdiutil", ["create", "-size", "32m", "-fs", "HFS+",
-                                                   "-volname", "Lithe", "-layout", "SPUD", dmg.path])
+        // Formatting an HFS+ image can exceed the bounded process deadline on
+        // a loaded CI runner. diskutil's APFS blank-image path is both faster
+        // and the current macOS-supported image creation API; the production
+        // rollback path still validates the same mounted disk-image contract.
+        try await runFixtureTool("/usr/sbin/diskutil", ["image", "create", "blank", "--size", "32m",
+                                                         "--fs", "APFS", "--volumeName", "Lithe", dmg.path])
         let imageMount = root.appendingPathComponent("image-mount")
         try manager.createDirectory(at: imageMount, withIntermediateDirectories: false)
         try await runFixtureTool("/usr/bin/hdiutil", ["attach", dmg.path, "-nobrowse", "-mountpoint", imageMount.path])
