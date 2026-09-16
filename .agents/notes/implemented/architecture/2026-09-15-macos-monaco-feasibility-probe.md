@@ -9,7 +9,7 @@
 `frontend/editor/`，macOS 宿主入口位于 `macos/EditorFrontend/`；
 `macos/Experiments/Monaco/` 只保留验证宿主。正式改造已让普通构建打包相同资源。
 主编辑区、独立文件窗口和分屏统一使用 Monaco，包含混合换行，已移除原生切换按钮；其他源码预览入口与功能对齐仍在继续。
-通过宿主验证仍不代表满足默认替换条件。
+维护者已完成最小宿主流畅度验证并决定正式迁移；后续验收针对真实产品功能、数据安全及双平台回归，不再重复技术选型。
 
 ## 问题
 
@@ -48,6 +48,16 @@ Windows 包使用 Bun isolated 依赖布局，使外层共享目录自身也能�
 符号链接路径和相对导入的真实路径可能被打成两份注册表，导致 Java 后台上色失联。
 
 ### 工作台实验
+
+异步响应除文本 revision 外，还绑定文档对象、当前工作区和单调递增的改名代次。
+改名后再改回不能恢复旧请求资格；回调持有文档对象不代表该文档仍在当前文档集合。
+活动文件改名通过 `updateDocument` 更新文件名与语言，保留同一 Monaco model、未保存文本和 undo。
+所有带文档 ID 的消息携带 `locationRevision`；原生端拒绝旧文件身份的工具请求，
+但同一缓冲区的增量编辑和保存继续 drain，避免改名窗口期间丢输入。
+格式化、completion/resolve、hover、rename/code action、semantic/inlay、CodeVision 和图片粘贴
+在等待编辑队列之前捕获前端上下文，返回后重新验证；workspace 目标逐个打开后仍需保持原身份与修订。
+受控延迟测试覆盖改名、改回、关闭与关闭确认 hold；Swift 单测另覆盖已关闭对象仍被回调持有的情况。
+这些测试不能替代真实 WKWebView 的 IME、剪贴板、系统窗口关闭和 WebView2 人工验收。
 
 Java 继承／实现导航标记独立于 CodeVision，继续调用现有 JDTLS 导航标记与解析
 服务。Monaco 左侧 glyph lane 承载原来的四类 SVG 图标，区分接口实现、类继承及

@@ -159,15 +159,16 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
     private var documents: [String: EditorDocument] { documentReferences.compactMapValues(\.value) }
     private var revisions: [String: Int] = [:]
     private var unconfirmedModels: Set<String> = []
-    private var completionLists: [String: (revision: Int?, key: String, items: [LanguageServerCompletionItem])] = [:]
-    private var codeActionLists: [String: (revision: Int?, key: String, items: [LanguageServerCodeAction])] = [:]
-    private var javaNavigationLists: [String: (revision: Int, url: URL, markers: [JavaImplementationMarker])] = [:]
+    private var completionLists: [String: (context: MonacoDocumentContext, revision: Int?, key: String, items: [LanguageServerCompletionItem])] = [:]
+    private var codeActionLists: [String: (context: MonacoDocumentContext, revision: Int?, key: String, items: [LanguageServerCodeAction])] = [:]
+    private var javaNavigationLists: [String: (context: MonacoDocumentContext, revision: Int, url: URL, markers: [JavaImplementationMarker])] = [:]
     private var javaNavigationRequests: [String: UUID] = [:]
-    private var codeActionCommands: [String: (key: String, root: URL?, command: LanguageServerCommand)] = [:]
+    private var codeActionCommands: [String: (context: MonacoDocumentContext, key: String, root: URL?, command: LanguageServerCommand)] = [:]
     private var subscriptions: [String: AnyCancellable] = [:]
     private var applyingEdit = false
     private var ready = false
     private var activeIDs: [String: String] = [:]
+    private var documentLocations: [String: UInt64] = [:]
     private var hasSecondaryView = false
     private var latestUpdate: (() -> Void)?
     private var pending: [UUID: (Result<Any?, Error>) -> Void] = [:]
@@ -298,7 +299,8 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             var arguments: [String: Any] = ["id": id, "token": token]
             if unconfirmedModels.contains(id) {
                 arguments["payload"] = ["id": id, "text": document.text, "revision": revisions[id] ?? 0,
-                                        "filename": document.url.lastPathComponent, "readonly": document.isReadOnly]
+                                        "filename": document.url.lastPathComponent, "locationRevision": document.locationRevision,
+                                        "readonly": document.isReadOnly]
             } else { arguments["payload"] = NSNull() }
             call("window.lithe.holdForClose(id, token, payload)", arguments: arguments) { [weak self, weak document] result in
                 guard let self else { completion(.failure(EditorDocument.DocumentError.editorNotSynchronized)); return }
@@ -319,7 +321,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             }
         }
         subscriptions[id] = document.textDidChange.sink { [weak self, weak document] in
-            guard let self, let document, !self.applyingEdit else { return }
+            guard let self, let document, self.currentDocument(id) === document, !self.applyingEdit else { return }
             let previous = self.revisions[id] ?? 0
             self.revisions[id] = previous + 1
             self.call("window.lithe.replace(payload)", arguments: ["payload": ["id": id, "text": document.text, "previousRevision": previous, "revision": previous + 1]])
@@ -338,23 +340,25 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
                 throw LanguageWorkspaceEditService.EditError.outsideWorkspace
             }
         }
-        var targets: [(EditorDocument, [LanguageServerTextEdit])] = []
+        var targets: [(EditorDocument, MonacoDocumentContext, [LanguageServerTextEdit])] = []
         for url in urls {
             await model.documentFeature.openFileAsync(url, isReadOnly: false, displayPath: nil, activateWhenReady: false)
             guard model.workspaceURL?.standardizedFileURL == root,
                   let document = model.openDocuments.first(where: { $0.url.standardizedFileURL == url.standardizedFileURL }),
                   !document.isReadOnly else { throw EditorDocument.DocumentError.editorNotSynchronized }
-            targets.append((document, edit.changes[url] ?? []))
+            register(document)
+            let context = MonacoDocumentContext(document: document, revision: revisions[document.id.uuidString] ?? 0,
+                workspaceURL: model.workspaceURL)
+            targets.append((document, context, edit.changes[url] ?? []))
         }
-        return try targets.map { document, edits in
-            guard model.openDocuments.contains(where: { $0 === document }) else {
+        return try targets.map { document, context, edits in
+            guard isCurrent(context), model.openDocuments.contains(where: { $0 === document }) else {
                 throw EditorDocument.DocumentError.editorNotSynchronized
             }
             _ = try LanguageServerTextEditApplicator.apply(edits, to: document.text)
-            register(document)
             return ["id": document.id.uuidString, "text": document.text,
                     "revision": revisions[document.id.uuidString] ?? 0,
-                    "filename": document.url.lastPathComponent, "readonly": false,
+                    "filename": document.url.lastPathComponent, "locationRevision": document.locationRevision, "readonly": false,
                     "edits": edits.map { edit in
                         ["range": ["startLineNumber": edit.range.start.line + 1,
                                    "startColumn": edit.range.start.utf16Column + 1,
@@ -498,6 +502,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         let id = document.id.uuidString
         let liveIDs = Set(model.documentFeature.editorDocuments.map { $0.id.uuidString })
         for oldID in Array(documentReferences.keys) where !liveIDs.contains(oldID) {
+            documentLocations[oldID] = nil
             documents[oldID]?.synchronizeEditor = nil
             documents[oldID]?.holdEditorForClose = nil
             completionLists[oldID] = nil
@@ -514,11 +519,19 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         }
         let needsModel = documents[id] == nil || unconfirmedModels.contains(id)
         if needsModel { register(document) }
+        let locationChanged = documentLocations[id] != document.locationRevision
+        documentLocations[id] = document.locationRevision
+        if activeIDs[surface] == id, locationChanged {
+            call("window.lithe.updateDocument(payload)", arguments: ["payload": ["id": id,
+                "filename": document.url.lastPathComponent, "locationRevision": document.locationRevision,
+                "readonly": document.isReadOnly]])
+        }
         if activeIDs[surface] != id {
             activeIDs[surface] = id
             let interval = LitheSignpost.begin("monaco.document.activate")
             var payload: [String: Any] = ["id": id,
-                "revision": revisions[id] ?? 0, "filename": document.url.lastPathComponent, "readonly": document.isReadOnly, "focus": surface == "primary",
+                "revision": revisions[id] ?? 0, "filename": document.url.lastPathComponent,
+                "locationRevision": document.locationRevision, "readonly": document.isReadOnly, "focus": surface == "primary",
                 "measure": LithePerformanceBaseline.isEnabled]
             // A retained Monaco model already owns its current text and undo
             // history. Tab activation only needs its identity and view state.
@@ -606,6 +619,22 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
     }
 
 
+    private func currentDocument(_ id: String) -> EditorDocument? {
+        guard let document = documents[id],
+              model?.documentFeature.editorDocuments.contains(where: { $0 === document }) == true else { return nil }
+        return document
+    }
+
+    private func isCurrent(_ context: MonacoDocumentContext, allowTextChanges: Bool = false) -> Bool {
+        guard !failed, let model, let document = currentDocument(context.documentID.uuidString) else { return false }
+        let documents = model.documentFeature.editorDocuments
+        if allowTextChanges {
+            return context.matchesIdentity(document: document, documents: documents, workspaceURL: model.workspaceURL)
+        }
+        return context.matches(document: document, revision: revisions[context.documentID.uuidString],
+            documents: documents, workspaceURL: model.workspaceURL)
+    }
+
     func receive(_ message: WKScriptMessage, reply: @escaping (Any?, String?) -> Void) {
         guard message.frameInfo.isMainFrame, message.frameInfo.securityOrigin.protocol == "lithe-editor",
               message.frameInfo.securityOrigin.host == "app", let body = message.body as? [String: Any],
@@ -634,7 +663,16 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             if let message = body["message"] as? String { model?.showNotification(message) }
             reply(["ok": true], nil); return
         }
-        guard let id = body["id"] as? String, let document = documents[id] else { reply(nil, "Document closed"); return }
+        guard let id = body["id"] as? String, let document = currentDocument(id), let revision = revisions[id] else {
+            reply(nil, "Document closed"); return
+        }
+        let context = MonacoDocumentContext(document: document, revision: revision, workspaceURL: model?.workspaceURL)
+        // Text edits still belong to the same buffer after a move, and saves must
+        // drain them. Position-based tooling must use the current file identity.
+        if type != "edit", type != "save", let locationRevision = body["locationRevision"] as? UInt64,
+           locationRevision != document.locationRevision {
+            reply(["cancelled": true], nil); return
+        }
         switch type {
         case "javaNavigation":
             guard let model, !failed, document.url.pathExtension.lowercased() == "java",
@@ -645,18 +683,18 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             let requestID = UUID()
             javaNavigationRequests[id] = requestID
             Task { @MainActor [weak self, weak document, weak model] in
-                guard let self, let document, let model else { reply(["cancelled": true], nil); return }
+                guard let self, let document, let model, self.isCurrent(context) else { reply(["cancelled": true], nil); return }
                 let markers = await model.javaNavigationMarkers(for: document)
-                guard self.documents[id] === document, self.revisions[id] == revision, document.url == url,
+                guard self.isCurrent(context), self.revisions[id] == revision, document.url == url,
                       self.javaNavigationRequests[id] == requestID else {
                     reply(["cancelled": true], nil); return
                 }
-                self.javaNavigationLists[id] = (revision, url, markers)
+                self.javaNavigationLists[id] = (context, revision, url, markers)
                 reply(["markers": markers.map { ["id": $0.id, "line": $0.line + 1, "direction": $0.direction.rawValue, "relation": $0.relation.rawValue] as [String: Any] }], nil)
             }
         case "javaNavigationAction":
             guard let model, !failed, let revision = body["revision"] as? Int, revision == revisions[id],
-                  let list = javaNavigationLists[id], list.revision == revision, list.url == document.url,
+                  let list = javaNavigationLists[id], isCurrent(list.context), list.revision == revision, list.url == document.url,
                   document.url.pathExtension.lowercased() == "java",
                   let markerID = body["marker"] as? String,
                   let marker = list.markers.first(where: { $0.id == markerID }) else {
@@ -673,6 +711,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
                 reply(["cancelled": true], nil); return
             }
             Task { @MainActor in
+                guard self.isCurrent(context) else { reply(["cancelled": true], nil); return }
                 await model.showGitCommit(commit)
                 reply(["ok": true], nil)
             }
@@ -689,6 +728,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             }
             let url = document.url
             Task { @MainActor in
+                guard self.isCurrent(context) else { reply(["cancelled": true], nil); return }
                 switch action {
                 case "show": await model.showGitLineChange(marker, for: url)
                 case "stage": await model.stageGitLineChange(marker, for: url)
@@ -758,10 +798,10 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             }
             let originalURL = document.url
             Task { @MainActor [weak self, weak document, weak model] in
-                guard let self, let document, let model else { reply(["cancelled": true], nil); return }
+                guard let self, let document, let model, self.isCurrent(context) else { reply(["cancelled": true], nil); return }
                 do {
                     let result = try await model.importMarkdownImage(source, for: document)
-                    guard self.documents[id] === document, self.revisions[id] == revision,
+                    guard self.isCurrent(context), self.revisions[id] == revision,
                           document.url == originalURL, !document.isReadOnly, !self.failed else {
                         model.showNotification("Saved image to \(result.relativePath); insertion cancelled because the document changed")
                         reply(["cancelled": true], nil); return
@@ -829,7 +869,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             let range = LanguageServerRange(start: .init(line: line, utf16Column: column),
                                             end: .init(line: endLine, utf16Column: endColumn))
             model.requestLanguageInlayHints(for: document, range: range) { [weak self] result in
-                guard let self, self.documents[id] === document, self.revisions[id] == revision else {
+                guard let self, self.isCurrent(context), self.revisions[id] == revision else {
                     reply(["cancelled": true], nil); return
                 }
                 switch result {
@@ -853,7 +893,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             guard let model, body["revision"] as? Int == revisions[id] else { reply(["cancelled": true], nil); return }
             let revision = revisions[id]
             model.requestSemanticTokens(for: document) { [weak self] result in
-                guard let self, self.revisions[id] == revision, self.documents[id] != nil else { reply(["cancelled": true], nil); return }
+                guard let self, self.revisions[id] == revision, self.isCurrent(context) else { reply(["cancelled": true], nil); return }
                 switch result {
                 case .success(let tokens):
                     do {
@@ -874,7 +914,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             }
             let revision = revisions[id]
             model.requestLanguageFormattingEdits(for: document) { [weak self] result in
-                guard let self, self.revisions[id] == revision, self.documents[id] === document else {
+                guard let self, self.revisions[id] == revision, self.isCurrent(context) else {
                     reply(["cancelled": true], nil); return
                 }
                 switch result {
@@ -897,13 +937,13 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             }
             let revision = revisions[id], key = UUID().uuidString
             let root = model.workspaceURL
-            codeActionLists[id] = (revision, key, [])
+            codeActionLists[id] = (context, revision, key, [])
             let range = LanguageServerRange(start: .init(line: line, utf16Column: column),
                                             end: .init(line: endLine, utf16Column: endColumn))
             model.requestLanguageCodeActions(for: document, line: line, utf16Column: column, range: range) { [weak self, weak model] actions in
-                guard let self, let model, self.documents[id] === document, self.revisions[id] == revision,
+                guard let self, let model, self.isCurrent(context), self.revisions[id] == revision,
                       self.codeActionLists[id]?.key == key, model.workspaceURL == root else { reply(["cancelled": true], nil); return }
-                self.codeActionLists[id] = (revision, key, actions)
+                self.codeActionLists[id] = (context, revision, key, actions)
                 reply(["list": key, "actions": actions.enumerated().map { index, action in
                     var value: [String: Any] = ["index": index, "title": action.title, "isPreferred": action.isPreferred]
                     if let kind = action.kind { value["kind"] = kind }
@@ -911,12 +951,12 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
                 }], nil)
             }
         case "resolveCodeAction":
-            guard let model, let list = codeActionLists[id], list.revision == revisions[id],
+            guard let model, let list = codeActionLists[id], isCurrent(list.context), list.revision == revisions[id],
                   body["revision"] as? Int == revisions[id], body["list"] as? String == list.key,
                   let index = body["index"] as? Int, list.items.indices.contains(index) else { reply(["cancelled": true], nil); return }
             let root = model.workspaceURL
             model.requestResolvedLanguageCodeAction(list.items[index], for: document) { [weak self, weak model] result in
-                guard let self, let model, self.documents[id] === document, self.revisions[id] == list.revision,
+                guard let self, let model, self.isCurrent(context), self.revisions[id] == list.revision,
                       self.codeActionLists[id]?.key == list.key, model.workspaceURL == root else { reply(["cancelled": true], nil); return }
                 switch result {
                 case .failure(let error): reply(nil, error.localizedDescription)
@@ -924,12 +964,12 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
                     Task { @MainActor in
                         do {
                             let changes = try await self.workspaceEditPayload(action.edit ?? LanguageServerWorkspaceEdit(), model: model)
-                            guard self.documents[id] === document, self.revisions[id] == list.revision,
+                            guard self.isCurrent(context), self.revisions[id] == list.revision,
                                   self.codeActionLists[id]?.key == list.key, model.workspaceURL == root else { reply(["cancelled": true], nil); return }
                             var response: [String: Any] = ["changes": changes]
                             if let command = action.command {
                                 let key = UUID().uuidString
-                                self.codeActionCommands[id] = (key, root, command)
+                                self.codeActionCommands[id] = (context, key, root, command)
                                 response["command"] = key
                             }
                             reply(response, nil)
@@ -938,7 +978,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
                 }
             }
         case "executeCodeAction":
-            guard let model, let command = codeActionCommands[id], command.root == model.workspaceURL,
+            guard let model, let command = codeActionCommands[id], isCurrent(command.context, allowTextChanges: true), command.root == model.workspaceURL,
                   body["command"] as? String == command.key, body["revision"] as? Int == revisions[id] else {
                 reply(["cancelled": true], nil); return
             }
@@ -957,7 +997,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             let revision = revisions[id]
             let root = model.workspaceURL
             model.requestLanguageRenameEdits(for: document, line: line, utf16Column: column, newName: newName) { [weak self, weak model] result in
-                guard let self, let model, self.documents[id] === document,
+                guard let self, let model, self.isCurrent(context),
                       self.revisions[id] == revision, model.workspaceURL == root else { reply(["cancelled": true], nil); return }
                 switch result {
                 case .failure(let error): reply(nil, error.localizedDescription)
@@ -965,7 +1005,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
                     Task { @MainActor in
                         do {
                             let changes = try await self.workspaceEditPayload(edit, model: model)
-                            guard self.documents[id] === document, self.revisions[id] == revision,
+                            guard self.isCurrent(context), self.revisions[id] == revision,
                                   model.workspaceURL == root else { reply(["cancelled": true], nil); return }
                             reply(["changes": changes], nil)
                         } catch { reply(nil, error.localizedDescription) }
@@ -973,13 +1013,13 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
                 }
             }
         case "resolveCompletion":
-            guard let model, let list = completionLists[id], list.revision == revisions[id],
+            guard let model, let list = completionLists[id], isCurrent(list.context), list.revision == revisions[id],
                   body["revision"] as? Int == revisions[id], body["completionList"] as? String == list.key,
                   let index = body["completionIndex"] as? Int, list.items.indices.contains(index) else {
                 reply(["cancelled": true], nil); return
             }
             model.requestResolvedLanguageCompletion(list.items[index], for: document) { [weak self] result in
-                guard let self, self.documents[id] === document, self.revisions[id] == list.revision,
+                guard let self, self.isCurrent(context), self.revisions[id] == list.revision,
                       self.completionLists[id]?.key == list.key else { reply(["cancelled": true], nil); return }
                 switch result {
                 case .success(let item): reply(["item": Self.completionPayload(item)], nil)
@@ -994,7 +1034,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             }
             let revision = revisions[id]
             model.requestDebugHover(expression: expression) { [weak self] value in
-                guard let self, self.revisions[id] == revision, self.documents[id] === document else {
+                guard let self, self.revisions[id] == revision, self.isCurrent(context) else {
                     reply(["contents": ""], nil); return
                 }
                 reply(["contents": value ?? ""], nil)
@@ -1005,16 +1045,16 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             let revision = revisions[id]
             if type == "hover" {
                 model.requestLanguageHover(for: document, line: line, utf16Column: column) { [weak self] hover in
-                    guard let self, self.revisions[id] == revision, self.documents[id] === document else { reply(["contents": ""], nil); return }
+                    guard let self, self.revisions[id] == revision, self.isCurrent(context) else { reply(["contents": ""], nil); return }
                     reply(["contents": hover?.contents ?? ""], nil)
                 }
             } else {
                 let key = UUID().uuidString
-                completionLists[id] = (revision, key, [])
+                completionLists[id] = (context, revision, key, [])
                 model.requestLanguageCompletions(for: document, line: line, utf16Column: column) { [weak self] items in
-                    guard let self, self.revisions[id] == revision, self.documents[id] === document,
+                    guard let self, self.revisions[id] == revision, self.isCurrent(context),
                           self.completionLists[id]?.key == key else { reply(["items": []], nil); return }
-                    self.completionLists[id] = (revision, key, items)
+                    self.completionLists[id] = (context, revision, key, items)
                     let values = items.enumerated().map { index, item in
                         var value = Self.completionPayload(item)
                         value["completionList"] = key

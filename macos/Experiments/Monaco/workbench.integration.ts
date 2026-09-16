@@ -782,7 +782,7 @@ async function verify() {
   });
   await check("completion resolve rejects edits replacement lists cancellation and closed models", async () => {
     const services = StandaloneServices.get(ILanguageFeaturesService);
-    for (const change of ["edit", "replace", "cancel", "close"]) {
+    for (const change of ["edit", "replace", "cancel", "close", "rename", "rename-back"]) {
       const id = `resolve-${change}`, text = "sample";
       await send({ type: "open", text });
       await window.lithe.activate({ id, text, revision: 0, language: "python", readonly: false });
@@ -800,6 +800,11 @@ async function verify() {
         if (change === "edit") editor.executeEdits("integration", [{ range: new Range(1, 7, 1, 7), text: "New" }]);
         if (change === "replace") await request();
         if (change === "cancel") cancellation.cancel();
+        if (change === "rename" || change === "rename-back") {
+          await window.lithe.updateDocument({ id, filename: "Other.py", locationRevision: 1, readonly: false });
+          if (change === "rename-back")
+            await window.lithe.updateDocument({ id, filename: "Original.py", locationRevision: 2, readonly: false });
+        }
         if (change === "close") await window.lithe.retain([]);
         await send({ type: "releaseResolve" });
         const resolved = await pending;
@@ -1052,6 +1057,45 @@ async function verify() {
       await pending;
       await window.lithe.freeze("format");
       await window.lithe.retain([]);
+    }
+  });
+  await check("active rename preserves shared model history and rejects old formatting", async () => {
+    for (const ending of ["rename", "rename-back", "close", "hold"]) {
+      const id = `format-${ending}`, text = "class Probe {}";
+      await send({ type: "open", id, text });
+      await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", locationRevision: 0, readonly: false });
+      const model = editor.getModel()!;
+      const provider = StandaloneServices.get(ILanguageFeaturesService).documentFormattingEditProvider.ordered(model)[0];
+      // Leave a real undo item in the shared buffer before changing its identity.
+      editor.executeEdits("integration", [{ range: new Range(1, 1, 1, 1), text: "// pending\n" }]);
+      const snapshot = await window.lithe.freeze(id);
+      window.lithe.unlock(id);
+      await send({ type: "holdFormat" });
+      const pending = Promise.resolve(provider.provideDocumentFormattingEdits(model, { tabSize: 4, insertSpaces: true }, CancellationToken.None));
+      try {
+        await send({ type: "awaitFormat" });
+        if (ending === "close") await window.lithe.retain([]);
+        else if (ending === "hold") await window.lithe.holdForClose(id, "format-close");
+        else {
+          await window.lithe.updateDocument({ id, filename: "Probe.py", locationRevision: 1, readonly: false });
+          assert(editor.getModel() === model && model.getLanguageId() === "python", "active rename did not update the existing model language");
+          assert(model.getValue() === snapshot.text, "rename discarded unsaved text");
+          if (ending === "rename-back")
+            await window.lithe.updateDocument({ id, filename: "Probe.java", locationRevision: 2, readonly: false });
+        }
+        await send({ type: "releaseFormat" });
+        assert(!(await pending)?.length, `old formatting survived ${ending}`);
+        if (ending.startsWith("rename")) {
+          await model.undo();
+          assert(model.getValue() === text, "rename discarded Monaco undo history");
+        }
+      } finally {
+        await send({ type: "releaseFormat" });
+        await pending;
+        await window.lithe.releaseClose("format-close");
+        if (!model.isDisposed()) await window.lithe.freeze(id);
+        await window.lithe.retain([]);
+      }
     }
   });
   await check("TextMate worker updates multiline state after Unicode edits and releases models", async () => {

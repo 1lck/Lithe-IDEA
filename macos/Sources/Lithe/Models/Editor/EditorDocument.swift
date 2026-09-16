@@ -20,6 +20,8 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
 
     let id = UUID()
     private(set) var url: URL
+    /// Invalidates asynchronous requests even after a rename away and back.
+    private(set) var locationRevision: UInt64 = 0
     let isReadOnly: Bool
     let displayPath: String?
     /// Preview subscribers receive live edits without invalidating the editor hierarchy.
@@ -267,6 +269,7 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
 
     func relocate(to newURL: URL) {
         objectWillChange.send()
+        if url != newURL.standardizedFileURL { locationRevision += 1 }
         url = newURL.standardizedFileURL
         lastKnownModificationDate = Self.modificationDate(for: newURL)
     }

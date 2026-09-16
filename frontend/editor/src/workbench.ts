@@ -38,7 +38,7 @@ export function mountWorkbench(host: WorkbenchHost) {
   type GitMarker = { id: string; line: number; kind: "added" | "modified" | "deleted"; stage: boolean; unstage: boolean; discard: boolean };
   type BlameLine = { line: number; commit: string; author: string; date: string };
   type JavaMarker = { id: string; line: number; direction: "up" | "down"; relation?: "interface" | "inheritance" };
-  type Entry = { source: SourceText; model: monaco.editor.ITextModel; release: () => void; revision: number; chain: Promise<unknown>; readonly: boolean; frozen: boolean; state: monaco.editor.ICodeEditorViewState | null; debugDecorations?: string[]; debugPaused?: boolean; debugGeneration?: number; closingHolds?: number };
+  type Entry = { source: SourceText; model: monaco.editor.ITextModel; release: () => void; revision: number; chain: Promise<unknown>; readonly: boolean; frozen: boolean; state: monaco.editor.ICodeEditorViewState | null; debugDecorations?: string[]; debugPaused?: boolean; debugGeneration?: number; closingHolds?: number; filename?: string; locationRevision: number; contextGeneration: number };
   const entries = new Map<string, Entry>();
   const workers: Worker[] = [];
   const closingOperations = new Map<string, { entry?: Entry; cancelled: boolean }>();
@@ -97,9 +97,10 @@ export function mountWorkbench(host: WorkbenchHost) {
       entry.model.onWillDispose(() => { clearTimeout(state!.timer); state!.generation++; });
     }
     clearTimeout(state.timer);
+    const current = documentCheckpoint(id, entry);
     const generation = ++state.generation, version = entry.model.getVersionId();
     await entry.chain;
-    const valid = () => entries.get(id) === entry && !entry.model.isDisposed() &&
+    const valid = () => current() && entries.get(id) === entry && !entry.model.isDisposed() &&
       entry.model.getVersionId() === version && state!.generation === generation;
     if (!valid()) return;
     const revision = entry.revision, language = entry.model.getLanguageId();
@@ -165,6 +166,10 @@ export function mountWorkbench(host: WorkbenchHost) {
   }
   async function send(payload: object): Promise<any> {
     let timer: ReturnType<typeof setTimeout>;
+    if ("id" in payload && typeof payload.id === "string") {
+      const entry = entries.get(payload.id);
+      if (entry) payload = { ...payload, locationRevision: entry.locationRevision };
+    }
     try {
       return await Promise.race([host.request(payload), new Promise((_, reject) => {
         timer = setTimeout(() => reject(new Error("Native editor request timed out")), 10_000);
@@ -194,7 +199,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       const model = acquired.model;
       // Monaco owns normalized editing coordinates; the source mirror preserves disk newlines.
       model.setEOL(monaco.editor.EndOfLineSequence.LF);
-      entry = { source: new SourceText(payload.text, model.getAlternativeVersionId()), model, release: acquired.release, revision: payload.revision, chain: Promise.resolve(), readonly: payload.readonly, frozen: false, state: null };
+      entry = { source: new SourceText(payload.text, model.getAlternativeVersionId()), model, release: acquired.release, revision: payload.revision, chain: Promise.resolve(), readonly: payload.readonly, frozen: false, state: null, filename: payload.filename, locationRevision: payload.locationRevision ?? 0, contextGeneration: 0 };
       entries.set(payload.id, entry);
       const owned = entry;
       model.onDidChangeContent(event => {
@@ -207,11 +212,21 @@ export function mountWorkbench(host: WorkbenchHost) {
           if (reply.revision !== owned.revision && reply.revision !== baseRevision + 1) throw new Error("Edit revision mismatch");
         }).catch(error => { fail(error); throw error; });
       });
-    } else if ((payload.language || payload.filename) && entry.model.getLanguageId() !== language) {
-      await ensureMonacoLanguageTokenizer(language);
-      if (entries.get(payload.id) !== entry || entry.model.isDisposed()) throw new CancellationError();
-      // A rename changes syntax and comment rules, not the model's source or undo stack.
-      monaco.editor.setModelLanguage(entry.model, language);
+    } else {
+      const languageChanged = (payload.language || payload.filename) && entry.model.getLanguageId() !== language;
+      if (languageChanged || (payload.filename !== undefined && payload.filename !== entry.filename) ||
+          (payload.locationRevision !== undefined && payload.locationRevision !== entry.locationRevision)) {
+        // Invalidate before awaiting syntax loading. Rename away and back must
+        // not revive an older request, even when its text version is unchanged.
+        entry.contextGeneration++;
+        if (payload.filename !== undefined) entry.filename = payload.filename;
+        if (payload.locationRevision !== undefined) entry.locationRevision = payload.locationRevision;
+      }
+      if (languageChanged) {
+        await ensureMonacoLanguageTokenizer(language);
+        if (entries.get(payload.id) !== entry || entry.model.isDisposed()) throw new CancellationError();
+        monaco.editor.setModelLanguage(entry.model, language);
+      }
     }
     if (typeof payload.readonly === "boolean" && entry.readonly !== payload.readonly) {
       entry.readonly = payload.readonly;
@@ -242,12 +257,18 @@ export function mountWorkbench(host: WorkbenchHost) {
     return metrics;
   }
 
+  function documentCheckpoint(id: string, entry: Entry) {
+    const revision = entry.revision, version = entry.model.getVersionId();
+    const generation = entry.contextGeneration, language = entry.model.getLanguageId();
+    return () => entries.get(id) === entry && !entry.model.isDisposed() && !failed &&
+      entry.revision === revision && entry.model.getVersionId() === version &&
+      entry.contextGeneration === generation && entry.model.getLanguageId() === language &&
+      !entry.closingHolds && !entry.frozen;
+  }
+
   function workspaceCheckpoint() {
-    const snapshots = new Map([...entries].map(([key, entry]) => [key,
-      { entry, revision: entry.revision, version: entry.model.getVersionId() }]));
-    return () => [...snapshots].every(([key, snapshot]) => entries.get(key) === snapshot.entry &&
-      !snapshot.entry.model.isDisposed() && snapshot.entry.revision === snapshot.revision &&
-      snapshot.entry.model.getVersionId() === snapshot.version && !snapshot.entry.closingHolds && !snapshot.entry.frozen);
+    const current = [...entries].map(([id, entry]) => documentCheckpoint(id, entry));
+    return () => current.every(valid => valid());
   }
 
   async function prepareWorkspaceChanges(changes: any[], valid: () => boolean) {
@@ -369,10 +390,11 @@ export function mountWorkbench(host: WorkbenchHost) {
       const selection = view.getSelection();
       if (!pair || !selection) return;
       const [id, entry] = pair;
+      const current = documentCheckpoint(id, entry);
       const version = entry.model.getVersionId();
       let disposed = false;
       const lifetime = view.onDidDispose(() => { disposed = true; });
-      const valid = () => !disposed && entries.get(id) === entry && !entry.model.isDisposed() &&
+      const valid = () => !disposed && current() && entries.get(id) === entry && !entry.model.isDisposed() &&
         view.getModel() === entry.model && entry.model.getVersionId() === version &&
         !entry.readonly && !entry.frozen && !entry.closingHolds && !failed;
       const offset = entry.model.getOffsetAt(selection.getStartPosition());
@@ -566,6 +588,15 @@ export function mountWorkbench(host: WorkbenchHost) {
     semanticRefresh() { semanticGeneration++; semanticChanges.fire(); void api.refreshJavaNavigation().catch(console.error); },
     tokenizationReady() { return textmate.whenReady(editor.getModel()); },
     tokenizationStatus() { return textmate.status(); },
+    updateDocument(payload: { id: string; filename: string; locationRevision: number; readonly: boolean }) {
+      activation = activation.then(async () => {
+        if (!entries.has(payload.id)) return;
+        const entry = await prepareEntry(payload);
+        scheduleNavigation(payload.id, entry);
+        semanticGeneration++; semanticChanges.fire(); codeVisionChanges.fire();
+      });
+      return activation;
+    },
     activate(payload: any) {
       activation = activation.then(() => activate(payload)).catch(fail);
       return activation;
@@ -843,7 +874,9 @@ export function mountWorkbench(host: WorkbenchHost) {
         const pair = [...entries].find(([, entry]) => entry.model === model);
         if (!pair) return null;
         const [id, entry] = pair;
+        const current = documentCheckpoint(id, entry);
         await entry.chain;
+        if (!current() || token.isCancellationRequested) return null;
         const revision = entry.revision, version = model.getVersionId();
         const generation = semanticGeneration;
         const key = `${revision}:${version}:${generation}`;
@@ -853,7 +886,7 @@ export function mountWorkbench(host: WorkbenchHost) {
           semanticCache.set(entry, cached);
         }
         const reply = await cached.promise;
-        if (token.isCancellationRequested || model.isDisposed() || entry.revision !== revision ||
+        if (!current() || token.isCancellationRequested || model.isDisposed() || entry.revision !== revision ||
             model.getVersionId() !== version || generation !== semanticGeneration || reply.cancelled) {
           if (semanticCache.get(entry) === cached) semanticCache.delete(entry);
           return null;
@@ -873,8 +906,8 @@ export function mountWorkbench(host: WorkbenchHost) {
       if (active && editor.hasTextFocus()) void send({ type: "cursor", id: active, line: event.position.lineNumber - 1, column: event.position.column - 1 }).catch(fail);
     });
     const codeVisionCommand = monaco.editor.registerCommand("lithe.codeVision", async (_accessor, context) => {
-      const { id, entry, version, revision, hint, action } = context;
-      if (entries.get(id) !== entry || entry.model.isDisposed() || entry.model.getVersionId() !== version ||
+      const { id, entry, version, revision, hint, action, current } = context;
+      if (!current() || entries.get(id) !== entry || entry.model.isDisposed() || entry.model.getVersionId() !== version ||
           entry.revision !== revision || entry.frozen || entry.closingHolds || failed) return;
       await languageRequest({ type: "codeVisionAction", id, revision, hint, action });
     });
@@ -884,20 +917,21 @@ export function mountWorkbench(host: WorkbenchHost) {
         const pair = [...entries].find(([, entry]) => entry.model === model);
         if (!pair) return { lenses: [], dispose() {} };
         const [id, entry] = pair;
+        const current = documentCheckpoint(id, entry);
         const version = model.getVersionId();
         await entry.chain;
-        if (token.isCancellationRequested || model.isDisposed() || entries.get(id) !== entry || model.getVersionId() !== version)
+        if (!current() || token.isCancellationRequested || model.isDisposed() || entries.get(id) !== entry || model.getVersionId() !== version)
           return { lenses: [], dispose() {} };
         const revision = entry.revision;
         const reply = await languageRequest({ type: "codeVision", id, revision });
-        if (reply.cancelled || token.isCancellationRequested || model.isDisposed() || entries.get(id) !== entry ||
+        if (!current() || reply.cancelled || token.isCancellationRequested || model.isDisposed() || entries.get(id) !== entry ||
             model.getVersionId() !== version || entry.revision !== revision) return { lenses: [], dispose() {} };
         const lenses: monaco.languages.CodeLens[] = [];
         for (const hint of reply.hints ?? []) {
           if (hint.line < 1 || hint.line > model.getLineCount()) continue;
           const range = new monaco.Range(hint.line, 1, hint.line, 1);
           const add = (action: string, title: string) => lenses.push({ range, command: { id: "lithe.codeVision", title,
-            arguments: [{ id, entry, version, revision, hint: hint.id, action }] } });
+            arguments: [{ id, entry, version, revision, hint: hint.id, action, current }] } });
           if (hint.usageCount > 0) add("usages", `${hint.usageCount} usage${hint.usageCount === 1 ? "" : "s"}`);
           if (hint.implementationCount > 0) add("implementations", `${hint.implementationCount} implementation${hint.implementationCount === 1 ? "" : "s"}`);
           if (hint.authorName) add("author", hint.authorName);
@@ -912,13 +946,14 @@ export function mountWorkbench(host: WorkbenchHost) {
         const pair = [...entries].find(([, entry]) => entry.model === model);
         if (!pair) return { hints: [], dispose() {} };
         const [id, entry] = pair;
+        const current = documentCheckpoint(id, entry);
         await entry.chain;
-        if (token.isCancellationRequested || entries.get(id) !== entry || model.isDisposed()) return { hints: [], dispose() {} };
+        if (!current() || token.isCancellationRequested || entries.get(id) !== entry || model.isDisposed()) return { hints: [], dispose() {} };
         const version = model.getVersionId(), revision = entry.revision;
         const reply = await languageRequest({ type: "inlayHints", id, revision,
           line: range.startLineNumber - 1, column: range.startColumn - 1,
           endLine: range.endLineNumber - 1, endColumn: range.endColumn - 1 });
-        if (token.isCancellationRequested || entries.get(id) !== entry || model.isDisposed() ||
+        if (!current() || token.isCancellationRequested || entries.get(id) !== entry || model.isDisposed() ||
             model.getVersionId() !== version || entry.revision !== revision || reply.cancelled) return { hints: [], dispose() {} };
         return { hints: (reply.hints ?? []).filter((hint: any) =>
           monaco.Position.equals(hint.position, model.validatePosition(hint.position)) &&
@@ -934,11 +969,12 @@ export function mountWorkbench(host: WorkbenchHost) {
         const pair = [...entries].find(([, entry]) => entry.model === model);
         if (!pair || model.isDisposed()) return [];
         const [id, entry] = pair;
+        const current = documentCheckpoint(id, entry);
         await entry.chain;
-        if (token.isCancellationRequested || model.isDisposed() || entries.get(id) !== entry) return [];
+        if (!current() || token.isCancellationRequested || model.isDisposed() || entries.get(id) !== entry) return [];
         const revision = entry.revision, version = model.getVersionId();
         const reply = await languageRequest({ type: "format", id, revision });
-        if (token.isCancellationRequested || model.isDisposed() || entries.get(id) !== entry ||
+        if (!current() || token.isCancellationRequested || model.isDisposed() || entries.get(id) !== entry ||
             model.getVersionId() !== version || entry.revision !== revision || entry.closingHolds || entry.frozen || reply.cancelled) return [];
         return reply.edits ?? [];
       },
@@ -948,9 +984,10 @@ export function mountWorkbench(host: WorkbenchHost) {
         const pair = [...entries].find(([, entry]) => entry.model === model);
         if (!pair) return { edits: [] };
         const [id, entry] = pair;
-        await Promise.all([...entries.values()].map(value => value.chain));
-        if (token.isCancellationRequested || entries.get(id) !== entry || model.isDisposed()) return { edits: [] };
+        const current = documentCheckpoint(id, entry);
         const unchanged = workspaceCheckpoint();
+        await Promise.all([...entries.values()].map(value => value.chain));
+        if (!current() || token.isCancellationRequested || entries.get(id) !== entry || model.isDisposed()) return { edits: [] };
         const valid = () => !token.isCancellationRequested && unchanged();
         const reply = await languageRequest({ type: "rename", id, revision: entry.revision,
           line: position.lineNumber - 1, column: position.column - 1, newName });
@@ -986,12 +1023,14 @@ export function mountWorkbench(host: WorkbenchHost) {
         const pair = [...entries].find(([, entry]) => entry.model === model);
         if (!pair) return { actions: [], dispose() {} };
         const [id, entry] = pair;
+        const current = documentCheckpoint(id, entry);
+        const unchanged = workspaceCheckpoint();
         await Promise.all([...entries.values()].map(value => value.chain));
-        if (token.isCancellationRequested || entries.get(id) !== entry || model.isDisposed() || entry.readonly)
+        if (!current() || token.isCancellationRequested || entries.get(id) !== entry || model.isDisposed() || entry.readonly)
           return { actions: [], dispose() {} };
         const request = {};
         codeActionRequests.set(entry, request);
-        const unchanged = workspaceCheckpoint(), revision = entry.revision;
+        const revision = entry.revision;
         const valid = () => codeActionRequests.get(entry) === request && unchanged();
         const reply = await languageRequest({ type: "codeActions", id, revision,
           line: range.startLineNumber - 1, column: range.startColumn - 1,
@@ -1009,8 +1048,9 @@ export function mountWorkbench(host: WorkbenchHost) {
         const pair = [...entries].find(([, entry]) => entry.model === model);
         const id = pair?.[0]; const entry = pair?.[1];
         if (!id || !entry || entry.model !== model) return null;
+        const current = documentCheckpoint(id, entry);
         await entry.chain;
-        if (token.isCancellationRequested || model.isDisposed() || entries.get(id) !== entry) return null;
+        if (!current() || token.isCancellationRequested || model.isDisposed() || entries.get(id) !== entry) return null;
         const revision = entry.revision, version = model.getVersionId();
         const debugGeneration = entry.debugGeneration;
         const expression = model.getWordAtPosition(position)?.word;
@@ -1019,7 +1059,7 @@ export function mountWorkbench(host: WorkbenchHost) {
           entry.debugPaused && expression && /^[$_\p{L}][$_\p{L}\p{N}]*$/u.test(expression)
             ? languageRequest({ type: "debugHover", id, revision, expression }) : Promise.resolve(undefined),
         ]);
-        if (token.isCancellationRequested || entries.get(id) !== entry || model.isDisposed() || entry.revision !== revision || model.getVersionId() !== version) return null;
+        if (!current() || token.isCancellationRequested || entries.get(id) !== entry || model.isDisposed() || entry.revision !== revision || model.getVersionId() !== version) return null;
         const contents: monaco.IMarkdownString[] = [];
         if (debug?.contents && !debug.cancelled && entry.debugPaused && entry.debugGeneration === debugGeneration)
           contents.push({ value: String(debug.contents).replace(/[\\`*_{}[\]()<>#+.!|~-]/g, "\\$&"), isTrusted: false, supportHtml: false });
@@ -1029,7 +1069,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     });
     const completionRequests = new WeakMap<Entry, object>();
     const completionContexts = new WeakMap<monaco.languages.CompletionItem, {
-      id: string; entry: Entry; version: number; revision: number; list: string; index: number; request: object;
+      id: string; entry: Entry; version: number; revision: number; list: string; index: number; request: object; current: () => boolean;
     }>();
     monaco.languages.registerCompletionItemProvider("*", {
       triggerCharacters: ["."],
@@ -1037,20 +1077,21 @@ export function mountWorkbench(host: WorkbenchHost) {
         const pair = [...entries].find(([, entry]) => entry.model === model);
         const id = pair?.[0]; const entry = pair?.[1];
         if (!id || !entry || entry.model !== model) return { suggestions: [] };
+        const current = documentCheckpoint(id, entry);
         await entry.chain;
-        if (token.isCancellationRequested || model.isDisposed() || entries.get(id) !== entry) return null;
+        if (!current() || token.isCancellationRequested || model.isDisposed() || entries.get(id) !== entry) return null;
         const revision = entry.revision, version = model.getVersionId();
         const request = {};
         completionRequests.set(entry, request);
         const reply = await languageRequest({ type: "completion", id, revision, line: position.lineNumber - 1, column: position.column - 1 });
-        if (token.isCancellationRequested || entries.get(id) !== entry || model.isDisposed() || entry.revision !== revision || model.getVersionId() !== version || completionRequests.get(entry) !== request || reply.cancelled) return { suggestions: [] };
+        if (!current() || token.isCancellationRequested || entries.get(id) !== entry || model.isDisposed() || entry.revision !== revision || model.getVersionId() !== version || completionRequests.get(entry) !== request || reply.cancelled) return { suggestions: [] };
         const word = model.getWordUntilPosition(position);
         return { suggestions: (reply.items ?? []).map((item: any) => {
           const suggestion = { ...item, kind: mapCompletionKind(item.kind),
             insertTextRules: item.insertTextFormat === 2 ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet : undefined,
             range: item.range ?? new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn) };
           if (item.completionList) completionContexts.set(suggestion,
-            { id, entry, version, revision, list: item.completionList, index: item.completionIndex, request });
+            { id, entry, version, revision, list: item.completionList, index: item.completionIndex, request, current });
           return suggestion;
         }) };
       },
@@ -1058,7 +1099,7 @@ export function mountWorkbench(host: WorkbenchHost) {
         const context = completionContexts.get(item);
         if (!context) return item;
         const { id, entry, version, revision } = context;
-        const valid = () => !token.isCancellationRequested && entries.get(id) === entry && !entry.model.isDisposed()
+        const valid = () => context.current() && !token.isCancellationRequested && entries.get(id) === entry && !entry.model.isDisposed()
           && entry.model.getVersionId() === version && entry.revision === revision
           && !entry.closingHolds && !entry.frozen && completionRequests.get(entry) === context.request;
         if (!valid()) return item;
