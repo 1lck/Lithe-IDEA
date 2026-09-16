@@ -117,11 +117,11 @@ struct StableRollbackTests {
             .write(to: app.appendingPathComponent("Contents/Info.plist"))
         let dmg = root.appendingPathComponent("stable.dmg")
         try await runFixtureTool("/usr/bin/codesign", ["--force", "--sign", "-", app.path])
-        // Let diskutil build a read-only APFS image directly from the already
+        // Let diskutil build an uncompressed image directly from the already
         // signed payload. This avoids a second test-only mount/copy/unmount
         // cycle; StableRollbackPackage.prepare still exercises the production
         // hdiutil mount and validates the complete disk-image contract.
-        try await runFixtureTool("/usr/sbin/diskutil", ["image", "create", "from", "--format", "UDRO",
+        try await runFixtureTool("/usr/sbin/diskutil", ["image", "create", "from", "--format", "UDRW",
                                                          root.appendingPathComponent("payload").path, dmg.path])
         let archiveData = try Data(contentsOf: dmg)
         let checksum = SHA256.hash(data: archiveData).map { String(format: "%02x", $0) }.joined()
