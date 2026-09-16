@@ -9,8 +9,7 @@
 pub(crate) mod line_edit;
 
 pub(crate) use line_edit::{
-    line_comment_token, line_edit, LineCommentToken, LineCommentTokenRequest, LineEditOperation,
-    LineEditOutcome, LineEditRequest,
+    line_comment_token, line_edit, LineCommentTokenRequest, LineEditRequest,
 };
 
 #[cfg(test)]

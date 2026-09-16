@@ -131,17 +131,15 @@ jobs:
     name: Swift tests
     needs: changes
     if: needs.changes.outputs.swift == 'true'
-    runs-on: macos-14
+    runs-on: macos-26
     timeout-minutes: 40
 
     steps:
       - name: Check out source
         uses: actions/checkout@v7
 
-      - name: Set up Swift
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: "6.2"
+      - name: Set up Swift 6.3.3 and Xcode
+        uses: ./.github/actions/setup-macos-toolchain
 
       - name: Prepare verified SwiftPM cache
         uses: ./.github/actions/prepare-macos-dependency-cache
@@ -151,8 +149,11 @@ jobs:
       - name: Run Swift unit tests
         timeout-minutes: 12
         run: |
+          # The stable rollback integration test creates and mounts a real
+          # macOS disk image; keep its measured bound explicit and bounded.
           ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
             --report .artifacts/test-stability/macos-unit.json \
+            --max-seconds 20 \
             --suite-timeout-seconds 660 -- \
             --skip WebKitIntegrationTests \
             --skip GitStatusObservationTests \
@@ -201,17 +202,15 @@ jobs:
     name: Rust Core and Swift bridge tests
     needs: changes
     if: needs.changes.outputs.rust_core == 'true'
-    runs-on: macos-14
+    runs-on: macos-26
     timeout-minutes: 20
 
     steps:
       - name: Check out source
         uses: actions/checkout@v7
 
-      - name: Set up Swift
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: "6.2"
+      - name: Set up Swift 6.3.3 and Xcode
+        uses: ./.github/actions/setup-macos-toolchain
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -243,7 +242,7 @@ jobs:
     name: Release package verification (${{ matrix.architecture }})
     needs: changes
     if: needs.changes.outputs.macos_release == 'true'
-    runs-on: macos-14
+    runs-on: macos-26
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -256,10 +255,8 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v7
 
-      - name: Set up Swift
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: "6.2"
+      - name: Set up Swift 6.3.3 and Xcode
+        uses: ./.github/actions/setup-macos-toolchain
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable

@@ -3,6 +3,18 @@ import LitheGitModule
 import AppKit
 import SwiftUI
 
+enum ProjectFileRowActivation {
+    static func performPrimary(isExecutableBinary: Bool, openFile: () -> Void) {
+        guard !isExecutableBinary else { return }
+        openFile()
+    }
+
+    static func performDoubleClick(isExecutableBinary: Bool, runExecutable: () -> Void) {
+        guard isExecutableBinary else { return }
+        runExecutable()
+    }
+}
+
 struct ProjectSidebarView: View {
     @EnvironmentObject private var model: AppModel
     let rowHeight: CGFloat
@@ -244,6 +256,9 @@ private final class ProjectTreeActions: @unchecked Sendable {
     nonisolated func openFile(_ url: URL) {
         Task { @MainActor in self.model.openFile(url) }
     }
+    nonisolated func runExecutable(_ url: URL) {
+        Task { @MainActor in self.model.runExecutable(url) }
+    }
     nonisolated func requestCreateFile(_ url: URL) {
         Task { @MainActor in self.model.requestCreateFile(in: url) }
     }
@@ -287,6 +302,13 @@ private final class ProjectTreeActions: @unchecked Sendable {
     }
     func javaIconKind(_ url: URL) async -> LitheIconKind? {
         await model.javaIconKind(for: url)
+    }
+    func fileIcon(_ url: URL, suggested: LitheIconKind) async -> (kind: LitheIconKind, isExecutable: Bool) {
+        await WorkspaceFileIconResolver.resolve(
+            for: url,
+            suggested: suggested,
+            storage: model.services.fileStorage
+        )
     }
 }
 
@@ -344,6 +366,8 @@ private struct FileNodeRow: View {
     @Binding var expandedDirectoryPaths: Set<String>
     @Binding var contextMenuPath: String?
     @State private var resolvedJavaIconKind: LitheIconKind?
+    @State private var resolvedFileIconKind: LitheIconKind?
+    @State private var isExecutableFile = false
 
     private var rowWidth: CGFloat {
         max(
@@ -438,11 +462,13 @@ private struct FileNodeRow: View {
     private var fileRow: some View {
         Button {
             contextMenuPath = nil
-            actions.openFile(node.url)
+            ProjectFileRowActivation.performPrimary(isExecutableBinary: isExecutableFile) {
+                actions.openFile(node.url)
+            }
         } label: {
             HStack(spacing: 6) {
                 Color.clear.frame(width: 10)
-                LitheIcon(kind: resolvedJavaIconKind ?? node.iconKind, size: LitheTheme.Metrics.treeIconSize)
+                LitheIcon(kind: resolvedJavaIconKind ?? resolvedFileIconKind ?? node.iconKind, size: LitheTheme.Metrics.treeIconSize)
                     .frame(width: LitheTheme.Metrics.treeIconSize)
                 Text(node.name)
                     .font(.system(size: LitheTheme.Metrics.treeFontSize))
@@ -479,9 +505,20 @@ private struct FileNodeRow: View {
             items: { fileContextMenuItems },
             onRightClick: { contextMenuPath = node.url.standardizedFileURL.path }
         )
+        .simultaneousGesture(
+            TapGesture(count: 2).onEnded {
+                ProjectFileRowActivation.performDoubleClick(isExecutableBinary: isExecutableFile) {
+                    actions.runExecutable(node.url)
+                }
+            }
+        )
         .task(id: node.url.standardizedFileURL.path) {
-            guard node.url.pathExtension.lowercased() == "java" else { return }
-            resolvedJavaIconKind = await actions.javaIconKind(node.url)
+            let resolved = await actions.fileIcon(node.url, suggested: node.iconKind)
+            resolvedFileIconKind = resolved.kind
+            isExecutableFile = resolved.isExecutable && resolved.kind == .binary
+            if node.url.pathExtension.lowercased() == "java" {
+                resolvedJavaIconKind = await actions.javaIconKind(node.url)
+            }
         }
     }
 

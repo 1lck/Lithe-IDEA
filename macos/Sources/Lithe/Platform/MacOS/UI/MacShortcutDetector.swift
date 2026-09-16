@@ -144,6 +144,12 @@ enum MacKeyboardShortcutMatcher {
     }
 }
 
+enum MacShortcutInputPolicy {
+    static func shouldDeferToMarkedText(_ responder: NSResponder?) -> Bool {
+        (responder as? NSTextInputClient)?.hasMarkedText() == true
+    }
+}
+
 /// Matches ordinary key presses and double-modifier taps for application commands.
 private final class MacShortcutDetector: ShortcutDetector, @unchecked Sendable {
     private static let doubleTapThreshold: TimeInterval = 0.35
@@ -178,6 +184,12 @@ private final class MacShortcutDetector: ShortcutDetector, @unchecked Sendable {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             self.doubleShiftRecognizer.handleKeyDown()
+            // While an input method owns marked text, key events belong to
+            // NSTextInputClient. Consuming one as an application shortcut
+            // breaks Chinese/Japanese/Korean composition and confirmation.
+            if MacShortcutInputPolicy.shouldDeferToMarkedText(event.window?.firstResponder) {
+                return event
+            }
             guard !self.isSuspended,
                   let binding = MacKeyboardShortcutEventMapper.binding(
                     keyCode: event.keyCode,
@@ -198,6 +210,10 @@ private final class MacShortcutDetector: ShortcutDetector, @unchecked Sendable {
 
         flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
             guard let self, !self.isSuspended else { return event }
+            if MacShortcutInputPolicy.shouldDeferToMarkedText(event.window?.firstResponder) {
+                self.doubleShiftRecognizer.reset()
+                return event
+            }
             let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             let shouldTrigger = self.doubleShiftRecognizer.handleFlagsChanged(
                 isShiftDown: modifiers.contains(.shift),
@@ -233,9 +249,7 @@ private final class MacShortcutDetector: ShortcutDetector, @unchecked Sendable {
     }
 
     private func resetDoubleShiftRecognizer() {
-        doubleShiftRecognizer = DoubleShiftGestureRecognizer(
-            threshold: Self.doubleTapThreshold
-        )
+        doubleShiftRecognizer.reset()
     }
 }
 
@@ -251,6 +265,12 @@ struct DoubleShiftGestureRecognizer {
     }
 
     mutating func handleKeyDown() {
+        currentPressIsStandalone = false
+        lastStandaloneTap = nil
+    }
+
+    mutating func reset() {
+        shiftWasDown = false
         currentPressIsStandalone = false
         lastStandaloneTap = nil
     }

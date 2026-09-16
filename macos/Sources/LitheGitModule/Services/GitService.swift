@@ -14,6 +14,7 @@ package struct NullGitPerformanceLogger: GitPerformanceLogger {
 package protocol GitOperations: Sendable {
     func consolePresentation(_ request: GitConsolePresentationRequest) -> GitConsolePresentation?
     func executionSettings(_ request: GitConfigurationEdit, save: Bool) -> Result<GitExecutionSettingsSnapshot, GitFetchFailure>
+    func remoteURL(at rootURL: URL, remote: String) -> String?
     func answerAuthentication(requestID: String, answer: String?) -> Bool
     func repositorySetup(at root: URL, scope: GitIdentityScope) -> Result<GitRepositorySetup, GitSetupFailure>
     func initializeRepository(at root: URL) -> Result<GitRepositorySetup, GitSetupFailure>
@@ -175,6 +176,7 @@ package protocol GitOperations: Sendable {
 package extension GitOperations {
     func consolePresentation(_ request: GitConsolePresentationRequest) -> GitConsolePresentation? { nil }
     func executionSettings(_ request: GitConfigurationEdit, save: Bool) -> Result<GitExecutionSettingsSnapshot, GitFetchFailure> { .failure(GitFetchFailure("Git configuration inspection is unavailable.")) }
+    func remoteURL(at rootURL: URL, remote: String) -> String? { nil }
     func answerAuthentication(requestID: String, answer: String?) -> Bool { false }
     func fetchPlan(options: GitFetchOptions, at root: URL) -> Result<GitFetchPlan, GitFetchFailure> { fetchPlan(options: options) }
     func fetchPlan(options: GitFetchOptions) -> Result<GitFetchPlan, GitFetchFailure> {
@@ -562,6 +564,12 @@ package struct GitService: Sendable {
         let context = save ? GitExecutionContext.current : nil
         return await Task.detached(priority: .userInitiated) {
             GitExecutionContext.$current.withValue(context) { operations.executionSettings(request, save: save) }
+        }.value
+    }
+    func remoteURL(at rootURL: URL, remote: String) async -> String? {
+        let operations = self.operations
+        return await Task.detached(priority: .utility) {
+            operations.remoteURL(at: rootURL, remote: remote)
         }.value
     }
     func answerAuthentication(requestID: String, answer: String?) async -> Bool {

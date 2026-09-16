@@ -12,6 +12,7 @@ final class SettingsViewState: ObservableObject {
     @Published var aiAPIKeyDraft = ""
     @Published var isFormatPickerPresented = false
     @Published var detectedTerminalShells: [String] = []
+    @Published var knownTerminalShells: [String] = []
 
     init(initialCategory: SettingsCategory) {
         selection = initialCategory
@@ -23,9 +24,9 @@ struct SettingsView: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var updateChecker: UpdateChecker
-    @State private var showsGitPreferences = false
     @ObservedObject var settings: AppSettings
     @ObservedObject var viewState: SettingsViewState
+    @State private var missingTerminalShellPath: String?
     let initialCategory: SettingsCategory
     private let onDismiss: (() -> Void)?
     private static let footerActionLabelWidth: CGFloat = 52
@@ -75,6 +76,20 @@ struct SettingsView: View {
             viewState.selection = firstMatch
         }
         .environment(\.locale, settings.language.locale)
+        .alert("Shell not found", isPresented: Binding(
+            get: { missingTerminalShellPath != nil },
+            set: { if !$0 { missingTerminalShellPath = nil } }
+        )) {
+            Button("OK", role: .cancel) { missingTerminalShellPath = nil }
+        } message: {
+            if let missingTerminalShellPath {
+                if missingTerminalShellPath.isEmpty {
+                    Text("No default shell was detected. Choose a detected shell or run detection again.")
+                } else {
+                    Text("No shell was found at \(missingTerminalShellPath). Choose a detected shell or run detection again.")
+                }
+            }
+        }
     }
 
     private var categories: some View {
@@ -226,18 +241,12 @@ struct SettingsView: View {
                     case .project: EmptyView()
                     case .ai: aiSettings
                     case .git:
-                        VStack(alignment: .leading, spacing: 24) {
+                        VStack(alignment: .leading, spacing: 14) {
                             GitExecutionSettingsView(settings: settings)
-                            DisclosureGroup("Fetch and commit preferences", isExpanded: $showsGitPreferences) {
-                                if showsGitPreferences {
-                                    VStack(alignment: .leading, spacing: 24) {
-                                        GitFetchSettingsView(options: $settings.gitFetchOptions)
-                                        Divider()
-                                        GitIdentitySettingsView()
-                                    }.padding(.top, 12)
-                                }
-                            }
+                            GitFetchSettingsView(options: $settings.gitFetchOptions)
+                            GitIdentitySettingsView()
                         }
+                        .frame(maxWidth: 760, alignment: .leading)
                     case .updates: updatesSettings
                     case .diagnostics: diagnosticsSettings
                     }
@@ -603,19 +612,26 @@ struct SettingsView: View {
                 LitheSettingsSelect(
                     selection: Binding(
                         get: { settings.terminalShellPath ?? "" },
-                        set: { settings.selectTerminalShell(path: $0) }
+                        set: { path in
+                            guard path.isEmpty || terminalShellIsAvailable(path) else {
+                                missingTerminalShellPath = path
+                                return
+                            }
+                            settings.selectTerminalShell(path: path)
+                        }
                     ),
                     options: terminalShellOptions,
                     width: 320,
                     accessibilityLabel: "Default shell",
-                    title: { path in
-                        path.isEmpty ? "System default" : "\(URL(fileURLWithPath: path).lastPathComponent) (\(path))"
-                    }
+                    title: terminalShellTitle,
+                    isAvailable: terminalShellIsAvailable,
+                    onUnavailableSelection: { path in missingTerminalShellPath = path }
                 )
             }
             Button("Detect Installed Shells") {
                 model.terminalFeature?.refreshAvailableShells()
                 viewState.detectedTerminalShells = model.availableTerminalShells
+                viewState.knownTerminalShells = MacTerminalShellDiscovery.knownShells()
             }
             Text("Used for new terminal sessions.")
                 .font(LitheTheme.smallFont)
@@ -624,13 +640,46 @@ struct SettingsView: View {
         .task {
             guard await model.activateTerminalModule() else { return }
             viewState.detectedTerminalShells = model.availableTerminalShells
+            viewState.knownTerminalShells = MacTerminalShellDiscovery.knownShells()
         }
     }
 
     private var terminalShellOptions: [String] {
-        var options = [""] + viewState.detectedTerminalShells
+        var options = [""] + viewState.knownTerminalShells
+        options += viewState.detectedTerminalShells.filter { !options.contains($0) }
         if let selected = settings.terminalShellPath, !options.contains(selected) { options.append(selected) }
         return options
+    }
+
+    private func terminalShellIsAvailable(_ path: String) -> Bool {
+        if path.isEmpty { return detectedSystemShellPath != nil }
+        return viewState.detectedTerminalShells.contains(path)
+    }
+
+    private func terminalShellTitle(_ path: String) -> String {
+        if path.isEmpty {
+            guard let detectedSystemShellPath else {
+                return String(localized: "System default · Shell not detected")
+            }
+            return String(
+                format: String(localized: "System default · %@ (%@)"),
+                terminalShellName(detectedSystemShellPath),
+                detectedSystemShellPath
+            )
+        }
+        return "\(terminalShellName(path)) (\(path))"
+    }
+
+    private var detectedSystemShellPath: String? {
+        if let environmentShell = ProcessInfo.processInfo.environment["SHELL"],
+           viewState.detectedTerminalShells.contains(environmentShell) {
+            return environmentShell
+        }
+        return viewState.detectedTerminalShells.first
+    }
+
+    private func terminalShellName(_ path: String) -> String {
+        URL(fileURLWithPath: path).lastPathComponent
     }
 
     private var aiSettings: some View {
