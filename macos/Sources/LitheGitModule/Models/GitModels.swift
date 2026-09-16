@@ -909,7 +909,7 @@ package enum DiffRowKind: Sendable, Equatable {
     case information
 }
 
-package struct DiffRow: Identifiable, Sendable {
+package struct DiffRow: Identifiable, Sendable, Equatable {
     /// Derived from the row's hunk and line numbers rather than a fresh UUID so
     /// that re-parsing the same diff keeps scroll position and difference
     /// selection stable across refreshes.

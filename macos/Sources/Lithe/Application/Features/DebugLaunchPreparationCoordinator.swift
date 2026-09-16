@@ -32,7 +32,7 @@ final class DebugLaunchPreparationCoordinator {
     }
 
     func saveDirtyDocumentIfNeeded(_ document: EditorDocument?) async -> Bool {
-        guard let document, document.isDirty else { return true }
+        guard let document, (document.isDirty || document.needsEditorSynchronization) else { return true }
         guard let actions else { return false }
         do {
             let previousText = document.savedText

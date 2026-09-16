@@ -33,7 +33,6 @@ final class AppModelFeatureGraph {
     let javaTestWorkflow: JavaTestWorkflowState
     let languageNavigation: LanguageNavigationCoordinator
     let languageEditing: LanguageEditingCoordinator
-    let languageWorkspaceEdit: LanguageWorkspaceEditService
     let languageCapabilityPolicy: LanguageCapabilityPolicy
     let debugLaunchPreparation: DebugLaunchPreparationCoordinator
     let debugSessionCleanup: DebugSessionCleanupCoordinator
@@ -98,7 +97,6 @@ final class AppModelFeatureGraph {
         javaTestWorkflow = JavaTestWorkflowState(notify: notify)
         languageNavigation = LanguageNavigationCoordinator(notify: notify)
         languageEditing = LanguageEditingCoordinator(notify: notify)
-        languageWorkspaceEdit = LanguageWorkspaceEditService(notify: notify)
         languageCapabilityPolicy = LanguageCapabilityPolicy()
         debugLaunchPreparation = DebugLaunchPreparationCoordinator(notify: notify)
         debugSessionCleanup = DebugSessionCleanupCoordinator()

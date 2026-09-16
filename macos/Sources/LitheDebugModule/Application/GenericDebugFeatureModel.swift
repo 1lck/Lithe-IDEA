@@ -1576,9 +1576,11 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             return
         }
         let frameID = selectedFrameID
+        let generation = inspectionGeneration
         session.evaluate(value, frameID: frameID) { [weak self] result in
             guard let self,
                   self.state == .paused,
+                  self.inspectionGeneration == generation,
                   self.selectedFrameID == frameID else {
                 completion(nil)
                 return

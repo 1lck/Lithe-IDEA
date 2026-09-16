@@ -5,6 +5,18 @@ struct FileMetadata: Sendable {
     let modificationDate: Date?
     let isRegularFile: Bool
     let isDirectory: Bool
+    let isWritable: Bool
+
+    init(
+        byteCount: Int?, modificationDate: Date?, isRegularFile: Bool,
+        isDirectory: Bool, isWritable: Bool = true
+    ) {
+        self.byteCount = byteCount
+        self.modificationDate = modificationDate
+        self.isRegularFile = isRegularFile
+        self.isDirectory = isDirectory
+        self.isWritable = isWritable
+    }
 }
 
 protocol FileStorage: Sendable {

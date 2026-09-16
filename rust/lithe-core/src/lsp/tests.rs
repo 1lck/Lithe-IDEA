@@ -1249,6 +1249,7 @@ fn client_core_shapes_feature_responses_for_swift_models() {
                     "items": [{
                         "label": "launch",
                         "kind": 3,
+                        "insertTextFormat": 2,
                         "detail": "fn()",
                         "textEdit": {
                             "range": {
@@ -1270,6 +1271,8 @@ fn client_core_shapes_feature_responses_for_swift_models() {
         result["items"][0]["textEdit"]["range"]["start"]["utf16Column"],
         12
     );
+
+    assert_eq!(result["items"][0]["insertTextFormat"], 2);
 
     let rename = client_feature_request(ClientFeatureRequest {
         state: completed.state,

@@ -11,6 +11,7 @@ struct ProjectReplaceView: View {
     let openFile: (URL, String) -> Void
     let revealInFinder: (URL) -> Void
     let copyPath: (URL, Bool) -> Void
+    var makePreviewEditor: SourcePreviewEditorBuilder = SourcePreviewEditorContent.monaco
     @State private var selectedResult: String?
     @State private var previewNeedsRefresh = false
     @State private var retainedPreview: (file: ProjectReplacementFile, match: ProjectReplacementMatch)?
@@ -240,7 +241,7 @@ struct ProjectReplaceView: View {
                             retainedPreview = selected
                             previewNeedsRefresh = true
                             clearPreview(preservingEditor: true)
-                        }
+                        }, makeEditor: makePreviewEditor
                     )
                     .id(selected.file.id)
                 }

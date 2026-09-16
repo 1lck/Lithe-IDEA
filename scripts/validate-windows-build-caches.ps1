@@ -86,7 +86,7 @@ if ($IncludeWindowsAssets) {
         "--jdk-cache", $jdkCache,
         "--jdk-manifest", (Join-Path $root "third_party/jdk/manifest.json"),
         "--bun-version", $bunVersion,
-        "--bun-lock", (Join-Path $root "windows/tauri/bun.lock"),
+        "--bun-lock", (Join-Path $root "bun.lock"),
         "--bun-cache", $bunCache
     )
 }

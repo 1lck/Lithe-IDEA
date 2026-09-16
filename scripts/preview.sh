@@ -69,6 +69,7 @@ cp -R macos/Resources/IDEAIcons "$APP_DIR/Contents/Resources/IDEAIcons"
 cp -R macos/Resources/GitGraph "$APP_DIR/Contents/Resources/GitGraph"
 cp -R macos/Resources/DatabaseIcons "$APP_DIR/Contents/Resources/DatabaseIcons"
 cp -R macos/Resources/Fonts "$APP_DIR/Contents/Resources/Fonts"
+cp -R "$ROOT_DIR/.artifacts/editor/macos" "$APP_DIR/Contents/Resources/MonacoEditor"
 zsh "$ROOT_DIR/scripts/package-macos-localizations.sh" \
     "$ROOT_DIR/macos/Resources" "$APP_DIR/Contents/Resources"
 codesign --force --deep --sign - "$APP_DIR"

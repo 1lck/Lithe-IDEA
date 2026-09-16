@@ -117,6 +117,9 @@ pub struct LspClientState {
     pub shutdown_requested: bool,
     #[serde(default)]
     pub server_capabilities: Vec<String>,
+    /// Full semantic-token registrations, including the server-owned legends.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub semantic_token_providers: BTreeMap<String, Value>,
     #[serde(default)]
     /// Server `TextDocumentSyncKind`, used to choose full or incremental `didChange`.
     pub text_document_sync: LspTextDocumentSyncKind,
@@ -124,6 +127,10 @@ pub struct LspClientState {
     pub open_documents: BTreeMap<String, LspClientDocument>,
     #[serde(default)]
     pub pending_requests: BTreeMap<String, String>,
+    /// Legend captured when a semantic request is sent; registrations may change
+    /// before the response arrives.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub pending_semantic_legends: BTreeMap<String, Value>,
     #[serde(default)]
     pub diagnostics: BTreeMap<String, Vec<LspClientDiagnostic>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -137,9 +144,11 @@ impl Default for LspClientState {
             initialized: false,
             shutdown_requested: false,
             server_capabilities: Vec::new(),
+            semantic_token_providers: BTreeMap::new(),
             text_document_sync: LspTextDocumentSyncKind::Full,
             open_documents: BTreeMap::new(),
             pending_requests: BTreeMap::new(),
+            pending_semantic_legends: BTreeMap::new(),
             diagnostics: BTreeMap::new(),
             diagnostic_versions: BTreeMap::new(),
         }

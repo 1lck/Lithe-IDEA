@@ -46,6 +46,8 @@ package struct LanguageServerFeatureSet: OptionSet, Hashable, Sendable {
     package static let completionResolve = Self(rawValue: 1 << 8)
     package static let codeActionResolve = Self(rawValue: 1 << 9)
     package static let executeCommand = Self(rawValue: 1 << 10)
+    package static let semanticTokens = Self(rawValue: 1 << 11)
+    package static let inlayHints = Self(rawValue: 1 << 12)
 
     package static let standardEditing: Self = [
         .definition, .references, .implementation, .hover, .completion,
@@ -316,6 +318,8 @@ package struct LanguageServerCompletionItem: Identifiable, Equatable, Sendable {
     package let label: String
     package let detail: String?
     package let documentation: String?
+    /// LSP format: 1 is plain text, 2 is a snippet with tab stops.
+    package let insertTextFormat: Int
     package let insertText: String
     package let sortText: String?
     package let filterText: String?
@@ -334,11 +338,13 @@ package struct LanguageServerCompletionItem: Identifiable, Equatable, Sendable {
         kind: Int?,
         textEdit: LanguageServerTextEdit?,
         additionalTextEdits: [LanguageServerTextEdit],
-        data: ToolingJSONValue?
+        data: ToolingJSONValue?,
+        insertTextFormat: Int = 1
     ) {
         self.label = label
         self.detail = detail
         self.documentation = documentation
+        self.insertTextFormat = insertTextFormat
         self.insertText = insertText
         self.sortText = sortText
         self.filterText = filterText
@@ -390,10 +396,43 @@ package enum LanguageServerOperation: String, Equatable, Sendable {
     case executeCommand
     case inlayHints
     case foldingRanges
+    case semanticTokens
     case codeLens
     /// Resolving a server-owned source that has no file on disk, such as a
     /// decompiled class behind a `jdt://` URI.
     case virtualDocument
+}
+
+/// Server-normalized semantic tokens use zero-based UTF-16 positions.
+package struct LanguageServerSemanticTokens: Codable, Equatable, Sendable {
+    package struct Token: Codable, Equatable, Sendable {
+        package let line: Int
+        package let startChar: Int
+        package let length: Int
+        package let tokenType: Int
+        package let tokenModifiers: UInt32
+    }
+    package let tokenTypes: [String]
+    package let tokenModifiers: [String]
+    package let tokens: [Token]
+    package static let empty = Self(tokenTypes: [], tokenModifiers: [], tokens: [])
+}
+
+/// Inline parameter/type annotations returned for a requested document range.
+package struct LanguageServerInlayHint: Equatable, Sendable {
+    package let position: LanguageServerPosition
+    package let label: String
+    package let kind: Int?
+    package let tooltip: String?
+    package let paddingLeft: Bool
+    package let paddingRight: Bool
+    package let textEdits: [LanguageServerTextEdit]
+
+    package init(position: LanguageServerPosition, label: String, kind: Int?, tooltip: String?,
+                 paddingLeft: Bool, paddingRight: Bool, textEdits: [LanguageServerTextEdit]) {
+        self.position = position; self.label = label; self.kind = kind; self.tooltip = tooltip
+        self.paddingLeft = paddingLeft; self.paddingRight = paddingRight; self.textEdits = textEdits
+    }
 }
 
 package struct LanguageServerSessionFailure: Equatable, Sendable {
@@ -547,6 +586,7 @@ package protocol LanguageServerSession: AnyObject {
     var onStateChange: ((LanguageServerSessionState) -> Void)? { get set }
     var features: LanguageServerFeatureSet { get }
     var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)? { get set }
+    var onSemanticTokensRefresh: (() -> Void)? { get set }
     var serverInfo: LanguageServerInfo? { get }
     var onServerInfoChange: ((LanguageServerInfo?) -> Void)? { get set }
     /// Start the language server for the given workspace root.
@@ -568,6 +608,12 @@ package protocol LanguageServerSession: AnyObject {
         fileURL: URL,
         position: LanguageServerPosition,
         completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
+    ) throws
+    func inlayHints(fileURL: URL, range: LanguageServerRange,
+                    completion: @escaping (Result<[LanguageServerInlayHint], Error>) -> Void) throws
+    func semanticTokens(
+        fileURL: URL,
+        completion: @escaping (Result<LanguageServerSemanticTokens, Error>) -> Void
     ) throws
     func hover(
         fileURL: URL,
@@ -633,6 +679,13 @@ package protocol LanguageServerSession: AnyObject {
 }
 
 package extension LanguageServerSession {
+    func inlayHints(fileURL: URL, range: LanguageServerRange,
+                    completion: @escaping (Result<[LanguageServerInlayHint], Error>) -> Void) throws {
+        completion(.success([]))
+    }
+    func semanticTokens(fileURL: URL, completion: @escaping (Result<LanguageServerSemanticTokens, Error>) -> Void) throws {
+        completion(.success(.empty))
+    }
     var onMavenProfileTask: ((String) -> Void)? {
         get { nil }
         set {}
@@ -653,6 +706,10 @@ package extension LanguageServerSession {
 }
 
 package extension LanguageServerSession {
+    var onSemanticTokensRefresh: (() -> Void)? {
+        get { nil }
+        set {}
+    }
     var features: LanguageServerFeatureSet { [] }
     var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)? {
         get { nil }

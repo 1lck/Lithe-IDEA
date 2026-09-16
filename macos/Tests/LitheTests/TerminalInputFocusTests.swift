@@ -17,7 +17,7 @@ struct TerminalInputFocusTests {
         defer { window.close() }
         let content = try #require(window.contentView)
         let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
-        let editor = CodeTextView(frame: NSRect(x: 0, y: 200, width: 400, height: 50))
+        let editor = TerminalOtherResponderView(frame: NSRect(x: 0, y: 200, width: 400, height: 50))
         content.addSubview(terminal)
         content.addSubview(editor)
         try terminal.setUseMetal(false)
@@ -48,7 +48,7 @@ struct TerminalInputFocusTests {
         window.isReleasedWhenClosed = false
         defer { window.close() }
         let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
-        let editor = CodeTextView(frame: NSRect(x: 0, y: 200, width: 400, height: 50))
+        let editor = TerminalOtherResponderView(frame: NSRect(x: 0, y: 200, width: 400, height: 50))
         let content = try #require(window.contentView)
         content.addSubview(terminal)
         content.addSubview(editor)
@@ -138,7 +138,7 @@ struct TerminalInputFocusTests {
         defer { window.close() }
         let content = try #require(window.contentView)
         let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
-        let editor = CodeTextView(frame: NSRect(x: 0, y: 200, width: 400, height: 50))
+        let editor = TerminalOtherResponderView(frame: NSRect(x: 0, y: 200, width: 400, height: 50))
         content.addSubview(terminal)
         content.addSubview(editor)
         let renderer = CursorInvalidationRecordingView(frame: terminal.bounds, device: nil)
@@ -174,7 +174,7 @@ struct TerminalInputFocusTests {
         defer { window.close() }
         let content = try #require(window.contentView)
         let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
-        let editor = CodeTextView(frame: NSRect(x: 0, y: 200, width: 400, height: 50))
+        let editor = TerminalOtherResponderView(frame: NSRect(x: 0, y: 200, width: 400, height: 50))
         content.addSubview(terminal)
         content.addSubview(editor)
         #expect(window.makeFirstResponder(editor))
@@ -231,4 +231,11 @@ private final class CursorDrawingRecorder: NSObject, MTKViewDelegate {
             drawableSize = size
         }
     }
+}
+
+/// The terminal must release its caret for any other keyboard owner, regardless
+/// of which editor renderer the application embeds.
+@MainActor
+private final class TerminalOtherResponderView: NSView {
+    override var acceptsFirstResponder: Bool { true }
 }

@@ -20,8 +20,10 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // Consume live shared sources; Bun's local file dependency may retain an older copy.
+      "@lithe/editor": path.resolve(__dirname, "../../frontend/editor/src"),
     },
-    dedupe: ["react", "react-dom"],
+    dedupe: ["react", "react-dom", "monaco-editor"],
   },
   test: {
     testTimeout: 10_000,

@@ -80,6 +80,11 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v7
 
+      - name: Set up Bun for shared editor assets
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: frontend/editor/package.json
+
       - name: Set up Swift 6.3.3 and Xcode
         uses: ./.github/actions/setup-macos-toolchain
 

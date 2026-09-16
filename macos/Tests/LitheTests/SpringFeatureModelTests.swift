@@ -127,8 +127,8 @@ struct SpringFeatureModelTests {
 
     /// A newer schedule supersedes the pending one so a burst of reloads cannot
     /// publish a stale index.
-    @Test
-    func scheduleLoadReplacesAPendingSchedule() async throws {
+    @Test(arguments: [false, true])
+    func scheduleLoadReplacesAPendingSchedule(withTextOverrides: Bool) async throws {
         let root = URL(fileURLWithPath: "/workspace")
         let staleURL = root.appendingPathComponent("Stale.java")
         let freshURL = root.appendingPathComponent("Fresh.java")
@@ -138,8 +138,15 @@ struct SpringFeatureModelTests {
         let feature = SpringFeatureModel(operations: operations)
         defer { feature.reset() }
 
-        feature.scheduleLoad(workspaceURL: root, files: [staleURL])
-        feature.scheduleLoad(workspaceURL: root, files: [freshURL])
+        if withTextOverrides {
+            // This is the project-open call shape; it must share cancellation
+            // handling with callers that do not supply unsaved editor text.
+            feature.scheduleLoad(workspaceURL: root, files: [staleURL], textOverrides: [staleURL: "stale"])
+            feature.scheduleLoad(workspaceURL: root, files: [freshURL], textOverrides: [freshURL: "fresh"])
+        } else {
+            feature.scheduleLoad(workspaceURL: root, files: [staleURL])
+            feature.scheduleLoad(workspaceURL: root, files: [freshURL])
+        }
 
         let published = await awaitChange(on: feature) {
             !feature.isIndexing && !feature.beans.isEmpty

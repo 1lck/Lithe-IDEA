@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'; worker-src blob:;">
+<link rel="stylesheet" href="editor.css">
+<title>Lithe Monaco feasibility probe</title>
+<style>
+html,body { height:100%; margin:0; background:#1e1e1e; color:#ddd; font:13px system-ui; }
+body { display:flex; flex-direction:column; }
+header { padding:12px 16px; display:flex; align-items:center; gap:14px; border-bottom:1px solid #444; }
+button { background:#333; color:#eee; border:1px solid #666; border-radius:4px; padding:5px 10px; }
+#status { flex:1; } #editor { flex:1; min-height:0; }
+.probe-decoration { background:rgba(150,100,50,.12); }
+</style>
+<header><strong>Monaco · macOS 实验</strong><span id="status">加载中…</span><button id="wrap">切换折行</button><button id="save">保存实验副本 ⌘S</button></header>
+<div id="editor"></div>
+<script src="editor.js"></script>
+</html>

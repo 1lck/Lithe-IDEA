@@ -1,3 +1,4 @@
+import type { EditorCommand } from "@lithe/editor/editor-commands";
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from "bun:test";
 
 const clearSelection = mock(() => undefined);
@@ -166,5 +167,43 @@ describe("owner-directed navigation", () => {
     expect(adapterBClearSelection).toHaveBeenCalledTimes(1);
     expect(adapterBSetCursor).toHaveBeenCalledWith({ line: 9, column: 10, offset: 98 });
     expect(adapterBSetScroll).toHaveBeenCalledWith(180, 12);
+  });
+});
+
+
+describe("Monaco command ownership", () => {
+  test("routes editing and selection commands without reading legacy editor state", () => {
+    const executeCommand = mock((_command: EditorCommand) => undefined);
+    editorAPI.setActiveEditorAdapter({
+      ownerId: "pane-a:buffer-a", executeCommand,
+      insertText: () => undefined, deleteRange: () => undefined,
+      replaceRange: () => undefined, selectAll: () => undefined,
+      clearSelection: () => undefined, focus: () => undefined,
+      undo: () => undefined, redo: () => undefined,
+    });
+    editorAPI.duplicateLine();
+    editorAPI.deleteLine();
+    editorAPI.toggleComment();
+    editorAPI.moveLineUp();
+    editorAPI.moveLineDown();
+    editorAPI.copyLineUp();
+    editorAPI.copyLineDown();
+    editorAPI.goToMatchingBracket();
+    editorAPI.selectToBracket(false);
+    editorAPI.removeBrackets();
+    editorAPI.expandSelection();
+    editorAPI.shrinkSelection();
+    expect(executeCommand.mock.calls).toEqual([
+      [{ type: "duplicateLine" }], [{ type: "deleteLine" }], [{ type: "toggleComment" }],
+      [{ type: "moveLineUp" }], [{ type: "moveLineDown" }],
+      [{ type: "copyLineUp" }], [{ type: "copyLineDown" }],
+      [{ type: "goToMatchingBracket" }], [{ type: "selectToBracket", selectBrackets: false }],
+      [{ type: "removeBrackets" }], [{ type: "expandSelection" }], [{ type: "shrinkSelection" }],
+    ]);
+    // An old split's cleanup must not detach the current command owner.
+    editorAPI.clearActiveEditorAdapter("pane-b:buffer-b");
+    expect(editorAPI.executeCommand({ type: "foldLevel", level: 2 })).toBe(true);
+    editorAPI.clearActiveEditorAdapter("pane-a:buffer-a");
+    expect(editorAPI.executeCommand({ type: "foldAll" })).toBe(false);
   });
 });

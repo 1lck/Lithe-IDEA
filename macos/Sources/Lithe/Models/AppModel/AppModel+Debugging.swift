@@ -16,12 +16,9 @@ extension AppModel {
     func toggleDebug() {
         guard toggleToolWindow(.debug) else { return }
         Task { [weak self] in
-            guard let self else { return }
-            guard await activateExecutionModule() != nil else { return }
-            if let workspaceURL {
-                await loadProjectServicesForAppliedSnapshot(at: workspaceURL)
-            }
-            _ = await activateDebugModule()
+            // Opening the panel does not launch a session. Project/toolchain
+            // readiness remains enforced by startDebuggingAfterActivation.
+            _ = await self?.activateDebugModule()
         }
     }
 
@@ -242,7 +239,7 @@ extension AppModel {
     }
 
     func toggleDebugBreakpointAtCaret() {
-        guard let document = activeDocument,
+        guard let document = focusedEditorDocument,
               let caret = editorCaret,
               caret.url.standardizedFileURL == document.url.standardizedFileURL else {
             showNotification("Place the caret in a source file to set a breakpoint")

@@ -661,6 +661,7 @@ struct RunEntryPointTests {
             store: store,
             settings: settings,
             workspaceOperations: workspaceOperations,
+            javaMavenOperations: NoProjectJavaOperations(),
             runConfigurationOperations: runConfigurationOperations,
             gitWatchContextProvider: gitWatchContextProvider,
             // These tests assert load ordering, never toolchain selection. The

@@ -1,0 +1,9 @@
+{
+  "name": "lithe-workspace",
+  "private": true,
+  "workspaces": [
+    "frontend/editor",
+    "windows/tauri"
+  ],
+  "packageManager": "bun@1.3.12"
+}

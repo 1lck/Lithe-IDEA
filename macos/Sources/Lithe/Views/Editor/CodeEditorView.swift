@@ -3,90 +3,6 @@ import SwiftUI
 import LitheGitModule
 import LitheDebugModule
 
-struct CodeEditorPalette {
-    private static let propertyRGB: (red: CGFloat, green: CGFloat, blue: CGFloat) = (79, 148, 250)
-
-    let isDark: Bool
-    let theme: AppColorTheme
-
-    static let dark = CodeEditorPalette(isDark: true, theme: .lithe)
-
-    var background: NSColor { themeColor(.editor) }
-    var gutterBackground: NSColor { themeColor(.editor) }
-    var gutterDivider: NSColor {
-        color(
-            light: (0.78, 0.79, 0.81, 1),
-            dark: (0.204, 0.212, 0.231, 1)
-        )
-    }
-    var text: NSColor {
-        guard theme == .lithe else { return themeColor(.primaryText) }
-        if !isDark { return themeColor(.primaryText) }
-        return color(
-            light: (0.122, 0.137, 0.161, 1),
-            dark: (0.737, 0.745, 0.769, 1)
-        )
-    }
-    var caret: NSColor { themeColor(.primaryText) }
-    var selection: NSColor { themeColor(.accent).withAlphaComponent(isDark ? 0.42 : 0.24) }
-    var selectionText: NSColor { themeColor(.primaryText) }
-    var currentLine: NSColor { color(light: (0, 0, 0, 0.035), dark: (1, 1, 1, 0.035)) }
-    var executionLine: NSColor {
-        color(
-            light: (0.22, 0.52, 0.91, 0.24),
-            dark: (0.18, 0.43, 0.78, 0.72)
-        )
-    }
-    var bracket: NSColor { color(light: (0.18, 0.43, 0.79, 0.19), dark: (0.72, 0.72, 0.72, 0.22)) }
-    var symbol: NSColor { color(light: (0.18, 0.43, 0.79, 0.11), dark: (0.68, 0.68, 0.68, 0.14)) }
-    var guide: NSColor { themeColor(.guide) }
-    var activeGuide: NSColor { themeColor(.activeGuide) }
-    var unusedCode: NSColor { color(light: (0.48, 0.49, 0.52, 1), dark: (0.48, 0.48, 0.48, 1)) }
-    var link: NSColor { themeColor(.accent) }
-    var lineNumber: NSColor { color(light: (0.43, 0.45, 0.49, 1), dark: (0.34, 0.34, 0.34, 1)) }
-    var foldHover: NSColor { color(light: (0, 0, 0, 0.07), dark: (1, 1, 1, 0.07)) }
-    var foldIndicator: NSColor { color(light: (0.28, 0.30, 0.34, 0.58), dark: (0.62, 0.62, 0.62, 0.46)) }
-    var foldIndicatorHover: NSColor { color(light: (0.12, 0.14, 0.17, 0.90), dark: (0.86, 0.86, 0.86, 0.96)) }
-    var blameText: NSColor { color(light: (0.42, 0.44, 0.48, 1), dark: (0.46, 0.46, 0.46, 1)) }
-    var gitAdded: NSColor { color(light: (0.15, 0.62, 0.31, 1), dark: (0.31, 0.78, 0.45, 1)) }
-    var gitModified: NSColor { color(light: (0.16, 0.48, 0.86, 1), dark: (0.31, 0.64, 0.96, 1)) }
-    var gitDeleted: NSColor { color(light: (0.82, 0.22, 0.25, 1), dark: (0.94, 0.34, 0.37, 1)) }
-
-    var keyword: NSColor { themeColor(.skill) }
-    var annotation: NSColor { themeColor(.warning) }
-    var type: NSColor { themeColor(.accent) }
-    var property: NSColor { color(Self.propertyRGB) }
-    var number: NSColor { themeColor(.warning) }
-    var string: NSColor { themeColor(.success) }
-    var comment: NSColor { themeColor(.secondaryText) }
-
-    private func themeColor(_ token: LitheTheme.ResolvedColorToken) -> NSColor {
-        LitheTheme.nsColor(token, theme: theme, isDark: isDark)
-    }
-
-    private func color(_ rgb: (red: CGFloat, green: CGFloat, blue: CGFloat)) -> NSColor {
-        NSColor(
-            srgbRed: rgb.red / 255,
-            green: rgb.green / 255,
-            blue: rgb.blue / 255,
-            alpha: 1
-        )
-    }
-
-    private func color(
-        light: (CGFloat, CGFloat, CGFloat, CGFloat),
-        dark: (CGFloat, CGFloat, CGFloat, CGFloat)
-    ) -> NSColor {
-        let components = isDark ? dark : light
-        return NSColor(
-            srgbRed: components.0,
-            green: components.1,
-            blue: components.2,
-            alpha: components.3
-        )
-    }
-}
-
 enum EditorLayoutMetrics {
     static let standardGutterWidth = EditorGutterLayout.standardWidth
     static let blameMetadataWidth: CGFloat = 140
@@ -843,7 +759,7 @@ struct CodeEditorView: NSViewRepresentable {
                 model?.requestDebugHover(expression: expression, completion: completion)
             }
             textView.onQuickDocumentation = { [weak model, weak textView] line, column in
-                model?.requestLanguageHover(line: line, utf16Column: column) { [weak textView] hover in
+                model?.requestLanguageHover(for: document, line: line, utf16Column: column) { [weak textView] hover in
                     guard let textView else { return }
                     if let hover {
                         textView.presentLanguageHover(hover)
@@ -853,22 +769,11 @@ struct CodeEditorView: NSViewRepresentable {
                 }
             }
             textView.onCompletionRequested = { [weak model, weak textView] line, column in
-                model?.requestLanguageCompletions(line: line, utf16Column: column) { [weak textView] items in
+                model?.requestLanguageCompletions(for: document, line: line, utf16Column: column) { [weak textView] items in
                     textView?.presentLanguageCompletions(items)
                 }
             }
-            textView.onCompletionSelected = { [weak model] item, range in
-                model?.applyLanguageCompletion(item, fallbackRange: range)
-            }
-            textView.onRenameRequested = { [weak model] line, column, newName in
-                model?.requestLanguageRename(line: line, utf16Column: column, newName: newName)
-            }
-            textView.onFormatRequested = { [weak model] in model?.requestLanguageFormatting() }
-            textView.onCodeActionsRequested = { [weak model, weak textView] line, column in
-                model?.requestLanguageCodeActions(line: line, utf16Column: column) { [weak textView, weak model] actions in
-                    textView?.presentLanguageCodeActions(actions) { action in model?.applyLanguageCodeAction(action) }
-                }
-            }
+
         }
         textView.onPasteImage = { [weak coordinator = context.coordinator] in
             coordinator?.pasteMarkdownImage() ?? false
@@ -1408,6 +1313,11 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+            // A split native surface must not compete with a remote editor's undo/versions.
+            guard document?.synchronizeEditor == nil else {
+                model?.showNotification("Switch the experimental editor back to Native before editing this split")
+                return false
+            }
             // Marked-text updates can produce several proposals without a
             // textDidChange notification. The final range then refers to the
             // temporary IME buffer, not to the still-unmodified document.
@@ -2237,75 +2147,6 @@ struct CodeEditorView: NSViewRepresentable {
 /// 编辑器逻辑行索引：行终止符为 `\n` 或独立 `\r`（CRLF 只算一次），
 /// 结尾换行不产生新行。模块内可见供 `LitheTextViewportLayout` 复用
 /// 同一套行数语义。
-struct TextLineIndex {
-    var textLength: Int
-    var starts: [Int]
-
-    init(source: NSString) {
-        textLength = source.length
-        var starts = [0]
-        if source.length > 0 {
-            for index in 0..<source.length {
-                let character = source.character(at: index)
-                if character == 10 {
-                    starts.append(index + 1)
-                } else if character == 13,
-                          (index + 1 == source.length || source.character(at: index + 1) != 10) {
-                    starts.append(index + 1)
-                }
-            }
-        }
-        self.starts = starts
-    }
-
-    /// Shift line starts after a single-line insert/delete. Returns false when
-    /// the replaced range crossed a line break and the index must be rebuilt.
-    mutating func applySingleLineEdit(replacedRange: NSRange, insertedLength: Int) -> Bool {
-        let replacedEnd = NSMaxRange(replacedRange)
-        if starts.contains(where: { $0 > replacedRange.location && $0 <= replacedEnd }) {
-            return false
-        }
-        let delta = insertedLength - replacedRange.length
-        guard delta != 0 else { return true }
-        textLength = max(0, textLength + delta)
-        for index in starts.indices where starts[index] > replacedRange.location {
-            starts[index] += delta
-        }
-        return true
-    }
-
-    var lineCount: Int {
-        guard textLength > 0, starts.last == textLength else { return starts.count }
-        return max(1, starts.count - 1)
-    }
-
-    func characterOffset(forLine line: Int) -> Int {
-        starts[min(max(0, line), starts.count - 1)]
-    }
-
-    func lineNumber(at location: Int) -> Int {
-        let safeLocation = min(max(0, location), textLength)
-        var lowerBound = 0
-        var upperBound = starts.count
-        while lowerBound < upperBound {
-            let midpoint = (lowerBound + upperBound) / 2
-            if starts[midpoint] <= safeLocation {
-                lowerBound = midpoint + 1
-            } else {
-                upperBound = midpoint
-            }
-        }
-        return max(0, lowerBound - 1)
-    }
-
-    func lineRange(forLine line: Int) -> NSRange {
-        let safeLine = min(max(0, line), starts.count - 1)
-        let start = starts[safeLine]
-        let end = safeLine + 1 < starts.count ? starts[safeLine + 1] : textLength
-        return NSRange(location: start, length: max(0, end - start))
-    }
-}
-
 final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     override var isOpaque: Bool { false }
     var onCaretPresentationChanged: (() -> Void)?
@@ -6038,119 +5879,5 @@ private final class CodeVisionLinkButton: NSButton {
 
     @objc private func invoke() {
         handler()
-    }
-}
-
-struct HighlightedRangeCache {
-    private(set) var ranges: [NSRange] = []
-
-    init(ranges: [NSRange] = []) {
-        for range in ranges.filter({ $0.length > 0 }).sorted(by: { $0.location < $1.location }) {
-            if let last = self.ranges.last, NSMaxRange(last) >= range.location {
-                self.ranges[self.ranges.count - 1] = NSUnionRange(last, range)
-            } else {
-                self.ranges.append(range)
-            }
-        }
-    }
-
-    func contains(_ location: Int) -> Bool {
-        let index = firstRangeEnding(after: location)
-        return index < ranges.count && NSLocationInRange(location, ranges[index])
-    }
-
-    func intersects(_ range: NSRange) -> Bool {
-        guard range.length > 0 else { return false }
-        let index = firstRangeEnding(after: range.location)
-        return index < ranges.count && ranges[index].location < NSMaxRange(range)
-    }
-
-    private func firstRangeEnding(after location: Int) -> Int {
-        var lower = 0
-        var upper = ranges.count
-        while lower < upper {
-            let middle = lower + (upper - lower) / 2
-            if NSMaxRange(ranges[middle]) <= location { lower = middle + 1 }
-            else { upper = middle }
-        }
-        return lower
-    }
-
-    mutating func insert(_ range: NSRange) {
-        guard range.length > 0 else { return }
-        var merged = range
-        var result: [NSRange] = []
-        var didInsert = false
-
-        for existing in ranges {
-            if NSMaxRange(existing) < merged.location {
-                result.append(existing)
-            } else if NSMaxRange(merged) < existing.location {
-                if !didInsert {
-                    result.append(merged)
-                    didInsert = true
-                }
-                result.append(existing)
-            } else {
-                merged = NSUnionRange(merged, existing)
-            }
-        }
-        if !didInsert {
-            result.append(merged)
-        }
-        ranges = result
-    }
-
-    func uncoveredRanges(in target: NSRange) -> [NSRange] {
-        guard target.length > 0 else { return [] }
-        let targetEnd = NSMaxRange(target)
-        var cursor = target.location
-        var uncovered: [NSRange] = []
-
-        for existing in ranges {
-            if NSMaxRange(existing) <= cursor { continue }
-            if existing.location >= targetEnd { break }
-            if existing.location > cursor {
-                uncovered.append(NSRange(
-                    location: cursor,
-                    length: min(existing.location, targetEnd) - cursor
-                ))
-            }
-            cursor = max(cursor, min(NSMaxRange(existing), targetEnd))
-            if cursor >= targetEnd { break }
-        }
-        if cursor < targetEnd {
-            uncovered.append(NSRange(location: cursor, length: targetEnd - cursor))
-        }
-        return uncovered
-    }
-
-    mutating func removeAll() {
-        ranges.removeAll(keepingCapacity: true)
-    }
-
-    /// Keeps cached ranges valid after NSTextStorage applies an edit. Ranges
-    /// crossing the edit are discarded; ranges after it are shifted by the
-    /// UTF-16 length delta.
-    mutating func applyEdit(replacedRange: NSRange, replacementLength: Int) {
-        guard replacedRange.location != NSNotFound,
-              replacedRange.location >= 0,
-              replacedRange.length >= 0,
-              replacementLength >= 0 else {
-            removeAll()
-            return
-        }
-
-        let editEnd = NSMaxRange(replacedRange)
-        let delta = replacementLength - replacedRange.length
-        ranges = ranges.compactMap { range in
-            if NSMaxRange(range) > replacedRange.location && range.location < editEnd {
-                return nil
-            }
-            if range.location >= editEnd {
-                return NSRange(location: range.location + delta, length: range.length)
-            }
-            return range
-        }
     }
 }

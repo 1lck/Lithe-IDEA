@@ -255,8 +255,29 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v7
 
+      - name: Set up Bun for shared editor assets
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: frontend/editor/package.json
+
+      - name: Test shared editor source model
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory frontend/editor --report .artifacts/test-stability/shared-editor.json
+
       - name: Set up Swift 6.3.3 and Xcode
         uses: ./.github/actions/setup-macos-toolchain
+
+      - name: Test Monaco workbench in WebKit
+        if: matrix.architecture != 'x86_64'
+        timeout-minutes: 5
+        run: ./scripts/probe-macos-monaco.sh --workbench-tests
+
+      - name: Upload Monaco workbench test report
+        if: always() && matrix.architecture != 'x86_64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: monaco-workbench-${{ matrix.architecture }}
+          path: .artifacts/monaco-workbench/test-results/
+          if-no-files-found: ignore
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable

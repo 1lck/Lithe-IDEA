@@ -2281,7 +2281,7 @@ struct RunConfigurationIntegrationTests {
         core.enqueueReady(
             capabilities: [
                 "hover", "completion", "completionResolve", "rename", "formatting",
-                "codeActions", "codeActionResolve", "executeCommand"
+                "codeActions", "codeActionResolve", "executeCommand", "inlayHints"
             ],
             serverInfo: (name: "sourcekit-lsp", version: "6.2")
         )
@@ -2303,6 +2303,26 @@ struct RunConfigurationIntegrationTests {
             manager.diagnostics[source.standardizedFileURL]?.first?.message == "example warning"
         })
         #expect(manager.diagnostics[source.standardizedFileURL]?.first?.message == "example warning")
+
+        // Inline hints use the existing semantic request route and preserve UTF-16 coordinates.
+        #expect(manager.languageServerFeatures["swift"]?.contains(.inlayHints) == true)
+        var hintsResult: Result<[LanguageServerInlayHint], Error>?
+        try manager.inlayHints(fileURL: source,
+            range: LanguageServerRange(start: .init(line: 0, utf16Column: 0), end: .init(line: 1, utf16Column: 0))) {
+                hintsResult = $0
+            }
+        core.enqueueRequestSuccess(operation: .inlayHints, result: ["hints": [[
+            "position": ["line": 0, "utf16Column": 12], "label": "value:", "kind": 2,
+            "tooltip": "Parameter name", "paddingLeft": true, "paddingRight": false,
+            "textEdits": [["range": ["start": ["line": 0, "utf16Column": 12],
+                                      "end": ["line": 0, "utf16Column": 12]], "newText": "value: "]]
+        ]]])
+        #expect(await Self.waitForMainActorCondition { hintsResult != nil })
+        let hint = try #require(hintsResult?.get().first)
+        #expect(hint.position.utf16Column == 12)
+        #expect(hint.kind == 2 && hint.label == "value:")
+        #expect(hint.tooltip == "Parameter name" && hint.paddingLeft && !hint.paddingRight)
+        #expect(hint.textEdits.first?.newText == "value: ")
 
         var completionsResult: Result<[LanguageServerCompletionItem], Error>?
         try manager.completions(

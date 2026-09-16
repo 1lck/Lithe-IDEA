@@ -489,7 +489,7 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
         }
         if projectSessions.hasActiveProject || projectSessions.hasActiveStandaloneFile {
             if projectSessions.shouldDismissWindowWhenClosingActiveSession {
-                    pendingNativeWindowCloseIntent = .dismissActiveSession
+                pendingNativeWindowCloseIntent = .dismissActiveSession
                 closeWindowAfterProjectCleanup(sender)
                 return false
             }
@@ -510,11 +510,24 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
     private func closeWindowAfterProjectCleanup(_ sender: NSWindow) {
         guard nativeWindowCloseTask == nil else { return }
         let projectSessions = projectSessions
+        let confirmUnsavedDocuments = confirmUnsavedDocuments
         nativeWindowCloseTask = Task { @MainActor [weak self, weak sender] in
+            guard let preparation = await LitheAppDelegate.prepareClosingEditors(for: projectSessions) else {
+                self?.nativeWindowCloseTask = nil
+                self?.pendingNativeWindowCloseIntent = nil
+                return
+            }
+            defer { preparation.release() }
+            guard await confirmUnsavedDocuments(projectSessions), !Task.isCancelled,
+                  preparation.matches(projectSessions.closingDocuments) else {
+                self?.nativeWindowCloseTask = nil
+                self?.pendingNativeWindowCloseIntent = nil
+                return
+            }
+            guard self?.isDetached == false else { self?.nativeWindowCloseTask = nil; return }
+            await projectSessions.resetForProjectWindowClose()
             guard let self else { return }
             defer { self.nativeWindowCloseTask = nil }
-            guard await self.confirmUnsavedDocuments(projectSessions), !self.isDetached else { return }
-            await projectSessions.resetForProjectWindowClose()
             guard !self.isDetached,
                   let sender,
                   self.window === sender else { return }
