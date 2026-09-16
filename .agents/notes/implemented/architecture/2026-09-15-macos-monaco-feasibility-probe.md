@@ -95,6 +95,10 @@ macOS 保留用户接受的 `FindBarView` 外观。`EditorChromeModel` 有意不
   滚动回归用实际容器尺寸做布局，并重新测量后校验比例；不能只向 `layout` 传入
   虚构的 900×500 尺寸，否则 `automaticLayout` 恢复宿主尺寸后会改变比例分母。
   CI 出现该断言失败后，已在真实 Monaco 中强制重新测量复现此测试竞争；没有放宽断言。
+  后续 WebKit 仍出现滚动范围变化：异步 CodeLens／行间区域更新也会改变总高度。
+  宿主接收的比例在布局或内容高度变化后重新应用；此过程不回传成用户滚动，
+  正在等待合并的用户滚动仍优先。回归主动增删 view zone，修复前失败、修复后通过，
+  保留原来的比例精度与无回环断言。
 - 新增 shared source / completion resolve / formatting identity / split navigation / Markdown scroll 回归已用
   Linux Chromium 的真实 Monaco 与受控 bridge 运行；另验证了真实修饰键鼠标点击。
   同一测试源码已加入 arm64 macOS CI 的有界 WKWebView 验证宿主，不能等同真实 Lithe/JDTLS 或系统剪贴板验收。

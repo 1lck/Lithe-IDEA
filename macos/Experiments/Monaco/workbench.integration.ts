@@ -923,6 +923,15 @@ async function verify() {
       editor.layout();
       const before = (await send({ type: "markdownScrollRequests" })).requests.length;
       await window.lithe.markdownScroll({ id, ratio: 0.6 });
+      // Deterministically reproduce a late CodeLens/view-zone height change.
+      // WebKit previously failed here when a preceding document's lens vanished.
+      let zone = "";
+      editor.changeViewZones(accessor => { zone = accessor.addZone({ afterLineNumber: 1,
+        heightInLines: 3, domNode: document.createElement("div") }); });
+      const expandedExtent = editor.getScrollHeight() - editor.getLayoutInfo().height;
+      assert(Math.abs(editor.getScrollTop() / expandedExtent - 0.6) < 0.001,
+        "late view-zone height change lost the preview scroll position");
+      editor.changeViewZones(accessor => accessor.removeZone(zone));
       editor.layout(); // Re-measuring the actual viewport must preserve the ratio.
       const extent = Math.max(0, editor.getScrollHeight() - editor.getLayoutInfo().height);
       assert(Math.abs(editor.getScrollTop() / extent - 0.6) < 0.001,

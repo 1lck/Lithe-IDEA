@@ -58,6 +58,15 @@ export function mountWorkbench(host: WorkbenchHost) {
   let markdownScrollTimer: ReturnType<typeof setTimeout> | undefined;
   let applyingMarkdownScroll = false;
   let lastMarkdownRatio: number | undefined;
+  function preserveMarkdownScroll() {
+    if (applyingMarkdownScroll || markdownScrollTimer !== undefined || lastMarkdownRatio === undefined ||
+        !active || active !== markdownScrollID || editor.getModel() !== entries.get(active)?.model) return;
+    applyingMarkdownScroll = true;
+    try {
+      const extent = Math.max(0, editor.getScrollHeight() - editor.getLayoutInfo().height);
+      editor.setScrollTop(lastMarkdownRatio * extent, monaco.editor.ScrollType.Immediate);
+    } finally { applyingMarkdownScroll = false; }
+  }
   let review: ReturnType<typeof mountDiffReview> | undefined;
   type Surface = { editor: monaco.editor.IStandaloneCodeEditor; id: string; states: Map<string, monaco.editor.ICodeEditorViewState> };
   const surfaces = new Map<string, Surface>();
@@ -567,7 +576,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       try {
         const extent = Math.max(0, editor.getScrollHeight() - editor.getLayoutInfo().height);
         editor.setScrollTop(Math.min(1, Math.max(0, payload.ratio!)) * extent, monaco.editor.ScrollType.Immediate);
-        lastMarkdownRatio = extent ? editor.getScrollTop() / extent : 0;
+        lastMarkdownRatio = Math.min(1, Math.max(0, payload.ratio!));
       } finally { applyingMarkdownScroll = false; }
     },
     async refreshJavaNavigation() {
@@ -926,7 +935,9 @@ export function mountWorkbench(host: WorkbenchHost) {
     };
     editor = monaco.editor.create(document.querySelector("#editor") as HTMLElement, displayOptions);
     attachDebugInteractions(editor);
+    editor.onDidLayoutChange(preserveMarkdownScroll);
     editor.onDidScrollChange(event => {
+      if (event.scrollHeightChanged) { preserveMarkdownScroll(); return; }
       if (!event.scrollTopChanged || applyingMarkdownScroll || !active || active !== markdownScrollID || markdownScrollTimer !== undefined) return;
       const id = active, entry = entries.get(id);
       // Only the Markdown split opts in. Coalesce wheel/trackpad bursts instead
