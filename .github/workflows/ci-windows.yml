@@ -322,7 +322,9 @@ jobs:
             "src/features/git/api/git-status-api.test.ts",
             "src/features/git/hooks/use-git-data-controller.integration.test.tsx",
             "src/features/git/stores/git-repository.store.test.ts",
-            "src/features/git/stores/git.store.test.ts"
+            "src/features/git/stores/git.store.test.ts",
+            "src/features/git/utils/monaco-diff-rows.test.ts",
+            "src/features/git/utils/monaco-diff-hunk-actions.test.ts"
           )
           foreach ($seed in @(1, 3, 7)) {
             node $runner --suite-timeout-ms 60000 --report ".artifacts/test-stability/windows-git-isolation-$seed.json" -- --randomize "--seed=$seed" @gitTests

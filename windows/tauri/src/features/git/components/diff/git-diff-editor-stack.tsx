@@ -58,6 +58,7 @@ import {
 } from "../../utils/multi-diff-search";
 import { getInitialExpandedDiffFileKeys } from "../../utils/diff-viewer-scale";
 import { createSingleFileWorkingTreeDiff } from "../../utils/working-tree-multi-diff";
+import { workingTreeStagingContext, type DiffStagingContext } from "../../utils/monaco-diff-hunk-actions";
 
 import ImageDiffViewer from "./git-diff-image";
 import { BinaryDiffViewer } from "./git-diff-binary";
@@ -186,6 +187,7 @@ const DiffFileBody = memo(function DiffFileBody({
   currentSearchMatch,
   searchQuery,
   searchOptions,
+  staging,
 }: {
   diff: GitDiff;
   sectionKey: string;
@@ -195,6 +197,7 @@ const DiffFileBody = memo(function DiffFileBody({
   currentSearchMatch: MultiDiffSearchMatch | null;
   searchQuery: string;
   searchOptions: SearchOptions;
+  staging?: DiffStagingContext;
 }) {
   const filePath = diff.new_path || diff.old_path || diff.file_path;
   const fileName = filePath.split("/").pop() || filePath;
@@ -209,7 +212,7 @@ const DiffFileBody = memo(function DiffFileBody({
   }
 
   return <MonacoGitDiff diff={diff} viewMode={displayViewMode} showWhitespace={showWhitespace}
-    embedded searchMatches={searchMatches} currentSearchMatch={currentSearchMatch} />;
+    embedded staging={staging} searchMatches={searchMatches} currentSearchMatch={currentSearchMatch} />;
 });
 
 const DiffFileSection = memo(function DiffFileSection({
@@ -1144,6 +1147,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
                   <DiffFileBody
                     diff={selectedDiffFile.diff}
                     sectionKey={selectedDiffFile.sectionKey}
+                    staging={workingTreeStagingContext(multiDiff, selectedDiffFile.sectionKey)}
                     viewMode={selectedDisplayViewMode}
                     showWhitespace={showWhitespace}
                     searchMatches={
