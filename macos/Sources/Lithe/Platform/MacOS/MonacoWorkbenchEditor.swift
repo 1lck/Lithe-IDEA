@@ -367,7 +367,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
                 let release: EditorDocument.EditorRelease = { [self] in
                     guard !released else { return }
                     released = true
-                    call("window.lithe.releaseClose(token)", arguments: ["token": token])
+                    self.call("window.lithe.releaseClose(token)", arguments: ["token": token])
                 }
                 guard case .success(let value) = result, let document,
                       let snapshot = value as? [String: Any], !self.failed,
