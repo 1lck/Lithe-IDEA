@@ -1197,10 +1197,13 @@ async function verify() {
     const leftModel = editor.getModel()!;
     const secondary = monacoEditor.getEditors().find(view => view !== editor && view.getModel() !== leftModel)!;
     const input = { id: right, token: "split", visible: true, query: "public", matchCase: true, wholeWord: false, regex: false };
+    const nativeFocus = document.createElement("input");
+    nativeFocus.style.cssText = "position:fixed;left:-100px;width:1px;height:1px;opacity:0";
+    document.body.append(nativeFocus);
     try {
       await window.lithe.nativeFind(input);
       assert(secondary.getSelection()?.endColumn === 7, "native search did not target the explicit secondary document");
-      secondary.blur();
+      nativeFocus.focus();
       assert(!secondary.hasTextFocus(), "split editor did not release focus to the native find bar simulation");
       await window.lithe.nativeFind({ ...input, visible: false });
       assert(await window.lithe.dismissNativeFind(right), "closing native find did not restore the owning split focus");
@@ -1227,6 +1230,7 @@ async function verify() {
     } finally {
       window.lithe.releaseClose("native-find-close");
       await window.lithe.nativeFind({ ...input, visible: false });
+      nativeFocus.remove();
       await window.lithe.hideSecondary(); await window.lithe.freeze(id); await window.lithe.retain([]);
     }
   });
