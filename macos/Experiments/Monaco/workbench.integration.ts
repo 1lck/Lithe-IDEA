@@ -918,11 +918,15 @@ async function verify() {
     await window.lithe.activate({ id, text, revision: 0, filename: "README.md", readonly: false });
     const model = editor.getModel()!, version = model.getVersionId();
     try {
-      editor.layout({ width: 900, height: 500 });
+      // automaticLayout observes the real host container. A synthetic height
+      // races that observation and changes the denominator after scrolling.
+      editor.layout();
       const before = (await send({ type: "markdownScrollRequests" })).requests.length;
       await window.lithe.markdownScroll({ id, ratio: 0.6 });
+      editor.layout(); // Re-measuring the actual viewport must preserve the ratio.
       const extent = Math.max(0, editor.getScrollHeight() - editor.getLayoutInfo().height);
-      assert(Math.abs(editor.getScrollTop() / extent - 0.6) < 0.001, "preview scroll did not move the source editor");
+      assert(Math.abs(editor.getScrollTop() / extent - 0.6) < 0.001,
+        `preview scroll did not move the source editor (scroll=${editor.getScrollTop()}, extent=${extent})`);
       assert((await send({ type: "markdownScrollRequests" })).requests.length === before,
         "preview scroll echoed back as an editor gesture");
       editor.setScrollTop(extent * 0.25, monacoEditor.ScrollType.Immediate);

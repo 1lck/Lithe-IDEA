@@ -65,13 +65,14 @@ describe("Windows Monaco diff hunk actions", () => {
     api.stage.mockImplementationOnce(() => pending.promise);
     const owner = createMonacoDiffHunkActions(diff, context, api);
     const first = owner.apply("hunk-0", "stage");
-    expect(api.stage).toHaveBeenCalledTimes(1);
-    expect(await owner.apply("hunk-4", "stage")).toBe("ignored");
-    pending.resolve(true);
-    expect(await first).toBe("applied");
-    expect(await owner.apply("hunk-4", "stage")).toBe("ignored");
-    expect(api.stage).toHaveBeenCalledTimes(1);
-    owner.dispose();
+    try {
+      expect(api.stage).toHaveBeenCalledTimes(1);
+      expect(await owner.apply("hunk-4", "stage")).toBe("ignored");
+      pending.resolve(true);
+      expect(await first).toBe("applied");
+      expect(await owner.apply("hunk-4", "stage")).toBe("ignored");
+      expect(api.stage).toHaveBeenCalledTimes(1);
+    } finally { pending.resolve(false); owner.dispose(); }
 
     const refreshed = createMonacoDiffHunkActions({ ...diff, lines: diff.lines.slice(4) }, context, api);
     expect(await refreshed.apply("hunk-0", "stage")).toBe("applied");
@@ -101,15 +102,17 @@ describe("Windows Monaco diff hunk actions", () => {
     const inFlight = staleAction("hunk-0", "stage");
     previous.dispose();
     const current = createMonacoDiffHunkActions(diff, { repoPath: "D:/other", isStaged: true }, api);
-    expect(await staleAction("hunk-4", "stage")).toBe("ignored");
-    pending.resolve(false);
-    expect(await inFlight).toBe("ignored");
-    expect(await current.apply("hunk-4", "unstage")).toBe("applied");
-    expect(api.stage).toHaveBeenCalledTimes(1);
-    expect(api.unstage).toHaveBeenCalledWith("D:/other", { file_path: diff.file_path, lines: diff.lines.slice(4) });
-    current.dispose();
-    expect(await current.apply("hunk-0", "unstage")).toBe("ignored");
-    expect(api.unstage).toHaveBeenCalledTimes(1);
+    try {
+      expect(await staleAction("hunk-4", "stage")).toBe("ignored");
+      pending.resolve(false);
+      expect(await inFlight).toBe("ignored");
+      expect(await current.apply("hunk-4", "unstage")).toBe("applied");
+      expect(api.stage).toHaveBeenCalledTimes(1);
+      expect(api.unstage).toHaveBeenCalledWith("D:/other", { file_path: diff.file_path, lines: diff.lines.slice(4) });
+      current.dispose();
+      expect(await current.apply("hunk-0", "unstage")).toBe("ignored");
+      expect(api.unstage).toHaveBeenCalledTimes(1);
+    } finally { pending.resolve(false); current.dispose(); }
   });
 
   test("rejects unknown identities, wrong actions, incomplete patches and read-only reviews", async () => {

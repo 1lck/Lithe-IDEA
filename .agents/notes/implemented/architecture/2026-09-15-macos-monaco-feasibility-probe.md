@@ -69,6 +69,9 @@ Bun 1.3.12 下样本的废弃分支保留堆增量由约 32.4 MB 降至 2.5 MB�
 - Markdown split 将原有 `MarkdownScrollPosition` binding 接回 Monaco，沿用来源与 revision 防回环；
   只在该视图启用滚动消息，33 ms 合并连续输入，切换文档或接收预览滚动时撤销旧回传。
   滚动消息不改文本或 undo；普通源码编辑不向原生工作台持续发送滚动状态。
+  滚动回归用实际容器尺寸做布局，并重新测量后校验比例；不能只向 `layout` 传入
+  虚构的 900×500 尺寸，否则 `automaticLayout` 恢复宿主尺寸后会改变比例分母。
+  CI 出现该断言失败后，已在真实 Monaco 中强制重新测量复现此测试竞争；没有放宽断言。
 - 新增 shared source / completion resolve / formatting identity / split navigation / Markdown scroll 回归已用
   Linux Chromium 的真实 Monaco 与受控 bridge 运行；另验证了真实修饰键鼠标点击。
   同一测试源码已加入 arm64 macOS CI 的有界 WKWebView 验证宿主，不能等同真实 Lithe/JDTLS 或系统剪贴板验收。
