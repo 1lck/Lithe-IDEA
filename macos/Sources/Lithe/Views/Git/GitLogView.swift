@@ -40,7 +40,6 @@ struct GitLogView: View {
     @State private var showLongGraphEdges = false
     @State private var graphNavigationRequest: GraphNavigationRequest?
     @State private var selectedGitToolTab = GitToolTab.log
-    @State private var showsFetchOptions = false
     @State private var selectedGitLogAuthor: GitLogAuthorSelection?
     @State private var selectedGitLogDatePreset = GitLogDatePreset.anyTime
     @State private var gitLogPathFilter = ""
@@ -48,10 +47,17 @@ struct GitLogView: View {
     @State private var showsGitLogPathPopover = false
     @State private var gitCommitFileLoadTask: Task<Void, Never>?
     @State private var showsGitLogBranchFilterPopover = false
+    @State private var showsFetchOptions = false
     @State private var showsGitLogAuthorFilterPopover = false
     @State private var graphPresentation = GitGraphPresentation.empty
     @FocusState private var gitLogSearchFocused: Bool
     @FocusState private var gitLogCommitListFocused: Bool
+
+    private struct ConsoleTailState: Equatable {
+        let id: UUID?
+        let state: GitConsoleEntryState?
+        let succeeded: Bool?
+    }
 
     /// IntelliJ's Git tool window uses the macOS system UI font throughout;
     /// only hashes and timestamps use a monospaced face. Keeping these values
@@ -68,6 +74,8 @@ struct GitLogView: View {
         static let treeRowHeight: CGFloat = 28
         static let toolbarHeight: CGFloat = 38
         static let commitFileLoadDelay = Duration.milliseconds(120)
+        static let darkConsoleText = Color(red: 0.76, green: 0.77, blue: 0.79)
+        static let darkConsoleMetadata = Color(red: 0.69, green: 0.70, blue: 0.72)
     }
 
     private enum GitToolTab {
@@ -129,10 +137,14 @@ struct GitLogView: View {
             gitLogPathFilter = ""
             gitLogPathDraft = ""
         }
-        .onChange(of: feature.gitConsoleEntries.last) { entry in
-            guard let entry, entry.state == .completed || entry.state == .unconfirmed,
-                  !entry.succeeded else { return }
+        .onChange(of: consoleTailState) { tail in
+            guard tail.state == .completed || tail.state == .unconfirmed, tail.succeeded == false else { return }
             selectedGitToolTab = .console
+        }
+        .sheet(isPresented: $showsFetchOptions) {
+            GitFetchDialog(feature: feature) { options in
+                Task { await feature.fetchGit(options: options) }
+            }
         }
         .onAppear {
             if let commit = feature.selectedGitCommit {
@@ -141,12 +153,6 @@ struct GitLogView: View {
         }
         .onDisappear {
             gitCommitFileLoadTask?.cancel()
-        }
-        .sheet(isPresented: $showsFetchOptions) {
-            GitFetchDialog(feature: feature) { options in
-                selectedGitToolTab = .console
-                Task { await feature.fetchGit(options: options) }
-            }
         }
         .sheet(item: $branchDialogRequest) { request in
             GitBranchNameDialog(request: request) { name, checkout in
@@ -271,6 +277,11 @@ struct GitLogView: View {
 
     /// The tab split lives outside `body` because the main expression is
     /// already close to the type-checker limit.
+    private var consoleTailState: ConsoleTailState {
+        let entry = feature.gitConsoleEntries.last
+        return ConsoleTailState(id: entry?.id, state: entry?.state, succeeded: entry?.succeeded)
+    }
+
     @ViewBuilder
     private var primaryContent: some View {
         switch selectedGitToolTab {
@@ -386,7 +397,8 @@ struct GitLogView: View {
             )
             gitToolTabButton(
                 .worktrees,
-                title: "Worktrees"
+                title: "Worktrees",
+                detail: feature.gitRepositoryRoot?.path
             )
             gitToolTabButton(.console, title: "Console")
 
@@ -403,10 +415,8 @@ struct GitLogView: View {
 
             Menu {
                 Button("Fetch All Remotes") {
-                    selectedGitToolTab = .console
                     Task { await feature.fetchGit() }
                 }
-                .disabled(feature.isPerformingBranchOperation)
                 Button("Fetch Options…") { showsFetchOptions = true }
                     .disabled(feature.isPerformingBranchOperation)
                 Button("Update Current Branch") {
@@ -516,7 +526,6 @@ struct GitLogView: View {
     private var primaryActionBar: some View {
         HStack(spacing: 7) {
             Button {
-                selectedGitToolTab = .console
                 Task { await feature.fetchGit() }
             } label: {
                 Label("Fetch", systemImage: "arrow.down.circle")
@@ -1020,8 +1029,7 @@ struct GitLogView: View {
 
             if (visibleCommitHashes?.isEmpty == true || (visibleCommitHashes == nil && feature.gitCommits.isEmpty)) && !feature.isLoadingGitHistory {
                 GitRepositoryEmptyView(feature: feature, setup: feature.repositorySetup,
-                                       openSettings: navigation.openGitSettings, openChanges: navigation.openChanges,
-                                       openConsole: { selectedGitToolTab = .console })
+                                       openSettings: navigation.openGitSettings, openChanges: navigation.openChanges)
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -1410,7 +1418,8 @@ struct GitLogView: View {
                 }
                 .buttonStyle(.plain)
                 .lithePointer()
-                .popover(isPresented: $showsGitLogBranchFilterPopover, arrowEdge: .bottom) {
+                .overlay {
+                    GitLogInstantPopover(isPresented: $showsGitLogBranchFilterPopover) {
                     GitLogBranchFilterPopover(
                         menu: GitLogFilterList.branchMenu(references: feature.gitReferences),
                         querySections: { query in
@@ -1427,6 +1436,7 @@ struct GitLogView: View {
                             Task { await feature.selectGitReference(item.reference) }
                         }
                     )
+                    }
                 }
 
                 if feature.selectedGitReference != nil || feature.isShowingAllGitReferences {
@@ -1444,7 +1454,8 @@ struct GitLogView: View {
                 }
                 .buttonStyle(.plain)
                 .lithePointer()
-                .popover(isPresented: $showsGitLogAuthorFilterPopover, arrowEdge: .bottom) {
+                .overlay {
+                    GitLogInstantPopover(isPresented: $showsGitLogAuthorFilterPopover) {
                     GitLogFilterPopover(
                         sectionsForQuery: { query in
                             GitLogFilterList.authorSections(
@@ -1462,6 +1473,7 @@ struct GitLogView: View {
                             selectedGitLogAuthor = item.selection
                         }
                     )
+                    }
                 }
 
                 if selectedGitLogAuthor != nil {
@@ -1509,8 +1521,10 @@ struct GitLogView: View {
                 }
                 .buttonStyle(.plain)
                 .lithePointer()
-                .popover(isPresented: $showsGitLogPathPopover, arrowEdge: .bottom) {
-                    gitLogPathPopover
+                .overlay {
+                    GitLogInstantPopover(isPresented: $showsGitLogPathPopover) {
+                        gitLogPathPopover
+                    }
                 }
 
                 if !gitLogPathFilter.isEmpty {
@@ -1522,6 +1536,13 @@ struct GitLogView: View {
             }
         }
         .lineLimit(1)
+        // Git Log filters follow IntelliJ's direct popup behavior. Keep their
+        // presentation state changes out of SwiftUI's implicit animation
+        // transaction so opening and dismissing a filter is immediate.
+        .transaction { transaction in
+            transaction.animation = nil
+            transaction.disablesAnimations = true
+        }
     }
 
     private var gitLogPathPopover: some View {
@@ -1756,6 +1777,72 @@ private struct GitLogFilterTaskIdentity: Hashable {
     let datePreset: GitLogDatePreset
     let path: String
     let commitHashes: [String]
+}
+
+/// Hosts Git Log filters in an AppKit popover so they open without SwiftUI's
+/// default presentation transition while retaining transient dismissal.
+private struct GitLogInstantPopover<Content: View>: NSViewRepresentable {
+    @Binding var isPresented: Bool
+    let content: () -> Content
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(isPresented: $isPresented, content: content)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.wantsLayer = false
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.content = content
+        guard isPresented, let window = nsView.window else {
+            if !isPresented { context.coordinator.dismiss() }
+            return
+        }
+        context.coordinator.present(relativeTo: nsView, in: window)
+    }
+
+    final class Coordinator: NSObject, NSPopoverDelegate {
+        var isPresented: Binding<Bool>
+        var content: () -> Content
+        private var popover: NSPopover?
+        private var hostingController: NSHostingController<Content>?
+
+        init(isPresented: Binding<Bool>, content: @escaping () -> Content) {
+            self.isPresented = isPresented
+            self.content = content
+        }
+
+        func present(relativeTo anchor: NSView, in window: NSWindow) {
+            if let hostingController {
+                hostingController.rootView = content()
+                return
+            }
+            let hostingController = NSHostingController(rootView: content())
+            let popover = NSPopover()
+            popover.contentViewController = hostingController
+            popover.behavior = .transient
+            popover.animates = false
+            popover.delegate = self
+            self.hostingController = hostingController
+            self.popover = popover
+            popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
+        }
+
+        func dismiss() {
+            popover?.close()
+            popover = nil
+            hostingController = nil
+        }
+
+        func popoverDidClose(_ notification: Notification) {
+            popover = nil
+            hostingController = nil
+            if isPresented.wrappedValue { isPresented.wrappedValue = false }
+        }
+    }
 }
 
 enum GitLogDatePreset: String, CaseIterable, Identifiable, Hashable {

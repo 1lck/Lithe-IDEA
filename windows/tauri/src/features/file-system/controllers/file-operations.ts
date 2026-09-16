@@ -1,3 +1,4 @@
+import { isLocalDocumentPath, readDocumentFile } from "@/platform/document-files";
 import type { FileEntry } from "../types/app.types";
 import { joinPath } from "@/utils/path-helpers";
 import {
@@ -12,6 +13,11 @@ import { shouldHideFromFileTree } from "./utils";
 
 export async function readFileContent(path: string): Promise<string> {
   try {
+    if (isLocalDocumentPath(path)) {
+      const content = await readDocumentFile(path);
+      if (content === null) throw new Error("File no longer exists");
+      return content;
+    }
     const content = await platformReadFile(path);
     return content || "";
   } catch (error) {

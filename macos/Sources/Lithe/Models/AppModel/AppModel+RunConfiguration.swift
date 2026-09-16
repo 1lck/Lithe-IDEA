@@ -60,7 +60,7 @@ extension AppModel {
         phase: MavenLifecyclePhase,
         module: MavenModule?
     ) {
-        showToolWindow(.maven)
+        showToolWindow(.mavenOutput)
         Task { [weak self] in
             guard let feature = await self?.activateExecutionModule()?.mavenFeature else { return }
             feature.run(phase: phase, module: module)
@@ -68,7 +68,7 @@ extension AppModel {
     }
 
     func runMavenGoal(_ goal: String, module: MavenModule?) {
-        showToolWindow(.maven)
+        showToolWindow(.mavenOutput)
         Task { [weak self] in
             guard let feature = await self?.activateExecutionModule()?.mavenFeature else { return }
             feature.runCustomGoal(goal, module: module)
@@ -317,7 +317,7 @@ extension AppModel {
             return
         }
         guard isCurrentWorkspace(identity) else { return }
-        guard runWorkflowCoordinator.saveDirtyCurrentFileIfNeeded(
+        guard await runWorkflowCoordinator.saveDirtyCurrentFileIfNeeded(
             configuration: configuration,
             document: activeDocument,
             saving: self
@@ -540,7 +540,7 @@ extension AppModel: RunWorkflowActions {
         await loadProjectServices(at: workspaceURL, files: files, snapshotID: snapshotID)
     }
 
-    func save(_ document: EditorDocument) throws {
-        try saveDocument(document)
+    func save(_ document: EditorDocument) async throws {
+        try await saveDocument(document)
     }
 }

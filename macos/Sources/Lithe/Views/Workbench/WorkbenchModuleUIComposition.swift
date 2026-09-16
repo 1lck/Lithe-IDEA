@@ -116,6 +116,7 @@ enum WorkbenchModuleUIComposition {
         contributions: ExecutionModule.moduleContributions,
         actions: [
             .init(id: "execution.maven.toggle", perform: { $0.toggleMaven() }),
+            .init(id: "execution.maven.output.toggle", perform: { $0.workbenchFeature.toggleVisibility(.mavenOutput) }),
             .init(id: "execution.run.toggle", perform: { $0.toggleRun() }),
             .init(id: "execution.tests.toggle", perform: { $0.toggleTests() })
         ],
@@ -130,7 +131,27 @@ enum WorkbenchModuleUIComposition {
                         return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView)
                     }
                     return AnyView(MavenView(feature: feature))
-                }
+                },
+                contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.mavenFeatureIfActive) },
+                rightSidebarBehavior: .docked
+            ),
+            .init(
+                id: "execution.maven.output",
+                ideaAssetPath: "toolwindows/toolWindowRun.svg",
+                isVisible: { model in
+                    guard let feature = model.mavenFeatureIfActive else { return false }
+                    return model.workbenchFeature.isVisible(.mavenOutput)
+                        || feature.isRunning || !feature.output.isEmpty || feature.lastExitCode != nil
+                        || feature.taskState == .cancelled
+                },
+                isSelected: { $0.workbenchFeature.isVisible(.mavenOutput) },
+                content: { model in
+                    guard let feature = model.mavenFeatureIfActive else {
+                        return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView)
+                    }
+                    return AnyView(MavenBuildOutputView(feature: feature))
+                },
+                contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.mavenFeatureIfActive) }
             ),
             .init(
                 id: "execution.run",

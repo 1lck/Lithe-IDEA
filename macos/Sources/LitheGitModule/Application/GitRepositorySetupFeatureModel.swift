@@ -14,8 +14,15 @@ package final class GitRepositorySetupFeatureModel: ObservableObject {
     private var root: URL?
     private var generation = 0
     private let service: GitService
+    private let recordMutation: @MainActor @Sendable (URL, [String], Result<GitRepositorySetup, GitSetupFailure>) -> Void
 
-    package init(service: GitService) { self.service = service }
+    package init(
+        service: GitService,
+        recordMutation: @escaping @MainActor @Sendable (URL, [String], Result<GitRepositorySetup, GitSetupFailure>) -> Void = { _, _, _ in }
+    ) {
+        self.service = service
+        self.recordMutation = recordMutation
+    }
 
     package func reset() {
         generation &+= 1
@@ -50,6 +57,7 @@ package final class GitRepositorySetupFeatureModel: ObservableObject {
         errorMessage = nil
         let result = await service.initializeRepository(at: root)
         guard self.generation == generation else { return false }
+        recordMutation(root, ["init"], result)
         isBusy = false
         receive(result)
         return state?.isRepository == true && errorMessage == nil
@@ -65,6 +73,15 @@ package final class GitRepositorySetupFeatureModel: ObservableObject {
         errorMessage = nil
         let result = await service.configureIdentity(at: root, scope: scope, field: field, value: value)
         guard self.generation == generation else { return }
+        var arguments = [
+            "config",
+            scope == .local ? "--local" : "--global",
+            value == nil ? "--unset-all" : "--replace-all",
+            "--",
+            field == .name ? "user.name" : "user.email"
+        ]
+        if let value { arguments.append(value) }
+        recordMutation(root, arguments, result)
         isBusy = false
         receive(result)
         if errorMessage == nil {

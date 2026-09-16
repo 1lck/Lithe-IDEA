@@ -444,6 +444,32 @@ struct GitModuleTests {
     }
 
     @Test
+    func gitConsoleMarksDestructiveCommands() {
+        let root = URL(fileURLWithPath: "/workspace")
+        let destructive = [
+            ["branch", "-d", "--", "feature/old"],
+            ["tag", "-d", "v1.0"],
+            ["worktree", "remove", "/tmp/worktree"],
+            ["stash", "drop", "stash@{0}"],
+            ["apply", "--reverse", "-"]
+        ]
+        for arguments in destructive {
+            #expect(GitConsoleEntry(
+                workingDirectory: root,
+                arguments: arguments,
+                output: "",
+                exitCode: 0
+            ).isDestructive)
+        }
+        #expect(!GitConsoleEntry(
+            workingDirectory: root,
+            arguments: ["status", "--short"],
+            output: "",
+            exitCode: 0
+        ).isDestructive)
+    }
+
+    @Test
     func gitConsoleRedactsCredentialsFromArgumentsAndProcessStreams() {
         let secret = "FAKE_SUPER_SECRET_TOKEN"
         let credentialURL = "https://alice:password@example.com/repository.git?access_token=\(secret)&mode=test"
@@ -1477,6 +1503,7 @@ struct GitModuleTests {
             name: "feature/short-lived",
             deletedTarget: "abc123def456"
         ))
+        #expect(feature.gitConsoleEntries.map(\.arguments) == [["branch", "-d", "--", "feature/short-lived"]])
         #expect(notifications == ["Deleted branch feature/short-lived"])
 
         feature.dismissDeletedBranchBanner()

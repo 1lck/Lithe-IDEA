@@ -42,6 +42,7 @@ enum DocumentLifecycleEventType: String, Codable, Sendable {
     case saveStarted
     case saveSucceeded
     case saveFailed
+    case diskConflict
     case externalChanged
     case reloadSucceeded
     case keepEditor
@@ -75,6 +76,7 @@ struct DocumentLifecycleEvent: Codable, Equatable, Sendable {
         operation(.saveFailed, operationID: operationID)
     }
 
+    static let diskConflict = Self(type: .diskConflict)
     static let externalChanged = Self(type: .externalChanged)
     static let keepEditor = Self(type: .keepEditor)
     static let loadDisk = Self(type: .loadDisk)

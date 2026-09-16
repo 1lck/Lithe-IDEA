@@ -252,3 +252,40 @@ describe("workspace-scoped editor actions", () => {
     }
   });
 });
+
+test.each([false, true])("guarded save preserves conflicts and does not revive a closed workspace (closed=%s)", async (closeWorkspace) => {
+  const documentFiles = await import("@/platform/document-files");
+  const lifecycle = await import("@/platform/document-lifecycle");
+  const history = await import("@/features/local-history/api/local-history-api");
+  const settings = await import("@/features/settings/stores/settings.store");
+  const previousFormat = settings.useSettingsStore.getState().settings.formatOnSave;
+  settings.useSettingsStore.setState((state) => ({ settings: { ...state.settings, formatOnSave: false } }));
+  const save = spyOn(documentFiles, "saveDocumentFile").mockImplementation(async () => {
+    if (closeWorkspace) workspaceRuntimeRegistry.removeWorkspace(WORKSPACE_A);
+    return { status: "conflict", content: "external version" };
+  });
+  const record = spyOn(history, "recordLocalHistoryFile").mockResolvedValue(null);
+  const decide = spyOn(lifecycle, "decideDocumentLifecycle").mockImplementation(async (state, event) => {
+    if (event.type === "saveStarted") return { state: { status: "saving", revision: state.revision, savedRevision: 0, saveRevision: state.revision, operationId: event.operationId }, action: "writeToDisk" };
+    if (event.type === "diskConflict") return { state: { status: "conflict", revision: state.revision, savedRevision: 0 }, action: "showConflict" };
+    throw new Error(`Unexpected transition: ${event.type}`);
+  });
+  try {
+    setWorkspaceBuffers(WORKSPACE_A, [editorBuffer("local", "my edits", { isVirtual: false, isDirty: true })], "local");
+    const result = await useEditorAppStore.getStore(WORKSPACE_A).getState().actions.handleSave("local");
+    expect(result).toBe("cancelled");
+    expect(save).toHaveBeenCalledWith("C:/workspace/local.txt", "my edits", "my edits-saved");
+    if (closeWorkspace) {
+      expect(workspaceRuntimeRegistry.hasWorkspace(WORKSPACE_A)).toBe(false);
+      return;
+    }
+    const buffer = getEditorBuffer(WORKSPACE_A, "local");
+    expect(buffer.content).toBe("my edits");
+    expect(buffer.externalDiskContent).toBe("external version");
+    expect(buffer.documentLifecycle?.status).toBe("conflict");
+    expect(buffer.isDirty).toBe(true);
+  } finally {
+    save.mockRestore(); record.mockRestore(); decide.mockRestore();
+    settings.useSettingsStore.setState((state) => ({ settings: { ...state.settings, formatOnSave: previousFormat } }));
+  }
+});

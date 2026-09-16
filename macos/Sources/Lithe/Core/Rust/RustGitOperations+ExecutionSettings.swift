@@ -6,6 +6,12 @@ extension RustGitOperations {
         core.executeResult(command: save ? "git.executionConfigure" : "git.executionInspect", payload: request)
             .mapError { GitFetchFailure($0.userMessage) }
     }
+    func remoteURL(at rootURL: URL, remote: String) -> String? {
+        switch core.gitRemoteURL(at: rootURL, remote: remote) {
+        case .success(let url): return url
+        case .failure: return nil
+        }
+    }
     func answerAuthentication(requestID: String, answer: String?) -> Bool {
         struct Reply: Encodable { let requestId: String; let answer: String? }
         struct Response: Decodable { let accepted: Bool }

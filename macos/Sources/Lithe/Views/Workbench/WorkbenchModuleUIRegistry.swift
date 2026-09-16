@@ -20,6 +20,10 @@ struct WorkbenchModuleUIRegistry {
     }
 
     struct Renderer {
+        enum RightSidebarBehavior {
+            case hover
+            case docked
+        }
         let id: String
         let ideaAssetPath: String?
         let isVisible: @MainActor (AppModel) -> Bool
@@ -28,6 +32,7 @@ struct WorkbenchModuleUIRegistry {
         /// Distinguishes states the erased content cannot express by value —
         /// chiefly "still loading" versus a specific attached feature object.
         let contentIdentity: @MainActor (AppModel) -> AnyHashable
+        let rightSidebarBehavior: RightSidebarBehavior
 
         init(
             id: String,
@@ -37,7 +42,8 @@ struct WorkbenchModuleUIRegistry {
             content: @escaping @MainActor (AppModel) -> AnyView,
             // Renderers whose content depends on nothing but the hosted view's
             // own observation of AppModel are always interchangeable.
-            contentIdentity: @escaping @MainActor (AppModel) -> AnyHashable = { _ in 0 }
+            contentIdentity: @escaping @MainActor (AppModel) -> AnyHashable = { _ in 0 },
+            rightSidebarBehavior: RightSidebarBehavior = .hover
         ) {
             self.id = id
             self.ideaAssetPath = ideaAssetPath
@@ -45,6 +51,7 @@ struct WorkbenchModuleUIRegistry {
             self.isSelected = isSelected
             self.content = content
             self.contentIdentity = contentIdentity
+            self.rightSidebarBehavior = rightSidebarBehavior
         }
 
         /// Identity for renderers built from an optional feature object. The

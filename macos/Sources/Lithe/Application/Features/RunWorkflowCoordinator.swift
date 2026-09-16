@@ -256,7 +256,7 @@ final class RunWorkflowCoordinator {
         configuration: RunConfiguration,
         document: EditorDocument?,
         saving: any EditorDocumentSaving
-    ) -> Bool {
+    ) async -> Bool {
         guard configuration.usesCurrentEditorFile,
               let document,
               document.isDirty else {
@@ -264,7 +264,7 @@ final class RunWorkflowCoordinator {
         }
         do {
             let previousText = document.savedText
-            try saving.save(document)
+            try await saving.save(document)
             saving.recordSave(document, previousText: previousText)
             return true
         } catch {

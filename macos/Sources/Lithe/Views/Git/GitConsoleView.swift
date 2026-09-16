@@ -122,6 +122,9 @@ struct GitConsoleView: View {
                         rows
                         Color.clear.frame(width: 1, height: 1).id("git-console-bottom")
                     }
+                    // Preserve intrinsic line width when soft wraps are disabled so
+                    // the enclosing scroll view exposes horizontal scrolling.
+                    .fixedSize(horizontal: !wrapsLines, vertical: false)
                     .padding(.horizontal, 12).padding(.vertical, 4)
                     .frame(minWidth: max(0, geometry.size.width), minHeight: max(0, geometry.size.height), alignment: .topLeading)
                     .background(GitConsoleScrollObserver(find: { searchOpen = true; searchFocused = true }) { isAtEnd in

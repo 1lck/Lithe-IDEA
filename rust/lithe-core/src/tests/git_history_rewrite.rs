@@ -858,7 +858,10 @@ fn native_rebase_large_escaped_manifest_remains_readable_through_abort() {
     };
 
     fn bounded<T>(operation: impl FnOnce() -> Result<T, crate::protocol::CoreError>) -> T {
-        let _deadline = crate::protocol::cancellation::Scope::begin(None, Some(5_000));
+        // The escaped manifest is intentionally larger than 8 MiB. Keep the
+        // native Git operation bounded, while allowing loaded CI runners time
+        // to write and parse that payload before inspecting the edit pause.
+        let _deadline = crate::protocol::cancellation::Scope::begin(None, Some(20_000));
         operation().expect("bounded rebase operation should succeed")
     }
 

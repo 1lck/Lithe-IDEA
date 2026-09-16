@@ -67,9 +67,9 @@ runs:
         path: |
           .artifacts/swiftpm-cache/repositories
           .artifacts/swiftpm-cache/.lithe-integrity.json
-        key: macos-swiftpm-repositories-${{ runner.os }}-6.2-${{ hashFiles('Package.resolved') }}
+        key: macos-swiftpm-repositories-${{ runner.os }}-${{ hashFiles('.swift-version') }}-${{ hashFiles('Package.resolved') }}
         restore-keys: |
-          macos-swiftpm-repositories-${{ runner.os }}-6.2-
+          macos-swiftpm-repositories-${{ runner.os }}-${{ hashFiles('.swift-version') }}-
 
     - name: Restore SwiftPM repositories without saving
       id: swiftpm_restore
@@ -80,9 +80,9 @@ runs:
         path: |
           .artifacts/swiftpm-cache/repositories
           .artifacts/swiftpm-cache/.lithe-integrity.json
-        key: macos-swiftpm-repositories-${{ runner.os }}-6.2-${{ hashFiles('Package.resolved') }}
+        key: macos-swiftpm-repositories-${{ runner.os }}-${{ hashFiles('.swift-version') }}-${{ hashFiles('Package.resolved') }}
         restore-keys: |
-          macos-swiftpm-repositories-${{ runner.os }}-6.2-
+          macos-swiftpm-repositories-${{ runner.os }}-${{ hashFiles('.swift-version') }}-
 
     - name: Restore Cargo crate archives
       id: cargo_cache

@@ -265,7 +265,7 @@ struct EditorJavaViewportTests {
     func wholeBufferEditorEditsClearFoldsBeforeAnalysis(entry: String) throws {
         let source = "import first;\nimport second;\nclass Demo {}\n"
         let (view, layout) = makeTextView(source)
-        try withCoordinator(source: source) { coordinator in
+        withCoordinator(source: source) { coordinator in
             coordinator.textView = view
             view.delegate = coordinator
             defer { view.delegate = nil }
@@ -320,7 +320,7 @@ struct EditorJavaViewportTests {
     func nativePartialEditPreservesFoldStateWhileAnalysisIsPending() throws {
         let source = "import first;\nimport second;\nclass Demo {}\n"
         let (view, _) = makeTextView(source)
-        try withCoordinator(source: source) { coordinator in
+        withCoordinator(source: source) { coordinator in
             coordinator.textView = view
             view.delegate = coordinator
             defer { view.delegate = nil }

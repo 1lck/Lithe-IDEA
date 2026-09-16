@@ -3,6 +3,7 @@
 mod core;
 mod debug;
 mod diagnostics;
+mod document;
 mod file_events;
 mod host;
 mod logging;
@@ -17,6 +18,7 @@ mod watcher;
 
 use file_events::TauriFileChangeEmitter;
 use lithe_project::FileWatcher;
+use lithe_project::document_watcher::DocumentWatcher;
 use lithe_project::git_watcher::GitMetadataWatcher;
 use lithe_terminal::TerminalManager;
 use std::sync::Arc;
@@ -75,6 +77,9 @@ fn main() {
             app.manage(Arc::new(GitMetadataWatcher::new(Arc::new(
                 TauriFileChangeEmitter::new(app.handle().clone()),
             ))));
+            app.manage(Arc::new(DocumentWatcher::new(Arc::new(
+                TauriFileChangeEmitter::new(app.handle().clone()),
+            ))?));
             app.manage(Arc::new(TerminalManager::new()));
             app.manage(terminal::FrontendTerminalSessions::default());
             app.manage(host::PendingCliOpenRequests::from_arguments(
@@ -91,6 +96,11 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
+                if let Some(watcher) = window.try_state::<Arc<DocumentWatcher>>() {
+                    if let Err(error) = watcher.remove_owner(window.label()) {
+                        eprintln!("Could not release document watches: {error}");
+                    }
+                }
                 if let Some(watcher) = window.try_state::<Arc<GitMetadataWatcher>>() {
                     if let Err(error) = watcher.remove(window.label(), None) {
                         eprintln!("Could not release Git metadata watches: {error}");
@@ -99,6 +109,9 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            document::read_document_file,
+            document::save_document_file,
+            document::set_document_watches,
             core::core_execute,
             core::core_cancel,
             diagnostics::preview_diagnostic_bundle,

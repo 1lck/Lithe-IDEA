@@ -96,7 +96,7 @@ the existing stack can reasonably avoid.
 
 ### Swift and macOS
 
-- Use the Swift 6.2 toolchain. The application target intentionally uses Swift
+- Use the Swift 6.3.3 toolchain pinned in `.swift-version` (Xcode 26.6). The application target intentionally uses Swift
   5 language mode while tests use Swift 6 language mode; do not change these
   modes as part of unrelated work.
 - Put presentation in Views, feature state in Application, orchestration in

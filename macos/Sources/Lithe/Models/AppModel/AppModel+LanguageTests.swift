@@ -116,7 +116,7 @@ extension AppModel {
             state: javaTestWorkflowState,
             prepareDirtyDocument: { [weak self] in
                 guard let self else { return false }
-                return self.javaTestWorkflowState.prepareDirtyDocument(
+                return await self.javaTestWorkflowState.prepareDirtyDocument(
                     fileURL: request.fileURL,
                     documents: self.openDocuments,
                     saving: self
