@@ -57,6 +57,9 @@ final class DebugModuleCoordinator {
             store.observe(.debug, observation: feature.$state.removeDuplicates().sink { [weak self] state in
                 self?.onStateChange(state)
             })
+            // Runtime activation events can precede caching the host capability.
+            // Publish again only after the renderer can resolve its feature.
+            onChange()
             return feature
         } catch {
             onError(error.localizedDescription)

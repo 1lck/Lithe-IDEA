@@ -81,6 +81,8 @@ macOS 保留用户接受的 `FindBarView` 外观。`EditorChromeModel` 有意不
 真正启动调试仍由 `startDebuggingAfterActivation` 执行原有项目／工具链准备门禁。
 模块内容使用 feature 对象身份区分加载占位、已加载内容和重建后的实例，避免
 `ModuleToolContent.equatable()` 把不同状态当作同一画面而一直显示 `Starting module...`。
+协调器必须在缓存宿主 capability 后发送刷新，不能只依赖可能早于缓存的 runtime
+激活事件。无 I/O 的模块测试验证通知发生时已能解析 feature，复用缓存不重复发布。
 这两处原生问题在 preview 已存在；本次因维护者在迁移验收中明确报告并要求修复，
 仅修 Debug 入口与身份，不推广修改其他模块的加载流程。
 
