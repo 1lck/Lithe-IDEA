@@ -59,6 +59,9 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
         ["id": "implementers", "line": 2, "direction": "down", "relation": "interface"]
     ]]
     var debugRequests: [[String: Any]] = []
+    var definitionRequests: [[String: Any]] = []
+    var markdownScrollRequests: [[String: Any]] = []
+    var markdownScrollWaiter: ((Any?, String?) -> Void)?
     var fixtureDocuments: [String: (text: String, revision: Int)] = [:]
     var semanticCount = 0
     var holdImagePaste = false
@@ -238,6 +241,21 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                 replyHandler(["ok": true], nil)
             case "debugRequests":
                 replyHandler(["requests": debugRequests], nil)
+            case "definition":
+                definitionRequests.append(body)
+                replyHandler(["ok": true], nil)
+            case "definitionRequests":
+                replyHandler(["requests": definitionRequests], nil)
+            case "markdownScroll":
+                markdownScrollRequests.append(body)
+                markdownScrollWaiter?(["requests": markdownScrollRequests], nil); markdownScrollWaiter = nil
+                replyHandler(["ok": true], nil)
+            case "markdownScrollRequests":
+                replyHandler(["requests": markdownScrollRequests], nil)
+            case "awaitMarkdownScroll":
+                if markdownScrollRequests.count > (body["after"] as? Int ?? 0) {
+                    replyHandler(["requests": markdownScrollRequests], nil)
+                } else { markdownScrollWaiter = replyHandler }
             case "fixtureSnapshot":
                 guard let id = body["id"] as? String, let fixture = fixtureDocuments[id] else { throw ProbeError.invalid("Missing fixture") }
                 replyHandler(["text": fixture.text, "revision": fixture.revision, "commandCount": actionCommandCount], nil)
@@ -391,6 +409,7 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
     func windowWillClose(_ notification: Notification) { finish(error: automated && !completed ? "Closed before completion" : nil) }
 
     func finish(error: String?) {
+        markdownScrollWaiter?(nil, "Probe finished"); markdownScrollWaiter = nil
         heldResolve?(nil, "Probe finished"); heldResolve = nil
         resolveWaiter?(nil, "Probe finished"); resolveWaiter = nil
         heldFormat?(nil, "Probe finished"); heldFormat = nil

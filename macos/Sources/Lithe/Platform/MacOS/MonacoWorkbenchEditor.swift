@@ -28,9 +28,10 @@ struct MonacoWorkbenchEditor: View {
     let document: EditorDocument
     var secondaryDocument: EditorDocument? = nil
     var preview: MonacoPreviewConfiguration? = nil
+    var markdownScrollPosition: Binding<MarkdownScrollPosition>? = nil
 
     var body: some View {
-        MonacoWorkbenchContent(document: document, secondaryDocument: secondaryDocument, preview: preview, model: model)
+        MonacoWorkbenchContent(document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model)
     }
 }
 
@@ -43,11 +44,13 @@ private struct MonacoWorkbenchContent: View {
     let document: EditorDocument
     let secondaryDocument: EditorDocument?
     let preview: MonacoPreviewConfiguration?
+    let markdownScrollPosition: Binding<MarkdownScrollPosition>?
 
-    init(document: EditorDocument, secondaryDocument: EditorDocument?, preview: MonacoPreviewConfiguration?, model: AppModel) {
+    init(document: EditorDocument, secondaryDocument: EditorDocument?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, model: AppModel) {
         self.document = document
         self.secondaryDocument = secondaryDocument
         self.preview = preview
+        self.markdownScrollPosition = markdownScrollPosition
         self.model = model
         _session = StateObject(wrappedValue: MonacoWorkbenchSession.forModel(model.id))
     }
@@ -55,7 +58,7 @@ private struct MonacoWorkbenchContent: View {
     var body: some View {
         Group {
             if MonacoWorkbenchResources.directory != nil {
-                MonacoWorkbenchSurface(session: session, document: document, secondaryDocument: secondaryDocument, preview: preview, model: model,
+                MonacoWorkbenchSurface(session: session, document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model,
                     fontSize: settings.editorFontSize, dark: colorScheme == .dark, wrap: settings.editorSoftWrapEnabled,
                     markers: diagnostics.diagnostics(for: document.url),
                     secondaryMarkers: secondaryDocument.map { diagnostics.diagnostics(for: $0.url) } ?? [])
@@ -79,6 +82,7 @@ private struct MonacoWorkbenchSurface: NSViewRepresentable {
     let document: EditorDocument
     let secondaryDocument: EditorDocument?
     let preview: MonacoPreviewConfiguration?
+    let markdownScrollPosition: Binding<MarkdownScrollPosition>?
     let model: AppModel
     let fontSize: Double
     let dark: Bool
@@ -97,7 +101,7 @@ private struct MonacoWorkbenchSurface: NSViewRepresentable {
         coordinator.session.detachView(ownerID: coordinator.ownerID)
     }
     func updateNSView(_ view: NSView, context: Context) {
-        session.update(ownerID: context.coordinator.ownerID, document: document, secondaryDocument: secondaryDocument, preview: preview, model: model, fontSize: fontSize, dark: dark, wrap: wrap, markers: markers, secondaryMarkers: secondaryMarkers)
+        session.update(ownerID: context.coordinator.ownerID, document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model, fontSize: fontSize, dark: dark, wrap: wrap, markers: markers, secondaryMarkers: secondaryMarkers)
     }
 }
 
@@ -190,6 +194,9 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
     private var lastGitStates: [String: Data] = [:]
     private var lastMarkers: [String: [EditorDiagnostic]] = [:]
     private var synchronizingIDs: Set<String> = []
+    private var markdownScrollBinding: Binding<MarkdownScrollPosition>?
+    private var markdownScrollID: String?
+    private var markdownScrollRevision: UInt64?
 
 
     private func makeView() -> WKWebView {
@@ -221,6 +228,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         let selected = mountOrder.last { mounts[$0]?.isPreview == true } ?? mountOrder.last
         guard let selected, let container = mounts[selected]?.container else {
             viewOwnerID = nil; latestUpdate = nil
+            markdownScrollBinding = nil; markdownScrollID = nil; markdownScrollRevision = nil
             webView?.removeFromSuperview()
             return
         }
@@ -249,12 +257,13 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         selectMount()
     }
 
-    func update(ownerID: UUID, document: EditorDocument, secondaryDocument: EditorDocument?, preview: MonacoPreviewConfiguration?, model: AppModel, fontSize: Double, dark: Bool, wrap: Bool, markers: [EditorDiagnostic], secondaryMarkers: [EditorDiagnostic]) {
+    func update(ownerID: UUID, document: EditorDocument, secondaryDocument: EditorDocument?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, model: AppModel, fontSize: Double, dark: Bool, wrap: Bool, markers: [EditorDiagnostic], secondaryMarkers: [EditorDiagnostic]) {
         guard mounts[ownerID] != nil else { return }
         self.model = model
         mounts[ownerID]?.update = { [weak self, weak document, weak secondaryDocument, weak model] in
             guard let self, let document, let model else { return }
             self.present(document: document, model: model, fontSize: fontSize, dark: dark, wrap: wrap, markers: markers)
+            self.presentMarkdownScroll(document: document, binding: markdownScrollPosition)
             if let secondaryDocument {
                 self.hasSecondaryView = true
                 self.present(document: secondaryDocument, model: model, fontSize: fontSize, dark: dark, wrap: wrap, markers: secondaryMarkers, surface: "secondary")
@@ -621,6 +630,23 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
     }
 
 
+    private func presentMarkdownScroll(document: EditorDocument, binding: Binding<MarkdownScrollPosition>?) {
+        let id = binding == nil ? nil : document.id.uuidString
+        let changed = id != markdownScrollID
+        markdownScrollBinding = binding
+        markdownScrollID = id
+        if changed { markdownScrollRevision = nil }
+        guard let id, let position = binding?.wrappedValue else {
+            if changed { call("window.lithe.markdownScroll(null)") }
+            return
+        }
+        guard changed || markdownScrollRevision != position.revision else { return }
+        markdownScrollRevision = position.revision
+        var payload: [String: Any] = ["id": id]
+        if position.source == .preview { payload["ratio"] = position.ratio }
+        call("window.lithe.markdownScroll(payload)", arguments: ["payload": payload])
+    }
+
     private func currentDocument(_ id: String) -> EditorDocument? {
         guard let document = documents[id],
               model?.documentFeature.editorDocuments.contains(where: { $0 === document }) == true else { return nil }
@@ -676,6 +702,15 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             reply(["cancelled": true], nil); return
         }
         switch type {
+        case "markdownScroll":
+            guard markdownScrollID == id, let binding = markdownScrollBinding,
+                  let ratio = body["ratio"] as? Double, ratio.isFinite else { reply(["cancelled": true], nil); return }
+            var position = binding.wrappedValue
+            if position.update(ratio: ratio, source: .editor) {
+                markdownScrollRevision = position.revision
+                binding.wrappedValue = position
+            }
+            reply(["ok": true], nil)
         case "javaNavigation":
             guard let model, !failed, document.url.pathExtension.lowercased() == "java",
                   let revision = body["revision"] as? Int, revision == revisions[id] else {
@@ -1072,9 +1107,12 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
                 }
             }
         case "definition":
-            if let line = body["line"] as? Int, let column = body["column"] as? Int {
-                model?.navigateToSymbol(line: line, utf16Column: column, in: document.url)
-            } else if model?.activeDocumentID == document.id { model?.goToDefinition() }
+            guard let model, !failed, body["revision"] as? Int == revisions[id],
+                  let line = body["line"] as? Int, let column = body["column"] as? Int else {
+                reply(["cancelled": true], nil); return
+            }
+            model.editorDidFocus(document)
+            model.navigateToSymbol(line: line, utf16Column: column, in: document.url)
             reply(["ok": true], nil)
         default: reply(nil, "Unknown editor message")
         }

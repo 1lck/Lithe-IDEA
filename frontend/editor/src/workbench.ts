@@ -14,6 +14,7 @@ import { installJavaTextMate } from "./textmate";
 import { Emitter } from "monaco-editor/esm/vs/base/common/event.js";
 import { MONACO_SEMANTIC_TOKEN_LEGEND, encodeMonacoSemanticTokens } from "./semantic-tokens";
 import { CancellationError, isCancellationError } from "monaco-editor/esm/vs/base/common/errors.js";
+import { isMacintosh } from "monaco-editor/esm/vs/base/common/platform.js";
 
 export interface WorkbenchHost {
   request(payload: object): Promise<any>;
@@ -44,6 +45,10 @@ export function mountWorkbench(host: WorkbenchHost) {
   const closingOperations = new Map<string, { entry?: Entry; cancelled: boolean }>();
   let active: string | undefined;
   let editor: monaco.editor.IStandaloneCodeEditor;
+  let markdownScrollID: string | undefined;
+  let markdownScrollTimer: ReturnType<typeof setTimeout> | undefined;
+  let applyingMarkdownScroll = false;
+  let lastMarkdownRatio: number | undefined;
   let review: ReturnType<typeof mountDiffReview> | undefined;
   type Surface = { editor: monaco.editor.IStandaloneCodeEditor; id: string; states: Map<string, monaco.editor.ICodeEditorViewState> };
   const surfaces = new Map<string, Surface>();
@@ -438,6 +443,28 @@ export function mountWorkbench(host: WorkbenchHost) {
     node.addEventListener("paste", paste, true);
     view.onDidDispose(() => node.removeEventListener("paste", paste, true));
   }
+  function attachDefinitionNavigation(view: monaco.editor.IStandaloneCodeEditor) {
+    const navigate = async (position: monaco.IPosition | null) => {
+      const pair = [...entries].find(([, entry]) => entry.model === view.getModel());
+      if (!pair || !position) return;
+      const [id, entry] = pair, current = documentCheckpoint(id, entry);
+      await entry.chain;
+      if (!current() || view.getModel() !== entry.model) return;
+      await languageRequest({ type: "definition", id, revision: entry.revision,
+        line: position.lineNumber - 1, column: position.column - 1 });
+    };
+    view.addAction({ id: "lithe.goToDefinition", label: "Go to Definition", keybindings: [monaco.KeyCode.F12],
+      contextMenuGroupId: "navigation", contextMenuOrder: 1, run: () => navigate(view.getPosition()) });
+    view.onMouseDown(event => {
+      const gesture = event.event;
+      if (!(isMacintosh ? gesture.metaKey : gesture.ctrlKey) || !gesture.leftButton || gesture.altKey || gesture.shiftKey ||
+          event.target.type !== monaco.editor.MouseTargetType.CONTENT_TEXT || !event.target.position) return;
+      gesture.preventDefault();
+      gesture.stopPropagation();
+      void navigate(event.target.position);
+    });
+  }
+
   function attachDebugInteractions(view: monaco.editor.IStandaloneCodeEditor) {
     const navigationKeys = { up: view.createContextKey("litheJava.up", false), down: view.createContextKey("litheJava.down", false) };
     const navigation = (line = view.getPosition()?.lineNumber) => {
@@ -478,6 +505,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     }
     attachGitInteractions(view);
     attachImagePaste(view);
+    attachDefinitionNavigation(view);
     debugRunContexts.set(view, view.createContextKey("litheCanRunToCursor", false));
     function request(type: "toggleBreakpoint" | "editBreakpoint" | "runToCursor", line: number, column = 1) {
       const model = view.getModel();
@@ -515,6 +543,19 @@ export function mountWorkbench(host: WorkbenchHost) {
   }
 
   const api = {
+    async markdownScroll(payload: { id: string; ratio?: number } | null) {
+      await activation;
+      clearTimeout(markdownScrollTimer); markdownScrollTimer = undefined;
+      markdownScrollID = payload?.id;
+      lastMarkdownRatio = undefined;
+      if (!payload || active !== payload.id || !Number.isFinite(payload.ratio)) return;
+      applyingMarkdownScroll = true;
+      try {
+        const extent = Math.max(0, editor.getScrollHeight() - editor.getLayoutInfo().height);
+        editor.setScrollTop(Math.min(1, Math.max(0, payload.ratio!)) * extent, monaco.editor.ScrollType.Immediate);
+        lastMarkdownRatio = extent ? editor.getScrollTop() / extent : 0;
+      } finally { applyingMarkdownScroll = false; }
+    },
     async refreshJavaNavigation() {
       await activation;
       await Promise.all([...entries].filter(([, entry]) => allEditors().some(view => view.getModel() === entry.model))
@@ -632,11 +673,6 @@ export function mountWorkbench(host: WorkbenchHost) {
           surfaces.set(surfaceID, surface);
           view.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
             void send({ type: "save", id: surface!.id }).catch(fail);
-          });
-          view.addCommand(monaco.KeyCode.F12, () => {
-            const position = view.getPosition();
-            if (position) void send({ type: "definition", id: surface!.id,
-              line: position.lineNumber - 1, column: position.column - 1 }).catch(fail);
           });
           view.onDidFocusEditorText(() => {
             const position = view.getPosition();
@@ -845,6 +881,21 @@ export function mountWorkbench(host: WorkbenchHost) {
     };
     editor = monaco.editor.create(document.querySelector("#editor") as HTMLElement, displayOptions);
     attachDebugInteractions(editor);
+    editor.onDidScrollChange(event => {
+      if (!event.scrollTopChanged || applyingMarkdownScroll || !active || active !== markdownScrollID || markdownScrollTimer !== undefined) return;
+      const id = active, entry = entries.get(id);
+      // Only the Markdown split opts in. Coalesce wheel/trackpad bursts instead
+      // of publishing every layout event into the native workbench view graph.
+      markdownScrollTimer = setTimeout(() => {
+        markdownScrollTimer = undefined;
+        if (!entry || entries.get(id) !== entry || active !== id || markdownScrollID !== id || editor.getModel() !== entry.model) return;
+        const extent = Math.max(0, editor.getScrollHeight() - editor.getLayoutInfo().height);
+        const ratio = extent ? Math.min(1, Math.max(0, editor.getScrollTop() / extent)) : 0;
+        if (lastMarkdownRatio !== undefined && Math.abs(ratio - lastMarkdownRatio) <= 0.0005) return;
+        lastMarkdownRatio = ratio;
+        void send({ type: "markdownScroll", id, ratio }).catch(console.error);
+      }, 33);
+    });
     const debugStyle = document.createElement("style");
     const navigationIconStyles = Object.entries(host.javaNavigationIcons ?? {}).map(([kind, svg]) =>
       `.monaco-editor .lithe-java-navigation-${kind}:${kind.startsWith("up-") ? "before" : "after"}{content:"";background-image:url("data:image/svg+xml,${encodeURIComponent(svg)}")}`).join("\n");
@@ -1111,8 +1162,8 @@ export function mountWorkbench(host: WorkbenchHost) {
           insertTextRules: reply.item.insertTextFormat === 2 ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet : undefined };
       },
     });
-    editor.addCommand(monaco.KeyCode.F12, () => { if (active) void send({ type: "definition", id: active }).catch(fail); });
     addEventListener("pagehide", () => {
+      clearTimeout(markdownScrollTimer);
       codeActionCommand.dispose();
       codeVisionCommand.dispose(); codeVisionProvider.dispose(); codeVisionChanges.dispose();
       debugStyle.remove();

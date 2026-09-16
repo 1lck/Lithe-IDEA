@@ -63,6 +63,16 @@ Bun 1.3.12 下样本的废弃分支保留堆增量由约 32.4 MB 降至 2.5 MB�
 
 ### 工作台实验
 
+原编辑器的定义跳转和 Markdown 双向滚动继续走平台已有能力：
+- Cmd-click（Windows 为 Ctrl-click）、F12 和右键 Go to Definition 在主／分屏 view 使用同一条带 drain 的请求，
+  发送该 view 捕获的 UTF-16 位置与 revision，关闭 hold 和切换 model 会取消请求；原生端复核后调用原有导航服务。
+- Markdown split 将原有 `MarkdownScrollPosition` binding 接回 Monaco，沿用来源与 revision 防回环；
+  只在该视图启用滚动消息，33 ms 合并连续输入，切换文档或接收预览滚动时撤销旧回传。
+  滚动消息不改文本或 undo；普通源码编辑不向原生工作台持续发送滚动状态。
+- 新增 shared source / completion resolve / formatting identity / split navigation / Markdown scroll 回归已用
+  Linux Chromium 的真实 Monaco 与受控 bridge 运行；另验证了真实修饰键鼠标点击。
+  同一测试源码已加入 arm64 macOS CI 的有界 WKWebView 验证宿主，不能等同真实 Lithe/JDTLS 或系统剪贴板验收。
+
 异步响应除文本 revision 外，还绑定文档对象、当前工作区和单调递增的改名代次。
 改名后再改回不能恢复旧请求资格；回调持有文档对象不代表该文档仍在当前文档集合。
 活动文件改名通过 `updateDocument` 更新文件名与语言，保留同一 Monaco model、未保存文本和 undo。

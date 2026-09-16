@@ -1266,7 +1266,7 @@ struct EditorAreaView: View {
         _ document: EditorDocument,
         markdownScrollPosition: Binding<MarkdownScrollPosition>? = nil
     ) -> some View {
-        MonacoWorkbenchEditor(document: document)
+        MonacoWorkbenchEditor(document: document, markdownScrollPosition: markdownScrollPosition)
         .clipped()
     }
 

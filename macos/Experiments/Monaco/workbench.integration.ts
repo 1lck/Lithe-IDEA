@@ -913,6 +913,57 @@ async function verify() {
       await window.lithe.retain([]);
     }
   });
+  await check("Markdown split scroll synchronizes without echo or document edits", async () => {
+    const id = "markdown-scroll", text = "# Heading\nparagraph\n".repeat(300);
+    await window.lithe.activate({ id, text, revision: 0, filename: "README.md", readonly: false });
+    const model = editor.getModel()!, version = model.getVersionId();
+    try {
+      editor.layout({ width: 900, height: 500 });
+      const before = (await send({ type: "markdownScrollRequests" })).requests.length;
+      await window.lithe.markdownScroll({ id, ratio: 0.6 });
+      const extent = Math.max(0, editor.getScrollHeight() - editor.getLayoutInfo().height);
+      assert(Math.abs(editor.getScrollTop() / extent - 0.6) < 0.001, "preview scroll did not move the source editor");
+      assert((await send({ type: "markdownScrollRequests" })).requests.length === before,
+        "preview scroll echoed back as an editor gesture");
+      editor.setScrollTop(extent * 0.25, monacoEditor.ScrollType.Immediate);
+      const result = await send({ type: "awaitMarkdownScroll", after: before });
+      const request = result.requests[result.requests.length - 1];
+      assert(request.id === id && Math.abs(request.ratio - 0.25) < 0.001,
+        "source scroll used a different document or wrong range");
+      editor.setScrollTop(extent * 0.3, monacoEditor.ScrollType.Immediate);
+      await window.lithe.markdownScroll(null); // Cancels the queued old-document report.
+      assert(model.getVersionId() === version && model.getValue() === text, "scroll synchronization mutated source or undo");
+    } finally { await window.lithe.markdownScroll(null); await window.lithe.retain([]); }
+  });
+  await check("definition navigation drains edits and routes the owning split document", async () => {
+    const id = "definition-source", text = "class Probe {}";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+    await window.lithe.showSecondary({ id, readonly: false });
+    const secondary = monacoEditor.getEditors().find(view => view !== editor && view.getModel() === editor.getModel())!;
+    try {
+      const before = (await send({ type: "definitionRequests" })).requests.length;
+      secondary.executeEdits("navigation", [{ range: new Range(1, 7, 1, 7), text: "New" }]);
+      secondary.setPosition({ lineNumber: 1, column: 10 });
+      const action = secondary.getAction("lithe.goToDefinition")!;
+      await action.run();
+      const requests = (await send({ type: "definitionRequests" })).requests;
+      assert(requests.length === before + 1, "definition action was not dispatched");
+      const request = requests[requests.length - 1];
+      const native = await send({ type: "fixtureSnapshot", id });
+      assert(request.id === id && request.line === 0 && request.column === 9 && request.revision === native.revision,
+        "navigation used another view's caret or an undrained document revision");
+      await window.lithe.holdForClose(id, "definition-close");
+      await action.run();
+      assert((await send({ type: "definitionRequests" })).requests.length === requests.length,
+        "definition escaped a close hold");
+    } finally {
+      await window.lithe.releaseClose("definition-close");
+      await window.lithe.freeze(id);
+      window.lithe.hideSecondary();
+      await window.lithe.retain([]);
+    }
+  });
   await check("debug markers distinguish breakpoint state and clear without changing document history", async () => {
     const id = "debug-markers", text = "first\nsecond\nthird";
     await send({ type: "open", text });
