@@ -48,6 +48,19 @@ macOS 使用 `--filter @lithe/editor` 安装编辑器依赖，不额外安装 Wi
 共享资源构建将 Monaco 包路径解析为真实路径，再处理直接导入；否则 workspace
 符号链接路径和相对导入的真实路径可能被打成两份注册表，导致 Java 后台上色失联。
 
+### 源文本历史与内存
+
+`SourceText` 的持久树共享未变化的片段；历史 root 数量不能直接解释为整份文件复制数量。
+Monaco 0.55.1 的新编辑使用递增 `versionId`，undo/redo 恢复 `alternativeVersionId`；
+新编辑发生在 undo 之后时，Monaco 删除 redo 分支，共享镜像同时释放该分支的 root。
+不使用固定 Map 长度限制，仍保留可达的旧 undo 和 grouped undo；外部替换遵守同一分支规则。
+纯逻辑回归加入两端 CI；真实 Monaco 测试覆盖 grouped undo、分支和 redo。
+`scripts/soak-editor-source.ts` 是固定 100 轮的诊断入口，比较连续输入、128 KiB 大块替换后 undo/分支、外部替换。
+Bun 1.3.12 下样本的废弃分支保留堆增量由约 32.4 MB 降至 2.5 MB，外部替换由 36.0 MB 降至 1.3 MB；
+这些是显式 GC 后的 JS 堆样本，不是 WKWebView/WebView2 的内存或 CPU 验收，也不设置依赖机器的 CI 阈值。
+仍可撤销的线性历史保留 roots；长期线性编辑及 Monaco 自身撤销栈淘汰后的回收需继续实机测量，
+不能据此宣称整个编辑器内存有固定上界。
+
 ### 工作台实验
 
 异步响应除文本 revision 外，还绑定文档对象、当前工作区和单调递增的改名代次。

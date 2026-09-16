@@ -119,6 +119,11 @@ jobs:
         with:
           bun-version-file: windows/tauri/package.json
 
+      - name: Test shared editor source model
+        if: needs.changes.outputs.windows == 'true'
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory frontend/editor --report .artifacts/test-stability/shared-editor.json
+
       - name: Configure isolated dependency caches
         shell: pwsh
         run: |

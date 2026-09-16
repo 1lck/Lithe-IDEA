@@ -78,3 +78,58 @@ test("mixed newline piece edits keep normalized offsets valid after deletions", 
   const undo = source.apply([{ rangeOffset: 0, rangeLength: model.length, text: normalized(original) }], 1);
   expect(applyNative(native, undo)).toBe(original);
 });
+
+test("branching after grouped undo preserves both surviving undo and new redo bytes", () => {
+  const original = "first\r\n😀middle\rlast\n";
+  const source = new SourceText(original, 1);
+  let native = original;
+  const change = (text: string, version: number) => {
+    native = applyNative(native, source.apply([
+      { rangeOffset: 0, rangeLength: normalized(native).length, text: normalized(text) },
+    ], version));
+    expect(native).toBe(source.value);
+  };
+  change("first\nchanged\nlast\n", 2);
+  const surviving = native;
+  change("old redo branch\n", 3);
+  change("old redo branch\nmore\n", 4);
+  // Grouped undo skips version 3; versionId keeps increasing while Monaco
+  // restores alternativeVersionId 2, then assigns a fresh ID to the new edit.
+  change(surviving, 2);
+  change("new branch\n", 6);
+  const branched = native;
+  change(surviving, 2);
+  expect(native).toBe(surviving);
+  change(original, 1);
+  expect(native).toBe(original);
+  change(surviving, 2);
+  change(branched, 6);
+  expect(native).toBe(branched);
+});
+
+test("external replacement after undo retains exact newlines on the surviving branch", () => {
+  const original = "a\r\nb\rc\n";
+  const source = new SourceText(original, 1);
+  source.apply([{ rangeOffset: 0, rangeLength: 6, text: "discarded\n" }], 2);
+  source.apply([{ rangeOffset: 0, rangeLength: 10, text: normalized(original) }], 1);
+  const external = "external\rnew\r\nlast\n";
+  source.replace(external, 4);
+  expect(applyNative(external, source.apply([
+    { rangeOffset: 0, rangeLength: normalized(external).length, text: normalized(original) },
+  ], 1))).toBe(original);
+  expect(applyNative(original, source.apply([
+    { rangeOffset: 0, rangeLength: normalized(original).length, text: normalized(external) },
+  ], 4))).toBe(external);
+});
+
+test("long editing history remains undoable without a fixed version count cap", () => {
+  const original = "a\r\nb\rc\n";
+  const source = new SourceText(original, 1);
+  let native = original;
+  for (let version = 2; version <= 2002; version++) {
+    native = applyNative(native, source.apply([{ rangeOffset: 0, rangeLength: 0, text: "x" }], version));
+  }
+  expect(applyNative(native, source.apply([
+    { rangeOffset: 0, rangeLength: 2001, text: "" },
+  ], 1))).toBe(original);
+});

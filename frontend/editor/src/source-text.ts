@@ -110,13 +110,33 @@ export class SourceText {
   private current: Piece | undefined;
   private readonly versions = new Map<number, Piece | undefined>();
   private readonly defaultEOL: string;
+  private currentVersion: number;
+  private newestVersion: number;
 
   constructor(text: string, version: number) {
     this.current = fromText(text);
     this.versions.set(version, this.current);
+    this.currentVersion = this.newestVersion = version;
     this.defaultEOL = text.match(/\r\n|\r|\n/)?.[0] ?? "\n";
   }
   get value(): string { return textOf(this.current); }
+
+  private remember(version: number): void {
+    // Monaco 0.55.1 assigns new edits its monotonically increasing versionId,
+    // but restores alternativeVersionId on undo/redo (including grouped edits).
+    // A new edit after undo discards the redo branch. Only those unreachable
+    // roots may be pruned; a fixed-size cache would corrupt older mixed-EOL undo.
+    if (!this.versions.has(version)) {
+      if (this.currentVersion < this.newestVersion) {
+        for (const saved of this.versions.keys()) {
+          if (saved > this.currentVersion) this.versions.delete(saved);
+        }
+      }
+      this.newestVersion = version;
+    }
+    this.currentVersion = version;
+    this.versions.set(version, this.current);
+  }
 
   /** Translate a simultaneous Monaco batch to original-source UTF-16 edits. */
   apply(changes: readonly NormalizedTextChange[], version: number): SourceTextChange[] {
@@ -138,7 +158,7 @@ export class SourceText {
       this.current = join(join(before, fromText(text)), split(rest, change.rangeLength)[1]);
     }
     if (restoring) this.current = target;
-    this.versions.set(version, this.current);
+    this.remember(version);
     // Include adjacent code units so a newly joined CR/LF boundary correction
     // reaches the native mirror in the same atomic batch. Merge overlaps.
     const ranges: { start: number; end: number }[] = [];
@@ -170,6 +190,6 @@ export class SourceText {
   /** External replacement supplies exact bytes and stays in Monaco's undo history. */
   replace(text: string, version: number): void {
     this.current = fromText(text);
-    this.versions.set(version, this.current);
+    this.remember(version);
   }
 }

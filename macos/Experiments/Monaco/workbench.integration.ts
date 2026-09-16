@@ -158,6 +158,33 @@ async function verify() {
       assert(source.content === "external\rnew\n", "undo after external replacement lost original bytes");
     } finally { model.dispose(); }
   });
+  await check("shared source history follows real Monaco grouped undo and branching", async () => {
+    const text = "first\r\n😀middle\rlast\n";
+    const model = monacoEditor.createModel(text, "plaintext");
+    const source = acquireEditorModelSource(model, text);
+    const edit = (value: string) => model.pushEditOperations([], [
+      { range: new Range(1, 1, 1, model.getLineMaxColumn(1)), text: value },
+    ], () => null);
+    try {
+      edit("kept");
+      model.pushStackElement();
+      const kept = source.content;
+      edit("discarded"); edit("grouped discarded");
+      model.pushStackElement();
+      await model.undo();
+      assert(source.content === kept, "grouped undo did not restore the earlier root");
+      edit("branched");
+      model.pushStackElement();
+      const branched = source.content;
+      await model.undo();
+      assert(source.content === kept, "new branch lost its undo parent");
+      await model.undo();
+      assert(source.content === text, "branch cleanup evicted original mixed-newline bytes");
+      await model.redo(); await model.redo();
+      assert(source.content === branched, "branch cleanup corrupted redo");
+      assert(!model.canRedo(), "Monaco unexpectedly retained the abandoned redo branch");
+    } finally { model.dispose(); }
+  });
   const source = "class Probe {\r\n    // 中文 😀\r\n}\r\n";
   await check("Java tokenizer is ready before the first model opens", async () => {
     const tokens = monacoEditor.tokenize("public class Probe {}", "java")[0];
