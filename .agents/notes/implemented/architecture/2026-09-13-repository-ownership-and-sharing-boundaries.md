@@ -37,6 +37,7 @@ Swift 源码，也不得依赖 macOS 类型。
 | `windows/` | React/Tauri Windows 产品和 Windows Rust 适配器 |
 | `Plugins/mac/` | macOS 所有的插件包 |
 | `Plugins/win/` | Windows 所有的插件包 |
+| `frontend/editor/` | 两端共同依赖的 Monaco 表现层、分词与编辑器模型；不调用平台 API |
 | `shared/` | 跨平台契约和夹具，不放编译实现 |
 | `infra/` | 仓库级开发和验证基础设施 |
 | `third_party/` | 固定版本的上游清单和必要的局部源码补丁 |
@@ -171,7 +172,18 @@ Rust 的依赖方向是 `protocol <- domain packages <- runtime/FFI`。领域模
 
 ## 考虑过的备选方案
 
-### 两个平台共用一套实现
+### 编辑器共用，平台工作台独立
+
+Monaco 编辑器属于表现层，允许在 `frontend/editor/` 中共享 TypeScript 实现。
+macOS 的 WKWebView 与 Windows 的 WebView2 适配器共同消费该模块；共享模块
+不导入 `macos/`、`windows/`，也不调用文件系统、Tauri 或 Swift 消息处理器。
+文档持久化、关闭确认、外部文件冲突和语言进程仍由应用层与平台适配器负责。
+这是编辑器组件的共享，不是将整个 macOS 工作台改成 Windows React 页面。
+
+正确做法：将语义 token 编码与后台分词放进共享编辑器，让宿主提供语言结果。
+不要这样做：让共享编辑器直接调用 Windows 的 invoke 或从 macOS 读取磁盘。
+
+### 两个平台共用整个工作台实现
 
 这样可以减少重复接线，也能形成一套统一的界面架构。但 macOS SwiftUI/
 AppKit 与 Windows React/Tauri 具有不同的原生生命周期、进程、文件系统和
@@ -245,6 +257,7 @@ Core 操作会随协议演进持续增加，逐个新增 Tauri command 会在
 - `rust/lithe-git-host/`
 - `windows/`
 - `shared/`
+- `frontend/editor/`
 - `scripts/`
 - `infra/`
 - `third_party/`

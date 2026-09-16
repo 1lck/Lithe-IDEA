@@ -13,7 +13,8 @@ import LitheModuleAPI
 @MainActor
 extension AppModel {
     func goToDefinition() {
-        if let document = activeDocument, let caret = editorCaret {
+        if let document = focusedEditorDocument, let caret = editorCaret,
+           caret.url.standardizedFileURL == document.url.standardizedFileURL {
             let productLocations = productNavigationLocations(
                 for: document.url,
                 line: caret.line,
@@ -87,7 +88,8 @@ extension AppModel {
             performGenericNavigation(
                 method: "textDocument/definition",
                 kind: .definitions,
-                fallbackToImplementationsIfSelf: true
+                fallbackToImplementationsIfSelf: true,
+                document: openDocuments.first { $0.url.standardizedFileURL == normalizedURL }
             )
         }
     }
@@ -273,7 +275,7 @@ extension AppModel {
     }
 
     private func currentEditorNavigationLocation() -> EditorNavigationLocation? {
-        guard let document = activeDocument else { return nil }
+        guard let document = focusedEditorDocument else { return nil }
         let documentURL = document.url.isFileURL ? document.url.standardizedFileURL : document.url
         let caret = editorCaret.flatMap { caret -> EditorCaret? in
             let caretURL = caret.url.isFileURL ? caret.url.standardizedFileURL : caret.url
@@ -303,7 +305,7 @@ extension AppModel {
         _ feature: LanguageServerFeatureSet,
         unsupportedMessage: String
     ) -> Bool {
-        guard let document = activeDocument else { return false }
+        guard let document = focusedEditorDocument else { return false }
         if isJavaLanguageServerPreparing(for: document.url) {
             showJavaLanguageServerPreparingNotification()
             return false
@@ -319,10 +321,11 @@ extension AppModel {
         method: String,
         kind: LanguageNavigationResultKind,
         navigateToSingleResult: Bool = true,
-        fallbackToImplementationsIfSelf: Bool = false
+        fallbackToImplementationsIfSelf: Bool = false,
+        document requestedDocument: EditorDocument? = nil
     ) {
         guard !languageNavigationCoordinator.state.isLoading,
-              let document = activeDocument,
+              let document = requestedDocument ?? focusedEditorDocument,
               let caret = editorCaret,
               caret.url.standardizedFileURL == document.url.standardizedFileURL,
               let workspaceURL,

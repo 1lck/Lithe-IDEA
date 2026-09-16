@@ -40,6 +40,7 @@ those notes, load `.agents/skills/agent-notes/SKILL.md`.
 | `windows/` | React/Tauri Windows product and Rust platform adapters |
 | `Plugins/mac/` | macOS-owned plugin packages |
 | `Plugins/win/` | Windows-owned plugin packages |
+| `frontend/editor/` | Shared Monaco presentation, tokenization, and editor model lifecycle; no platform APIs |
 | `shared/` | Cross-platform contracts and fixtures, not compiled implementation |
 | `infra/` | Repository-level development and validation infrastructure |
 | `third_party/` | Upstream code; leave unchanged unless the task explicitly targets it |

@@ -1,0 +1,6 @@
+Java grammar copied from microsoft/vscode extensions/java/syntaxes/java.tmLanguage.json
+Commit bb000da79d34c2d5baa3b2c26a5cd1012616977b, 2026-09-15.
+VS Code: MIT license (VSCODE-LICENSE.txt).
+Upstream grammar: https://github.com/redhat-developer/vscode-java
+TextMate engine: vscode-textmate 9.3.2; WASM regex engine: vscode-oniguruma 1.7.0.
+See the accompanying dependency license files.

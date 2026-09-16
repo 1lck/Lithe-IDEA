@@ -266,6 +266,8 @@ pub enum LspSemanticOperation {
     InlayHints,
     /// `textDocument/foldingRange`.
     FoldingRanges,
+    /// Full `textDocument/semanticTokens/full` with its negotiated legend.
+    SemanticTokens,
     /// `textDocument/codeLens`.
     CodeLens,
     /// Provider-specific retrieval of a read-only virtual document.
@@ -1497,6 +1499,7 @@ impl RuntimeSession {
                 )
             })?;
             state.client.pending_requests.remove(&request_id);
+            state.client.pending_semantic_legends.remove(&request_id);
             state.java_navigation_marker_batches.remove(operation_id);
             let error = runtime_error(
                 self,
@@ -1567,6 +1570,7 @@ impl RuntimeSession {
                 for id in cancelled_maven_ids {
                     state.pending.remove(&id);
                     state.client.pending_requests.remove(&id);
+                    state.client.pending_semantic_legends.remove(&id);
                     state.maven_profile_request_generations.remove(&id);
                 }
                 push_log_event(
@@ -1858,6 +1862,7 @@ impl RuntimeSession {
             state.client = reduced.state;
             if let Some(request_id) = response_id.as_ref() {
                 state.client.pending_requests.remove(request_id);
+                state.client.pending_semantic_legends.remove(request_id);
                 if let Some(pending) = state.pending.remove(request_id) {
                     if let Some(operation_id) = &pending.operation_id {
                         state.request_by_operation.remove(operation_id);
@@ -2343,7 +2348,9 @@ impl RuntimeSession {
             }
 
             for event in reduced.events {
-                if event.kind == "diagnostics" {
+                if event.kind == "semanticTokensRefresh" {
+                    push_semantic_tokens_refresh_event(self, &mut state);
+                } else if event.kind == "diagnostics" {
                     if let Some(uri) = event.uri.as_deref() {
                         push_diagnostics_event(
                             self,
@@ -2689,6 +2696,7 @@ impl RuntimeSession {
                     continue;
                 };
                 state.client.pending_requests.remove(&request_id);
+                state.client.pending_semantic_legends.remove(&request_id);
                 if let Some(operation_id) = pending.operation_id.as_deref() {
                     state.request_by_operation.remove(operation_id);
                     state.java_navigation_marker_batches.remove(operation_id);
@@ -2942,6 +2950,7 @@ impl RuntimeSession {
                 return;
             };
             state.client.pending_requests.remove(request_id);
+            state.client.pending_semantic_legends.remove(request_id);
             if let Some(operation_id) = pending.operation_id.as_deref() {
                 state.request_by_operation.remove(operation_id);
                 state.java_navigation_marker_batches.remove(operation_id);
@@ -3175,6 +3184,7 @@ fn semantic_method(operation: LspSemanticOperation) -> &'static str {
         }
         LspSemanticOperation::InlayHints => "textDocument/inlayHint",
         LspSemanticOperation::FoldingRanges => "textDocument/foldingRange",
+        LspSemanticOperation::SemanticTokens => "textDocument/semanticTokens/full",
         LspSemanticOperation::CodeLens => "textDocument/codeLens",
     }
 }
@@ -3199,6 +3209,7 @@ fn semantic_capability(operation: LspSemanticOperation) -> Option<&'static str> 
         }
         LspSemanticOperation::InlayHints => Some("inlayHints"),
         LspSemanticOperation::FoldingRanges => Some("foldingRanges"),
+        LspSemanticOperation::SemanticTokens => Some("semanticTokens"),
         LspSemanticOperation::CodeLens => Some("codeLens"),
     }
 }
@@ -3506,6 +3517,7 @@ fn cancel_stale_document_requests_locked(
             continue;
         };
         state.client.pending_requests.remove(&request_id);
+        state.client.pending_semantic_legends.remove(&request_id);
         if let Some(operation_id) = pending.operation_id.as_deref() {
             state.request_by_operation.remove(operation_id);
             state.java_navigation_marker_batches.remove(operation_id);
@@ -3576,6 +3588,35 @@ fn push_diagnostics_event(
             uri: Some(uri.to_string()),
             version,
             diagnostics: Some(diagnostics),
+            result: None,
+            error: None,
+            capabilities: None,
+            server_info: None,
+            level: None,
+            message: None,
+            detail: None,
+            maven_profile_project: None,
+            maven_profile_task: None,
+        },
+    );
+}
+
+fn push_semantic_tokens_refresh_event(session: &RuntimeSession, state: &mut SessionState) {
+    let sequence = take_sequence(state);
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "semanticTokensRefresh".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: None,
+            method: None,
+            uri: None,
+            version: None,
+            diagnostics: None,
             result: None,
             error: None,
             capabilities: None,
@@ -3839,6 +3880,7 @@ fn fail_feature_requests(
     for (request_id, pending) in pending {
         state.pending.remove(&request_id);
         state.client.pending_requests.remove(&request_id);
+        state.client.pending_semantic_legends.remove(&request_id);
         if let Some(operation_id) = pending.operation_id.as_deref() {
             state.request_by_operation.remove(operation_id);
             state.java_navigation_marker_batches.remove(operation_id);

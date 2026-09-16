@@ -546,8 +546,6 @@ private func startObservation(
     at workspace: URL,
     recorder: GitObservationRecorder
 ) async throws {
-    let marker = workspace.appendingPathComponent("watcher-ready.txt").standardizedFileURL
-    try Data("preparing\n".utf8).write(to: marker)
     model.beginWorkspace(at: workspace, visibilityRules: .default)
     let result = await model.rebuild(
         at: workspace,
@@ -557,15 +555,17 @@ private func startObservation(
     guard case .loaded = result else {
         throw GitObservationTestError.workspaceUnavailable
     }
-    // FSEvents can deliver setup writes after stream installation. Wait for a
-    // later marker to traverse the real watcher and refresh pipeline before
-    // measuring the operation, instead of guessing when setup events settle.
+    // Create a new path only after stream installation. Rewriting a marker
+    // created before installation can coalesce with its pre-stream event and
+    // be excluded by the stream's SinceNow boundary.
+    // Wait for this marker to traverse the real watcher and refresh pipeline.
+    let marker = workspace.appendingPathComponent("watcher-ready-\(UUID().uuidString).txt").standardizedFileURL
     let initialRefreshCount = recorder.gitRefreshCount
     try Data("ready\n".utf8).write(to: marker)
     try #require(await waitUntil {
         recorder.externalChangeBatches.flatMap { $0 }.contains(marker)
             && recorder.gitRefreshCount > initialRefreshCount
-    }, "The watcher did not process its readiness marker")
+    }, "The watcher did not process its readiness marker; refreshes: \(initialRefreshCount) → \(recorder.gitRefreshCount), batches: \(recorder.externalChangeBatches)")
     recorder.reset()
 }
 

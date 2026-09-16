@@ -1266,7 +1266,18 @@ the operation-specific URI, position, range, diagnostics, item, action, or
 command fields, and returns `{ operationId }`. Supported operations include
 completion, hover, definition/declaration/type-definition, references,
 implementation, rename, formatting, code actions and resolve, execute command,
-inlay hints, folding ranges, code lens, and provider virtual documents.
+inlay hints, full-document semantic tokens, folding ranges, code lens, and provider virtual documents.
+The `semanticTokens` operation uses the open document URI and normal version,
+timeout, and cancellation rules. Its result is
+`{ tokenTypes, tokenModifiers, tokens: [{ line, startChar, length, tokenType, tokenModifiers }] }`.
+Token positions use zero-based LSP lines and UTF-16 columns; `tokenType` indexes
+the returned legend and `tokenModifiers` is a UInt32 bitset. Core decodes the
+server's relative positions with the legend captured when the request was sent.
+Range-only providers are not advertised as supporting this operation. No delta
+result ID crosses the boundary. See `shared/fixtures/lsp/semantic-tokens-v1.json`.
+The `semanticTokensRefresh` event invalidates the host's semantic color cache
+when the server requests `workspace/semanticTokens/refresh`; the request receives
+a JSON-RPC null acknowledgment.
 The `virtualDocument` operation accepts `{ sessionId, operation,
 virtualUri }` without a document `uri`. Its terminal `requestCompleted` event
 returns `{ text }`, where `text` is the provider-resolved UTF-8 source for the
@@ -1600,3 +1611,9 @@ See [Patch exchange](git-patch-exchange.md) and its metadata fixture.
 Missing or stale HEAD rejects the amendment before writing; plain Continue,
 Skip and Abort do not require this field. Both products must send the HEAD
 reviewed by the amendment editor. See [Rebase sessions](git-rebase-session.md).
+
+Completion items returned by the LSP client and runtime preserve `insertTextFormat`
+(`1` for plain text, `2` for snippets; absent values default to `1`). Hosts retain
+this field through completion resolution. Monaco applies snippet text with its
+snippet insertion rule so placeholders participate in selection and undo rather
+than being inserted as literal source text.

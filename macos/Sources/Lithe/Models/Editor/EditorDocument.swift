@@ -6,11 +6,14 @@ import LitheCoreContracts
 final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable {
     enum DocumentError: LocalizedError {
         case readOnly
+        case editorNotSynchronized
 
         var errorDescription: String? {
             switch self {
             case .readOnly:
                 "This document is read-only"
+            case .editorNotSynchronized:
+                "Wait for the editor to synchronize before saving"
             }
         }
     }
@@ -21,6 +24,43 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
     let displayPath: String?
     /// Preview subscribers receive live edits without invalidating the editor hierarchy.
     let textDidChange = PassthroughSubject<Void, Never>()
+    /// A remote editor freezes input and drains its edit queue around a native action.
+    /// The adapter must complete or fail locally; synchronous callers cannot bypass it.
+    var synchronizeEditor: ((@escaping (Result<Void, Error>) -> Void) -> Void)?
+    typealias EditorRelease = @MainActor () -> Void
+    /// Keeps remote input frozen across an asynchronous close/confirmation flow.
+    var holdEditorForClose: ((@escaping (Result<EditorRelease, Error>) -> Void) -> Void)?
+    private var pendingSynchronizedActions: [(Result<Void, Error>) -> Void]?
+    private var synchronizationID: UUID?
+    private var isPerformingSynchronizedEditorAction = false
+    var needsEditorSynchronization: Bool { synchronizeEditor != nil && !isPerformingSynchronizedEditorAction }
+
+    func withSynchronizedEditor(_ action: @escaping (Result<Void, Error>) -> Void) {
+        guard let synchronizeEditor, !isPerformingSynchronizedEditorAction else {
+            action(.success(()))
+            return
+        }
+        if pendingSynchronizedActions != nil {
+            pendingSynchronizedActions?.append(action)
+            return
+        }
+        pendingSynchronizedActions = [action]
+        let operationID = UUID()
+        synchronizationID = operationID
+        synchronizeEditor { [weak self] result in
+            guard let self else { action(.failure(DocumentError.editorNotSynchronized)); return }
+            // A delayed duplicate acknowledgment must not release a newer drain.
+            guard self.synchronizationID == operationID,
+                  let actions = self.pendingSynchronizedActions else { return }
+            self.synchronizationID = nil
+            self.pendingSynchronizedActions = nil
+            if case .failure = result { actions.forEach { $0(result) }; return }
+            let previous = self.isPerformingSynchronizedEditorAction
+            self.isPerformingSynchronizedEditorAction = true
+            defer { self.isPerformingSynchronizedEditorAction = previous }
+            actions.forEach { $0(result) }
+        }
+    }
     private var storedText: String
     var text: String {
         get { storedText }
@@ -99,14 +139,23 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
         in source: NSString
     ) -> LanguageServerDocumentPosition {
         let safeOffset = min(max(offset, 0), source.length)
-        let lineRange = source.lineRange(
-            for: NSRange(location: safeOffset, length: 0)
-        )
-        return LanguageServerDocumentPosition(
-            line: source.substring(with: NSRange(location: 0, length: lineRange.location))
-                .split(separator: "\n", omittingEmptySubsequences: false).count - 1,
-            utf16Column: safeOffset - lineRange.location
-        )
+        var line = 0
+        var lineStart = 0
+        var index = 0
+        // LSP counts CR, LF and CRLF as line separators, matching Monaco.
+        while index < safeOffset {
+            let unit = source.character(at: index)
+            index += 1
+            if unit == 13 {
+                if index < safeOffset, source.character(at: index) == 10 { index += 1 }
+                line += 1
+                lineStart = index
+            } else if unit == 10 {
+                line += 1
+                lineStart = index
+            }
+        }
+        return LanguageServerDocumentPosition(line: line, utf16Column: safeOffset - lineStart)
     }
 
     private func replaceText(_ newText: String, publish: Bool) {
@@ -141,6 +190,7 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
     }
 
     func save() throws {
+        guard !needsEditorSynchronization else { throw DocumentError.editorNotSynchronized }
         guard !isReadOnly else { throw DocumentError.readOnly }
         try text.write(to: url, atomically: true, encoding: .utf8)
         markSavedWithoutWriting()

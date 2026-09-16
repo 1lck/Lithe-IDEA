@@ -106,6 +106,7 @@ prepare_baseline_app() {
         "$app_dir/Contents/Resources/SwiftTerm_SwiftTerm.bundle"
     cp "$project_root/macos/Resources/AppIcon.icns" "$app_dir/Contents/Resources/AppIcon.icns"
     cp -R "$project_root/macos/Resources/Fonts" "$app_dir/Contents/Resources/Fonts"
+    cp -R "$project_root/.artifacts/editor/macos" "$app_dir/Contents/Resources/MonacoEditor"
     cp -R "$project_root/macos/Resources/IDEAIcons" "$app_dir/Contents/Resources/IDEAIcons"
     cp -R "$project_root/macos/Resources/GitGraph" "$app_dir/Contents/Resources/GitGraph"
     cp -R "$project_root/macos/Resources/DatabaseIcons" "$app_dir/Contents/Resources/DatabaseIcons"

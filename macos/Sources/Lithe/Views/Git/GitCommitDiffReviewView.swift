@@ -10,6 +10,7 @@ struct GitCommitDiffReviewView: View {
 
     @State private var highlightsWords = true
     @State private var selectedDifferenceIndex = 0
+    @State private var revealRowID: DiffRowID?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -46,6 +47,7 @@ struct GitCommitDiffReviewView: View {
         .litheWorkbenchSurface(LitheTheme.editor)
         .onChange(of: feature.diffRows.count) { _ in
             selectedDifferenceIndex = 0
+            revealRowID = nil
         }
     }
 
@@ -196,70 +198,11 @@ struct GitCommitDiffReviewView: View {
     }
 
     private func diffContent(proxy: ScrollViewProxy) -> some View {
-        GeometryReader { geometry in
-            let usesSinglePane = context.kind == .added || context.kind == .deleted
-            let contentWidth = DiffLayoutMetrics.contentWidth(
-                rows: feature.diffRows,
-                viewportWidth: geometry.size.width,
-                minimumWidth: usesSinglePane ? 680 : 980,
-                paneCount: usesSinglePane ? 1 : 2
-            )
-
-            let kinds = feature.diffRows.map(\.kind)
-            if usesSinglePane {
-                ScrollView(.horizontal) {
-                    ScrollView(.vertical) {
-                        let contentHeight = max(
-                            DiffLayoutMetrics.contentHeight(rows: feature.diffRows, kinds: kinds),
-                            geometry.size.height
-                        )
-                        LazyVStack(spacing: 0) {
-                            ForEach(feature.diffRows, id: \.id) { row in
-                                diffRowView(for: row, contentWidth: contentWidth)
-                            }
-                        }
-                        .textSelection(.enabled)
-                        .frame(width: contentWidth, height: contentHeight, alignment: .topLeading)
-                    }
-                    .frame(width: contentWidth, height: geometry.size.height, alignment: .topLeading)
-                }
-                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
-                .background(LitheTheme.editor)
-            } else {
-                let displayRows = feature.diffRows.enumerated().map {
-                    DiffDisplayRow.row($0.element, index: $0.offset)
-                }
-                DiffSplitPaneView(
-                    displayRows: displayRows,
-                    kinds: kinds,
-                    fileExtension: context.url.pathExtension,
-                    contentWidth: contentWidth,
-                    viewportWidth: geometry.size.width,
-                    minimumHeight: geometry.size.height,
-                    highlightsWords: highlightsWords,
-                    selectedRowIDs: Set(differenceIndexByRow.compactMap { entry in
-                        entry.value == selectedDifferenceIndex ? entry.key : nil
-                    }),
-                    onExpand: { _ in }
-                )
-                .frame(width: geometry.size.width, height: geometry.size.height)
-                .background(LitheTheme.editor)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func diffRowView(for row: DiffRow, contentWidth: CGFloat) -> some View {
-        let differenceIndex = differenceIndexByRow[row.id]
-        if context.kind == .added || context.kind == .deleted {
-            SingleFileDiffRowView(
-                row: row,
-                changeKind: context.kind,
-                fileExtension: context.url.pathExtension,
-                isSelectedDifference: differenceIndex == selectedDifferenceIndex
-            )
-            .id(row.id)
-        }
+        MonacoDiffEditor(rows: feature.diffRows, fileExtension: context.url.pathExtension,
+            highlightsWords: highlightsWords, collapsesUnchangedRegions: false,
+            sideBySide: context.kind != .added && context.kind != .deleted,
+            selectedRowIDs: Set(differenceIndexByRow.compactMap { $0.value == selectedDifferenceIndex ? $0.key : nil }),
+            revealRowID: revealRowID)
     }
 
     private var differenceStarts: [DiffRowID] {
@@ -298,9 +241,7 @@ struct GitCommitDiffReviewView: View {
         let current = min(max(selectedDifferenceIndex, 0), starts.count - 1)
         let next = (current + offset + starts.count) % starts.count
         selectedDifferenceIndex = next
-        withAnimation(.easeOut(duration: 0.18)) {
-            proxy.scrollTo(starts[next], anchor: .center)
-        }
+        revealRowID = starts[next]
     }
 
     private var changeKindColor: Color {

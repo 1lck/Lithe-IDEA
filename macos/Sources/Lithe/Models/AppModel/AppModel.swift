@@ -736,6 +736,10 @@ final class AppModel: ObservableObject, Identifiable {
         documentFeature.activeDocument
     }
 
+    var focusedEditorDocument: EditorDocument? {
+        documentFeature.focusedEditorDocument
+    }
+
     func renderMarkdown(_ source: String) async throws -> MarkdownRenderedContent {
         try await services.markdownRenderer.render(source)
     }
@@ -1164,12 +1168,20 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     @discardableResult
-    func saveAllDocuments() -> Bool {
-        documentFeature.saveAllDocuments()
+    func saveAllDocuments() async -> Bool {
+        await documentFeature.saveAllDocuments()
     }
 
     func saveActiveDocument() {
         documentFeature.saveActiveDocument()
+    }
+
+    func editorDidFocus(_ document: EditorDocument) {
+        documentFeature.editorDidFocus(document)
+    }
+
+    func saveEditorDocument(_ document: EditorDocument) {
+        documentFeature.saveEditorDocument(document)
     }
 
     func saveDocument(_ document: EditorDocument) throws {

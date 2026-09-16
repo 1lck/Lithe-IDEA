@@ -46,7 +46,15 @@ enum StandaloneFileLoadState: Equatable {
 @MainActor
 final class DocumentFeatureModel: ObservableObject {
     @Published private(set) var openDocuments: [EditorDocument] = []
-    @Published var activeDocumentID: UUID?
+    @Published var activeDocumentID: UUID? {
+        didSet { focusedEditorDocumentID = activeDocumentID }
+    }
+    private var focusedEditorDocumentID: UUID?
+
+    func editorDidFocus(_ document: EditorDocument) {
+        guard openDocuments.contains(where: { $0 === document }) else { return }
+        focusedEditorDocumentID = document.id
+    }
     @Published private(set) var standaloneFileLoadState: StandaloneFileLoadState = .idle
     @Published private(set) var pendingCloseDocument: EditorDocument?
     @Published private(set) var isPendingProjectClose = false
@@ -54,6 +62,7 @@ final class DocumentFeatureModel: ObservableObject {
 
     /// Clean previews stay outside the tab collection until opened or edited.
     func previewDocument(at url: URL) async -> EditorDocument? {
+        previewDiscardID = nil
         await openFileAsync(url, isReadOnly: false, displayPath: nil, activateWhenReady: false, asPreview: true)
         guard !Task.isCancelled else { return nil }
         return openDocuments.first { $0.url.standardizedFileURL == url.standardizedFileURL }
@@ -73,10 +82,34 @@ final class DocumentFeatureModel: ObservableObject {
         onDocumentOpened?(document)
     }
 
+    /// Includes transient source previews, which still own live editor buffers.
+    var editorDocuments: [EditorDocument] {
+        openDocuments + previewDocuments.values.sorted { $0.url.path < $1.url.path }
+    }
+
     func discardPreviewDocuments() {
-        // A closed dialog must not retain clean buffers or accept its late reads.
-        previewDocuments.removeAll()
+        let discardID = UUID()
+        previewDiscardID = discardID
         pendingFileOpenRequests = pendingFileOpenRequests.filter { !$0.value.isPreview }
+        for document in Array(previewDocuments.values) {
+            document.withSynchronizedEditor { [weak self, weak document] result in
+                guard let self, let document, self.previewDiscardID == discardID,
+                      self.previewDocuments[document.url.standardizedFileURL.path] === document else { return }
+                switch result {
+                case .success:
+                    if document.isDirty { self.promotePreviewDocument(document) }
+                    else {
+                        self.objectWillChange.send()
+                        self.previewDocuments[document.url.standardizedFileURL.path] = nil
+                        self.onDocumentCollectionChanged?()
+                    }
+                case .failure(let error):
+                    // A failed drain may hide unsent input; keep the document reachable.
+                    self.promotePreviewDocument(document)
+                    self.notify?(error.localizedDescription)
+                }
+            }
+        }
     }
 
     private let operations: any WorkspaceOperations
@@ -96,10 +129,16 @@ final class DocumentFeatureModel: ObservableObject {
     private var onRecordExternalChanges: (@MainActor ([URL]) -> Void)?
     private var onDocumentCollectionChanged: (@MainActor () -> Void)?
     private var onProjectCloseReady: (@MainActor () -> Void)?
+    private var autoSaveGenerations: [UUID: UUID] = [:]
     private var autoSaveTasks: [UUID: Task<Void, Never>] = [:]
     private var pendingFileOpenRequests: [String: (id: UUID, task: Task<Void, Never>, isPreview: Bool)] = [:]
     private var previewDocuments: [String: EditorDocument] = [:]
+    private var previewDiscardID: UUID?
     private var latestFileOpenRequestID: UUID?
+    private var groupCloseTask: Task<Void, Never>?
+    private var groupCloseID: UUID?
+    private var pendingClosePreparation: EditorClosingPreparation?
+    private var pendingExternalSynchronization: Set<UUID> = []
     private var pendingCloseQueue: [EditorDocument] = []
     private var pendingClosePreferredDocumentID: UUID?
     private var standaloneOpenRequestID: UUID?
@@ -152,16 +191,25 @@ final class DocumentFeatureModel: ObservableObject {
         return openDocuments.first { $0.id == activeDocumentID }
     }
 
+    /// Menu commands follow the last focused editor surface, while tab selection
+    /// remains independently owned by activeDocumentID.
+    var focusedEditorDocument: EditorDocument? {
+        openDocuments.first { $0.id == focusedEditorDocumentID } ?? activeDocument
+    }
+
     var hasUnsavedDocuments: Bool {
-        openDocuments.contains(where: \.isDirty)
+        openDocuments.contains { $0.isDirty || $0.needsEditorSynchronization }
     }
 
     func reset() {
+        cancelGroupClose()
+        pendingExternalSynchronization.removeAll()
         standaloneOpenTask?.cancel()
         standaloneOpenTask = nil
         standaloneOpenRequestID = nil
         autoSaveTasks.values.forEach { $0.cancel() }
         autoSaveTasks.removeAll()
+        autoSaveGenerations.removeAll()
         pendingFileOpenRequests.removeAll()
         previewDocuments.removeAll()
         latestFileOpenRequestID = nil
@@ -499,6 +547,11 @@ final class DocumentFeatureModel: ObservableObject {
     }
 
     func requestCloseDocument(_ document: EditorDocument) {
+        cancelGroupClose()
+        if document.needsEditorSynchronization {
+            closeSynchronizedGroup([document], preferredDocumentID: nil)
+            return
+        }
         isPendingProjectClose = false
         pendingCloseQueue = []
         pendingClosePreferredDocumentID = nil
@@ -513,6 +566,11 @@ final class DocumentFeatureModel: ObservableObject {
         _ documents: [EditorDocument],
         preferredDocumentID: UUID? = nil
     ) {
+        cancelGroupClose()
+        if documents.contains(where: \.needsEditorSynchronization) {
+            closeSynchronizedGroup(documents, preferredDocumentID: preferredDocumentID)
+            return
+        }
         let openIDs = Set(openDocuments.map(\.id))
         let targets = documents.filter { openIDs.contains($0.id) }
         guard !targets.isEmpty else { return }
@@ -532,19 +590,109 @@ final class DocumentFeatureModel: ObservableObject {
         }
     }
 
+    private func cancelGroupClose() {
+        groupCloseID = nil
+        groupCloseTask?.cancel()
+        groupCloseTask = nil
+        pendingClosePreparation?.release()
+        pendingClosePreparation = nil
+    }
+
+    private func closeSynchronizedGroup(
+        _ documents: [EditorDocument], preferredDocumentID: UUID?, closingProject: Bool = false
+    ) {
+        let operationID = UUID()
+        groupCloseID = operationID
+        isPendingProjectClose = closingProject
+        pendingCloseDocument = nil
+        pendingCloseQueue = []
+        pendingClosePreferredDocumentID = preferredDocumentID
+        groupCloseTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if self.groupCloseID == operationID {
+                    self.groupCloseID = nil
+                    self.groupCloseTask = nil
+                }
+            }
+            let targets = documents.filter { candidate in self.openDocuments.contains { $0 === candidate } }
+            let preparation: EditorClosingPreparation
+            do { preparation = try await EditorClosingPreparation.acquire(targets) }
+            catch {
+                if self.groupCloseID == operationID, !Task.isCancelled {
+                    self.notify?("Editor synchronization failed: \(error.localizedDescription)")
+                    self.cancelPendingClose()
+                }
+                return
+            }
+            var transferred = false
+            defer { if !transferred { preparation.release() } }
+            var dirtyDocuments: [EditorDocument] = []
+            for document in targets {
+                guard self.groupCloseID == operationID, !Task.isCancelled else { return }
+                guard self.openDocuments.contains(where: { $0 === document }) else { continue }
+                let succeeded = await withCheckedContinuation { continuation in
+                    document.withSynchronizedEditor { [weak self] result in
+                        guard let self, self.groupCloseID == operationID else {
+                            continuation.resume(returning: false); return
+                        }
+                        do {
+                            try result.get()
+                            if document.isDirty { dirtyDocuments.append(document) }
+                            else { self.closeDocument(document) }
+                            continuation.resume(returning: true)
+                        } catch {
+                            self.notify?("Editor synchronization failed: \(error.localizedDescription)")
+                            continuation.resume(returning: false)
+                        }
+                    }
+                }
+                guard succeeded else {
+                    if self.groupCloseID == operationID { self.cancelPendingClose() }
+                    return
+                }
+            }
+            guard self.groupCloseID == operationID else { return }
+            if !dirtyDocuments.isEmpty {
+                self.pendingClosePreparation = preparation
+                transferred = true
+            }
+            self.pendingCloseDocument = dirtyDocuments.first
+            self.pendingCloseQueue = Array(dirtyDocuments.dropFirst())
+            if dirtyDocuments.isEmpty {
+                if closingProject {
+                    self.completePendingProjectClose()
+                } else {
+                    self.activatePreferredDocumentIfPossible()
+                }
+            }
+        }
+    }
+
     /// Returns true when the caller must wait for the save/discard dialog.
     @discardableResult
     func beginProjectClose() -> Bool {
-        guard !openDocuments.filter(\.isDirty).isEmpty else { return false }
+        cancelGroupClose()
+        if openDocuments.contains(where: \.needsEditorSynchronization) {
+            closeSynchronizedGroup(openDocuments, preferredDocumentID: nil, closingProject: true)
+            return true
+        }
+        let pending = openDocuments.filter { $0.isDirty || $0.needsEditorSynchronization }
+        guard !pending.isEmpty else { return false }
         isPendingProjectClose = true
-        pendingCloseQueue = Array(openDocuments.filter(\.isDirty).dropFirst())
+        pendingCloseQueue = Array(pending.dropFirst())
         pendingClosePreferredDocumentID = nil
-        pendingCloseDocument = openDocuments.first(where: \.isDirty)
+        pendingCloseDocument = pending.first
         return true
     }
 
     func closePendingDocument(discardingChanges: Bool) {
         guard let document = pendingCloseDocument else { return }
+        if !discardingChanges,
+           synchronizeBeforeAction(document, action: {
+               guard self.pendingCloseDocument === document else { return }
+               self.closePendingDocument(discardingChanges: false)
+           }) { return }
         if discardingChanges {
             onRecordDiscard?(document)
         } else {
@@ -564,15 +712,26 @@ final class DocumentFeatureModel: ObservableObject {
             pendingCloseQueue.removeFirst()
             pendingCloseDocument = nextDocument
         } else if isPendingProjectClose {
-            isPendingProjectClose = false
-            pendingClosePreferredDocumentID = nil
-            onProjectCloseReady?()
+            completePendingProjectClose()
         } else {
+            pendingClosePreparation?.release()
+            pendingClosePreparation = nil
             activatePreferredDocumentIfPossible()
         }
     }
 
+    private func completePendingProjectClose() {
+        pendingClosePreparation?.release()
+        pendingClosePreparation = nil
+        isPendingProjectClose = false
+        pendingClosePreferredDocumentID = nil
+        // Files opened while confirmation was visible must also pass close preflight.
+        if !openDocuments.isEmpty, beginProjectClose() { return }
+        onProjectCloseReady?()
+    }
+
     func cancelPendingClose() {
+        cancelGroupClose()
         pendingCloseDocument = nil
         pendingCloseQueue = []
         pendingClosePreferredDocumentID = nil
@@ -580,21 +739,56 @@ final class DocumentFeatureModel: ObservableObject {
     }
 
     @discardableResult
-    func saveAllDocuments() -> Bool {
-        for document in openDocuments where document.isDirty {
-            do {
-                let previousText = document.savedText
-                try saveDocument(document)
-                onRecordSave?(document, previousText)
-            } catch {
-                return false
+    func saveAllDocuments() async -> Bool {
+        let cancellation = DocumentSaveCancellation()
+        return await withTaskCancellationHandler {
+            // Include clean native mirrors: the browser may still have an edit in flight.
+            let targets = openDocuments.filter { !$0.isReadOnly }
+            for document in targets {
+                guard !Task.isCancelled else { return false }
+                let saved = await withCheckedContinuation { continuation in
+                    document.withSynchronizedEditor { [weak self, weak document] result in
+                        guard !cancellation.isCancelled, let self, let document,
+                              self.openDocuments.contains(where: { $0 === document }) else {
+                            continuation.resume(returning: false); return
+                        }
+                        do {
+                            try result.get()
+                            if document.isDirty {
+                                let previousText = document.savedText
+                                try self.saveDocument(document)
+                                self.onRecordSave?(document, previousText)
+                            }
+                            continuation.resume(returning: true)
+                        } catch {
+                            self.notify?("Could not save \(document.url.lastPathComponent): \(error.localizedDescription)")
+                            continuation.resume(returning: false)
+                        }
+                    }
+                }
+                if !saved || cancellation.isCancelled { return false }
             }
+            return true
+        } onCancel: {
+            cancellation.cancel()
         }
-        return true
     }
 
     func saveActiveDocument() {
-        guard let document = activeDocument else { return }
+        guard let document = focusedEditorDocument else { return }
+        saveEditorDocument(document)
+    }
+
+    func saveEditorDocument(_ document: EditorDocument) {
+        guard openDocuments.contains(where: { $0 === document }) else { return }
+        if synchronizeBeforeAction(document, action: {
+            do {
+                let previousText = document.savedText
+                try self.saveDocument(document)
+                self.onRecordSave?(document, previousText)
+                self.notify?("Saved \(document.url.lastPathComponent)")
+            } catch { self.notify?(error.localizedDescription) }
+        }) { return }
         guard !document.isReadOnly else {
             notify?("This document is read-only")
             return
@@ -616,23 +810,39 @@ final class DocumentFeatureModel: ObservableObject {
     func documentDidChange(_ document: EditorDocument) {
         onDocumentChanged?(document)
         autoSaveTasks[document.id]?.cancel()
+        autoSaveGenerations[document.id] = nil
         guard autoSaveEnabledProvider?() == true else { return }
         let delay = autoSaveDelayProvider?() ?? 0
+        let generation = UUID()
+        autoSaveGenerations[document.id] = generation
         autoSaveTasks[document.id] = Task { [weak self, weak document] in
             try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled, let self, let document, document.isDirty else { return }
-            do {
-                let previousText = document.savedText
-                try self.saveDocument(document)
-                self.onRecordSave?(document, previousText)
-            } catch {
-                self.notify?("Could not auto-save \(document.url.lastPathComponent)")
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                document.withSynchronizedEditor { [weak self, weak document] result in
+                    defer { continuation.resume() }
+                    guard let self, let document,
+                          self.autoSaveGenerations[document.id] == generation,
+                          self.openDocuments.contains(where: { $0 === document }) else { return }
+                    do {
+                        try result.get()
+                        guard document.isDirty else { return }
+                        let previousText = document.savedText
+                        try self.saveDocument(document)
+                        self.onRecordSave?(document, previousText)
+                    } catch {
+                        self.notify?("Could not auto-save \(document.url.lastPathComponent)")
+                    }
+                }
             }
+            guard self.autoSaveGenerations[document.id] == generation else { return }
+            self.autoSaveGenerations[document.id] = nil
             self.autoSaveTasks[document.id] = nil
         }
     }
 
     func loadExternalVersion(of document: EditorDocument) {
+        if synchronizeBeforeAction(document, action: { self.loadExternalVersion(of: document) }) { return }
         let operationID = UUID().uuidString
         do {
             let decision = try documentLifecycleDecider.decide(
@@ -653,6 +863,7 @@ final class DocumentFeatureModel: ObservableObject {
     }
 
     func keepEditorVersion(of document: EditorDocument) {
+        if synchronizeBeforeAction(document, action: { self.keepEditorVersion(of: document) }) { return }
         let operationID = UUID().uuidString
         do {
             let decision = try documentLifecycleDecider.decide(
@@ -676,30 +887,56 @@ final class DocumentFeatureModel: ObservableObject {
         let documents = openDocuments + previewDocuments.values.sorted { $0.url.path < $1.url.path }
         for document in documents where changedPathSet.contains(document.url.standardizedFileURL.path) {
             guard document.hasPossibleExternalChange() else { continue }
-            let operationID = UUID().uuidString
-            do {
-                let decision = try documentLifecycleDecider.decide(
-                    state: document.lifecycleState,
-                    event: .externalChanged,
-                    operationID: operationID
-                )
-                document.applyLifecycleState(decision.state)
-                switch decision.action {
-                case .reloadFromDisk:
-                    try document.reloadFromDisk()
-                case .showConflict:
-                    conflictDetected = true
-                case .none, .writeToDisk, .reportSaveFailure, .ignoreStaleResult:
-                    break
+            if document.needsEditorSynchronization {
+                guard pendingExternalSynchronization.insert(document.id).inserted else { continue }
+                let documentID = document.id
+                document.withSynchronizedEditor { [weak self, weak document] result in
+                    guard let self else { return }
+                    let wasPending = self.pendingExternalSynchronization.remove(documentID) != nil
+                    guard wasPending, let document,
+                          self.editorDocuments.contains(where: { $0 === document }) else { return }
+                    do {
+                        try result.get()
+                        if self.processExternalChange(document) {
+                            self.notify?("External edits conflict with unsaved changes")
+                        }
+                    } catch {
+                        self.notify?("Could not synchronize external change: \(error.localizedDescription)")
+                    }
                 }
-                if openDocuments.contains(where: { $0 === document }) {
-                    onDocumentChanged?(document)
-                }
-            } catch {
-                notify?("Could not process an external change to \(document.url.lastPathComponent)")
+            } else if processExternalChange(document) {
+                conflictDetected = true
             }
         }
         onRecordExternalChanges?(urls)
+        return conflictDetected
+    }
+
+    private func processExternalChange(_ document: EditorDocument) -> Bool {
+        guard document.hasPossibleExternalChange() else { return false }
+        var conflictDetected = false
+        let operationID = UUID().uuidString
+        do {
+            let decision = try documentLifecycleDecider.decide(
+                state: document.lifecycleState,
+                event: .externalChanged,
+                operationID: operationID
+            )
+            document.applyLifecycleState(decision.state)
+            switch decision.action {
+            case .reloadFromDisk:
+                try document.reloadFromDisk()
+            case .showConflict:
+                conflictDetected = true
+            case .none, .writeToDisk, .reportSaveFailure, .ignoreStaleResult:
+                break
+            }
+            if openDocuments.contains(where: { $0 === document }) {
+                onDocumentChanged?(document)
+            }
+        } catch {
+            notify?("Could not process an external change to \(document.url.lastPathComponent)")
+        }
         return conflictDetected
     }
 
@@ -728,6 +965,7 @@ final class DocumentFeatureModel: ObservableObject {
         guard let index = openDocuments.firstIndex(where: { $0.id == document.id }) else { return }
         autoSaveTasks[document.id]?.cancel()
         autoSaveTasks[document.id] = nil
+        autoSaveGenerations[document.id] = nil
         onDocumentClosed?(document)
         let wasActive = activeDocumentID == document.id
         openDocuments.remove(at: index)
@@ -749,6 +987,7 @@ final class DocumentFeatureModel: ObservableObject {
     }
 
     private func saveDocument(_ document: EditorDocument) throws {
+        guard !document.needsEditorSynchronization else { throw EditorDocument.DocumentError.editorNotSynchronized }
         guard !document.isReadOnly else { throw EditorDocument.DocumentError.readOnly }
         // Do not overwrite an external version just because its watcher event has not arrived.
         if document.hasPossibleExternalChange() {
@@ -797,6 +1036,18 @@ final class DocumentFeatureModel: ObservableObject {
         }
     }
 
+    private func synchronizeBeforeAction(_ document: EditorDocument, action: @escaping () -> Void) -> Bool {
+        guard document.needsEditorSynchronization else { return false }
+        document.withSynchronizedEditor { [weak self, weak document] result in
+            guard let self, let document, self.openDocuments.contains(where: { $0 === document }) else { return }
+            switch result {
+            case .success: action()
+            case .failure(let error): self.notify?("Editor synchronization failed: \(error.localizedDescription)")
+            }
+        }
+        return true
+    }
+
     private func completeSave(_ document: EditorDocument, operationID: String) throws {
         let completed = try documentLifecycleDecider.decide(
             state: document.lifecycleState,
@@ -818,4 +1069,14 @@ final class DocumentFeatureModel: ObservableObject {
         let childPath = child.standardizedFileURL.path
         return childPath == parentPath || childPath.hasPrefix(parentPath + "/")
     }
+}
+
+/// Cancellation arrives outside the main actor; queued editor acknowledgments read it
+/// before starting a synchronous disk write. A write already started completes normally.
+private final class DocumentSaveCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    var isCancelled: Bool { lock.withLock { cancelled } }
+    func cancel() { lock.withLock { cancelled = true } }
 }

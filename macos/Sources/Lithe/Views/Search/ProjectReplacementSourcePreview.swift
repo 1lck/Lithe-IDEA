@@ -2,6 +2,14 @@ import AppKit
 import SwiftUI
 import LitheSearchModule
 
+typealias SourcePreviewEditorBuilder = (EditorDocument, MonacoPreviewConfiguration) -> AnyView
+
+enum SourcePreviewEditorContent {
+    static func monaco(_ document: EditorDocument, _ configuration: MonacoPreviewConfiguration) -> AnyView {
+        AnyView(MonacoWorkbenchEditor(document: document, preview: configuration))
+    }
+}
+
 /// Reuses open documents and promotes transient previews on their first edit.
 struct ProjectReplacementSourcePreview: View {
     let file: ProjectReplacementFile
@@ -10,13 +18,14 @@ struct ProjectReplacementSourcePreview: View {
     let options: ProjectSearchOptions
     let loadDocument: (URL) async -> EditorDocument?
     let onEdit: () -> Void
+    var makeEditor: SourcePreviewEditorBuilder = SourcePreviewEditorContent.monaco
     @State private var document: EditorDocument?
     @State private var isLoading = true
 
     var body: some View {
         Group {
             if let document {
-                ProjectReplacementDocumentEditor(document: document, file: file, line: line, query: query, options: options, onEdit: onEdit)
+                ProjectReplacementDocumentEditor(document: document, file: file, line: line, query: query, options: options, onEdit: onEdit, makeEditor: makeEditor)
             } else {
                 VStack {
                     if isLoading { ProgressView() }
@@ -43,9 +52,7 @@ private struct ProjectReplacementDocumentEditor: View {
     let query: String
     let options: ProjectSearchOptions
     let onEdit: () -> Void
-    @StateObject private var chrome = EditorChromeModel()
-    @State private var viewportStore = EditorViewportStore()
-    @State private var saveError: String?
+    var makeEditor: SourcePreviewEditorBuilder = SourcePreviewEditorContent.monaco
 
     var body: some View {
         VStack(spacing: 0) {
@@ -57,8 +64,7 @@ private struct ProjectReplacementDocumentEditor: View {
                 if document.isDirty { Text("•").accessibilityLabel("Unsaved changes") }
                 Spacer()
                 Button("Save") {
-                    do { try model.saveDocument(document); saveError = nil }
-                    catch { saveError = error.localizedDescription }
+                    model.saveEditorDocument(document)
                 }
                 .buttonStyle(.plain)
                 .disabled(!document.isDirty || document.isReadOnly)
@@ -69,11 +75,9 @@ private struct ProjectReplacementDocumentEditor: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: 32)
             .background(LitheTheme.popupBackground)
-            if let saveError {
-                Text(saveError).font(.caption).foregroundStyle(LitheTheme.secondaryText)
-            }
-            CodeEditorView(document: document, shouldFocus: false, previewLine: line, viewportStore: viewportStore)
-                .environmentObject(chrome)
+            makeEditor(document, MonacoPreviewConfiguration(
+                line: line, query: query, matchCase: options.caseSensitive,
+                wholeWord: options.wholeWords && !options.regularExpression, regex: options.regularExpression))
                 .environmentObject(model.editorDiagnosticsStore)
                 .clipped()
         }
@@ -82,19 +86,6 @@ private struct ProjectReplacementDocumentEditor: View {
             if document.isDirty { model.documentFeature.promotePreviewDocument(document) }
             onEdit()
         }
-        .onAppear(perform: updateSearch)
-        .onChange(of: query) { _ in updateSearch() }
-        .onChange(of: options) { _ in updateSearch() }
-    }
-
-    private func updateSearch() {
-        chrome.setFindBarVisible(true)
-        chrome.setFindBarQuery(query)
-        chrome.setFindOptions(FindInFileOptions(
-            matchCase: options.caseSensitive,
-            wholeWords: options.wholeWords && !options.regularExpression,
-            regularExpression: options.regularExpression
-        ))
     }
 }
 

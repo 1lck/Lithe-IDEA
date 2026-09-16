@@ -19,6 +19,7 @@ fi
 
 cd "$ROOT_DIR"
 "$ROOT_DIR/scripts/verify-macos-app-build-safety.sh"
+"$ROOT_DIR/scripts/build-editor.sh"
 
 RUST_TARGET=""
 if [[ -n "$TRIPLE" ]]; then

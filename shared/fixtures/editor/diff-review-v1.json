@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "gitDiff": {
+    "file_path": "Sample.java",
+    "is_new": false,
+    "is_deleted": false,
+    "is_renamed": false,
+    "lines": [
+      {
+        "line_type": "header",
+        "content": "@@ -91,2 +91,2 @@"
+      },
+      {
+        "line_type": "context",
+        "content": "class Sample {",
+        "old_line_number": 91,
+        "new_line_number": 91
+      },
+      {
+        "line_type": "removed",
+        "content": "oldValue",
+        "old_line_number": 92
+      },
+      {
+        "line_type": "added",
+        "content": "newValue",
+        "new_line_number": 92
+      },
+      {
+        "line_type": "context",
+        "content": "}",
+        "old_line_number": 501,
+        "new_line_number": 501
+      }
+    ]
+  },
+  "rows": [
+    {
+      "id": "line-0",
+      "oldLine": null,
+      "newLine": null,
+      "left": "@@ -91,2 +91,2 @@",
+      "right": "@@ -91,2 +91,2 @@",
+      "kind": "information",
+      "hunkID": "hunk-0"
+    },
+    {
+      "id": "line-1",
+      "oldLine": 91,
+      "newLine": 91,
+      "left": "class Sample {",
+      "right": "class Sample {",
+      "kind": "context",
+      "hunkID": "hunk-0"
+    },
+    {
+      "id": "line-2",
+      "oldLine": 92,
+      "newLine": null,
+      "left": "oldValue",
+      "right": null,
+      "kind": "removal",
+      "hunkID": "hunk-0"
+    },
+    {
+      "id": "line-3",
+      "oldLine": null,
+      "newLine": 92,
+      "left": null,
+      "right": "newValue",
+      "kind": "addition",
+      "hunkID": "hunk-0"
+    },
+    {
+      "id": "line-4",
+      "oldLine": 501,
+      "newLine": 501,
+      "left": "}",
+      "right": "}",
+      "kind": "context",
+      "hunkID": "hunk-0"
+    }
+  ],
+  "originalText": "@@ -91,2 +91,2 @@\nclass Sample {\noldValue\n}",
+  "modifiedText": "@@ -91,2 +91,2 @@\nclass Sample {\nnewValue\n}"
+}

@@ -6,10 +6,11 @@ private let litheProcessLaunchDate = Date()
 @MainActor
 protocol UnsavedDocumentHandling: AnyObject {
     var hasUnsavedDocuments: Bool { get }
+    var closingDocuments: [EditorDocument] { get }
     var unsavedDocumentNames: [String] { get }
 
     @discardableResult
-    func saveAllDocuments() -> Bool
+    func saveAllDocuments() async -> Bool
 }
 
 enum UnsavedDocumentsConfirmationContext {
@@ -41,6 +42,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     private static let updateTerminationForceExitNanoseconds: UInt64 = 8_000_000_000
 
     private var pendingFileURLs: [URL] = []
+    private var terminationConfirmationTask: Task<Void, Never>?
     private var terminationCleanupTask: Task<Void, Never>?
     private var terminationCleanupState: TerminationCleanupState = .idle
     private var isUpdateInstallTermination = false
@@ -111,40 +113,56 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
             break
         }
 
-        if isUpdateInstallTermination {
-            guard Self.confirmUnsavedDocuments(for: projectSessions, context: .applicationTermination) else {
-                if cancelStableRollbackTermination?() == true {
-                    isUpdateInstallTermination = false
+        guard terminationConfirmationTask == nil else { return .terminateLater }
+        terminationConfirmationTask = Task { @MainActor [weak self, weak sender] in
+            guard let self, let sender else { return }
+            guard let preparation = await Self.prepareClosingEditors(for: projectSessions) else {
+                if self.isUpdateInstallTermination, self.cancelStableRollbackTermination?() == true {
+                    self.isUpdateInstallTermination = false
                 }
-                // Sparkle only announces relaunch once, even if the user retries
-                // after cancelling termination. Keep the pending-update marker.
-                return .terminateCancel
+                self.terminationConfirmationTask = nil
+                sender.reply(toApplicationShouldTerminate: false)
+                return
             }
-            guard prepareStableRollbackTermination?() ?? true else {
-                isUpdateInstallTermination = false
-                return .terminateCancel
+            var transferred = false
+            defer { if !transferred { preparation.release() } }
+            let confirmed = await Self.confirmUnsavedDocuments(
+                for: projectSessions, context: .applicationTermination
+            )
+            self.terminationConfirmationTask = nil
+            guard confirmed, !Task.isCancelled, preparation.matches(projectSessions.closingDocuments) else {
+                if self.isUpdateInstallTermination, self.cancelStableRollbackTermination?() == true {
+                    self.isUpdateInstallTermination = false
+                }
+                sender.reply(toApplicationShouldTerminate: false)
+                return
             }
-            boundUpdateTermination()
-            return beginTerminationCleanup(
-                for: projectSessions,
-                sender: sender,
-                timeoutNanoseconds: Self.updateTerminationCleanupTimeoutNanoseconds
+            if self.isUpdateInstallTermination {
+                guard self.prepareStableRollbackTermination?() ?? true else {
+                    self.isUpdateInstallTermination = false
+                    sender.reply(toApplicationShouldTerminate: false)
+                    return
+                }
+                self.boundUpdateTermination()
+            }
+            transferred = true
+            _ = self.beginTerminationCleanup(
+                for: projectSessions, sender: sender, preparation: preparation,
+                timeoutNanoseconds: self.isUpdateInstallTermination ? Self.updateTerminationCleanupTimeoutNanoseconds : nil
             )
         }
-
-        return Self.confirmUnsavedDocuments(
-            for: projectSessions,
-            context: .applicationTermination
-        ) ? beginTerminationCleanup(for: projectSessions, sender: sender) : .terminateCancel
+        return .terminateLater
     }
 
     private func beginTerminationCleanup(
         for projectSessions: ProjectSessionManager,
         sender: NSApplication,
+        preparation: EditorClosingPreparation? = nil,
         timeoutNanoseconds: UInt64? = nil
     ) -> NSApplication.TerminateReply {
         terminationCleanupState = .cleaning
         terminationCleanupTask = Task { @MainActor [weak self, projectSessions, sender] in
+            defer { preparation?.release() }
             if let timeoutNanoseconds {
                 await Self.stopSessions(
                     projectSessions,
@@ -245,11 +263,29 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    static func prepareClosingEditors(for owner: any UnsavedDocumentHandling) async -> EditorClosingPreparation? {
+        do {
+            let preparation = try await EditorClosingPreparation.acquire(owner.closingDocuments)
+            guard preparation.matches(owner.closingDocuments) else {
+                preparation.release()
+                throw EditorDocument.DocumentError.editorNotSynchronized
+            }
+            return preparation
+        } catch {
+            if !Task.isCancelled { NSAlert(error: error).runModal() }
+            return nil
+        }
+    }
+
     static func confirmUnsavedDocuments(
         for documentOwner: any UnsavedDocumentHandling,
         context: UnsavedDocumentsConfirmationContext
-    ) -> Bool {
-        guard documentOwner.hasUnsavedDocuments else { return true }
+    ) async -> Bool {
+        // Callers hold remote editor locks here, so dirtiness reflects the drained text.
+        // Empty-document owners retain their non-editor confirmation behavior.
+        let dirty = documentOwner.closingDocuments.isEmpty ? documentOwner.hasUnsavedDocuments
+            : documentOwner.closingDocuments.contains { $0.isDirty }
+        guard dirty else { return true }
 
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -261,7 +297,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
 
         switch alert.runModal() {
         case .alertFirstButtonReturn:
-            return documentOwner.saveAllDocuments()
+            return await documentOwner.saveAllDocuments()
         case .alertSecondButtonReturn:
             return true
         default:

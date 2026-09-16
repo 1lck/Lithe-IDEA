@@ -126,7 +126,7 @@ final class LanguageEditingCoordinator {
         case .success(let hover):
             completion(hover)
         case .failure(let error):
-            notify(error.localizedDescription)
+            if !(error is CancellationError) { notify(error.localizedDescription) }
             completion(nil)
         }
     }
@@ -140,7 +140,7 @@ final class LanguageEditingCoordinator {
         case .success(let values):
             completion(mergeCompletions(fallback, with: values))
         case .failure(let error):
-            notify(error.localizedDescription)
+            if !(error is CancellationError) { notify(error.localizedDescription) }
             completion(fallback)
         }
     }

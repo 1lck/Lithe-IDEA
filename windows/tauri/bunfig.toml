@@ -1,0 +1,4 @@
+[install]
+# Shared editor sources live outside this package and must resolve their own
+# declared dependencies when Bun imports them directly in tests.
+linker = "isolated"

@@ -70,6 +70,11 @@ jobs:
         shell: bash
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+      - name: Set up Bun for shared editor assets
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: frontend/editor/package.json
+
       - name: Set up Swift
         uses: swift-actions/setup-swift@v2
         with:

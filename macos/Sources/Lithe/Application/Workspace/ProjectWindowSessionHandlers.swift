@@ -8,6 +8,8 @@ final class PrimaryProjectWindowSessions: ProjectWindowSessionHandling {
         self.manager = manager
     }
 
+    var closingDocuments: [EditorDocument] { manager.primarySessions.flatMap { $0.documentFeature.editorDocuments } }
+
     var hasUnsavedDocuments: Bool {
         manager.primarySessions.contains(where: \.hasUnsavedDocuments)
     }
@@ -58,9 +60,9 @@ final class PrimaryProjectWindowSessions: ProjectWindowSessionHandling {
         return true
     }
 
-    func saveAllDocuments() -> Bool {
+    func saveAllDocuments() async -> Bool {
         var savedAll = true
-        for model in manager.primarySessions where !model.saveAllDocuments() {
+        for model in manager.primarySessions where !(await model.saveAllDocuments()) {
             savedAll = false
         }
         return savedAll
@@ -94,6 +96,8 @@ final class DedicatedProjectWindowSessions: ProjectWindowSessionHandling {
     private var activeModel: AppModel {
         manager.activeModel(in: scope)
     }
+
+    var closingDocuments: [EditorDocument] { scopedSessions.flatMap { $0.documentFeature.editorDocuments } }
 
     var hasUnsavedDocuments: Bool {
         scopedSessions.contains(where: \.hasUnsavedDocuments)
@@ -132,9 +136,9 @@ final class DedicatedProjectWindowSessions: ProjectWindowSessionHandling {
         false
     }
 
-    func saveAllDocuments() -> Bool {
+    func saveAllDocuments() async -> Bool {
         var savedAll = true
-        for model in scopedSessions where !model.saveAllDocuments() {
+        for model in scopedSessions where !(await model.saveAllDocuments()) {
             savedAll = false
         }
         return savedAll

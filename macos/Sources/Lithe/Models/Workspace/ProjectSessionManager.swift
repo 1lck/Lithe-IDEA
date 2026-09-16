@@ -85,6 +85,8 @@ final class ProjectSessionManager: ObservableObject {
         openProjects(in: .primary)
     }
 
+    var closingDocuments: [EditorDocument] { sessions.flatMap { $0.documentFeature.editorDocuments } }
+
     var hasUnsavedDocuments: Bool {
         sessions.contains(where: \.hasUnsavedDocuments)
     }
@@ -98,9 +100,9 @@ final class ProjectSessionManager: ObservableObject {
     }
 
     @discardableResult
-    func saveAllDocuments() -> Bool {
+    func saveAllDocuments() async -> Bool {
         var savedAll = true
-        for model in sessions where !model.saveAllDocuments() {
+        for model in sessions where !(await model.saveAllDocuments()) {
             savedAll = false
         }
         return savedAll

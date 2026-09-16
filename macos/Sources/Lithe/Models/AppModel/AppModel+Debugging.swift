@@ -242,7 +242,7 @@ extension AppModel {
     }
 
     func toggleDebugBreakpointAtCaret() {
-        guard let document = activeDocument,
+        guard let document = focusedEditorDocument,
               let caret = editorCaret,
               caret.url.standardizedFileURL == document.url.standardizedFileURL else {
             showNotification("Place the caret in a source file to set a breakpoint")
