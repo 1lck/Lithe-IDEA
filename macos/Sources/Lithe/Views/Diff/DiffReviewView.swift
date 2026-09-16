@@ -47,7 +47,6 @@ struct DiffReviewView: View {
         }
         .onChange(of: diffSearchQuery) { _ in
             selectedDiffSearchIndex = 0
-            mapTargetRowID = selectedDiffSearchRowID
         }
     }
 
@@ -312,36 +311,138 @@ struct DiffReviewView: View {
     }
 
     private func diffContent(proxy: ScrollViewProxy) -> some View {
-        MonacoDiffEditor(rows: feature.diffRows, fileExtension: change.url.pathExtension,
-            highlightsWords: highlightsWords, collapsesUnchangedRegions: collapsesUnchangedRegions,
-            sideBySide: !usesSingleFileDiff,
-            selectedRowIDs: Set(differenceIndexByRow.compactMap { $0.value == selectedDifferenceIndex ? $0.key : nil }),
-            searchRowIDs: Set(diffSearchMatches), currentRowID: selectedDiffSearchRowID,
-            revealRowID: mapTargetRowID, actions: monacoHunkActions,
-            onAction: performMonacoHunkAction)
+        HStack(spacing: 0) {
+            diffCanvas(proxy: proxy)
+            Rectangle().fill(LitheTheme.divider).frame(width: 1)
+            DiffMapView(rows: feature.diffRows) { rowID in
+                // The tick may sit inside a fold, so pin it open first.
+                mapTargetRowID = rowID
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    proxy.scrollTo(rowID, anchor: .center)
+                }
+            }
+        }
     }
 
-    private var monacoHunkActions: [MonacoDiffAction] {
-        guard feature.gitDiffWhitespaceMode == .doNotIgnore else { return [] }
-        if change.hasWorkingTreeChange {
-            return [MonacoDiffAction(id: "stage", title: String(localized: "Stage this change block")),
-                    MonacoDiffAction(id: "discard", title: String(localized: "Discard this change block"))]
+    private func diffCanvas(proxy: ScrollViewProxy) -> some View {
+        GeometryReader { geometry in
+            let contentWidth = DiffLayoutMetrics.contentWidth(
+                rows: feature.diffRows,
+                viewportWidth: geometry.size.width,
+                minimumWidth: usesSingleFileDiff ? 680 : 980,
+                paneCount: usesSingleFileDiff ? 1 : 2
+            )
+
+            let kinds = feature.diffRows.map(effectiveKind)
+            let indexByRow = differenceIndexByRow
+            let displayRows = collapsePlan(kinds: kinds)
+            let layoutRows = displayRows.map(\.layoutRow)
+            let layoutKinds = displayRows.map { displayRow in
+                switch displayRow {
+                case let .row(_, index): return kinds[index]
+                case .collapsed: return DiffRowKind.information
+                }
+            }
+
+            if usesSingleFileDiff {
+                ScrollView(.horizontal) {
+                    ScrollView(.vertical) {
+                        let contentHeight = max(
+                            DiffLayoutMetrics.contentHeight(rows: layoutRows, kinds: layoutKinds),
+                            geometry.size.height
+                        )
+                        LazyVStack(spacing: 0) {
+                            ForEach(displayRows) { displayRow in
+                                switch displayRow {
+                                case let .row(row, _):
+                                    singleFileDiffRowView(
+                                        for: row,
+                                        differenceIndex: indexByRow[row.id]
+                                    )
+                                case let .collapsed(region):
+                                    DiffCollapsedBandView(region: region, contentWidth: contentWidth) {
+                                        expandedCollapseRegionIDs.insert(region.id)
+                                    }
+                                }
+                            }
+                        }
+                        .textSelection(.enabled)
+                        .frame(width: contentWidth, height: contentHeight, alignment: .topLeading)
+                    }
+                    .frame(width: contentWidth, height: geometry.size.height, alignment: .topLeading)
+                }
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+                .background(LitheTheme.editor)
+            } else {
+                DiffSplitPaneView(
+                    displayRows: displayRows,
+                    kinds: layoutKinds,
+                    fileExtension: change.url.pathExtension,
+                    contentWidth: contentWidth,
+                    viewportWidth: geometry.size.width,
+                    minimumHeight: geometry.size.height,
+                    highlightsWords: highlightsWords,
+                    selectedRowIDs: Set(indexByRow.compactMap { entry in
+                        entry.value == selectedDifferenceIndex ? entry.key : nil
+                    }),
+                    searchMatchIDs: Set(diffSearchMatches),
+                    currentSearchMatchID: selectedDiffSearchRowID,
+                    onExpand: { region in
+                        expandedCollapseRegionIDs.insert(region.id)
+                    }
+                ) { row, side in
+                    switch side {
+                    case .left:
+                        EmptyView()
+                    case .right:
+                        hunkActions(for: row)
+                    }
+                }
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .background(LitheTheme.editor)
+            }
         }
-        return change.isStaged ? [MonacoDiffAction(id: "unstage", title: String(localized: "Unstage this change block"))] : []
     }
 
-    private func performMonacoHunkAction(_ hunkID: String, _ action: String) {
-        guard feature.gitDiffWhitespaceMode == .doNotIgnore,
-              let hunk = feature.diffHunks.first(where: { $0.id == hunkID }) else { return }
-        switch action {
-        case "stage" where change.hasWorkingTreeChange:
-            Task { await feature.stageDiffHunk(hunk, in: change) }
-        case "discard" where change.hasWorkingTreeChange:
-            feature.requestDiscardHunk(hunk, in: change)
-        case "unstage" where change.isStaged && !change.hasWorkingTreeChange:
-            Task { await feature.unstageDiffHunk(hunk, in: change) }
-        default: break
+    /// Folds long unchanged runs, but pins open any region holding the current
+    /// search hit or the selected difference so navigation targets stay rendered.
+    private func collapsePlan(kinds: [DiffRowKind]) -> [DiffDisplayRow] {
+        guard collapsesUnchangedRegions else {
+            return feature.diffRows.enumerated().map { DiffDisplayRow.row($0.element, index: $0.offset) }
         }
+
+        var pinned = Set(diffSearchMatches)
+        if let selectedDiffSearchRowID {
+            pinned.insert(selectedDiffSearchRowID)
+        }
+        if let mapTargetRowID {
+            pinned.insert(mapTargetRowID)
+        }
+
+        return DiffCollapse.plan(
+            rows: feature.diffRows,
+            expandedRegionIDs: expandedCollapseRegionIDs,
+            pinnedRowIDs: pinned
+        )
+    }
+
+    @ViewBuilder
+    private func singleFileDiffRowView(
+        for row: DiffRow,
+        differenceIndex: Int?
+    ) -> some View {
+        SingleFileDiffRowView(
+            row: row,
+            changeKind: change.kind,
+            fileExtension: change.url.pathExtension,
+            isSelectedDifference: differenceIndex == selectedDifferenceIndex,
+            isSearchMatch: diffSearchMatches.contains(row.id),
+            isCurrentSearchMatch: row.id == selectedDiffSearchRowID
+        )
+        .overlay(alignment: .topTrailing) {
+            hunkActions(for: row)
+        }
+        .id(row.id)
     }
 
     private var differenceStarts: [DiffRowID] {
@@ -434,7 +535,23 @@ struct DiffReviewView: View {
         let current = min(max(selectedDiffSearchIndex, 0), matches.count - 1)
         let next = (current + offset + matches.count) % matches.count
         selectedDiffSearchIndex = next
-        mapTargetRowID = matches[next]
+        withAnimation(.easeOut(duration: 0.18)) {
+            proxy.scrollTo(matches[next], anchor: .center)
+        }
+    }
+
+    @ViewBuilder
+    private func hunkActions(for row: DiffRow) -> some View {
+        if row.kind == .information,
+           let hunkID = row.hunkID,
+           let hunk = feature.diffHunks.first(where: { $0.id == hunkID }) {
+            DiffHunkActionsView(
+                feature: feature,
+                hunk: hunk,
+                change: change,
+                isMutationEnabled: feature.gitDiffWhitespaceMode == .doNotIgnore
+            )
+        }
     }
 
     private var usesSingleFileDiff: Bool {
@@ -479,7 +596,9 @@ struct DiffReviewView: View {
         let current = min(max(selectedDifferenceIndex, 0), starts.count - 1)
         let next = (current + offset + starts.count) % starts.count
         selectedDifferenceIndex = next
-        mapTargetRowID = starts[next]
+        withAnimation(.easeOut(duration: 0.18)) {
+            proxy.scrollTo(starts[next], anchor: .center)
+        }
     }
 
     private var leftVersionTitle: String {
