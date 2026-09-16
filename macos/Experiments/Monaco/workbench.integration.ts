@@ -270,7 +270,7 @@ async function verify() {
     const finalSnapshot = await window.lithe.freeze(id);
     assert(finalSnapshot.text === "before_ALIVE_DURING_SAVE_OK" && finalSnapshot.barrierDrained && finalSnapshot.pendingEdits === 0,
       "edits delivered during synchronization did not reach the next save snapshot");
-    await window.lithe.retain([]);
+    await window.lithe.retain(["A"]);
   });
   await check("workbench tab switch preserves model and undo history", async () => {
     await window.lithe.activate({ id: "B", text: "class Other {}", revision: 0, language: "java", readonly: false });
