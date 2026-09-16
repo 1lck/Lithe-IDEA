@@ -287,6 +287,16 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
       <a href="https://codezsy.com/register?aff=fDyA"><strong>CodeZ</strong></a> focuses on stable relay access to GPT-family models, offering developers a straightforward way to integrate model APIs into their tools and projects. Its sponsorship contributes to the ongoing development and maintenance of Lithe. Thank you to CodeZ for supporting this project!
     </td>
   </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://app.rainyun.com/apps/rcs/392785/detail?view=info">
+        <img src="./docs/assets/sponsors/rainyun.png" width="112" alt="RainYun (雨云)">
+      </a>
+    </td>
+    <td>
+      <a href="https://app.rainyun.com/apps/rcs/392785/detail?view=info"><strong>RainYun (雨云)</strong></a> offers cloud servers for deploying applications, hosting websites, and running development and test environments. Thank you to RainYun for supporting Lithe and its continued development!
+    </td>
+  </tr>
 </table>
 
 ### ⭐ Special thanks
