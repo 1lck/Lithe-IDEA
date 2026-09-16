@@ -2001,6 +2001,15 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func textPrefixCompletesUtf8ScalarAtSamplingBoundary() {
+        let data = Data((String(repeating: "a", count: 4 * 1024 - 1) + "你").utf8)
+
+        #expect(!WorkspaceTextFilePolicy.isPlainText(Data(data.prefix(4 * 1024))))
+        #expect(WorkspaceTextFilePolicy.isPlainTextPrefix(data, byteLimit: 4 * 1024))
+        #expect(!WorkspaceTextFilePolicy.isPlainTextPrefix(Data([0x61, 0xFF, 0x62]), byteLimit: 2))
+    }
+
+    @Test
     func workspaceFileIconResolverUsesIdeaTextAndBinaryKindsForGenericFiles() async {
         let storage = InMemoryFileStorage()
         let textURL = URL(fileURLWithPath: "/in-memory/LICENSE")
@@ -2023,6 +2032,47 @@ struct LitheCoreLogicTests {
         #expect(binary.kind == .binary)
         #expect(!text.isExecutable)
         #expect(!binary.isExecutable)
+    }
+
+    @Test
+    func executableUtf8TextSplitAtSniffBoundaryStaysPlainText() async {
+        let storage = InMemoryFileStorage()
+        let url = URL(fileURLWithPath: "/in-memory/script")
+        storage.seed(Data((String(repeating: "a", count: 4 * 1024 - 1) + "你").utf8), at: url)
+        storage.markExecutable(url)
+
+        let resolved = await WorkspaceFileIconResolver.resolve(
+            for: url,
+            suggested: .generic,
+            storage: storage
+        )
+
+        #expect(resolved.kind == .plainText)
+        #expect(resolved.isExecutable)
+    }
+
+    @Test
+    func executableBinaryDoubleClickDoesNotOpenItAsText() {
+        var opened = 0
+        var executed = 0
+
+        ProjectFileRowActivation.performPrimary(isExecutableBinary: true) { opened += 1 }
+        ProjectFileRowActivation.performPrimary(isExecutableBinary: true) { opened += 1 }
+        ProjectFileRowActivation.performDoubleClick(isExecutableBinary: true) { executed += 1 }
+
+        #expect(opened == 0)
+        #expect(executed == 1)
+    }
+
+    @Test
+    func remoteURLRequestRejectsResultsForAnotherRepositoryOrRemote() {
+        let root = URL(fileURLWithPath: "/workspace/repository-a")
+        let request = GitRemoteURLRequest(root: root, remote: "origin")
+
+        #expect(request.matches(root: root, remote: "origin"))
+        #expect(!request.matches(root: URL(fileURLWithPath: "/workspace/repository-b"), remote: "origin"))
+        #expect(!request.matches(root: root, remote: "upstream"))
+        #expect(!request.matches(root: nil, remote: nil))
     }
 
     @Test
@@ -3198,6 +3248,35 @@ struct LitheCoreLogicTests {
             hasOtherModifiers: false,
             timestamp: 2.25
         )
+        #expect(!triggered)
+    }
+
+    @Test
+    func resettingDoubleShiftRecognizerDropsPendingTap() {
+        var recognizer = DoubleShiftGestureRecognizer(threshold: 0.35)
+
+        _ = recognizer.handleFlagsChanged(
+            isShiftDown: true,
+            hasOtherModifiers: false,
+            timestamp: 1.00
+        )
+        _ = recognizer.handleFlagsChanged(
+            isShiftDown: false,
+            hasOtherModifiers: false,
+            timestamp: 1.05
+        )
+        recognizer.reset()
+        _ = recognizer.handleFlagsChanged(
+            isShiftDown: true,
+            hasOtherModifiers: false,
+            timestamp: 1.20
+        )
+        let triggered = recognizer.handleFlagsChanged(
+            isShiftDown: false,
+            hasOtherModifiers: false,
+            timestamp: 1.25
+        )
+
         #expect(!triggered)
     }
 
@@ -5716,6 +5795,7 @@ private final class InMemoryFileStorage: FileStorage, GitShelfStorage, DatabaseF
     private let support = URL(fileURLWithPath: "/in-memory-application-support", isDirectory: true)
     private var files: [String: Data] = [:]
     private var directories: Set<String> = []
+    private var executablePaths: Set<String> = []
 
     func homeDirectory() -> URL { support }
     func cacheDirectory() -> URL { support }
@@ -5749,13 +5829,23 @@ private final class InMemoryFileStorage: FileStorage, GitShelfStorage, DatabaseF
         lock.unlock()
     }
 
+    func markExecutable(_ url: URL) {
+        lock.lock()
+        executablePaths.insert(url.path)
+        lock.unlock()
+    }
+
     func fileExists(at url: URL) -> Bool {
         lock.lock()
         defer { lock.unlock() }
         return files[url.path] != nil || directories.contains(url.path)
     }
 
-    func isExecutable(at url: URL) -> Bool { false }
+    func isExecutable(at url: URL) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return executablePaths.contains(url.path)
+    }
 
     func listDirectory(at url: URL) -> [URL] {
         lock.lock()

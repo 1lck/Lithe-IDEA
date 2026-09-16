@@ -4,6 +4,8 @@ import Foundation
 /// Known language and configuration kinds remain semantic; only generic files
 /// are sniffed so extensionless text and binary files match IDEA's file glyphs.
 enum WorkspaceFileIconResolver {
+    private static let contentSampleByteCount = 4 * 1024
+
     static func resolve(
         for url: URL,
         suggested: LitheIconKind,
@@ -12,9 +14,14 @@ enum WorkspaceFileIconResolver {
         let executable = storage.isExecutable(at: url)
         guard suggested == .generic else { return (suggested, executable) }
         let data = await Task.detached(priority: .utility) {
-            try? storage.readPrefix(from: url, byteCount: 4 * 1024)
+            try? storage.readPrefix(from: url, byteCount: contentSampleByteCount + 3)
         }.value
         guard let data else { return (.generic, executable) }
-        return (WorkspaceTextFilePolicy.isPlainText(data) ? .plainText : .binary, executable)
+        return (
+            WorkspaceTextFilePolicy.isPlainTextPrefix(data, byteLimit: contentSampleByteCount)
+                ? .plainText
+                : .binary,
+            executable
+        )
     }
 }

@@ -167,7 +167,15 @@ private struct GitExecutionConfigurationPane: View {
                 remoteURL = nil
                 return
             }
-            remoteURL = await feature.remoteURL(named: remote, at: root)
+            let request = GitRemoteURLRequest(root: root, remote: remote)
+            remoteURL = nil
+            let value = await feature.remoteURL(named: remote, at: root)
+            guard !Task.isCancelled,
+                  request.matches(
+                    root: feature.repositorySetupRoot,
+                    remote: feature.currentGitReference?.remoteName
+                  ) else { return }
+            remoteURL = value
         }
     }
     private func save(_ field: GitConfigurationField, value: String?) {
@@ -289,6 +297,15 @@ private struct GitExecutionConfigurationPane: View {
 
     private var scopePriority: [String: Int] {
         ["system": 0, "global": 1, "local": 2, "command": 3]
+    }
+}
+
+struct GitRemoteURLRequest: Equatable {
+    let root: URL
+    let remote: String
+
+    func matches(root currentRoot: URL?, remote currentRemote: String?) -> Bool {
+        currentRoot?.standardizedFileURL == root.standardizedFileURL && currentRemote == remote
     }
 }
 

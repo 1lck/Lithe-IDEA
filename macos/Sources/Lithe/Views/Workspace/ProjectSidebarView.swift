@@ -3,6 +3,18 @@ import LitheGitModule
 import AppKit
 import SwiftUI
 
+enum ProjectFileRowActivation {
+    static func performPrimary(isExecutableBinary: Bool, openFile: () -> Void) {
+        guard !isExecutableBinary else { return }
+        openFile()
+    }
+
+    static func performDoubleClick(isExecutableBinary: Bool, runExecutable: () -> Void) {
+        guard isExecutableBinary else { return }
+        runExecutable()
+    }
+}
+
 struct ProjectSidebarView: View {
     @EnvironmentObject private var model: AppModel
     let rowHeight: CGFloat
@@ -450,7 +462,9 @@ private struct FileNodeRow: View {
     private var fileRow: some View {
         Button {
             contextMenuPath = nil
-            actions.openFile(node.url)
+            ProjectFileRowActivation.performPrimary(isExecutableBinary: isExecutableFile) {
+                actions.openFile(node.url)
+            }
         } label: {
             HStack(spacing: 6) {
                 Color.clear.frame(width: 10)
@@ -493,8 +507,9 @@ private struct FileNodeRow: View {
         )
         .simultaneousGesture(
             TapGesture(count: 2).onEnded {
-                guard isExecutableFile else { return }
-                actions.runExecutable(node.url)
+                ProjectFileRowActivation.performDoubleClick(isExecutableBinary: isExecutableFile) {
+                    actions.runExecutable(node.url)
+                }
             }
         )
         .task(id: node.url.standardizedFileURL.path) {

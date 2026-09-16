@@ -27,4 +27,19 @@ enum WorkspaceTextFilePolicy {
         guard let text = String(data: data, encoding: .utf8) else { return false }
         return isPlainText(text)
     }
+
+    /// Validates a bounded file prefix while allowing up to three look-ahead
+    /// bytes to complete a UTF-8 scalar split at the sampling boundary.
+    static func isPlainTextPrefix(_ data: Data, byteLimit: Int) -> Bool {
+        guard byteLimit > 0 else { return data.isEmpty }
+        let maximumCount = min(data.count, byteLimit + 3)
+        let minimumCount = min(data.count, byteLimit)
+        for count in minimumCount...maximumCount {
+            let candidate = data.prefix(count)
+            if let text = String(data: candidate, encoding: .utf8) {
+                return isPlainText(text)
+            }
+        }
+        return false
+    }
 }
