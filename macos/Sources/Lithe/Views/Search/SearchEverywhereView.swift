@@ -13,6 +13,85 @@ enum SearchEverywhereScope: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum SearchEverywhereQueryMode: Equatable {
+    case workspace(String)
+    case commands(String)
+
+    init(query: String) {
+        if query.hasPrefix("/") {
+            self = .commands(String(query.dropFirst()))
+        } else {
+            self = .workspace(query)
+        }
+    }
+
+    var workspaceQuery: String {
+        switch self {
+        case .workspace(let query): return query
+        case .commands: return ""
+        }
+    }
+
+    var workspaceSearchTaskID: String {
+        switch self {
+        case .workspace(let query): return "workspace:\(query)"
+        case .commands: return "commands"
+        }
+    }
+
+    var commandQuery: String? {
+        switch self {
+        case .workspace: return nil
+        case .commands(let query): return query
+        }
+    }
+}
+
+enum SearchEverywhereResultSource: Equatable {
+    case combinedWorkspaceNames
+    case classes
+    case files
+    case symbols
+    case actions(String)
+    case commands(String)
+    case text
+
+    init(queryMode: SearchEverywhereQueryMode, scope: SearchEverywhereScope) {
+        if let commandQuery = queryMode.commandQuery {
+            self = .commands(commandQuery)
+            return
+        }
+
+        switch scope {
+        case .all: self = .combinedWorkspaceNames
+        case .classes: self = .classes
+        case .files: self = .files
+        case .symbols: self = .symbols
+        case .actions: self = .actions(queryMode.workspaceQuery)
+        case .text: self = .text
+        }
+    }
+
+    var emptyResultsMessage: String {
+        switch self {
+        case .commands:
+            return "No matching commands"
+        case .combinedWorkspaceNames:
+            return "No matches in All"
+        case .classes:
+            return "No matches in Classes"
+        case .files:
+            return "No matches in Files"
+        case .symbols:
+            return "No matches in Symbols"
+        case .actions:
+            return "No matches in Actions"
+        case .text:
+            return "No matches in Text"
+        }
+    }
+}
+
 /// IDEA 风格的全局搜索弹窗：分类标签、双栏结果和可执行 Actions 共用同一套键盘导航。
 struct SearchEverywhereView: View {
     @ObservedObject var feature: SearchFeatureModel
@@ -39,16 +118,15 @@ struct SearchEverywhereView: View {
     }
 
     private var visibleItems: [SearchItem] {
-        switch scope {
-        case .all:
-            // 对齐 IDEA：默认视图按“名字”找（文件、类、符号、Action），
+        switch resultSource {
+        case .combinedWorkspaceNames:
+            // 对齐 IDEA：默认视图按“名字”找（文件、类、符号），
             // 正文命中只在 Text 标签页出现，避免与 Find in Files 的结果重叠。
-            // IDEA 不按 kind 分段，而是把三类混排后按相关度排序。
+            // Action 由 `/` 命令模式或 Actions 标签页展示。
             let nameMatches = feature.searchEverywhereResults.fileMatches
                 + feature.searchEverywhereResults.classMatches
                 + feature.searchEverywhereResults.symbolMatches
             return rankedResults(nameMatches)
-                + actionMatches(query).map(SearchItem.action)
         case .classes:
             return results(in: feature.searchEverywhereResults.classMatches)
         case .files:
@@ -57,9 +135,17 @@ struct SearchEverywhereView: View {
             return results(in: feature.searchEverywhereResults.symbolMatches)
         case .text:
             return results(in: feature.searchEverywhereResults.contentMatches)
-        case .actions:
-            return actionMatches(query).map(SearchItem.action)
+        case .actions(let actionQuery), .commands(let actionQuery):
+            return actionMatches(actionQuery).map(SearchItem.action)
         }
+    }
+
+    private var queryMode: SearchEverywhereQueryMode {
+        SearchEverywhereQueryMode(query: query)
+    }
+
+    private var resultSource: SearchEverywhereResultSource {
+        SearchEverywhereResultSource(queryMode: queryMode, scope: scope)
     }
 
     private struct RankedResult {
@@ -118,10 +204,14 @@ struct SearchEverywhereView: View {
         .onDisappear { removeKeyMonitor() }
         .onChange(of: query) { _ in selectedIndex = 0 }
         .onChange(of: scope) { _ in selectedIndex = 0 }
-        .task(id: "\(query)|\(searchOptions.cacheKey)") {
+        .task(id: "\(queryMode.workspaceSearchTaskID)|\(searchOptions.cacheKey)") {
+            if queryMode.commandQuery != nil {
+                await search("", searchOptions)
+                return
+            }
             try? await Task.sleep(for: .milliseconds(180))
             guard !Task.isCancelled else { return }
-            await search(query, searchOptions)
+            await search(queryMode.workspaceQuery, searchOptions)
         }
     }
 
@@ -151,7 +241,6 @@ struct SearchEverywhereView: View {
             if feature.isSearchingEverywhere {
                 ProgressView().controlSize(.mini)
             }
-            includeNonProjectItemsToggle
             searchOptionsMenu
             Button {
                 dismiss()
@@ -164,18 +253,6 @@ struct SearchEverywhereView: View {
         .padding(.horizontal, 6)
         .frame(height: 40)
         .background(LitheTheme.toolHeader)
-    }
-
-    /// 占位控件：当前搜索范围只覆盖工作区内的文件，还没有“非项目文件”
-    /// （JDK、依赖 jar 里的类）这一概念可供开关，所以先禁用。
-    private var includeNonProjectItemsToggle: some View {
-        Toggle("Include non-project items", isOn: .constant(false))
-            .toggleStyle(.checkbox)
-            .font(.system(size: 11.5))
-            .foregroundStyle(LitheTheme.secondaryText)
-            .disabled(true)
-            .opacity(0.45)
-            .help("Not available yet: dependencies are not indexed")
     }
 
     private var searchField: some View {
@@ -212,7 +289,7 @@ struct SearchEverywhereView: View {
             Toggle("Whole Words", isOn: $searchOptions.wholeWords)
             Toggle("Regular Expression", isOn: $searchOptions.regularExpression)
         } label: {
-            Image(systemName: searchOptions == .default ? "slider.horizontal.3" : "slider.horizontal.3.circle.fill")
+            Image(systemName: "slider.horizontal.3")
                 .foregroundStyle(searchOptions == .default ? LitheTheme.secondaryText : LitheTheme.accent)
                 .frame(width: 28, height: 28)
                 .contentShape(Rectangle())
@@ -226,7 +303,7 @@ struct SearchEverywhereView: View {
     private var resultsList: some View {
         if visibleItems.isEmpty {
             if !feature.isSearchingEverywhere {
-                placeholder("No matches in \(scope.rawValue)")
+                placeholder(resultSource.emptyResultsMessage)
             }
         } else {
             ScrollViewReader { proxy in
@@ -252,7 +329,8 @@ struct SearchEverywhereView: View {
 
     /// 后端按 matchLimit 截断，命中数刚好顶到上限时提示还有更多。
     private var isTruncated: Bool {
-        feature.searchEverywhereResults.allMatches.count >= SearchEverywhereResults.matchLimit
+        guard queryMode.commandQuery == nil else { return false }
+        return feature.searchEverywhereResults.allMatches.count >= SearchEverywhereResults.matchLimit
     }
 
     private var moreRow: some View {
