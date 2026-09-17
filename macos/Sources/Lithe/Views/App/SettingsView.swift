@@ -171,7 +171,7 @@ struct SettingsView: View {
         case .general:
             ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control", "Logs", "Log directory", "Hidden paths", "LSP generated", "recommended rules"]
         case .editor:
-            ["Editor", "Display", "Editor tabs", "Font size", "File tree row height", "Indentation", "Tab width"]
+            ["Editor", "Display", "Editor tabs", "Font size", "File tree row height", "Show minimap", "Minimap", "Indentation", "Tab width"]
         case .keymap:
             ["Keymap", "Keyboard shortcuts", "Shortcuts", "Actions"]
         case .project:
@@ -579,6 +579,10 @@ struct SettingsView: View {
                 LitheSettingsCheckbox(
                     isOn: $settings.showCodeVision,
                     title: "Show usages and Git author"
+                )
+                LitheSettingsCheckbox(
+                    isOn: $settings.editorMinimapEnabled,
+                    title: "Show minimap"
                 )
             }
             group("Editor tabs") {

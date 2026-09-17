@@ -837,7 +837,12 @@ export function mountWorkbench(host: WorkbenchHost) {
     },
     configure(payload: any) {
       monaco.editor.setTheme(payload.dark ? "lithe-dark" : "lithe-light");
-      Object.assign(displayOptions, { fontFamily: payload.fontFamily, fontSize: payload.fontSize, wordWrap: payload.wrap ? "on" : "off" });
+      Object.assign(displayOptions, {
+        fontFamily: payload.fontFamily,
+        fontSize: payload.fontSize,
+        wordWrap: payload.wrap ? "on" : "off",
+        minimap: { enabled: payload.minimap !== false },
+      });
       for (const view of allEditors()) view.updateOptions(displayOptions);
     },
     async debugState(id: string, state: { breakpoints: { line: number; enabled: boolean; verified: boolean; logpoint: boolean; conditional?: boolean; message?: string }[]; muted: boolean; paused?: boolean; canRunToCursor?: boolean; executionLine?: number; revision?: number; variables?: { name: string; value: string }[] }) {
@@ -990,7 +995,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     await ensureMonacoLanguageTokenizer("java");
     installThemes(host.palette);
     displayOptions = {
-      model: null, automaticLayout: true, minimap: { enabled: false }, theme: "lithe-dark", fontSize: 13,
+      model: null, automaticLayout: true, minimap: { enabled: true }, theme: "lithe-dark", fontSize: 13,
       glyphMargin: true, scrollBeyondLastLine: false, fixedOverflowWidgets: true, "semanticHighlighting.enabled": true,
     };
     editor = monaco.editor.create(document.querySelector("#editor") as HTMLElement, displayOptions);
