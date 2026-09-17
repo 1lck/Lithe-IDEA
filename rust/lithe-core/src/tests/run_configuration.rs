@@ -490,10 +490,18 @@ fn nested_maven_generation_keeps_standalone_java_on_the_jdk() {
     assert_eq!(plan["ok"], true, "{plan}");
     assert_eq!(plan["data"]["executable"]["toolchain"], "project-jdk");
     assert_eq!(plan["data"]["workingDirectory"], ".");
+    // Standalone Java compiles first (JEP 330 needs JDK 11+), then launches by
+    // class name off the per-configuration output directory.
+    let output_dir = ".lithe/run/classes/java-main-Standalone";
     assert_eq!(
-        plan["data"]["arguments"],
-        serde_json::json!([standalone_source])
+        plan["data"]["preLaunchSteps"],
+        serde_json::json!([{
+            "executable": { "toolchain": "project-jdk", "tool": "javac" },
+            "arguments": ["-d", output_dir, standalone_source]
+        }])
     );
+    assert_eq!(plan["data"]["classpath"], serde_json::json!([output_dir]));
+    assert_eq!(plan["data"]["arguments"], serde_json::json!(["Standalone"]));
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -937,9 +945,212 @@ fn plain_java_main_uses_the_jdk_without_maven() {
     .unwrap();
     assert_eq!(plan["ok"], true, "{plan}");
     assert_eq!(plan["data"]["executable"]["toolchain"], "project-jdk");
-    assert_eq!(plan["data"]["arguments"], serde_json::json!([source]));
+    // Non-Maven java.main also compiles then runs by its recorded main class.
+    let output_dir = ".lithe/run/classes/java-main-com.example.WorkerMain";
+    assert_eq!(
+        plan["data"]["preLaunchSteps"],
+        serde_json::json!([{
+            "executable": { "toolchain": "project-jdk", "tool": "javac" },
+            "arguments": ["-d", output_dir, source]
+        }])
+    );
+    assert_eq!(plan["data"]["classpath"], serde_json::json!([output_dir]));
+    assert_eq!(
+        plan["data"]["arguments"],
+        serde_json::json!(["com.example.WorkerMain"])
+    );
 
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn current_file_compiles_then_launches_by_derived_class_name() {
+    // Regression for JDK 8: `java File.java` (JEP 330) only works on JDK 11+, so
+    // Current File must compile then launch by the class the JVM resolves. The
+    // launcher derives the qualified name from the file, including its package,
+    // without the class name being recorded anywhere.
+    let root = temporary_root("run-config-current-file-compile");
+    let current_file = "src/app/Widget.java";
+    fs::create_dir_all(root.join("src/app")).unwrap();
+    fs::write(
+        root.join(current_file),
+        "package app; public final class Widget { public static void main(String[] a) {} }",
+    )
+    .unwrap();
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        r#"{"version":2,"configurations":[{"id":"current-file","name":"Current File","provider":"java.current-file","execution":"application","toolchains":{"java":"project-jdk"},"extensions":{"maven":{"module":"."}}}]}"#,
+    )
+    .unwrap();
+
+    let plan: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "plan-current-file",
+            "command": "runConfig.createLaunchPlan",
+            "payload": {
+                "root": root,
+                "configurationId": "current-file",
+                "currentFile": current_file
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(plan["ok"], true, "{plan}");
+    assert_eq!(plan["data"]["executable"]["toolchain"], "project-jdk");
+    let output_dir = ".lithe/run/classes/current-file";
+    assert_eq!(
+        plan["data"]["preLaunchSteps"],
+        serde_json::json!([{
+            "executable": { "toolchain": "project-jdk", "tool": "javac" },
+            "arguments": ["-d", output_dir, current_file]
+        }])
+    );
+    assert_eq!(plan["data"]["classpath"], serde_json::json!([output_dir]));
+    // Package-qualified name, not the file path, is what the JVM launches.
+    assert_eq!(plan["data"]["arguments"], serde_json::json!(["app.Widget"]));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn current_file_run_classpath_prepends_output_ahead_of_project_classes() {
+    // When the host supplies a project classpath (a Maven module's compiled
+    // output), the freshly compiled directory must lead so a rebuilt class wins,
+    // and the same project classes feed the compile step so references resolve.
+    let root = temporary_root("run-config-current-file-classpath");
+    let current_file = "src/Main.java";
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join(current_file),
+        "class Main { public static void main(String[] a) {} }",
+    )
+    .unwrap();
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        r#"{"version":2,"configurations":[{"id":"current-file","name":"Current File","provider":"java.current-file","execution":"application","toolchains":{"java":"project-jdk"},"extensions":{"maven":{"module":"."}}}]}"#,
+    )
+    .unwrap();
+
+    let plan: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "plan-current-file-cp",
+            "command": "runConfig.createLaunchPlan",
+            "payload": {
+                "root": root,
+                "configurationId": "current-file",
+                "currentFile": current_file,
+                "classPath": "/abs/target/classes"
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(plan["ok"], true, "{plan}");
+    let output_dir = ".lithe/run/classes/current-file";
+    assert_eq!(
+        plan["data"]["classpath"],
+        serde_json::json!([output_dir, "/abs/target/classes"])
+    );
+    // Default package: launch by the simple class name.
+    assert_eq!(plan["data"]["arguments"], serde_json::json!(["Main"]));
+    assert_eq!(
+        plan["data"]["preLaunchSteps"],
+        serde_json::json!([{
+            "executable": { "toolchain": "project-jdk", "tool": "javac" },
+            "arguments": ["-d", output_dir, current_file],
+            "classpath": ["/abs/target/classes"]
+        }])
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn standalone_java_main_compile_then_run_matches_shared_fixture() {
+    // The shared fixture pins the compile-then-run envelope both hosts consume:
+    // a javac pre-launch step into a per-configuration cache directory, that
+    // directory on the run classpath, and launch by qualified class name.
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/execution/standalone-java-compile-run-v1.json"
+    ))
+    .expect("standalone Java compile-run fixture should be valid JSON");
+    let cases = fixture["cases"]
+        .as_array()
+        .expect("compile-run fixture should contain cases");
+    for case in cases {
+        let source = case["source"].as_str().expect("case should name a source");
+        let configuration_id = case["configurationId"]
+            .as_str()
+            .expect("case should name a configuration");
+        let class_body = format!(
+            "{}class {} {{ public static void main(String[] args) {{}} }}",
+            match case["package"].as_str() {
+                Some(package) => format!("package {package}; "),
+                None => String::new(),
+            },
+            case["expectedMainClass"]
+                .as_str()
+                .expect("case should name a main class")
+                .rsplit('.')
+                .next()
+                .unwrap(),
+        );
+        let suffix: String = configuration_id
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect();
+        let root = temporary_root(&format!("run-config-standalone-fixture-{suffix}"));
+        fs::create_dir_all(root.join(source).parent().unwrap()).unwrap();
+        fs::write(root.join(source), class_body).unwrap();
+
+        let generated_response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "generate-standalone-fixture",
+                "command": "runConfig.generate",
+                "payload": {"root": root, "paths": [source], "modulePaths": []}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        let generated = &generated_response["data"]["generated"];
+        fs::create_dir_all(root.join(".lithe/run")).unwrap();
+        fs::write(
+            root.join(".lithe/run/generated.json"),
+            serde_json::to_string(generated).unwrap(),
+        )
+        .unwrap();
+
+        let plan: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": format!("plan-{configuration_id}"),
+                "command": "runConfig.createLaunchPlan",
+                "payload": {"root": root, "configurationId": configuration_id}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(plan["ok"], true, "case {}: {plan}", case["name"]);
+        assert_eq!(
+            plan["data"]["preLaunchSteps"], case["expectedPreLaunchSteps"],
+            "case {}",
+            case["name"]
+        );
+        assert_eq!(
+            plan["data"]["classpath"], case["expectedClasspath"],
+            "case {}",
+            case["name"]
+        );
+        assert_eq!(
+            plan["data"]["arguments"], case["expectedArguments"],
+            "case {}",
+            case["name"]
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
 }
 
 #[test]

@@ -228,6 +228,7 @@ for (const execution of ["service", "application"] as const) {
           workingDirectory: "D:/work",
           environment: {},
         }),
+        executePreLaunchStep: async () => ({ exitCode: 0, output: "" }),
         startRunProcess: async ({ sessionId, executionId }) => {
           processes.set(sessionId, executionId!);
         },

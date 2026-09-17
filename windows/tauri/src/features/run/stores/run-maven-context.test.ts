@@ -80,6 +80,7 @@ describe("Maven-backed Run context", () => {
       createLaunchPlan,
       mavenLaunchContextForWorkspace,
       resolveRunLaunch,
+      executePreLaunchStep: mock(async () => ({ exitCode: 0, output: "" })),
       saveWorkspaceBeforeLaunch,
       startRunProcess,
       stopRunProcess,
@@ -139,6 +140,7 @@ describe("Maven-backed Run context", () => {
       saveWorkspaceBeforeLaunch: mock(async () => {
         throw new Error("Unable to start because modified files could not be saved: App.java.");
       }),
+      executePreLaunchStep: mock(async () => ({ exitCode: 0, output: "" })),
       startRunProcess,
       stopRunProcess: mock(async () => undefined),
     };

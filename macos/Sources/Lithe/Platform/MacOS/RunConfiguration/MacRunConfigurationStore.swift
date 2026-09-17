@@ -170,11 +170,31 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
                 message: "The launch plan names neither a toolchain nor a command."
             )
         }
+        let preLaunchSteps = try (value.preLaunchSteps ?? []).map { step -> SharedLaunchPlan.PreLaunchStep in
+            let stepExecutable: SharedLaunchPlan.Executable
+            if let toolchain = step.executable.toolchain {
+                stepExecutable = .toolchain(toolchain)
+            } else if let command = step.executable.command {
+                stepExecutable = .command(command)
+            } else {
+                throw RunConfigurationOperationFailure(
+                    message: "A launch plan pre-launch step names neither a toolchain nor a command."
+                )
+            }
+            return SharedLaunchPlan.PreLaunchStep(
+                executable: stepExecutable,
+                tool: step.executable.tool,
+                arguments: step.arguments,
+                classpath: step.classpath ?? []
+            )
+        }
         return SharedLaunchPlan(
             executable: executable,
             arguments: value.arguments,
             workingDirectory: value.workingDirectory,
-            environment: value.env ?? [:]
+            environment: value.env ?? [:],
+            preLaunchSteps: preLaunchSteps,
+            classpath: value.classpath ?? []
         )
     }
 
@@ -312,7 +332,7 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             let generatedData = try JSONEncoder.prettySorted.encode(result.generated)
             let requirementsData = try JSONEncoder.prettySorted.encode(result.toolchainRequirements)
             try atomicWrite(requirementsData, to: requirementsURL, root: root)
-            let ignore = "run/local.json\n**/*.tmp\n"
+            let ignore = "run/local.json\nrun/classes/\n**/*.tmp\n"
             if !storage.fileExists(at: ignoreURL) { try atomicWrite(Data(ignore.utf8), to: ignoreURL, root: root) }
             if !storage.fileExists(at: manifestURL) {
                 // A framework service is what the user most likely wants to

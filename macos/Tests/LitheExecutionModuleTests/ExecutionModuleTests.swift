@@ -779,6 +779,168 @@ struct ExecutionModuleTests {
     }
 
     @Test
+    func standaloneJavaCompilesWithJavacBeforeLaunchingByClassName() async throws {
+        let mainProcess = TestStreamingProcess()
+        let stepProcesses = StepProcessRecorder()
+        let outputDirectory = ".lithe/run/classes/java-main-Standalone"
+        let configuration = RunConfiguration(
+            id: "java-main:Standalone", name: "Standalone", kind: .javaMain,
+            execution: .application, modulePath: nil, mainClass: "Standalone"
+        )
+        let plan = SharedLaunchPlan(
+            executable: .toolchain("project-jdk"),
+            arguments: ["Standalone"],
+            workingDirectory: ".",
+            preLaunchSteps: [
+                SharedLaunchPlan.PreLaunchStep(
+                    executable: .toolchain("project-jdk"),
+                    tool: "javac",
+                    arguments: ["-d", outputDirectory, "Standalone.java"]
+                )
+            ],
+            classpath: [outputDirectory]
+        )
+        let service = RunService(
+            runtime: TestRuntime(), process: mainProcess,
+            processFactory: { stepProcesses.make() }, fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: FixedLaunchPlanRunConfigurationOperations(
+                configuration: configuration, plan: plan
+            ),
+            executableResolver: JavacAwareExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        defer { service.reset() }
+
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        await service.loadProject(at: root, files: [], mavenProject: nil)
+
+        let mainStarted = AsyncStream<Void>.makeStream()
+        mainProcess.onStart = { mainStarted.continuation.yield(()) }
+
+        service.run(configuration: configuration, currentFileURL: nil)
+
+        // The javac compile step runs first; the main process must wait for it.
+        let step = try #require(stepProcesses.processes.first)
+        let stepRequest = try #require(step.startRequests.first)
+        #expect(stepRequest.executablePath == "/test/bin/javac")
+        #expect(stepRequest.arguments == ["-d", outputDirectory, "Standalone.java"])
+        #expect(mainProcess.startRequests.isEmpty)
+
+        // A zero exit chains to the main process, which launches by class name
+        // with the compile output prepended as `-cp`.
+        step.onTermination?(0)
+        try await awaitSignal(mainStarted.stream)
+        let mainRequest = try #require(mainProcess.startRequests.first)
+        #expect(mainRequest.executablePath == "/test/bin/java")
+        #expect(mainRequest.arguments == ["-cp", outputDirectory, "Standalone"])
+        #expect(service.isRunning)
+    }
+
+    @Test
+    func standaloneJavaMergesCompileOutputIntoUserClasspath() async throws {
+        let mainProcess = TestStreamingProcess()
+        let stepProcesses = StepProcessRecorder()
+        let outputDirectory = ".lithe/run/classes/java-main-Standalone"
+        let configuration = RunConfiguration(
+            id: "java-main:Standalone", name: "Standalone", kind: .javaMain,
+            execution: .application, modulePath: nil, mainClass: "Standalone"
+        )
+        // The user already supplies a `-cp`; a second one would override it, so the
+        // compiled output must merge into that flag ahead of the user's entry.
+        let plan = SharedLaunchPlan(
+            executable: .toolchain("project-jdk"),
+            arguments: ["-cp", "libs/foo.jar", "Standalone"],
+            workingDirectory: ".",
+            preLaunchSteps: [
+                SharedLaunchPlan.PreLaunchStep(
+                    executable: .toolchain("project-jdk"),
+                    tool: "javac",
+                    arguments: ["-d", outputDirectory, "Standalone.java"]
+                )
+            ],
+            classpath: [outputDirectory]
+        )
+        let service = RunService(
+            runtime: TestRuntime(), process: mainProcess,
+            processFactory: { stepProcesses.make() }, fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: FixedLaunchPlanRunConfigurationOperations(
+                configuration: configuration, plan: plan
+            ),
+            executableResolver: JavacAwareExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        defer { service.reset() }
+
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        await service.loadProject(at: root, files: [], mavenProject: nil)
+
+        let mainStarted = AsyncStream<Void>.makeStream()
+        mainProcess.onStart = { mainStarted.continuation.yield(()) }
+
+        service.run(configuration: configuration, currentFileURL: nil)
+        let step = try #require(stepProcesses.processes.first)
+        step.onTermination?(0)
+        try await awaitSignal(mainStarted.stream)
+        let mainRequest = try #require(mainProcess.startRequests.first)
+        #expect(
+            mainRequest.arguments == ["-cp", "\(outputDirectory):libs/foo.jar", "Standalone"]
+        )
+    }
+
+    @Test
+    func standaloneJavaCompileFailureAbortsBeforeLaunchingMainProcess() async throws {
+        let mainProcess = TestStreamingProcess()
+        let stepProcesses = StepProcessRecorder()
+        let outputDirectory = ".lithe/run/classes/java-main-Standalone"
+        let configuration = RunConfiguration(
+            id: "java-main:Standalone", name: "Standalone", kind: .javaMain,
+            execution: .application, modulePath: nil, mainClass: "Standalone"
+        )
+        let plan = SharedLaunchPlan(
+            executable: .toolchain("project-jdk"),
+            arguments: ["Standalone"],
+            workingDirectory: ".",
+            preLaunchSteps: [
+                SharedLaunchPlan.PreLaunchStep(
+                    executable: .toolchain("project-jdk"),
+                    tool: "javac",
+                    arguments: ["-d", outputDirectory, "Standalone.java"]
+                )
+            ],
+            classpath: [outputDirectory]
+        )
+        let service = RunService(
+            runtime: TestRuntime(), process: mainProcess,
+            processFactory: { stepProcesses.make() }, fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: FixedLaunchPlanRunConfigurationOperations(
+                configuration: configuration, plan: plan
+            ),
+            executableResolver: JavacAwareExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        defer { service.reset() }
+
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        await service.loadProject(at: root, files: [], mavenProject: nil)
+        service.run(configuration: configuration, currentFileURL: nil)
+
+        let step = try #require(stepProcesses.processes.first)
+        // A non-zero compile exit aborts the run and surfaces the failure; the
+        // main process never starts.
+        step.onTermination?(1)
+        try await awaitTestValue(service.$lastExitCode, matching: { $0 == 1 })
+        #expect(mainProcess.startRequests.isEmpty)
+        #expect(!service.isRunning)
+        #expect(service.output.contains("Compilation failed (exit code 1)"))
+    }
+
+    @Test
     func mavenTestTimeoutIsPreservedWhenTerminationArrivesLate() async throws {
         let root = URL(fileURLWithPath: "/workspace/maven-timeout", isDirectory: true)
         let source = root.appendingPathComponent(
@@ -1269,6 +1431,66 @@ private struct SelectionRunConfigurationOperations: RunConfigurationOperations {
     func migrateLegacySettings(at _: URL, configurationIDs _: [String]) throws {}
 }
 
+/// Returns a fixed launch plan (optionally carrying pre-launch steps and a
+/// classpath) so a test can drive the compile-then-run orchestration without a
+/// real Rust core.
+private struct FixedLaunchPlanRunConfigurationOperations: RunConfigurationOperations {
+    let configuration: RunConfiguration
+    let plan: SharedLaunchPlan
+
+    func inspect(at _: URL) -> ProjectRunConfigurationInspection {
+        ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
+    }
+    func generate(at _: URL, files _: [URL], modulePaths _: [String]) throws -> RunConfigurationGenerationResult {
+        RunConfigurationGenerationResult(entryCount: 1)
+    }
+    func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
+        RunConfigurationResolution(
+            configurations: [.currentFile, configuration].map {
+                EffectiveRunConfiguration(configuration: $0, options: RunOptions())
+            },
+            diagnostics: [],
+            defaultConfigurationID: configuration.id
+        )
+    }
+    func launchPlan(at _: URL, configurationID _: String, currentFile _: String?, classPath _: String?, debugPort _: Int?) throws -> SharedLaunchPlan {
+        plan
+    }
+    func createConfiguration(_ draft: RunConfigurationDraft, at _: URL) throws -> String { draft.name }
+    func migrateLegacySettings(at _: URL, configurationIDs _: [String]) throws {}
+}
+
+/// Resolves the JDK launcher to `/test/bin/java`, so the shared `resolve(step:)`
+/// default can swap the last path component to `/test/bin/javac` for a compile
+/// step that names `tool: "javac"`.
+@MainActor
+private final class JavacAwareExecutableResolver: RunExecutableResolving {
+    func resolve(_ plan: SharedLaunchPlan, projectURL: URL, options: RunOptions) throws -> ResolvedRunExecutable {
+        ResolvedRunExecutable(
+            executableURL: URL(fileURLWithPath: "/test/bin/java"),
+            environment: [:]
+        )
+    }
+    func refreshCandidates(projectURL: URL) async {}
+    func candidates(projectURL: URL) -> [ProjectToolchainCandidate] { [] }
+}
+
+/// Hands out and remembers every process the pre-launch factory creates, so a
+/// test can fire each step's termination and assert its start request.
+private final class StepProcessRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [TestStreamingProcess] = []
+    var processes: [TestStreamingProcess] {
+        lock.lock(); defer { lock.unlock() }
+        return storage
+    }
+    func make() -> TestStreamingProcess {
+        let process = TestStreamingProcess()
+        lock.lock(); storage.append(process); lock.unlock()
+        return process
+    }
+}
+
 @MainActor
 private func makeRunService(
     configuration: RunConfiguration,
@@ -1391,6 +1613,27 @@ private enum TestObservationError: Error {
     case deadlineExceeded
 }
 
+/// Awaits the first element of a signal stream against a bounded deadline, so a
+/// test can wait for an event that is delivered through a closure rather than a
+/// `@Published` value (e.g. the main process launching after a compile step).
+private func awaitSignal(_ stream: AsyncStream<Void>, timeout: Duration = .seconds(2)) async throws {
+    let received: Bool = await withTaskGroup(of: Bool.self) { group in
+        group.addTask {
+            for await _ in stream { return true }
+            return false
+        }
+        group.addTask {
+            // test-stability: allow(swift-real-sleep) reason: bounded deadline for a closure-delivered signal, never synchronizes successful completion.
+            try? await Task.sleep(for: timeout)
+            return false
+        }
+        let result = await group.next() ?? false
+        group.cancelAll()
+        return result
+    }
+    if !received { throw TestObservationError.deadlineExceeded }
+}
+
 private final class TestResultParserRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private let result: MavenTestResults?
@@ -1451,9 +1694,13 @@ private final class TestStreamingProcess: StreamingProcess, @unchecked Sendable 
     var onOutput: (@Sendable (String) -> Void)?
     var onTermination: (@Sendable (Int32) -> Void)?
     var onStateChange: (@Sendable (ProcessLifecycleEvent) -> Void)?
+    /// Fires after a start request is recorded so a test can observe the exact
+    /// moment the main process launches once every pre-launch step exits zero.
+    var onStart: (@Sendable () -> Void)?
     func start(_ request: ProcessRequest) throws {
         startRequests.append(request)
         isRunning = true
+        onStart?()
     }
     func send(_ input: Data) throws {}
     func stop() { isRunning = false }

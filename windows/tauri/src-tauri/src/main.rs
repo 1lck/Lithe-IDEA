@@ -182,6 +182,7 @@ fn main() {
             run::run_write_stdin,
             run::run_discover_toolchains,
             run::run_resolve_launch,
+            run::run_execute_prelaunch,
             run::run_start_process,
             run::run_stop_process,
         ])

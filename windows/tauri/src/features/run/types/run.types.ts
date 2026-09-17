@@ -86,15 +86,35 @@ export interface GenericRuntime {
   vendor: string;
 }
 
+export interface LaunchExecutable {
+  toolchain?: string | null;
+  command?: string | null;
+  /** Sibling tool to run from the toolchain's `bin` dir, e.g. `"javac"`. */
+  tool?: string | null;
+}
+
+/**
+ * One compiler/generator invocation the host runs to completion, in order,
+ * before the main process. Standalone Java compiles with `javac` here so
+ * JDK 8 can then launch by class name (JEP 330 single-file launch is 11+).
+ */
+export interface PreLaunchStep {
+  executable: LaunchExecutable;
+  arguments: string[];
+  /** Entries joined with `;` (Windows) and prepended as `-cp` before args. */
+  classpath?: string[];
+}
+
 export interface LaunchPlan {
-  executable: {
-    toolchain?: string | null;
-    command?: string | null;
-  };
+  executable: LaunchExecutable;
   arguments: string[];
   workingDirectory: string;
   environment?: Record<string, unknown>;
   env?: Record<string, string>;
+  /** Ordered compile/generate steps to run before the main process. */
+  preLaunchSteps?: PreLaunchStep[];
+  /** Run classpath entries joined with `;` and prepended as `-cp` before args. */
+  classpath?: string[];
 }
 
 export interface CoreInspectResult {
