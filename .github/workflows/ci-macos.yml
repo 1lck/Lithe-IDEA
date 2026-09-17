@@ -24,6 +24,7 @@ jobs:
       macos_release: ${{ steps.classify.outputs.macos_release }}
       rust_comments: ${{ steps.classify.outputs.rust_comments }}
       metadata: ${{ steps.classify.outputs.metadata }}
+      git_validation: ${{ steps.classify.outputs.git_validation }}
 
     steps:
       - name: Check out source
@@ -71,6 +72,7 @@ jobs:
               echo "macos_release=true"
               echo "rust_comments=false"
               echo "metadata=true"
+              echo "git_validation=true"
             } >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -115,6 +117,7 @@ jobs:
           MACOS_RELEASE: ${{ steps.classify.outputs.macos_release }}
           RUST_COMMENTS: ${{ steps.classify.outputs.rust_comments }}
           METADATA: ${{ steps.classify.outputs.metadata }}
+          GIT_VALIDATION: ${{ steps.classify.outputs.git_validation }}
         run: |
           {
             echo "### macOS CI lanes"
@@ -125,6 +128,7 @@ jobs:
             echo "| Release package verification | $MACOS_RELEASE |"
             echo "| Rust comment verification | $RUST_COMMENTS |"
             echo "| Metadata validation | $METADATA |"
+            echo "| Git performance and observation | $GIT_VALIDATION |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   swift-tests:
@@ -162,12 +166,14 @@ jobs:
             --skip '([Pp]lugin|LitheGoSupportModuleTests|LinuxDo)'
 
       - name: Run Git performance baseline
+        if: needs.changes.outputs.git_validation == 'true'
         timeout-minutes: 15
         env:
           LITHE_GIT_PERFORMANCE_SKIP_TEST_BUILD: "1"
         run: ./scripts/test-git-performance-baseline.sh
 
       - name: Run Git status observation tests
+        if: needs.changes.outputs.git_validation == 'true'
         timeout-minutes: 3
         run: |
           ./scripts/test-macos.sh \

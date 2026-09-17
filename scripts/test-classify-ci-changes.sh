@@ -20,12 +20,15 @@ mkdir -p \
     macos/Sources/Lithe/Platform/MacOS/Plugins \
     macos/Sources/Lithe/Views/Community \
     macos/Sources/Lithe/Views/Database \
+    macos/Sources/Lithe/Core/Rust \
     macos/Sources/LitheCoreContracts \
     macos/Sources/LitheDatabaseModule \
     Plugins/mac/Official/GoSupport/Sources/LitheGoSupportModule \
     macos/Tests/LitheDatabaseModuleTests \
     Plugins/mac/Official/GoSupport/Tests/LitheGoSupportModuleTests \
     macos/Tests/LitheTests \
+    macos/Sources/LitheGitModule \
+    macos/Tests/LitheGitPerformanceTests \
     infra/docker/database-validation \
     rust/lithe-core/src/tests \
     rust/lithe-core/src/lsp \
@@ -41,6 +44,7 @@ printf '%s\n' 'fn main() {}' > rust/lithe-db-sidecar/src/main.rs
 printf '%s\n' 'services: {}' > infra/docker/database-validation/compose.yaml
 printf '%s\n' '#!/bin/zsh' 'print -- package' > scripts/verify-macos-package.sh
 printf '%s\n' 'struct App {}' > macos/Sources/Lithe/App.swift
+printf '%s\n' 'struct RustCoreBridge {}' > macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift
 printf '%s\n' 'struct PluginManager {}' > macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift
 printf '%s\n' 'struct LinuxDoCommunityView {}' > macos/Sources/Lithe/Views/Community/LinuxDoCommunityView.swift
 printf '%s\n' 'struct DatabaseView {}' > macos/Sources/Lithe/Views/Database/DatabaseView.swift
@@ -48,6 +52,8 @@ printf '%s\n' 'struct CoreContracts {}' > macos/Sources/LitheCoreContracts/CoreC
 printf '%s\n' 'struct DatabaseModule {}' > macos/Sources/LitheDatabaseModule/DatabaseModule.swift
 printf '%s\n' 'struct GoSupportModule {}' > Plugins/mac/Official/GoSupport/Sources/LitheGoSupportModule/GoSupportModule.swift
 printf '%s\n' 'struct AppTests {}' > macos/Tests/LitheTests/AppTests.swift
+printf '%s\n' 'struct GitFeature {}' > macos/Sources/LitheGitModule/GitFeature.swift
+printf '%s\n' 'struct GitPerformanceTests {}' > macos/Tests/LitheGitPerformanceTests/GitPerformanceTests.swift
 printf '%s\n' 'struct PluginManagerTests {}' > macos/Tests/LitheTests/PluginManagerTests.swift
 printf '%s\n' 'struct LinuxDoCommunityFormattingTests {}' > macos/Tests/LitheTests/LinuxDoCommunityFormattingTests.swift
 printf '%s\n' 'struct WebKitIntegrationTests {}' > macos/Tests/LitheTests/WebKitIntegrationTests.swift
@@ -76,6 +82,7 @@ classification() {
     local windows_rust="$8"
     local rust_comments="$9"
     local metadata="${10}"
+    local git_validation="${11:-false}"
 
     printf 'swift=%s\n' "$swift"
     printf 'plugins=%s\n' "$plugins"
@@ -87,6 +94,7 @@ classification() {
     printf 'windows_rust=%s\n' "$windows_rust"
     printf 'rust_comments=%s\n' "$rust_comments"
     printf 'metadata=%s\n' "$metadata"
+    printf 'git_validation=%s\n' "$git_validation"
 }
 
 assert_classification() {
@@ -121,6 +129,9 @@ modify_localization_packaging() { printf '%s\n' '#!/bin/zsh' 'print -- localizat
 modify_macos_performance_baseline() { printf '%s\n' '#!/bin/zsh' 'print -- baseline' > scripts/measure-macos-performance-baseline.sh; }
 modify_unknown_script() { printf '%s\n' '#!/bin/zsh' 'print -- unknown' > scripts/unclassified-fixture.sh; }
 modify_swift_source() { printf '%s\n' 'struct UpdatedApp {}' > macos/Sources/Lithe/App.swift; }
+modify_swift_bridge() { printf '%s\n' 'struct UpdatedRustCoreBridge {}' > macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift; }
+modify_git_source() { printf '%s\n' 'struct UpdatedGitFeature {}' > macos/Sources/LitheGitModule/GitFeature.swift; }
+modify_git_performance_test() { printf '%s\n' 'struct UpdatedGitPerformanceTests {}' > macos/Tests/LitheGitPerformanceTests/GitPerformanceTests.swift; }
 modify_swift_test() { printf '%s\n' 'struct UpdatedAppTests {}' > macos/Tests/LitheTests/AppTests.swift; }
 modify_plugin_manifest() { printf '%s\n' '{"id":"dev.lithe.go-support","version":"2.0.0"}' > Plugins/mac/Official/GoSupport/plugin.json; }
 modify_plugin_source() { printf '%s\n' 'struct UpdatedGoSupportModule {}' > Plugins/mac/Official/GoSupport/Sources/LitheGoSupportModule/GoSupportModule.swift; }
@@ -184,8 +195,17 @@ assert_classification macos-package-verifier \
     "$(classification false false false false false true false false false false)" \
     modify_macos_package_verifier
 assert_classification swift-source \
-    "$(classification true false false false false true false false false false)" \
+    "$(classification true false false false false false false false false false)" \
     modify_swift_source
+assert_classification swift-bridge \
+    "$(classification true false false false false true false false false false)" \
+    modify_swift_bridge
+assert_classification git-source \
+    "$(classification true false false false false false false false false false true)" \
+    modify_git_source
+assert_classification git-performance-test \
+    "$(classification true false false false false false false false false false true)" \
+    modify_git_performance_test
 assert_classification localization-packaging \
     "$(classification true false false false false true false false false false)" \
     modify_localization_packaging
@@ -193,7 +213,7 @@ assert_classification macos-performance-baseline \
     "$(classification false false false false false true false false false false)" \
     modify_macos_performance_baseline
 assert_classification unknown-script \
-    "$(classification true true true true true true true true false false)" \
+    "$(classification true true true true true true true true false false true)" \
     modify_unknown_script
 assert_classification swift-test \
     "$(classification true false false false false false false false false false)" \
@@ -256,7 +276,7 @@ assert_classification download-cache-validator \
     "$(classification true true true true false true true true false false)" \
     modify_download_cache_validator
 assert_classification test-stability-runner \
-    "$(classification true true true true false false true true false false)" \
+    "$(classification true true true true false false true true false false true)" \
     modify_test_stability_runner
 modify_swift_version() { printf '%s\n' '6.3.3' > .swift-version; }
 modify_macos_toolchain_action() {
@@ -264,22 +284,22 @@ modify_macos_toolchain_action() {
     printf '%s\n' 'name: Toolchain fixture' > .github/actions/setup-macos-toolchain/action.yml
 }
 assert_classification swift-version \
-    "$(classification true true true true false true false false false false)" \
+    "$(classification true true true true false true false false false false true)" \
     modify_swift_version
 assert_classification macos-toolchain-action \
-    "$(classification true true true true false true false false false false)" \
+    "$(classification true true true true false true false false false false true)" \
     modify_macos_toolchain_action
 assert_classification macos-cache-action \
-    "$(classification true true true true false true false false false false)" \
+    "$(classification true true true true false true false false false false true)" \
     modify_macos_cache_action
 assert_classification metadata \
     "$(classification false false false false false false false false false true)" \
     modify_metadata
 assert_classification classifier \
-    "$(classification true true true true true true true true false false)" \
+    "$(classification true true true true true true true true false false true)" \
     modify_classifier
 assert_classification rename-rust-to-markdown \
-    "$(classification true true true true true true true true false false)" \
+    "$(classification true true true true true true true true false false true)" \
     rename_rust_to_markdown
 
 printf '%s\n' 'CI change classifier tests passed'
