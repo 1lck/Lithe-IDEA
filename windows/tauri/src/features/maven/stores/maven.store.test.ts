@@ -123,6 +123,7 @@ const resolveMavenLaunch = mock(async () => ({
 const saveWorkspaceBeforeLaunch = mock(async (_workspaceId: string): Promise<void> => undefined);
 const startMavenProcess = mock(async () => undefined);
 const stopMavenProcess = mock(async () => undefined);
+const trace = mock(() => undefined);
 const startWatchingMavenPom = mock(async (_path: string) => true);
 const stopWatchingMavenPom = mock(async (_path: string) => true);
 const createMavenPomWatchOperations = mock((_workspaceId: string) => ({
@@ -143,6 +144,7 @@ const dependencies = {
   scanMavenProject,
   startMavenProcess,
   stopMavenProcess,
+  trace,
   writeMavenConfiguration,
 } satisfies MavenStoreDependencies;
 
@@ -175,6 +177,7 @@ beforeEach(() => {
   saveWorkspaceBeforeLaunch.mockResolvedValue(undefined);
   startMavenProcess.mockClear();
   stopMavenProcess.mockClear();
+  trace.mockClear();
   createMavenPomWatchOperations.mockClear();
   startWatchingMavenPom.mockReset();
   startWatchingMavenPom.mockResolvedValue(true);
@@ -858,6 +861,28 @@ describe("Maven workspace state", () => {
     expect(store.getState().taskTitle).toBeNull();
     expect(store.getState().issues).toEqual([]);
     expect(store.getState().lastExitCode).toBeNull();
+  });
+
+  test("surfaces and logs a native string error from Maven launch resolution", async () => {
+    resolveMavenLaunch.mockRejectedValueOnce("Maven executable path does not exist.");
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+
+    await store.getState().actions.runGoals(["compile"], "service", "compile · service");
+
+    expect(startMavenProcess).not.toHaveBeenCalled();
+    expect(store.getState().taskStatus).toBe("failed");
+    expect(store.getState().taskError).toBe("Maven executable path does not exist.");
+    expect(store.getState().output).toBe("Maven executable path does not exist.\n");
+    expect(trace).toHaveBeenCalledWith("error", "maven.launch", "Maven task launch failed", {
+      workspaceId: "workspace",
+      sessionId: expect.any(String),
+      stage: "resolve-launch",
+      taskTitle: "compile · service",
+      reactorPath: "reactor",
+      modulePath: "service",
+      error: "Maven executable path does not exist.",
+    });
   });
 
   test("keeps cancellation when process exit arrives before stop completes", async () => {
