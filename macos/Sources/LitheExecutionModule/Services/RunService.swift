@@ -55,6 +55,7 @@ package final class RunService: ObservableObject {
     private var moduleProcesses: [String: any StreamingProcess] = [:]
     private var moduleLanguageExecutionSessions: [String: any LanguageExecutionSession] = [:]
     private var activeOperationID: String?
+    private var activePreLaunchProcess: (any StreamingProcess)?
     private var moduleOperationIDs: [String: String] = [:]
     private let maximumOutputCharacters = 500_000
     private let runtime: any RunRuntimePort
@@ -565,13 +566,25 @@ package final class RunService: ObservableObject {
             return
         }
         let resolved: ResolvedRunExecutable
+        let preparedSteps: [PreparedLaunchStep]
         do {
             resolved = try executableResolver.resolve(plan, projectURL: projectURL, options: options)
+            preparedSteps = try plan.preLaunchSteps.map { step in
+                let stepResolved = try executableResolver.resolve(
+                    step: step, plan: plan, projectURL: projectURL, options: options
+                )
+                return PreparedLaunchStep(
+                    executablePath: stepResolved.executableURL.path,
+                    arguments: Self.launchArguments(step.arguments, classpath: step.classpath),
+                    environment: stepResolved.environment,
+                    displayName: stepResolved.executableURL.lastPathComponent
+                )
+            }
         } catch {
             fail(error.localizedDescription)
             return
         }
-        let arguments = plan.arguments
+        let arguments = Self.launchArguments(plan.arguments, classpath: plan.classpath)
         let workingDirectory = resolvedWorkingDirectory(plan.workingDirectory, fallback: projectURL)
 
         runningTitle = configuration.name
@@ -586,29 +599,45 @@ package final class RunService: ObservableObject {
 
         let operationID = UUID().uuidString
         activeOperationID = operationID
-        do {
-            if let extensionSession {
-                activeLanguageExecutionSession = extensionSession
-                configureLanguageExecutionSession(extensionSession)
-                try extensionSession.start(LanguageExecutionProcessRequest(
-                    operationID: operationID,
-                    executablePath: resolved.executableURL.path,
-                    arguments: arguments,
-                    workingDirectory: workingDirectory.path,
-                    environment: resolved.environment
-                ))
-            } else {
-                try process.start(ProcessRequest(
-                    operationID: operationID,
-                    executablePath: resolved.executableURL.path,
-                    arguments: arguments,
-                    workingDirectory: workingDirectory.path,
-                    environment: resolved.environment
-                ))
+        // The main process starts only after every compile step exits zero, so a
+        // standalone Java file is compiled with `javac` before `java <class>`.
+        let startMain: @MainActor () -> Void = { [weak self] in
+            guard let self, self.activeOperationID == operationID else { return }
+            do {
+                if let extensionSession {
+                    self.activeLanguageExecutionSession = extensionSession
+                    self.configureLanguageExecutionSession(extensionSession)
+                    try extensionSession.start(LanguageExecutionProcessRequest(
+                        operationID: operationID,
+                        executablePath: resolved.executableURL.path,
+                        arguments: arguments,
+                        workingDirectory: workingDirectory.path,
+                        environment: resolved.environment
+                    ))
+                } else {
+                    try self.process.start(ProcessRequest(
+                        operationID: operationID,
+                        executablePath: resolved.executableURL.path,
+                        arguments: arguments,
+                        workingDirectory: workingDirectory.path,
+                        environment: resolved.environment
+                    ))
+                }
+            } catch {
+                self.activeLanguageExecutionSession = nil
+                self.fail("Unable to start " + configuration.name + ": " + error.localizedDescription)
             }
-        } catch {
-            activeLanguageExecutionSession = nil
-            fail("Unable to start " + configuration.name + ": " + error.localizedDescription)
+        }
+        if preparedSteps.isEmpty {
+            startMain()
+        } else {
+            runPreLaunchStep(
+                at: 0,
+                steps: preparedSteps,
+                workingDirectory: workingDirectory.path,
+                operationID: operationID,
+                onSuccess: startMain
+            )
         }
     }
 
@@ -663,6 +692,8 @@ package final class RunService: ObservableObject {
     package func stop() {
         activeLanguageExecutionSession?.stop()
         activeLanguageExecutionSession = nil
+        activePreLaunchProcess?.stop()
+        activePreLaunchProcess = nil
         process.stop()
         isRunning = false
         runningTitle = nil
@@ -946,8 +977,88 @@ package final class RunService: ObservableObject {
         }
     }
 
-    private func classPath(for fileURL: URL) -> String? {
-        var candidateRoots: [URL] = []
+    /// A pre-launch compile step whose executable and arguments are already
+    /// resolved to an absolute path and a joined classpath.
+    private struct PreparedLaunchStep {
+        let executablePath: String
+        let arguments: [String]
+        let environment: [String: String]
+        let displayName: String
+    }
+
+    /// Prepends `-cp <joined>` when the plan carries a structured classpath. The
+    /// separator stays host-owned (`:` on macOS) because the Rust core emits a
+    /// list, not a platform-specific string. JVM options may precede the main
+    /// class in any order, so a leading `-cp` is valid.
+    private static func launchArguments(_ base: [String], classpath: [String]) -> [String] {
+        guard !classpath.isEmpty else { return base }
+        return ["-cp", classpath.joined(separator: ":")] + base
+    }
+
+    /// Runs one pre-launch step, then chains to the next on a zero exit or aborts
+    /// the run and surfaces the compiler's diagnostics on a non-zero exit. Uses a
+    /// fresh process per step so the main run process wiring stays untouched.
+    private func runPreLaunchStep(
+        at index: Int,
+        steps: [PreparedLaunchStep],
+        workingDirectory: String,
+        operationID: String,
+        onSuccess: @escaping @MainActor () -> Void
+    ) {
+        guard activeOperationID == operationID else { return }
+        guard index < steps.count else {
+            onSuccess()
+            return
+        }
+        let step = steps[index]
+        append("$ " + step.displayName + " " + step.arguments.joined(separator: " ") + "\n")
+        let stepProcess = processFactory()
+        activePreLaunchProcess = stepProcess
+        stepProcess.onOutput = { [weak self] chunk in
+            Task { @MainActor [weak self] in self?.append(chunk) }
+        }
+        stepProcess.onTermination = { [weak self] exitCode in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.activePreLaunchProcess = nil
+                guard self.activeOperationID == operationID else { return }
+                if exitCode == 0 {
+                    self.runPreLaunchStep(
+                        at: index + 1,
+                        steps: steps,
+                        workingDirectory: workingDirectory,
+                        operationID: operationID,
+                        onSuccess: onSuccess
+                    )
+                } else {
+                    self.append("\nCompilation failed (exit code \(exitCode)).\n")
+                    self.isRunning = false
+                    self.runningTitle = nil
+                    self.activeOperationID = nil
+                    self.lastExitCode = exitCode
+                }
+            }
+        }
+        do {
+            try stepProcess.start(ProcessRequest(
+                operationID: operationID,
+                executablePath: step.executablePath,
+                arguments: step.arguments,
+                workingDirectory: workingDirectory,
+                environment: step.environment
+            ))
+        } catch {
+            activePreLaunchProcess = nil
+            guard activeOperationID == operationID else { return }
+            append("\nUnable to start " + step.displayName + ": " + error.localizedDescription + "\n")
+            isRunning = false
+            runningTitle = nil
+            activeOperationID = nil
+            lastExitCode = 1
+        }
+    }
+
+    private func classPath(for fileURL: URL) -> String? {        var candidateRoots: [URL] = []
         if let mavenProject {
             candidateRoots += mavenProject.allModules
                 .filter { Self.isInside(fileURL, directory: $0.url) }

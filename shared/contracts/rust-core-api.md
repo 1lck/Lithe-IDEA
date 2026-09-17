@@ -1512,10 +1512,35 @@ returns a toolchain
 reference, argument array, project-relative working directory, and structured
 environment references. It does not return a shell command or platform
 executable path. All project paths use `/`, reject absolute paths and `..`
-traversal, and remain relative to `root`. A `java.main` configuration without a
+traversal, and remain relative to `root`.
+
+The plan may also carry two optional envelope fields. `preLaunchSteps` is an
+ordered array of `{ executable, arguments, classpath? }` steps the host runs to
+completion, in order, before the main process; a non-zero exit aborts the run
+and surfaces that step's diagnostics. Each step's `executable` reuses the plan's
+`{ toolchain }` shape plus an optional `tool` selector (`"javac"` resolves the
+sibling compiler in the toolchain's `bin` directory; absent means the default
+launcher). `classpath` is a structured array of project-relative or host-absolute
+entries the host joins with the platform path separator (`:` on POSIX, `;` on
+Windows) and prepends as `["-cp", joined]` to the relevant argument list; core
+never joins classpath entries because the separator is platform-specific. Both
+fields are omitted when empty, so existing single-process Maven, Gradle, and Node
+plans are unchanged. Pre-launch steps and the main process share the plan-level
+`workingDirectory` and `environment`.
+
+A `java.main` configuration without a
 Maven toolchain launches through `project-jdk` and the configuration's Java
 source path only when that source has no Maven ancestor. An older configuration
 that omitted the Maven binding is rejected with an instruction to regenerate.
+Standalone Java (`java.main` without Maven, and `java.current-file`) compiles
+before running: core emits a `javac` pre-launch step writing `.class` files to
+`.lithe/run/classes/<configurationId>`, puts that directory on the run
+`classpath`, and launches by the qualified class name rather than the source
+file. This keeps one-click Run working on JDK 8, which lacks the JEP 330
+single-file source launcher (`java File.java`) that only exists on JDK 11+. The
+`java.current-file` main class is derived from the file's `package` and declared
+class; when the host supplies a project `classPath`, the compiled output leads
+the run classpath and the project classes feed the compile step.
 
 `java.codeVision` accepts a workspace root, a target Java path, and Java source
 paths. It returns declaration locations and usage counts; Git blame attribution

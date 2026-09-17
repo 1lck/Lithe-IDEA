@@ -1402,7 +1402,66 @@ pub fn create_user_configuration(
     }))
 }
 
+/// Builds the workspace-relative directory that receives compiled `.class`
+/// files for a standalone Java run.
+///
+/// Output is namespaced per configuration so concurrent runs of different files
+/// do not clobber each other, and lives under `.lithe/run` where the run store
+/// already writes generated artifacts and maintains the gitignore.
+fn compile_output_directory(configuration_id: &str) -> String {
+    format!(
+        ".lithe/run/classes/{}",
+        sanitize_path_segment(configuration_id)
+    )
+}
+
+/// Replaces characters that are unsafe in a single path segment with `-`.
+///
+/// Configuration ids such as `java-main:com.example.App` contain `:`, which is
+/// illegal in Windows file names, so the segment is normalized to
+/// `[A-Za-z0-9._-]` while staying deterministic.
+fn sanitize_path_segment(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-') {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+/// Assembles a `javac` pre-launch step compiling `source` into `output_dir`.
+///
+/// The step reuses the run's Java toolchain via `tool: "javac"`; the host
+/// resolves the sibling compiler and joins `classpath` with the platform
+/// separator. `classpath` is omitted when empty so bare standalone files carry
+/// no extra fields.
+fn javac_compile_step(
+    java_toolchain: &str,
+    output_dir: &str,
+    source: &str,
+    classpath: &[Value],
+) -> Value {
+    let mut step = json!({
+        "executable": { "toolchain": java_toolchain, "tool": "javac" },
+        "arguments": ["-d", output_dir, source],
+    });
+    if !classpath.is_empty() {
+        step["classpath"] = Value::Array(classpath.to_vec());
+    }
+    step
+}
+
 /// Resolves one configuration into the exact executable, arguments, and environment.
+///
+/// Standalone Java (`java.current-file` and non-Maven `java.main`) emits a
+/// `javac` pre-launch step followed by `java <class>` rather than
+/// `java <file>.java`, because the single-file source launcher (JEP 330) is a
+/// JDK 11+ feature and would fail on JDK 8. See the Agent Note
+/// `2026-09-17-standalone-java-compile-then-run`.
 pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError> {
     let workspace_root = existing_root(&request.root)?;
     let has_explicit_cwd_override = configuration_override_has_key(
@@ -1460,6 +1519,15 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         .cloned()
         .unwrap_or_default();
     let mut arguments = Vec::new();
+    // Standalone Java compiles before it runs (see the module notes on JEP 330),
+    // so a plan may carry ordered pre-launch steps and a classpath list that the
+    // host joins with the platform-specific separator.
+    let mut pre_launch_steps: Vec<Value> = Vec::new();
+    let mut plan_classpath: Vec<Value> = Vec::new();
+    let java_toolchain = config["toolchains"]["java"]
+        .as_str()
+        .unwrap_or("project-jdk")
+        .to_string();
     let is_current = provider == "java.current-file";
     let is_java_main = provider == "java.main";
     let uses_maven_toolchain = config["toolchains"]["maven"]
@@ -1481,11 +1549,7 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         jvm_arguments.insert(2, json!("-Duser.country=US"));
     }
     if is_current {
-        arguments.extend(jvm_arguments);
-        if let Some(class_path) = request.class_path.filter(|value| !value.is_empty()) {
-            arguments.extend([json!("--class-path"), json!(class_path)]);
-        }
-        let current_file = request.current_file.ok_or_else(|| {
+        let current_file = request.current_file.clone().ok_or_else(|| {
             CoreError::new(
                 ErrorCode::InvalidRequest,
                 "Current File requires a Java source path",
@@ -1497,7 +1561,36 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
                 "Current Java source path is invalid",
             ));
         }
-        arguments.push(json!(current_file));
+        // Compile then launch by class name instead of `java <file>.java`: the
+        // single-file source launcher (JEP 330) only exists on JDK 11+, so a
+        // JDK 8 project fails to load `File.java` as a class. Reading the source
+        // yields the qualified class the JVM will resolve after compilation.
+        let source_text =
+            fs::read_to_string(workspace_root.join(&current_file)).map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Current Java source could not be read",
+                )
+                .with_details(error.to_string())
+            })?;
+        let main_class = crate::languages::standalone_launch_class(&current_file, &source_text);
+        let output_directory = compile_output_directory(&request.configuration_id);
+        // Compiled output leads the classpath so a fresh build shadows any stale
+        // class; the host prepends any project classpath the request supplies.
+        plan_classpath.push(json!(output_directory));
+        let mut compile_classpath: Vec<Value> = Vec::new();
+        if let Some(class_path) = request.class_path.clone().filter(|value| !value.is_empty()) {
+            plan_classpath.push(json!(class_path));
+            compile_classpath.push(json!(class_path));
+        }
+        pre_launch_steps.push(javac_compile_step(
+            &java_toolchain,
+            &output_directory,
+            &current_file,
+            &compile_classpath,
+        ));
+        arguments.extend(jvm_arguments);
+        arguments.push(json!(main_class));
         arguments.extend(program_arguments);
     } else if is_java_main && uses_maven_toolchain {
         if request.maven_context.is_none() {
@@ -1529,7 +1622,6 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         }
         arguments.push(json!("org.codehaus.mojo:exec-maven-plugin:3.5.0:java"));
     } else if is_java_main {
-        arguments.extend(jvm_arguments);
         let source = config["extensions"]["java"]["source"]
             .as_str()
             .filter(|value| !value.is_empty())
@@ -1552,7 +1644,34 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
             )
             .with_details(source));
         }
-        arguments.push(json!(source));
+        // Standalone `java.main` compiles then launches by class name for the
+        // same JDK 8 compatibility reason as Current File above. The qualified
+        // main class is normally recorded at generation time; fall back to
+        // reading the source so hand-written configurations still launch.
+        let main = match maven["mainClass"]
+            .as_str()
+            .filter(|value| !value.is_empty())
+        {
+            Some(main_class) => main_class.to_string(),
+            None => {
+                let source_text =
+                    fs::read_to_string(workspace_root.join(source)).map_err(|error| {
+                        CoreError::new(ErrorCode::InvalidRequest, "Java source could not be read")
+                            .with_details(error.to_string())
+                    })?;
+                crate::languages::standalone_launch_class(source, &source_text)
+            }
+        };
+        let output_directory = compile_output_directory(&request.configuration_id);
+        plan_classpath.push(json!(output_directory));
+        pre_launch_steps.push(javac_compile_step(
+            &java_toolchain,
+            &output_directory,
+            source,
+            &[],
+        ));
+        arguments.extend(jvm_arguments);
+        arguments.push(json!(main));
         arguments.extend(program_arguments);
     } else {
         // `maven.module` has no framework goal: it runs whatever goals the
@@ -1598,9 +1717,6 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
             )
             .with_details(executable_kind)
         })?;
-    let java_toolchain = config["toolchains"]["java"]
-        .as_str()
-        .unwrap_or("project-jdk");
     let mut working_directory = config["cwd"].as_str().unwrap_or(".").to_string();
     let has_explicit_working_directory = working_directory != "." || has_explicit_cwd_override;
     if executable_kind == "maven" {
@@ -1640,14 +1756,23 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
             }
         }
     }
-    Ok(json!({
+    let mut plan = json!({
         "executable": { "toolchain": executable_toolchain },
         "arguments": arguments,
         "workingDirectory": working_directory,
         "environment": {
             "JAVA_HOME": { "toolchain": java_toolchain, "property": "home" }
         }
-    }))
+    });
+    // Optional fields stay absent for the single-process plans (Maven, npm,
+    // frameworks) so their contract and every existing consumer are unchanged.
+    if !pre_launch_steps.is_empty() {
+        plan["preLaunchSteps"] = Value::Array(pre_launch_steps);
+    }
+    if !plan_classpath.is_empty() {
+        plan["classpath"] = Value::Array(plan_classpath);
+    }
+    Ok(plan)
 }
 
 /// Returns whether a user-owned layer explicitly sets one configuration key.

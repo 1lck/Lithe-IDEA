@@ -35,7 +35,14 @@ const SKIPPED_DIRECTORIES: &[&str] = &[
     ".hg",
 ];
 const MAX_JAVA_SOURCES: usize = 8_000;
-const LITHE_GITIGNORE_ENTRIES: &[&str] = &["run/local.json", "toolchains/local.json", "**/*.tmp"];
+const LITHE_GITIGNORE_ENTRIES: &[&str] = &[
+    "run/local.json",
+    "toolchains/local.json",
+    // Pre-launch compile products for standalone Java (javac -d output); a
+    // build artifact, never source, so it stays out of version control.
+    "run/classes/",
+    "**/*.tmp",
+];
 
 pub struct RunProcessManager;
 
@@ -149,6 +156,10 @@ pub struct ResolveLaunchArgs {
 pub struct LaunchExecutable {
     pub toolchain: Option<String>,
     pub command: Option<String>,
+    /// Sibling tool to run from the toolchain's `bin` directory, e.g. `"javac"`.
+    /// Empty or absent means the toolchain's default launcher (`java`).
+    #[serde(default)]
+    pub tool: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -171,6 +182,23 @@ pub struct StartProcessArgs {
     pub working_directory: String,
     #[serde(default)]
     pub environment: HashMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecutePreLaunchArgs {
+    pub executable: String,
+    pub arguments: Vec<String>,
+    pub working_directory: String,
+    #[serde(default)]
+    pub environment: HashMap<String, String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreLaunchOutcome {
+    pub exit_code: i32,
+    pub output: String,
 }
 
 #[tauri::command]
@@ -273,6 +301,31 @@ pub fn run_resolve_launch(args: ResolveLaunchArgs) -> Result<ResolvedLaunch, Str
         executable,
         working_directory: working_directory.to_string_lossy().into_owned(),
         environment,
+    })
+}
+
+/// Runs one pre-launch step (e.g. `javac`) to completion and reports its exit
+/// code plus combined stdout/stderr. Standalone Java compiles here before the
+/// main `java` process starts; the store aborts the run when `exit_code != 0`
+/// and surfaces `output` as the compiler's real diagnostic.
+#[tauri::command]
+pub fn run_execute_prelaunch(args: ExecutePreLaunchArgs) -> Result<PreLaunchOutcome, String> {
+    let mut command = command_for_executable(&args.executable, &args.arguments);
+    command
+        .current_dir(&args.working_directory)
+        .envs(&args.environment)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    apply_creation_flags(&mut command);
+    let output = command
+        .output()
+        .map_err(|error| format!("Unable to start process: {error}"))?;
+    let mut text = decode_process_bytes(&output.stdout);
+    text.push_str(&decode_process_bytes(&output.stderr));
+    Ok(PreLaunchOutcome {
+        exit_code: output.status.code().unwrap_or(-1),
+        output: text,
     })
 }
 
@@ -911,8 +964,14 @@ fn probe_maven(executable: &Path) -> Option<MavenRuntime> {
 }
 
 pub(crate) fn java_executable(home: &Path) -> Option<PathBuf> {
-    for name in ["java.exe", "java"] {
-        let candidate = home.join("bin").join(name);
+    jdk_tool_executable(home, "java")
+}
+
+/// Resolves a JDK `bin` tool (`java`, `javac`, …) by name, preferring the
+/// `.exe` on Windows and falling back to the extensionless launcher.
+pub(crate) fn jdk_tool_executable(home: &Path, tool: &str) -> Option<PathBuf> {
+    for name in [format!("{tool}.exe"), tool.to_string()] {
+        let candidate = home.join("bin").join(&name);
         if candidate.is_file() {
             return Some(candidate);
         }
@@ -962,7 +1021,15 @@ fn resolve_executable(
                 let home = java_home.ok_or_else(|| {
                     "No Java runtime was found. Set JAVA_HOME or install a JDK.".to_string()
                 })?;
-                java_executable(Path::new(home))
+                // A pre-launch step names a sibling JDK tool (javac); the main
+                // process leaves `tool` empty and resolves the default launcher.
+                let tool = executable
+                    .tool
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("java");
+                jdk_tool_executable(Path::new(home), tool)
                     .map(|path| path.to_string_lossy().into_owned())
                     .ok_or_else(|| {
                         "No Java runtime was found. Set JAVA_HOME or install a JDK.".into()
@@ -2047,5 +2114,74 @@ mod tests {
     fn windows_gbk_bytes_decode_to_chinese() {
         let text = decode_windows_code_page(&[0xCF, 0xB5, 0xCD, 0xB3], 936).expect("GBK decode");
         assert_eq!(text, "系统");
+    }
+
+    #[test]
+    fn gitignore_entries_cover_prelaunch_compile_output() {
+        // Standalone Java compiles into .lithe/run/classes/<configId>; the
+        // build artifact must stay untracked like the other run scratch files.
+        assert!(LITHE_GITIGNORE_ENTRIES.contains(&"run/classes/"));
+    }
+
+    #[test]
+    fn jdk_tool_executable_resolves_javac_sibling() {
+        let home = temp_project();
+        let bin = home.join("bin");
+        fs::create_dir_all(&bin).expect("bin");
+        for tool in ["java", "javac"] {
+            fs::write(bin.join(format!("{tool}.exe")), b"").expect("tool");
+        }
+        let javac = jdk_tool_executable(&home, "javac").expect("javac");
+        assert_eq!(javac.file_name().unwrap().to_string_lossy(), "javac.exe");
+        // The default launcher still resolves through the same helper.
+        let java = java_executable(&home).expect("java");
+        assert_eq!(java.file_name().unwrap().to_string_lossy(), "java.exe");
+        fs::remove_dir_all(home).ok();
+    }
+
+    #[test]
+    fn resolve_executable_selects_javac_for_prelaunch_tool() {
+        let home = temp_project();
+        let bin = home.join("bin");
+        fs::create_dir_all(&bin).expect("bin");
+        for tool in ["java", "javac"] {
+            fs::write(bin.join(format!("{tool}.exe")), b"").expect("tool");
+        }
+        let home_string = home.to_string_lossy().into_owned();
+        let step_executable = LaunchExecutable {
+            toolchain: Some("project-jdk".into()),
+            command: None,
+            tool: Some("javac".into()),
+        };
+        let resolved = resolve_executable(
+            &home,
+            &home,
+            &step_executable,
+            "",
+            Some(&home_string),
+            &HashMap::new(),
+        )
+        .expect("resolve javac");
+        assert!(resolved.ends_with("javac.exe"), "resolved = {resolved}");
+
+        let main_executable = LaunchExecutable {
+            toolchain: Some("project-jdk".into()),
+            command: None,
+            tool: None,
+        };
+        let resolved_main = resolve_executable(
+            &home,
+            &home,
+            &main_executable,
+            "",
+            Some(&home_string),
+            &HashMap::new(),
+        )
+        .expect("resolve java");
+        assert!(
+            resolved_main.ends_with("java.exe"),
+            "resolved_main = {resolved_main}"
+        );
+        fs::remove_dir_all(home).ok();
     }
 }

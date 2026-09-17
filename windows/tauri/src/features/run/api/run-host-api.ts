@@ -46,7 +46,7 @@ export function discoverRunToolchains(root: string, selected?: GlobalToolchain) 
 
 export function resolveRunLaunch(args: {
   root: string;
-  executable: { toolchain?: string | null; command?: string | null };
+  executable: { toolchain?: string | null; command?: string | null; tool?: string | null };
   workingDirectory: string;
   javaHomePath?: string;
   mavenExecutablePath?: string;
@@ -59,6 +59,22 @@ export function resolveRunLaunch(args: {
     workingDirectory: string;
     environment: Record<string, string>;
   }>("run_resolve_launch", { args });
+}
+
+/**
+ * Runs one pre-launch step (e.g. `javac`) to completion and reports its exit
+ * code plus combined stdout/stderr, so the store can abort a run on a non-zero
+ * exit and surface the compiler's real diagnostic.
+ */
+export function executePreLaunchStep(args: {
+  executable: string;
+  arguments: string[];
+  workingDirectory: string;
+  environment: Record<string, string>;
+}) {
+  return invoke<{ exitCode: number; output: string }>("run_execute_prelaunch", {
+    args,
+  });
 }
 
 export function startRunProcess(args: {
