@@ -839,6 +839,59 @@ struct ExecutionModuleTests {
     }
 
     @Test
+    func standaloneJavaMergesCompileOutputIntoUserClasspath() async throws {
+        let mainProcess = TestStreamingProcess()
+        let stepProcesses = StepProcessRecorder()
+        let outputDirectory = ".lithe/run/classes/java-main-Standalone"
+        let configuration = RunConfiguration(
+            id: "java-main:Standalone", name: "Standalone", kind: .javaMain,
+            execution: .application, modulePath: nil, mainClass: "Standalone"
+        )
+        // The user already supplies a `-cp`; a second one would override it, so the
+        // compiled output must merge into that flag ahead of the user's entry.
+        let plan = SharedLaunchPlan(
+            executable: .toolchain("project-jdk"),
+            arguments: ["-cp", "libs/foo.jar", "Standalone"],
+            workingDirectory: ".",
+            preLaunchSteps: [
+                SharedLaunchPlan.PreLaunchStep(
+                    executable: .toolchain("project-jdk"),
+                    tool: "javac",
+                    arguments: ["-d", outputDirectory, "Standalone.java"]
+                )
+            ],
+            classpath: [outputDirectory]
+        )
+        let service = RunService(
+            runtime: TestRuntime(), process: mainProcess,
+            processFactory: { stepProcesses.make() }, fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: FixedLaunchPlanRunConfigurationOperations(
+                configuration: configuration, plan: plan
+            ),
+            executableResolver: JavacAwareExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        defer { service.reset() }
+
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        await service.loadProject(at: root, files: [], mavenProject: nil)
+
+        let mainStarted = AsyncStream<Void>.makeStream()
+        mainProcess.onStart = { mainStarted.continuation.yield(()) }
+
+        service.run(configuration: configuration, currentFileURL: nil)
+        let step = try #require(stepProcesses.processes.first)
+        step.onTermination?(0)
+        try await awaitSignal(mainStarted.stream)
+        let mainRequest = try #require(mainProcess.startRequests.first)
+        #expect(
+            mainRequest.arguments == ["-cp", "\(outputDirectory):libs/foo.jar", "Standalone"]
+        )
+    }
+
+    @Test
     func standaloneJavaCompileFailureAbortsBeforeLaunchingMainProcess() async throws {
         let mainProcess = TestStreamingProcess()
         let stepProcesses = StepProcessRecorder()

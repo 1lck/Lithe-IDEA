@@ -135,12 +135,27 @@ const defaultRunStoreDependencies: RunStoreDependencies = {
 };
 
 // Classpath joining is the host's job: Rust emits a platform-neutral list and
-// the host joins it with `;` on Windows and prepends `-cp` before the launch
-// arguments (JVM options may precede the main class in any order).
+// the host joins it with `;` on Windows. JVM options may precede the main class
+// in any order.
 const CLASSPATH_SEPARATOR = ";";
+const CLASSPATH_FLAGS = new Set(["-cp", "-classpath", "--class-path"]);
+// Merges the launch classpath into `args`. When the user already passes a
+// `-cp`/`-classpath`/`--class-path`, our entries are prepended into that same
+// flag's value (the compiled output must lead, and a second `-cp` would simply
+// override the user's — the JVM honors only the last one). Otherwise a fresh
+// `-cp` is inserted before the arguments.
 function withClasspath(args: string[], classpath?: string[]): string[] {
   if (!classpath || classpath.length === 0) return args;
-  return ["-cp", classpath.join(CLASSPATH_SEPARATOR), ...args];
+  const joined = classpath.join(CLASSPATH_SEPARATOR);
+  // Merge into the last existing flag: that is the value the JVM would use.
+  for (let index = args.length - 2; index >= 0; index -= 1) {
+    if (CLASSPATH_FLAGS.has(args[index])) {
+      const merged = [...args];
+      merged[index + 1] = `${joined}${CLASSPATH_SEPARATOR}${args[index + 1]}`;
+      return merged;
+    }
+  }
+  return ["-cp", joined, ...args];
 }
 
 interface ResolvedRunProject {
@@ -583,9 +598,15 @@ export const createRunStore = (
               environment: mergeLaunchEnvironment(configuration.env, plan),
             });
             if (!isCurrent()) return null;
+            const stepArguments = withClasspath(step.arguments, step.classpath);
+            // Echo the compiler command into the session panel first, mirroring
+            // the main process's `$ …` line so the compile step is visible.
+            appendSessionOutput(
+              `$ ${stepResolved.executable.split(/[\\/]/).pop()} ${stepArguments.join(" ")}\n`,
+            );
             const outcome = await dependencies.executePreLaunchStep({
               executable: stepResolved.executable,
-              arguments: withClasspath(step.arguments, step.classpath),
+              arguments: stepArguments,
               workingDirectory: stepResolved.workingDirectory,
               environment: stepResolved.environment,
             });

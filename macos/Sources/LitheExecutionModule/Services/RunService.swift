@@ -986,13 +986,26 @@ package final class RunService: ObservableObject {
         let displayName: String
     }
 
-    /// Prepends `-cp <joined>` when the plan carries a structured classpath. The
+    /// Merges the plan's structured classpath into the launch arguments. The
     /// separator stays host-owned (`:` on macOS) because the Rust core emits a
-    /// list, not a platform-specific string. JVM options may precede the main
-    /// class in any order, so a leading `-cp` is valid.
+    /// list, not a platform-specific string. When the user already passes a
+    /// `-cp`/`-classpath`/`--class-path`, our entries are prepended into that
+    /// same flag's value (the compiled output must lead, and a second `-cp`
+    /// would simply override the user's — the JVM honors only the last one).
+    /// Otherwise a leading `-cp` is inserted; JVM options may precede the main
+    /// class in any order.
     private static func launchArguments(_ base: [String], classpath: [String]) -> [String] {
         guard !classpath.isEmpty else { return base }
-        return ["-cp", classpath.joined(separator: ":")] + base
+        let joined = classpath.joined(separator: ":")
+        let flags: Set<String> = ["-cp", "-classpath", "--class-path"]
+        // Merge into the last existing flag: that is the value the JVM would use.
+        for index in stride(from: base.count - 2, through: 0, by: -1)
+        where flags.contains(base[index]) {
+            var merged = base
+            merged[index + 1] = joined + ":" + base[index + 1]
+            return merged
+        }
+        return ["-cp", joined] + base
     }
 
     /// Runs one pre-launch step, then chains to the next on a zero exit or aborts
@@ -1058,7 +1071,8 @@ package final class RunService: ObservableObject {
         }
     }
 
-    private func classPath(for fileURL: URL) -> String? {        var candidateRoots: [URL] = []
+    private func classPath(for fileURL: URL) -> String? {
+        var candidateRoots: [URL] = []
         if let mavenProject {
             candidateRoots += mavenProject.allModules
                 .filter { Self.isInside(fileURL, directory: $0.url) }

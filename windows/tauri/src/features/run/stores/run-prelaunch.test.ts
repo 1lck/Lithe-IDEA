@@ -91,6 +91,58 @@ describe("Standalone Java compile-then-run", () => {
     );
   });
 
+  test("merges the compiled-output classpath into an existing user -cp", async () => {
+    const outputDir = ".lithe/run/classes/standalone";
+    const { dependencies, startRunProcess } = standaloneDependencies({
+      createLaunchPlan: mock(async () => ({
+        executable: { toolchain: "project-jdk" as const },
+        arguments: ["-cp", "libs/foo.jar", "Standalone"],
+        workingDirectory: ".",
+        classpath: [outputDir],
+        preLaunchSteps: [
+          {
+            executable: { toolchain: "project-jdk" as const, tool: "javac" },
+            arguments: ["-d", outputDir, "Standalone.java"],
+          },
+        ],
+      })),
+    });
+    const store = createRunStore("workspace", dependencies);
+    store.setState({
+      root: "D:/work",
+      configurations: [configuration],
+      diagnostics: [],
+      effectiveRuntimeExecutablePaths: {},
+    });
+
+    await store.getState().actions.runConfiguration(configuration.id);
+
+    // A second `-cp` would override the user's; the compiled dir is merged into
+    // the same flag ahead of the user's entry so the fresh build still wins.
+    expect(startRunProcess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        arguments: ["-cp", `${outputDir};libs/foo.jar`, "Standalone"],
+      }),
+    );
+  });
+
+  test("echoes the javac command into the session output", async () => {
+    const { dependencies } = standaloneDependencies();
+    const store = createRunStore("workspace", dependencies);
+    store.setState({
+      root: "D:/work",
+      configurations: [configuration],
+      diagnostics: [],
+      effectiveRuntimeExecutablePaths: {},
+    });
+
+    await store.getState().actions.runConfiguration(configuration.id);
+
+    expect(store.getState().sessions[0].output).toContain(
+      "$ javac.exe -d .lithe/run/classes/standalone Standalone.java",
+    );
+  });
+
   test("aborts before launching when compilation fails", async () => {
     const { dependencies, startRunProcess } = standaloneDependencies({
       executePreLaunchStep: mock(async () => ({

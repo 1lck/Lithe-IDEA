@@ -309,24 +309,33 @@ pub fn run_resolve_launch(args: ResolveLaunchArgs) -> Result<ResolvedLaunch, Str
 /// main `java` process starts; the store aborts the run when `exit_code != 0`
 /// and surfaces `output` as the compiler's real diagnostic.
 #[tauri::command]
-pub fn run_execute_prelaunch(args: ExecutePreLaunchArgs) -> Result<PreLaunchOutcome, String> {
-    let mut command = command_for_executable(&args.executable, &args.arguments);
-    command
-        .current_dir(&args.working_directory)
-        .envs(&args.environment)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    apply_creation_flags(&mut command);
-    let output = command
-        .output()
-        .map_err(|error| format!("Unable to start process: {error}"))?;
-    let mut text = decode_process_bytes(&output.stdout);
-    text.push_str(&decode_process_bytes(&output.stderr));
-    Ok(PreLaunchOutcome {
-        exit_code: output.status.code().unwrap_or(-1),
-        output: text,
+pub async fn run_execute_prelaunch(
+    args: ExecutePreLaunchArgs,
+) -> Result<PreLaunchOutcome, String> {
+    // `.output()` blocks until the compiler exits. Sync Tauri commands run on the
+    // main thread, so a long `javac` compile would freeze the workbench; run the
+    // blocking wait on a worker thread instead.
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut command = command_for_executable(&args.executable, &args.arguments);
+        command
+            .current_dir(&args.working_directory)
+            .envs(&args.environment)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        apply_creation_flags(&mut command);
+        let output = command
+            .output()
+            .map_err(|error| format!("Unable to start process: {error}"))?;
+        let mut text = decode_process_bytes(&output.stdout);
+        text.push_str(&decode_process_bytes(&output.stderr));
+        Ok(PreLaunchOutcome {
+            exit_code: output.status.code().unwrap_or(-1),
+            output: text,
+        })
     })
+    .await
+    .map_err(|error| format!("Pre-launch task failed: {error}"))?
 }
 
 #[tauri::command]
