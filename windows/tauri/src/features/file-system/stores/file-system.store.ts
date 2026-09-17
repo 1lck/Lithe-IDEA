@@ -482,7 +482,17 @@ const initializeLocalWorkspaceInBackground = (
 
       const watcherStartedAt = performance.now();
       logWorkspaceOpenStep("start", "setProjectRoot", path);
-      await useFileWatcherStore.getStore(workspaceId).getState().actions.setProjectRoot(path);
+      const watcherActions = useFileWatcherStore.getStore(workspaceId).getState().actions;
+      const projectRootWatched = await watcherActions.setProjectRoot(path);
+      if (projectRootWatched) {
+        for (const workspaceRoot of getWorkspaceFolderPaths(get)) {
+          if (workspaceRoot !== path && !(await watcherActions.startWatching(workspaceRoot))) {
+            console.error("Failed to watch an additional workspace folder");
+          }
+        }
+      } else {
+        console.error("Failed to watch the project root");
+      }
       logWorkspaceOpenStep("end", "setProjectRoot", path, watcherStartedAt);
 
       await waitForWorkspaceIdle();
@@ -1319,6 +1329,13 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             ...workspaceFolders,
             { path: selectedPath, name: rootEntry.name },
           ]);
+          const watcherStarted = await useFileWatcherStore
+            .getStore(workspaceId)
+            .getState()
+            .actions.startWatching(selectedPath);
+          if (!watcherStarted) {
+            throw new Error("Could not watch the additional workspace folder");
+          }
 
           set((state) => {
             state.files = [...state.files, rootEntry];
@@ -1372,6 +1389,19 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
 
         if (folder.isPrimary || folder.path === rootFolderPath) {
           toast.warning(getCurrentTranslator()("fileSystem.primaryFolderCannotBeRemoved"));
+          return false;
+        }
+
+        const watcherStopped = await useFileWatcherStore
+          .getStore(workspaceId)
+          .getState()
+          .actions.stopWatching(folder.path);
+        if (!watcherStopped) {
+          toast.error(
+            getCurrentTranslator()("fileSystem.removeFolderFromWorkspaceFailed", {
+              name: folder.name,
+            }),
+          );
           return false;
         }
 

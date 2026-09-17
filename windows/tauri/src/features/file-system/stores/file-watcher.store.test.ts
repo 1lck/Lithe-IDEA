@@ -30,7 +30,7 @@ describe("file watcher lifecycle", () => {
     expect(invokeCommand.mock.calls).toEqual([
       ["stop_watching", { path: "D:/work/pom.xml" }],
       ["stop_watching", { path: "D:/work/module/pom.xml" }],
-      ["set_project_root", { path: "" }],
+      ["stop_watching", { path: "D:/work" }],
     ]);
     expect(store.getState().watchedPaths.size).toBe(0);
   });
@@ -87,7 +87,7 @@ describe("file watcher lifecycle", () => {
       expect(invokeCommand.mock.calls).toEqual([
         ["start_watching", { path: "D:/work/module/pom.xml" }],
         ["stop_watching", { path: "D:/work/module/pom.xml" }],
-        ["set_project_root", { path: "" }],
+        ["stop_watching", { path: "D:/work" }],
       ]);
       expect(store.getState().watchedPaths.size).toBe(0);
       expect(await store.getState().actions.startWatching("D:/work/pom.xml")).toBe(false);
@@ -95,6 +95,52 @@ describe("file watcher lifecycle", () => {
       releaseRegistration.resolve(undefined);
       await registration;
       await cleanup;
+    }
+  });
+
+  test("unwatches the previous project root before registering its replacement", async () => {
+    const invokeCommand = mock(
+      async (_command: string, _arguments: { path: string }): Promise<unknown> => undefined,
+    );
+    const store = createFileWatcherStore("workspace", invokeCommand as FileWatcherInvoke);
+    await store.getState().actions.setProjectRoot("D:/first");
+    await store.getState().actions.startWatching("D:/first/pom.xml");
+    invokeCommand.mockClear();
+
+    expect(await store.getState().actions.setProjectRoot("D:/second")).toBe(true);
+
+    expect(invokeCommand.mock.calls).toEqual([
+      ["stop_watching", { path: "D:/first/pom.xml" }],
+      ["stop_watching", { path: "D:/first" }],
+      ["set_project_root", { path: "D:/second" }],
+    ]);
+    expect(store.getState().projectRoot).toBe("D:/second");
+  });
+
+  test("retains the project root when native root cleanup fails", async () => {
+    let rejectRootCleanup = true;
+    const invokeCommand = mock(
+      async (command: string, arguments_: { path: string }): Promise<unknown> => {
+        if (command === "stop_watching" && arguments_.path === "D:/work" && rejectRootCleanup) {
+          rejectRootCleanup = false;
+          throw new Error("root cleanup failed");
+        }
+        return undefined;
+      },
+    );
+    const consoleError = spyOn(console, "error").mockImplementation(() => undefined);
+    const store = createFileWatcherStore("workspace", invokeCommand as FileWatcherInvoke);
+
+    try {
+      await store.getState().actions.setProjectRoot("D:/work");
+
+      expect(await store.getState().actions.setProjectRoot("")).toBe(false);
+      expect(store.getState().projectRoot).toBe("D:/work");
+
+      expect(await store.getState().actions.setProjectRoot("")).toBe(true);
+      expect(store.getState().projectRoot).toBe("");
+    } finally {
+      consoleError.mockRestore();
     }
   });
 });
