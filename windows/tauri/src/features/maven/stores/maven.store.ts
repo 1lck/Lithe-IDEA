@@ -2,6 +2,7 @@ import { createStore } from "zustand/vanilla";
 import { saveWorkspaceBeforeLaunch } from "@/features/editor/services/save-workspace-before-launch";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { frontendTrace } from "@/utils/frontend-trace";
 import {
   createMavenDependencyPlan,
   createMavenLaunchPlan,
@@ -69,6 +70,7 @@ export interface MavenStoreDependencies {
   scanMavenProject: typeof scanMavenProject;
   startMavenProcess: typeof startMavenProcess;
   stopMavenProcess: typeof stopMavenProcess;
+  trace: typeof frontendTrace;
   writeMavenConfiguration: typeof writeMavenConfiguration;
 }
 
@@ -85,6 +87,7 @@ const defaultMavenStoreDependencies: MavenStoreDependencies = {
   scanMavenProject,
   startMavenProcess,
   stopMavenProcess,
+  trace: frontendTrace,
   writeMavenConfiguration,
 };
 
@@ -271,6 +274,18 @@ function mavenTestGoals(selector: string): string[] {
   // Keep the lifecycle goal first so the existing Core launch-plan validator
   // can continue rejecting arbitrary option-only tool-window invocations.
   return ["test", `-Dtest=${selector}`, MAVEN_TEST_ALLOW_EMPTY_UPSTREAM_MODULES];
+}
+
+type MavenLaunchStage = "save-workspace" | "create-plan" | "resolve-launch" | "start-process";
+
+function mavenLaunchErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message;
+  }
+  return "Unable to start the Maven task.";
 }
 
 export const createMavenStore = (
@@ -783,14 +798,17 @@ export const createMavenStore = (
               MAVEN_TEST_TIMEOUT_MILLISECONDS,
             );
           }
+          let launchStage: MavenLaunchStage = "save-workspace";
           try {
             await dependencies.saveWorkspaceBeforeLaunch(workspaceId);
+            launchStage = "create-plan";
             const plan = await dependencies.createMavenLaunchPlan(
               state.root,
               launchContext,
               goals,
               module,
             );
+            launchStage = "resolve-launch";
             const resolved = await dependencies.resolveMavenLaunch(
               state.root,
               launchContext,
@@ -803,6 +821,7 @@ export const createMavenStore = (
             }
             const executableName = resolved.executable.split(/[\\/]/).pop() ?? "mvn";
             set({ output: `$ ${executableName} ${displayArguments(plan.arguments)}\n\n` });
+            launchStage = "start-process";
             await dependencies.startMavenProcess({
               sessionId,
               executable: resolved.executable,
@@ -822,8 +841,16 @@ export const createMavenStore = (
               return;
             }
             clearTestTimer(sessionId);
-            const message =
-              error instanceof Error ? error.message : "Unable to start the Maven task.";
+            const message = mavenLaunchErrorMessage(error);
+            dependencies.trace("error", "maven.launch", "Maven task launch failed", {
+              workspaceId,
+              sessionId,
+              stage: launchStage,
+              taskTitle: title,
+              reactorPath: launchContext.reactorPath,
+              modulePath: module ?? ".",
+              error: message,
+            });
             set({
               taskStatus: "failed",
               taskError: message,
