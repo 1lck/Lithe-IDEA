@@ -214,6 +214,8 @@
 "Font size" = "字体大小";
 "File tree row height" = "文件树行高";
 "Show usages and Git author" = "显示引用数量和 Git 作者";
+"Show minimap" = "显示代码缩略图";
+"Minimap" = "代码缩略图";
 "Indentation" = "缩进";
 "Tab width" = "Tab 宽度";
 "Shell" = "Shell";

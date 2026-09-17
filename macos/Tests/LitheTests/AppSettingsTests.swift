@@ -89,6 +89,23 @@ struct AppSettingsTests {
     }
 
     @Test
+    func editorMinimapDefaultsToEnabledAndPersistsDisabledSelection() {
+        let store = AppSettingsTestStore()
+        let settings = AppSettings(store: store)
+
+        #expect(settings.editorMinimapEnabled)
+
+        settings.editorMinimapEnabled = false
+
+        #expect(!AppSettings(store: store).editorMinimapEnabled)
+
+        settings.restoreDefaults()
+
+        #expect(settings.editorMinimapEnabled)
+        #expect(AppSettings(store: store).editorMinimapEnabled)
+    }
+
+    @Test
     func lspGeneratedArtifactHiddenPatternsCanBeAddedAndRemovedOnce() {
         let store = AppSettingsTestStore()
         let settings = AppSettings(store: store)
