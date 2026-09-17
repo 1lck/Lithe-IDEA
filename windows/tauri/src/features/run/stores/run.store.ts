@@ -12,6 +12,7 @@ import {
 } from "../api/run-core-api";
 import {
   discoverRunToolchains,
+  executePreLaunchStep,
   listJavaSources,
   resolveRunLaunch,
   startRunProcess,
@@ -117,6 +118,7 @@ export interface RunStoreDependencies {
   createLaunchPlan: typeof createLaunchPlan;
   mavenLaunchContextForWorkspace: typeof mavenLaunchContextForWorkspace;
   resolveRunLaunch: typeof resolveRunLaunch;
+  executePreLaunchStep: typeof executePreLaunchStep;
   saveWorkspaceBeforeLaunch: typeof saveWorkspaceBeforeLaunch;
   startRunProcess: typeof startRunProcess;
   stopRunProcess: typeof stopRunProcess;
@@ -126,10 +128,35 @@ const defaultRunStoreDependencies: RunStoreDependencies = {
   createLaunchPlan,
   mavenLaunchContextForWorkspace,
   resolveRunLaunch,
+  executePreLaunchStep,
   saveWorkspaceBeforeLaunch,
   startRunProcess,
   stopRunProcess,
 };
+
+// Classpath joining is the host's job: Rust emits a platform-neutral list and
+// the host joins it with `;` on Windows. JVM options may precede the main class
+// in any order.
+const CLASSPATH_SEPARATOR = ";";
+const CLASSPATH_FLAGS = new Set(["-cp", "-classpath", "--class-path"]);
+// Merges the launch classpath into `args`. When the user already passes a
+// `-cp`/`-classpath`/`--class-path`, our entries are prepended into that same
+// flag's value (the compiled output must lead, and a second `-cp` would simply
+// override the user's — the JVM honors only the last one). Otherwise a fresh
+// `-cp` is inserted before the arguments.
+function withClasspath(args: string[], classpath?: string[]): string[] {
+  if (!classpath || classpath.length === 0) return args;
+  const joined = classpath.join(CLASSPATH_SEPARATOR);
+  // Merge into the last existing flag: that is the value the JVM would use.
+  for (let index = args.length - 2; index >= 0; index -= 1) {
+    if (CLASSPATH_FLAGS.has(args[index])) {
+      const merged = [...args];
+      merged[index + 1] = `${joined}${CLASSPATH_SEPARATOR}${args[index + 1]}`;
+      return merged;
+    }
+  }
+  return ["-cp", joined, ...args];
+}
 
 interface ResolvedRunProject {
   configurations: RunConfiguration[];
@@ -487,7 +514,8 @@ export const createRunStore = (
             environment: mergeLaunchEnvironment(configuration.env, plan),
           });
           if (!isCurrent()) return null;
-          const commandLine = `$ ${resolved.executable.split(/[\\/]/).pop()} ${plan.arguments.join(" ")}\n\n`;
+          const mainArguments = withClasspath(plan.arguments, plan.classpath);
+          const commandLine = `$ ${resolved.executable.split(/[\\/]/).pop()} ${mainArguments.join(" ")}\n\n`;
           if (sessionId === PRIMARY_SESSION_ID) {
             set({
               primaryRunning: true,
@@ -512,11 +540,88 @@ export const createRunStore = (
               ],
             }));
           }
+          // Appends compiler/generator output into the same session panel the
+          // main process streams into, so pre-launch diagnostics stay in place.
+          const appendSessionOutput = (text: string) => {
+            if (sessionId === PRIMARY_SESSION_ID) {
+              set((current) => ({
+                primaryOutput: trimOutput(`${current.primaryOutput}${text}`),
+              }));
+            } else {
+              set((current) => ({
+                sessions: current.sessions.map((session) =>
+                  session.id === sessionId
+                    ? { ...session, output: trimOutput(`${session.output}${text}`) }
+                    : session,
+                ),
+              }));
+            }
+          };
+          const markPreLaunchFailure = (exitCode: number) => {
+            const message = `Compilation failed (exit code ${exitCode}).\n`;
+            if (sessionId === PRIMARY_SESSION_ID) {
+              set((current) => ({
+                primaryRunning: false,
+                primaryExitCode: exitCode,
+                primaryOutput: trimOutput(`${current.primaryOutput}${message}`),
+              }));
+            } else {
+              set((current) => ({
+                sessions: current.sessions.map((session) =>
+                  session.id === sessionId
+                    ? {
+                        ...session,
+                        isRunning: false,
+                        exitCode,
+                        output: trimOutput(`${session.output}${message}`),
+                      }
+                    : session,
+                ),
+              }));
+            }
+          };
+          // Compile-then-run: standalone Java compiles with `javac` here so JDK 8
+          // can launch by class name; a non-zero exit aborts before the main
+          // process and surfaces the compiler's real diagnostic.
+          for (const step of plan.preLaunchSteps ?? []) {
+            if (!isCurrent()) return null;
+            const stepResolved = await dependencies.resolveRunLaunch({
+              root,
+              executable: step.executable,
+              workingDirectory: plan.workingDirectory,
+              javaHomePath: configuration.javaHomePath,
+              mavenExecutablePath:
+                configuration.mavenExecutablePath || mavenContext?.mavenExecutablePath || "",
+              mavenJavaHomePath:
+                configuration.mavenJavaHomePath || mavenContext?.javaHomePath || "",
+              runtimeExecutablePaths: state.effectiveRuntimeExecutablePaths,
+              environment: mergeLaunchEnvironment(configuration.env, plan),
+            });
+            if (!isCurrent()) return null;
+            const stepArguments = withClasspath(step.arguments, step.classpath);
+            // Echo the compiler command into the session panel first, mirroring
+            // the main process's `$ …` line so the compile step is visible.
+            appendSessionOutput(
+              `$ ${stepResolved.executable.split(/[\\/]/).pop()} ${stepArguments.join(" ")}\n`,
+            );
+            const outcome = await dependencies.executePreLaunchStep({
+              executable: stepResolved.executable,
+              arguments: stepArguments,
+              workingDirectory: stepResolved.workingDirectory,
+              environment: stepResolved.environment,
+            });
+            if (!isCurrent()) return null;
+            if (outcome.output) appendSessionOutput(outcome.output);
+            if (outcome.exitCode !== 0) {
+              markPreLaunchFailure(outcome.exitCode);
+              return null;
+            }
+          }
           await dependencies.startRunProcess({
             sessionId,
             executionId,
             executable: resolved.executable,
-            arguments: plan.arguments,
+            arguments: mainArguments,
             workingDirectory: resolved.workingDirectory,
             environment: resolved.environment,
           });

@@ -676,12 +676,20 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         struct Executable: Codable, Sendable {
             let toolchain: String?
             let command: String?
+            let tool: String?
+        }
+        struct PreLaunchStep: Codable, Sendable {
+            let executable: Executable
+            let arguments: [String]
+            let classpath: [String]?
         }
         let executable: Executable
         let arguments: [String]
         let workingDirectory: String
         let environment: [String: [String: String]]
         let env: [String: String]?
+        let preLaunchSteps: [PreLaunchStep]?
+        let classpath: [String]?
     }
 
     struct RunConfigurationMutationPayload: Codable, Sendable {

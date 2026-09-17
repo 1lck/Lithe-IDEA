@@ -56,7 +56,7 @@ export const defaultSettings: Settings = {
   renderWhitespace: "none",
   renderIndentGuides: true,
   highlightOccurrences: true,
-  showMinimap: false,
+  showMinimap: true,
   editorFontLigatures: false,
   editorItalicComments: false,
   editorStickyScroll: false,

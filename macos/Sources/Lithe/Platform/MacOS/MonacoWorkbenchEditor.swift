@@ -60,6 +60,7 @@ private struct MonacoWorkbenchContent: View {
             if MonacoWorkbenchResources.directory != nil {
                 MonacoWorkbenchSurface(session: session, document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model,
                     fontSize: settings.editorFontSize, dark: colorScheme == .dark, wrap: settings.editorSoftWrapEnabled,
+                    minimap: settings.editorMinimapEnabled,
                     markers: diagnostics.diagnostics(for: document.url),
                     secondaryMarkers: secondaryDocument.map { diagnostics.diagnostics(for: $0.url) } ?? [])
             } else {
@@ -82,6 +83,7 @@ private struct MonacoWorkbenchSurface: NSViewRepresentable {
     let fontSize: Double
     let dark: Bool
     let wrap: Bool
+    let minimap: Bool
     let markers: [EditorDiagnostic]
     let secondaryMarkers: [EditorDiagnostic]
 
@@ -96,7 +98,7 @@ private struct MonacoWorkbenchSurface: NSViewRepresentable {
         coordinator.session.detachView(ownerID: coordinator.ownerID)
     }
     func updateNSView(_ view: NSView, context: Context) {
-        session.update(ownerID: context.coordinator.ownerID, document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model, fontSize: fontSize, dark: dark, wrap: wrap, markers: markers, secondaryMarkers: secondaryMarkers)
+        session.update(ownerID: context.coordinator.ownerID, document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model, fontSize: fontSize, dark: dark, wrap: wrap, minimap: minimap, markers: markers, secondaryMarkers: secondaryMarkers)
     }
 }
 
@@ -257,17 +259,17 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         selectMount()
     }
 
-    func update(ownerID: UUID, document: EditorDocument, secondaryDocument: EditorDocument?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, model: AppModel, fontSize: Double, dark: Bool, wrap: Bool, markers: [EditorDiagnostic], secondaryMarkers: [EditorDiagnostic]) {
+    func update(ownerID: UUID, document: EditorDocument, secondaryDocument: EditorDocument?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, model: AppModel, fontSize: Double, dark: Bool, wrap: Bool, minimap: Bool, markers: [EditorDiagnostic], secondaryMarkers: [EditorDiagnostic]) {
         guard mounts[ownerID] != nil else { return }
         self.model = model
         observeFind(model: model)
         mounts[ownerID]?.update = { [weak self, weak document, weak secondaryDocument, weak model] in
             guard let self, let document, let model else { return }
-            self.present(document: document, model: model, fontSize: fontSize, dark: dark, wrap: wrap, markers: markers)
+            self.present(document: document, model: model, fontSize: fontSize, dark: dark, wrap: wrap, minimap: minimap, markers: markers)
             self.presentMarkdownScroll(document: document, binding: markdownScrollPosition)
             if let secondaryDocument {
                 self.hasSecondaryView = true
-                self.present(document: secondaryDocument, model: model, fontSize: fontSize, dark: dark, wrap: wrap, markers: secondaryMarkers, surface: "secondary")
+                self.present(document: secondaryDocument, model: model, fontSize: fontSize, dark: dark, wrap: wrap, minimap: minimap, markers: secondaryMarkers, surface: "secondary")
             } else if self.hasSecondaryView {
                 self.hasSecondaryView = false
                 self.activeIDs.removeValue(forKey: "secondary")
@@ -566,7 +568,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         }
     }
 
-    private func present(document: EditorDocument, model: AppModel, fontSize: Double, dark: Bool, wrap: Bool, markers: [EditorDiagnostic], surface: String = "primary") {
+    private func present(document: EditorDocument, model: AppModel, fontSize: Double, dark: Bool, wrap: Bool, minimap: Bool, markers: [EditorDiagnostic], surface: String = "primary") {
         guard viewOwnerID != nil else { return }
         let id = document.id.uuidString
         let liveIDs = Set(model.documentFeature.editorDocuments.map { $0.id.uuidString })
@@ -631,10 +633,10 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             lastSemanticState = semanticState
             call("window.lithe.semanticRefresh()")
         }
-        let configurationKey = "\(fontSize):\(dark):\(wrap)"
+        let configurationKey = "\(fontSize):\(dark):\(wrap):\(minimap)"
         if lastConfiguration != configurationKey {
             lastConfiguration = configurationKey
-            call("window.lithe.configure(payload)", arguments: ["payload": ["fontSize": fontSize, "fontFamily": LitheTheme.editorFont(size: fontSize).familyName ?? "monospace", "dark": dark, "wrap": wrap]])
+            call("window.lithe.configure(payload)", arguments: ["payload": ["fontSize": fontSize, "fontFamily": LitheTheme.editorFont(size: fontSize).familyName ?? "monospace", "dark": dark, "wrap": wrap, "minimap": minimap]])
         }
         if lastMarkers[id] != markers {
             lastMarkers[id] = markers

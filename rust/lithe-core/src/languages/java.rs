@@ -337,13 +337,8 @@ fn main_class(path: &str, source: &str) -> Option<JavaMainClassResponse> {
     if !main_pattern.is_match(source) {
         return None;
     }
-    let class_pattern =
-        Regex::new(r"\b(?:public\s+)?(?:final\s+)?class\s+([A-Za-z_$][A-Za-z0-9_$]*)").ok()?;
-    let simple_name = class_pattern.captures(source)?.get(1)?.as_str().to_string();
-    let package = Regex::new(r"(?m)^\s*package\s+([A-Za-z_$][A-Za-z0-9_$.]*)\s*;")
-        .ok()?
-        .captures(source)
-        .and_then(|captures| captures.get(1).map(|value| value.as_str().to_string()));
+    let simple_name = launch_class_name(path, source)?;
+    let package = declared_package(source);
     let qualified_name = package
         .map(|value| format!("{}.{}", value, simple_name))
         .unwrap_or_else(|| simple_name.clone());
@@ -353,6 +348,92 @@ fn main_class(path: &str, source: &str) -> Option<JavaMainClassResponse> {
         simple_name,
         is_spring_boot: source.contains("@SpringBootApplication"),
     })
+}
+
+/// Returns the fully qualified class name to launch for a standalone Java file.
+///
+/// Standalone runs compile the file with `javac` and then start it with
+/// `java <class>`, so the launcher needs the class name the JVM will look up —
+/// not the file path. The name is derived structurally (declared package plus
+/// [`launch_class_name`]) and does not require a `main` method: when the file
+/// has none, the JVM emits its own clear diagnostic, which is more useful than a
+/// Core error. Files without any `class` declaration fall back to the file stem,
+/// matching the convention `javac` uses for the generated class.
+pub(crate) fn standalone_launch_class(path: &str, source: &str) -> String {
+    let simple_name = launch_class_name(path, source).unwrap_or_else(|| file_stem(path));
+    match declared_package(source) {
+        Some(package) => format!("{package}.{simple_name}"),
+        None => simple_name,
+    }
+}
+
+/// Picks the simple class name the JVM should launch for a single source file.
+///
+/// A compilable `.java` file names its public class after the file, so the file
+/// stem is the reliable answer whenever the source actually declares that class.
+/// Preferring the stem also rejects a `class` token that only appears in a
+/// comment, and a helper class that happens to be declared before the public
+/// one. When no declared class matches the stem — e.g. a scratch file whose
+/// runnable class is package-private and named differently — the class enclosing
+/// `public static void main` is used, then the first declared class, and finally
+/// `None` when the source declares no class at all.
+fn launch_class_name(path: &str, source: &str) -> Option<String> {
+    let classes = declared_classes(source);
+    if classes.is_empty() {
+        return None;
+    }
+    let stem = file_stem(path);
+    if classes.iter().any(|(_, name)| name == &stem) {
+        return Some(stem);
+    }
+    // No public/file-named class: launch the class that actually declares
+    // `main`, approximated by the last class declared at or before it.
+    if let Some(main_index) = main_declaration_index(source) {
+        if let Some((_, name)) = classes.iter().rfind(|(start, _)| *start <= main_index) {
+            return Some(name.clone());
+        }
+    }
+    classes.first().map(|(_, name)| name.clone())
+}
+
+/// Returns every declared class name paired with the byte offset of its
+/// declaration, in source order, ignoring modifiers such as `public`/`final`.
+fn declared_classes(source: &str) -> Vec<(usize, String)> {
+    let class_pattern =
+        Regex::new(r"\b(?:public\s+)?(?:final\s+)?class\s+([A-Za-z_$][A-Za-z0-9_$]*)")
+            .expect("class declaration pattern is a valid regex");
+    class_pattern
+        .captures_iter(source)
+        .filter_map(|captures| {
+            let name = captures.get(1)?;
+            Some((captures.get(0)?.start(), name.as_str().to_string()))
+        })
+        .collect()
+}
+
+/// Returns the byte offset of the first `main` method declaration, or `None`.
+fn main_declaration_index(source: &str) -> Option<usize> {
+    Regex::new(r"\bstatic\s+(?:final\s+)?void\s+main\s*\(")
+        .expect("main method pattern is a valid regex")
+        .find(source)
+        .map(|matched| matched.start())
+}
+
+/// Extracts the declared package, or `None` for the default package.
+fn declared_package(source: &str) -> Option<String> {
+    Regex::new(r"(?m)^\s*package\s+([A-Za-z_$][A-Za-z0-9_$.]*)\s*;")
+        .ok()?
+        .captures(source)
+        .and_then(|captures| captures.get(1).map(|value| value.as_str().to_string()))
+}
+
+/// Returns the file name without directories or the `.java` extension.
+fn file_stem(path: &str) -> String {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    name.strip_suffix(".java")
+        .or_else(|| name.strip_suffix(".JAVA"))
+        .unwrap_or(name)
+        .to_string()
 }
 
 fn module_path(path: &str, modules: &[String]) -> Option<String> {
@@ -781,4 +862,53 @@ enum ScanState {
     Character,
     LineComment,
     BlockComment,
+}
+
+#[cfg(test)]
+mod launch_class_tests {
+    use super::standalone_launch_class;
+
+    #[test]
+    fn prefers_the_public_class_named_after_the_file() {
+        // A helper class declared first must not be chosen over the public class,
+        // which a compilable file always names after the file.
+        let source = "class Helper {} public class App { public static void main(String[] a) {} }";
+        assert_eq!(standalone_launch_class("src/App.java", source), "App");
+    }
+
+    #[test]
+    fn ignores_a_class_token_inside_a_comment() {
+        // `// class Widget` must not be mistaken for a declaration.
+        let source = "// helper class Widget lives elsewhere\npublic class App { public static void main(String[] a) {} }";
+        assert_eq!(standalone_launch_class("src/App.java", source), "App");
+    }
+
+    #[test]
+    fn falls_back_to_the_main_bearing_class_when_none_match_the_file() {
+        // A scratch file whose runnable class is package-private and differently
+        // named launches the class that declares `main`, not the first one.
+        let source = "class Utils {}\nclass Runner { public static void main(String[] a) {} }";
+        assert_eq!(
+            standalone_launch_class("scratch/Scratch.java", source),
+            "Runner"
+        );
+    }
+
+    #[test]
+    fn qualifies_with_the_declared_package() {
+        let source =
+            "package com.example; public class App { public static void main(String[] a) {} }";
+        assert_eq!(
+            standalone_launch_class("src/App.java", source),
+            "com.example.App"
+        );
+    }
+
+    #[test]
+    fn falls_back_to_the_file_stem_without_any_class() {
+        assert_eq!(
+            standalone_launch_class("src/Loose.java", "int x = 1;"),
+            "Loose"
+        );
+    }
 }

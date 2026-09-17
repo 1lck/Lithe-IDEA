@@ -133,21 +133,57 @@ package struct SharedLaunchPlan: Sendable {
         case command(String)
     }
 
+    /// One compiler or generator invocation the host must run to completion,
+    /// in order, before the main process. Standalone Java uses this to compile
+    /// with `javac` so JDK 8 can then launch by class name (JEP 330's
+    /// single-file source launcher is JDK 11+ only).
+    package struct PreLaunchStep: Sendable {
+        package let executable: Executable
+        /// Sibling tool to run from the toolchain's `bin` directory, e.g.
+        /// `"javac"`. Nil means the toolchain's default launcher.
+        package let tool: String?
+        package let arguments: [String]
+        /// Classpath entries the host joins with the platform separator and
+        /// prepends as `-cp` before this step's arguments.
+        package let classpath: [String]
+
+        package init(
+            executable: Executable,
+            tool: String? = nil,
+            arguments: [String],
+            classpath: [String] = []
+        ) {
+            self.executable = executable
+            self.tool = tool
+            self.arguments = arguments
+            self.classpath = classpath
+        }
+    }
+
     package let executable: Executable
     package let arguments: [String]
     package let workingDirectory: String
     package var environment: [String: String]
+    /// Ordered compile/generate steps to run before the main process.
+    package let preLaunchSteps: [PreLaunchStep]
+    /// Run classpath entries the host joins with the platform separator (`:` on
+    /// POSIX, `;` on Windows) and prepends as `-cp` before `arguments`.
+    package let classpath: [String]
 
     package init(
         executable: Executable,
         arguments: [String],
         workingDirectory: String,
-        environment: [String: String] = [:]
+        environment: [String: String] = [:],
+        preLaunchSteps: [PreLaunchStep] = [],
+        classpath: [String] = []
     ) {
         self.executable = executable
         self.arguments = arguments
         self.workingDirectory = workingDirectory
         self.environment = environment
+        self.preLaunchSteps = preLaunchSteps
+        self.classpath = classpath
     }
 
     package var toolchainID: String? {
@@ -190,6 +226,33 @@ package protocol RunExecutableResolving: AnyObject {
 package extension RunExecutableResolving {
     func refreshCandidates(projectURL _: URL) async {}
     func candidates(projectURL _: URL) -> [ProjectToolchainCandidate] { [] }
+
+    /// Resolves a pre-launch step by reusing the main executable resolution and,
+    /// when the step names a sibling `tool` (e.g. `javac`), swapping the launcher
+    /// for that tool in the same `bin` directory. The step shares the plan's
+    /// working directory and environment.
+    func resolve(
+        step: SharedLaunchPlan.PreLaunchStep,
+        plan: SharedLaunchPlan,
+        projectURL: URL,
+        options: RunOptions
+    ) throws -> ResolvedRunExecutable {
+        let syntheticPlan = SharedLaunchPlan(
+            executable: step.executable,
+            arguments: step.arguments,
+            workingDirectory: plan.workingDirectory,
+            environment: plan.environment
+        )
+        let resolved = try resolve(syntheticPlan, projectURL: projectURL, options: options)
+        guard let tool = step.tool, !tool.isEmpty else { return resolved }
+        let toolURL = resolved.executableURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(tool)
+        return ResolvedRunExecutable(
+            executableURL: toolURL,
+            environment: resolved.environment
+        )
+    }
 }
 
 @MainActor

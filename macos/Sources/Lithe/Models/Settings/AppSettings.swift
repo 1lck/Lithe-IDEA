@@ -11,6 +11,7 @@ final class AppSettings: ObservableObject {
         static let language = "settings.language"
         static let editorFontSize = "settings.editorFontSize"
         static let editorSoftWrap = "settings.editorSoftWrap"
+        static let editorMinimap = "settings.editorMinimap"
         static let projectTreeRowHeight = "settings.projectTreeRowHeight"
         static let tabWidth = "settings.tabWidth"
         static let editorTabLayoutMode = "settings.editorTabLayoutMode"
@@ -57,6 +58,9 @@ final class AppSettings: ObservableObject {
     /// 折行布局对超大文件有行数阈值兜底，见 `LitheTextViewportLayout`。
     @Published var editorSoftWrapEnabled: Bool {
         didSet { defaults.set(editorSoftWrapEnabled, forKey: Key.editorSoftWrap) }
+    }
+    @Published var editorMinimapEnabled: Bool {
+        didSet { defaults.set(editorMinimapEnabled, forKey: Key.editorMinimap) }
     }
     @Published var projectTreeRowHeight: Double {
         didSet { defaults.set(projectTreeRowHeight, forKey: Key.projectTreeRowHeight) }
@@ -145,6 +149,7 @@ final class AppSettings: ObservableObject {
         language = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .english
         editorFontSize = defaults.object(forKey: Key.editorFontSize) as? Double ?? 13
         editorSoftWrapEnabled = defaults.object(forKey: Key.editorSoftWrap) as? Bool ?? false
+        editorMinimapEnabled = defaults.object(forKey: Key.editorMinimap) as? Bool ?? true
         projectTreeRowHeight = defaults.object(forKey: Key.projectTreeRowHeight) as? Double ?? 24
         tabWidth = defaults.object(forKey: Key.tabWidth) as? Int ?? 4
         editorTabLayoutMode = EditorTabLayoutMode(
@@ -276,6 +281,7 @@ final class AppSettings: ObservableObject {
         language = .english
         editorFontSize = 13
         editorSoftWrapEnabled = false
+        editorMinimapEnabled = true
         projectTreeRowHeight = 24
         tabWidth = 4
         editorTabLayoutMode = .singleLine
