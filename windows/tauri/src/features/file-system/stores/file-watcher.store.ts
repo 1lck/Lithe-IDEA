@@ -69,24 +69,56 @@ export const createFileWatcherStore = (
       const startWatching = (path: string) => enqueueWatchOperation(() => startWatchingNow(path));
       const stopWatching = (path: string) => enqueueWatchOperation(() => stopWatchingNow(path));
 
+      const stopProjectRootNow = async (path: string): Promise<boolean> => {
+        if (!path) return true;
+        try {
+          await invokeCommand("stop_watching", { path });
+          return true;
+        } catch (error) {
+          console.error("Failed to stop watching project root:", path, error);
+          return false;
+        }
+      };
+
       return {
         actions: {
           // Set the project root and start watching it
           setProjectRoot: (path: string) =>
             enqueueWatchOperation(async () => {
+              const previousRoot = get().projectRoot;
+              if (path === previousRoot) return true;
+
               if (!path) {
-                set({ projectRoot: "" });
                 for (const watchedPath of get().watchedPaths) {
-                  await stopWatchingNow(watchedPath);
+                  if (!(await stopWatchingNow(watchedPath))) {
+                    return false;
+                  }
+                }
+                if (!(await stopProjectRootNow(previousRoot))) {
+                  return false;
+                }
+                set({ projectRoot: "" });
+                return true;
+              }
+
+              if (previousRoot) {
+                for (const watchedPath of get().watchedPaths) {
+                  if (!(await stopWatchingNow(watchedPath))) {
+                    return false;
+                  }
+                }
+                if (!(await stopProjectRootNow(previousRoot))) {
+                  return false;
                 }
               }
 
               try {
                 await invokeCommand("set_project_root", { path });
-                if (path) set({ projectRoot: path });
+                set({ projectRoot: path });
                 return true;
               } catch (error) {
                 console.error("Failed to set project root:", path, error);
+                set({ projectRoot: "" });
                 return false;
               }
             }),

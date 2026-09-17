@@ -2,27 +2,33 @@ pub mod document_file;
 pub mod document_watcher;
 use anyhow::{Context, Result, bail};
 pub mod git_watcher;
-use notify::RecursiveMode;
-use notify_debouncer_mini::{DebounceEventResult, Debouncer, new_debouncer};
+use notify::{
+   Event, EventKind, RecommendedWatcher, RecursiveMode,
+   event::{ModifyKind, RenameMode},
+};
+use notify_debouncer_full::{
+   DebounceEventResult, DebouncedEvent, Debouncer, RecommendedCache, new_debouncer,
+};
 use std::{
-   collections::{HashMap, HashSet},
+   collections::HashSet,
    path::PathBuf,
    sync::{Arc, Mutex},
-   time::{Duration, SystemTime},
+   time::Duration,
 };
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct FileChangeEvent {
    pub path: String,
    pub event_type: FileChangeType,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FileChangeType {
    Opened,
    Reloaded,
    Deleted,
+   Rescan,
 }
 
 pub trait FileChangeEmitter: Send + Sync {
@@ -31,10 +37,9 @@ pub trait FileChangeEmitter: Send + Sync {
 
 pub struct FileWatcher {
    emitter: Arc<dyn FileChangeEmitter>,
-   debouncer: Arc<Mutex<Option<Debouncer<notify::RecommendedWatcher>>>>,
+   debouncer: Arc<Mutex<Option<Debouncer<RecommendedWatcher, RecommendedCache>>>>,
    watched_paths: Arc<Mutex<HashSet<PathBuf>>>,
    watched_directories: Arc<Mutex<HashSet<PathBuf>>>,
-   known_files: Arc<Mutex<HashMap<PathBuf, SystemTime>>>,
 }
 
 impl FileWatcher {
@@ -44,7 +49,6 @@ impl FileWatcher {
          debouncer: Arc::new(Mutex::new(None)),
          watched_paths: Arc::new(Mutex::new(HashSet::new())),
          watched_directories: Arc::new(Mutex::new(HashSet::new())),
-         known_files: Arc::new(Mutex::new(HashMap::new())),
       }
    }
 
@@ -53,7 +57,7 @@ impl FileWatcher {
    }
 
    pub async fn watch_project_root(&self, path: String) -> Result<()> {
-      self.watch_path_with_mode(path, false, true)
+      self.watch_path_with_mode(path, true, true)
    }
 
    fn watch_path_with_mode(&self, path: String, recursive: bool, emit_opened: bool) -> Result<()> {
@@ -97,49 +101,56 @@ impl FileWatcher {
       Ok(())
    }
 
-   fn create_debouncer(&self) -> Result<Debouncer<notify::RecommendedWatcher>> {
+   fn create_debouncer(&self) -> Result<Debouncer<RecommendedWatcher, RecommendedCache>> {
       let emitter = Arc::clone(&self.emitter);
       let watched_paths = self.watched_paths.clone();
       let watched_directories = self.watched_directories.clone();
-      let known_files = self.known_files.clone();
 
       Ok(new_debouncer(
          Duration::from_millis(300),
+         None,
          move |result: DebounceEventResult| {
-            if let Ok(events) = result {
-               Self::handle_events(
+            match result {
+               Ok(events) => Self::handle_events(
                   events,
                   emitter.as_ref(),
                   &watched_paths,
                   &watched_directories,
-                  &known_files,
-               );
+               ),
+               Err(errors) => {
+                  for error in &errors {
+                     log::warn!("[FileWatcher] Native watcher error: {error}");
+                  }
+                  Self::emit_rescans(emitter.as_ref(), &watched_directories);
+               }
             }
          },
       )?)
    }
 
    fn handle_events(
-      events: Vec<notify_debouncer_mini::DebouncedEvent>,
+      events: Vec<DebouncedEvent>,
       emitter: &dyn FileChangeEmitter,
       watched_paths: &Arc<Mutex<HashSet<PathBuf>>>,
       watched_directories: &Arc<Mutex<HashSet<PathBuf>>>,
-      known_files: &Arc<Mutex<HashMap<PathBuf, SystemTime>>>,
    ) {
+      if events.iter().any(|event| event.need_rescan()) {
+         Self::emit_rescans(emitter, watched_directories);
+         return;
+      }
+
       let watched_paths = watched_paths.lock().unwrap();
       let watched_dirs = watched_directories.lock().unwrap();
 
       for event in events {
-         if !Self::is_path_watched(&event.path, &watched_paths, &watched_dirs) {
-            continue;
-         }
+         let changes = Self::classify_event(&event.event);
+         for (path, event_type) in changes {
+            if !Self::is_path_watched(&path, &watched_paths, &watched_dirs) {
+               continue;
+            }
 
-         let event_type = Self::determine_event_type(&event.path, known_files);
-
-         // Only emit event if it's not a metadata-only change
-         if let Some(event_type) = event_type {
             let change_event = FileChangeEvent {
-               path: event.path.to_string_lossy().to_string(),
+               path: path.to_string_lossy().to_string(),
                event_type,
             };
 
@@ -153,55 +164,97 @@ impl FileWatcher {
       }
    }
 
+   fn classify_event(event: &Event) -> Vec<(PathBuf, FileChangeType)> {
+      if event.need_rescan() {
+         return Vec::new();
+      }
+
+      match event.kind {
+         EventKind::Create(_) => event
+            .paths
+            .iter()
+            .cloned()
+            .map(|path| (path, FileChangeType::Opened))
+            .collect(),
+         EventKind::Remove(_) => event
+            .paths
+            .iter()
+            .cloned()
+            .map(|path| (path, FileChangeType::Deleted))
+            .collect(),
+         EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => event
+            .paths
+            .iter()
+            .enumerate()
+            .map(|(index, path)| {
+               let event_type = if index == 0 {
+                  FileChangeType::Deleted
+               } else {
+                  FileChangeType::Opened
+               };
+               (path.clone(), event_type)
+            })
+            .collect(),
+         EventKind::Modify(ModifyKind::Name(RenameMode::From)) => event
+            .paths
+            .iter()
+            .cloned()
+            .map(|path| (path, FileChangeType::Deleted))
+            .collect(),
+         EventKind::Modify(ModifyKind::Name(RenameMode::To)) => event
+            .paths
+            .iter()
+            .cloned()
+            .map(|path| (path, FileChangeType::Opened))
+            .collect(),
+         EventKind::Modify(ModifyKind::Name(_)) | EventKind::Any | EventKind::Other => event
+            .paths
+            .iter()
+            .cloned()
+            .map(|path| {
+               let event_type = if path.exists() {
+                  FileChangeType::Opened
+               } else {
+                  FileChangeType::Deleted
+               };
+               (path, event_type)
+            })
+            .collect(),
+         EventKind::Modify(_) => event
+            .paths
+            .iter()
+            .cloned()
+            .map(|path| (path, FileChangeType::Reloaded))
+            .collect(),
+         EventKind::Access(_) => Vec::new(),
+      }
+   }
+
+   fn emit_rescans(
+      emitter: &dyn FileChangeEmitter,
+      watched_directories: &Arc<Mutex<HashSet<PathBuf>>>,
+   ) {
+      let mut roots = watched_directories
+         .lock()
+         .unwrap()
+         .iter()
+         .cloned()
+         .collect::<Vec<_>>();
+      roots.sort();
+      for path in roots {
+         emitter.emit_file_change(&FileChangeEvent {
+            path: path.to_string_lossy().to_string(),
+            event_type: FileChangeType::Rescan,
+         });
+      }
+   }
+
    fn is_path_watched(
       path: &PathBuf,
       watched_paths: &HashSet<PathBuf>,
       watched_dirs: &HashSet<PathBuf>,
    ) -> bool {
       watched_paths.contains(path) || watched_dirs.iter().any(|dir| path.starts_with(dir))
-   }
-
-   fn determine_event_type(
-      path: &PathBuf,
-      known_files: &Arc<Mutex<HashMap<PathBuf, SystemTime>>>,
-   ) -> Option<FileChangeType> {
-      let mut files = known_files.lock().unwrap();
-
-      if !path.exists() {
-         files.remove(path);
-         Some(FileChangeType::Deleted)
-      } else if let Ok(metadata) = std::fs::metadata(path) {
-         // Handle modification time explicitly to avoid misleading UNIX_EPOCH fallback
-         let current_mtime = match metadata.modified() {
-            Ok(mtime) => mtime,
-            Err(err) => {
-               log::warn!(
-                  "[FileWatcher] Could not get modification time for {:?}: {}",
-                  path,
-                  err
-               );
-               SystemTime::now()
-            }
-         };
-
-         if let Some(&stored_mtime) = files.get(path) {
-            if stored_mtime == current_mtime {
-               None
-            } else {
-               files.insert(path.clone(), current_mtime);
-               Some(FileChangeType::Reloaded)
-            }
-         } else {
-            files.insert(path.clone(), current_mtime);
-            Some(FileChangeType::Opened)
-         }
-      } else {
-         log::warn!(
-            "[FileWatcher] Could not read metadata for {:?}, treating as reload",
-            path
-         );
-         Some(FileChangeType::Reloaded)
-      }
    }
 
    fn setup_path_watching(
@@ -221,30 +274,10 @@ impl FileWatcher {
          RecursiveMode::NonRecursive
       };
 
-      debouncer.watcher().watch(path_buf, recursive_mode)?;
+      debouncer.watch(path_buf, recursive_mode)?;
 
       if path_buf.is_dir() {
          self.setup_directory_watching(path_buf)?;
-      } else {
-         // Track initial modification time for files, handle errors explicitly
-         if let Ok(metadata) = std::fs::metadata(path_buf) {
-            let mtime = match metadata.modified() {
-               Ok(t) => t,
-               Err(err) => {
-                  log::warn!(
-                     "[FileWatcher] Could not get initial modification time for {:?}: {}",
-                     path_buf,
-                     err
-                  );
-                  SystemTime::now()
-               }
-            };
-            self
-               .known_files
-               .lock()
-               .unwrap()
-               .insert(path_buf.clone(), mtime);
-         }
       }
 
       watched_paths.insert(path_buf.clone());
@@ -257,30 +290,6 @@ impl FileWatcher {
          .lock()
          .unwrap()
          .insert(path_buf.clone());
-
-      let entries = std::fs::read_dir(path_buf)?;
-      let mut known_files = self.known_files.lock().unwrap();
-
-      entries
-         .flatten()
-         .map(|entry| entry.path())
-         .filter(|path| path.is_file())
-         .for_each(|path| {
-            if let Ok(metadata) = std::fs::metadata(&path) {
-               let mtime = match metadata.modified() {
-                  Ok(t) => t,
-                  Err(err) => {
-                     log::warn!(
-                        "[FileWatcher] Could not get initial modification time for {:?}: {}",
-                        path,
-                        err
-                     );
-                     SystemTime::now()
-                  }
-               };
-               known_files.insert(path, mtime);
-            }
-         });
 
       Ok(())
    }
@@ -295,14 +304,13 @@ impl FileWatcher {
 
       let mut debouncer_guard = self.debouncer.lock().unwrap();
       if let Some(ref mut debouncer) = *debouncer_guard {
-         debouncer.watcher().unwatch(&path_buf)?;
+         debouncer.unwatch(&path_buf)?;
       }
 
       // Commit the in-memory cleanup only after native unwatch succeeds so a
       // transient adapter failure remains retryable.
       watched_paths.remove(&path_buf);
       self.watched_directories.lock().unwrap().remove(&path_buf);
-      self.known_files.lock().unwrap().remove(&path_buf);
 
       Ok(())
    }
@@ -314,7 +322,7 @@ mod tests {
    use std::{
       fs,
       sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError},
-      time::Instant,
+      time::{Instant, SystemTime},
    };
 
    struct ChannelEmitter(Sender<FileChangeEvent>);
@@ -374,6 +382,39 @@ mod tests {
       }
    }
 
+   fn receive_change(
+      receiver: &Receiver<FileChangeEvent>,
+      path: &PathBuf,
+      event_type: FileChangeType,
+   ) -> FileChangeEvent {
+      let deadline = Instant::now() + Duration::from_secs(5);
+      loop {
+         let remaining = deadline.saturating_duration_since(Instant::now());
+         assert!(
+            !remaining.is_zero(),
+            "timed out waiting for {event_type:?} at {}",
+            path.display()
+         );
+         match receiver.recv_timeout(remaining) {
+            Ok(event)
+               if event.path == path.to_string_lossy() && event.event_type == event_type =>
+            {
+               return event;
+            }
+            Ok(_) => continue,
+            Err(RecvTimeoutError::Timeout) => {
+               panic!(
+                  "timed out waiting for {event_type:?} at {}",
+                  path.display()
+               )
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+               panic!("file watcher event channel disconnected")
+            }
+         }
+      }
+   }
+
    #[test]
    fn exact_nested_pom_watch_emits_reload_without_registration_event() {
       let directory = TestDirectory::new();
@@ -381,14 +422,6 @@ mod tests {
       fs::create_dir_all(&module_directory).expect("module directory should be created");
       let pom_path = module_directory.join("pom.xml");
       fs::write(&pom_path, "<project/>").expect("initial POM should be written");
-      // This watcher deliberately filters equal mtimes. Give the fixture an
-      // explicit baseline rather than depending on the host clock advancing.
-      fs::File::options()
-         .write(true)
-         .open(&pom_path)
-         .unwrap()
-         .set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(60))
-         .unwrap();
       let (sender, receiver) = mpsc::channel();
       let watcher = FileWatcher::new(Arc::new(ChannelEmitter(sender)));
 
@@ -401,5 +434,42 @@ mod tests {
          .expect("updated POM should be written");
       let event = receive_reload(&receiver, &pom_path);
       assert!(matches!(event.event_type, FileChangeType::Reloaded));
+   }
+
+   #[test]
+   fn project_root_watch_observes_files_created_in_nested_directories() {
+      let directory = TestDirectory::new();
+      let nested_directory = directory.0.join("src").join("feature");
+      fs::create_dir_all(&nested_directory).expect("nested directory should be created");
+      let (sender, receiver) = mpsc::channel();
+      let watcher = FileWatcher::new(Arc::new(ChannelEmitter(sender)));
+
+      watcher
+         .watch_path_with_mode(directory.0.to_string_lossy().to_string(), true, true)
+         .expect("project root should be watched recursively");
+      let _registration = receive_change(&receiver, &directory.0, FileChangeType::Opened);
+
+      let nested_file = nested_directory.join("created-outside-lithe.txt");
+      fs::write(&nested_file, "created").expect("nested file should be written");
+
+      let event = receive_change(&receiver, &nested_file, FileChangeType::Opened);
+      assert_eq!(event.event_type, FileChangeType::Opened);
+   }
+
+   #[test]
+   fn paired_rename_preserves_old_and_new_paths() {
+      let old_path = PathBuf::from("C:/workspace/src/old.rs");
+      let new_path = PathBuf::from("C:/workspace/src/new.rs");
+      let event = Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
+         .add_path(old_path.clone())
+         .add_path(new_path.clone());
+
+      assert_eq!(
+         FileWatcher::classify_event(&event),
+         vec![
+            (old_path, FileChangeType::Deleted),
+            (new_path, FileChangeType::Opened),
+         ]
+      );
    }
 }

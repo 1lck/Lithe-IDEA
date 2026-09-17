@@ -482,7 +482,13 @@ const initializeLocalWorkspaceInBackground = (
 
       const watcherStartedAt = performance.now();
       logWorkspaceOpenStep("start", "setProjectRoot", path);
-      await useFileWatcherStore.getStore(workspaceId).getState().actions.setProjectRoot(path);
+      const watcherActions = useFileWatcherStore.getStore(workspaceId).getState().actions;
+      await watcherActions.setProjectRoot(path);
+      for (const workspaceRoot of getWorkspaceFolderPaths(get)) {
+        if (workspaceRoot !== path) {
+          await watcherActions.startWatching(workspaceRoot);
+        }
+      }
       logWorkspaceOpenStep("end", "setProjectRoot", path, watcherStartedAt);
 
       await waitForWorkspaceIdle();
@@ -1327,6 +1333,10 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             state.isFileTreeLoading = false;
             state.projectFilesCache = undefined;
           });
+          void useFileWatcherStore
+            .getStore(workspaceId)
+            .getState()
+            .actions.startWatching(selectedPath);
           void syncFffWorkspace(get);
 
           const fileTreeStore = useFileTreeStore.getStore(workspaceId);
@@ -1383,6 +1393,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           state.filesVersion++;
           state.projectFilesCache = undefined;
         });
+        void useFileWatcherStore.getStore(workspaceId).getState().actions.stopWatching(folder.path);
         void syncFffWorkspace(get);
 
         useFileTreeStore.getStore(workspaceId).getState().actions.collapsePath(folder.path);

@@ -20,7 +20,9 @@ export function scheduleFileWatcherRefresh(
     refreshKey,
     setTimeout(() => {
       pendingRefreshes.delete(refreshKey);
-      void refresh();
+      void Promise.resolve(refresh()).catch((error) => {
+        console.error("Failed to refresh a directory after a file watcher event:", error);
+      });
     }, REFRESH_DEBOUNCE_MS),
   );
 }
