@@ -128,13 +128,19 @@ describe("file watcher lifecycle", () => {
         return undefined;
       },
     );
+    const consoleError = spyOn(console, "error").mockImplementation(() => undefined);
     const store = createFileWatcherStore("workspace", invokeCommand as FileWatcherInvoke);
-    await store.getState().actions.setProjectRoot("D:/work");
 
-    expect(await store.getState().actions.setProjectRoot("")).toBe(false);
-    expect(store.getState().projectRoot).toBe("D:/work");
+    try {
+      await store.getState().actions.setProjectRoot("D:/work");
 
-    expect(await store.getState().actions.setProjectRoot("")).toBe(true);
-    expect(store.getState().projectRoot).toBe("");
+      expect(await store.getState().actions.setProjectRoot("")).toBe(false);
+      expect(store.getState().projectRoot).toBe("D:/work");
+
+      expect(await store.getState().actions.setProjectRoot("")).toBe(true);
+      expect(store.getState().projectRoot).toBe("");
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 });

@@ -16,6 +16,8 @@ use std::{
    time::Duration,
 };
 
+const MAX_DEBOUNCED_EVENTS_PER_BATCH: usize = 512;
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct FileChangeEvent {
    pub path: String,
@@ -135,6 +137,15 @@ impl FileWatcher {
       watched_directories: &Arc<Mutex<HashSet<PathBuf>>>,
    ) {
       if events.iter().any(|event| event.need_rescan()) {
+         Self::emit_rescans(emitter, watched_directories);
+         return;
+      }
+
+      if events.len() > MAX_DEBOUNCED_EVENTS_PER_BATCH {
+         log::warn!(
+            "[FileWatcher] Collapsing {} debounced events into a bounded rescan",
+            events.len()
+         );
          Self::emit_rescans(emitter, watched_directories);
          return;
       }
@@ -471,5 +482,39 @@ mod tests {
             (new_path, FileChangeType::Opened),
          ]
       );
+   }
+
+   #[test]
+   fn oversized_event_batch_collapses_to_a_rescan() {
+      let root = PathBuf::from("C:/workspace");
+      let events = (0..=MAX_DEBOUNCED_EVENTS_PER_BATCH)
+         .map(|index| {
+            DebouncedEvent::new(
+               Event::new(EventKind::Create(notify::event::CreateKind::File))
+                  .add_path(root.join(format!("generated-{index}.txt"))),
+               Instant::now(),
+            )
+         })
+         .collect();
+      let (sender, receiver) = mpsc::channel();
+      let emitter = ChannelEmitter(sender);
+      let watched_paths = Arc::new(Mutex::new(HashSet::from([root.clone()])));
+      let watched_directories = Arc::new(Mutex::new(HashSet::from([root.clone()])));
+
+      FileWatcher::handle_events(
+         events,
+         &emitter,
+         &watched_paths,
+         &watched_directories,
+      );
+
+      assert_eq!(
+         receiver.try_recv().expect("rescan event should be emitted"),
+         FileChangeEvent {
+            path: root.to_string_lossy().to_string(),
+            event_type: FileChangeType::Rescan,
+         }
+      );
+      assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
    }
 }

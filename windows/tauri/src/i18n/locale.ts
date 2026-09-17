@@ -249,6 +249,8 @@ const catalogs = {
     "fileSystem.addFolderToWorkspaceFailed": "Failed to add folder to workspace: {path}",
     "fileSystem.primaryFolderCannotBeRemoved": "Primary workspace folder cannot be removed.",
     "fileSystem.folderRemovedFromWorkspace": 'Removed "{name}" from workspace.',
+    "fileSystem.removeFolderFromWorkspaceFailed":
+      'Could not remove "{name}" because its file watcher could not be stopped.',
     "fileSystem.revealLocalOnly": "Reveal in folder is only available for local workspaces.",
     "fileSystem.openRemoteProjectFailed": "Failed to open remote project.",
     "fileSystem.switchProjectFailed": "Failed to switch project.",
@@ -4634,6 +4636,8 @@ const catalogs = {
     "fileSystem.addFolderToWorkspaceFailed": "添加文件夹到工作区失败：{path}",
     "fileSystem.primaryFolderCannotBeRemoved": "无法移除主工作区文件夹。",
     "fileSystem.folderRemovedFromWorkspace": "已从工作区移除“{name}”。",
+    "fileSystem.removeFolderFromWorkspaceFailed":
+      "无法移除“{name}”，因为未能停止其文件监听。",
     "fileSystem.revealLocalOnly": "在文件夹中显示仅适用于本地工作区。",
     "fileSystem.openRemoteProjectFailed": "打开远程项目失败。",
     "fileSystem.switchProjectFailed": "切换项目失败。",

@@ -7,6 +7,8 @@
 Windows 为已打开本地文档监听父目录，子项目源码不再依赖项目根目录的通知。
 两端保存前都核对磁盘实际内容；外部变更未解决时保留编辑内容并阻止写入。
 监听负责及时刷新，保存校验负责在通知遗漏时保护文件，两者不能互相替代。
+Windows 文件树另外递归监听工作区根；事件过多或系统报告丢失时改为有界重扫，
+不能让构建产物洪峰无限扩大前端刷新队列。
 
 ## 问题
 
@@ -35,6 +37,13 @@ macOS 文档观察端口覆盖项目文档和独立文件，普通事件只核�
 父目录删除或替换只影响其下的文档。事件丢失、监听根变化或应用激活时才核对
 全部打开文档，避免构建产物变化反复读取所有正文。Maven、文件树和 Git 继续
 使用各自监听。
+
+后续 [Issue #686](https://github.com/1lck/Lithe-IDEA/issues/686) 要求文件树也能
+跟随外部删除和重命名。Windows 项目根因此使用递归 `notify` watcher，并用
+`notify-debouncer-full` 保留创建、删除、修改和成对重命名语义。单批原生事件
+超过 512 条时不再逐条跨 Tauri 边界发送，而是要求工作区重扫；前端每个工作区根
+最多累计 128 个待刷新目录，超过后同样降级为根目录和已展开目录重扫。这里的
+重扫只恢复文件树一致性，打开文档仍由文档 watcher 和保存前校验负责。
 
 搜索结果中的临时预览文档也纳入同一个文档观察集合，重新打开预览时可等待
 异步核对；预览晋升为标签页后继续保留同一正文与磁盘基线。关闭预览取消其
@@ -111,8 +120,9 @@ I/O 失败和冲突不自动重试。关闭文档、关闭自动保存或请求�
 
 ## 考虑过的备选方案
 
-- 全项目递归监听能改善未打开文件的索引，但资源和事件量随整个项目增长，
-  也无法解决漏通知后的覆盖。本次只保证打开的文档，不扩大索引改造。
+- 无界的全项目递归监听会让资源和事件量随整个项目增长，也无法解决漏通知后的
+  覆盖。文件树后来需要递归监听，因此采用批量上限和重扫降级；打开文档仍不能
+  依赖项目 watcher。
 - 单文件句柄监听在替换式保存后可能继续关联旧对象；只在激活时核对又不够及时。
   因此采用父目录观察加激活恢复。
 - 时间戳、长度或保存后短暂忽略都不能判断真实内容；跨程序强制加锁则破坏协作，
@@ -146,8 +156,8 @@ Windows 使用 `./scripts/build-windows.ps1 -Configuration Release`，以及
 `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1`；原生测试覆盖
 替换通知、多窗口释放、提交前变化与暂存清理，前端测试覆盖注册代次、保存延后
 核对和冲突选择。连续打断后的调度、保存等待和关闭取消使用手动调度器验证，
-不依赖真实计时器。POM 监听测试设定固定初始修改时间，不依赖主机时钟推进。
-原生监听测试有五秒截止时间，不使用睡眠来猜事件顺序。
+不依赖真实计时器。项目 watcher 测试直接验证原生事件类型、递归创建和洪峰重扫；
+真实原生监听测试有五秒截止时间，不使用睡眠来猜事件顺序。
 关闭确认自动收起、旧确认迟到、保存中取消、项目关闭时新增输入和自动保存任务
 交替使用有界测试门控制顺序。Windows CI 显式运行文档监听控制器测试，并在
 WindowsRust 范围单独运行 `lithe-project`；只运行宿主不会执行依赖包内的测试。
@@ -160,8 +170,11 @@ WindowsRust 范围单独运行 `lithe-project`；只运行宿主不会执行依�
 
 - `windows/tauri/crates/project/src/document_file.rs`
 - `windows/tauri/crates/project/src/document_watcher.rs`
+- `windows/tauri/crates/project/src/lib.rs`
 - `windows/tauri/src-tauri/src/document.rs`
 - `windows/tauri/src/features/editor/`
+- `windows/tauri/src/features/file-system/services/file-watcher-listener.ts`
+- `windows/tauri/src/features/file-system/stores/file-watcher.store.ts`
 - `macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift`
 - `macos/Sources/Lithe/Platform/MacOS/FileWatching/MacDocumentObservation.swift`
 - `macos/Sources/Lithe/Platform/MacOS/FileSystem/MacWorkspaceFileOperations.swift`

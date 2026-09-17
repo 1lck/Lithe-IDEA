@@ -483,11 +483,15 @@ const initializeLocalWorkspaceInBackground = (
       const watcherStartedAt = performance.now();
       logWorkspaceOpenStep("start", "setProjectRoot", path);
       const watcherActions = useFileWatcherStore.getStore(workspaceId).getState().actions;
-      await watcherActions.setProjectRoot(path);
-      for (const workspaceRoot of getWorkspaceFolderPaths(get)) {
-        if (workspaceRoot !== path) {
-          await watcherActions.startWatching(workspaceRoot);
+      const projectRootWatched = await watcherActions.setProjectRoot(path);
+      if (projectRootWatched) {
+        for (const workspaceRoot of getWorkspaceFolderPaths(get)) {
+          if (workspaceRoot !== path && !(await watcherActions.startWatching(workspaceRoot))) {
+            console.error("Failed to watch an additional workspace folder");
+          }
         }
+      } else {
+        console.error("Failed to watch the project root");
       }
       logWorkspaceOpenStep("end", "setProjectRoot", path, watcherStartedAt);
 
@@ -1325,6 +1329,13 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             ...workspaceFolders,
             { path: selectedPath, name: rootEntry.name },
           ]);
+          const watcherStarted = await useFileWatcherStore
+            .getStore(workspaceId)
+            .getState()
+            .actions.startWatching(selectedPath);
+          if (!watcherStarted) {
+            throw new Error("Could not watch the additional workspace folder");
+          }
 
           set((state) => {
             state.files = [...state.files, rootEntry];
@@ -1333,10 +1344,6 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             state.isFileTreeLoading = false;
             state.projectFilesCache = undefined;
           });
-          void useFileWatcherStore
-            .getStore(workspaceId)
-            .getState()
-            .actions.startWatching(selectedPath);
           void syncFffWorkspace(get);
 
           const fileTreeStore = useFileTreeStore.getStore(workspaceId);
@@ -1385,6 +1392,19 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           return false;
         }
 
+        const watcherStopped = await useFileWatcherStore
+          .getStore(workspaceId)
+          .getState()
+          .actions.stopWatching(folder.path);
+        if (!watcherStopped) {
+          toast.error(
+            getCurrentTranslator()("fileSystem.removeFolderFromWorkspaceFailed", {
+              name: folder.name,
+            }),
+          );
+          return false;
+        }
+
         set((state) => {
           state.files = state.files.filter((file) => file.path !== folder.path);
           state.workspaceFolders = workspaceFolders.filter(
@@ -1393,7 +1413,6 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           state.filesVersion++;
           state.projectFilesCache = undefined;
         });
-        void useFileWatcherStore.getStore(workspaceId).getState().actions.stopWatching(folder.path);
         void syncFffWorkspace(get);
 
         useFileTreeStore.getStore(workspaceId).getState().actions.collapsePath(folder.path);

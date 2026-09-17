@@ -15,12 +15,22 @@ import {
   scheduleJavaWorkspaceChange,
 } from "@/features/editor/lsp/java-workspace-change-scheduler";
 
+type FileChangeType = "opened" | "reloaded" | "deleted" | "rescan";
+
 interface FileChangeEvent {
   path: string;
-  event_type: "opened" | "reloaded" | "deleted" | "rescan";
+  event_type: FileChangeType;
 }
 
 let unlistenFileChanged: UnlistenFn | null = null;
+const MAX_PENDING_REFRESH_DIRECTORIES = 128;
+
+export interface PendingWorkspaceRefresh {
+  directories: Set<string>;
+  fullRescan: boolean;
+}
+
+const pendingWorkspaceRefreshes = new Map<string, PendingWorkspaceRefresh>();
 
 export function getMavenPomChangePath(
   path: string,
@@ -51,33 +61,78 @@ export function getWorkspaceRootForChange(
   );
 }
 
-function scheduleDirectoryRefresh(workspaceId: string, directoryPath: string) {
-  scheduleFileWatcherRefresh(workspaceId, directoryPath, async () => {
-    if (!workspaceRuntimeRegistry.hasWorkspace(workspaceId)) {
-      return;
-    }
-
-    await useFileSystemStore
-      .getStore(workspaceId)
-      .getState()
-      .refreshDirectory(directoryPath, { force: true });
-  });
+export function getFileTreeRefreshRequest(
+  eventType: FileChangeType,
+  workspaceRoot: string,
+  parentDirectory?: string,
+): { fullRescan: boolean; directoryPath?: string } | null {
+  if (eventType === "rescan") return { fullRescan: true };
+  if (eventType !== "opened" && eventType !== "deleted") return null;
+  if (!parentDirectory || !pathStartsWithRoot(parentDirectory, workspaceRoot)) {
+    return { fullRescan: true };
+  }
+  return { fullRescan: false, directoryPath: parentDirectory };
 }
 
-function scheduleWorkspaceRescan(workspaceId: string, workspaceRoot: string) {
-  scheduleFileWatcherRefresh(workspaceId, `rescan:${workspaceRoot}`, async () => {
+export function updatePendingWorkspaceRefresh(
+  pending: PendingWorkspaceRefresh,
+  workspaceRoot: string,
+  directoryPath?: string,
+  maxDirectories = MAX_PENDING_REFRESH_DIRECTORIES,
+): void {
+  if (!directoryPath || !pathStartsWithRoot(directoryPath, workspaceRoot)) {
+    pending.fullRescan = true;
+    pending.directories.clear();
+    return;
+  }
+  if (pending.fullRescan) return;
+
+  pending.directories.add(directoryPath);
+  if (pending.directories.size > maxDirectories) {
+    pending.fullRescan = true;
+    pending.directories.clear();
+  }
+}
+
+function workspaceRefreshKey(workspaceId: string, workspaceRoot: string): string {
+  return `${workspaceId}\0${workspaceRoot}`;
+}
+
+function scheduleWorkspaceRefresh(
+  workspaceId: string,
+  workspaceRoot: string,
+  directoryPath?: string,
+) {
+  const key = workspaceRefreshKey(workspaceId, workspaceRoot);
+  const pending = pendingWorkspaceRefreshes.get(key) ?? {
+    directories: new Set<string>(),
+    fullRescan: false,
+  };
+  updatePendingWorkspaceRefresh(pending, workspaceRoot, directoryPath);
+  pendingWorkspaceRefreshes.set(key, pending);
+
+  scheduleFileWatcherRefresh(workspaceId, `workspace:${workspaceRoot}`, async () => {
+    const refresh = pendingWorkspaceRefreshes.get(key);
+    pendingWorkspaceRefreshes.delete(key);
     if (!workspaceRuntimeRegistry.hasWorkspace(workspaceId)) {
       return;
     }
 
     const refreshDirectory = useFileSystemStore.getStore(workspaceId).getState().refreshDirectory;
-    const expandedPaths = [
-      ...useFileTreeStore.getStore(workspaceId).getState().actions.getExpandedPaths(),
-    ].filter((path) => pathStartsWithRoot(path, workspaceRoot));
-    const directories = [...new Set([workspaceRoot, ...expandedPaths])].sort(
+    const directories = new Set(refresh?.directories ?? []);
+    if (refresh?.fullRescan) {
+      directories.add(workspaceRoot);
+      for (const path of useFileTreeStore
+        .getStore(workspaceId)
+        .getState()
+        .actions.getExpandedPaths()) {
+        if (pathStartsWithRoot(path, workspaceRoot)) directories.add(path);
+      }
+    }
+    const orderedDirectories = [...directories].sort(
       (left, right) => left.length - right.length,
     );
-    for (const directoryPath of directories) {
+    for (const directoryPath of orderedDirectories) {
       await refreshDirectory(directoryPath, { force: true });
     }
   });
@@ -100,7 +155,8 @@ export async function initializeFileWatcherListener() {
     if (!rootFolderPath || !workspaceRoot) return;
 
     if (event_type === "rescan") {
-      scheduleWorkspaceRescan(workspaceId, workspaceRoot);
+      const refreshRequest = getFileTreeRefreshRequest(event_type, workspaceRoot);
+      if (refreshRequest) scheduleWorkspaceRefresh(workspaceId, workspaceRoot);
       return;
     }
 
@@ -123,8 +179,13 @@ export async function initializeFileWatcherListener() {
       });
     }
 
-    if (event_type === "deleted" || event_type === "opened") {
-      scheduleDirectoryRefresh(workspaceId, parentDirectory);
+    const refreshRequest = getFileTreeRefreshRequest(event_type, workspaceRoot, parentDirectory);
+    if (refreshRequest) {
+      scheduleWorkspaceRefresh(
+        workspaceId,
+        workspaceRoot,
+        refreshRequest.fullRescan ? undefined : refreshRequest.directoryPath,
+      );
       return;
     }
   });
@@ -133,6 +194,7 @@ export async function initializeFileWatcherListener() {
 export async function cleanupFileWatcherListener() {
   await cleanupDocumentWatches();
   cancelFileWatcherRefreshes();
+  pendingWorkspaceRefreshes.clear();
   cancelJavaWorkspaceChanges();
 
   if (!unlistenFileChanged) {
