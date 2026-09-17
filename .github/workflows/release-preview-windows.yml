@@ -116,7 +116,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: .artifacts/bun-cache
-          key: lithe-${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-v2-${{ hashFiles('windows/tauri/bun.lock') }}
+          key: lithe-${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-v2-${{ hashFiles('bun.lock') }}
           restore-keys: |
             lithe-${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-v2-
 

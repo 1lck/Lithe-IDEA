@@ -8,6 +8,8 @@ final class PrimaryProjectWindowSessions: ProjectWindowSessionHandling {
         self.manager = manager
     }
 
+    var closingDocuments: [EditorDocument] { manager.primarySessions.flatMap { $0.documentFeature.editorDocuments } }
+
     var hasUnsavedDocuments: Bool {
         manager.primarySessions.contains(where: \.hasUnsavedDocuments)
     }
@@ -90,6 +92,8 @@ final class DedicatedProjectWindowSessions: ProjectWindowSessionHandling {
     private var activeModel: AppModel {
         manager.activeModel(in: scope)
     }
+
+    var closingDocuments: [EditorDocument] { scopedSessions.flatMap { $0.documentFeature.editorDocuments } }
 
     var hasUnsavedDocuments: Bool {
         scopedSessions.contains(where: \.hasUnsavedDocuments)

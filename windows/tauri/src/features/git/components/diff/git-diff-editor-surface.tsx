@@ -1,12 +1,8 @@
-import CodeEditor from "@/features/editor/components/code-editor";
 import type { BreadcrumbProps } from "@/features/editor/components/toolbar/breadcrumb";
-import { useDiffEditorBuffer } from "../../hooks/use-diff-editor-buffer";
-import {
-  serializeGitDiffForEditor,
-  serializeMultiFileDiffForEditor,
-} from "../../utils/diff-editor-content";
 import type { MultiFileDiff } from "../../types/git-diff.types";
 import type { GitDiff } from "../../types/git.types";
+import MonacoGitDiff from "./monaco-git-diff";
+import GitDiffEditorStack from "./git-diff-editor-stack";
 
 interface GitDiffEditorSurfaceProps {
   cacheKey: string;
@@ -17,38 +13,15 @@ interface GitDiffEditorSurfaceProps {
   readOnly?: boolean;
 }
 
-const GitDiffEditorSurface = ({
-  cacheKey,
-  diff,
-  multiDiff,
-  title,
-  breadcrumbProps,
-  readOnly = false,
-}: GitDiffEditorSurfaceProps) => {
-  const sourcePath = diff?.new_path || diff?.old_path || diff?.file_path || title || "Diff";
-  const editorContent = diff
-    ? serializeGitDiffForEditor(diff)
-    : multiDiff
-      ? serializeMultiFileDiffForEditor(multiDiff)
-      : "";
-  const bufferId = useDiffEditorBuffer({
-    cacheKey,
-    content: editorContent,
-    sourcePath,
-    name: title || sourcePath.split("/").pop() || "Diff",
-  });
-
-  return (
-    <div className="min-h-0 flex-1 overflow-hidden bg-background">
-      <CodeEditor
-        bufferId={bufferId}
-        isActiveSurface={true}
-        showToolbar={true}
-        readOnly={readOnly}
-        breadcrumbProps={breadcrumbProps}
-      />
+export default function GitDiffEditorSurface({ diff, multiDiff, title }: GitDiffEditorSurfaceProps) {
+  if (multiDiff) return <GitDiffEditorStack multiDiff={multiDiff} />;
+  if (!diff) return null;
+  return <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+    <div className="border-border border-b px-3 py-2 text-xs text-text-lighter">
+      {title || diff.new_path || diff.old_path || diff.file_path}
     </div>
-  );
-};
-
-export default GitDiffEditorSurface;
+    <div className="min-h-0 flex-1">
+      <MonacoGitDiff diff={diff} viewMode={diff.is_new || diff.is_deleted ? "unified" : "split"} />
+    </div>
+  </div>;
+}

@@ -349,10 +349,17 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     package func refreshCurrent() async {
-        guard let workspaceURL, !isLoadingWorkspace, !isRefreshingWorkspace else { return }
+        guard workspaceURL != nil, !isLoadingWorkspace, !isRefreshingWorkspace else { return }
         refreshTask?.cancel()
         pendingExternalPaths.removeAll()
         externalRefreshGeneration += 1
+        await refreshCurrentSnapshot()
+    }
+
+    /// Watcher-driven refreshes must not cancel the task that is applying their
+    /// batch: cancellation would also abort Git context discovery during rebuild.
+    private func refreshCurrentSnapshot() async {
+        guard let workspaceURL, !isLoadingWorkspace, !isRefreshingWorkspace else { return }
         let generation = workspaceGeneration
         _ = await rebuild(
             at: workspaceURL,
@@ -959,7 +966,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             return fileOperations.isDirectory(at: url) || !wasKnownFile
         }
         if requiresWorkspaceSnapshot {
-            await refreshCurrent()
+            await refreshCurrentSnapshot()
             return
         }
         await updateSearchIndex(

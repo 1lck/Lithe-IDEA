@@ -8,7 +8,7 @@ $package = Get-Content -Raw -LiteralPath (Join-Path $windowsApp "package.json") 
 $expectedVersion = ([string]$package.packageManager) -replace '^bun@', ''
 $bunCache = [System.IO.Path]::GetFullPath((Join-Path $root ".artifacts/bun-cache"))
 $bunTemp = [System.IO.Path]::GetFullPath((Join-Path $root ".artifacts/bun-tmp"))
-$nodeModules = [System.IO.Path]::GetFullPath((Join-Path $windowsApp "node_modules"))
+$dependencyPaths = @("node_modules", "windows/tauri/node_modules", "frontend/editor/node_modules") | ForEach-Object { Join-Path $root $_ }
 
 function Write-CacheWarning {
     param([string]$Message, [string]$Title = "Bun cache fallback")
@@ -56,7 +56,7 @@ if ($LASTEXITCODE -ne 0 -or $actualVersion -ne $expectedVersion) {
     throw "Bun $expectedVersion is required, but $actualVersion is active."
 }
 
-Push-Location $windowsApp
+Push-Location $root
 try {
     & bun install --frozen-lockfile
     if ($LASTEXITCODE -ne 0) {
@@ -67,7 +67,9 @@ try {
         }
         if (Test-Path -LiteralPath $bunCache) { Remove-Item -Recurse -Force -LiteralPath $bunCache }
         if (Test-Path -LiteralPath $bunTemp) { Remove-Item -Recurse -Force -LiteralPath $bunTemp }
-        if (Test-Path -LiteralPath $nodeModules) { Remove-Item -Recurse -Force -LiteralPath $nodeModules }
+        foreach ($dependencyPath in $dependencyPaths) {
+            if (Test-Path -LiteralPath $dependencyPath) { Remove-Item -Recurse -Force -LiteralPath $dependencyPath }
+        }
         New-Item -ItemType Directory -Force -Path $bunCache, $bunTemp | Out-Null
         & bun install --frozen-lockfile --no-cache
         if ($LASTEXITCODE -ne 0) {
@@ -84,7 +86,7 @@ try {
                 --cargo-lock (Join-Path $root "rust/Cargo.lock") `
                 --cargo-lock (Join-Path $root "windows/tauri/src-tauri/Cargo.lock") `
                 --bun-version $expectedVersion `
-                --bun-lock (Join-Path $windowsApp "bun.lock") `
+                --bun-lock (Join-Path $root "bun.lock") `
                 --bun-cache $bunCache `
                 --write-bun-manifest
             $cacheSealed = $LASTEXITCODE -eq 0

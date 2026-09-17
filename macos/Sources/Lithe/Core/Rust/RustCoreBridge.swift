@@ -753,6 +753,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         struct Item: Decodable, Sendable {
             let label: String
             let insertText: String
+            let insertTextFormat: Int?
             let kind: Int?
             let detail: String?
             let documentation: String?
@@ -773,7 +774,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                     kind: kind,
                     textEdit: textEdit?.makeModel(),
                     additionalTextEdits: additionalTextEdits?.map { $0.makeModel() } ?? [],
-                    data: data
+                    data: data,
+                    insertTextFormat: insertTextFormat ?? 1
                 )
             }
         }
@@ -1660,6 +1662,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let detail: String?
         let documentation: String?
         let insertText: String
+        let insertTextFormat: Int
         let sortText: String?
         let filterText: String?
         let kind: Int?
@@ -1798,7 +1801,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         }
         struct Position: Encodable {
             let line: Int
-            let character: Int
+            let utf16Column: Int
         }
         struct Range: Encodable {
             let start: LspSyncDocumentRequest.Position
@@ -3672,11 +3675,11 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                         range: .init(
                             start: LspSyncDocumentRequest.Position(
                                 line: change.start.line,
-                                character: change.start.utf16Column
+                                utf16Column: change.start.utf16Column
                             ),
                             end: LspSyncDocumentRequest.Position(
                                 line: change.end.line,
-                                character: change.end.utf16Column
+                                utf16Column: change.end.utf16Column
                             )
                         ),
                         text: change.text
@@ -3853,6 +3856,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             detail: item.detail,
             documentation: item.documentation,
             insertText: item.insertText,
+            insertTextFormat: item.insertTextFormat,
             sortText: item.sortText,
             filterText: item.filterText,
             kind: item.kind,

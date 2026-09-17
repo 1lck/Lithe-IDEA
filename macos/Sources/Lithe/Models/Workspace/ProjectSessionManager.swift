@@ -85,6 +85,8 @@ final class ProjectSessionManager: ObservableObject {
         openProjects(in: .primary)
     }
 
+    var closingDocuments: [EditorDocument] { sessions.flatMap { $0.documentFeature.editorDocuments } }
+
     var hasUnsavedDocuments: Bool {
         sessions.contains(where: \.hasUnsavedDocuments)
     }

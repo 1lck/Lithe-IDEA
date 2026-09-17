@@ -13,6 +13,34 @@ Only load this Skill when the task actually reaches into the VM. Editing
 `windows/` source and running `verify-windows-boundaries.sh` on macOS needs
 nothing from here.
 
+## Own the VM lifecycle and shut it down after validation
+
+A running VM consumes substantial host CPU and memory even after a build or
+test process exits. Closing its window or stopping Cargo is not VM cleanup.
+
+- Before starting or resuming the VM, record its name and initial state with
+  `prlctl list -a`. Keep it stopped during host-only coding and inspection.
+- If this task starts or resumes the VM, shut it down when the Windows
+  validation session ends, fails, is cancelled, or is paused to resume coding.
+  Do not leave it running until the overall development task is complete or
+  merely because another Windows check may be needed later. The exception is
+  an explicit user request to keep it running, such as for manual testing.
+- First stop task-owned builds, tests, Lithe instances, JDTLS, and helper
+  processes, and collect needed logs. Then request a normal guest shutdown:
+
+  ```bash
+  prlctl stop "<vm-name>"
+  prlctl list -a
+  ```
+
+- Wait for the shutdown operation and confirm the VM reports `stopped` before
+  reporting cleanup complete. Use bounded observation; if shutdown fails or
+  stalls, inspect and report the remaining state. Do not silently claim success
+  or force-kill the VM and risk guest data loss.
+- If the VM was already running for the user before this task, clean up only
+  task-owned processes and preserve that initial state unless the user asks
+  for shutdown. Record any VM intentionally left running and why.
+
 ## Reach the VM through prlctl, not SSH
 
 `prlctl` is the only reliable channel. SSH into the guest requires an

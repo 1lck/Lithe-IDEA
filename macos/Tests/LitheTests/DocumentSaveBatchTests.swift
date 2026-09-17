@@ -4,6 +4,7 @@ import Testing
 @MainActor
 struct DocumentSaveBatchTests {
     private final class Owner: UnsavedDocumentHandling {
+        var closingDocuments: [EditorDocument] { [] }
         var hasUnsavedDocuments = true
         var unsavedDocumentNames: [String] { hasUnsavedDocuments ? ["fixture.txt"] : [] }
         var onSave: (() async -> Bool)?

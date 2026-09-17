@@ -45,7 +45,7 @@ extension AppModel {
 
     func hideFindBar() {
         editorChrome.resetFindBar()
-        NotificationCenter.default.post(name: .litheFindDismiss, object: nil)
+        NotificationCenter.default.post(name: .litheFindDismiss, object: self)
     }
 
     func toggleFindBar() {
@@ -74,7 +74,7 @@ extension AppModel {
         let options = editorChrome.findOptions
         NotificationCenter.default.post(
             name: .litheFindQueryChanged,
-            object: nil,
+            object: self,
             userInfo: [
                 FindNotificationKeys.query: editorChrome.findBarQuery,
                 FindNotificationKeys.matchCase: options.matchCase,
@@ -87,17 +87,17 @@ extension AppModel {
     func navigateFind(offset: Int) {
         NotificationCenter.default.post(
             name: .litheFindNavigate,
-            object: nil,
+            object: self,
             userInfo: [FindNotificationKeys.direction: offset]
         )
     }
 
     func replaceNextFindMatch() {
-        guard let documentID = activeDocument?.id else { return }
+        guard let documentID = (focusedEditorDocument ?? activeDocument)?.id else { return }
         // 携带目标文档标识：分栏时只有绑定同一文档的编辑器执行替换
         NotificationCenter.default.post(
             name: .litheFindReplaceNext,
-            object: nil,
+            object: self,
             userInfo: [
                 FindNotificationKeys.documentID: documentID,
                 FindNotificationKeys.replacement: editorChrome.findReplaceText
@@ -106,10 +106,10 @@ extension AppModel {
     }
 
     func replaceAllFindMatches() {
-        guard let documentID = activeDocument?.id else { return }
+        guard let documentID = (focusedEditorDocument ?? activeDocument)?.id else { return }
         NotificationCenter.default.post(
             name: .litheFindReplaceAll,
-            object: nil,
+            object: self,
             userInfo: [
                 FindNotificationKeys.documentID: documentID,
                 FindNotificationKeys.replacement: editorChrome.findReplaceText

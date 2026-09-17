@@ -40,6 +40,8 @@ enum MarkdownImageFormat: String, CaseIterable, Sendable {
 }
 
 enum MarkdownImageSource: Sendable {
+    static let maximumByteCount = 100 * 1_024 * 1_024
+
     case encoded(data: Data, format: MarkdownImageFormat, suggestedName: String?)
     case file(url: URL, format: MarkdownImageFormat)
 }

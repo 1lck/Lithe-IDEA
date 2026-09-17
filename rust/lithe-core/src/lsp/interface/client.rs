@@ -58,6 +58,15 @@ pub fn client_initialize(request: ClientInitializeRequest) -> Result<LspClientRe
                     "rename": { "dynamicRegistration": true },
                     "formatting": { "dynamicRegistration": true },
                     "inlayHint": { "dynamicRegistration": true },
+                    "semanticTokens": {
+                        "dynamicRegistration": true,
+                        "requests": { "full": true, "range": false },
+                        "tokenTypes": ["namespace", "type", "class", "enum", "interface", "struct", "typeParameter", "parameter", "variable", "property", "enumMember", "event", "function", "method", "macro", "keyword", "modifier", "comment", "string", "number", "regexp", "operator", "decorator"],
+                        "tokenModifiers": ["declaration", "definition", "readonly", "static", "deprecated", "abstract", "async", "modification", "documentation", "defaultLibrary"],
+                        "formats": ["relative"],
+                        "overlappingTokenSupport": false,
+                        "multilineTokenSupport": false
+                    },
                     "foldingRange": {
                         "dynamicRegistration": true,
                         "lineFoldingOnly": false,
@@ -88,7 +97,7 @@ pub fn client_initialize(request: ClientInitializeRequest) -> Result<LspClientRe
                         }
                     }
                 },
-                "workspace": {
+                "workspace": { "semanticTokens": { "refreshSupport": true },
                     "applyEdit": true,
                     "configuration": true,
                     "workspaceFolders": true,
@@ -378,6 +387,21 @@ pub fn client_apply_server_message(
                     responses.push(json_rpc_result(id, Value::Null)?);
                 }
             }
+            "workspace/semanticTokens/refresh" => {
+                if let Some(id) = request_id {
+                    responses.push(json_rpc_result(id, Value::Null)?);
+                }
+                events.push(LspClientEvent {
+                    kind: "semanticTokensRefresh".to_string(),
+                    request_id: None,
+                    method: Some(method.to_string()),
+                    uri: None,
+                    version: None,
+                    diagnostics: None,
+                    result: None,
+                    error: None,
+                });
+            }
             "workspace/configuration" => {
                 if let Some(id) = request_id {
                     let item_count = message
@@ -426,6 +450,16 @@ pub fn client_apply_server_message(
                 );
                 state.text_document_sync =
                     text_document_sync_kind(result.get("capabilities").unwrap_or(&Value::Null));
+                if let Some(options) = result
+                    .get("capabilities")
+                    .and_then(|c| c.get("semanticTokensProvider"))
+                {
+                    if semantic_token_legend(options).is_some() {
+                        state
+                            .semantic_token_providers
+                            .insert(String::new(), options.clone());
+                    }
+                }
                 state.initialized = true;
                 responses.push(json_rpc_notification("initialized", json!({}))?);
             }
@@ -434,13 +468,21 @@ pub fn client_apply_server_message(
             state.initialized = false;
             state.shutdown_requested = false;
             state.server_capabilities.clear();
+            state.semantic_token_providers.clear();
             state.text_document_sync = LspTextDocumentSyncKind::Full;
             state.open_documents.clear();
             state.diagnostics.clear();
             state.diagnostic_versions.clear();
             responses.push(json_rpc_message_without_params(None, "exit")?);
         }
-        let result = lsp_feature_result_for_method(pending.as_deref(), message.get("result"));
+        let result = if pending.as_deref() == Some("textDocument/semanticTokens/full") {
+            semantic_token_result(
+                state.pending_semantic_legends.remove(&id).as_ref(),
+                message.get("result"),
+            )
+        } else {
+            lsp_feature_result_for_method(pending.as_deref(), message.get("result"))
+        };
         events.push(LspClientEvent {
             kind: if message.get("error").is_some() {
                 "error".to_string()
@@ -474,6 +516,18 @@ fn client_response(
 
 fn allocate_request(state: &mut LspClientState, method: &str) -> String {
     let id = state.next_request_id.to_string();
+    if method == "textDocument/semanticTokens/full" {
+        if let Some(legend) = state
+            .semantic_token_providers
+            .values()
+            .rev()
+            .find_map(semantic_token_legend)
+        {
+            state
+                .pending_semantic_legends
+                .insert(id.clone(), legend.clone());
+        }
+    }
     state.next_request_id += 1;
     state
         .pending_requests
@@ -568,6 +622,7 @@ fn validate_lsp_method(method: &str) -> Result<(), CoreError> {
         | "textDocument/rename"
         | "textDocument/formatting"
         | "textDocument/inlayHint"
+        | "textDocument/semanticTokens/full"
         | "textDocument/foldingRange"
         | "textDocument/codeLens"
         | "textDocument/codeAction"
@@ -619,7 +674,9 @@ fn feature_request_params(request: &ClientFeatureRequest) -> Result<Value, CoreE
             "textDocument": text_document,
             "range": lsp_range_json(required_range(request)?)
         })),
-        "textDocument/foldingRange" | "textDocument/codeLens" => Ok(json!({
+        "textDocument/semanticTokens/full"
+        | "textDocument/foldingRange"
+        | "textDocument/codeLens" => Ok(json!({
             "textDocument": text_document
         })),
         "textDocument/codeAction" => Ok(json!({
@@ -891,6 +948,7 @@ fn parse_completion_item(item: &Value) -> Option<Value> {
     Some(json!({
         "label": label,
         "insertText": insert_text,
+        "insertTextFormat": item.get("insertTextFormat").and_then(Value::as_u64).unwrap_or(1),
         "kind": item.get("kind").and_then(Value::as_i64),
         "detail": item.get("detail").and_then(Value::as_str),
         "documentation": completion_documentation(item.get("documentation")),
@@ -1311,6 +1369,13 @@ fn feature_names_from_capabilities(capabilities: &Value) -> Vec<String> {
         "foldingRanges",
     );
     add_capability(&mut values, capabilities, "codeLensProvider", "codeLens");
+    if capabilities
+        .get("semanticTokensProvider")
+        .and_then(semantic_token_legend)
+        .is_some()
+    {
+        insert_unique(&mut values, "semanticTokens");
+    }
     add_capability(
         &mut values,
         capabilities,
@@ -1365,6 +1430,21 @@ fn apply_dynamic_registration(state: &mut LspClientState, message: &Value) {
         return;
     };
     for registration in registrations {
+        if registration.get("method").and_then(Value::as_str) == Some("textDocument/semanticTokens")
+        {
+            if let (Some(id), Some(options)) = (
+                registration.get("id").and_then(Value::as_str),
+                registration.get("registerOptions"),
+            ) {
+                if semantic_token_legend(options).is_some() {
+                    state
+                        .semantic_token_providers
+                        .insert(id.to_string(), options.clone());
+                    insert_unique(&mut state.server_capabilities, "semanticTokens");
+                }
+            }
+            continue;
+        }
         if let Some(feature) = registration
             .get("method")
             .and_then(Value::as_str)
@@ -1403,6 +1483,19 @@ fn apply_dynamic_unregistration(state: &mut LspClientState, message: &Value) {
         return;
     };
     for unregistration in unregistrations {
+        if unregistration.get("method").and_then(Value::as_str)
+            == Some("textDocument/semanticTokens")
+        {
+            if let Some(id) = unregistration.get("id").and_then(Value::as_str) {
+                state.semantic_token_providers.remove(id);
+            }
+            if state.semantic_token_providers.is_empty() {
+                state
+                    .server_capabilities
+                    .retain(|feature| feature != "semanticTokens");
+            }
+            continue;
+        }
         if let Some(feature) = unregistration
             .get("method")
             .and_then(Value::as_str)
@@ -1439,5 +1532,148 @@ fn feature_name_for_method(method: &str) -> Option<&'static str> {
 fn insert_unique(values: &mut Vec<String>, value: &str) {
     if !values.iter().any(|existing| existing == value) {
         values.push(value.to_string());
+    }
+}
+
+/// A range-only provider cannot serve the full-document operation offered here.
+fn semantic_token_legend(options: &Value) -> Option<&Value> {
+    let full = options.get("full")?;
+    if full != &Value::Bool(true) && !full.is_object() {
+        return None;
+    }
+    let legend = options.get("legend")?;
+    if !legend
+        .get("tokenTypes")?
+        .as_array()?
+        .iter()
+        .all(Value::is_string)
+        || !legend
+            .get("tokenModifiers")?
+            .as_array()?
+            .iter()
+            .all(Value::is_string)
+    {
+        return None;
+    }
+    Some(legend)
+}
+
+/// Decode relative UTF-16 positions once in Core. Both editors consume the
+/// same normalized tokens and the exact legend used by this server session.
+fn semantic_token_result(legend: Option<&Value>, result: Option<&Value>) -> Option<Value> {
+    let legend = legend?;
+    let empty = Vec::new();
+    let data = match result {
+        None | Some(Value::Null) => &empty,
+        Some(value) => value.get("data")?.as_array()?,
+    };
+    if data.len() % 5 != 0 {
+        return None;
+    }
+    let mut tokens = Vec::with_capacity(data.len() / 5);
+    let (mut line, mut column) = (0_u64, 0_u64);
+    for chunk in data.chunks_exact(5) {
+        let numbers: Vec<u64> = chunk.iter().map(Value::as_u64).collect::<Option<_>>()?;
+        if numbers.iter().any(|value| *value > u32::MAX as u64) {
+            return None;
+        }
+        line = line.checked_add(numbers[0])?;
+        column = if numbers[0] == 0 {
+            column.checked_add(numbers[1])?
+        } else {
+            numbers[1]
+        };
+        if line > u32::MAX as u64
+            || column > u32::MAX as u64
+            || numbers[2] == 0
+            || numbers[3] >= legend["tokenTypes"].as_array()?.len() as u64
+        {
+            return None;
+        }
+        tokens.push(json!({"line": line, "startChar": column, "length": numbers[2], "tokenType": numbers[3], "tokenModifiers": numbers[4]}));
+    }
+    Some(
+        json!({"tokenTypes": legend["tokenTypes"], "tokenModifiers": legend["tokenModifiers"], "tokens": tokens}),
+    )
+}
+
+#[cfg(test)]
+mod semantic_tests {
+    use super::*;
+
+    fn options() -> Value {
+        json!({"full": true, "legend": {"tokenTypes": ["class", "method"], "tokenModifiers": ["declaration"]}})
+    }
+
+    #[test]
+    fn semantic_tokens_decode_relative_utf16_positions_and_reject_malformed_data() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../../shared/fixtures/lsp/semantic-tokens-v1.json"
+        ))
+        .unwrap();
+        let options = fixture["serverOptions"].clone();
+        let legend = semantic_token_legend(&options);
+        let value = semantic_token_result(
+            legend,
+            Some(&json!({"data": [0, 6, 5, 0, 1, 2, 4, 3, 1, 0, 0, 7, 2, 1, 0]})),
+        )
+        .unwrap();
+        assert_eq!(value, fixture["expectedResult"]);
+        assert_eq!(value["tokens"][0]["startChar"], 6);
+        assert_eq!(value["tokens"][1]["line"], 2);
+        assert_eq!(value["tokens"][2]["startChar"], 11);
+        assert_eq!(value["tokenTypes"], json!(["class", "method"]));
+        assert_eq!(
+            semantic_token_result(legend, Some(&Value::Null)).unwrap()["tokens"],
+            json!([])
+        );
+        for data in [
+            json!([0]),
+            json!([0, 0, 0, 0, 0]),
+            json!([0, 0, 1, 2, 0]),
+            json!([-1, 0, 1, 0, 0]),
+        ] {
+            assert!(semantic_token_result(legend, Some(&json!({"data": data}))).is_none());
+        }
+        assert!(
+            semantic_token_legend(&json!({"range": true, "legend": options["legend"]})).is_none()
+        );
+    }
+
+    #[test]
+    fn semantic_registration_snapshot_survives_unregister_and_refresh_is_acknowledged() {
+        let mut state = LspClientState::default();
+        apply_dynamic_registration(
+            &mut state,
+            &json!({"params": {"registrations": [{"id": "java", "method": "textDocument/semanticTokens", "registerOptions": options()}]}}),
+        );
+        assert!(state
+            .server_capabilities
+            .contains(&"semanticTokens".to_string()));
+        let id = allocate_request(&mut state, "textDocument/semanticTokens/full");
+        apply_dynamic_unregistration(
+            &mut state,
+            &json!({"params": {"unregisterations": [{"id": "java", "method": "textDocument/semanticTokens"}]}}),
+        );
+        assert!(!state
+            .server_capabilities
+            .contains(&"semanticTokens".to_string()));
+        let response = client_apply_server_message(ClientApplyServerMessageRequest {
+            state,
+            message: json!({"jsonrpc": "2.0", "id": id, "result": {"data": [0,6,5,0,1]}})
+                .to_string(),
+        })
+        .unwrap();
+        assert_eq!(
+            response.events[0].result.as_ref().unwrap()["tokens"][0]["length"],
+            5
+        );
+        assert!(response.state.pending_semantic_legends.is_empty());
+        let refresh = client_apply_server_message(ClientApplyServerMessageRequest {
+            state: response.state, message: json!({"jsonrpc": "2.0", "id": "refresh", "method": "workspace/semanticTokens/refresh"}).to_string(),
+        }).unwrap();
+        assert_eq!(refresh.events[0].kind, "semanticTokensRefresh");
+        assert_eq!(refresh.messages.len(), 1);
+        assert!(refresh.messages[0].contains("result"));
     }
 }

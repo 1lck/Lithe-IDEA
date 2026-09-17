@@ -3,6 +3,18 @@
   "configVersion": 0,
   "workspaces": {
     "": {
+      "name": "lithe-workspace",
+    },
+    "frontend/editor": {
+      "name": "@lithe/editor",
+      "version": "0.0.0",
+      "dependencies": {
+        "monaco-editor": "0.55.1",
+        "vscode-oniguruma": "1.7.0",
+        "vscode-textmate": "9.3.2",
+      },
+    },
+    "windows/tauri": {
       "name": "lithe",
       "dependencies": {
         "@base-ui/react": "^1.6.0",
@@ -14,6 +26,7 @@
         "@fontsource/geist-sans": "^5.2.5",
         "@lexical/react": "^0.48.0",
         "@lexical/rich-text": "^0.48.0",
+        "@lithe/editor": "workspace:*",
         "@mdxeditor/editor": "^4.1.1",
         "@shadcn/react": "^0.2.1",
         "@tanstack/react-virtual": "^3.14.4",
@@ -49,7 +62,7 @@
         "input-otp": "^1.4.2",
         "lexical": "^0.48.0",
         "lucide-react": "^0.468.0",
-        "monaco-editor": "^0.55.1",
+        "monaco-editor": "0.55.1",
         "monaco-vim": "^0.4.4",
         "motion": "^12.43.0",
         "nanoid": "^5.1.16",
@@ -89,7 +102,6 @@
         "code-inspector-plugin": "^1.6.2",
         "concurrently": "^10.0.3",
         "happy-dom": "^20.11.6",
-        "simple-git-hooks": "^2.13.1",
         "tailwindcss": "^4.3.1",
         "tree-sitter-astro": "github:virchau13/tree-sitter-astro",
         "tree-sitter-bash": "^0.25.1",
@@ -450,6 +462,8 @@
     "@lezer/xml": ["@lezer/xml@1.0.6", "https://registry.npmmirror.com/@lezer/xml/-/xml-1.0.6.tgz", { "dependencies": { "@lezer/common": "^1.2.0", "@lezer/highlight": "^1.0.0", "@lezer/lr": "^1.0.0" } }, "sha512-CdDwirL0OEaStFue/66ZmFSeppuL6Dwjlk8qk153mSQwiSH/Dlri4GNymrNWnUmPl2Um7QfV1FO9KFUyX3Twww=="],
 
     "@lezer/yaml": ["@lezer/yaml@1.0.4", "https://registry.npmmirror.com/@lezer/yaml/-/yaml-1.0.4.tgz", { "dependencies": { "@lezer/common": "^1.2.0", "@lezer/highlight": "^1.0.0", "@lezer/lr": "^1.4.0" } }, "sha512-2lrrHqxalACEbxIbsjhqGpSW8kWpUKuY6RHgnSAFZa6qK62wvnPxA8hGOwOoDbwHcOFs5M4o27mjGu+P7TvBmw=="],
+
+    "@lithe/editor": ["@lithe/editor@workspace:frontend/editor"],
 
     "@marijn/find-cluster-break": ["@marijn/find-cluster-break@1.0.3", "https://registry.npmmirror.com/@marijn/find-cluster-break/-/find-cluster-break-1.0.3.tgz", {}, "sha512-FY+MKLBoTsLNJF/eLWaOsXGdz6uh3Iu1axjPf6TUq92IYumcTcXWHoS747JARLkcdlJ/Waiaxc5wQfFO8jC6NA=="],
 
@@ -1385,6 +1399,8 @@
 
     "lightningcss-win32-x64-msvc": ["lightningcss-win32-x64-msvc@1.30.2", "https://registry.npmmirror.com/lightningcss-win32-x64-msvc/-/lightningcss-win32-x64-msvc-1.30.2.tgz", { "os": "win32", "cpu": "x64" }, "sha512-5g1yc73p+iAkid5phb4oVFMB45417DkRevRbt/El/gKXJk4jid+vPFF/AXbxn05Aky8PapwzZrdJShv5C0avjw=="],
 
+    "lithe": ["lithe@workspace:windows/tauri"],
+
     "locate-path": ["locate-path@6.0.0", "https://registry.npmmirror.com/locate-path/-/locate-path-6.0.0.tgz", { "dependencies": { "p-locate": "^5.0.0" } }, "sha512-iPZK6eYjbxRu3uB4/WZ3EsEIMJFMqAoopl3R+zuq0UjcAm/MO6KCweDgPfP3elTztoKP3KtnVHxTn2NHBSDVUw=="],
 
     "lodash.debounce": ["lodash.debounce@4.0.8", "https://registry.npmmirror.com/lodash.debounce/-/lodash.debounce-4.0.8.tgz", {}, "sha512-FT1yDzDYEoYWhnSGnpE/4Kj1fLZkDFyqRb7fNt6FdYOSxlUWAtp42Eh6Wb0rGIv/m9Bgo7x4GhQbm5Ys4SG5ow=="],
@@ -1685,8 +1701,6 @@
 
     "signal-exit": ["signal-exit@4.1.0", "https://registry.npmmirror.com/signal-exit/-/signal-exit-4.1.0.tgz", {}, "sha512-bzyZ1e88w9O1iNJbKnOlvYTrWPDl46O1bG0D3XInv+9tkPrxrN8jUUTiFlDkkmKWgn1M6CfIA13SuGqOa9Korw=="],
 
-    "simple-git-hooks": ["simple-git-hooks@2.13.1", "https://registry.npmmirror.com/simple-git-hooks/-/simple-git-hooks-2.13.1.tgz", { "bin": { "simple-git-hooks": "cli.js" } }, "sha512-WszCLXwT4h2k1ufIXAgsbiTOazqqevFCIncOuUBZJ91DdvWcC5+OFkluWRQPrcuSYd8fjq+o2y1QfWqYMoAToQ=="],
-
     "sirv": ["sirv@3.0.2", "https://registry.npmmirror.com/sirv/-/sirv-3.0.2.tgz", { "dependencies": { "@polka/url": "^1.0.0-next.24", "mrmime": "^2.0.0", "totalist": "^3.0.0" } }, "sha512-2wcC/oGxHis/BoHkkPwldgiPSYcpZK3JU28WoMVv55yHJgcZ8rlXvuG9iZggz+sU1d4bRgIGASwyWqjxu3FM0g=="],
 
     "sisteransi": ["sisteransi@1.0.5", "https://registry.npmmirror.com/sisteransi/-/sisteransi-1.0.5.tgz", {}, "sha512-bLGGlR1QxBcynn2d5YmDX4MGjlZvy2MRBDRNHLJ8VI6l6+9FUiyTFNJ0IveOSP0bcXgVDPRcfGqA0pjaqUpfVg=="],
@@ -1880,6 +1894,10 @@
     "vscode-languageserver-textdocument": ["vscode-languageserver-textdocument@1.0.12", "https://registry.npmmirror.com/vscode-languageserver-textdocument/-/vscode-languageserver-textdocument-1.0.12.tgz", {}, "sha512-cxWNPesCnQCcMPeenjKKsOCKQZ/L6Tv19DTRIGuLWe32lyzWhihGVJ/rcckZXJxfdKCFvRLS3fpBIsV/ZGX4zA=="],
 
     "vscode-languageserver-types": ["vscode-languageserver-types@3.18.0", "https://registry.npmmirror.com/vscode-languageserver-types/-/vscode-languageserver-types-3.18.0.tgz", {}, "sha512-8TsGPNMIMiiBdkORgRSvLjuiEIiAFtO+KssmYWxQ+uSVvlf7RjK8YKCOjPzZ+YA04jXEV7+7LvkSmHkhpNS99g=="],
+
+    "vscode-oniguruma": ["vscode-oniguruma@1.7.0", "https://registry.npmmirror.com/vscode-oniguruma/-/vscode-oniguruma-1.7.0.tgz", {}, "sha512-L9WMGRfrjOhgHSdOYgCt/yRMsXzLDJSL7BPrOZt73gU0iWO4mpqzqQzOz5srxqTvMBaR0XZTSrVWo4j55Rc6cA=="],
+
+    "vscode-textmate": ["vscode-textmate@9.3.2", "https://registry.npmmirror.com/vscode-textmate/-/vscode-textmate-9.3.2.tgz", {}, "sha512-n2uGbUcrjhUEBH16uGA0TvUfhWwliFZ1e3+pTjrkim1Mt7ydB41lV08aUvsi70OlzDWp6X7Bx3w/x3fAXIsN0Q=="],
 
     "vscode-uri": ["vscode-uri@3.1.0", "https://registry.npmmirror.com/vscode-uri/-/vscode-uri-3.1.0.tgz", {}, "sha512-/BpdSx+yCQGnCvecbyXdxHDkuk55/G3xwnC0GqY4gmQ3j+A+g8kzzgB4Nk/SINjqn6+waqw3EgbVF2QKExkRxQ=="],
 

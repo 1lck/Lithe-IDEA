@@ -736,6 +736,10 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         documentFeature.activeDocument
     }
 
+    var focusedEditorDocument: EditorDocument? {
+        documentFeature.focusedEditorDocument
+    }
+
     func renderMarkdown(_ source: String) async throws -> MarkdownRenderedContent {
         try await services.markdownRenderer.render(source)
     }
@@ -1171,6 +1175,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         documentFeature.cancelPendingClose()
     }
 
+    var closingDocuments: [EditorDocument] { documentFeature.editorDocuments }
+
     var hasUnsavedDocuments: Bool {
         documentFeature.hasUnsavedDocuments
     }
@@ -1186,6 +1192,14 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
 
     func saveActiveDocument() {
         documentFeature.saveActiveDocument()
+    }
+
+    func editorDidFocus(_ document: EditorDocument) {
+        documentFeature.editorDidFocus(document)
+    }
+
+    func saveEditorDocument(_ document: EditorDocument) {
+        documentFeature.saveEditorDocument(document)
     }
 
     func saveDocument(_ document: EditorDocument) async throws {

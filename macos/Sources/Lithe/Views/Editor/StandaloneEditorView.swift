@@ -3,7 +3,6 @@ import SwiftUI
 struct StandaloneEditorView: View {
     @EnvironmentObject private var model: AppModel
     @State private var svgViewMode: DocumentPreviewMode = .split
-    @State private var editorViewportStore = EditorViewportStore()
 
     var body: some View {
         let closeConfirmationID = model.pendingCloseConfirmationID
@@ -73,7 +72,7 @@ struct StandaloneEditorView: View {
     }
 
     private func editor(_ document: EditorDocument) -> some View {
-        CodeEditorView(document: document, shouldFocus: true, viewportStore: editorViewportStore)
+        MonacoWorkbenchEditor(document: document)
             .overlay(alignment: .top) {
                 if model.isFindBarVisible {
                     FindBarView()

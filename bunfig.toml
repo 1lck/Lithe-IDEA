@@ -1,0 +1,3 @@
+[install]
+# Both platform packages resolve shared sources through one dependency graph.
+linker = "isolated"

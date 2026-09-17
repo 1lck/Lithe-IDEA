@@ -8,6 +8,9 @@ enum DocumentSaveBatch {
         }
         // Earlier owners can become dirty while a later save is suspended. Read the
         // scope again so newly opened sessions also participate in the close check.
-        return savedAll && !owners().contains(where: \.hasUnsavedDocuments)
+        return savedAll && !owners().contains { owner in
+            owner.closingDocuments.isEmpty ? owner.hasUnsavedDocuments
+                : owner.closingDocuments.contains(where: \.isDirty)
+        }
     }
 }

@@ -259,7 +259,7 @@ final class RunWorkflowCoordinator {
     ) async -> Bool {
         guard configuration.usesCurrentEditorFile,
               let document,
-              document.isDirty else {
+              (document.isDirty || document.needsEditorSynchronization) else {
             return true
         }
         do {

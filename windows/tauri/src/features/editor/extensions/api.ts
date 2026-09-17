@@ -1,3 +1,4 @@
+import type { EditorCommand } from "@lithe/editor/editor-commands";
 import { useBufferStore } from "../stores/buffer.store";
 import { useEditorDecorationsStore } from "../stores/decorations.store";
 import {
@@ -50,6 +51,7 @@ import { calculateLineHeight } from "../utils/lines";
 
 interface ActiveEditorAdapter {
   ownerId: string;
+  executeCommand?: (command: EditorCommand) => void;
   insertText: (text: string, position?: Position) => void;
   deleteRange: (range: Range) => void;
   replaceRange: (range: Range, text: string) => void;
@@ -451,15 +453,26 @@ class EditorAPIImpl implements EditorAPI {
     return useEditorViewStore.getState().lineCount;
   }
 
+  // Once a Monaco surface owns a command, never fall back to buffer rewrites,
+  // including when that surface rejects an edit because it is read-only.
+  executeCommand(command: EditorCommand): boolean {
+    if (!this.activeEditorAdapter?.executeCommand) return false;
+    this.activeEditorAdapter.executeCommand(command);
+    return true;
+  }
+
   duplicateLine(): void {
+    if (this.executeCommand({ type: "duplicateLine" })) return;
     this.applyLineOperation(duplicateLineOperation);
   }
 
   deleteLine(): void {
+    if (this.executeCommand({ type: "deleteLine" })) return;
     this.applyLineOperation(deleteLineOperation);
   }
 
   toggleComment(): void {
+    if (this.executeCommand({ type: "toggleComment" })) return;
     const content = this.getContent();
     const editorState = useEditorStateStore.getState();
     const textareaOwnsFullContent = this.textareaRef?.value === content;
@@ -490,6 +503,7 @@ class EditorAPIImpl implements EditorAPI {
   }
 
   goToMatchingBracket(): void {
+    if (this.executeCommand({ type: "goToMatchingBracket" })) return;
     const content = this.getContent();
     const editorState = useEditorStateStore.getState();
     const target = findBracketJumpTarget(content, editorState.cursorPosition.offset);
@@ -500,6 +514,7 @@ class EditorAPIImpl implements EditorAPI {
   }
 
   selectToBracket(selectBrackets = true): void {
+    if (this.executeCommand({ type: "selectToBracket", selectBrackets })) return;
     const content = this.getContent();
     const editorState = useEditorStateStore.getState();
     const range = findBracketSelectionRange(content, editorState.cursorPosition.offset, {
@@ -514,6 +529,7 @@ class EditorAPIImpl implements EditorAPI {
   }
 
   removeBrackets(): void {
+    if (this.executeCommand({ type: "removeBrackets" })) return;
     const content = this.getContent();
     const editorState = useEditorStateStore.getState();
     const result = removeBracketPairAtCursor(content, editorState.cursorPosition.offset);
@@ -530,6 +546,7 @@ class EditorAPIImpl implements EditorAPI {
   }
 
   expandSelection(): void {
+    if (this.executeCommand({ type: "expandSelection" })) return;
     const content = this.getContent();
     const editorState = useEditorStateStore.getState();
     const currentRange = normalizeSelectionOffsets(editorState.selection);
@@ -552,6 +569,7 @@ class EditorAPIImpl implements EditorAPI {
   }
 
   shrinkSelection(): void {
+    if (this.executeCommand({ type: "shrinkSelection" })) return;
     const content = this.getContent();
     const editorState = useEditorStateStore.getState();
     const currentRange = normalizeSelectionOffsets(editorState.selection);
@@ -640,18 +658,22 @@ class EditorAPIImpl implements EditorAPI {
   }
 
   moveLineUp(): void {
+    if (this.executeCommand({ type: "moveLineUp" })) return;
     this.applyLineOperation(moveLineUpOperation);
   }
 
   moveLineDown(): void {
+    if (this.executeCommand({ type: "moveLineDown" })) return;
     this.applyLineOperation(moveLineDownOperation);
   }
 
   copyLineUp(): void {
+    if (this.executeCommand({ type: "copyLineUp" })) return;
     this.applyLineOperation(copyLineUpOperation);
   }
 
   copyLineDown(): void {
+    if (this.executeCommand({ type: "copyLineDown" })) return;
     this.applyLineOperation(copyLineDownOperation);
   }
 

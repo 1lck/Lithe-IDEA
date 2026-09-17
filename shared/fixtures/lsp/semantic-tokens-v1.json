@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "request": {
+    "sessionId": "session-1",
+    "operation": "semanticTokens",
+    "uri": "file:///workspace/Probe.java"
+  },
+  "serverOptions": {
+    "full": true,
+    "legend": {
+      "tokenTypes": [
+        "class",
+        "method"
+      ],
+      "tokenModifiers": [
+        "declaration"
+      ]
+    }
+  },
+  "serverResult": {
+    "data": [
+      0,
+      6,
+      5,
+      0,
+      1,
+      2,
+      4,
+      3,
+      1,
+      0,
+      0,
+      7,
+      2,
+      1,
+      0
+    ]
+  },
+  "expectedResult": {
+    "tokenTypes": [
+      "class",
+      "method"
+    ],
+    "tokenModifiers": [
+      "declaration"
+    ],
+    "tokens": [
+      {
+        "line": 0,
+        "startChar": 6,
+        "length": 5,
+        "tokenType": 0,
+        "tokenModifiers": 1
+      },
+      {
+        "line": 2,
+        "startChar": 4,
+        "length": 3,
+        "tokenType": 1,
+        "tokenModifiers": 0
+      },
+      {
+        "line": 2,
+        "startChar": 11,
+        "length": 2,
+        "tokenType": 1,
+        "tokenModifiers": 0
+      }
+    ]
+  }
+}

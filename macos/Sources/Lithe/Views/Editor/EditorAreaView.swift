@@ -55,7 +55,6 @@ struct EditorAreaView: View {
     @State private var splitDocumentID: UUID?
     @State private var documentPreviewModes: [UUID: DocumentPreviewMode] = [:]
     @State private var markdownScrollPositions: [UUID: MarkdownScrollPosition] = [:]
-    @State private var editorViewportStore = EditorViewportStore()
     @State private var hoveredPreviewMode: DocumentPreviewMode?
     @State private var resolvedJavaDocumentIconKinds: [String: LitheIconKind] = [:]
 
@@ -116,7 +115,6 @@ struct EditorAreaView: View {
             }
             documentPreviewModes = documentPreviewModes.filter { ids.contains($0.key) }
             markdownScrollPositions = markdownScrollPositions.filter { ids.contains($0.key) }
-            editorViewportStore.retain(documentIDs: Set(ids))
         }
         .onChange(of: model.editorTabItems) { items in
             isTerminalTabBarDropTargeted = false
@@ -1089,58 +1087,20 @@ struct EditorAreaView: View {
                model.activeMediaDocument == nil,
                let splitDocumentID,
                let splitDocument = model.openDocuments.first(where: { $0.id == splitDocumentID }) {
-                HStack(spacing: 0) {
-                    editorPane(model.activeDocument)
-                    editorPane(splitDocument, showsHeader: true)
+                VStack(spacing: 0) {
+                    HStack {
+                        Spacer()
+                        Text(splitDocument.displayName).font(.system(size: 11))
+                        Button("Close split") { self.splitDocumentID = nil }.buttonStyle(.borderless)
+                    }
+                    .padding(.horizontal, 10).frame(height: 30)
+                    MonacoWorkbenchEditor(document: model.activeDocument ?? splitDocument, secondaryDocument: splitDocument)
                 }
             } else {
                 externalConflictBanner
                 activeEditor
             }
         }
-    }
-
-    @ViewBuilder
-    private func editorPane(
-        _ document: EditorDocument?,
-        showsHeader: Bool = false
-    ) -> some View {
-        VStack(spacing: 0) {
-            if showsHeader, let document {
-                HStack(spacing: 7) {
-                    editorDocumentIcon(document, size: 13)
-                    Text(document.displayName)
-                        .font(.system(size: 11.5, weight: .medium))
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .lineLimit(1)
-                    Spacer()
-                    Button {
-                        splitDocumentID = nil
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 9, weight: .semibold))
-                    }
-                    .litheIconButton()
-                    .help("Close split")
-                }
-                .padding(.horizontal, 10)
-                .frame(height: 30)
-                .background(LitheTheme.toolHeader)
-            }
-
-            if let document {
-                CodeEditorView(
-                    document: document,
-                    shouldFocus: !showsHeader && document.id == model.activeDocumentID,
-                    viewportStore: editorViewportStore
-                )
-                    .id(document.id)
-                    .clipped()
-            } else {
-                emptyState
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func editorDocumentIcon(
@@ -1306,13 +1266,7 @@ struct EditorAreaView: View {
         _ document: EditorDocument,
         markdownScrollPosition: Binding<MarkdownScrollPosition>? = nil
     ) -> some View {
-        CodeEditorView(
-            document: document,
-            shouldFocus: true,
-            markdownScrollPosition: markdownScrollPosition,
-            viewportStore: editorViewportStore
-        )
-        .id(document.id)
+        MonacoWorkbenchEditor(document: document, markdownScrollPosition: markdownScrollPosition)
         .clipped()
     }
 

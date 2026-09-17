@@ -525,6 +525,7 @@ export async function runQuickFixForActiveEditor(): Promise<void> {
 }
 
 export function foldAllActiveEditor(): void {
+  if (editorAPI.executeCommand({ type: "foldAll" })) return;
   const activeBuffer = getActiveEditorBuffer();
   if (!activeBuffer) {
     toast.warning(getCurrentTranslator()("editorCommands.noFoldableEditor"));
@@ -537,6 +538,7 @@ export function foldAllActiveEditor(): void {
 }
 
 export function foldLevelActiveEditor(level: number): void {
+  if (editorAPI.executeCommand({ type: "foldLevel", level })) return;
   const activeBuffer = getActiveEditorBuffer();
   if (!activeBuffer) {
     toast.warning(getCurrentTranslator()("editorCommands.noFoldableEditor"));
@@ -549,6 +551,7 @@ export function foldLevelActiveEditor(level: number): void {
 }
 
 export function unfoldAllActiveEditor(): void {
+  if (editorAPI.executeCommand({ type: "unfoldAll" })) return;
   const activeBuffer = getActiveEditorBuffer();
   if (!activeBuffer) {
     toast.warning(getCurrentTranslator()("editorCommands.noFoldableEditor"));

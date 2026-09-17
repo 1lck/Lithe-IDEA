@@ -184,7 +184,7 @@ struct SearchSidebarView: View {
             Toggle("Whole Words", isOn: $searchOptions.wholeWords)
             Toggle("Regular Expression", isOn: $searchOptions.regularExpression)
         } label: {
-            Image(systemName: searchOptions == .default ? "slider.horizontal.3" : "slider.horizontal.3.circle.fill")
+            Image(systemName: "slider.horizontal.3")
                 .foregroundStyle(searchOptions == .default ? LitheTheme.secondaryText : LitheTheme.accent)
                 .frame(width: 28, height: 28)
                 .contentShape(Rectangle())

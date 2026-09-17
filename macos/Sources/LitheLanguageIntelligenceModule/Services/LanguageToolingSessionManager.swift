@@ -36,6 +36,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
     JavaTestDebugLaunchTargetResolving
 {
     @Published package private(set) var diagnostics: [URL: [LanguageServerDiagnostic]] = [:]
+    @Published package private(set) var semanticTokensGeneration: UInt64 = 0
     @Published package private(set) var languageServerFeatures: [String: LanguageServerFeatureSet] = [:]
     @Published package private(set) var languageServerLogs: [LanguageServerLogEntry] = []
     @Published package private(set) var mavenProfileProjectResults: [URL: MavenProfileProjectResult] = [:]
@@ -953,6 +954,21 @@ package final class LanguageToolingSessionManager: ObservableObject,
         )
     }
 
+    package func inlayHints(fileURL: URL, range: LanguageServerRange,
+                            completion: @escaping (Result<[LanguageServerInlayHint], Error>) -> Void) throws {
+        guard let session = readyLanguageServerSession(for: fileURL), session.features.contains(.inlayHints) else {
+            completion(.success([])); return
+        }
+        try session.inlayHints(fileURL: fileURL, range: range, completion: completion)
+    }
+
+    package func semanticTokens(fileURL: URL, completion: @escaping (Result<LanguageServerSemanticTokens, Error>) -> Void) throws {
+        guard let session = readyLanguageServerSession(for: fileURL), session.features.contains(.semanticTokens) else {
+            completion(.success(.empty)); return
+        }
+        try session.semanticTokens(fileURL: fileURL, completion: completion)
+    }
+
     package func hover(
         fileURL: URL,
         text: String,
@@ -1613,6 +1629,10 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 for: fileURL.standardizedFileURL,
                 providerID: providerID
             )
+        }
+        session.onSemanticTokensRefresh = { [weak self] in
+            guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
+            self.semanticTokensGeneration &+= 1
         }
         session.onFeaturesChange = { [weak self] features in
             guard let self else { return }

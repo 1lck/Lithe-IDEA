@@ -1,7 +1,6 @@
 import Foundation
 
 struct MarkdownImageImportService: MarkdownImageImporting {
-    private static let maximumImageByteCount = 100 * 1_024 * 1_024
     private static let maximumFilenameAttempts = 10_000
 
     private let storage: any FileStorage
@@ -42,7 +41,7 @@ struct MarkdownImageImportService: MarkdownImageImporting {
 
         let (data, format, suggestedName) = try imageData(for: source, storage: storage)
         guard !data.isEmpty else { throw MarkdownImageImportError.emptyImage }
-        guard data.count <= maximumImageByteCount else {
+        guard data.count <= MarkdownImageSource.maximumByteCount else {
             throw MarkdownImageImportError.imageTooLarge
         }
 
@@ -98,7 +97,7 @@ struct MarkdownImageImportService: MarkdownImageImporting {
             return (data, format, suggestedName)
         case let .file(url, format):
             if let byteCount = storage.metadata(for: url)?.byteCount,
-               byteCount > maximumImageByteCount {
+               byteCount > MarkdownImageSource.maximumByteCount {
                 throw MarkdownImageImportError.imageTooLarge
             }
             do {

@@ -44,6 +44,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     package var onMavenProfileProject: ((MavenProfileProjectResult) -> Void)?
     package var onStateChange: ((LanguageServerSessionState) -> Void)?
     package private(set) var features: LanguageServerFeatureSet = []
+    package var onSemanticTokensRefresh: (() -> Void)?
     package var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)?
     package private(set) var serverInfo: LanguageServerInfo?
     package var onServerInfoChange: ((LanguageServerInfo?) -> Void)?
@@ -314,6 +315,20 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
     }
 
+    package func inlayHints(fileURL: URL, range: LanguageServerRange,
+                            completion: @escaping (Result<[LanguageServerInlayHint], Error>) -> Void) throws {
+        try request(.inlayHints, fileURL: fileURL, range: range) { result in
+            completion(result.flatMap { Self.decodeEventResult($0, as: InlayHintsPayload.self) }
+                .map { $0.hints.map { $0.makeModel() } })
+        }
+    }
+
+    package func semanticTokens(fileURL: URL, completion: @escaping (Result<LanguageServerSemanticTokens, Error>) -> Void) throws {
+        try request(.semanticTokens, fileURL: fileURL) { result in
+            completion(result.flatMap { Self.decodeEventResult($0, as: LanguageServerSemanticTokens.self) })
+        }
+    }
+
     package func hover(
         fileURL: URL,
         position: LanguageServerPosition,
@@ -555,9 +570,11 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                     "operation=\(pending.name); \(Self.message(for: error))",
                     operationID
                 )
-                pending.completion(.failure(
-                    LanguageServerRuntimeSessionError.serverError(Self.message(for: error))
-                ))
+                if error.code == "staleDocumentVersion" || error.code == "requestCancelled" {
+                    pending.completion(.failure(CancellationError()))
+                } else {
+                    pending.completion(.failure(LanguageServerRuntimeSessionError.serverError(Self.message(for: error))))
+                }
             } else {
                 onLog?(
                     .info,
@@ -574,6 +591,9 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                 url.standardizedFileURL,
                 event.diagnostics ?? []
             )
+            return false
+        case "semanticTokensRefresh":
+            onSemanticTokensRefresh?()
             return false
         case "featuresChanged":
             updateFeatures(capabilityNames: event.capabilities ?? [])
@@ -695,6 +715,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             case "completionResolve": result.insert(.completionResolve)
             case "codeActionResolve": result.insert(.codeActionResolve)
             case "executeCommand": result.insert(.executeCommand)
+            case "semanticTokens": result.insert(.semanticTokens)
+            case "inlayHints": result.insert(.inlayHints)
             default: break
             }
         }
@@ -870,6 +892,7 @@ private struct TextEditPayload: Decodable {
 private struct CompletionItemPayload: Decodable {
     let label: String
     let insertText: String
+    let insertTextFormat: Int?
     let kind: Int?
     let detail: String?
     let documentation: String?
@@ -890,7 +913,8 @@ private struct CompletionItemPayload: Decodable {
             kind: kind,
             textEdit: textEdit?.makeModel(),
             additionalTextEdits: additionalTextEdits?.map { $0.makeModel() } ?? [],
-            data: data
+            data: data,
+            insertTextFormat: insertTextFormat ?? 1
         )
     }
 }
@@ -1072,4 +1096,24 @@ private struct CodeActionsPayload: Decodable {
 private struct CodeActionResolvePayload: Decodable {
     let action: CodeActionPayload
     func makeModel() -> LanguageServerCodeAction { action.makeModel() }
+}
+
+private struct InlayHintsPayload: Decodable {
+    let hints: [InlayHintPayload]
+}
+
+private struct InlayHintPayload: Decodable {
+    let position: PositionPayload
+    let label: String
+    let kind: Int?
+    let tooltip: String?
+    let paddingLeft: Bool?
+    let paddingRight: Bool?
+    let textEdits: [TextEditPayload]?
+
+    func makeModel() -> LanguageServerInlayHint {
+        LanguageServerInlayHint(position: position.makeModel(), label: label, kind: kind, tooltip: tooltip,
+                               paddingLeft: paddingLeft ?? false, paddingRight: paddingRight ?? false,
+                               textEdits: (textEdits ?? []).map { $0.makeModel() })
+    }
 }

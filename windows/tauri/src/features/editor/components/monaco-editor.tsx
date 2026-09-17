@@ -1,3 +1,4 @@
+import { runEditorCommand, type EditorCommand } from "@lithe/editor/editor-commands";
 import "../engines/monaco/monaco-environment";
 import "monaco-editor/min/vs/editor/editor.main.css";
 import "../styles/monaco-editor.css";
@@ -65,7 +66,6 @@ import type {
   Range,
 } from "../types/editor.types";
 import { getBufferById } from "../utils/buffer-index";
-import { applyEditorTextChangesToContent } from "../utils/editor-text-change";
 import { queueLspDocumentChanges } from "../lsp/pending-document-changes";
 import { lspDocumentTargetForEditor } from "../lsp/lsp-document-target";
 import { fileOpenBenchmark } from "../utils/file-open-benchmark";
@@ -107,8 +107,7 @@ import {
 import { acquireMonacoModel } from "../engines/monaco/model-lifecycle";
 import { reactivateMonacoModelLanguage } from "../engines/monaco/model-language-activation";
 import { getEditorBottomScrollPadding } from "../engines/monaco/scroll-padding";
-import { monacoModelMatchesContent } from "../engines/monaco/line-endings";
-import { applyMonacoModelContent } from "../engines/monaco/model-content";
+import { acquireEditorModelSource, sourcePositionAt } from "@lithe/editor/model-source";
 import {
   clampMonacoPosition,
   createModelUri,
@@ -846,6 +845,7 @@ export function MonacoEditor({
 
     const acquiredModel = acquireMonacoModel(content, monacoLanguageId, modelUri);
     const model = acquiredModel.model;
+    const source = acquireEditorModelSource(model, content);
     const editor = monacoEditor.create(container, {
       model,
       automaticLayout: true,
@@ -1124,19 +1124,18 @@ export function MonacoEditor({
         event.stopPropagation();
         selectEntireModel();
       }),
-      editor.onDidChangeModelContent((event) => {
+      editor.onDidChangeModelContent(() => {
         if (applyingExternalChangeRef.current) return;
-        const contentChanges: EditorTextChange[] = event.changes.map((change) => ({
-          rangeOffset: change.rangeOffset,
-          rangeLength: change.rangeLength,
-          text: change.text,
-          startLine: change.range.startLineNumber - 1,
-          startColumn: change.range.startColumn - 1,
-          endLine: change.range.endLineNumber - 1,
-          endColumn: change.range.endColumn - 1,
-        }));
-        const previousContent = previousContentRef.current;
-        const nextContent = applyEditorTextChangesToContent(previousContent, contentChanges);
+        const change = source.lastChange;
+        if (!change || change.external) return;
+        const previousContent = change.previousContent;
+        const nextContent = change.content;
+        const contentChanges: EditorTextChange[] = change.changes.map(edit => {
+          const start = sourcePositionAt(previousContent, edit.offset);
+          const end = sourcePositionAt(previousContent, edit.offset + edit.length);
+          return { rangeOffset: edit.offset, rangeLength: edit.length, text: edit.text,
+            startLine: start.line, startColumn: start.column, endLine: end.line, endColumn: end.column };
+        });
         const editorState = useEditorStateStore.getState();
         previousContentRef.current = nextContent;
         rememberLocalContentSnapshot(pendingLocalContentSnapshotsRef.current, nextContent);
@@ -1478,19 +1477,21 @@ export function MonacoEditor({
     const container = containerRef.current;
     editorAPI.setTextareaRef(null);
     if (container) editorAPI.setViewportRef(container);
+    const executeCommand = (command: EditorCommand) => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      void runEditorCommand(editor, command, canEdit).catch((error) => {
+        console.error("Failed to execute editor command:", command.type, error);
+      });
+    };
     editorAPI.setActiveFindAdapter({
       ownerId: adapterOwnerId,
-      openFind: (replace) => {
-        editorRef.current?.trigger(
-          "lithe-keybinding",
-          replace ? "editor.action.startFindReplaceAction" : "actions.find",
-          null,
-        );
-      },
+      openFind: (replace) => executeCommand({ type: "find", replace }),
     });
 
     editorAPI.setActiveEditorAdapter({
       ownerId: adapterOwnerId,
+      executeCommand,
       insertText: (text, position) => {
         if (!canEdit) return;
         const editor = editorRef.current;
@@ -1733,7 +1734,7 @@ export function MonacoEditor({
           client: lspClient,
           target: documentTarget,
           workspaceScope: { workspaceId, root: rootFolderPath },
-          content: model.getValue(),
+          content: acquireEditorModelSource(model, previousContentRef.current).content,
         });
         if (isDisposed()) {
           operation.cancelled("editor-owner-disposed");
@@ -1863,7 +1864,7 @@ export function MonacoEditor({
     if (!editorBufferId || !editor || !model) return;
 
     const previousContent = previousContentRef.current;
-    if (previousContent === content || monacoModelMatchesContent(previousContent, content)) {
+    if (previousContent === content) {
       consumeLocalContentSnapshot(pendingLocalContentSnapshotsRef.current, content);
       return;
     }
@@ -1873,9 +1874,15 @@ export function MonacoEditor({
       return;
     }
 
+    const source = acquireEditorModelSource(model, previousContent);
+    // Another surface may already have applied this shared-model update.
+    if (source.content === content) {
+      previousContentRef.current = content;
+      return;
+    }
     applyingExternalChangeRef.current = true;
     const selection = editor.getSelection();
-    applyMonacoModelContent(model, content);
+    source.replace(content);
     if (selection) editor.setSelection(selection);
     previousContentRef.current = content;
     applyingExternalChangeRef.current = false;

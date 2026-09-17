@@ -15,3 +15,4 @@ docs/visual-qa/
 .reasonix/
 reasonix.toml
 .codex/
+/node_modules/
