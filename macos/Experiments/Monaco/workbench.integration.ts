@@ -362,12 +362,18 @@ async function verify() {
       container.remove();
     }
   });
-  await check("native split layout opens a second document and restores the primary width", async () => {
+  await check("native split layout shares minimap settings and restores the primary width", async () => {
+    window.lithe.configure({ dark: false, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: false });
+    assert(!editor.getOption(monacoEditor.EditorOption.minimap).enabled, "primary minimap ignored disabled setting");
     await window.lithe.activate({ id: "left-layout", text: "left", revision: 0, language: "plaintext", readonly: true });
     await window.lithe.showSecondary({ id: "right-layout", text: "right", revision: 0, language: "plaintext", readonly: true });
     assert(monacoEditor.getEditors().length === 2, "native split did not create two views");
     assert(editor.getModel()?.getValue() === "left", "split replaced primary document");
     const secondary = monacoEditor.getEditors().find(view => view !== editor)!;
+    assert(!secondary.getOption(monacoEditor.EditorOption.minimap).enabled, "new split ignored disabled minimap setting");
+    window.lithe.configure({ dark: false, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
+    assert(editor.getOption(monacoEditor.EditorOption.minimap).enabled &&
+      secondary.getOption(monacoEditor.EditorOption.minimap).enabled, "minimap setting did not update every editor");
     assert(secondary.getModel()?.getValue() === "right", "split lost its independent document");
     await window.lithe.navigate({ id: "right-layout", line: 0, column: 2 });
     assert(secondary.getPosition()?.column === 3, "navigation did not reach the secondary view");
