@@ -47,6 +47,51 @@ enum SearchEverywhereQueryMode: Equatable {
     }
 }
 
+enum SearchEverywhereResultSource: Equatable {
+    case combinedWorkspaceNames
+    case classes
+    case files
+    case symbols
+    case actions(String)
+    case commands(String)
+    case text
+
+    init(queryMode: SearchEverywhereQueryMode, scope: SearchEverywhereScope) {
+        if let commandQuery = queryMode.commandQuery {
+            self = .commands(commandQuery)
+            return
+        }
+
+        switch scope {
+        case .all: self = .combinedWorkspaceNames
+        case .classes: self = .classes
+        case .files: self = .files
+        case .symbols: self = .symbols
+        case .actions: self = .actions(queryMode.workspaceQuery)
+        case .text: self = .text
+        }
+    }
+
+    var emptyResultsMessage: String {
+        switch self {
+        case .commands:
+            return "No matching commands"
+        case .combinedWorkspaceNames:
+            return "No matches in All"
+        case .classes:
+            return "No matches in Classes"
+        case .files:
+            return "No matches in Files"
+        case .symbols:
+            return "No matches in Symbols"
+        case .actions:
+            return "No matches in Actions"
+        case .text:
+            return "No matches in Text"
+        }
+    }
+}
+
 /// IDEA 风格的全局搜索弹窗：分类标签、双栏结果和可执行 Actions 共用同一套键盘导航。
 struct SearchEverywhereView: View {
     @ObservedObject var feature: SearchFeatureModel
@@ -73,12 +118,8 @@ struct SearchEverywhereView: View {
     }
 
     private var visibleItems: [SearchItem] {
-        if let commandQuery = queryMode.commandQuery {
-            return actionMatches(commandQuery).map(SearchItem.action)
-        }
-
-        switch scope {
-        case .all:
+        switch resultSource {
+        case .combinedWorkspaceNames:
             // 对齐 IDEA：默认视图按“名字”找（文件、类、符号），
             // 正文命中只在 Text 标签页出现，避免与 Find in Files 的结果重叠。
             // Action 由 `/` 命令模式或 Actions 标签页展示。
@@ -94,13 +135,17 @@ struct SearchEverywhereView: View {
             return results(in: feature.searchEverywhereResults.symbolMatches)
         case .text:
             return results(in: feature.searchEverywhereResults.contentMatches)
-        case .actions:
-            return actionMatches(query).map(SearchItem.action)
+        case .actions(let actionQuery), .commands(let actionQuery):
+            return actionMatches(actionQuery).map(SearchItem.action)
         }
     }
 
     private var queryMode: SearchEverywhereQueryMode {
         SearchEverywhereQueryMode(query: query)
+    }
+
+    private var resultSource: SearchEverywhereResultSource {
+        SearchEverywhereResultSource(queryMode: queryMode, scope: scope)
     }
 
     private struct RankedResult {
@@ -258,7 +303,7 @@ struct SearchEverywhereView: View {
     private var resultsList: some View {
         if visibleItems.isEmpty {
             if !feature.isSearchingEverywhere {
-                placeholder("No matches in \(scope.rawValue)")
+                placeholder(resultSource.emptyResultsMessage)
             }
         } else {
             ScrollViewReader { proxy in
