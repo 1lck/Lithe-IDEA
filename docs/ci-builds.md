@@ -5,12 +5,16 @@ CI 构建缓存、架构并行、测试产物和 artifact 保留策略见
 本文只保留 CI 使用说明、下载方式和历史观测。
 
 macOS CI and Windows CI upload complete test packages whenever their product
-build lane is selected. Open the workflow run's **Summary** and use the
+build lane is selected. Ordinary macOS Swift source changes run the complete
+Swift test lane without also building two installers. Resource, dependency,
+toolchain, Rust bridge, packaging, and other bundle-sensitive changes still
+select the package lane. Open the workflow run's **Summary** and use the
 **macOS test download** or **Windows x64 test download** link. The same files
 appear in the run's **Artifacts** list.
 
-- macOS PRs produce separate Apple Silicon (`arm64`) and Intel (`x86_64`) DMGs.
-  The two jobs run concurrently when runners are available.
+- macOS PRs selected for package verification produce separate Apple Silicon
+  (`arm64`) and Intel (`x86_64`) DMGs. The two jobs run concurrently when
+  runners are available.
 - macOS pushes to `main` and manual runs verify the default universal package,
   then assemble a universal DMG with the real Java tools using the same compiled
   outputs. The packaging smoke test's temporary Java fixtures are never uploaded.
@@ -27,8 +31,9 @@ normally GitHub's test merge commit. An artifact can become available before
 the remaining jobs finish, so check **macOS CI gate** or **Windows CI gate** for
 the combined test result. A failed architecture still fails the macOS gate;
 `fail-fast: false` lets the other architecture finish and upload its package.
-Documentation-only changes can skip packaging. To request a complete validation
-and package for a branch, select **Run workflow** in the corresponding CI workflow.
+Documentation and ordinary Swift source changes can skip packaging. To request
+a complete validation and package for a branch, select **Run workflow** in the
+corresponding CI workflow.
 
 The GitHub CLI can also download a particular run's packages:
 
@@ -70,6 +75,12 @@ An architecture-specific job can restore the universal cache from its base
 branch. Final executables are not cached; Cargo still runs before packaging.
 An interrupted cache restore is discarded, leaving the existing verified
 download cache as the fallback. Swift compilation products are not cached.
+
+The change classifier also keeps Git performance and Git status observation
+tests scoped to Git production code, their dedicated tests, and test-tooling
+changes. The main Swift suite still compiles the complete Lithe target for
+ordinary product changes; this removes unrelated specialty-test and installer
+work without weakening compilation coverage.
 
 Cold builds, compiler changes, and dependency changes still require compilation.
 PR concurrency shortens the serial build path without promising the same
