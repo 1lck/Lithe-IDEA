@@ -4,13 +4,12 @@ CI 构建缓存、架构并行、测试产物和 artifact 保留策略见
 [`2026-09-13-ci-build-cache-and-artifact-strategy.md`](../.agents/notes/implemented/process/2026-09-13-ci-build-cache-and-artifact-strategy.md)。
 本文只保留 CI 使用说明、下载方式和历史观测。
 
-macOS CI and Windows CI upload complete test packages whenever their product
-build lane is selected. Ordinary macOS Swift source changes run the complete
-Swift test lane without also building two installers. Resource, dependency,
-toolchain, Rust bridge, packaging, and other bundle-sensitive changes still
-select the package lane. Open the workflow run's **Summary** and use the
-**macOS test download** or **Windows x64 test download** link. The same files
-appear in the run's **Artifacts** list.
+macOS CI uploads complete test packages when its package lane is selected.
+Ordinary macOS Swift source changes run the complete Swift test lane without
+also building two installers. Resource, dependency, toolchain, Rust bridge,
+packaging, and other bundle-sensitive changes still select the package lane.
+Windows PR CI runs frontend and Rust validation concurrently and does not build
+an installer; Windows installers come from preview and stable release workflows.
 
 - macOS PRs selected for package verification produce separate Apple Silicon
   (`arm64`) and Intel (`x86_64`) DMGs. The two jobs run concurrently when
@@ -18,28 +17,27 @@ appear in the run's **Artifacts** list.
 - macOS pushes to `main` and manual runs verify the default universal package,
   then assemble a universal DMG with the real Java tools using the same compiled
   outputs. The packaging smoke test's temporary Java fixtures are never uploaded.
-- Windows produces an NSIS `.exe` installer. Packaging performs the Release
-  build and frontend type check once; there is no preceding `--no-bundle` build.
+- Windows preview and stable releases produce an NSIS `.exe` installer.
+  Packaging performs the Release build and frontend type check once; there is
+  no preceding `--no-bundle` build.
 - Each package includes a SHA-256 checksum and the bundled Java tools. macOS
-  apps are ad-hoc signed, and Windows CI installers are unsigned.
+  apps are ad-hoc signed; Windows release workflows use Authenticode when a
+  certificate is configured.
 - Artifact links require GitHub sign-in and expire after 14 days. Downloading
   an artifact gives a ZIP containing the installer and checksum. The archive
   uses compression level 0 because DMGs and NSIS installers are already compressed.
 
 The summary records the exact checked-out revision. For a pull request this is
-normally GitHub's test merge commit. An artifact can become available before
-the remaining jobs finish, so check **macOS CI gate** or **Windows CI gate** for
-the combined test result. A failed architecture still fails the macOS gate;
-`fail-fast: false` lets the other architecture finish and upload its package.
-Documentation and ordinary Swift source changes can skip packaging. To request
-a complete validation and package for a branch, select **Run workflow** in the
-corresponding CI workflow.
+normally GitHub's test merge commit. Check **macOS CI gate** or **Windows CI
+gate** for the combined test result. A failed architecture still fails the
+macOS gate; `fail-fast: false` lets the other architecture finish and upload its
+package. To request a Windows installer for a branch, manually run **Release
+Windows Preview** and provide that branch as `source_branch`.
 
 The GitHub CLI can also download a particular run's packages:
 
 ```bash
 gh run download <run-id> --repo 1lck/Lithe-IDEA --pattern 'Lithe-macos-*'
-gh run download <run-id> --repo 1lck/Lithe-IDEA --pattern 'Lithe-windows-x64-*'
 ```
 
 Rolling previews also have public, stable download URLs after publication:

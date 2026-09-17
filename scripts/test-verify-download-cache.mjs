@@ -45,9 +45,25 @@ async function assertWindowsBunCacheConfiguration() {
     assert.match(contents, /BUN_TMPDIR=.*\.artifacts\/bun-tmp/, `${relativePath} must keep Bun temp files on the cache volume`);
     assert.match(contents, /BUN_FEATURE_FLAG_DISABLE_INSTALL_INDEX=1/, `${relativePath} must omit Bun's Windows junction index`);
     assert.match(contents, /bun-\$\{\{ steps\.bun\.outputs\.bun-version \}\}-v2-/, `${relativePath} must isolate the same-volume Bun cache format`);
+  }
+
+  for (const relativePath of [
+    ".github/workflows/release-preview-windows.yml",
+    ".github/workflows/release-windows.yml",
+  ]) {
+    const contents = await fs.readFile(path.join(repositoryRoot, relativePath), "utf8");
     assert.match(contents, /^\s*path: \.artifacts\/jdk-downloads$/m, `${relativePath} must cache JDK downloads`);
     assert.match(contents, /jdk-v1-\$\{\{ hashFiles\('third_party\/jdk\/manifest\.json'\) \}\}/, `${relativePath} must key JDK downloads by manifest`);
   }
+
+  const pullRequestWorkflow = await fs.readFile(
+    path.join(repositoryRoot, ".github/workflows/ci-windows.yml"),
+    "utf8",
+  );
+  assert.doesNotMatch(pullRequestWorkflow, /package-windows\.ps1/, "Windows PR CI must not build an installer");
+  assert.doesNotMatch(pullRequestWorkflow, /jdk-downloads/, "Windows PR CI must not restore package-only JDK downloads");
+  assert.match(pullRequestWorkflow, /^  frontend:$/m, "Windows frontend validation must have its own job");
+  assert.match(pullRequestWorkflow, /^  rust-tests:$/m, "Windows Rust validation must have its own job");
 
   const installer = await fs.readFile(path.join(repositoryRoot, "scripts/install-windows-frontend-dependencies.ps1"), "utf8");
   assert.match(installer, /\.artifacts\/bun-cache/, "Windows dependency installation must use the isolated Bun cache");
