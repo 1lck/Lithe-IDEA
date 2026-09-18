@@ -420,9 +420,24 @@ extension AppModel {
                       ),
                       isCurrentWorkspace(identity) else { return }
             }
-            for configuration in configurations {
+            var preparedConfigurations: [(RunConfiguration, JavaDebugLaunchTarget?)] = []
+            do {
+                for configuration in configurations {
+                    guard isCurrentWorkspace(identity) else { return }
+                    let target = try await prepareJavaRunLaunch(
+                        for: configuration,
+                        identity: identity
+                    )
+                    preparedConfigurations.append((configuration, target))
+                }
+            } catch {
                 guard isCurrentWorkspace(identity) else { return }
-                runFeature.startConfiguration(configuration)
+                showNotification(error.localizedDescription)
+                return
+            }
+            for (configuration, javaLaunch) in preparedConfigurations {
+                guard isCurrentWorkspace(identity) else { return }
+                runFeature.startConfiguration(configuration, javaLaunch: javaLaunch)
             }
             showToolWindow(.run)
         }
@@ -470,7 +485,7 @@ extension AppModel {
         for configuration: RunConfiguration,
         identity: WorkspaceIdentity
     ) async throws -> JavaDebugLaunchTarget? {
-        guard configuration.kind == .javaMain,
+        guard (configuration.kind == .javaMain || configuration.kind == .springBoot),
               configuration.mavenReactorPath != nil else { return nil }
         guard let workspaceURL,
               let sourceURL = runWorkflowCoordinator.sourceURLForDebug(
@@ -561,7 +576,8 @@ extension AppModel {
             case .stale:
                 return
             }
-            for configuration in runFeature.configurations where configuration.execution == .service {
+            let serviceConfigurations = runFeature.configurations.filter { $0.execution == .service }
+            for configuration in serviceConfigurations {
                 guard await activateLanguageRunExtensionIfNeeded(
                     for: configuration,
                     currentFileURL: nil,
@@ -569,7 +585,23 @@ extension AppModel {
                 ) else { return }
                 guard isCurrentWorkspace(identity) else { return }
             }
-            runFeature.runAllServices()
+            var javaLaunches: [String: JavaDebugLaunchTarget] = [:]
+            do {
+                for configuration in serviceConfigurations {
+                    if let target = try await prepareJavaRunLaunch(
+                        for: configuration,
+                        identity: identity
+                    ) {
+                        javaLaunches[configuration.id] = target
+                    }
+                    guard isCurrentWorkspace(identity) else { return }
+                }
+            } catch {
+                guard isCurrentWorkspace(identity) else { return }
+                showNotification(error.localizedDescription)
+                return
+            }
+            runFeature.runAllServices(javaLaunches: javaLaunches)
         }
     }
 

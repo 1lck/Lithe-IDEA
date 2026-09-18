@@ -657,7 +657,9 @@ package final class RunService: ObservableObject {
         }
     }
 
-    package func runAllServices() {
+    package func runAllServices(
+        javaLaunches: [String: JavaDebugLaunchTarget] = [:]
+    ) {
         let serviceConfigurations = configurations.filter { $0.execution == .service }
         guard !serviceConfigurations.isEmpty else {
             fail(String(localized: "No runnable services were detected in this project."))
@@ -666,7 +668,7 @@ package final class RunService: ObservableObject {
         stopAllServices()
         moduleSessions = []
         for configuration in serviceConfigurations {
-            startModuleSession(configuration)
+            startModuleSession(configuration, javaLaunch: javaLaunches[configuration.id])
         }
     }
 
@@ -1162,7 +1164,7 @@ package final class RunService: ObservableObject {
         }
         let mavenContext = mavenContext(for: configuration)
         let options = effectiveOptions(for: configuration, mavenContext: mavenContext)
-        let launchesJavaDirectly = configuration.kind == .javaMain
+        let launchesJavaDirectly = configuration.kind == .javaMain || javaLaunch != nil
         let configuredJavaHome = (launchesJavaDirectly || options.mavenJavaHomePath.isEmpty
             ? options.javaHomePath
             : options.mavenJavaHomePath).trimmingCharacters(in: .whitespacesAndNewlines)

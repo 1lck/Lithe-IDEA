@@ -1507,10 +1507,13 @@ project profiles are inherited. Explicit `extensions.maven.skipTests` and
 `cwd` values also replace the context values. Core applies the shared settings,
 module, Skip Tests, and reactor-working-directory rules to the generated
 framework arguments, including `-am` for selected reactor modules. A
-project-owned `java.main` caller instead supplies `javaLaunch` with the exact
-JDT LS-selected `mainClass` plus structured `classPaths` and `modulePaths`.
-Core then produces a direct `project-jdk` launch; it never projects a Java main
-into a reactor-wide Maven Exec goal. It
+project-owned `java.main` caller, or a `spring-boot.maven` caller whose generated
+configuration records a Java entry source, instead supplies `javaLaunch` with
+the exact JDT LS-selected `mainClass` plus structured `classPaths` and
+`modulePaths`. Core then produces a direct `project-jdk` launch; it never
+projects those Java entry points into a reactor-wide Maven launch goal. A Spring
+Boot configuration without a resolved Java entry source retains its Maven-goal
+compatibility path. It
 returns a toolchain
 reference, argument array, project-relative working directory, and structured
 environment references. It does not return a shell command or platform

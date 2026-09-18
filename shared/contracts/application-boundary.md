@@ -377,13 +377,16 @@ project settings. The shared Core applies the final Maven argument order;
 tool-window, framework, test, and module launches add `-am` when reactor
 dependencies must be built.
 
-Project-owned Java Main uses a different boundary: the Java language service
-selects the source target, Java Debug Server builds the owning project and
-resolves its runtime classpath/module path, Core projects those structured paths
-into a direct JDK launch, and the Run host starts that one JVM. Maven still
-defines the project model, but Run never sends a reactor-wide
-`exec:java` goal. Run and Debug share this preparation path so module selection,
-generated sources, test-source mains, and dependency paths do not drift.
+Project-owned Java Main and a Maven Spring Boot service with a resolved Java
+entry source use a different boundary: the Java language service selects the
+source target, Java Debug Server builds the owning project and resolves its
+runtime classpath/module path, Core projects those structured paths into a
+direct JDK launch, and the Run host starts that one JVM. Maven still defines the
+project model, but Run never sends either target through a reactor-wide Java
+launch goal. A Spring Boot service without a resolved Java entry source retains
+its Maven-goal compatibility path. Run and Debug share the Java preparation path
+so module selection, generated sources, test-source mains, and dependency paths
+do not drift.
 
 Java test actions use the same Maven process lifecycle for a complete JUnit 4
 or JUnit 5 test class and for an individual method. The selector is validated

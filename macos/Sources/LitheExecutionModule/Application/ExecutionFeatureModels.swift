@@ -234,8 +234,10 @@ package final class RunFeatureModel: ObservableObject {
         service.createConfiguration(draft)
     }
 
-    package func runAllServices() {
-        service.runAllServices()
+    package func runAllServices(
+        javaLaunches: [String: JavaDebugLaunchTarget] = [:]
+    ) {
+        service.runAllServices(javaLaunches: javaLaunches)
     }
 
     package func stopAllServices() {

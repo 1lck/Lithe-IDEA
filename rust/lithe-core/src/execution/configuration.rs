@@ -12,7 +12,7 @@ use std::path::{Component, Path, PathBuf};
 
 const VERSION: u32 = 2;
 const LEGACY_VERSION: u32 = 1;
-const GENERATOR_REVISION: &str = "3";
+const GENERATOR_REVISION: &str = "4";
 /// Toolchain requirements and `project.json` are separate documents that happen
 /// to live under `.lithe`. Their schema did not change with run-config v2, so
 /// they keep their own version and must not be validated against `VERSION`.
@@ -729,11 +729,9 @@ fn java_module_identity(module: Option<&str>) -> String {
 /// Copies a scanned `@SpringBootApplication` class onto the module that declares
 /// the Maven plugin.
 ///
-/// The detector knows a module is a service but not which class boots it, and
-/// `spring-boot:run` resolves the main class itself when none is given. Naming it
-/// explicitly is still worth doing: a module with two candidate classes otherwise
-/// fails at launch time with a Maven error rather than starting the one the editor
-/// already found.
+/// The detector knows a module is a service but not which class boots it. A
+/// unique scanned source lets the language service select the exact target; two
+/// candidates remain ambiguous and must not be guessed.
 fn adopt_annotated_main_classes(
     configurations: &mut [RunConfiguration],
     annotated: &[(String, String)],
@@ -751,8 +749,8 @@ fn adopt_annotated_main_classes(
         let mut matches = annotated
             .iter()
             .filter(|(path, _)| within_maven_module(path, &module, maven_root))
-            .map(|(_, qualified_name)| qualified_name);
-        let Some(main_class) = matches.next() else {
+            .map(|(path, qualified_name)| (path, qualified_name));
+        let Some((source_path, main_class)) = matches.next() else {
             continue;
         };
         if matches.next().is_some() {
@@ -765,6 +763,9 @@ fn adopt_annotated_main_classes(
         if let Some(object) = maven.as_object_mut() {
             object.insert("mainClass".to_string(), json!(main_class));
         }
+        configuration
+            .extensions
+            .insert("java".to_string(), json!({ "source": source_path }));
     }
 }
 
@@ -1548,6 +1549,10 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
     let uses_maven_toolchain = config["toolchains"]["maven"]
         .as_str()
         .is_some_and(|value| !value.is_empty());
+    let is_direct_java_project_launch = uses_maven_toolchain
+        && (is_java_main
+            || (provider == "spring-boot.maven"
+                && config["extensions"]["java"]["source"].is_string()));
     let goal = framework_goal(provider);
     // A framework that owns its own debug agent takes a port instead of raw JVM
     // flags, so JDWP must not also be forced into `jvmArguments`: two agents on
@@ -1607,7 +1612,7 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         arguments.extend(jvm_arguments);
         arguments.push(json!(main_class));
         arguments.extend(program_arguments);
-    } else if is_java_main && uses_maven_toolchain {
+    } else if is_direct_java_project_launch {
         let java_launch = request.java_launch.as_ref().ok_or_else(|| {
             CoreError::new(
                 ErrorCode::InvalidRequest,
@@ -1629,13 +1634,13 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         let _configured_main = maven["mainClass"].as_str().ok_or_else(|| {
             CoreError::new(
                 ErrorCode::InvalidRequest,
-                "Java application is missing its main class",
+                "Java project launch is missing its main class",
             )
         })?;
         // The Java project model already built the workspace and resolved the
         // exact target module paths. Maven remains the project model, but it no
-        // longer receives a reactor-wide `exec:java` goal that would try to
-        // launch the same main class from parent and dependency projects.
+        // longer receives a reactor-wide Java launch goal that would try the
+        // same main class in parent and dependency projects.
         plan_classpath.extend(java_launch.class_paths.iter().cloned().map(Value::String));
         plan_modulepath.extend(java_launch.module_paths.iter().cloned().map(Value::String));
         arguments.extend(jvm_arguments);
@@ -1729,7 +1734,7 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
             arguments.push(json!(goal.goal));
         }
     }
-    let executable_kind = if is_current || is_java_main {
+    let executable_kind = if is_current || is_direct_java_project_launch || is_java_main {
         "java"
     } else {
         "maven"
@@ -1790,8 +1795,8 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
             "JAVA_HOME": { "toolchain": java_toolchain, "property": "home" }
         }
     });
-    // Optional fields stay absent for the single-process plans (Maven, npm,
-    // frameworks) so their contract and every existing consumer are unchanged.
+    // Optional fields stay absent for ordinary process and Maven-goal plans.
+    // Direct Java project launches carry the paths their language model resolved.
     if !pre_launch_steps.is_empty() {
         plan["preLaunchSteps"] = Value::Array(pre_launch_steps);
     }

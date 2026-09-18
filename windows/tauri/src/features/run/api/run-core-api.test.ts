@@ -45,6 +45,7 @@ describe("saveRunConfigurationEditorChanges", () => {
           currentFile: undefined,
           mavenContext,
           debugPort: undefined,
+          javaLaunch: null,
         },
       }),
     );
@@ -69,6 +70,7 @@ describe("saveRunConfigurationEditorChanges", () => {
           currentFile: undefined,
           mavenContext,
           debugPort: 5005,
+          javaLaunch: null,
         },
       }),
     );

@@ -132,6 +132,11 @@ fn run_configuration_commands_generate_merge_and_plan() {
             "payload":{
                 "root":root,
                 "configurationId":"spring-boot.maven:demo",
+                "javaLaunch": {
+                    "mainClass": "com.example.App",
+                    "classPaths": ["/workspace/target/classes"],
+                    "modulePaths": []
+                },
                 "debugPort":5005
             }
         })
@@ -262,6 +267,10 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
         service["extensions"]["maven"]["mainClass"],
         "com.example.App"
     );
+    assert_eq!(
+        service["extensions"]["java"]["source"],
+        "projects/demo/service/src/main/java/com/example/App.java"
+    );
     let java_main = configurations
         .iter()
         .find(|value| value["provider"] == "java.main")
@@ -303,6 +312,11 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
             "payload": {
                 "root": root,
                 "configurationId": service["id"],
+                "javaLaunch": {
+                    "mainClass": "com.example.App",
+                    "classPaths": ["/workspace/projects/demo/service/target/classes"],
+                    "modulePaths": []
+                },
                 "mavenContext": {
                     "version": 1,
                     "reactorPath": "projects/demo",
@@ -319,28 +333,21 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
     .unwrap();
     assert_eq!(plan["ok"], true, "{plan}");
     assert_eq!(plan["data"]["workingDirectory"], "projects/demo");
+    assert_eq!(plan["data"]["executable"]["toolchain"], "project-jdk");
     assert_eq!(
-        &plan["data"]["arguments"].as_array().unwrap()[..12],
-        [
-            "-B",
-            "-ntp",
-            "-P",
-            "dev,qa",
-            "-s",
-            "/local/settings.xml",
-            "-pl",
-            "service",
-            "-am",
-            "-DskipTests",
-            "-Dspring-boot.run.main-class=com.example.App",
-            "spring-boot:run"
-        ]
+        plan["data"]["arguments"],
+        serde_json::json!(["com.example.App"])
     );
-    assert!(plan["data"]["arguments"]
+    assert_eq!(
+        plan["data"]["classpath"],
+        serde_json::json!(["/workspace/projects/demo/service/target/classes"])
+    );
+    assert!(!plan["data"]["arguments"]
         .as_array()
         .unwrap()
         .iter()
-        .any(|argument| argument == "-am"));
+        .filter_map(Value::as_str)
+        .any(|argument| argument == "-am" || argument == "spring-boot:run"));
 
     fs::create_dir_all(root.join("custom-run/service")).unwrap();
     fs::write(
@@ -366,6 +373,11 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
             "payload": {
                 "root": root,
                 "configurationId": service["id"],
+                "javaLaunch": {
+                    "mainClass": "com.example.App",
+                    "classPaths": ["/workspace/projects/demo/service/target/classes"],
+                    "modulePaths": []
+                },
                 "mavenContext": {
                     "version": 1,
                     "reactorPath": "projects/demo",
@@ -380,8 +392,8 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
     assert_eq!(overridden_plan["ok"], true, "{overridden_plan}");
     assert_eq!(overridden_plan["data"]["workingDirectory"], "custom-run");
     assert_eq!(
-        &overridden_plan["data"]["arguments"].as_array().unwrap()[..4],
-        ["-B", "-ntp", "-P", "release"]
+        overridden_plan["data"]["arguments"],
+        serde_json::json!(["com.example.App"])
     );
     assert!(!overridden_plan["data"]["arguments"]
         .as_array()
@@ -1947,13 +1959,13 @@ fn run_configuration_inspection_invalidates_an_older_generator_revision() {
     ))
     .unwrap();
     let mut document = generated["data"]["generated"].clone();
-    let revision_two_fingerprint =
-        generator_fingerprint_for_revision(&document["generator"]["inputs"], "2");
+    let previous_revision_fingerprint =
+        generator_fingerprint_for_revision(&document["generator"]["inputs"], "3");
     assert_ne!(
         document["generator"]["fingerprint"],
-        serde_json::json!(revision_two_fingerprint)
+        serde_json::json!(previous_revision_fingerprint)
     );
-    document["generator"]["fingerprint"] = serde_json::json!(revision_two_fingerprint);
+    document["generator"]["fingerprint"] = serde_json::json!(previous_revision_fingerprint);
     let configurations = document["configurations"]
         .as_array_mut()
         .expect("generated document should contain configurations");
@@ -2285,7 +2297,15 @@ fn hybrid_project_scopes_node_diagnostics_to_npm_configurations() {
         &serde_json::json!({
             "id": "plan-hybrid-spring",
             "command": "runConfig.createLaunchPlan",
-            "payload": {"root": root, "configurationId": spring_id}
+            "payload": {
+                "root": root,
+                "configurationId": spring_id,
+                "javaLaunch": {
+                    "mainClass": "com.example.DemoApplication",
+                    "classPaths": ["/workspace/target/classes"],
+                    "modulePaths": []
+                }
+            }
         })
         .to_string(),
     ))
@@ -2293,7 +2313,7 @@ fn hybrid_project_scopes_node_diagnostics_to_npm_configurations() {
     assert_eq!(spring_plan["ok"], true, "{spring_plan}");
     assert_eq!(
         spring_plan["data"]["executable"]["toolchain"],
-        "project-maven"
+        "project-jdk"
     );
 
     let mismatch = resolve(Some("18.20.4"));

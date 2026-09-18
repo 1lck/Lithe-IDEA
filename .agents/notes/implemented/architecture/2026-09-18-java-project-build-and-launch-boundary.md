@@ -4,7 +4,8 @@
 
 ## 先说结论
 
-Java 项目里的 Main 类不再通过 `mvn -pl ... -am exec:java` 运行。Lithe 先让
+Java 项目里的 Main 类，以及能确定 Java 入口源码的 Spring Boot 服务，不再通过
+reactor-wide Maven goal 运行。Lithe 先让
 JDT LS / Java Debug Server 找到精确源码目标、构建它所属的项目，并解析运行时
 classpath/module-path；随后 Run 模块只启动一次项目 JDK。Maven 仍负责
 描述项目，但不再充当 Java Main 的启动器。
@@ -18,7 +19,7 @@ classpath/module-path；随后 Run 模块只启动一次项目 JDK。Maven 仍�
 
 ## 决策
 
-项目 Java Main 的准备流程固定为：
+项目 Java Main 和已识别入口源码的 Spring Boot 服务，准备流程固定为：
 
 1. `vscode.java.resolveMainClass` 按生成配置记录的精确源码路径选择目标；
 2. `vscode.java.buildWorkspace` 构建拥有该目标的 Java 项目；
@@ -29,6 +30,13 @@ classpath/module-path；随后 Run 模块只启动一次项目 JDK。Maven 仍�
 Run 和 Debug 共用同一套 Java 项目准备逻辑。配置中的 Maven 信息仍用于 JDT LS
 导入、Profile、settings.xml 和项目模型；Maven 工具窗口、框架 goal、测试与显式
 Maven 任务仍走 Maven 启动计划。
+
+Spring Boot 检测仍由 Maven 插件决定“它是不是服务”，不会把普通依赖模块误报成
+服务。扫描到唯一的 `@SpringBootApplication` 源码后，配置同时记录入口类和源码；
+此时 Run 走上述 JDT 直启流程。没有 Java 入口源码的特殊项目（例如入口不在可见
+Java 源码中）仍可保留 Spring Boot Maven goal 兼容路径。
+生成器 revision 随这项行为提升，旧工作区会自动重新生成配置，不要求用户删除
+`.lithe/run/generated.json`。
 
 `javaLaunch` 包含 JDT 确认的 `mainClass`、`classPaths`、`modulePaths`。缺少这些
 项目元数据时直接提示等待或修复 Java 语言服务，不回退到 `exec:java`，避免把
@@ -46,15 +54,17 @@ Maven 任务仍走 Maven 启动计划。
 
 ## 后果
 
-- 多模块 Maven 的 Java Main 只会启动一次，不再在父模块或依赖模块找主类。
+- 多模块 Maven 的 Java Main 和已解析入口的 Spring Boot 服务只会启动一次，不再
+  在父模块或依赖模块找主类。
 - Maven 生成源码、测试源码 Main 和 JPMS module-path 使用同一项目模型。
 - 点击运行可能需要等待 Java 语言服务 ready；构建失败会阻止启动并保留真实诊断。
 - 独立 Java 文件仍遵循“`javac` 编译再运行”的既有方案，不依赖语言服务。
 
 ## 验证
 
-- Rust：Java Main 启动计划必须是 `project-jdk`，参数不含 `-am`、Exec 插件或
-  Maven goal，并保留 JDT 返回的 classpath/module-path。
+- Rust：Java Main 与已解析入口的 Spring Boot 服务启动计划必须是 `project-jdk`，
+  参数不含 `-am`、Exec 插件或 Maven goal，并保留 JDT 返回的
+  classpath/module-path。
 - macOS：语言服务命令顺序为 resolve main → build workspace → resolve classpath。
 - Windows：Run Store 把准备结果传入 Core，并分别用 `;` 拼 classpath/module-path。
 - 共享契约：`shared/contracts/rust-core-api.md` 与
