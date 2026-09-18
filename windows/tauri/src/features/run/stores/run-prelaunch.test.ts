@@ -27,9 +27,11 @@ const configuration: RunConfiguration = {
 // works (JEP 330 single-file launch is 11+). The store must run the pre-launch
 // step, join the classpath with the Windows `;`, and prepend `-cp` to both the
 // javac step and the main `java` invocation.
-function standaloneDependencies(
-  overrides: Partial<RunStoreDependencies> = {},
-): { dependencies: RunStoreDependencies; executePreLaunchStep: ReturnType<typeof mock>; startRunProcess: ReturnType<typeof mock> } {
+function standaloneDependencies(overrides: Partial<RunStoreDependencies> = {}): {
+  dependencies: RunStoreDependencies;
+  executePreLaunchStep: ReturnType<typeof mock>;
+  startRunProcess: ReturnType<typeof mock>;
+} {
   const outputDir = ".lithe/run/classes/standalone";
   const createLaunchPlan = mock(async () => ({
     executable: { toolchain: "project-jdk" as const },
@@ -44,8 +46,7 @@ function standaloneDependencies(
     ],
   }));
   const resolveRunLaunch = mock(async (args: { executable: { tool?: string | null } }) => ({
-    executable:
-      args.executable.tool === "javac" ? "C:/jdk8/bin/javac.exe" : "C:/jdk8/bin/java.exe",
+    executable: args.executable.tool === "javac" ? "C:/jdk8/bin/javac.exe" : "C:/jdk8/bin/java.exe",
     workingDirectory: "D:/work",
     environment: { JAVA_HOME: "C:/jdk8" },
   }));
@@ -59,12 +60,68 @@ function standaloneDependencies(
     saveWorkspaceBeforeLaunch: mock(async () => undefined),
     startRunProcess,
     stopRunProcess: mock(async () => undefined),
+    prepareJavaRunLaunch: mock(async () => null),
     ...overrides,
   };
   return { dependencies, executePreLaunchStep, startRunProcess };
 }
 
 describe("Standalone Java compile-then-run", () => {
+  test("passes JDT launch metadata to Core and joins classpath and module-path", async () => {
+    const javaLaunch = {
+      mainClass: "example.Main",
+      projectName: "app",
+      classPaths: ["D:/work/app/target/classes", "D:/repo/library.jar"],
+      modulePaths: ["D:/work/app/target/modules"],
+    };
+    const createLaunchPlan = mock(async () => ({
+      executable: { toolchain: "project-jdk" as const },
+      arguments: ["example.Main"],
+      workingDirectory: ".",
+      classpath: javaLaunch.classPaths,
+      modulepath: javaLaunch.modulePaths,
+    }));
+    const { dependencies, startRunProcess } = standaloneDependencies({
+      createLaunchPlan,
+      prepareJavaRunLaunch: mock(async () => javaLaunch),
+    });
+    const projectConfiguration = {
+      ...configuration,
+      sourcePath: "app/src/main/java/example/Main.java",
+      mainClass: "example.Main",
+      mavenReactorPath: ".",
+    };
+    const store = createRunStore("workspace", dependencies);
+    store.setState({
+      root: "D:/work",
+      configurations: [projectConfiguration],
+      diagnostics: [],
+      effectiveRuntimeExecutablePaths: {},
+    });
+
+    await store.getState().actions.runConfiguration(projectConfiguration.id);
+
+    expect(createLaunchPlan).toHaveBeenCalledWith(
+      "D:/work",
+      projectConfiguration.id,
+      undefined,
+      null,
+      undefined,
+      javaLaunch,
+    );
+    expect(startRunProcess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        arguments: [
+          "--module-path",
+          "D:/work/app/target/modules",
+          "-cp",
+          "D:/work/app/target/classes;D:/repo/library.jar",
+          "example.Main",
+        ],
+      }),
+    );
+  });
+
   test("compiles with javac, then launches by class name with -cp", async () => {
     const { dependencies, executePreLaunchStep, startRunProcess } = standaloneDependencies();
     const store = createRunStore("workspace", dependencies);

@@ -39,6 +39,16 @@ struct DebugLaunchSourceResolver {
             return activeDocumentURL?.standardizedFileURL
         }
 
+        if let sourcePath = configuration.sourcePath,
+           !sourcePath.isEmpty {
+            let sourceURL = workspaceURL
+                .appendingPathComponent(sourcePath)
+                .standardizedFileURL
+            if projectFiles.map(\.standardizedFileURL).contains(sourceURL) {
+                return sourceURL
+            }
+        }
+
         let javaFiles = projectFiles
             .map(\.standardizedFileURL)
             .filter { $0.pathExtension.lowercased() == "java" }

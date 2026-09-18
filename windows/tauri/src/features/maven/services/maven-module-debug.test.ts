@@ -233,6 +233,7 @@ for (const execution of ["service", "application"] as const) {
           processes.set(sessionId, executionId!);
         },
         stopRunProcess,
+        prepareJavaRunLaunch: async () => null,
       };
       const selected = { ...configuration, execution };
       const store = createRunStore(`debug-cleanup-${execution}`, runDependencies);

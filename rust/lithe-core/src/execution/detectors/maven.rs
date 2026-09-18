@@ -59,8 +59,8 @@ fn service_provider(module: &DeclaredModule) -> Option<&'static str> {
         .map(|(_, provider)| *provider)
 }
 
-/// A Spring Boot module is launched by Maven from the reactor root, addressed by
-/// `-pl <module>`. Every such configuration therefore shares one `cwd`, so the
+/// A Maven framework module belongs to one reactor root and is addressed by its
+/// module path. Every such configuration therefore shares one `cwd`, so the
 /// name is what keeps two modules apart during dedup.
 ///
 /// `artifactId` is Maven's own name for a module and is what a developer
@@ -85,11 +85,10 @@ fn service_names(modules: &[DeclaredModule]) -> BTreeMap<String, String> {
         .collect()
 }
 
-/// These frameworks run through Maven rather than a command on `PATH`, so the
-/// executable is a toolchain binding and the launch layer assembles the goal
-/// from the `maven` extension. The main class is deliberately absent: the plugin
-/// resolves it from the module itself, and the Java scan supplies it only when a
-/// `@SpringBootApplication` source was read.
+/// These frameworks use project toolchain bindings rather than a command on
+/// `PATH`. The main class is deliberately absent: the Java scan supplies it only
+/// when a unique `@SpringBootApplication` source was read. Such Spring services
+/// launch through JDT metadata; other framework services retain their Maven goal.
 fn service(
     ctx: &DirectoryContext,
     module: &DeclaredModule,

@@ -423,7 +423,12 @@ struct LanguageIntelligenceModuleTests {
             ]),
         ])))
 
-        let classpathCommand = try await session.waitForExecuteCommand(number: 2)
+        let buildCommand = try await session.waitForExecuteCommand(number: 2)
+        #expect(buildCommand.command == "vscode.java.buildWorkspace")
+        #expect(buildCommand.arguments.count == 1)
+        session.completeExecuteReturningValue(.success(.integer(1)))
+
+        let classpathCommand = try await session.waitForExecuteCommand(number: 3)
         #expect(classpathCommand.command == "vscode.java.resolveClasspath")
         #expect(classpathCommand.arguments == [
             .string("service/example.Main"),

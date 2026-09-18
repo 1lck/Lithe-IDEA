@@ -348,6 +348,22 @@ package final class LanguageToolingSessionManager: ObservableObject,
         fileURL: URL,
         rootURL: URL
     ) async throws -> JavaDebugLaunchTarget {
+        try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL)
+    }
+
+    /// Builds the owning Java project and resolves the exact runtime paths used
+    /// by both Run and Debug. Java Debug Server owns these project-model rules.
+    package func prepareJavaRunLaunchTarget(
+        fileURL: URL,
+        rootURL: URL
+    ) async throws -> JavaDebugLaunchTarget {
+        try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL)
+    }
+
+    private func prepareJavaLaunchTarget(
+        fileURL: URL,
+        rootURL: URL
+    ) async throws -> JavaDebugLaunchTarget {
         let normalizedRoot = rootURL.standardizedFileURL
         let resolvedFile = fileURL.standardizedFileURL.resolvingSymlinksInPath()
         _ = try startLanguageServer(providerID: "java", rootURL: normalizedRoot)
@@ -383,6 +399,34 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 ? "No Java main method was found in \(resolvedFile.lastPathComponent)."
                 : "More than one Java main method was found in \(resolvedFile.lastPathComponent)."
             throw LanguageToolingSessionError.toolingUnavailable(message)
+        }
+        let buildPayload = JavaWorkspaceBuildRequest(
+            mainClass: selected.mainClass,
+            projectName: selected.projectName,
+            filePath: resolvedFile.path,
+            isFullBuild: false
+        )
+        let buildData = try JSONEncoder().encode(buildPayload)
+        guard let buildJSON = String(data: buildData, encoding: .utf8) else {
+            throw LanguageToolingSessionError.toolingUnavailable(
+                "The Java workspace build request could not be encoded."
+            )
+        }
+        let buildValue = try await executeJavaCommand(
+            "vscode.java.buildWorkspace",
+            arguments: [.string(buildJSON)],
+            rootURL: normalizedRoot
+        )
+        let buildStatus: Int?
+        switch buildValue {
+        case .integer(let value): buildStatus = value
+        case .string(let value): buildStatus = Int(value)
+        default: buildStatus = nil
+        }
+        guard buildStatus == 1 else {
+            throw LanguageToolingSessionError.toolingUnavailable(
+                "The Java project build failed. Fix the reported Java errors and try again."
+            )
         }
         let classpathValue = try await executeJavaCommand(
             "vscode.java.resolveClasspath",
@@ -1807,6 +1851,13 @@ package final class LanguageToolingSessionManager: ObservableObject,
     private struct ResolvedJavaDebugLaunchTarget {
         let target: JavaDebugLaunchTarget
         let filePath: String?
+    }
+
+    private struct JavaWorkspaceBuildRequest: Encodable {
+        let mainClass: String
+        let projectName: String?
+        let filePath: String
+        let isFullBuild: Bool
     }
 
     private struct ResolvedJavaTestItem {
