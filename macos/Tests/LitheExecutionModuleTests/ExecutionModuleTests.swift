@@ -840,7 +840,7 @@ struct ExecutionModuleTests {
 
     @Test
     func mavenJavaMainValidatesTheProjectJDKInsteadOfTheMavenJDK() async throws {
-        let mainProcess = TestStreamingProcess()
+        let moduleProcess = TestStreamingProcess()
         let configuration = RunConfiguration(
             id: "java-main:example.Main", name: "Main", kind: .javaMain,
             execution: .application, modulePath: "app", mainClass: "example.Main",
@@ -854,8 +854,8 @@ struct ExecutionModuleTests {
         )
         let service = RunService(
             runtime: TestRuntime(javaHome: URL(fileURLWithPath: "/valid/project-jdk")),
-            process: mainProcess,
-            processFactory: { TestStreamingProcess() },
+            process: TestStreamingProcess(),
+            processFactory: { moduleProcess },
             fileAccess: TestRunFileAccess(),
             preferences: TestRunPreferences(),
             serverPortParser: TestServerPortParser(),
@@ -884,7 +884,7 @@ struct ExecutionModuleTests {
             classPaths: ["/workspace/app/target/classes"]
         ))
 
-        #expect(mainProcess.startRequests.first?.arguments == [
+        #expect(moduleProcess.startRequests.first?.arguments == [
             "-cp", "/workspace/app/target/classes", "example.Main",
         ])
         #expect(service.moduleSessions.first?.isRunning == true)

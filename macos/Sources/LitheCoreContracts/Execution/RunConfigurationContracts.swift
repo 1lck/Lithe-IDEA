@@ -246,6 +246,14 @@ package protocol RunConfigurationOperations: Sendable {
         configurationID: String,
         currentFile: String?,
         classPath: String?,
+        debugPort: Int?,
+        mavenContext: MavenLaunchContext?
+    ) throws -> SharedLaunchPlan
+    func launchPlan(
+        at projectURL: URL,
+        configurationID: String,
+        currentFile: String?,
+        classPath: String?,
         javaLaunch: JavaDebugLaunchTarget?,
         debugPort: Int?,
         mavenContext: MavenLaunchContext?
