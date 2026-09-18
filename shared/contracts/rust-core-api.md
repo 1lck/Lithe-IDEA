@@ -1506,15 +1506,21 @@ the resolved Run Configuration replace the context profiles; otherwise the
 project profiles are inherited. Explicit `extensions.maven.skipTests` and
 `cwd` values also replace the context values. Core applies the shared settings,
 module, Skip Tests, and reactor-working-directory rules to the generated
-framework or Java-main arguments, including `-am` for selected reactor
-modules. It
+framework arguments, including `-am` for selected reactor modules. A
+project-owned `java.main` caller, or a `spring-boot.maven` caller whose generated
+configuration records a Java entry source, instead supplies `javaLaunch` with
+the exact JDT LS-selected `mainClass` plus structured `classPaths` and
+`modulePaths`. Core then produces a direct `project-jdk` launch; it never
+projects those Java entry points into a reactor-wide Maven launch goal. A Spring
+Boot configuration without a resolved Java entry source retains its Maven-goal
+compatibility path. It
 returns a toolchain
 reference, argument array, project-relative working directory, and structured
 environment references. It does not return a shell command or platform
 executable path. All project paths use `/`, reject absolute paths and `..`
 traversal, and remain relative to `root`.
 
-The plan may also carry two optional envelope fields. `preLaunchSteps` is an
+The plan may also carry three optional envelope fields. `preLaunchSteps` is an
 ordered array of `{ executable, arguments, classpath? }` steps the host runs to
 completion, in order, before the main process; a non-zero exit aborts the run
 and surfaces that step's diagnostics. Each step's `executable` reuses the plan's
@@ -1523,10 +1529,19 @@ sibling compiler in the toolchain's `bin` directory; absent means the default
 launcher). `classpath` is a structured array of project-relative or host-absolute
 entries the host joins with the platform path separator (`:` on POSIX, `;` on
 Windows) and prepends as `["-cp", joined]` to the relevant argument list; core
-never joins classpath entries because the separator is platform-specific. Both
-fields are omitted when empty, so existing single-process Maven, Gradle, and Node
+never joins classpath entries because the separator is platform-specific.
+`modulepath` follows the same rule and is emitted as `--module-path` by the
+host. A JDT main identity in `module/name.Type` form is projected as
+`-m module/name.Type` for the direct Java launcher. Empty fields are omitted,
+so existing single-process Maven, Gradle, and Node
 plans are unchanged. Pre-launch steps and the main process share the plan-level
 `workingDirectory` and `environment`.
+
+A Maven-project `java.main` launch must first ask JDT LS/Java Debug
+Server to resolve the exact source target, build its owning project, and return
+the runtime classpath/module path. Missing project launch metadata is a launch
+error rather than permission to fall back to `mvn exec:java`; reactor-wide Exec
+would attempt the same main class in parent and dependency modules.
 
 A `java.main` configuration without a
 Maven toolchain launches through `project-jdk` and the configuration's Java

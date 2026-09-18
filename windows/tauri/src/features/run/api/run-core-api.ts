@@ -5,6 +5,7 @@ import type {
   CoreResolveResult,
   GlobalToolchain,
   LaunchPlan,
+  JavaLaunchTarget,
   RunOptions,
   RunSaveScope,
 } from "../types/run.types";
@@ -63,6 +64,7 @@ export function createLaunchPlan(
   currentFile?: string,
   mavenContext?: MavenLaunchContext | null,
   debugPort?: number,
+  javaLaunch?: JavaLaunchTarget | null,
 ) {
   return runCore<LaunchPlan>("runConfig.createLaunchPlan", {
     root,
@@ -70,6 +72,13 @@ export function createLaunchPlan(
     currentFile,
     mavenContext: mavenContext ?? null,
     debugPort,
+    javaLaunch: javaLaunch
+      ? {
+          mainClass: javaLaunch.mainClass,
+          classPaths: javaLaunch.classPaths,
+          modulePaths: javaLaunch.modulePaths,
+        }
+      : null,
   });
 }
 

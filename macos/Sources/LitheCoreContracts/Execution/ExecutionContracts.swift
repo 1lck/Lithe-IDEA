@@ -169,6 +169,8 @@ package struct SharedLaunchPlan: Sendable {
     /// Run classpath entries the host joins with the platform separator (`:` on
     /// POSIX, `;` on Windows) and prepends as `-cp` before `arguments`.
     package let classpath: [String]
+    /// Java module-path entries joined by the host with its platform separator.
+    package let modulepath: [String]
 
     package init(
         executable: Executable,
@@ -176,7 +178,8 @@ package struct SharedLaunchPlan: Sendable {
         workingDirectory: String,
         environment: [String: String] = [:],
         preLaunchSteps: [PreLaunchStep] = [],
-        classpath: [String] = []
+        classpath: [String] = [],
+        modulepath: [String] = []
     ) {
         self.executable = executable
         self.arguments = arguments
@@ -184,6 +187,7 @@ package struct SharedLaunchPlan: Sendable {
         self.environment = environment
         self.preLaunchSteps = preLaunchSteps
         self.classpath = classpath
+        self.modulepath = modulepath
     }
 
     package var toolchainID: String? {

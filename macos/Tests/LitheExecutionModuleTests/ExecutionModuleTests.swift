@@ -839,6 +839,58 @@ struct ExecutionModuleTests {
     }
 
     @Test
+    func mavenJavaMainValidatesTheProjectJDKInsteadOfTheMavenJDK() async throws {
+        let moduleProcess = TestStreamingProcess()
+        let configuration = RunConfiguration(
+            id: "java-main:example.Main", name: "Main", kind: .javaMain,
+            execution: .application, modulePath: "app", mainClass: "example.Main",
+            mavenReactorPath: "."
+        )
+        let plan = SharedLaunchPlan(
+            executable: .toolchain("project-jdk"),
+            arguments: ["example.Main"],
+            workingDirectory: ".",
+            classpath: ["/workspace/app/target/classes"]
+        )
+        let service = RunService(
+            runtime: TestRuntime(javaHome: URL(fileURLWithPath: "/valid/project-jdk")),
+            process: TestStreamingProcess(),
+            processFactory: { moduleProcess },
+            fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(),
+            serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: FixedLaunchPlanRunConfigurationOperations(
+                configuration: configuration,
+                plan: plan,
+                options: RunOptions(
+                    javaHomePath: "/valid/project-jdk",
+                    mavenJavaHomePath: "/invalid/maven-jdk"
+                )
+            ),
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        defer { service.reset() }
+
+        await service.loadProject(
+            at: URL(fileURLWithPath: "/workspace", isDirectory: true),
+            files: [],
+            mavenProject: nil
+        )
+        service.startConfiguration(configuration, javaLaunch: JavaDebugLaunchTarget(
+            mainClass: "example.Main",
+            projectName: "app",
+            classPaths: ["/workspace/app/target/classes"]
+        ))
+
+        #expect(moduleProcess.startRequests.first?.arguments == [
+            "-cp", "/workspace/app/target/classes", "example.Main",
+        ])
+        #expect(service.moduleSessions.first?.isRunning == true)
+    }
+
+    @Test
     func standaloneJavaMergesCompileOutputIntoUserClasspath() async throws {
         let mainProcess = TestStreamingProcess()
         let stepProcesses = StepProcessRecorder()
@@ -1437,6 +1489,7 @@ private struct SelectionRunConfigurationOperations: RunConfigurationOperations {
 private struct FixedLaunchPlanRunConfigurationOperations: RunConfigurationOperations {
     let configuration: RunConfiguration
     let plan: SharedLaunchPlan
+    var options = RunOptions()
 
     func inspect(at _: URL) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
@@ -1447,7 +1500,7 @@ private struct FixedLaunchPlanRunConfigurationOperations: RunConfigurationOperat
     func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
         RunConfigurationResolution(
             configurations: [.currentFile, configuration].map {
-                EffectiveRunConfiguration(configuration: $0, options: RunOptions())
+                EffectiveRunConfiguration(configuration: $0, options: options)
             },
             diagnostics: [],
             defaultConfigurationID: configuration.id
@@ -1675,11 +1728,19 @@ private final class TestResultParserRecorder: @unchecked Sendable {
 
 @MainActor
 private final class TestRuntime: MavenRuntimePort, RunRuntimePort {
+    private let javaHome: URL?
+    private let mavenJavaHome: URL?
+
+    init(javaHome: URL? = nil, mavenJavaHome: URL? = nil) {
+        self.javaHome = javaHome
+        self.mavenJavaHome = mavenJavaHome
+    }
+
     func mavenExecutable(for project: MavenProject, overridePath: String?) -> URL? { nil }
     func mavenProcessEnvironment(javaHomePath: String?) -> [String: String] { [:] }
     func setActiveServiceJavaHomePath(_ path: String) {}
-    func javaHomeURL(overridePath: String?) -> URL? { nil }
-    func mavenJavaHomeURL(overridePath: String?) -> URL? { nil }
+    func javaHomeURL(overridePath: String?) -> URL? { javaHome }
+    func mavenJavaHomeURL(overridePath: String?) -> URL? { mavenJavaHome }
     func runConfigurationToolchainCandidates(
         for project: MavenProject?,
         projectRoot: URL?,
