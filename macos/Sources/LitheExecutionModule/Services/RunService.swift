@@ -474,17 +474,28 @@ package final class RunService: ObservableObject {
         }
     }
 
-    package func runSelected(currentFileURL: URL?) {
+    package func runSelected(
+        currentFileURL: URL?,
+        javaLaunch: JavaDebugLaunchTarget? = nil
+    ) {
         guard let configuration = selectedConfiguration else { return }
-        run(configuration: configuration, currentFileURL: currentFileURL)
+        run(configuration: configuration, currentFileURL: currentFileURL, javaLaunch: javaLaunch)
     }
 
-    package func restart() {
+    package func restart(javaLaunch: JavaDebugLaunchTarget? = nil) {
         guard let lastRunConfiguration else { return }
-        run(configuration: lastRunConfiguration, currentFileURL: lastCurrentFileURL)
+        run(
+            configuration: lastRunConfiguration,
+            currentFileURL: lastCurrentFileURL,
+            javaLaunch: javaLaunch
+        )
     }
 
-    package func run(configuration: RunConfiguration, currentFileURL: URL?) {
+    package func run(
+        configuration: RunConfiguration,
+        currentFileURL: URL?,
+        javaLaunch: JavaDebugLaunchTarget? = nil
+    ) {
         stop()
         output = ""
         lastExitCode = nil
@@ -554,6 +565,7 @@ package final class RunService: ObservableObject {
                     configurationID: configuration.id,
                     currentFile: currentFile,
                     classPath: planClassPath,
+                    javaLaunch: javaLaunch,
                     debugPort: nil,
                     mavenContext: mavenContext
                 )
@@ -584,7 +596,11 @@ package final class RunService: ObservableObject {
             fail(error.localizedDescription)
             return
         }
-        let arguments = Self.launchArguments(plan.arguments, classpath: plan.classpath)
+        let arguments = Self.launchArguments(
+            plan.arguments,
+            classpath: plan.classpath,
+            modulepath: plan.modulepath
+        )
         let workingDirectory = resolvedWorkingDirectory(plan.workingDirectory, fallback: projectURL)
 
         runningTitle = configuration.name
@@ -654,10 +670,13 @@ package final class RunService: ObservableObject {
         }
     }
 
-    package func startConfiguration(_ configuration: RunConfiguration) {
+    package func startConfiguration(
+        _ configuration: RunConfiguration,
+        javaLaunch: JavaDebugLaunchTarget? = nil
+    ) {
         guard configuration.kind != .currentFile else { return }
         stopModule(sessionID: configuration.id)
-        startModuleSession(configuration)
+        startModuleSession(configuration, javaLaunch: javaLaunch)
     }
 
     package func stopModule(_ session: RunSession) {
@@ -994,10 +1013,27 @@ package final class RunService: ObservableObject {
     /// would simply override the user's — the JVM honors only the last one).
     /// Otherwise a leading `-cp` is inserted; JVM options may precede the main
     /// class in any order.
-    private static func launchArguments(_ base: [String], classpath: [String]) -> [String] {
-        guard !classpath.isEmpty else { return base }
-        let joined = classpath.joined(separator: ":")
-        let flags: Set<String> = ["-cp", "-classpath", "--class-path"]
+    private static func launchArguments(
+        _ base: [String],
+        classpath: [String],
+        modulepath: [String] = []
+    ) -> [String] {
+        var merged = mergePath(
+            classpath,
+            flags: ["-cp", "-classpath", "--class-path"],
+            into: base
+        )
+        merged = mergePath(modulepath, flags: ["-p", "--module-path"], into: merged)
+        return merged
+    }
+
+    private static func mergePath(
+        _ paths: [String],
+        flags: Set<String>,
+        into base: [String]
+    ) -> [String] {
+        guard !paths.isEmpty else { return base }
+        let joined = paths.joined(separator: ":")
         // Merge into the last existing flag: that is the value the JVM would use.
         for index in stride(from: base.count - 2, through: 0, by: -1)
         where flags.contains(base[index]) {
@@ -1005,7 +1041,7 @@ package final class RunService: ObservableObject {
             merged[index + 1] = joined + ":" + base[index + 1]
             return merged
         }
-        return ["-cp", joined] + base
+        return [flags.contains("-cp") ? "-cp" : "--module-path", joined] + base
     }
 
     /// Runs one pre-launch step, then chains to the next on a zero exit or aborts
@@ -1094,7 +1130,10 @@ package final class RunService: ObservableObject {
         return nil
     }
 
-    private func startModuleSession(_ configuration: RunConfiguration) {
+    private func startModuleSession(
+        _ configuration: RunConfiguration,
+        javaLaunch: JavaDebugLaunchTarget? = nil
+    ) {
         guard configurationStatus == .ready,
               let projectURL else { return }
         moduleSessions.removeAll { $0.id == configuration.id }
@@ -1123,10 +1162,14 @@ package final class RunService: ObservableObject {
         }
         let mavenContext = mavenContext(for: configuration)
         let options = effectiveOptions(for: configuration, mavenContext: mavenContext)
-        let configuredJavaHome = (options.mavenJavaHomePath.isEmpty
+        let launchesJavaDirectly = configuration.kind == .javaMain
+        let configuredJavaHome = (launchesJavaDirectly || options.mavenJavaHomePath.isEmpty
             ? options.javaHomePath
             : options.mavenJavaHomePath).trimmingCharacters(in: .whitespacesAndNewlines)
-        if !configuredJavaHome.isEmpty && runtime.mavenJavaHomeURL(overridePath: configuredJavaHome) == nil {
+        let resolvedJavaHome = launchesJavaDirectly
+            ? runtime.javaHomeURL(overridePath: configuredJavaHome)
+            : runtime.mavenJavaHomeURL(overridePath: configuredJavaHome)
+        if !configuredJavaHome.isEmpty && resolvedJavaHome == nil {
             moduleSessions.append(RunSession(
                 id: configuration.id,
                 configurationID: configuration.id,
@@ -1145,6 +1188,7 @@ package final class RunService: ObservableObject {
                 configurationID: configuration.id,
                 currentFile: nil,
                 classPath: nil,
+                javaLaunch: javaLaunch,
                 debugPort: nil,
                 mavenContext: mavenContext
             )
@@ -1176,7 +1220,11 @@ package final class RunService: ObservableObject {
             ))
             return
         }
-        let arguments = plan.arguments
+        let arguments = Self.launchArguments(
+            plan.arguments,
+            classpath: plan.classpath,
+            modulepath: plan.modulepath
+        )
         let workingDirectory = resolvedWorkingDirectory(plan.workingDirectory, fallback: projectURL)
 
         let session = RunSession(

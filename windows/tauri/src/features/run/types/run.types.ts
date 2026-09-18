@@ -25,6 +25,7 @@ export interface RunConfiguration {
   modulePath?: string;
   mavenReactorPath?: string;
   mainClass?: string;
+  sourcePath?: string;
   cwd: string;
   args: string[];
   env: Record<string, string>;
@@ -115,6 +116,15 @@ export interface LaunchPlan {
   preLaunchSteps?: PreLaunchStep[];
   /** Run classpath entries joined with `;` and prepended as `-cp` before args. */
   classpath?: string[];
+  /** Java module-path entries joined with `;` by the Windows host. */
+  modulepath?: string[];
+}
+
+export interface JavaLaunchTarget {
+  mainClass: string;
+  projectName?: string;
+  classPaths: string[];
+  modulePaths: string[];
 }
 
 export interface CoreInspectResult {
@@ -182,6 +192,8 @@ export interface CoreResolvedConfiguration {
       homePath?: string;
       mavenExecutablePath?: string;
       mavenJavaHomePath?: string;
+      source?: string;
+      sourceSet?: string;
     };
   };
 }

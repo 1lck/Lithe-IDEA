@@ -395,22 +395,23 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
             "command": "runConfig.createLaunchPlan",
             "payload": {
                 "root": root,
-                "configurationId": java_main["id"]
+                "configurationId": java_main["id"],
+                "javaLaunch": {
+                    "mainClass": "com.example.App",
+                    "classPaths": ["/workspace/projects/demo/service/target/classes"],
+                    "modulePaths": []
+                }
             }
         })
         .to_string(),
     ))
     .unwrap();
     assert_eq!(java_plan["ok"], true, "{java_plan}");
+    assert_eq!(java_plan["data"]["executable"]["toolchain"], "project-jdk");
     assert_eq!(
-        java_plan["data"]["executable"]["toolchain"],
-        "project-maven"
+        java_plan["data"]["arguments"],
+        serde_json::json!(["com.example.App"])
     );
-    assert!(java_plan["data"]["arguments"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|argument| argument == "-Dexec.mainClass=com.example.App"));
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -578,7 +579,12 @@ fn java_mains_use_their_own_independent_nested_maven_reactors() {
             "command": "runConfig.createLaunchPlan",
             "payload": {
                 "root": root,
-                "configurationId": "java-main:example.Beta"
+                "configurationId": "java-main:example.Beta",
+                "javaLaunch": {
+                    "mainClass": "example.Beta",
+                    "classPaths": ["/workspace/services/beta/target/classes"],
+                    "modulePaths": []
+                }
             }
         })
         .to_string(),
@@ -586,10 +592,7 @@ fn java_mains_use_their_own_independent_nested_maven_reactors() {
     .unwrap();
     assert_eq!(beta_plan["ok"], true, "{beta_plan}");
     assert_eq!(beta_plan["data"]["workingDirectory"], "services/beta");
-    assert_eq!(
-        beta_plan["data"]["executable"]["toolchain"],
-        "project-maven"
-    );
+    assert_eq!(beta_plan["data"]["executable"]["toolchain"], "project-jdk");
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -735,7 +738,15 @@ fn run_configuration_generation_disambiguates_same_main_class_across_modules() {
             &serde_json::json!({
                 "id": format!("plan-{configuration_id}"),
                 "command": "runConfig.createLaunchPlan",
-                "payload": {"root": root, "configurationId": configuration_id}
+                "payload": {
+                    "root": root,
+                    "configurationId": configuration_id,
+                    "javaLaunch": {
+                        "mainClass": case["mainClass"],
+                        "classPaths": case["classPaths"],
+                        "modulePaths": case["modulePaths"]
+                    }
+                }
             })
             .to_string(),
         ))
@@ -746,6 +757,11 @@ fn run_configuration_generation_disambiguates_same_main_class_across_modules() {
             "case {}",
             case["name"]
         );
+        assert_eq!(plan["data"]["executable"]["toolchain"], "project-jdk");
+        assert_eq!(plan["data"]["classpath"], case["classPaths"]);
+        if !case["modulePaths"].as_array().unwrap().is_empty() {
+            assert_eq!(plan["data"]["modulepath"], case["modulePaths"]);
+        }
     }
     assert_eq!(response["data"]["entryCount"], 2);
     assert_eq!(reversed["data"]["entryCount"], 2);
@@ -797,31 +813,26 @@ fn ordinary_java_main_uses_an_application_launch_plan() {
             "command": "runConfig.createLaunchPlan",
             "payload": {
                 "root": root,
-                "configurationId": "java-main:com.example.WorkerMain"
+                "configurationId": "java-main:com.example.WorkerMain",
+                "javaLaunch": {
+                    "mainClass": "com.example.WorkerMain",
+                    "classPaths": ["/workspace/batch-worker/target/classes"],
+                    "modulePaths": []
+                }
             }
         })
         .to_string(),
     ))
     .unwrap();
     assert_eq!(plan["ok"], true, "{plan}");
-    assert_eq!(plan["data"]["executable"]["toolchain"], "project-maven");
-    assert!(plan["data"]["arguments"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|value| value == "-Dexec.mainClass=com.example.WorkerMain"));
-    assert!(!plan["data"]["arguments"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|value| value == "-Dexec.classpathScope=test" || value == "test-compile"));
+    assert_eq!(plan["data"]["executable"]["toolchain"], "project-jdk");
     assert_eq!(
-        plan["data"]["arguments"]
-            .as_array()
-            .unwrap()
-            .last()
-            .unwrap(),
-        "org.codehaus.mojo:exec-maven-plugin:3.5.0:java"
+        plan["data"]["arguments"],
+        serde_json::json!(["com.example.WorkerMain"])
+    );
+    assert_eq!(
+        plan["data"]["classpath"],
+        serde_json::json!(["/workspace/batch-worker/target/classes"])
     );
 
     fs::remove_dir_all(root).unwrap();
@@ -870,26 +881,27 @@ fn maven_test_source_main_uses_the_test_classpath() {
             "command": "runConfig.createLaunchPlan",
             "payload": {
                 "root": root,
-                "configurationId": "java-main:com.example.MainTests"
+                "configurationId": "java-main:com.example.MainTests",
+                "javaLaunch": {
+                    "mainClass": "com.example.MainTests",
+                    "classPaths": ["/workspace/target/test-classes"],
+                    "modulePaths": []
+                }
             }
         })
         .to_string(),
     ))
     .unwrap();
     assert_eq!(plan["ok"], true, "{plan}");
-    let arguments = plan["data"]["arguments"].as_array().unwrap();
-    assert!(arguments
-        .iter()
-        .any(|value| value == "-Dexec.classpathScope=test"));
-    let test_compile = arguments
-        .iter()
-        .position(|value| value == "test-compile")
-        .expect("test sources should be compiled before launch");
-    let exec_java = arguments
-        .iter()
-        .position(|value| value == "org.codehaus.mojo:exec-maven-plugin:3.5.0:java")
-        .expect("the Maven Exec goal should be present");
-    assert!(test_compile < exec_java);
+    assert_eq!(plan["data"]["executable"]["toolchain"], "project-jdk");
+    assert_eq!(
+        plan["data"]["arguments"],
+        serde_json::json!(["com.example.MainTests"])
+    );
+    assert_eq!(
+        plan["data"]["classpath"],
+        serde_json::json!(["/workspace/target/test-classes"])
+    );
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -937,7 +949,11 @@ fn plain_java_main_uses_the_jdk_without_maven() {
             "command": "runConfig.createLaunchPlan",
             "payload": {
                 "root": root,
-                "configurationId": "java-main:com.example.WorkerMain"
+                "configurationId": "java-main:com.example.WorkerMain",
+                "javaLaunch": {
+                    "mainClass": "injected.Main",
+                    "classPaths": ["/untrusted/classes"]
+                }
             }
         })
         .to_string(),
@@ -945,7 +961,8 @@ fn plain_java_main_uses_the_jdk_without_maven() {
     .unwrap();
     assert_eq!(plan["ok"], true, "{plan}");
     assert_eq!(plan["data"]["executable"]["toolchain"], "project-jdk");
-    // Non-Maven java.main also compiles then runs by its recorded main class.
+    // Non-Maven java.main also compiles then runs by its recorded main class;
+    // project-model metadata is accepted only for Maven-owned sources.
     let output_dir = ".lithe/run/classes/java-main-com.example.WorkerMain";
     assert_eq!(
         plan["data"]["preLaunchSteps"],

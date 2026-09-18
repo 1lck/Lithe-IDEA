@@ -37,6 +37,7 @@ let scenario:
   | "virtual-document" = "failure";
 let startPayload: Record<string, unknown> | undefined;
 let requestPayload: Record<string, unknown> | undefined;
+const requestPayloads: Record<string, unknown>[] = [];
 let pollCount = 0;
 let startCount = 0;
 const sessionPollCounts = new Map<string, number>();
@@ -44,6 +45,7 @@ let virtualDocumentPending = false;
 let semanticRequestPending = false;
 let semanticOperationId = "";
 let semanticRequestResult: unknown = { locations: [] };
+let semanticRequestResults: unknown[] = [];
 let releaseInitialization: (() => void) | undefined;
 let releaseRuntimeReady: (() => void) | undefined;
 
@@ -233,7 +235,9 @@ const executeCore = mock(
                   providerId: "java",
                   sessionId,
                   operationId: semanticOperationId,
-                  result: semanticRequestResult,
+                  result: semanticRequestResults.length > 0
+                    ? semanticRequestResults.shift()
+                    : semanticRequestResult,
                 },
               ],
             },
@@ -313,6 +317,7 @@ const executeCore = mock(
     }
     if (request.command === "lsp.request" || request.command === "java.resolveNavigation") {
       requestPayload = request.payload;
+      requestPayloads.push(request.payload ?? {});
       const operation = String(request.payload?.operation ?? request.command);
       const operationId = `${operation}-operation`;
       if (scenario === "semantic-request") {
@@ -376,6 +381,7 @@ describe("Rust Core LSP adapter failures", () => {
     commands.length = 0;
     startPayload = undefined;
     requestPayload = undefined;
+    requestPayloads.length = 0;
     pollCount = 0;
     startCount = 0;
     sessionPollCounts.clear();
@@ -383,6 +389,7 @@ describe("Rust Core LSP adapter failures", () => {
     semanticRequestPending = false;
     semanticOperationId = "";
     semanticRequestResult = { locations: [] };
+    semanticRequestResults = [];
     releaseInitialization = undefined;
     releaseRuntimeReady = undefined;
     emit.mockClear();
@@ -585,6 +592,55 @@ describe("Rust Core LSP adapter failures", () => {
         arguments: [],
       },
     });
+  });
+
+  test("builds the exact Java source before resolving its runtime paths", async () => {
+    scenario = "semantic-request";
+    semanticRequestResults = [
+      {
+        value: [
+          {
+            mainClass: "example.Main",
+            projectName: "service",
+            filePath: "C:/work/service/src/main/java/example/Main.java",
+          },
+        ],
+      },
+      { value: 1 },
+      {
+        value: [
+          ["C:/work/service/target/modules"],
+          ["C:/work/service/target/classes", "C:/repo/library.jar"],
+        ],
+      },
+    ];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    const target = await invokeLsp("java_prepare_run_launch", {
+      workspacePath: "C:\\work",
+      sourcePath: "C:\\work\\service\\src\\main\\java\\example\\Main.java",
+      mainClass: "example.Main",
+    });
+
+    expect(target).toEqual({
+      mainClass: "example.Main",
+      projectName: "service",
+      modulePaths: ["C:/work/service/target/modules"],
+      classPaths: ["C:/work/service/target/classes", "C:/repo/library.jar"],
+    });
+    expect(
+      requestPayloads.slice(-3).map((payload) =>
+        (payload.command as { command?: string } | undefined)?.command),
+    ).toEqual([
+      "vscode.java.resolveMainClass",
+      "vscode.java.buildWorkspace",
+      "vscode.java.resolveClasspath",
+    ]);
   });
 
   test("rejects an invalid Java Debug Server port", async () => {

@@ -242,10 +242,6 @@ package final class RunFeatureModel: ObservableObject {
         service.stopAllServices()
     }
 
-    package func startConfiguration(_ configuration: RunConfiguration) {
-        service.startConfiguration(configuration)
-    }
-
     package func stopModule(_ session: RunSession) {
         service.stopModule(session)
     }
@@ -293,8 +289,21 @@ package final class RunFeatureModel: ObservableObject {
     package func unregisterLanguageRunExtension(languageID: String) {
         service.unregisterLanguageRunExtension(languageID: languageID)
     }
-    package func runSelected(currentFileURL: URL?) { service.runSelected(currentFileURL: currentFileURL) }
-    package func restart() { service.restart() }
+    package func runSelected(
+        currentFileURL: URL?,
+        javaLaunch: JavaDebugLaunchTarget? = nil
+    ) {
+        service.runSelected(currentFileURL: currentFileURL, javaLaunch: javaLaunch)
+    }
+    package func startConfiguration(
+        _ configuration: RunConfiguration,
+        javaLaunch: JavaDebugLaunchTarget? = nil
+    ) {
+        service.startConfiguration(configuration, javaLaunch: javaLaunch)
+    }
+    package func restart(javaLaunch: JavaDebugLaunchTarget? = nil) {
+        service.restart(javaLaunch: javaLaunch)
+    }
     package func stop() { service.stop() }
     package func reset() { service.reset() }
 }

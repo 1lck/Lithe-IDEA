@@ -369,13 +369,21 @@ eight in-flight projects. Each project reports its own result, and a rejected
 or timed-out update preserves the usable Java session while exposing a partial
 failure that the host can retry.
 
-Maven-backed Run and Debug launch planning consumes the current project Maven
-context. A Run Configuration's explicit Profiles and toolchain paths take
-precedence; explicit `cwd` and `extensions.maven.skipTests` values also take
-precedence, including `skipTests: false`. Unset values inherit the project
-settings. The shared Core applies the final Maven argument order for all three
-entry points. Tool-window, Run, and Debug module launches add `-am` so reactor
-dependencies are built before the selected module.
+Maven-backed framework, test, and module launch planning consumes the current
+project Maven context. A Run Configuration's explicit Profiles and toolchain
+paths take precedence; explicit `cwd` and `extensions.maven.skipTests` values
+also take precedence, including `skipTests: false`. Unset values inherit the
+project settings. The shared Core applies the final Maven argument order;
+tool-window, framework, test, and module launches add `-am` when reactor
+dependencies must be built.
+
+Project-owned Java Main uses a different boundary: the Java language service
+selects the source target, Java Debug Server builds the owning project and
+resolves its runtime classpath/module path, Core projects those structured paths
+into a direct JDK launch, and the Run host starts that one JVM. Maven still
+defines the project model, but Run never sends a reactor-wide
+`exec:java` goal. Run and Debug share this preparation path so module selection,
+generated sources, test-source mains, and dependency paths do not drift.
 
 Java test actions use the same Maven process lifecycle for a complete JUnit 4
 or JUnit 5 test class and for an individual method. The selector is validated

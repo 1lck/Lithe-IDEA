@@ -8,17 +8,10 @@
       "source": "module-a/src/test/java/com/example/App.java",
       "sourceSet": "test",
       "configurationId": "java-main:com.example.App:module-a",
-      "expectedArguments": [
-        "-B",
-        "-ntp",
-        "-pl",
-        "module-a",
-        "-am",
-        "-Dexec.mainClass=com.example.App",
-        "-Dexec.classpathScope=test",
-        "test-compile",
-        "org.codehaus.mojo:exec-maven-plugin:3.5.0:java"
-      ]
+      "mainClass": "com.example.App",
+      "classPaths": ["/workspace/module-a/target/test-classes"],
+      "modulePaths": [],
+      "expectedArguments": ["com.example.App"]
     },
     {
       "name": "main source main",
@@ -26,15 +19,10 @@
       "source": "module-b/src/main/java/com/example/App.java",
       "sourceSet": "main",
       "configurationId": "java-main:com.example.App:module-b",
-      "expectedArguments": [
-        "-B",
-        "-ntp",
-        "-pl",
-        "module-b",
-        "-am",
-        "-Dexec.mainClass=com.example.App",
-        "org.codehaus.mojo:exec-maven-plugin:3.5.0:java"
-      ]
+      "mainClass": "module-b/com.example.App",
+      "classPaths": ["/workspace/module-b/target/classes"],
+      "modulePaths": ["/workspace/module-b/target/modules"],
+      "expectedArguments": ["-m", "module-b/com.example.App"]
     }
   ]
 }

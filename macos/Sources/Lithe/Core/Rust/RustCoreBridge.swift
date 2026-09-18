@@ -611,6 +611,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 let homePath: String?
                 let mavenExecutablePath: String?
                 let mavenJavaHomePath: String?
+                let source: String?
+                let sourceSet: String?
             }
             struct Debug: Codable, Sendable {
                 let adapter: String
@@ -690,6 +692,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let env: [String: String]?
         let preLaunchSteps: [PreLaunchStep]?
         let classpath: [String]?
+        let modulepath: [String]?
     }
 
     struct RunConfigurationMutationPayload: Codable, Sendable {
@@ -2016,10 +2019,16 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let mainClass: String
     }
     private struct LaunchPlanRequest: Encodable {
+        struct JavaLaunch: Encodable {
+            let mainClass: String
+            let classPaths: [String]
+            let modulePaths: [String]
+        }
         let root: String
         let configurationId: String
         let currentFile: String?
         let classPath: String?
+        let javaLaunch: JavaLaunch?
         let debugPort: Int?
         let mavenContext: MavenLaunchContext?
     }
@@ -2840,6 +2849,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         configurationID: String,
         currentFile: String? = nil,
         classPath: String? = nil,
+        javaLaunch: JavaDebugLaunchTarget? = nil,
         debugPort: Int? = nil,
         mavenContext: MavenLaunchContext? = nil
     ) -> Result<LaunchPlanPayload, CoreCallError> {
@@ -2850,6 +2860,13 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 configurationId: configurationID,
                 currentFile: currentFile,
                 classPath: classPath,
+                javaLaunch: javaLaunch.map {
+                    LaunchPlanRequest.JavaLaunch(
+                        mainClass: $0.mainClass,
+                        classPaths: $0.classPaths,
+                        modulePaths: $0.modulePaths
+                    )
+                },
                 debugPort: debugPort,
                 mavenContext: mavenContext
             )
