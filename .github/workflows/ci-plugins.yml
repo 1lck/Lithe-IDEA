@@ -96,7 +96,7 @@ jobs:
 
       - name: Run plugin-focused Swift tests
         timeout-minutes: 12
-        run: ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/macos-plugins.json --suite-timeout-seconds 660 -- --filter '([Pp]lugin|LitheGoSupportModuleTests|LinuxDo)'
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/macos-plugins.json --suite-timeout-seconds 660 -- --filter '([Pp]lugin|LitheGoSupportModuleTests|LithePhpSupportModuleTests|LinuxDo)'
 
       - name: Run plugin WebKit lifecycle integration tests
         timeout-minutes: 3

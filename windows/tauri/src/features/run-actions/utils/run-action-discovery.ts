@@ -35,6 +35,7 @@ const SOURCE_PRIORITY: Record<RunActionSource, number> = {
   make: 5,
   go: 6,
   python: 7,
+  php: 8,
 };
 
 export function javaTestActionsForFile(
@@ -77,6 +78,9 @@ const MANIFEST_NAMES = [
   "makefile",
   "go.mod",
   "pyproject.toml",
+  "composer.json",
+  "phpunit.xml",
+  "phpunit.xml.dist",
 ] as const;
 
 function createAction(
@@ -229,6 +233,48 @@ export function parsePyprojectRunActions(content: string, workspacePath: string)
   return actions;
 }
 
+/**
+ * Composer scripts are the PHP equivalent of package.json scripts, so the same
+ * priority curve keeps "test" and "dev" ahead of the alphabetical fallback.
+ */
+export function parseComposerRunActions(content: string, workspacePath: string): RunActionItem[] {
+  try {
+    const manifest = JSON.parse(content) as { scripts?: Record<string, unknown> };
+    if (!manifest.scripts || typeof manifest.scripts !== "object") return [];
+
+    return Object.entries(manifest.scripts)
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+      .sort(
+        ([left], [right]) =>
+          getScriptPriority(left) - getScriptPriority(right) || left.localeCompare(right),
+      )
+      .slice(0, 40)
+      .map(([name, script]) =>
+        createAction("php", "composer.json", name, `composer run ${name}`, workspacePath, script),
+      );
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * PHPUnit always ships inside the project through Composer. Only `php` needs to
+ * be on PATH, so the entry point stays portable across cmd, PowerShell, and
+ * POSIX shells instead of relying on a `vendor/bin` shell shim.
+ */
+function parsePhpUnitRunActions(workspacePath: string): RunActionItem[] {
+  const t = getCurrentTranslator();
+  return [
+    createAction(
+      "php",
+      "phpunit.xml",
+      t("runActions.test"),
+      "php vendor/bin/phpunit",
+      workspacePath,
+    ),
+  ];
+}
+
 export function isRunnableCodeLens(lens: CodeLensItem): boolean {
   return Boolean(lens.command && /\b(run|test|debug|bench|profile)\b/i.test(lens.title));
 }
@@ -324,6 +370,11 @@ export async function discoverProjectRunActions(
   if (manifests.has("go.mod")) actions.push(...parseGoRunActions(workspacePath));
   const pyproject = manifests.get("pyproject.toml");
   if (pyproject) actions.push(...parsePyprojectRunActions(pyproject, workspacePath));
+  const composerJson = manifests.get("composer.json");
+  if (composerJson) actions.push(...parseComposerRunActions(composerJson, workspacePath));
+  if (manifests.has("phpunit.xml") || manifests.has("phpunit.xml.dist")) {
+    actions.push(...parsePhpUnitRunActions(workspacePath));
+  }
 
   return sortAndDedupeRunActions(actions);
 }

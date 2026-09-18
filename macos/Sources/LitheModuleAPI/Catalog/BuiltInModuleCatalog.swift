@@ -197,6 +197,7 @@ public enum BuiltInPluginCatalog {
 /// module graph and become available only when their signed package exists.
 public enum OfficialPluginCatalog {
     private static let goLanguageID = "go"
+    private static let phpLanguageID = "php"
     public static let linuxDoSupportModuleID = ModuleID("dev.lithe.community.linux-do")
 
     public static let manifests: [PluginManifest] = [
@@ -248,6 +249,56 @@ public enum OfficialPluginCatalog {
                 languageServerModuleID: .languageServerExtension(goLanguageID),
                 executionModuleID: .languageExecutionExtension(goLanguageID),
                 testingModuleID: .languageExecutionExtension(goLanguageID)
+            )]
+        ),
+        PluginManifest(
+            id: PluginID("dev.lithe.plugin.php-support"),
+            displayName: "PHP Support",
+            version: BuiltInPluginCatalog.hostVersion,
+            hostCompatibility: PluginHostCompatibility(
+                minimum: BuiltInPluginCatalog.hostVersion,
+                maximumExclusive: PluginVersion(major: 0, minor: 4, patch: 0)
+            ),
+            vendor: BuiltInPluginCatalog.vendor,
+            entrypoint: PluginEntrypoint(
+                kind: .nativeBundle,
+                bundleIdentifier: "dev.lithe.plugin.php-support.bundle",
+                principalClass: "LithePhpSupportPluginEntrypoint",
+                bundlePath: "PhpSupport.bundle"
+            ),
+            modules: [
+                PluginModuleDeclaration(manifest: ModuleManifest(
+                    id: .languageExecutionExtension(phpLanguageID),
+                    displayName: "PHP Execution",
+                    scope: .workspace,
+                    defaultState: .disabled,
+                    activationPolicy: .onDemand,
+                    sleepPolicy: .whenIdle(afterSeconds: 10 * 60),
+                    dependencies: [.module(.workspace)],
+                    providedCapabilities: [
+                        .languageExecutionExtension(phpLanguageID),
+                        .languageTestingExtension(phpLanguageID)
+                    ]
+                )),
+                PluginModuleDeclaration(manifest: ModuleManifest(
+                    id: .languageServerExtension(phpLanguageID),
+                    displayName: "PHP Language Server",
+                    scope: .workspace,
+                    defaultState: .disabled,
+                    activationPolicy: .onDemand,
+                    sleepPolicy: .whenIdle(afterSeconds: 10 * 60),
+                    dependencies: [.module(.workspace)],
+                    providedCapabilities: [.languageServerExtension(phpLanguageID)]
+                ))
+            ],
+            languageSupports: [LanguageSupportDeclaration(
+                id: phpLanguageID,
+                displayName: "PHP",
+                fileExtensions: ["php", "phtml"],
+                projectFileNames: ["composer.json"],
+                languageServerModuleID: .languageServerExtension(phpLanguageID),
+                executionModuleID: .languageExecutionExtension(phpLanguageID),
+                testingModuleID: .languageExecutionExtension(phpLanguageID)
             )]
         ),
         PluginManifest(

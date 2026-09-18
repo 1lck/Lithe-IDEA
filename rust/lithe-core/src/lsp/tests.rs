@@ -73,6 +73,32 @@ fn builtin_catalog_describes_market_lsp_providers() {
             .validation_arguments,
         vec!["--version".to_string()]
     );
+    // Intelephense only speaks LSP over stdio, so a bare launch would exit
+    // instead of serving the editor. The catalog is the only truth for the
+    // macOS language server settings, so the arguments are asserted here.
+    let php = catalog
+        .providers
+        .iter()
+        .find(|provider| provider.id == "php")
+        .expect("php provider should exist");
+    assert_eq!(
+        php.capabilities,
+        vec![
+            LspProviderCapability::Run,
+            LspProviderCapability::LanguageServer,
+            LspProviderCapability::Formatting,
+            LspProviderCapability::Testing,
+        ]
+    );
+    let php_launch = php
+        .language_server_launch
+        .as_ref()
+        .expect("php launch descriptor should exist");
+    assert_eq!(
+        php_launch.executable_names,
+        vec!["intelephense".to_string()]
+    );
+    assert_eq!(php_launch.arguments, vec!["--stdio".to_string()]);
 }
 
 #[test]

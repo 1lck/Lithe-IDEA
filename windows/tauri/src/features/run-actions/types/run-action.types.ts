@@ -9,6 +9,7 @@ export type RunActionSource =
   | "just"
   | "go"
   | "python"
+  | "php"
   | "lsp";
 
 export interface RunActionItem {
