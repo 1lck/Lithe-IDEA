@@ -543,6 +543,34 @@ package protocol MavenConfigurationStoring: Sendable {
         workspaceURL: URL,
         reactorPath: String
     ) throws
+
+    /// The dependency index is intentionally separate from the Maven settings
+    /// JSON so it can be invalidated and rewritten without changing launch
+    /// configuration. Implementations may opt out when persistence is not
+    /// available (for example, in an in-memory test double).
+    func loadJavaDependencyIndex(
+        workspaceURL: URL,
+        reactorPath: String
+    ) throws -> JavaDependencyIndex?
+
+    func saveJavaDependencyIndex(
+        _ index: JavaDependencyIndex?,
+        workspaceURL: URL,
+        reactorPath: String
+    ) throws
+}
+
+package extension MavenConfigurationStoring {
+    func loadJavaDependencyIndex(
+        workspaceURL _: URL,
+        reactorPath _: String
+    ) throws -> JavaDependencyIndex? { nil }
+
+    func saveJavaDependencyIndex(
+        _ index: JavaDependencyIndex?,
+        workspaceURL _: URL,
+        reactorPath _: String
+    ) throws {}
 }
 
 @MainActor

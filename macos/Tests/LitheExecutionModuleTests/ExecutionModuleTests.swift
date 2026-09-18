@@ -68,6 +68,26 @@ struct ExecutionModuleTests {
         #expect(!service.isReloading)
     }
 
+    @Test
+    func javaDependencyChangesInvalidateOnlyTheProjection() async throws {
+        let graph = makeTestGraph(mavenOperations: ReloadMavenOperations())
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let pom = root.appendingPathComponent("pom.xml")
+        let gradle = root.appendingPathComponent("build.gradle")
+        defer { graph.maven.reset() }
+
+        await graph.maven.loadProject(at: root, files: [pom, gradle])
+        let context = DependencyResolutionContext(workspaceURL: root)
+        _ = try await graph.maven.resolveJavaDependencies(context: context)
+        let resolvedRevision = graph.maven.javaDependencyRevision
+
+        graph.maven.markJavaDependencyFilesChanged([gradle])
+
+        #expect(graph.maven.javaDependencyRevision == resolvedRevision + 1)
+        _ = try await graph.maven.resolveJavaDependencies(context: context)
+        #expect(graph.maven.javaDependencyRevision == resolvedRevision + 1)
+    }
+
     @Test(arguments: ["success", "failure", "new-pom", "workspace"])
     func mavenReloadSynchronizesAcceptedRunProfiles(outcome: String) async throws {
         let graph = makeTestGraph(mavenOperations: ReloadMavenOperations())

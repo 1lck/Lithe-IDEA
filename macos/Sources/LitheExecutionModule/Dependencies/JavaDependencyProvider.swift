@@ -34,6 +34,10 @@ package struct JavaDependencyProvider: WorkspaceDependencyProvider {
             configured.additionalSearchPaths,
             workspaceURL: context.workspaceURL
         )
+        let excludedPaths = Self.configuredURLs(
+            configured.excludedPaths,
+            workspaceURL: context.workspaceURL
+        )
 
         let sourceEntries = Self.uniqueNodes(
             context.sourceRoots.map { Self.makeNode(for: $0, preferDirectory: true) }
@@ -41,22 +45,22 @@ package struct JavaDependencyProvider: WorkspaceDependencyProvider {
                 + (context.jdkSourceArchive.map {
                     [Self.makeNode(for: $0, preferDirectory: false)]
                 } ?? [])
-        )
+        ).filter { !Self.isExcluded($0, by: excludedPaths) }
         let binaryEntries = Self.uniqueNodes(
             context.classpath
                 .filter { $0.hasDirectoryPath }
                 .map { Self.makeNode(for: $0, preferDirectory: true) }
                 + binaryPaths.map { Self.makeNode(for: $0, preferDirectory: true) }
-        )
+        ).filter { !Self.isExcluded($0, by: excludedPaths) }
         let mavenEntries = Self.uniqueNodes(
             context.classpath
                 .filter { !$0.hasDirectoryPath }
                 .map { Self.makeNode(for: $0, preferDirectory: false) }
                 + mavenPaths.map { Self.makeNode(for: $0, preferDirectory: false) }
-        )
+        ).filter { !Self.isExcluded($0, by: excludedPaths) }
         let additionalEntries = Self.uniqueNodes(
             additionalPaths.map { Self.makeNode(for: $0, preferDirectory: false) }
-        )
+        ).filter { !Self.isExcluded($0, by: excludedPaths) }
         let groups = [
             Self.groupNode(id: "source", title: "Source Code", children: sourceEntries),
             Self.groupNode(id: "bin", title: "bin", children: binaryEntries),
@@ -111,6 +115,20 @@ package struct JavaDependencyProvider: WorkspaceDependencyProvider {
             }
             return URL(fileURLWithPath: expanded, relativeTo: workspaceURL)
                 .standardizedFileURL
+        }
+    }
+
+    private static func isExcluded(_ node: DependencyNode, by excludedPaths: [URL]) -> Bool {
+        let path: String
+        switch node.source {
+        case .directory(let url), .archive(let url):
+            path = url.standardizedFileURL.path
+        case .generated, .unavailable:
+            return false
+        }
+        return excludedPaths.contains { excluded in
+            let excludedPath = excluded.standardizedFileURL.path
+            return path == excludedPath || path.hasPrefix(excludedPath + "/")
         }
     }
 

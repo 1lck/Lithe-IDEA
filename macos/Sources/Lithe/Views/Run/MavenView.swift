@@ -55,6 +55,12 @@ struct MavenView: View {
             javaDependencyGraph = nil
             resetTreeState()
         }
+        .onChange(of: feature.javaDependencyRevision) { _ in
+            javaDependencyGraph = nil
+            if isNodeExpanded(javaNodeID) {
+                loadJavaDependencies()
+            }
+        }
         .sheet(isPresented: $isGoalSheetPresented) {
             goalSheet
         }
@@ -310,6 +316,7 @@ struct MavenView: View {
                 id: nodeID,
                 title: "Java",
                 subtitle: feature.javaDependencyPaths.additionalSearchPaths.isEmpty
+                    && feature.javaDependencyPaths.excludedPaths.isEmpty
                     ? nil
                     : String(localized: "Configured"),
                 systemImage: "cup.and.saucer",
@@ -396,6 +403,23 @@ struct MavenView: View {
         .padding(.horizontal, 5)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(minHeight: 28)
+        .litheContextMenu(items: {
+            guard let path = javaDependencyPath(for: node) else { return [] }
+            return [
+                .action(String(localized: "Exclude from Java dependency tree")) {
+                    feature.excludeJavaDependencyPath(path)
+                    javaDependencyGraph = nil
+                    if isNodeExpanded(javaNodeID) { loadJavaDependencies() }
+                }
+            ]
+        })
+    }
+
+    private func javaDependencyPath(for node: DependencyNode) -> String? {
+        switch node.source {
+        case .directory(let url), .archive(let url): return url.path
+        case .generated, .unavailable: return nil
+        }
     }
 
     private func loadJavaDependencies() {
@@ -994,6 +1018,7 @@ private struct JavaDependencyPathConfigurationEditor: View {
     @State private var binaryPaths: String
     @State private var mavenPaths: String
     @State private var additionalPaths: String
+    @State private var excludedPaths: [String]
 
     init(
         configuration: JavaDependencyPathConfiguration,
@@ -1006,6 +1031,7 @@ private struct JavaDependencyPathConfigurationEditor: View {
         _additionalPaths = State(
             initialValue: configuration.additionalSearchPaths.joined(separator: "\n")
         )
+        _excludedPaths = State(initialValue: configuration.excludedPaths)
     }
 
     var body: some View {
@@ -1021,6 +1047,28 @@ private struct JavaDependencyPathConfigurationEditor: View {
             pathEditor(title: "Maven", text: $mavenPaths)
             pathEditor(title: "Additional Search Paths", text: $additionalPaths)
 
+            if !excludedPaths.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Excluded Paths")
+                        .font(.system(size: 11, weight: .medium))
+                    ForEach(excludedPaths, id: \.self) { path in
+                        HStack(spacing: 6) {
+                            Text(path)
+                                .font(.system(size: 10, design: .monospaced))
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                            Button {
+                                excludedPaths.removeAll { $0 == path }
+                            } label: {
+                                LitheSystemIcon(systemImage: "arrow.uturn.backward")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Restore path")
+                        }
+                    }
+                }
+            }
+
             HStack {
                 Spacer(minLength: 0)
                 Button("Cancel") { dismiss() }
@@ -1030,7 +1078,8 @@ private struct JavaDependencyPathConfigurationEditor: View {
                         sourcePaths: lines(sourcePaths),
                         binaryPaths: lines(binaryPaths),
                         mavenPaths: lines(mavenPaths),
-                        additionalSearchPaths: lines(additionalPaths)
+                        additionalSearchPaths: lines(additionalPaths),
+                        excludedPaths: excludedPaths
                     ))
                     dismiss()
                 }

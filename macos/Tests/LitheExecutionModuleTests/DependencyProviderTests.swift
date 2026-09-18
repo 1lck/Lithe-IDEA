@@ -76,4 +76,54 @@ struct DependencyProviderTests {
         #expect(partialPaths.version == JavaDependencyPathConfiguration.currentVersion)
         #expect(partialPaths.sourcePaths == ["src/generated/java"])
     }
+
+    @Test
+    func javaProviderExcludesConfiguredDirectoriesAndDescendants() async throws {
+        let context = DependencyResolutionContext(
+            workspaceURL: URL(fileURLWithPath: "/workspace", isDirectory: true),
+            sourceRoots: [
+                URL(fileURLWithPath: "/workspace/src/main/java", isDirectory: true),
+                URL(fileURLWithPath: "/workspace/generated/java", isDirectory: true)
+            ],
+            classpath: [
+                URL(fileURLWithPath: "/workspace/build/classes", isDirectory: true),
+                URL(fileURLWithPath: "/workspace/build/classes-extra", isDirectory: true),
+                URL(fileURLWithPath: "/workspace/lib/core.jar")
+            ],
+            javaDependencyPaths: JavaDependencyPathConfiguration(
+                excludedPaths: ["generated", "build/classes", "lib/core.jar"]
+            )
+        )
+
+        let graph = try await JavaDependencyProvider().resolve(context: context)
+        let groups = try #require(graph.roots.first?.children)
+
+        #expect(groups[0].children.map(\.id) == ["/workspace/src/main/java"])
+        #expect(groups[1].children.map(\.id) == ["/workspace/build/classes-extra"])
+        #expect(groups[2].children.isEmpty)
+    }
+
+    @Test
+    func javaDependencyIndexRoundTripsItsGraph() throws {
+        let graph = DependencyGraph(
+            providerID: "java",
+            roots: [DependencyNode(
+                id: "java:workspace",
+                title: "Java",
+                kind: .group,
+                source: .generated,
+                children: [DependencyNode(
+                    id: "/workspace/src",
+                    title: "src",
+                    kind: .directory,
+                    source: .directory(URL(fileURLWithPath: "/workspace/src", isDirectory: true))
+                )]
+            )]
+        )
+        let index = JavaDependencyIndex(inputSignature: "test", graph: graph)
+        let data = try JSONEncoder().encode(index)
+        let decoded = try JSONDecoder().decode(JavaDependencyIndex.self, from: data)
+
+        #expect(decoded == index)
+    }
 }

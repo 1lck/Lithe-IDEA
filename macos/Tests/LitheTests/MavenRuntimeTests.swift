@@ -179,7 +179,8 @@ struct MavenRuntimeTests {
                     sourcePaths: ["src/generated/java"],
                     binaryPaths: ["target/classes"],
                     mavenPaths: ["/opt/maven-repository"],
-                    additionalSearchPaths: ["vendor/java"]
+                    additionalSearchPaths: ["vendor/java"],
+                    excludedPaths: ["target/generated"]
                 )
             ),
             local: MavenLocalConfiguration(
@@ -199,6 +200,7 @@ struct MavenRuntimeTests {
         let portableText = String(decoding: try Data(contentsOf: portableURL), as: UTF8.self)
         #expect(portableText.contains("\"selectedProfiles\""))
         #expect(portableText.contains("\"javaDependencyPaths\""))
+        #expect(portableText.contains("\"excludedPaths\""))
         #expect(!portableText.contains("/private/"))
         #expect(try store.loadMavenConfiguration(
             workspaceURL: workspace,
@@ -209,6 +211,24 @@ struct MavenRuntimeTests {
             includingPropertiesForKeys: nil
         )
         #expect(localFiles.count == 1)
+
+        let index = JavaDependencyIndex(
+            inputSignature: "fixture",
+            graph: DependencyGraph(
+                providerID: "java",
+                roots: [DependencyNode(
+                    id: "java:workspace",
+                    title: "Java",
+                    kind: .group,
+                    source: .generated
+                )]
+            )
+        )
+        try store.saveJavaDependencyIndex(index, workspaceURL: workspace, reactorPath: ".")
+        #expect(try store.loadJavaDependencyIndex(
+            workspaceURL: workspace,
+            reactorPath: "."
+        ) == index)
     }
 
     @Test

@@ -10,19 +10,24 @@ package struct JavaDependencyPathConfiguration: Codable, Equatable, Sendable {
     package var binaryPaths: [String]
     package var mavenPaths: [String]
     package var additionalSearchPaths: [String]
+    /// Paths hidden from the Java dependency tree. Entries may be workspace-relative
+    /// or absolute and match the entry itself and every descendant.
+    package var excludedPaths: [String]
 
     package init(
         version: Int = currentVersion,
         sourcePaths: [String] = [],
         binaryPaths: [String] = [],
         mavenPaths: [String] = [],
-        additionalSearchPaths: [String] = []
+        additionalSearchPaths: [String] = [],
+        excludedPaths: [String] = []
     ) {
         self.version = version
         self.sourcePaths = sourcePaths
         self.binaryPaths = binaryPaths
         self.mavenPaths = mavenPaths
         self.additionalSearchPaths = additionalSearchPaths
+        self.excludedPaths = excludedPaths
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -31,6 +36,7 @@ package struct JavaDependencyPathConfiguration: Codable, Equatable, Sendable {
         case binaryPaths
         case mavenPaths
         case additionalSearchPaths
+        case excludedPaths
     }
 
     package init(from decoder: Decoder) throws {
@@ -43,6 +49,7 @@ package struct JavaDependencyPathConfiguration: Codable, Equatable, Sendable {
             [String].self,
             forKey: .additionalSearchPaths
         ) ?? []
+        excludedPaths = try values.decodeIfPresent([String].self, forKey: .excludedPaths) ?? []
     }
 }
 
@@ -80,7 +87,7 @@ package struct DependencyResolutionContext: Equatable, Sendable {
     }
 }
 
-package enum DependencyNodeKind: String, Equatable, Sendable {
+package enum DependencyNodeKind: String, Codable, Equatable, Sendable {
     case group
     case packageNode
     case directory
@@ -88,15 +95,57 @@ package enum DependencyNodeKind: String, Equatable, Sendable {
     case unavailable
 }
 
-package enum DependencySource: Equatable, Sendable {
+package enum DependencySource: Codable, Equatable, Sendable {
     case directory(URL)
     case archive(URL)
     case generated
     case unavailable
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case url
+    }
+
+    private enum Kind: String, Codable {
+        case directory
+        case archive
+        case generated
+        case unavailable
+    }
+
+    package func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .directory(let url):
+            try container.encode(Kind.directory, forKey: .kind)
+            try container.encode(url, forKey: .url)
+        case .archive(let url):
+            try container.encode(Kind.archive, forKey: .kind)
+            try container.encode(url, forKey: .url)
+        case .generated:
+            try container.encode(Kind.generated, forKey: .kind)
+        case .unavailable:
+            try container.encode(Kind.unavailable, forKey: .kind)
+        }
+    }
+
+    package init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(Kind.self, forKey: .kind) {
+        case .directory:
+            self = .directory(try container.decode(URL.self, forKey: .url))
+        case .archive:
+            self = .archive(try container.decode(URL.self, forKey: .url))
+        case .generated:
+            self = .generated
+        case .unavailable:
+            self = .unavailable
+        }
+    }
 }
 
 /// A node in the language-neutral dependency browser tree.
-package struct DependencyNode: Identifiable, Equatable, Sendable {
+package struct DependencyNode: Codable, Identifiable, Equatable, Sendable {
     package let id: String
     package let title: String
     package let subtitle: String?
@@ -121,7 +170,7 @@ package struct DependencyNode: Identifiable, Equatable, Sendable {
     }
 }
 
-package struct DependencyGraph: Equatable, Sendable {
+package struct DependencyGraph: Codable, Equatable, Sendable {
     package let providerID: String
     package let serviceID: String
     package let roots: [DependencyNode]
@@ -147,6 +196,28 @@ package struct DependencyGraph: Equatable, Sendable {
         case .generated: return "generated:\(node.id)"
         case .unavailable: return "unavailable:\(node.id)"
         }
+    }
+}
+
+/// A persisted projection of a dependency provider. The input signature is
+/// owned by the service and must change whenever configuration or an input file
+/// changes. Providers can therefore reuse this graph without rediscovering the
+/// workspace on every IDE launch.
+package struct JavaDependencyIndex: Codable, Equatable, Sendable {
+    package static let currentVersion = 1
+
+    package let version: Int
+    package let inputSignature: String
+    package let graph: DependencyGraph
+
+    package init(
+        version: Int = currentVersion,
+        inputSignature: String,
+        graph: DependencyGraph
+    ) {
+        self.version = version
+        self.inputSignature = inputSignature
+        self.graph = graph
     }
 }
 
