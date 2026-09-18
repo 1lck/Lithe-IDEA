@@ -327,10 +327,12 @@ package final class MavenService: ObservableObject {
     ) async throws -> DependencyGraph {
         let revision = javaDependencyRevision
         let managementFiles = javaDependencyManagementFiles
+        let reactorIdentity = self.reactorPath ?? "."
         let signature = await Task.detached(priority: .utility) {
             Self.javaDependencyInputSignature(
                 context: context,
-                managementFiles: managementFiles
+                managementFiles: managementFiles,
+                reactorPath: reactorIdentity
             )
         }.value
         if let javaDependencyIndex, javaDependencyIndex.inputSignature == signature {
@@ -1056,7 +1058,8 @@ package final class MavenService: ObservableObject {
 
     private nonisolated static func javaDependencyInputSignature(
         context: DependencyResolutionContext,
-        managementFiles: [URL]
+        managementFiles: [URL],
+        reactorPath: String
     ) -> String {
         let fileInputs = managementFiles.map { url in
             JavaDependencyFileInput(
@@ -1067,6 +1070,7 @@ package final class MavenService: ObservableObject {
         let payload = JavaDependencyIndexInput(
             serviceID: context.serviceID,
             serviceDisplayName: context.serviceDisplayName,
+            reactorPath: reactorPath,
             workspacePath: context.workspaceURL.standardizedFileURL.path,
             sourceRoots: context.sourceRoots.map(\.standardizedFileURL.path).sorted(),
             resourceRoots: context.resourceRoots.map(\.standardizedFileURL.path).sorted(),
@@ -1148,6 +1152,7 @@ private struct JavaDependencyFileInput: Codable, Sendable {
 private struct JavaDependencyIndexInput: Codable, Sendable {
     let serviceID: String
     let serviceDisplayName: String
+    let reactorPath: String
     let workspacePath: String
     let sourceRoots: [String]
     let resourceRoots: [String]
