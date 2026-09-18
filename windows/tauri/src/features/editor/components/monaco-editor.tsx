@@ -89,6 +89,7 @@ import type { MarkdownScrollMetrics } from "../markdown/scroll-sync";
 import type { EditorModelPositionResolver } from "../view-model/view-layout";
 import { syncContainedEditorFontOptions } from "../engines/monaco/contained-editors";
 import { registerMonacoDefinitionLinkGesture } from "../engines/monaco/definition-link";
+import { suppressFindWidgetCloseButtonHover } from "../engines/monaco/find-widget-hover";
 import {
   consumeLocalContentSnapshot,
   rememberLocalContentSnapshot,
@@ -900,6 +901,7 @@ export function MonacoEditor({
         alwaysConsumeMouseWheel: scrollable && alwaysConsumeMouseWheel,
       },
     });
+    const restoreFindWidgetCloseButtonHover = suppressFindWidgetCloseButtonHover(container);
 
     editorRef.current = editor;
     modelRef.current = model;
@@ -1367,6 +1369,7 @@ export function MonacoEditor({
       unsubscribeCursor();
       unsubscribeSelection();
       container.removeEventListener("mousedown", handleNativeMouseDownCapture, true);
+      restoreFindWidgetCloseButtonHover();
       window.removeEventListener("keydown", handleWindowSelectAllShortcut, true);
       window.removeEventListener("mouseup", handleWindowMouseUp);
       for (const disposable of disposables) {
