@@ -11,11 +11,6 @@ on:
         required: true
         default: "preview"
         type: string
-      publish_release:
-        description: "Update the rolling preview Release after building"
-        required: true
-        default: false
-        type: boolean
 
 permissions:
   contents: read
@@ -175,7 +170,6 @@ jobs:
   publish:
     name: Publish rolling macOS preview
     needs: [prepare, build]
-    if: github.event_name != 'workflow_dispatch' || inputs.publish_release
     runs-on: ubuntu-latest
     permissions:
       contents: write
