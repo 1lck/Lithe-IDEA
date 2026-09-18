@@ -22,6 +22,8 @@ struct MacMavenConfigurationStore: MavenConfigurationStoring, Sendable {
             at: localConfigurationURL(workspaceURL: workspaceURL, reactorPath: reactorPath)
         )
         guard portable?.version == nil || portable?.version == MavenPortableConfiguration.currentVersion,
+              portable?.javaDependencyPaths.version == nil
+                  || portable?.javaDependencyPaths.version == JavaDependencyPathConfiguration.currentVersion,
               local?.version == nil || local?.version == MavenLocalConfiguration.currentVersion else {
             throw MacMavenConfigurationStoreError.unsupportedVersion
         }

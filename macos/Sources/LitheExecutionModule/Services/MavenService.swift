@@ -25,6 +25,7 @@ package final class MavenService: ObservableObject {
     @Published package private(set) var localRepositoryPath: String?
     @Published package private(set) var mavenExecutablePath: String?
     @Published package private(set) var javaHomePath: String?
+    @Published package private(set) var javaDependencyPaths = JavaDependencyPathConfiguration()
     @Published package private(set) var configurationSaveError: String?
     @Published package private(set) var isReloadRequired = false
     @Published package private(set) var isProjectReloadRequired = false
@@ -291,6 +292,19 @@ package final class MavenService: ObservableObject {
         configurationDidChange()
     }
 
+    package func updateJavaDependencyPaths(_ configuration: JavaDependencyPathConfiguration) {
+        let normalized = JavaDependencyPathConfiguration(
+            sourcePaths: normalizedSearchPaths(configuration.sourcePaths),
+            binaryPaths: normalizedSearchPaths(configuration.binaryPaths),
+            mavenPaths: normalizedSearchPaths(configuration.mavenPaths),
+            additionalSearchPaths: normalizedSearchPaths(configuration.additionalSearchPaths)
+        )
+        guard normalized != javaDependencyPaths else { return }
+        javaDependencyPaths = normalized
+        configurationSaveError = nil
+        persistConfiguration()
+    }
+
     package func acknowledgeReload() {
         guard !isProjectReloadRequired else { return }
         isReloadRequired = false
@@ -487,6 +501,7 @@ package final class MavenService: ObservableObject {
         localRepositoryPath = nil
         mavenExecutablePath = nil
         javaHomePath = nil
+        javaDependencyPaths = JavaDependencyPathConfiguration()
         configurationFingerprint = nil
         fingerprintRevision += 1
         configurationSaveError = nil
@@ -808,6 +823,7 @@ package final class MavenService: ObservableObject {
         localRepositoryPath = normalizedLocalPath(stored?.local?.localRepositoryPath)
         mavenExecutablePath = normalizedLocalPath(stored?.local?.mavenExecutablePath)
         javaHomePath = normalizedLocalPath(stored?.local?.javaHomePath)
+        javaDependencyPaths = stored?.portable?.javaDependencyPaths ?? JavaDependencyPathConfiguration()
     }
 
     private func configurationDidChange() {
@@ -860,7 +876,8 @@ package final class MavenService: ObservableObject {
             portable: MavenPortableConfiguration(
                 selectedProfiles: selectedProfiles.sorted(),
                 customProfiles: normalizedProfiles(customProfiles),
-                skipTests: skipTests
+                skipTests: skipTests,
+                javaDependencyPaths: javaDependencyPaths
             ),
             local: MavenLocalConfiguration(
                 settingsPath: settingsPath,
@@ -909,6 +926,12 @@ package final class MavenService: ObservableObject {
     private func normalizedProfiles(_ values: [String]) -> [String] {
         Array(Set(values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter(isValidProfile)))
+            .sorted()
+    }
+
+    private func normalizedSearchPaths(_ values: [String]) -> [String] {
+        Array(Set(values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }))
             .sorted()
     }
 

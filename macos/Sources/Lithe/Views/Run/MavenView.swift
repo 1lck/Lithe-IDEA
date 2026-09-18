@@ -1,3 +1,4 @@
+import LitheCoreContracts
 import SwiftUI
 
 struct MavenView: View {
@@ -12,6 +13,9 @@ struct MavenView: View {
     @State private var customProfile = ""
     @State private var goalModule: MavenModule?
     @State private var goalProject: MavenProject?
+    @State private var javaDependencyGraph: DependencyGraph?
+    @State private var isResolvingJavaDependencies = false
+    @State private var isJavaPathConfigurationPresented = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -48,10 +52,20 @@ struct MavenView: View {
         }
         .onChange(of: feature.project?.id) { _ in
             isGoalSheetPresented = false
+            javaDependencyGraph = nil
             resetTreeState()
         }
         .sheet(isPresented: $isGoalSheetPresented) {
             goalSheet
+        }
+        .popover(isPresented: $isJavaPathConfigurationPresented, arrowEdge: .trailing) {
+            JavaDependencyPathConfigurationEditor(configuration: feature.javaDependencyPaths) {
+                feature.updateJavaDependencyPaths($0)
+                javaDependencyGraph = nil
+                if isNodeExpanded(javaNodeID) {
+                    loadJavaDependencies()
+                }
+            }
         }
     }
 
@@ -205,10 +219,7 @@ struct MavenView: View {
                     hasModuleMenu: true,
                     onLabelAction: { selectedModuleID = nil }
                 ) {
-                    sourceRootsNode(
-                        ownerID: projectNodeID(project),
-                        sourceRoots: project.sourceRoots
-                    )
+                    javaDependencyNode(ownerID: projectNodeID(project))
                     lifecycleNode(ownerID: projectNodeID(project), module: nil)
                     dependencyNode(ownerID: projectNodeID(project), modulePath: ".")
                     ForEach(project.modules) { module in
@@ -278,6 +289,126 @@ struct MavenView: View {
                 }
             }
         )
+    }
+
+    private var javaNodeID: String {
+        guard let project = feature.project else { return "java" }
+        return childNodeID(ownerID: projectNodeID(project), name: "java")
+    }
+
+    private func javaDependencyNode(ownerID: String) -> AnyView {
+        let nodeID = childNodeID(ownerID: ownerID, name: "java")
+        let toggle = {
+            let shouldLoad = !isNodeExpanded(nodeID)
+            toggleNode(nodeID)
+            if shouldLoad {
+                loadJavaDependencies()
+            }
+        }
+        return AnyView(
+            treeNode(
+                id: nodeID,
+                title: "Java",
+                subtitle: feature.javaDependencyPaths.additionalSearchPaths.isEmpty
+                    ? nil
+                    : String(localized: "Configured"),
+                systemImage: "cup.and.saucer",
+                onToggleAction: toggle,
+                onLabelAction: toggle,
+                trailingSystemImage: "gearshape",
+                onTrailingAction: { isJavaPathConfigurationPresented = true }
+            ) {
+                javaDependencyContent
+            }
+        )
+    }
+
+    private var javaDependencyContent: AnyView {
+        if isResolvingJavaDependencies {
+            return AnyView(
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.mini)
+                    Text("Resolving Java paths...")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                .padding(.horizontal, 5)
+                .frame(minHeight: 28)
+            )
+        }
+        guard let javaDependencyGraph,
+              let javaRoot = javaDependencyGraph.roots.first else {
+            return AnyView(
+                Text("No Java paths configured")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .padding(.horizontal, 5)
+                    .frame(minHeight: 28)
+            )
+        }
+        return AnyView(
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(javaRoot.children) { group in
+                    javaDependencyTreeNode(group)
+                }
+            }
+        )
+    }
+
+    private func javaDependencyTreeNode(_ node: DependencyNode) -> AnyView {
+        if node.children.isEmpty {
+            return AnyView(javaDependencyPathRow(node))
+        }
+        return AnyView(
+            treeNode(
+                id: node.id,
+                title: node.title,
+                systemImage: node.title == "Maven" ? "shippingbox" : "folder",
+                onLabelAction: { toggleNode(node.id) }
+            ) {
+                ForEach(node.children) { child in
+                    javaDependencyTreeNode(child)
+                }
+            }
+        )
+    }
+
+    private func javaDependencyPathRow(_ node: DependencyNode) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: node.kind == .packageNode ? "shippingbox" : "folder")
+                .font(.system(size: 11))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(node.title)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .lineLimit(1)
+                if let subtitle = node.subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 9.5, design: .monospaced))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(minHeight: 28)
+    }
+
+    private func loadJavaDependencies() {
+        guard !isResolvingJavaDependencies else { return }
+        isResolvingJavaDependencies = true
+        Task { @MainActor in
+            defer { isResolvingJavaDependencies = false }
+            javaDependencyGraph = try? await feature.resolveJavaDependencies(
+                serviceID: "workspace",
+                serviceDisplayName: feature.project?.displayName,
+                classpath: []
+            )
+        }
     }
 
     private var dependencyLocalization: MavenDependencyLocalization {
@@ -603,6 +734,8 @@ struct MavenView: View {
         menuModule: MavenModule? = nil,
         onToggleAction: (() -> Void)? = nil,
         onLabelAction: @escaping () -> Void,
+        trailingSystemImage: String? = nil,
+        onTrailingAction: (() -> Void)? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -652,6 +785,18 @@ struct MavenView: View {
                 }
                 .buttonStyle(.plain)
                 .lithePointer()
+
+                if let trailingSystemImage, let onTrailingAction {
+                    Button(action: onTrailingAction) {
+                        LitheSystemIcon(systemImage: trailingSystemImage)
+                            .font(.system(size: 11))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .frame(width: 22, height: 24)
+                    }
+                    .buttonStyle(.plain)
+                    .lithePointer()
+                    .help("Configure Java search paths")
+                }
             }
             .litheContextMenu(items: {
                 hasModuleMenu ? moduleContextMenu(menuModule) : []
@@ -839,5 +984,82 @@ struct MavenView: View {
             }
             return ids
         } ?? []
+    }
+}
+
+private struct JavaDependencyPathConfigurationEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    let onSave: (JavaDependencyPathConfiguration) -> Void
+    @State private var sourcePaths: String
+    @State private var binaryPaths: String
+    @State private var mavenPaths: String
+    @State private var additionalPaths: String
+
+    init(
+        configuration: JavaDependencyPathConfiguration,
+        onSave: @escaping (JavaDependencyPathConfiguration) -> Void
+    ) {
+        self.onSave = onSave
+        _sourcePaths = State(initialValue: configuration.sourcePaths.joined(separator: "\n"))
+        _binaryPaths = State(initialValue: configuration.binaryPaths.joined(separator: "\n"))
+        _mavenPaths = State(initialValue: configuration.mavenPaths.joined(separator: "\n"))
+        _additionalPaths = State(
+            initialValue: configuration.additionalSearchPaths.joined(separator: "\n")
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Java Search Paths")
+                .font(.system(size: 14, weight: .semibold))
+            Text("One path per line. Relative paths are resolved from the workspace.")
+                .font(.system(size: 11))
+                .foregroundStyle(LitheTheme.secondaryText)
+
+            pathEditor(title: "Source Code", text: $sourcePaths)
+            pathEditor(title: "bin", text: $binaryPaths)
+            pathEditor(title: "Maven", text: $mavenPaths)
+            pathEditor(title: "Additional Search Paths", text: $additionalPaths)
+
+            HStack {
+                Spacer(minLength: 0)
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Save") {
+                    onSave(JavaDependencyPathConfiguration(
+                        sourcePaths: lines(sourcePaths),
+                        binaryPaths: lines(binaryPaths),
+                        mavenPaths: lines(mavenPaths),
+                        additionalSearchPaths: lines(additionalPaths)
+                    ))
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(14)
+        .frame(width: 360)
+    }
+
+    private func pathEditor(title: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(LitheTheme.primaryText)
+            TextEditor(text: text)
+                .font(.system(size: 11, design: .monospaced))
+                .frame(height: 42)
+                .padding(3)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(LitheTheme.divider, lineWidth: 1)
+                }
+        }
+    }
+
+    private func lines(_ value: String) -> [String] {
+        value
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
     }
 }

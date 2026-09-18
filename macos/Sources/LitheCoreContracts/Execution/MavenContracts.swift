@@ -256,17 +256,40 @@ package struct MavenPortableConfiguration: Codable, Equatable, Sendable {
     package var selectedProfiles: [String]
     package var customProfiles: [String]
     package var skipTests: Bool
+    package var javaDependencyPaths: JavaDependencyPathConfiguration
 
     package init(
         version: Int = currentVersion,
         selectedProfiles: [String] = [],
         customProfiles: [String] = [],
-        skipTests: Bool = false
+        skipTests: Bool = false,
+        javaDependencyPaths: JavaDependencyPathConfiguration = .init()
     ) {
         self.version = version
         self.selectedProfiles = selectedProfiles
         self.customProfiles = customProfiles
         self.skipTests = skipTests
+        self.javaDependencyPaths = javaDependencyPaths
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case version
+        case selectedProfiles
+        case customProfiles
+        case skipTests
+        case javaDependencyPaths
+    }
+
+    package init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        version = try values.decodeIfPresent(Int.self, forKey: .version) ?? Self.currentVersion
+        selectedProfiles = try values.decodeIfPresent([String].self, forKey: .selectedProfiles) ?? []
+        customProfiles = try values.decodeIfPresent([String].self, forKey: .customProfiles) ?? []
+        skipTests = try values.decodeIfPresent(Bool.self, forKey: .skipTests) ?? false
+        javaDependencyPaths = try values.decodeIfPresent(
+            JavaDependencyPathConfiguration.self,
+            forKey: .javaDependencyPaths
+        ) ?? .init()
     }
 }
 

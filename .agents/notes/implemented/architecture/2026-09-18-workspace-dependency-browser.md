@@ -31,16 +31,18 @@ Rust、Java、Node 等语言获取依赖源码的方式不同：Rust 通常直�
 
 ## 后果
 
-依赖面板能够复用执行模块已经确认的路径，显示范围和运行时一致，新增语言只需实现 Provider。多个服务可以保留自己的解析边界，同时在 UI 层聚合共享 JDK。代价是第一阶段只具备 classpath/JDK source 投影，尚未提供 JAR 条目懒加载、source JAR 选择和 `.class` 反编译；这些能力必须在内容 Provider 中补齐。
+依赖面板能够复用执行模块已经确认的路径，显示范围和运行时一致，新增语言只需实现 Provider。多个服务可以保留自己的解析边界，同时在 UI 层聚合共享 JDK。Java 的可见路径保存在工作区 `.lithe/maven/config.json` 的 `javaDependencyPaths` 中，用户可以通过 Java 节点右侧的齿轮维护源代码、`bin`、Maven 和额外搜索路径；相对路径以 workspace 根目录为基准。代价是当前只提供路径级投影，尚未提供 JAR 条目懒加载、source JAR 选择和 `.class` 反编译；这些能力必须在内容 Provider 中补齐。
 
 ## 验证
 
 - `swift build --target LitheExecutionModule`
 - `./scripts/verify-agent-notes.sh`
+- `swift test --filter DependencyProviderTests`
 
 ## 适用范围
 
 - `macos/Sources/LitheCoreContracts/Dependencies/DependencyContracts.swift`
 - `macos/Sources/LitheExecutionModule/Dependencies/JavaDependencyProvider.swift`
 - `macos/Sources/LitheExecutionModule/Application/ExecutionFeatureModels.swift`
+- `macos/Sources/Lithe/Views/Run/MavenView.swift`
 - 未来依赖侧栏及其他语言 Provider
