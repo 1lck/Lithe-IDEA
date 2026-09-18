@@ -936,6 +936,7 @@ package final class MavenService: ObservableObject {
     private func configurationDidChange() {
         reloadRevision += 1
         invalidateDependencies()
+        invalidateJavaDependencyIndex()
         isReloadRequired = isProjectReloadRequired || configurationFingerprint != nil
         configurationSaveError = nil
         persistConfiguration()
