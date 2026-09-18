@@ -34,6 +34,9 @@ package final class MavenFeatureModel: ObservableObject {
     package var localRepositoryPath: String? { service.localRepositoryPath }
     package var mavenExecutablePath: String? { service.mavenExecutablePath }
     package var javaHomePath: String? { service.javaHomePath }
+    package var javaDependencyPaths: JavaDependencyPathConfiguration {
+        service.javaDependencyPaths
+    }
     package var configurationSaveError: String? { service.configurationSaveError }
     package var isReloadRequired: Bool { service.isReloadRequired }
     package var isProjectReloadRequired: Bool { service.isProjectReloadRequired }
@@ -85,7 +88,8 @@ package final class MavenFeatureModel: ObservableObject {
             sourceRoots: sourceRoots,
             resourceRoots: resourceRoots,
             classpath: classpath,
-            jdkSourceArchive: javaHomeURL.map(JavaDependencyProvider.sourceArchive(for:))
+            jdkSourceArchive: javaHomeURL.map(JavaDependencyProvider.sourceArchive(for:)),
+            javaDependencyPaths: javaDependencyPaths
         )
     }
 
@@ -104,6 +108,10 @@ package final class MavenFeatureModel: ObservableObject {
             javaHomePath: javaHomePath
         ) else { return nil }
         return try await javaDependencyProvider.resolve(context: context)
+    }
+
+    package func updateJavaDependencyPaths(_ configuration: JavaDependencyPathConfiguration) {
+        service.updateJavaDependencyPaths(configuration)
     }
 
     package func loadProject(at workspaceURL: URL, files: [URL], snapshotID: UUID? = nil) async {
