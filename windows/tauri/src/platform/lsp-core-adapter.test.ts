@@ -419,6 +419,8 @@ describe("Rust Core LSP adapter failures", () => {
           launcherJarPath: "C:/Lithe/jdtls/plugins/equinox.jar",
           configurationDirectory: "C:/Lithe/jdtls/config_win",
           lombokAgentPath: "C:/Lithe/jdtls/lombok/lombok.jar",
+          javaDebugBundlePath:
+            "C:/Lithe/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar",
         },
       });
     } catch (error) {
@@ -437,6 +439,8 @@ describe("Rust Core LSP adapter failures", () => {
       launcherJarPath: "C:/Lithe/jdtls/plugins/equinox.jar",
       configurationDirectory: "C:/Lithe/jdtls/config_win",
       lombokAgentPath: "C:/Lithe/jdtls/lombok/lombok.jar",
+      javaDebugBundlePath:
+        "C:/Lithe/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar",
     });
     expect(frontendTrace).toHaveBeenCalledWith(
       "warn",
