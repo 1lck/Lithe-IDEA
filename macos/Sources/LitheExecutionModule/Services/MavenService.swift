@@ -368,10 +368,7 @@ package final class MavenService: ObservableObject {
     /// language-server state remain untouched until their own reload rules run.
     package func markJavaDependencyFilesChanged(_ files: [URL]) {
         guard let workspaceURL else { return }
-        let owned = files.filter { file in
-            let path = file.standardizedFileURL.path
-            return path == workspaceURL.path || path.hasPrefix(workspaceURL.path + "/")
-        }
+        let owned = Self.javaDependencyManagementFiles(in: files, workspaceURL: workspaceURL)
         guard !owned.isEmpty else { return }
         invalidateJavaDependencyIndex()
     }
