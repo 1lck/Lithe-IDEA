@@ -978,8 +978,14 @@ package final class WorkspaceFeatureModel: ObservableObject {
             let name = url.lastPathComponent.lowercased()
             let isLitheConfiguration = url.pathExtension.lowercased() == "json"
                 && url.path.hasPrefix(workspaceURL.appendingPathComponent(".lithe").path + "/")
-            return isLitheConfiguration
-                || name == "pom.xml" || name == "build.gradle" || name == "build.gradle.kts"
+                && name != "dependency-index.json"
+            let isJavaDependencyDescriptor = [
+                "pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle",
+                "settings.gradle.kts", "gradle.properties"
+            ].contains(name)
+                || url.path.lowercased().hasSuffix("/gradle/libs.versions.toml")
+                || url.path.lowercased().hasSuffix("/.mvn/extensions.xml")
+            return isLitheConfiguration || isJavaDependencyDescriptor
         }
         if requiresProjectServiceReload { await reloadProjectServices?() }
         await requestGitRefreshNow()

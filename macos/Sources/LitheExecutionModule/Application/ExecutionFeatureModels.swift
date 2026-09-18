@@ -8,7 +8,6 @@ import LitheModuleAPI
 @MainActor
 package final class MavenFeatureModel: ObservableObject {
     private let service: MavenService
-    private let javaDependencyProvider = JavaDependencyProvider()
     private var observation: AnyCancellable?
 
     package init(service: MavenService) {
@@ -37,12 +36,16 @@ package final class MavenFeatureModel: ObservableObject {
     package var javaDependencyPaths: JavaDependencyPathConfiguration {
         service.javaDependencyPaths
     }
+    package var javaDependencyRevision: Int { service.javaDependencyRevision }
     package var configurationSaveError: String? { service.configurationSaveError }
     package var isReloadRequired: Bool { service.isReloadRequired }
     package var isProjectReloadRequired: Bool { service.isProjectReloadRequired }
     package var isReloading: Bool { service.isReloading }
     package var reloadError: String? { service.reloadError }
     package func markPomChanged(_ url: URL) { service.markPomChanged(url) }
+    package func markJavaDependencyFilesChanged(_ urls: [URL]) {
+        service.markJavaDependencyFilesChanged(urls)
+    }
     package func reloadProject(
         files: [URL], rescan: Bool,
         synchronizeJava: @escaping @MainActor () async throws -> Void
@@ -107,11 +110,19 @@ package final class MavenFeatureModel: ObservableObject {
             resourceRoots: resourceRoots,
             javaHomePath: javaHomePath
         ) else { return nil }
-        return try await javaDependencyProvider.resolve(context: context)
+        return try await service.resolveJavaDependencies(context: context)
     }
 
     package func updateJavaDependencyPaths(_ configuration: JavaDependencyPathConfiguration) {
         service.updateJavaDependencyPaths(configuration)
+    }
+
+    package func excludeJavaDependencyPath(_ path: String) {
+        service.excludeJavaDependencyPath(path)
+    }
+
+    package func restoreJavaDependencyPath(_ path: String) {
+        service.restoreJavaDependencyPath(path)
     }
 
     package func loadProject(at workspaceURL: URL, files: [URL], snapshotID: UUID? = nil) async {
