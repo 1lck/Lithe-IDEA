@@ -8,6 +8,7 @@ import LitheModuleAPI
 @MainActor
 package final class MavenFeatureModel: ObservableObject {
     private let service: MavenService
+    private let javaDependencyProvider = JavaDependencyProvider()
     private var observation: AnyCancellable?
 
     package init(service: MavenService) {
@@ -48,6 +49,62 @@ package final class MavenFeatureModel: ObservableObject {
     package var dependencyStates: [String: MavenDependencyLoadState] { service.dependencyStates }
     package var isResolvingDependencies: Bool { service.isResolvingDependencies }
     package var launchContext: MavenLaunchContext? { service.launchContext }
+
+    /// Builds the language-neutral dependency context from the workspace model.
+    /// The classpath is supplied by the runtime that already resolved it; this
+    /// projection never discovers dependencies from a machine-wide cache.
+    package func javaDependencyContext(
+        serviceID: String = "workspace",
+        serviceDisplayName: String? = nil,
+        classpath: [URL],
+        resourceRoots: [URL] = [],
+        javaHomePath: String? = nil
+    ) -> DependencyResolutionContext? {
+        guard let project else { return nil }
+        let sourceRoots = ([
+            (project.rootURL, project.sourceRoots)
+        ] + project.allModules.map { ($0.url, $0.sourceRoots) })
+            .flatMap { root, roots in
+                roots.map {
+                    URL(fileURLWithPath: $0.path, relativeTo: root)
+                        .standardizedFileURL
+                }
+            }
+        let configuredJavaHome = (javaHomePath ?? self.javaHomePath)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let javaHomeURL = configuredJavaHome
+            .flatMap { value -> URL? in
+                guard !value.isEmpty else { return nil }
+                return URL(fileURLWithPath: value, relativeTo: project.rootURL)
+                    .standardizedFileURL
+            }
+        return DependencyResolutionContext(
+            serviceID: serviceID,
+            serviceDisplayName: serviceDisplayName,
+            workspaceURL: project.rootURL,
+            sourceRoots: sourceRoots,
+            resourceRoots: resourceRoots,
+            classpath: classpath,
+            jdkSourceArchive: javaHomeURL.map(JavaDependencyProvider.sourceArchive(for:))
+        )
+    }
+
+    package func resolveJavaDependencies(
+        serviceID: String = "workspace",
+        serviceDisplayName: String? = nil,
+        classpath: [URL],
+        resourceRoots: [URL] = [],
+        javaHomePath: String? = nil
+    ) async throws -> DependencyGraph? {
+        guard let context = javaDependencyContext(
+            serviceID: serviceID,
+            serviceDisplayName: serviceDisplayName,
+            classpath: classpath,
+            resourceRoots: resourceRoots,
+            javaHomePath: javaHomePath
+        ) else { return nil }
+        return try await javaDependencyProvider.resolve(context: context)
+    }
 
     package func loadProject(at workspaceURL: URL, files: [URL], snapshotID: UUID? = nil) async {
         await service.loadProject(at: workspaceURL, files: files)
