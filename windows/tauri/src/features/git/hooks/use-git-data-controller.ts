@@ -45,9 +45,9 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
   const workspaceFolders = useFileSystemStore((state) => state.workspaceFolders);
   const [failedRepoPath, setFailedRepoPath] = useState<string | null>(null);
   const [failedHistoryRepoPath, setFailedHistoryRepoPath] = useState<string | null>(null);
-  const hasLoadError = activeRepoPath !== null && (
-    failedRepoPath === activeRepoPath || failedHistoryRepoPath === activeRepoPath
-  );
+  const hasLoadError = activeRepoPath !== null && failedRepoPath === activeRepoPath;
+  const hasHistoryLoadError =
+    activeRepoPath !== null && failedHistoryRepoPath === activeRepoPath;
   const requestIdRef = useRef(0);
   const refreshQueueRef = useRef(createGitRefreshQueue());
   const changeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -71,18 +71,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
     try {
       const repoPaths = useRepositoryStore.getState().availableRepoPaths;
       const statusRepoPaths = repoPaths.length > 0 ? repoPaths : [repoPath];
-      const [status, history, branches, stashes, operationStateResult] = await Promise.all([
-        getWorkspaceGitStatus(statusRepoPaths, repoPath),
-        getGitHistory(repoPath, 50),
-        getBranches(repoPath),
-        getStashes(repoPath),
-        getOperationState(repoPath)
-          .then((value) => ({ ok: true as const, value }))
-          .catch((error) => {
-            console.error("Failed to load Git operation state:", error);
-            return { ok: false as const };
-          }),
-      ]);
+      const status = await getWorkspaceGitStatus(statusRepoPaths, repoPath);
 
       if (
         requestId !== requestIdRef.current ||
@@ -92,27 +81,57 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
       }
 
       if (!status) throw new Error("Git status query returned no snapshot");
-      // History can fail independently (for example before the first commit).
-      // Keep its last snapshot while still allowing working-tree status to load.
-      const previous = useGitStore.getState();
       setFailedRepoPath(null);
-      setFailedHistoryRepoPath(history ? null : repoPath);
-      gitActions.loadFreshGitData({
+      gitActions.refreshGitData({
         gitStatus: status,
         workingTreeVersion,
-        commits: history?.commits ?? previous.commits,
-        hasMoreCommits: history?.hasMore ?? previous.hasMoreCommits,
-        branches,
-        stashes,
-        operationState: operationStateResult.ok ? operationStateResult.value : null,
         repoPath,
       });
+
+      try {
+        const [history, branches, stashes, operationStateResult] = await Promise.all([
+          getGitHistory(repoPath, 50),
+          getBranches(repoPath),
+          getStashes(repoPath),
+          getOperationState(repoPath)
+            .then((value) => ({ ok: true as const, value }))
+            .catch((error) => {
+              console.error("Failed to load Git operation state:", error);
+              return { ok: false as const };
+            }),
+        ]);
+
+        if (
+          requestId !== requestIdRef.current ||
+          useRepositoryStore.getState().activeRepoPath !== repoPath
+        ) {
+          return;
+        }
+
+        // History can fail independently (for example before the first commit).
+        // Keep its last snapshot while still allowing working-tree status to load.
+        const previous = useGitStore.getState();
+        setFailedHistoryRepoPath(history ? null : repoPath);
+        gitActions.refreshGitData({
+          gitStatus: status,
+          workingTreeVersion,
+          commits: history?.commits ?? previous.commits,
+          hasMoreCommits: history?.hasMore ?? previous.hasMoreCommits,
+          branches,
+          operationState: operationStateResult.ok ? operationStateResult.value : null,
+          repoPath,
+        });
+        gitActions.setStashes(stashes);
+      } catch (error) {
+        if (requestId === requestIdRef.current) {
+          setFailedHistoryRepoPath(repoPath);
+          console.error("Failed to load optional initial Git data:", error);
+        }
+      }
     } catch (error) {
       if (requestId === requestIdRef.current) {
         setFailedRepoPath(repoPath);
-        // No part of the initial snapshot was committed after a failed batch.
-        setFailedHistoryRepoPath(repoPath);
-        console.error("Failed to load initial git data:", error);
+        console.error("Failed to load initial Git status:", error);
       }
     } finally {
       if (requestId === requestIdRef.current) {
@@ -295,6 +314,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
   return {
     activeRepoPath,
     hasLoadError,
+    hasHistoryLoadError,
     refreshGitData,
     refreshWorkingTree,
     refresh,

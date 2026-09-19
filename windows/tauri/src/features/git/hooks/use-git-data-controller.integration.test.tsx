@@ -31,6 +31,19 @@ const history: GitHistorySnapshot = {
   recentReferences: [],
   hasMore: false,
 };
+type Deferred<Value> = {
+  promise: Promise<Value>;
+  resolve: (value: Value) => void;
+};
+
+function deferred<Value>(): Deferred<Value> {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((resolver) => {
+    resolve = resolver;
+  });
+  return { promise, resolve };
+}
+
 const getWorkspaceGitStatus = mock(async (): Promise<GitStatus | null> => status);
 const getGitHistory = mock(async (): Promise<GitHistorySnapshot | null> => history);
 const clearRepositoryDiscoveryCache = mock(() => {});
@@ -127,6 +140,39 @@ test("starts Git loading when the workspace becomes ready", async () => {
   });
 
   expect(getWorkspaceGitStatus).toHaveBeenCalledTimes(1);
+});
+
+test("loads initial status before starting optional Git metadata", async () => {
+  const pendingStatus = deferred<GitStatus | null>();
+  getWorkspaceGitStatus.mockImplementationOnce(() => pendingStatus.promise);
+  await mount();
+
+  expect(getGitHistory).not.toHaveBeenCalled();
+
+  await act(async () => {
+    pendingStatus.resolve(status);
+    await pendingStatus.promise;
+  });
+
+  expect(useGitStore.getState().gitStatus).toEqual(status);
+  expect(getGitHistory).toHaveBeenCalledTimes(1);
+});
+
+test("publishes initial status while optional Git metadata is still loading", async () => {
+  const pendingHistory = deferred<GitHistorySnapshot | null>();
+  getGitHistory.mockImplementationOnce(() => pendingHistory.promise);
+  await mount();
+
+  expect(useGitStore.getState().gitStatus).toEqual(status);
+  expect(useGitStore.getState().isLoadingGitData).toBe(true);
+  expect(controller.hasLoadError).toBe(false);
+
+  await act(async () => {
+    pendingHistory.resolve(history);
+    await pendingHistory.promise;
+  });
+
+  expect(useGitStore.getState().isLoadingGitData).toBe(false);
 });
 
 test("does not refresh Git while the workspace is opening", async () => {
@@ -232,7 +278,8 @@ test("remounting with a null history query preserves the previous snapshot", asy
   await mount();
   expect(useGitStore.getState().commits).toEqual(snapshot.commits);
   expect(useGitStore.getState().gitStatus).toEqual(status);
-  expect(controller.hasLoadError).toBe(true);
+  expect(controller.hasLoadError).toBe(false);
+  expect(controller.hasHistoryLoadError).toBe(true);
 });
 
 
@@ -241,7 +288,8 @@ test("a failed history query does not block working-tree status on initial load"
   await mount();
   expect(useGitStore.getState().gitStatus).toEqual(status);
   expect(useGitStore.getState().commits).toEqual([]);
-  expect(controller.hasLoadError).toBe(true);
+  expect(controller.hasLoadError).toBe(false);
+  expect(controller.hasHistoryLoadError).toBe(true);
 });
 
 
@@ -262,36 +310,34 @@ test("successful refreshes retain discovery caches; error retries clear them", a
 test("history errors survive working-tree refreshes until history succeeds", async () => {
   getGitHistory.mockResolvedValue(null);
   await mount();
-  expect(controller.hasLoadError).toBe(true);
+  expect(controller.hasHistoryLoadError).toBe(true);
   const historyCalls = getGitHistory.mock.calls.length;
   await act(async () => { await controller.refreshGitData(["working-tree"]); });
   expect(getGitHistory.mock.calls.length).toBe(historyCalls);
-  expect(controller.hasLoadError).toBe(true);
+  expect(controller.hasHistoryLoadError).toBe(true);
   getGitHistory.mockResolvedValue(history);
   await act(async () => { await controller.refreshGitData(["history"]); });
-  expect(controller.hasLoadError).toBe(false);
+  expect(controller.hasHistoryLoadError).toBe(false);
 });
 
 
-test("a failed initial batch remains incomplete after only status recovers", async () => {
+test("a failed initial status can recover without waiting for optional metadata", async () => {
   getWorkspaceGitStatus.mockResolvedValue(null);
   await mount();
   getWorkspaceGitStatus.mockResolvedValue(status);
   await act(async () => { await controller.refreshGitData(["working-tree"]); });
   expect(useGitStore.getState().gitStatus).toEqual(status);
-  expect(controller.hasLoadError).toBe(true);
-  await act(async () => { await controller.refresh(); });
   expect(controller.hasLoadError).toBe(false);
 });
 
 test("switching repositories does not carry over a previous history failure", async () => {
   getGitHistory.mockResolvedValue(null);
   await mount();
-  expect(controller.hasLoadError).toBe(true);
+  expect(controller.hasHistoryLoadError).toBe(true);
   getGitHistory.mockResolvedValue(history);
   await act(async () => {
     useRepositoryStore.getState().actions.setManualRepository("C:/other");
   });
   expect(controller.activeRepoPath).toBe("C:/other");
-  expect(controller.hasLoadError).toBe(false);
+  expect(controller.hasHistoryLoadError).toBe(false);
 });
