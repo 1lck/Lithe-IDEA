@@ -1,4 +1,5 @@
 import Combine
+import CryptoKit
 import Foundation
 import LitheCoreContracts
 import LitheModuleAPI
@@ -32,6 +33,8 @@ package final class RunService: ObservableObject {
     @Published package private(set) var recoveryAction: RunConfigurationRecoveryAction = .regenerate
     @Published package private(set) var recoveryPath: String?
     @Published package private(set) var configurationSaveError: String?
+    @Published package private(set) var dependencyRevision = 0
+    @Published package private(set) var dependencyConfigurationSaveError: String?
 
     private let process: any StreamingProcess
     private let processFactory: () -> any StreamingProcess
@@ -42,11 +45,16 @@ package final class RunService: ObservableObject {
     private let languageProviderCatalog: LanguageProviderCatalog
     private let languageRunProviders: LanguageRunProviderRegistry
     private let extensionRequiredLanguageIDs: Set<String>
+    private let dependencyProvider = RunServiceDependencyProvider()
+    private let dependencyWriter: WorkspaceDependencyWriter
     private var languageRunExtensions: [String: RegisteredLanguageRunExtension] = [:]
     private var activeLanguageExecutionSession: (any LanguageExecutionSession)?
     private var projectURL: URL?
     private var projectFiles: [URL] = []
     private var mavenProject: MavenProject?
+    private var dependencyWorkspaceURL: URL?
+    private var dependencyConfiguration = WorkspaceDependencyConfiguration()
+    private var dependencyIndexes = WorkspaceDependencyIndexes()
     private var mavenModelRevision = 0
     private var projectLoadID = UUID()
     private var selectedConfigurationIDsByProject: [String: String] = [:]
@@ -61,6 +69,7 @@ package final class RunService: ObservableObject {
     private let runtime: any RunRuntimePort
     private let executableResolver: any RunExecutableResolving
     private var mavenContextProvider: @MainActor () -> MavenLaunchContext? = { nil }
+    private var dependencyClasspathProvider: @MainActor (RunConfiguration) -> [URL] = { _ in [] }
 
     package init(
         runtime: any RunRuntimePort,
@@ -73,7 +82,8 @@ package final class RunService: ObservableObject {
         executableResolver: any RunExecutableResolving,
         languageProviderCatalog: LanguageProviderCatalog,
         languageRunProviders: LanguageRunProviderRegistry,
-        extensionRequiredLanguageIDs: Set<String> = []
+        extensionRequiredLanguageIDs: Set<String> = [],
+        dependencyStore: (any WorkspaceDependencyStoring)? = nil
     ) {
         self.runtime = runtime
         self.process = process
@@ -85,6 +95,7 @@ package final class RunService: ObservableObject {
         self.languageProviderCatalog = languageProviderCatalog
         self.languageRunProviders = languageRunProviders
         self.extensionRequiredLanguageIDs = extensionRequiredLanguageIDs
+        dependencyWriter = WorkspaceDependencyWriter(store: dependencyStore)
         self.executableResolver = executableResolver
         process.onOutput = { [weak self] chunk in
             Task { @MainActor [weak self] in
@@ -140,6 +151,14 @@ package final class RunService: ObservableObject {
         mavenContextProvider = provider
     }
 
+    /// Accepts paths already resolved by an optional build-system adapter. The
+    /// dependency browser never calls that adapter to trigger a scan.
+    package func configureDependencyClasspathProvider(
+        _ provider: @escaping @MainActor (RunConfiguration) -> [URL]
+    ) {
+        dependencyClasspathProvider = provider
+    }
+
     @discardableResult
     package func registerLanguageRunExtension(
         _ provider: any LanguageRunExtensionProviding,
@@ -165,6 +184,121 @@ package final class RunService: ObservableObject {
             roots.append(contentsOf: mavenProject.allModules.map(\.url))
         }
         return roots
+    }
+
+    /// Run configurations are the dependency browser's service inventory. The
+    /// language/build provider enriches each service, but never owns the sidebar.
+    package var dependencyServices: [DependencyServiceDescriptor] {
+        configurations
+            .filter { $0.id != RunConfiguration.currentFileID && !$0.disabled }
+            .map { configuration in
+                let providerID = configuration.kind.providerID
+                let providerName = languageProviderCatalog.descriptors
+                    .first(where: { $0.id == providerID })?.displayName
+                    ?? configuration.kind.title
+                return DependencyServiceDescriptor(
+                    id: configuration.id,
+                    displayName: configuration.name,
+                    providerID: providerID,
+                    providerDisplayName: providerName,
+                    systemImage: configuration.systemImage
+                )
+            }
+    }
+
+    package func dependencyPaths(for serviceID: String) -> DependencyPathConfiguration {
+        dependencyConfiguration.services[serviceID] ?? DependencyPathConfiguration()
+    }
+
+    package func resolveDependencies(serviceID: String) async throws -> DependencyGraph? {
+        guard let context = dependencyContext(serviceID: serviceID) else { return nil }
+        let revision = dependencyRevision
+        let input = DependencyServiceIndexInput(
+            context: context,
+            managementFiles: dependencyProvider.managementFiles(
+                providerID: context.providerID,
+                files: projectFiles
+            )
+        )
+        let fileAccess = self.fileAccess
+        let signature = await Task.detached(priority: .utility) {
+            Self.dependencySignature(input: input, fileAccess: fileAccess)
+        }.value
+        if let index = dependencyIndexes.services[serviceID],
+           index.inputSignature == signature {
+            return index.graph
+        }
+
+        let graph = try await dependencyProvider.resolve(context: context)
+        guard revision == dependencyRevision else { throw CancellationError() }
+        dependencyIndexes.services[serviceID] = DependencyIndex(
+            inputSignature: signature,
+            graph: graph
+        )
+        if let dependencyWorkspaceURL {
+            await dependencyWriter.saveIndexes(
+                dependencyIndexes,
+                workspaceURL: dependencyWorkspaceURL
+            )
+        }
+        return graph
+    }
+
+    package func updateDependencyPaths(
+        _ paths: DependencyPathConfiguration,
+        serviceID: String
+    ) {
+        let normalized = DependencyPathConfiguration(
+            sourcePaths: normalizedDependencyPaths(paths.sourcePaths),
+            binaryPaths: normalizedDependencyPaths(paths.binaryPaths),
+            dependencyPaths: normalizedDependencyPaths(paths.dependencyPaths),
+            additionalSearchPaths: normalizedDependencyPaths(paths.additionalSearchPaths),
+            excludedPaths: normalizedDependencyPaths(paths.excludedPaths)
+        )
+        guard dependencyConfiguration.services[serviceID] != normalized else { return }
+        dependencyConfiguration.services[serviceID] = normalized
+        dependencyIndexes.services[serviceID] = nil
+        dependencyRevision &+= 1
+        persistDependencyConfiguration()
+    }
+
+    package func excludeDependencyPath(_ path: String, serviceID: String) {
+        var configuration = dependencyPaths(for: serviceID)
+        let stored = storedDependencyPath(path)
+        guard !stored.isEmpty, !configuration.excludedPaths.contains(stored) else { return }
+        configuration.excludedPaths.append(stored)
+        updateDependencyPaths(configuration, serviceID: serviceID)
+    }
+
+    package func restoreDependencyPath(_ path: String, serviceID: String) {
+        var configuration = dependencyPaths(for: serviceID)
+        let stored = storedDependencyPath(path)
+        guard configuration.excludedPaths.contains(stored) else { return }
+        configuration.excludedPaths.removeAll { $0 == stored }
+        updateDependencyPaths(configuration, serviceID: serviceID)
+    }
+
+    /// File watchers forward paths only. The provider's dependency descriptor
+    /// decides whether a service index is affected; no directory walk is started.
+    package func markDependencyFilesChanged(_ files: [URL]) {
+        let invalidated = dependencyServices.compactMap { service -> String? in
+            files.contains { dependencyProvider.manages($0, providerID: service.providerID) }
+                ? service.id
+                : nil
+        }
+        guard !invalidated.isEmpty else { return }
+        for serviceID in invalidated {
+            dependencyIndexes.services[serviceID] = nil
+        }
+        dependencyRevision &+= 1
+    }
+
+    /// Invalidates cached projections when an injected resolver publishes new
+    /// paths, without asking the resolver to discover anything here.
+    package func markResolvedDependencyPathsChanged() {
+        guard !dependencyIndexes.services.isEmpty else { return }
+        dependencyIndexes.services.removeAll()
+        dependencyRevision &+= 1
     }
 
     /// Applies an accepted Maven model without replacing the file snapshot or
@@ -213,6 +347,19 @@ package final class RunService: ObservableObject {
             selectedConfigurationIDsByProject[currentProject.path] = selectedConfigurationID
         }
         self.projectURL = workspace
+        let storedDependencies = await dependencyWriter.load(workspaceURL: workspace)
+        guard !Task.isCancelled, projectLoadID == loadID else { return }
+        let dependenciesChanged = dependencyWorkspaceURL != workspace
+            || dependencyConfiguration != storedDependencies.configuration
+            || dependencyIndexes != storedDependencies.indexes
+            || dependencyConfigurationSaveError != storedDependencies.errorMessage
+        dependencyWorkspaceURL = workspace
+        dependencyConfiguration = storedDependencies.configuration
+        dependencyIndexes = storedDependencies.indexes
+        dependencyConfigurationSaveError = storedDependencies.errorMessage
+        if dependenciesChanged {
+            dependencyRevision &+= 1
+        }
         // Whether the existing configuration parses is `configurationStatus`, not
         // this state. Keeping them apart is what lets a broken generated.json be
         // regenerated: folding a parse failure in here would block generation,
@@ -730,6 +877,11 @@ package final class RunService: ObservableObject {
         selectedConfigurationIDsByProject = [:]
         projectFiles = []
         mavenProject = nil
+        dependencyWorkspaceURL = nil
+        dependencyConfiguration = WorkspaceDependencyConfiguration()
+        dependencyIndexes = WorkspaceDependencyIndexes()
+        dependencyRevision &+= 1
+        dependencyConfigurationSaveError = nil
         configurations = [.currentFile]
         defaultConfigurationID = nil
         selectedConfigurationID = RunConfiguration.currentFileID
@@ -755,6 +907,146 @@ package final class RunService: ObservableObject {
     package func clearOutput() {
         output = ""
         lastExitCode = nil
+    }
+
+    private func dependencyContext(serviceID: String) -> DependencyResolutionContext? {
+        guard let workspace = projectURL,
+              let configuration = configurations.first(where: { $0.id == serviceID }) else {
+            return nil
+        }
+        let providerID = configuration.kind.providerID
+        let providerName = languageProviderCatalog.descriptors
+            .first(where: { $0.id == providerID })?.displayName
+            ?? configuration.kind.title
+        return DependencyResolutionContext(
+            serviceID: configuration.id,
+            serviceDisplayName: configuration.name,
+            providerID: providerID,
+            providerDisplayName: providerName,
+            workspaceURL: workspace,
+            sourceRoots: dependencySourceRoots(for: configuration, workspaceURL: workspace),
+            classpath: dependencyClasspathProvider(configuration),
+            dependencyPaths: dependencyPaths(for: configuration.id)
+        )
+    }
+
+    private func dependencySourceRoots(
+        for configuration: RunConfiguration,
+        workspaceURL: URL
+    ) -> [URL] {
+        var roots: [URL] = []
+        if let modulePath = configuration.modulePath,
+           !modulePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            roots.append(URL(fileURLWithPath: modulePath, relativeTo: workspaceURL))
+        }
+        let workingDirectory = options(for: configuration).workingDirectoryPath
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !workingDirectory.isEmpty {
+            roots.append(URL(fileURLWithPath: workingDirectory, relativeTo: workspaceURL))
+        }
+        if let sourcePath = configuration.sourcePath,
+           !sourcePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            roots.append(
+                URL(fileURLWithPath: sourcePath, relativeTo: workspaceURL)
+                    .deletingLastPathComponent()
+            )
+        }
+        roots.append(contentsOf: mavenSourceRoots(for: configuration))
+
+        if roots.isEmpty,
+           let descriptor = languageProviderCatalog.descriptors.first(where: {
+               $0.id == configuration.kind.providerID
+           }),
+           let firstSource = projectFiles.first(where: descriptor.handles(fileURL:)) {
+            let relative = relativePath(for: firstSource, root: workspaceURL) ?? ""
+            if let firstComponent = relative.split(separator: "/").first,
+               relative.contains("/") {
+                roots.append(workspaceURL.appendingPathComponent(String(firstComponent), isDirectory: true))
+            }
+        }
+        if roots.isEmpty { roots = [workspaceURL] }
+        var seen: Set<String> = []
+        return roots
+            .map(\.standardizedFileURL)
+            .filter { seen.insert($0.path).inserted }
+            .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+    }
+
+    private func mavenSourceRoots(for configuration: RunConfiguration) -> [URL] {
+        guard let project = mavenProject else { return [] }
+        if let modulePath = configuration.modulePath,
+           let module = project.allModules.first(where: { $0.relativePath == modulePath }) {
+            return module.sourceRoots.map {
+                URL(fileURLWithPath: $0.path, relativeTo: module.url).standardizedFileURL
+            }
+        }
+        guard configuration.kind.isMavenBacked || configuration.mavenReactorPath != nil else {
+            return []
+        }
+        return project.sourceRoots.map {
+            URL(fileURLWithPath: $0.path, relativeTo: project.rootURL).standardizedFileURL
+        }
+    }
+
+    private func normalizedDependencyPaths(_ values: [String]) -> [String] {
+        Array(Set(values.compactMap { value -> String? in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        })).sorted()
+    }
+
+    private func storedDependencyPath(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let workspace = dependencyWorkspaceURL else { return trimmed }
+        let path = URL(fileURLWithPath: (trimmed as NSString).expandingTildeInPath)
+            .standardizedFileURL.path
+        let root = workspace.standardizedFileURL.path
+        if path == root { return "." }
+        if path.hasPrefix(root + "/") {
+            return String(path.dropFirst(root.count + 1))
+        }
+        return trimmed
+    }
+
+    private func persistDependencyConfiguration() {
+        guard let workspace = dependencyWorkspaceURL else { return }
+        let configuration = dependencyConfiguration
+        Task { [weak self] in
+            guard let self else { return }
+            let error = await dependencyWriter.saveConfiguration(
+                configuration,
+                workspaceURL: workspace
+            )
+            guard dependencyWorkspaceURL == workspace else { return }
+            dependencyConfigurationSaveError = error
+        }
+    }
+
+    nonisolated private static func dependencySignature(
+        input: DependencyServiceIndexInput,
+        fileAccess: any RunFileAccess
+    ) -> String {
+        var fileDigests: [DependencyServiceFileInput] = []
+        for file in input.managementFiles {
+            let digest: String
+            if let data = try? fileAccess.readData(from: file) {
+                digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            } else {
+                digest = "unavailable"
+            }
+            fileDigests.append(DependencyServiceFileInput(path: file.path, digest: digest))
+        }
+        let payload = DependencyServiceSignatureInput(
+            serviceID: input.context.serviceID,
+            providerID: input.context.providerID,
+            sourceRoots: input.context.sourceRoots.map(\.path),
+            resourceRoots: input.context.resourceRoots.map(\.path),
+            classpath: input.context.classpath.map(\.path),
+            dependencyPaths: input.context.dependencyPaths,
+            files: fileDigests
+        )
+        guard let data = try? JSONEncoder().encode(payload) else { return UUID().uuidString }
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     private func fail(_ message: String) {
@@ -878,6 +1170,15 @@ package final class RunService: ObservableObject {
         effectiveSourcesByConfigurationID = Dictionary(uniqueKeysWithValues: resolved.map {
             ($0.configuration.id, $0.source)
         })
+        let activeDependencyServiceIDs = Set(
+            configurations.lazy
+                .filter { $0.id != RunConfiguration.currentFileID && !$0.disabled }
+                .map(\.id)
+        )
+        dependencyIndexes.services = dependencyIndexes.services.filter {
+            activeDependencyServiceIDs.contains($0.key)
+        }
+        dependencyRevision &+= 1
         reconcileModuleSessions(validConfigurationIDs: Set(configurations.map(\.id)))
         refreshPortConflicts()
         if let preferredConfigurationID,
@@ -1549,6 +1850,74 @@ package final class RunService: ObservableObject {
         guard let key = optionsKey(for: configurationID),
               let data = try? JSONEncoder().encode(options) else { return }
         preferences.setData(data, forKey: key)
+    }
+}
+
+private struct DependencyServiceIndexInput: Sendable {
+    let context: DependencyResolutionContext
+    let managementFiles: [URL]
+}
+
+private struct DependencyServiceFileInput: Codable, Sendable {
+    let path: String
+    let digest: String
+}
+
+private struct DependencyServiceSignatureInput: Codable, Sendable {
+    let serviceID: String
+    let providerID: String
+    let sourceRoots: [String]
+    let resourceRoots: [String]
+    let classpath: [String]
+    let dependencyPaths: DependencyPathConfiguration
+    let files: [DependencyServiceFileInput]
+}
+
+private struct WorkspaceDependencySnapshot: Sendable {
+    let configuration: WorkspaceDependencyConfiguration
+    let indexes: WorkspaceDependencyIndexes
+    let errorMessage: String?
+}
+
+private actor WorkspaceDependencyWriter {
+    private let store: (any WorkspaceDependencyStoring)?
+
+    init(store: (any WorkspaceDependencyStoring)?) {
+        self.store = store
+    }
+
+    func load(workspaceURL: URL) -> WorkspaceDependencySnapshot {
+        do {
+            return WorkspaceDependencySnapshot(
+                configuration: try store?.loadDependencyConfiguration(workspaceURL: workspaceURL)
+                    ?? WorkspaceDependencyConfiguration(),
+                indexes: try store?.loadDependencyIndexes(workspaceURL: workspaceURL)
+                    ?? WorkspaceDependencyIndexes(),
+                errorMessage: nil
+            )
+        } catch {
+            return WorkspaceDependencySnapshot(
+                configuration: WorkspaceDependencyConfiguration(),
+                indexes: WorkspaceDependencyIndexes(),
+                errorMessage: error.localizedDescription
+            )
+        }
+    }
+
+    func saveConfiguration(
+        _ configuration: WorkspaceDependencyConfiguration,
+        workspaceURL: URL
+    ) -> String? {
+        do {
+            try store?.saveDependencyConfiguration(configuration, workspaceURL: workspaceURL)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func saveIndexes(_ indexes: WorkspaceDependencyIndexes, workspaceURL: URL) {
+        try? store?.saveDependencyIndexes(indexes, workspaceURL: workspaceURL)
     }
 }
 

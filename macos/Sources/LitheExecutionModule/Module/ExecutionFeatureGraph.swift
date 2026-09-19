@@ -18,12 +18,27 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
 
     package init(maven: MavenService, run: RunService, tests: LanguageTestService) {
         self.maven = maven; self.run = run; self.tests = tests
-        mavenFeature = MavenFeatureModel(service: maven)
+        let mavenFeature = MavenFeatureModel(service: maven)
+        self.mavenFeature = mavenFeature
         runFeature = RunFeatureModel(service: run)
         projectDevelopment = ProjectDevelopmentFeatureModel(mavenFeature: mavenFeature, runFeature: runFeature)
         run.configureMavenContextProvider { [weak maven] in
             maven?.launchContext
         }
+        run.configureDependencyClasspathProvider { [weak mavenFeature] configuration in
+            guard configuration.kind.isMavenBacked || configuration.mavenReactorPath != nil else {
+                return []
+            }
+            return mavenFeature?.resolvedDependencyArtifactPaths(
+                modulePath: configuration.modulePath ?? "."
+            ) ?? []
+        }
+        maven.$dependencyStates
+            .dropFirst()
+            .sink { [weak run] _ in
+                run?.markResolvedDependencyPathsChanged()
+            }
+            .store(in: &activityObservers)
         maven.onProjectReloaded = { [weak run] workspace, project in
             run?.acceptMavenProject(project, at: workspace)
         }

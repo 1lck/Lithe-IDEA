@@ -1,16 +1,16 @@
 import Foundation
 
-/// Project-owned Java paths that should be visible in the dependency browser.
+/// Project-owned paths that should be visible for one configured run service.
 /// Paths may be workspace-relative or absolute local paths supplied by the user.
-package struct JavaDependencyPathConfiguration: Codable, Equatable, Sendable {
+package struct DependencyPathConfiguration: Codable, Equatable, Sendable {
     package static let currentVersion = 1
 
     package var version: Int
     package var sourcePaths: [String]
     package var binaryPaths: [String]
-    package var mavenPaths: [String]
+    package var dependencyPaths: [String]
     package var additionalSearchPaths: [String]
-    /// Paths hidden from the Java dependency tree. Entries may be workspace-relative
+    /// Paths hidden from this service's dependency tree. Entries may be workspace-relative
     /// or absolute and match the entry itself and every descendant.
     package var excludedPaths: [String]
 
@@ -18,14 +18,14 @@ package struct JavaDependencyPathConfiguration: Codable, Equatable, Sendable {
         version: Int = currentVersion,
         sourcePaths: [String] = [],
         binaryPaths: [String] = [],
-        mavenPaths: [String] = [],
+        dependencyPaths: [String] = [],
         additionalSearchPaths: [String] = [],
         excludedPaths: [String] = []
     ) {
         self.version = version
         self.sourcePaths = sourcePaths
         self.binaryPaths = binaryPaths
-        self.mavenPaths = mavenPaths
+        self.dependencyPaths = dependencyPaths
         self.additionalSearchPaths = additionalSearchPaths
         self.excludedPaths = excludedPaths
     }
@@ -34,7 +34,7 @@ package struct JavaDependencyPathConfiguration: Codable, Equatable, Sendable {
         case version
         case sourcePaths
         case binaryPaths
-        case mavenPaths
+        case dependencyPaths
         case additionalSearchPaths
         case excludedPaths
     }
@@ -44,12 +44,63 @@ package struct JavaDependencyPathConfiguration: Codable, Equatable, Sendable {
         version = try values.decodeIfPresent(Int.self, forKey: .version) ?? Self.currentVersion
         sourcePaths = try values.decodeIfPresent([String].self, forKey: .sourcePaths) ?? []
         binaryPaths = try values.decodeIfPresent([String].self, forKey: .binaryPaths) ?? []
-        mavenPaths = try values.decodeIfPresent([String].self, forKey: .mavenPaths) ?? []
+        dependencyPaths = try values.decodeIfPresent([String].self, forKey: .dependencyPaths) ?? []
         additionalSearchPaths = try values.decodeIfPresent(
             [String].self,
             forKey: .additionalSearchPaths
         ) ?? []
         excludedPaths = try values.decodeIfPresent([String].self, forKey: .excludedPaths) ?? []
+    }
+
+    package func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(version, forKey: .version)
+        try values.encode(sourcePaths, forKey: .sourcePaths)
+        try values.encode(binaryPaths, forKey: .binaryPaths)
+        try values.encode(dependencyPaths, forKey: .dependencyPaths)
+        try values.encode(additionalSearchPaths, forKey: .additionalSearchPaths)
+        try values.encode(excludedPaths, forKey: .excludedPaths)
+    }
+}
+
+/// Workspace JSON keyed by run-configuration ID. Keeping service paths apart
+/// prevents two services that use the same language from sharing exclusions.
+package struct WorkspaceDependencyConfiguration: Codable, Equatable, Sendable {
+    package static let currentVersion = 1
+
+    package var version: Int
+    package var services: [String: DependencyPathConfiguration]
+
+    package init(
+        version: Int = currentVersion,
+        services: [String: DependencyPathConfiguration] = [:]
+    ) {
+        self.version = version
+        self.services = services
+    }
+}
+
+/// A run service exposed in the dependency sidebar. Provider metadata controls
+/// how paths are supplemented; the sidebar never branches on a language name.
+package struct DependencyServiceDescriptor: Identifiable, Equatable, Sendable {
+    package let id: String
+    package let displayName: String
+    package let providerID: String
+    package let providerDisplayName: String
+    package let systemImage: String
+
+    package init(
+        id: String,
+        displayName: String,
+        providerID: String,
+        providerDisplayName: String,
+        systemImage: String
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.providerID = providerID
+        self.providerDisplayName = providerDisplayName
+        self.systemImage = systemImage
     }
 }
 
@@ -59,31 +110,34 @@ package struct JavaDependencyPathConfiguration: Codable, Equatable, Sendable {
 package struct DependencyResolutionContext: Equatable, Sendable {
     package let serviceID: String
     package let serviceDisplayName: String
+    package let providerID: String
+    package let providerDisplayName: String
     package let workspaceURL: URL
     package let sourceRoots: [URL]
     package let resourceRoots: [URL]
     package let classpath: [URL]
-    package let jdkSourceArchive: URL?
-    package let javaDependencyPaths: JavaDependencyPathConfiguration
+    package let dependencyPaths: DependencyPathConfiguration
 
     package init(
         serviceID: String = "workspace",
         serviceDisplayName: String? = nil,
+        providerID: String = "workspace",
+        providerDisplayName: String? = nil,
         workspaceURL: URL,
         sourceRoots: [URL] = [],
         resourceRoots: [URL] = [],
         classpath: [URL] = [],
-        jdkSourceArchive: URL? = nil,
-        javaDependencyPaths: JavaDependencyPathConfiguration = .init()
+        dependencyPaths: DependencyPathConfiguration = .init()
     ) {
         self.serviceID = serviceID
         self.serviceDisplayName = serviceDisplayName ?? serviceID
+        self.providerID = providerID
+        self.providerDisplayName = providerDisplayName ?? providerID
         self.workspaceURL = workspaceURL.standardizedFileURL
         self.sourceRoots = sourceRoots.map { $0.standardizedFileURL }
         self.resourceRoots = resourceRoots.map { $0.standardizedFileURL }
         self.classpath = classpath.map { $0.standardizedFileURL }
-        self.jdkSourceArchive = jdkSourceArchive?.standardizedFileURL
-        self.javaDependencyPaths = javaDependencyPaths
+        self.dependencyPaths = dependencyPaths
     }
 }
 
@@ -182,7 +236,7 @@ package struct DependencyGraph: Codable, Equatable, Sendable {
     }
 
     /// Merges service graphs while preserving the first-seen deterministic order.
-    /// Shared JDKs and artifacts therefore appear once in an aggregated view.
+    /// Shared source roots and artifacts therefore appear once in an aggregated view.
     package static func aggregate(_ graphs: [DependencyGraph]) -> [DependencyNode] {
         var seen: Set<String> = []
         return graphs
@@ -203,7 +257,7 @@ package struct DependencyGraph: Codable, Equatable, Sendable {
 /// owned by the service and must change whenever configuration or an input file
 /// changes. Providers can therefore reuse this graph without rediscovering the
 /// workspace on every IDE launch.
-package struct JavaDependencyIndex: Codable, Equatable, Sendable {
+package struct DependencyIndex: Codable, Equatable, Sendable {
     package static let currentVersion = 1
 
     package let version: Int
@@ -221,7 +275,35 @@ package struct JavaDependencyIndex: Codable, Equatable, Sendable {
     }
 }
 
-// Note: Java 依赖浏览器的路径 ownership 见
+package struct WorkspaceDependencyIndexes: Codable, Equatable, Sendable {
+    package static let currentVersion = 1
+
+    package let version: Int
+    package var services: [String: DependencyIndex]
+
+    package init(
+        version: Int = currentVersion,
+        services: [String: DependencyIndex] = [:]
+    ) {
+        self.version = version
+        self.services = services
+    }
+}
+
+package protocol WorkspaceDependencyStoring: Sendable {
+    func loadDependencyConfiguration(workspaceURL: URL) throws -> WorkspaceDependencyConfiguration?
+    func saveDependencyConfiguration(
+        _ configuration: WorkspaceDependencyConfiguration,
+        workspaceURL: URL
+    ) throws
+    func loadDependencyIndexes(workspaceURL: URL) throws -> WorkspaceDependencyIndexes?
+    func saveDependencyIndexes(
+        _ indexes: WorkspaceDependencyIndexes,
+        workspaceURL: URL
+    ) throws
+}
+
+// Note: 工作区依赖浏览器的路径 ownership 见
 // .agents/notes/implemented/architecture/2026-09-18-workspace-dependency-browser.md
 /// Language-specific dependency discovery entry point.
 package protocol WorkspaceDependencyProvider: Sendable {

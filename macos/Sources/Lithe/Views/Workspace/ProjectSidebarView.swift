@@ -15,18 +15,35 @@ enum ProjectFileRowActivation {
     }
 }
 
+private enum ProjectSidebarContent: String, CaseIterable, Identifiable {
+    case project
+    case dependencies
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .project: "Project"
+        case .dependencies: "Dependencies"
+        }
+    }
+}
+
 struct ProjectSidebarView: View {
     @EnvironmentObject private var model: AppModel
     let rowHeight: CGFloat
     @State private var expandedDirectoryPaths: Set<String> = []
     @State private var expandedTreeRootPath: String?
     @State private var contextMenuPath: String?
+    @State private var selectedContent: ProjectSidebarContent = .project
+    @State private var dependencyRefreshRevision = 0
 
     var body: some View {
         VStack(spacing: 0) {
             sidebarHeader
 
-            if model.isLoadingWorkspace {
+            if selectedContent == .dependencies {
+                DependencySidebarView(refreshRevision: dependencyRefreshRevision)
+            } else if model.isLoadingWorkspace {
                 VStack(spacing: 10) {
                     ProgressView().controlSize(.small)
                     Text("Reading project…")
@@ -168,14 +185,37 @@ struct ProjectSidebarView: View {
 
     private var sidebarHeader: some View {
         HStack(spacing: 8) {
-            Text("Project")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(LitheTheme.primaryText)
-            Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(LitheTheme.secondaryText)
+            Menu {
+                ForEach(ProjectSidebarContent.allCases) { content in
+                    Button {
+                        selectedContent = content
+                    } label: {
+                        if selectedContent == content {
+                            Label(LocalizedStringKey(content.title), systemImage: "checkmark")
+                        } else {
+                            Text(LocalizedStringKey(content.title))
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Text(LocalizedStringKey(selectedContent.title))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(LitheTheme.primaryText)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                .frame(height: 28)
+                .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Switch project view")
+            .accessibilityIdentifier("project-sidebar-view-selector")
             Spacer()
-            if let activeURL = model.activeDocument?.url,
+            if selectedContent == .project,
+               let activeURL = model.activeDocument?.url,
                model.canRevealInProjectTree(activeURL) {
                 Button {
                     model.revealInProjectTree(activeURL)
@@ -185,7 +225,15 @@ struct ProjectSidebarView: View {
                 .litheIconButton()
                 .help("Reveal Active File in Project Tree")
             }
-            if model.isRefreshingWorkspace {
+            if selectedContent == .dependencies {
+                Button {
+                    dependencyRefreshRevision &+= 1
+                } label: {
+                    LitheSystemIcon(systemImage: "arrow.clockwise")
+                }
+                .litheIconButton()
+                .help("Refresh dependencies")
+            } else if model.isRefreshingWorkspace {
                 ProgressView()
                     .controlSize(.small)
                     .frame(width: 28, height: 28)

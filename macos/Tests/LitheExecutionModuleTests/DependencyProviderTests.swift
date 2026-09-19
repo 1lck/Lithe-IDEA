@@ -5,124 +5,97 @@ import Testing
 
 struct DependencyProviderTests {
     @Test
-    func javaSourceArchiveUsesTheResolvedHomeDirectory() {
-        let home = URL(fileURLWithPath: "/opt/jdk-21", isDirectory: true)
-
-        #expect(
-            JavaDependencyProvider.sourceArchive(for: home).path
-                == "/opt/jdk-21/lib/src.zip"
-        )
-    }
-
-    @Test
-    func javaProviderGroupsResolvedAndConfiguredPaths() async throws {
-        let binary = URL(fileURLWithPath: "/workspace/target/classes", isDirectory: true)
-        let first = URL(fileURLWithPath: "/workspace/z/lib/core.jar")
-        let second = URL(fileURLWithPath: "/workspace/a/lib/core.jar")
-        let source = URL(fileURLWithPath: "/workspace/src/main/java", isDirectory: true)
+    func genericProviderUsesRunServiceIdentityAndPaths() async throws {
         let context = DependencyResolutionContext(
+            serviceID: "node:web",
+            serviceDisplayName: "Web",
+            providerID: "node",
+            providerDisplayName: "Node.js",
             workspaceURL: URL(fileURLWithPath: "/workspace", isDirectory: true),
-            sourceRoots: [source],
-            classpath: [binary, first, second, first],
-            javaDependencyPaths: JavaDependencyPathConfiguration(
-                sourcePaths: ["generated/sources"],
-                binaryPaths: ["out/classes"],
-                mavenPaths: ["/external/m2/repository"],
-                additionalSearchPaths: ["vendor/java"]
+            sourceRoots: [URL(fileURLWithPath: "/workspace/apps/web", isDirectory: true)],
+            classpath: [URL(fileURLWithPath: "/workspace/build", isDirectory: true)],
+            dependencyPaths: DependencyPathConfiguration(
+                dependencyPaths: ["node_modules/react"],
+                additionalSearchPaths: ["generated/types"]
             )
         )
 
-        let graph = try await JavaDependencyProvider().resolve(context: context)
+        let graph = try await RunServiceDependencyProvider().resolve(context: context)
+        let service = try #require(graph.roots.first)
 
-        let java = try #require(graph.roots.first)
-        #expect(java.title == "Java")
-        #expect(java.children.map(\.title) == [
-            "Source Code", "bin", "Maven", "Additional Search Paths"
+        #expect(graph.providerID == "node")
+        #expect(service.title == "Web")
+        #expect(service.subtitle == "Node.js")
+        #expect(service.children.map(\.title) == [
+            "Source Code", "Build Outputs", "Dependencies", "Additional Search Paths"
         ])
-        #expect(java.children[0].children.map(\.id) == [
-            source.path,
-            "/workspace/generated/sources"
-        ])
-        #expect(java.children[1].children.map(\.id) == [
-            "/workspace/out/classes",
-            binary.path
-        ])
-        #expect(java.children[2].children.map(\.id) == [
-            second.path,
-            first.path,
-            "/external/m2/repository"
-        ])
-        #expect(java.children[3].children.map(\.id) == [
-            "/workspace/vendor/java"
-        ])
+        #expect(service.children[0].children.map(\.id) == ["/workspace/apps/web"])
+        #expect(service.children[1].children.map(\.id) == ["/workspace/build"])
+        #expect(service.children[2].children.map(\.id) == ["/workspace/node_modules/react"])
+        #expect(service.children[3].children.map(\.id) == ["/workspace/generated/types"])
     }
 
     @Test
-    func portableConfigurationDecodesWithoutJavaPathField() throws {
-        let data = Data(#"{"version":1,"selectedProfiles":["dev"],"customProfiles":[],"skipTests":false}"#.utf8)
-
-        let configuration = try JSONDecoder().decode(
-            MavenPortableConfiguration.self,
-            from: data
-        )
-
-        #expect(configuration.selectedProfiles == ["dev"])
-        #expect(configuration.javaDependencyPaths == JavaDependencyPathConfiguration())
-
-        let partialPaths = try JSONDecoder().decode(
-            JavaDependencyPathConfiguration.self,
-            from: Data(#"{"sourcePaths":["src/generated/java"]}"#.utf8)
-        )
-        #expect(partialPaths.version == JavaDependencyPathConfiguration.currentVersion)
-        #expect(partialPaths.sourcePaths == ["src/generated/java"])
-    }
-
-    @Test
-    func javaProviderExcludesConfiguredDirectoriesAndDescendants() async throws {
+    func genericProviderExcludesDirectoriesAndDescendants() async throws {
         let context = DependencyResolutionContext(
             workspaceURL: URL(fileURLWithPath: "/workspace", isDirectory: true),
-            sourceRoots: [
-                URL(fileURLWithPath: "/workspace/src/main/java", isDirectory: true),
-                URL(fileURLWithPath: "/workspace/generated/java", isDirectory: true)
-            ],
-            classpath: [
-                URL(fileURLWithPath: "/workspace/build/classes", isDirectory: true),
-                URL(fileURLWithPath: "/workspace/build/classes-extra", isDirectory: true),
-                URL(fileURLWithPath: "/workspace/lib/core.jar")
-            ],
-            javaDependencyPaths: JavaDependencyPathConfiguration(
-                excludedPaths: ["generated", "build/classes", "lib/core.jar"]
+            sourceRoots: [URL(fileURLWithPath: "/workspace/src", isDirectory: true)],
+            dependencyPaths: DependencyPathConfiguration(
+                additionalSearchPaths: ["build/classes", "build/classes-extra"],
+                excludedPaths: ["build/classes"]
             )
         )
 
-        let graph = try await JavaDependencyProvider().resolve(context: context)
-        let groups = try #require(graph.roots.first?.children)
-
-        #expect(groups[0].children.map(\.id) == ["/workspace/src/main/java"])
-        #expect(groups[1].children.map(\.id) == ["/workspace/build/classes-extra"])
-        #expect(groups[2].children.isEmpty)
+        let graph = try await RunServiceDependencyProvider().resolve(context: context)
+        let additional = try #require(graph.roots.first?.children.last)
+        #expect(additional.children.map(\.id) == ["/workspace/build/classes-extra"])
     }
 
     @Test
-    func javaDependencyIndexRoundTripsItsGraph() throws {
+    func providerOwnsDependencyManagementFileMetadata() {
+        let provider = RunServiceDependencyProvider()
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let files = [
+            root.appendingPathComponent("go.mod"),
+            root.appendingPathComponent("go.sum"),
+            root.appendingPathComponent("README.md"),
+            root.appendingPathComponent("nested/go.mod")
+        ]
+
+        #expect(provider.managementFiles(providerID: "go", files: files).map(\.path) == [
+            "/workspace/go.mod", "/workspace/go.sum", "/workspace/nested/go.mod"
+        ])
+        #expect(!provider.manages(root.appendingPathComponent("README.md"), providerID: "go"))
+    }
+
+    @Test
+    func dependencyPathConfigurationDecodesPartialJson() throws {
+        let decoded = try JSONDecoder().decode(
+            DependencyPathConfiguration.self,
+            from: Data(#"{"sourcePaths":["src/generated"]}"#.utf8)
+        )
+
+        #expect(decoded.version == DependencyPathConfiguration.currentVersion)
+        #expect(decoded.sourcePaths == ["src/generated"])
+        #expect(decoded.dependencyPaths.isEmpty)
+    }
+
+    @Test
+    func dependencyIndexRoundTripsItsGraph() throws {
         let graph = DependencyGraph(
-            providerID: "java",
+            providerID: "go",
+            serviceID: "go:api",
             roots: [DependencyNode(
-                id: "java:workspace",
-                title: "Java",
+                id: "service:go:api",
+                title: "Go API",
+                subtitle: "Go",
                 kind: .group,
-                source: .generated,
-                children: [DependencyNode(
-                    id: "/workspace/src",
-                    title: "src",
-                    kind: .directory,
-                    source: .directory(URL(fileURLWithPath: "/workspace/src", isDirectory: true))
-                )]
+                source: .generated
             )]
         )
-        let index = JavaDependencyIndex(inputSignature: "test", graph: graph)
+        let index = DependencyIndex(inputSignature: "test", graph: graph)
         let data = try JSONEncoder().encode(index)
-        let decoded = try JSONDecoder().decode(JavaDependencyIndex.self, from: data)
+        let decoded = try JSONDecoder().decode(DependencyIndex.self, from: data)
 
         #expect(decoded == index)
     }

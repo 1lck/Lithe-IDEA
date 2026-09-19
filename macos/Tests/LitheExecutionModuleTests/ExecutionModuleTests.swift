@@ -68,26 +68,6 @@ struct ExecutionModuleTests {
         #expect(!service.isReloading)
     }
 
-    @Test
-    func javaDependencyChangesInvalidateOnlyTheProjection() async throws {
-        let graph = makeTestGraph(mavenOperations: ReloadMavenOperations())
-        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
-        let pom = root.appendingPathComponent("pom.xml")
-        let gradle = root.appendingPathComponent("build.gradle")
-        defer { graph.maven.reset() }
-
-        await graph.maven.loadProject(at: root, files: [pom, gradle])
-        let context = DependencyResolutionContext(workspaceURL: root)
-        _ = try await graph.maven.resolveJavaDependencies(context: context)
-        let resolvedRevision = graph.maven.javaDependencyRevision
-
-        graph.maven.markJavaDependencyFilesChanged([gradle])
-
-        #expect(graph.maven.javaDependencyRevision == resolvedRevision + 1)
-        _ = try await graph.maven.resolveJavaDependencies(context: context)
-        #expect(graph.maven.javaDependencyRevision == resolvedRevision + 1)
-    }
-
     @Test(arguments: ["success", "failure", "new-pom", "workspace"])
     func mavenReloadSynchronizesAcceptedRunProfiles(outcome: String) async throws {
         let graph = makeTestGraph(mavenOperations: ReloadMavenOperations())
@@ -689,6 +669,52 @@ struct ExecutionModuleTests {
         service.run(configuration: configuration, currentFileURL: nil)
         #expect(builtInProcess.startRequests.isEmpty)
         #expect(service.output.contains("go execution extension is not active"))
+    }
+
+    @Test
+    func dependencyBrowserUsesNonJavaRunServiceConfiguration() async throws {
+        let service = RunService(
+            runtime: TestRuntime(),
+            process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(contents: [
+                URL(fileURLWithPath: "/workspace/go.mod"): "module example.dev/api"
+            ]),
+            preferences: TestRunPreferences(),
+            serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: TestGoProjectRunConfigurationOperations(),
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        defer { service.reset() }
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let goModule = root.appendingPathComponent("go.mod")
+        let main = root.appendingPathComponent("cmd/api/main.go")
+
+        await service.loadProject(at: root, files: [goModule, main], mavenProject: nil)
+
+        let dependencyService = try #require(service.dependencyServices.first)
+        #expect(dependencyService.id == "go:api")
+        #expect(dependencyService.displayName == "Go API")
+        #expect(dependencyService.providerID == "go")
+
+        service.updateDependencyPaths(
+            DependencyPathConfiguration(dependencyPaths: ["vendor/modules"]),
+            serviceID: dependencyService.id
+        )
+        let graph = try #require(
+            try await service.resolveDependencies(serviceID: dependencyService.id)
+        )
+        let rootNode = try #require(graph.roots.first)
+        #expect(rootNode.title == "Go API")
+        #expect(rootNode.subtitle == "Go")
+        #expect(rootNode.children[0].children.map(\.id) == ["/workspace/cmd/api"])
+        #expect(rootNode.children[2].children.map(\.id) == ["/workspace/vendor/modules"])
+
+        let revision = service.dependencyRevision
+        service.markDependencyFilesChanged([goModule])
+        #expect(service.dependencyRevision == revision + 1)
     }
 
     @Test

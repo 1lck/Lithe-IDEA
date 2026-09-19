@@ -1,5 +1,4 @@
 import Combine
-import CryptoKit
 import Foundation
 import LitheCoreContracts
 
@@ -26,8 +25,6 @@ package final class MavenService: ObservableObject {
     @Published package private(set) var localRepositoryPath: String?
     @Published package private(set) var mavenExecutablePath: String?
     @Published package private(set) var javaHomePath: String?
-    @Published package private(set) var javaDependencyPaths = JavaDependencyPathConfiguration()
-    @Published package private(set) var javaDependencyRevision = 0
     @Published package private(set) var configurationSaveError: String?
     @Published package private(set) var isReloadRequired = false
     @Published package private(set) var isProjectReloadRequired = false
@@ -85,12 +82,8 @@ package final class MavenService: ObservableObject {
     private let mavenOperations: any MavenProjectOperations
     private let runtimeService: any MavenRuntimePort
     private let configurationWriter: MavenConfigurationWriter
-    private let javaDependencyProvider = JavaDependencyProvider()
     private var workspaceURL: URL?
     private var reactorPath: String?
-    private var javaDependencyManagementFiles: [URL] = []
-    private var javaDependencyIndex: JavaDependencyIndex?
-    private var didLoadJavaDependencyIndex = false
     private var projectLoadID = UUID()
     private var launchPlanID = UUID()
     private var activeOperationID: String?
@@ -207,15 +200,8 @@ package final class MavenService: ObservableObject {
         guard let errorMessage = result.errorMessage else {
             self.workspaceURL = rootURL
             reactorPath = result.reactorPath
-            javaDependencyManagementFiles = Self.javaDependencyManagementFiles(
-                in: files,
-                workspaceURL: rootURL
-            )
-            javaDependencyIndex = nil
-            didLoadJavaDependencyIndex = false
             project = result.project
             applyStoredConfiguration(result.stored, project: result.project)
-            javaDependencyRevision &+= 1
             if let context = launchContext {
                 let fingerprint = await Task.detached(priority: .utility) {
                     try? mavenOperations.mavenLaunchPlan(
@@ -305,107 +291,6 @@ package final class MavenService: ObservableObject {
         configurationDidChange()
     }
 
-    package func updateJavaDependencyPaths(_ configuration: JavaDependencyPathConfiguration) {
-        let normalized = JavaDependencyPathConfiguration(
-            sourcePaths: normalizedSearchPaths(configuration.sourcePaths),
-            binaryPaths: normalizedSearchPaths(configuration.binaryPaths),
-            mavenPaths: normalizedSearchPaths(configuration.mavenPaths),
-            additionalSearchPaths: normalizedSearchPaths(configuration.additionalSearchPaths),
-            excludedPaths: normalizedSearchPaths(configuration.excludedPaths)
-        )
-        guard normalized != javaDependencyPaths else { return }
-        javaDependencyPaths = normalized
-        invalidateJavaDependencyIndex()
-        configurationSaveError = nil
-        persistConfiguration()
-    }
-
-    /// Resolves the Java tree from the in-memory or persisted index whenever
-    /// its explicit inputs are unchanged. This never scans the workspace.
-    package func resolveJavaDependencies(
-        context: DependencyResolutionContext
-    ) async throws -> DependencyGraph {
-        let revision = javaDependencyRevision
-        let managementFiles = javaDependencyManagementFiles
-        let reactorIdentity = self.reactorPath ?? "."
-        let signature = await Task.detached(priority: .utility) {
-            Self.javaDependencyInputSignature(
-                context: context,
-                managementFiles: managementFiles,
-                reactorPath: reactorIdentity
-            )
-        }.value
-        if let javaDependencyIndex, javaDependencyIndex.inputSignature == signature {
-            return javaDependencyIndex.graph
-        }
-
-        if !didLoadJavaDependencyIndex,
-           let workspaceURL,
-           let reactorPath {
-            didLoadJavaDependencyIndex = true
-            if let stored = try? await configurationWriter.loadIndex(
-                workspaceURL: workspaceURL,
-                reactorPath: reactorPath
-            ), stored.inputSignature == signature {
-                javaDependencyIndex = stored
-                return stored.graph
-            }
-        }
-
-        let graph = try await javaDependencyProvider.resolve(context: context)
-        guard revision == javaDependencyRevision else { throw CancellationError() }
-        let index = JavaDependencyIndex(inputSignature: signature, graph: graph)
-        javaDependencyIndex = index
-        if let workspaceURL, let reactorPath {
-            await configurationWriter.saveIndex(
-                index,
-                workspaceURL: workspaceURL,
-                reactorPath: reactorPath
-            )
-        }
-        return graph
-    }
-
-    /// Invalidates only the Java dependency projection. The Maven model and
-    /// language-server state remain untouched until their own reload rules run.
-    package func markJavaDependencyFilesChanged(_ files: [URL]) {
-        guard let workspaceURL else { return }
-        let owned = Self.javaDependencyManagementFiles(in: files, workspaceURL: workspaceURL)
-        guard !owned.isEmpty else { return }
-        invalidateJavaDependencyIndex()
-    }
-
-    package func excludeJavaDependencyPath(_ path: String) {
-        let identifier = storedJavaDependencyPath(path)
-        guard !identifier.isEmpty,
-              !javaDependencyPaths.excludedPaths.contains(identifier) else { return }
-        updateJavaDependencyPaths(JavaDependencyPathConfiguration(
-            sourcePaths: javaDependencyPaths.sourcePaths,
-            binaryPaths: javaDependencyPaths.binaryPaths,
-            mavenPaths: javaDependencyPaths.mavenPaths,
-            additionalSearchPaths: javaDependencyPaths.additionalSearchPaths,
-            excludedPaths: javaDependencyPaths.excludedPaths + [identifier]
-        ))
-    }
-
-    package func restoreJavaDependencyPath(_ path: String) {
-        let identifier = storedJavaDependencyPath(path)
-        guard javaDependencyPaths.excludedPaths.contains(identifier) else { return }
-        updateJavaDependencyPaths(JavaDependencyPathConfiguration(
-            sourcePaths: javaDependencyPaths.sourcePaths,
-            binaryPaths: javaDependencyPaths.binaryPaths,
-            mavenPaths: javaDependencyPaths.mavenPaths,
-            additionalSearchPaths: javaDependencyPaths.additionalSearchPaths,
-            excludedPaths: javaDependencyPaths.excludedPaths.filter { $0 != identifier }
-        ))
-    }
-
-    package func invalidateJavaDependencyIndex() {
-        javaDependencyIndex = nil
-        didLoadJavaDependencyIndex = true
-        javaDependencyRevision &+= 1
-    }
-
     package func acknowledgeReload() {
         guard !isProjectReloadRequired else { return }
         isReloadRequired = false
@@ -418,7 +303,6 @@ package final class MavenService: ObservableObject {
         let file = fileURL.standardizedFileURL
         guard file.lastPathComponent.lowercased() == "pom.xml",
               file.path.hasPrefix(workspaceURL.path + "/") else { return }
-        invalidateJavaDependencyIndex()
         reloadRevision += 1
         isProjectReloadRequired = true
         isReloadRequired = true
@@ -603,11 +487,6 @@ package final class MavenService: ObservableObject {
         localRepositoryPath = nil
         mavenExecutablePath = nil
         javaHomePath = nil
-        javaDependencyPaths = JavaDependencyPathConfiguration()
-        javaDependencyManagementFiles = []
-        javaDependencyIndex = nil
-        didLoadJavaDependencyIndex = false
-        javaDependencyRevision &+= 1
         configurationFingerprint = nil
         fingerprintRevision += 1
         configurationSaveError = nil
@@ -929,13 +808,11 @@ package final class MavenService: ObservableObject {
         localRepositoryPath = normalizedLocalPath(stored?.local?.localRepositoryPath)
         mavenExecutablePath = normalizedLocalPath(stored?.local?.mavenExecutablePath)
         javaHomePath = normalizedLocalPath(stored?.local?.javaHomePath)
-        javaDependencyPaths = stored?.portable?.javaDependencyPaths ?? JavaDependencyPathConfiguration()
     }
 
     private func configurationDidChange() {
         reloadRevision += 1
         invalidateDependencies()
-        invalidateJavaDependencyIndex()
         isReloadRequired = isProjectReloadRequired || configurationFingerprint != nil
         configurationSaveError = nil
         persistConfiguration()
@@ -983,8 +860,7 @@ package final class MavenService: ObservableObject {
             portable: MavenPortableConfiguration(
                 selectedProfiles: selectedProfiles.sorted(),
                 customProfiles: normalizedProfiles(customProfiles),
-                skipTests: skipTests,
-                javaDependencyPaths: javaDependencyPaths
+                skipTests: skipTests
             ),
             local: MavenLocalConfiguration(
                 settingsPath: settingsPath,
@@ -1036,81 +912,6 @@ package final class MavenService: ObservableObject {
             .sorted()
     }
 
-    private func normalizedSearchPaths(_ values: [String]) -> [String] {
-        Array(Set(values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }))
-            .sorted()
-    }
-
-    private func storedJavaDependencyPath(_ value: String) -> String {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "" }
-        let expanded = (trimmed as NSString).expandingTildeInPath
-        guard let workspaceURL else { return expanded }
-        let absolute = URL(fileURLWithPath: expanded, relativeTo: workspaceURL).standardizedFileURL
-        let root = workspaceURL.standardizedFileURL.path
-        let path = absolute.path
-        guard path != root, path.hasPrefix(root + "/") else {
-            return path == root ? "." : expanded
-        }
-        return String(path.dropFirst(root.count + 1))
-    }
-
-    private nonisolated static func javaDependencyInputSignature(
-        context: DependencyResolutionContext,
-        managementFiles: [URL],
-        reactorPath: String
-    ) -> String {
-        let fileInputs = managementFiles.map { url in
-            JavaDependencyFileInput(
-                path: url.standardizedFileURL.path,
-                digest: Self.fileDigest(at: url)
-            )
-        }
-        let payload = JavaDependencyIndexInput(
-            serviceID: context.serviceID,
-            serviceDisplayName: context.serviceDisplayName,
-            reactorPath: reactorPath,
-            workspacePath: context.workspaceURL.standardizedFileURL.path,
-            sourceRoots: context.sourceRoots.map(\.standardizedFileURL.path).sorted(),
-            resourceRoots: context.resourceRoots.map(\.standardizedFileURL.path).sorted(),
-            classpath: context.classpath.map(\.standardizedFileURL.path).sorted(),
-            jdkSourceArchive: context.jdkSourceArchive?.standardizedFileURL.path,
-            javaDependencyPaths: context.javaDependencyPaths,
-            files: fileInputs.sorted { $0.path < $1.path }
-        )
-        guard let data = try? JSONEncoder().encode(payload) else { return "" }
-        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
-
-    private nonisolated static func fileDigest(at url: URL) -> String {
-        guard let data = try? Data(contentsOf: url) else { return "missing" }
-        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
-
-    private nonisolated static func javaDependencyManagementFiles(
-        in files: [URL],
-        workspaceURL: URL
-    ) -> [URL] {
-        let names: Set<String> = [
-            "pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle",
-            "settings.gradle.kts", "gradle.properties"
-        ]
-        let gradleVersionPath = "/gradle/libs.versions.toml"
-        let mavenExtensionsPath = "/.mvn/extensions.xml"
-        let root = workspaceURL.standardizedFileURL.path
-        return files
-            .map(\.standardizedFileURL)
-            .filter { url in
-                guard url.path == root || url.path.hasPrefix(root + "/") else { return false }
-                let name = url.lastPathComponent.lowercased()
-                return names.contains(name)
-                    || url.path.lowercased().hasSuffix(gradleVersionPath)
-                    || url.path.lowercased().hasSuffix(mavenExtensionsPath)
-            }
-            .sorted { $0.path < $1.path }
-    }
-
     private func normalizedLocalPath(_ value: String?) -> String? {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1142,24 +943,6 @@ private struct MavenPlanResult: Sendable {
 private struct MavenDependencyParseResult: Sendable {
     let tree: MavenDependencyTree?
     let errorMessage: String?
-}
-
-private struct JavaDependencyFileInput: Codable, Sendable {
-    let path: String
-    let digest: String
-}
-
-private struct JavaDependencyIndexInput: Codable, Sendable {
-    let serviceID: String
-    let serviceDisplayName: String
-    let reactorPath: String
-    let workspacePath: String
-    let sourceRoots: [String]
-    let resourceRoots: [String]
-    let classpath: [String]
-    let jdkSourceArchive: String?
-    let javaDependencyPaths: JavaDependencyPathConfiguration
-    let files: [JavaDependencyFileInput]
 }
 
 private actor MavenConfigurationWriter {
@@ -1197,33 +980,6 @@ private actor MavenConfigurationWriter {
             return nil
         } catch {
             return error.localizedDescription
-        }
-    }
-
-    func loadIndex(
-        workspaceURL: URL,
-        reactorPath: String
-    ) throws -> JavaDependencyIndex? {
-        try store?.loadJavaDependencyIndex(
-            workspaceURL: workspaceURL,
-            reactorPath: reactorPath
-        )
-    }
-
-    func saveIndex(
-        _ index: JavaDependencyIndex?,
-        workspaceURL: URL,
-        reactorPath: String
-    ) {
-        do {
-            try store?.saveJavaDependencyIndex(
-                index,
-                workspaceURL: workspaceURL,
-                reactorPath: reactorPath
-            )
-        } catch {
-            // Index persistence is an optimization. A failed write must not
-            // make dependency browsing or Maven execution fail.
         }
     }
 }
