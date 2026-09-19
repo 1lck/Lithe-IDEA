@@ -212,6 +212,10 @@ jobs:
             "src/features/git/hooks/use-git-data-controller.integration.test.tsx",
             "src/features/git/stores/git-repository.store.test.ts",
             "src/features/git/stores/git.store.test.ts",
+            "src/features/workspace/services/workspace-startup-priority.test.ts",
+            "src/features/workspace/services/workspace-git-bootstrap.test.ts",
+            "src/features/file-system/controllers/project-file-scan-coordinator.test.ts",
+            "src/features/editor/lsp/resolve-editor-lsp-launch.test.ts",
             "src/features/git/utils/monaco-diff-rows.test.ts",
             "src/features/git/utils/monaco-diff-hunk-actions.test.ts"
           )
