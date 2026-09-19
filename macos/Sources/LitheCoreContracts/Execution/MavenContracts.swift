@@ -256,40 +256,17 @@ package struct MavenPortableConfiguration: Codable, Equatable, Sendable {
     package var selectedProfiles: [String]
     package var customProfiles: [String]
     package var skipTests: Bool
-    package var javaDependencyPaths: JavaDependencyPathConfiguration
 
     package init(
         version: Int = currentVersion,
         selectedProfiles: [String] = [],
         customProfiles: [String] = [],
-        skipTests: Bool = false,
-        javaDependencyPaths: JavaDependencyPathConfiguration = .init()
+        skipTests: Bool = false
     ) {
         self.version = version
         self.selectedProfiles = selectedProfiles
         self.customProfiles = customProfiles
         self.skipTests = skipTests
-        self.javaDependencyPaths = javaDependencyPaths
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case version
-        case selectedProfiles
-        case customProfiles
-        case skipTests
-        case javaDependencyPaths
-    }
-
-    package init(from decoder: Decoder) throws {
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        version = try values.decodeIfPresent(Int.self, forKey: .version) ?? Self.currentVersion
-        selectedProfiles = try values.decodeIfPresent([String].self, forKey: .selectedProfiles) ?? []
-        customProfiles = try values.decodeIfPresent([String].self, forKey: .customProfiles) ?? []
-        skipTests = try values.decodeIfPresent(Bool.self, forKey: .skipTests) ?? false
-        javaDependencyPaths = try values.decodeIfPresent(
-            JavaDependencyPathConfiguration.self,
-            forKey: .javaDependencyPaths
-        ) ?? .init()
     }
 }
 
@@ -543,34 +520,6 @@ package protocol MavenConfigurationStoring: Sendable {
         workspaceURL: URL,
         reactorPath: String
     ) throws
-
-    /// The dependency index is intentionally separate from the Maven settings
-    /// JSON so it can be invalidated and rewritten without changing launch
-    /// configuration. Implementations may opt out when persistence is not
-    /// available (for example, in an in-memory test double).
-    func loadJavaDependencyIndex(
-        workspaceURL: URL,
-        reactorPath: String
-    ) throws -> JavaDependencyIndex?
-
-    func saveJavaDependencyIndex(
-        _ index: JavaDependencyIndex?,
-        workspaceURL: URL,
-        reactorPath: String
-    ) throws
-}
-
-package extension MavenConfigurationStoring {
-    func loadJavaDependencyIndex(
-        workspaceURL _: URL,
-        reactorPath _: String
-    ) throws -> JavaDependencyIndex? { nil }
-
-    func saveJavaDependencyIndex(
-        _ index: JavaDependencyIndex?,
-        workspaceURL _: URL,
-        reactorPath _: String
-    ) throws {}
 }
 
 @MainActor

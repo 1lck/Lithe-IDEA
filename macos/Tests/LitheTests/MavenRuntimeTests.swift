@@ -174,14 +174,7 @@ struct MavenRuntimeTests {
             portable: MavenPortableConfiguration(
                 selectedProfiles: ["dev", "qa"],
                 customProfiles: ["qa"],
-                skipTests: true,
-                javaDependencyPaths: JavaDependencyPathConfiguration(
-                    sourcePaths: ["src/generated/java"],
-                    binaryPaths: ["target/classes"],
-                    mavenPaths: ["/opt/maven-repository"],
-                    additionalSearchPaths: ["vendor/java"],
-                    excludedPaths: ["target/generated"]
-                )
+                skipTests: true
             ),
             local: MavenLocalConfiguration(
                 settingsPath: "/private/settings.xml",
@@ -199,8 +192,6 @@ struct MavenRuntimeTests {
         let portableURL = workspace.appendingPathComponent(".lithe/maven/config.json")
         let portableText = String(decoding: try Data(contentsOf: portableURL), as: UTF8.self)
         #expect(portableText.contains("\"selectedProfiles\""))
-        #expect(portableText.contains("\"javaDependencyPaths\""))
-        #expect(portableText.contains("\"excludedPaths\""))
         #expect(!portableText.contains("/private/"))
         #expect(try store.loadMavenConfiguration(
             workspaceURL: workspace,
@@ -211,24 +202,6 @@ struct MavenRuntimeTests {
             includingPropertiesForKeys: nil
         )
         #expect(localFiles.count == 1)
-
-        let index = JavaDependencyIndex(
-            inputSignature: "fixture",
-            graph: DependencyGraph(
-                providerID: "java",
-                roots: [DependencyNode(
-                    id: "java:workspace",
-                    title: "Java",
-                    kind: .group,
-                    source: .generated
-                )]
-            )
-        )
-        try store.saveJavaDependencyIndex(index, workspaceURL: workspace, reactorPath: ".")
-        #expect(try store.loadJavaDependencyIndex(
-            workspaceURL: workspace,
-            reactorPath: "."
-        ) == index)
     }
 
     @Test

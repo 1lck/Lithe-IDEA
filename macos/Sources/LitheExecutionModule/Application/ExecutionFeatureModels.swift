@@ -33,19 +33,12 @@ package final class MavenFeatureModel: ObservableObject {
     package var localRepositoryPath: String? { service.localRepositoryPath }
     package var mavenExecutablePath: String? { service.mavenExecutablePath }
     package var javaHomePath: String? { service.javaHomePath }
-    package var javaDependencyPaths: JavaDependencyPathConfiguration {
-        service.javaDependencyPaths
-    }
-    package var javaDependencyRevision: Int { service.javaDependencyRevision }
     package var configurationSaveError: String? { service.configurationSaveError }
     package var isReloadRequired: Bool { service.isReloadRequired }
     package var isProjectReloadRequired: Bool { service.isProjectReloadRequired }
     package var isReloading: Bool { service.isReloading }
     package var reloadError: String? { service.reloadError }
     package func markPomChanged(_ url: URL) { service.markPomChanged(url) }
-    package func markJavaDependencyFilesChanged(_ urls: [URL]) {
-        service.markJavaDependencyFilesChanged(urls)
-    }
     package func reloadProject(
         files: [URL], rescan: Bool,
         synchronizeJava: @escaping @MainActor () async throws -> Void
@@ -56,73 +49,52 @@ package final class MavenFeatureModel: ObservableObject {
     package var isResolvingDependencies: Bool { service.isResolvingDependencies }
     package var launchContext: MavenLaunchContext? { service.launchContext }
 
-    /// Builds the language-neutral dependency context from the workspace model.
-    /// The classpath is supplied by the runtime that already resolved it; this
-    /// projection never discovers dependencies from a machine-wide cache.
-    package func javaDependencyContext(
-        serviceID: String = "workspace",
-        serviceDisplayName: String? = nil,
-        classpath: [URL],
-        resourceRoots: [URL] = [],
-        javaHomePath: String? = nil
-    ) -> DependencyResolutionContext? {
-        guard let project else { return nil }
-        let sourceRoots = ([
-            (project.rootURL, project.sourceRoots)
-        ] + project.allModules.map { ($0.url, $0.sourceRoots) })
-            .flatMap { root, roots in
-                roots.map {
-                    URL(fileURLWithPath: $0.path, relativeTo: root)
-                        .standardizedFileURL
-                }
-            }
-        let configuredJavaHome = (javaHomePath ?? self.javaHomePath)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let javaHomeURL = configuredJavaHome
-            .flatMap { value -> URL? in
-                guard !value.isEmpty else { return nil }
-                return URL(fileURLWithPath: value, relativeTo: project.rootURL)
-                    .standardizedFileURL
-            }
-        return DependencyResolutionContext(
-            serviceID: serviceID,
-            serviceDisplayName: serviceDisplayName,
-            workspaceURL: project.rootURL,
-            sourceRoots: sourceRoots,
-            resourceRoots: resourceRoots,
-            classpath: classpath,
-            jdkSourceArchive: javaHomeURL.map(JavaDependencyProvider.sourceArchive(for:)),
-            javaDependencyPaths: javaDependencyPaths
-        )
+    /// Projects artifacts from Maven's already-resolved dependency tree into
+    /// paths that the generic dependency Provider can display. It never starts
+    /// Maven or scans the local repository.
+    package func resolvedDependencyArtifactPaths(modulePath: String) -> [URL] {
+        guard let repository = service.localRepositoryPath,
+              case .ready(let dependencies) = service.dependencyState(for: modulePath) else {
+            return []
+        }
+        let expanded = (repository as NSString).expandingTildeInPath
+        let repositoryURL = URL(
+            fileURLWithPath: expanded,
+            relativeTo: service.project?.rootURL
+        ).standardizedFileURL
+        var paths: Set<String> = []
+        for dependency in dependencies {
+            Self.collectResolvedArtifacts(
+                dependency,
+                repositoryURL: repositoryURL,
+                into: &paths
+            )
+        }
+        return paths.map { URL(fileURLWithPath: $0) }
+            .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
     }
 
-    package func resolveJavaDependencies(
-        serviceID: String = "workspace",
-        serviceDisplayName: String? = nil,
-        classpath: [URL],
-        resourceRoots: [URL] = [],
-        javaHomePath: String? = nil
-    ) async throws -> DependencyGraph? {
-        guard let context = javaDependencyContext(
-            serviceID: serviceID,
-            serviceDisplayName: serviceDisplayName,
-            classpath: classpath,
-            resourceRoots: resourceRoots,
-            javaHomePath: javaHomePath
-        ) else { return nil }
-        return try await service.resolveJavaDependencies(context: context)
-    }
-
-    package func updateJavaDependencyPaths(_ configuration: JavaDependencyPathConfiguration) {
-        service.updateJavaDependencyPaths(configuration)
-    }
-
-    package func excludeJavaDependencyPath(_ path: String) {
-        service.excludeJavaDependencyPath(path)
-    }
-
-    package func restoreJavaDependencyPath(_ path: String) {
-        service.restoreJavaDependencyPath(path)
+    private static func collectResolvedArtifacts(
+        _ dependency: MavenDependency,
+        repositoryURL: URL,
+        into paths: inout Set<String>
+    ) {
+        if dependency.resolution == .resolved {
+            let groupPath = dependency.groupID.replacingOccurrences(of: ".", with: "/")
+            let classifier = dependency.classifier.map { "-\($0)" } ?? ""
+            let fileName = "\(dependency.artifactID)-\(dependency.version)\(classifier).\(dependency.type)"
+            paths.insert(
+                repositoryURL
+                    .appendingPathComponent(groupPath, isDirectory: true)
+                    .appendingPathComponent(dependency.artifactID, isDirectory: true)
+                    .appendingPathComponent(dependency.version, isDirectory: true)
+                    .appendingPathComponent(fileName)
+                    .standardizedFileURL.path
+            )
+        }
+        for child in dependency.children {
+            collectResolvedArtifacts(child, repositoryURL: repositoryURL, into: &paths)
+        }
     }
 
     package func loadProject(at workspaceURL: URL, files: [URL], snapshotID: UUID? = nil) async {
@@ -261,6 +233,32 @@ package final class RunFeatureModel: ObservableObject {
         service.blockingToolchainDiagnostic(for: service.selectedConfiguration)
     }
     package var sourceSearchRoots: [URL] { service.sourceSearchRoots }
+    package var dependencyServices: [DependencyServiceDescriptor] { service.dependencyServices }
+    package var dependencyRevision: Int { service.dependencyRevision }
+    package var dependencyConfigurationSaveError: String? {
+        service.dependencyConfigurationSaveError
+    }
+    package func dependencyPaths(for serviceID: String) -> DependencyPathConfiguration {
+        service.dependencyPaths(for: serviceID)
+    }
+    package func resolveDependencies(serviceID: String) async throws -> DependencyGraph? {
+        try await service.resolveDependencies(serviceID: serviceID)
+    }
+    package func updateDependencyPaths(
+        _ paths: DependencyPathConfiguration,
+        serviceID: String
+    ) {
+        service.updateDependencyPaths(paths, serviceID: serviceID)
+    }
+    package func excludeDependencyPath(_ path: String, serviceID: String) {
+        service.excludeDependencyPath(path, serviceID: serviceID)
+    }
+    package func restoreDependencyPath(_ path: String, serviceID: String) {
+        service.restoreDependencyPath(path, serviceID: serviceID)
+    }
+    package func markDependencyFilesChanged(_ urls: [URL]) {
+        service.markDependencyFilesChanged(urls)
+    }
     package func isProjectReady(for workspace: URL, snapshotID: UUID?) -> Bool { service.isProjectReady(for: workspace, snapshotID: snapshotID) }
     package func hasReadyInventory(for workspace: URL) -> Bool { service.hasReadyInventory(for: workspace) }
 

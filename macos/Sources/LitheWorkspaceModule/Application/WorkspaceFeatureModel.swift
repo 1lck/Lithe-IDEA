@@ -961,6 +961,9 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
 
         let requiresWorkspaceSnapshot = changedURLs.contains { url in
+            guard !isWorkspaceDependencyMetadata(url, workspaceURL: workspaceURL) else {
+                return false
+            }
             let wasKnownFile = projectFiles.contains { $0.standardizedFileURL.path == url.path }
             guard fileOperations.fileExists(at: url) else { return wasKnownFile }
             return fileOperations.isDirectory(at: url) || !wasKnownFile
@@ -975,17 +978,15 @@ package final class WorkspaceFeatureModel: ObservableObject {
             rules: visibilityRules
         )
         let requiresProjectServiceReload = changedURLs.contains { url in
-            let name = url.lastPathComponent.lowercased()
+            let dependencyIndex = workspaceURL.standardizedFileURL
+                .appendingPathComponent(".lithe", isDirectory: true)
+                .appendingPathComponent("dependencies", isDirectory: true)
+                .appendingPathComponent("index.json")
+                .standardizedFileURL
             let isLitheConfiguration = url.pathExtension.lowercased() == "json"
                 && url.path.hasPrefix(workspaceURL.appendingPathComponent(".lithe").path + "/")
-                && name != "dependency-index.json"
-            let isJavaDependencyDescriptor = [
-                "pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle",
-                "settings.gradle.kts", "gradle.properties"
-            ].contains(name)
-                || url.path.lowercased().hasSuffix("/gradle/libs.versions.toml")
-                || url.path.lowercased().hasSuffix("/.mvn/extensions.xml")
-            return isLitheConfiguration || isJavaDependencyDescriptor
+                && url.standardizedFileURL != dependencyIndex
+            return isLitheConfiguration
         }
         if requiresProjectServiceReload { await reloadProjectServices?() }
         await requestGitRefreshNow()
@@ -1011,6 +1012,15 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private func isWorkspaceURL(_ url: URL) -> Bool {
         guard let workspaceURL else { return false }
         return urlContains(workspaceURL, child: url)
+    }
+
+    private func isWorkspaceDependencyMetadata(_ url: URL, workspaceURL: URL) -> Bool {
+        let directory = workspaceURL.standardizedFileURL
+            .appendingPathComponent(".lithe", isDirectory: true)
+            .appendingPathComponent("dependencies", isDirectory: true)
+            .standardizedFileURL.path
+        let path = url.standardizedFileURL.path
+        return path == directory || path.hasPrefix(directory + "/")
     }
 
     private func urlContains(_ parent: URL, child: URL) -> Bool {

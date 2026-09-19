@@ -1,52 +1,56 @@
-# Agent 笔记：工作区依赖浏览器与语言 Provider 边界
+# Agent 笔记：工作区依赖浏览器与运行服务 Provider 边界
 
 状态：已实现
 
 ## 先说结论
 
-依赖侧栏展示的是当前工作区已经解析出的依赖，不是机器上的全局缓存目录。依赖发现由语言 Provider 完成，侧栏只消费语言无关的依赖树模型。Provider 使用运行服务传入的源码根、资源根和 classpath，不再维护第二套项目路径配置。
+依赖侧栏的根节点来自当前工作区的运行服务配置，而不是 Java、Maven 或某个全局缓存目录。每个运行服务由语言/构建 Provider 提供身份和路径补充，侧栏只展示统一的依赖树模型；因此 Go、Node、Rust、Python 和未知的进程服务可以使用同一套界面。
 
-本阶段先实现 Java Provider。它只投影运行时已经解析的 classpath，并接入每个服务实际使用的 JDK `lib/src.zip`；目录、JAR 和其他文件统一进入依赖节点模型，归档内容和源码关联由后续内容 Provider 扩展。Java 的展开结果会写入 `.lithe/maven/dependency-index.json`，下一次打开工作区时先比较输入签名，只有签名变化才重新生成。
+路径配置和索引分别保存在工作区的 `.lithe/dependencies/config.json` 与 `.lithe/dependencies/index.json`。索引输入没有变化时直接复用；依赖管理文件变化只使受影响服务的索引失效，不会因为一次依赖编辑就递归扫描整个工作区。Maven 仍然只负责自己的构建工具窗口和 Java 项目模型，依赖侧栏不改变 Maven UI。
 
 ## 问题
 
-Rust、Java、Node 等语言获取依赖源码的方式不同：Rust 通常直接拥有 package 源码目录，Java 可能只有 binary JAR 和可选的 source JAR，其他语言还可能返回生成的虚拟树。如果把这些差异写进 `ProjectSidebarView`，每接入一种语言都要改 UI，并且容易误把全局缓存显示成当前项目依赖。
+不同语言从运行服务得到的源代码、构建产物和第三方依赖位置不同。把这些规则写进项目侧栏会让 UI 依赖 Java，也无法让插件声明自己的依赖管理文件。另一方面，用户需要看到运行时没有自动发现的源码目录或生成目录，并能持久化排除某个目录及其子目录。
 
 ## 决策
 
-- `LitheCoreContracts` 定义 `DependencyResolutionContext`、`DependencyNode`、`DependencyGraph` 和 `WorkspaceDependencyProvider`。
-- context 的路径由运行服务或执行模块提供；Provider 不扫描 home 目录、全局缓存或自行读取项目配置来推导依赖。
-- Java Provider 使用 `classpath` 生成稳定排序的依赖根节点，并按 URL 类型标记目录、归档和不可用文件。
-- `DependencyResolutionContext` 必须带有服务标识。多模块或多服务可以分别解析自己的 JDK 和 classpath，聚合展示时按归一化资源路径去重。
-- 每个依赖 Provider 必须声明自己的依赖管理输入，并由宿主监听这些文件的变化。Java 当前监听 `pom.xml`、`build.gradle`、`build.gradle.kts`、`settings.gradle`、`settings.gradle.kts`、`gradle.properties`、`gradle/libs.versions.toml` 和 `.mvn/extensions.xml`。变化事件只使对应索引失效，不得因为新增一个依赖就递归扫描整个 workspace、home 目录或 Maven/Gradle 缓存。
-- Provider 的索引必须持久化输入签名。启动时先读取已有索引；配置、运行时路径、classpath 或依赖管理文件摘要均未变化时直接复用。索引重建和文件监听都必须是增量的、可取消的。
-- 语言无关的配置模型必须允许持久化排除路径。Java 排除项写入 `.lithe/maven/config.json`，路径及其子路径不再投影；每个语言的配置 UI 必须提供恢复入口，避免排除后只能手改 JSON。
-- 项目 JDK 源码和应用内置的 JDTLS JDK 是两类资源：前者来自服务配置的 JDK home，后者不能混入项目依赖树。
-- 依赖关系发现和依赖内容浏览分开。Java 的 Maven/Gradle 解析、source JAR 关联和 `.class` 反编译不应成为通用 UI 模型的字段分支。
-
-正确做法是由运行服务解析 classpath 后构造 `DependencyResolutionContext`，再交给 `JavaDependencyProvider`。不要在侧栏中直接扫描 `~/.m2`，也不要根据依赖坐标猜测本地文件位置。
+- `RunService.configurations` 是依赖侧栏的服务清单。`Current File` 和 disabled 配置不显示；服务名称、Provider 名称和图标都来自运行配置。
+- `DependencyResolutionContext`、`DependencyNode`、`DependencyGraph` 和 `WorkspaceDependencyProvider` 位于 `LitheCoreContracts`。Provider 只消费运行服务已经确认的路径和用户 JSON 配置，不访问 home 目录，也不自行递归发现缓存。
+- 当前通用 Provider 是 `RunServiceDependencyProvider`。它把服务配置中的 `modulePath`、工作目录、源文件入口和显式 JSON 路径分成 `Source Code`、`Build Outputs`、`Dependencies` 和 `Additional Search Paths` 四组。未来语言插件应在自己的 Provider 元数据中声明同样的输入文件和路径补充规则，不要把语言分支加到侧栏。
+- 用户在服务行右侧的齿轮中配置源代码、构建产物、依赖和额外搜索路径；右键路径可以排除目录。排除项按工作区相对路径保存到对应服务的 `excludedPaths`，匹配该目录本身及所有子路径。
+- 每个服务的索引签名包含服务 ID、Provider ID、运行时路径、用户配置和 Provider 负责的依赖管理文件摘要。签名一致时复用 `index.json`；配置或管理文件变化只删除对应服务索引。
+- 文件监听只转发变化路径。`.lithe/dependencies` 元数据不发送给 Java 语言服务；索引文件不会触发工作区快照或项目服务重载，配置文件变化才重新读取运行服务配置。
+- Maven 的项目模型、构建任务、profiles 和原有工具窗口继续由 `MavenService` 与 `MavenView` 管理。通用侧栏只通过只读回调消费 Maven 已经解析出的 artifact 路径；它不会启动 Maven 或扫描本地仓库，也不修改 Maven 配置 JSON。
 
 ## 考虑过的备选方案
 
-- **侧栏直接扫描 Maven 本地仓库**：可以快速显示很多 JAR，但无法证明它们属于当前 workspace，也无法处理自定义仓库和 Gradle 项目，因此否决。
-- **为 Java 单独定义一套树模型**：短期实现较少，但 Rust/Node 接入时必须复制 UI 和状态模型，因此改用语言无关节点和 Provider 接口。
-- **把 archive 解压或反编译逻辑放进通用节点模型**：会让模型依赖 Java 细节；当前只携带 source 类型，内容读取留给后续 Provider。
+- **侧栏直接扫描 Maven 本地仓库**：无法证明 JAR 属于当前运行服务，也会把机器环境和 Java 绑定在一起，因此否决。
+- **把依赖树放进 Maven 工具窗口**：会破坏 Maven 原有导航，并阻止非 Java 服务使用依赖树，因此否决。
+- **每种语言复制一套侧栏和索引状态**：会让排除、缓存和监听行为出现差异，因此采用语言无关合同和 Provider。
+- **每次点击或打开工作区递归扫描**：大型仓库会产生不可预测的延迟，因此只使用已有运行服务路径、工作区文件快照和持久化索引。
 
 ## 后果
 
-依赖面板能够复用执行模块已经确认的路径，显示范围和运行时一致，新增语言只需实现 Provider。多个服务可以保留自己的解析边界，同时在 UI 层聚合共享 JDK。Java 的可见路径保存在工作区 `.lithe/maven/config.json` 的 `javaDependencyPaths` 中，用户可以通过 Java 节点右侧的齿轮维护源代码、`bin`、Maven、额外搜索路径和排除项；相对路径以 workspace 根目录为基准。索引单独保存在 `.lithe/maven/dependency-index.json`，避免路径配置写入时与索引相互覆盖。代价是当前只提供路径级投影，尚未提供 JAR 条目懒加载、source JAR 选择和 `.class` 反编译；这些能力必须在内容 Provider 中补齐。
+依赖浏览器可以在没有 Java 或 Maven 项目模型的工作区中显示运行服务；新增语言通常只需提供运行配置和 Provider 元数据。配置与索引分离后，用户路径不会和构建工具配置互相覆盖，索引也能独立失效。
+
+代价是当前 Provider 对未知生态只能显示运行服务明确提供的路径；它不会猜测全局依赖缓存位置。未来接入语言插件时，需要把依赖管理文件声明加入插件元数据，并由对应 Provider 提供 classpath 或源码包，而不是在 `RunService` 或 View 中增加语言名称判断。
 
 ## 验证
 
 - `swift build --target LitheExecutionModule`
-- `./scripts/verify-agent-notes.sh`
+- `swift build --target Lithe`
 - `swift test --filter DependencyProviderTests`
+- `swift test --filter 'dependencyBrowserUsesNonJavaRunServiceConfiguration|genericProviderUsesRunServiceIdentityAndPaths|dependencyPathConfigurationDecodesPartialJson'`
+- `./scripts/verify-agent-notes.sh`
+- `./scripts/verify-service-boundaries.sh`
+- `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 
 ## 适用范围
 
 - `macos/Sources/LitheCoreContracts/Dependencies/DependencyContracts.swift`
-- `macos/Sources/LitheExecutionModule/Dependencies/JavaDependencyProvider.swift`
+- `macos/Sources/LitheExecutionModule/Dependencies/RunServiceDependencyProvider.swift`
+- `macos/Sources/LitheExecutionModule/Services/RunService.swift`
 - `macos/Sources/LitheExecutionModule/Application/ExecutionFeatureModels.swift`
-- `macos/Sources/Lithe/Views/Run/MavenView.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Persistence/MacMavenConfigurationStore.swift`
-- 未来依赖侧栏及其他语言 Provider
+- `macos/Sources/Lithe/Views/Workspace/DependencySidebarView.swift`
+- `macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift`
+- `macos/Sources/Lithe/Platform/MacOS/Persistence/MacWorkspaceDependencyStore.swift`

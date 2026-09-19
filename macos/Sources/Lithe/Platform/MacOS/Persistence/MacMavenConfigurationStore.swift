@@ -22,8 +22,6 @@ struct MacMavenConfigurationStore: MavenConfigurationStoring, Sendable {
             at: localConfigurationURL(workspaceURL: workspaceURL, reactorPath: reactorPath)
         )
         guard portable?.version == nil || portable?.version == MavenPortableConfiguration.currentVersion,
-              portable?.javaDependencyPaths.version == nil
-                  || portable?.javaDependencyPaths.version == JavaDependencyPathConfiguration.currentVersion,
               local?.version == nil || local?.version == MavenLocalConfiguration.currentVersion else {
             throw MacMavenConfigurationStoreError.unsupportedVersion
         }
@@ -45,28 +43,6 @@ struct MacMavenConfigurationStore: MavenConfigurationStoring, Sendable {
         )
     }
 
-    func loadJavaDependencyIndex(
-        workspaceURL: URL,
-        reactorPath _: String
-    ) throws -> JavaDependencyIndex? {
-        let index = try decodeIfPresent(
-            JavaDependencyIndex.self,
-            at: dependencyIndexURL(workspaceURL: workspaceURL)
-        )
-        guard index?.version == nil || index?.version == JavaDependencyIndex.currentVersion else {
-            throw MacMavenConfigurationStoreError.unsupportedVersion
-        }
-        return index
-    }
-
-    func saveJavaDependencyIndex(
-        _ index: JavaDependencyIndex?,
-        workspaceURL: URL,
-        reactorPath _: String
-    ) throws {
-        try write(index, to: dependencyIndexURL(workspaceURL: workspaceURL))
-    }
-
     private func portableConfigurationURL(workspaceURL: URL) -> URL {
         workspaceURL.standardizedFileURL
             .appendingPathComponent(".lithe", isDirectory: true)
@@ -86,13 +62,6 @@ struct MacMavenConfigurationStore: MavenConfigurationStoring, Sendable {
             .appendingPathComponent("Lithe", isDirectory: true)
             .appendingPathComponent("Maven", isDirectory: true)
             .appendingPathComponent(digest + ".json")
-    }
-
-    private func dependencyIndexURL(workspaceURL: URL) -> URL {
-        workspaceURL.standardizedFileURL
-            .appendingPathComponent(".lithe", isDirectory: true)
-            .appendingPathComponent("maven", isDirectory: true)
-            .appendingPathComponent("dependency-index.json")
     }
 
     static func storageIdentity(workspacePath: String, reactorPath: String) -> String {

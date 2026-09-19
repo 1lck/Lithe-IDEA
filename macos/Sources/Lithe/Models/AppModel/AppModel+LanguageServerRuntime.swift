@@ -176,23 +176,20 @@ extension AppModel {
         showNotification(String(localized: "Java service is preparing"))
     }
 
-    func handleJavaWorkspaceFileChanges(_ changes: [WorkspaceFileChange]) {
+    func handleWorkspaceFileChanges(_ changes: [WorkspaceFileChange]) {
         guard let workspaceURL else { return }
+        runFeatureIfActive?.markDependencyFilesChanged(changes.map(\.fileURL))
         let maven = mavenFeatureIfActive
         let forwarded = changes.filter { change in
-            if maven?.project != nil,
-               Self.isJavaDependencyIndex(change.fileURL, workspaceURL: workspaceURL) {
+            if Self.isWorkspaceDependencyMetadata(
+                change.fileURL,
+                workspaceURL: workspaceURL
+            ) {
                 return false
             }
             guard maven?.project != nil,
-                  Self.isJavaDependencyManagementFile(change.fileURL, workspaceURL: workspaceURL) else {
-                return true
-            }
-            if change.fileURL.lastPathComponent.lowercased() == "pom.xml" {
-                maven?.markPomChanged(change.fileURL)
-            } else {
-                maven?.markJavaDependencyFilesChanged([change.fileURL])
-            }
+                  change.fileURL.lastPathComponent.lowercased() == "pom.xml" else { return true }
+            maven?.markPomChanged(change.fileURL)
             return false
         }
         javaLanguageServerPreparationCoordinator.notifyWorkspaceFileChanges(
@@ -211,30 +208,16 @@ extension AppModel {
         )
     }
 
-    private static func isJavaDependencyManagementFile(
-        _ url: URL,
+    private static func isWorkspaceDependencyMetadata(
+        _ fileURL: URL,
         workspaceURL: URL
     ) -> Bool {
-        let path = url.standardizedFileURL.path.lowercased()
-        let root = workspaceURL.standardizedFileURL.path.lowercased()
-        guard path.hasPrefix(root + "/") else { return false }
-        let name = url.lastPathComponent.lowercased()
-        return [
-            "pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle",
-            "settings.gradle.kts", "gradle.properties"
-        ].contains(name)
-            || path.hasSuffix("/gradle/libs.versions.toml")
-            || path.hasSuffix("/.mvn/extensions.xml")
-    }
-
-    private static func isJavaDependencyIndex(
-        _ url: URL,
-        workspaceURL: URL
-    ) -> Bool {
-        let expected = workspaceURL.standardizedFileURL
-            .appendingPathComponent(".lithe/maven/dependency-index.json")
-            .standardizedFileURL
-        return url.standardizedFileURL == expected
+        let directory = workspaceURL.standardizedFileURL
+            .appendingPathComponent(".lithe", isDirectory: true)
+            .appendingPathComponent("dependencies", isDirectory: true)
+            .standardizedFileURL.path
+        let path = fileURL.standardizedFileURL.path
+        return path == directory || path.hasPrefix(directory + "/")
     }
 
     func reloadMavenProject(rescan: Bool) async {
