@@ -168,10 +168,13 @@ export function createSessionRestoreController(
       const index = queue.findIndex(
         (queued) => queued.bufferId === job.bufferId || queued.path === job.path,
       );
-      if (index >= 0) queue.splice(index, 1);
+      // Prefer the queued job so promotion preserves its persisted editor view
+      // state instead of replacing it with the caller's minimal buffer identity.
+      const queuedJob = index >= 0 ? queue.splice(index, 1)[0] : undefined;
+      const jobToLoad = queuedJob ?? job;
       inFlight += 1;
-      activeByBufferId.set(job.bufferId, job);
-      await runJob(job);
+      activeByBufferId.set(jobToLoad.bufferId, jobToLoad);
+      await runJob(jobToLoad);
     },
 
     dispose() {

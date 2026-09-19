@@ -795,6 +795,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
   let latestFileOpenRequestId = 0;
   let latestTreeRevealRequestId = 0;
   let sessionRestoreController: SessionRestoreController | null = null;
+  let sessionRestoreJobs = new Map<string, RestoreJob>();
   let deferredAiSession: ReturnType<typeof readPersistedAiWorkspaceSession> | undefined;
 
   return createStore<ScopedFileSystemStoreState>()(
@@ -889,6 +890,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         // Drop any in-flight session restore before tearing down buffers.
         sessionRestoreController?.dispose();
         sessionRestoreController = null;
+        sessionRestoreJobs.clear();
 
         // Reset all project-related state to return to welcome screen
         set((state) => {
@@ -1009,6 +1011,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           // Drop any controller left over from a previous restore for this workspace.
           sessionRestoreController?.dispose();
           sessionRestoreController = null;
+          sessionRestoreJobs.clear();
 
           // 1. Recreate every saved buffer as a metadata-only placeholder so the
           //    full tab order/pin/preview state is present before the pane layout
@@ -1052,6 +1055,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             });
             editorJobs.push({ bufferId, path: buffer.path, editorState: buffer.editorState });
           }
+          sessionRestoreJobs = new Map(editorJobs.map((job) => [job.bufferId, job]));
 
           // 2. Wire the bounded background restore controller for editor buffers.
           sessionRestoreController = createSessionRestoreController({
@@ -1073,7 +1077,12 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           bufferActions.setSessionRestorePromoter((bufferId) => {
             const buffer = getBufferById(bufferStore.getState().buffers, bufferId);
             if (buffer) {
-              void sessionRestoreController?.loadNow({ bufferId, path: buffer.path });
+              const restoredJob = sessionRestoreJobs.get(bufferId);
+              const job =
+                restoredJob?.path === buffer.path
+                  ? restoredJob
+                  : { bufferId, path: buffer.path };
+              void sessionRestoreController?.loadNow(job);
             }
           });
 

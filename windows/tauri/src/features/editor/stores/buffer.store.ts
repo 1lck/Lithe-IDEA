@@ -247,6 +247,7 @@ interface BufferActions {
     editorState?: PersistedEditorViewState,
   ) => void;
   markBufferLoadFailed: (bufferId: string, error: string) => void;
+  retryBufferLoad: (bufferId: string) => void;
   setSessionRestorePromoter: (promoter: ((bufferId: string) => void) | null) => void;
   handleExternalBufferChange: (
     bufferId: string,
@@ -1955,10 +1956,14 @@ const createBufferStore = (workspaceId: string) => {
             if (!buf || !isEditorContent(buf)) return;
             buf.content = content;
             buf.savedContent = content;
+            // Monaco reads store content through contentRevision. Restored tabs can
+            // become active before their asynchronous read finishes, so the completed
+            // read must use the same observable revision boundary as a disk reload.
+            buf.contentRevision = (buf.contentRevision ?? 0) + 1;
             buf.loadState = "loaded";
             buf.loadError = undefined;
             if (language) buf.language = language;
-            buf.documentLifecycle = { status: "clean", revision: 0 };
+            buf.documentLifecycle = { status: "clean", revision: buf.contentRevision };
           });
         },
 
@@ -1970,6 +1975,14 @@ const createBufferStore = (workspaceId: string) => {
               buffer.loadError = error;
             }
           });
+          const buffer = getBufferById(get().buffers, bufferId);
+          if (buffer && isEditorContent(buffer)) {
+            logger.error("Editor", `[SessionRestore] Failed to restore ${buffer.name}:`, error);
+          }
+        },
+
+        retryBufferLoad: (bufferId: string) => {
+          restorePromoter?.(bufferId);
         },
 
         setSessionRestorePromoter: (promoter) => {
