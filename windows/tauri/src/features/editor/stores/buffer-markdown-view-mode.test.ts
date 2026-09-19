@@ -114,7 +114,8 @@ describe("setMarkdownViewMode", () => {
     });
 
     expect(useEditorStateStore.getState().actions.getCachedViewState(bufferId)).toEqual(editorState);
-    expect(bufferById(bufferId)?.type === "editor" && bufferById(bufferId)?.loadState).toBe(
+    const restoredBuffer = bufferById(bufferId);
+    expect(restoredBuffer?.type === "editor" ? restoredBuffer.loadState : undefined).toBe(
       "unloaded",
     );
     useEditorStateStore.getState().actions.clearPositionCache(bufferId);
