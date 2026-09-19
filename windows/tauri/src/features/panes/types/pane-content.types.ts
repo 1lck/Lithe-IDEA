@@ -56,6 +56,15 @@ export type PaneContentType =
   | "extensions"
   | "onboarding";
 
+// ── Loaded state ─────────────────────────────────────────────────────
+
+/**
+ * File-load lifecycle for restored editor tabs. `unloaded` placeholders carry
+ * only metadata (path/name/pin/preview) until their file is read back; this is
+ * distinct from `DocumentLifecycleState`, which tracks clean/dirty/saving/conflict.
+ */
+export type BufferLoadState = "unloaded" | "loading" | "loaded" | "error";
+
 // ── Base fields shared by every content type ────────────────────────
 
 interface PaneContentBase {
@@ -94,6 +103,10 @@ export interface EditorContent extends PaneContentBase {
   contentRevision?: number;
   /** Markdown display mode for .md/.markdown/.rmd buffers; omitted means "source". */
   markdownViewMode?: MarkdownViewMode;
+  /** File-load lifecycle for restored editor tabs; unloaded placeholders have empty content until read. */
+  loadState?: BufferLoadState;
+  /** User-facing reason when loadState is "error"; kept so the tab can offer a retry. */
+  loadError?: string;
 }
 
 export interface TerminalContent extends PaneContentBase {

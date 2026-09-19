@@ -7,6 +7,7 @@ import type {
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { getBufferById } from "../utils/buffer-index";
 import { useBufferStore } from "./buffer.store";
+import { useEditorStateStore } from "./state.store";
 
 const WORKSPACE = "markdown-view-mode-test";
 
@@ -50,6 +51,25 @@ afterEach(() => {
 });
 
 describe("setMarkdownViewMode", () => {
+  test("late restore preserves edits and their dirty lifecycle", () => {
+    const buffer = editorBuffer("pending", "docs/pending.md");
+    buffer.loadState = "loading";
+    buffer.content = "new edit";
+    buffer.savedContent = "old content";
+    buffer.contentRevision = 1;
+    buffer.isDirty = true;
+    buffer.documentLifecycle = { status: "dirty", revision: 1, savedRevision: 0 };
+    setBuffers([buffer], buffer.id);
+    useBufferStore.getStore(WORKSPACE).getState().actions
+      .replaceRestoredBufferContent(buffer.id, "stale disk content", "markdown");
+    const restored = bufferById(buffer.id) as EditorContent;
+    expect(restored.content).toBe("new edit");
+    expect(restored.savedContent).toBe("old content");
+    expect(restored.isDirty).toBe(true);
+    expect(restored.documentLifecycle).toEqual(buffer.documentLifecycle);
+    expect(restored.loadState).toBe("loaded");
+  });
+
   test("stores the display mode on a markdown editor buffer", () => {
     setBuffers([editorBuffer("readme", "docs/readme.md")], "readme");
     const { setMarkdownViewMode } = useBufferStore.getStore(WORKSPACE).getState().actions;
@@ -95,5 +115,28 @@ describe("setMarkdownViewMode", () => {
 
     const stored = bufferById("preview-1");
     expect(stored?.type === "markdownPreview" && "markdownViewMode" in stored).toBe(false);
+  });
+
+  test("caches persisted view state while a restored placeholder is unloaded", () => {
+    const editorState = {
+      cursor: { line: 6, column: 4, offset: 42 },
+      scrollTop: 180,
+      scrollLeft: 12,
+    };
+    const bufferStore = useBufferStore.getStore(WORKSPACE);
+    const bufferId = bufferStore.getState().actions.createRestoredBufferMetadata({
+      path: "src/main.ts",
+      name: "main.ts",
+      isPinned: false,
+      isPreview: false,
+      editorState,
+    });
+
+    expect(useEditorStateStore.getState().actions.getCachedViewState(bufferId)).toEqual(editorState);
+    const restoredBuffer = bufferById(bufferId);
+    expect(restoredBuffer?.type === "editor" ? restoredBuffer.loadState : undefined).toBe(
+      "unloaded",
+    );
+    useEditorStateStore.getState().actions.clearPositionCache(bufferId);
   });
 });
