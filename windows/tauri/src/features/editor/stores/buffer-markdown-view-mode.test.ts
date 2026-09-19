@@ -7,6 +7,7 @@ import type {
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { getBufferById } from "../utils/buffer-index";
 import { useBufferStore } from "./buffer.store";
+import { useEditorStateStore } from "./state.store";
 
 const WORKSPACE = "markdown-view-mode-test";
 
@@ -95,5 +96,27 @@ describe("setMarkdownViewMode", () => {
 
     const stored = bufferById("preview-1");
     expect(stored?.type === "markdownPreview" && "markdownViewMode" in stored).toBe(false);
+  });
+
+  test("caches persisted view state while a restored placeholder is unloaded", () => {
+    const editorState = {
+      cursor: { line: 6, column: 4, offset: 42 },
+      scrollTop: 180,
+      scrollLeft: 12,
+    };
+    const bufferStore = useBufferStore.getStore(WORKSPACE);
+    const bufferId = bufferStore.getState().actions.createRestoredBufferMetadata({
+      path: "src/main.ts",
+      name: "main.ts",
+      isPinned: false,
+      isPreview: false,
+      editorState,
+    });
+
+    expect(useEditorStateStore.getState().actions.getCachedViewState(bufferId)).toEqual(editorState);
+    expect(bufferById(bufferId)?.type === "editor" && bufferById(bufferId)?.loadState).toBe(
+      "unloaded",
+    );
+    useEditorStateStore.getState().actions.clearPositionCache(bufferId);
   });
 });

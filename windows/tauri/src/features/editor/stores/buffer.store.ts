@@ -238,8 +238,10 @@ interface BufferActions {
     name: string;
     isPinned: boolean;
     isPreview: boolean;
+    editorState?: PersistedEditorViewState;
   }) => string;
   markBufferLoading: (bufferId: string) => void;
+  markBufferUnloaded: (bufferId: string, expectedPath: string) => void;
   replaceRestoredBufferContent: (
     bufferId: string,
     content: string,
@@ -1924,9 +1926,11 @@ const createBufferStore = (workspaceId: string) => {
           name: string;
           isPinned: boolean;
           isPreview: boolean;
+          editorState?: PersistedEditorViewState;
         }): string => {
           const id = generateBufferId(options.path);
           const placeholder = createRestoredEditorPlaceholder(id, options);
+          restorePersistedEditorViewState(placeholder, options.editorState);
           set((state) => {
             state.buffers = [...state.buffers, placeholder];
           });
@@ -1938,6 +1942,16 @@ const createBufferStore = (workspaceId: string) => {
             const buffer = state.buffers.find((b) => b.id === bufferId);
             if (buffer && isEditorContent(buffer)) {
               buffer.loadState = "loading";
+            }
+          });
+        },
+
+        markBufferUnloaded: (bufferId: string, expectedPath: string) => {
+          set((state) => {
+            const buffer = state.buffers.find((candidate) => candidate.id === bufferId);
+            if (buffer && isEditorContent(buffer) && buffer.path !== expectedPath) {
+              buffer.loadState = "unloaded";
+              buffer.loadError = undefined;
             }
           });
         },

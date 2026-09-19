@@ -1055,6 +1055,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
               name: buffer.name,
               isPinned: buffer.isPinned,
               isPreview: buffer.isPreview ?? false,
+              editorState: buffer.editorState,
             });
             editorJobs.push({ bufferId, path: buffer.path, editorState: buffer.editorState });
           }
@@ -1071,6 +1072,8 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
                 editorState,
               ),
             markFailed: (bufferId, error) => bufferActions.markBufferLoadFailed(bufferId, error),
+            markUnloaded: (bufferId, expectedPath) =>
+              bufferActions.markBufferUnloaded(bufferId, expectedPath),
             // A prewarmed workspace is intentionally inactive while its saved tabs
             // hydrate. Only a newer restore or teardown makes this session stale.
             isSessionCurrent: () => sessionRestoreGeneration === restoreGeneration,
@@ -1085,8 +1088,8 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             if (buffer) {
               const restoredJob = sessionRestoreJobs.get(bufferId);
               const job =
-                restoredJob?.path === buffer.path
-                  ? restoredJob
+                restoredJob
+                  ? { ...restoredJob, path: buffer.path }
                   : { bufferId, path: buffer.path };
               void restoreController.loadNow(job);
             }
@@ -1108,7 +1111,15 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             // compete with first render and workspace startup services.
             void waitForWorkspaceIdle().then(() => {
               if (sessionRestoreGeneration === restoreGeneration) {
-                restoreController.enqueue(backgroundJobs);
+                const pendingJobs = backgroundJobs.filter((job) => {
+                  const buffer = getBufferById(bufferStore.getState().buffers, job.bufferId);
+                  return (
+                    buffer?.type === "editor" &&
+                    buffer.path === job.path &&
+                    buffer.loadState === "unloaded"
+                  );
+                });
+                restoreController.enqueue(pendingJobs);
               }
             });
           }

@@ -57,6 +57,7 @@ interface Harness {
   markLoading: ReturnType<typeof mock>;
   applyLoaded: ReturnType<typeof mock>;
   markFailed: ReturnType<typeof mock>;
+  markUnloaded: ReturnType<typeof mock>;
   isSessionCurrent: ReturnType<typeof mock>;
   isBufferValid: ReturnType<typeof mock>;
   validPaths: Map<string, string>;
@@ -67,6 +68,7 @@ function makeHarness(): Harness {
   const markLoading = mock((_id: string) => {});
   const applyLoaded = mock((_id: string, _loaded: unknown, _state?: unknown) => {});
   const markFailed = mock((_id: string, _error: string) => {});
+  const markUnloaded = mock((_id: string, _expectedPath: string) => {});
   let current = true;
   const validPaths = new Map<string, string>();
   const isSessionCurrent = mock(() => current);
@@ -76,6 +78,7 @@ function makeHarness(): Harness {
     markLoading,
     applyLoaded,
     markFailed,
+    markUnloaded,
     isSessionCurrent,
     isBufferValid,
   });
@@ -86,6 +89,7 @@ function makeHarness(): Harness {
     markLoading,
     applyLoaded,
     markFailed,
+    markUnloaded,
     isSessionCurrent,
     isBufferValid,
     validPaths,
@@ -181,6 +185,18 @@ describe("createSessionRestoreController", () => {
     expect(readFileContent).toHaveBeenCalledTimes(1);
   });
 
+  test("does not enqueue a completed buffer a second time", async () => {
+    readFileContent.mockResolvedValue("content");
+    const h = makeHarness();
+    h.validPaths.set("id_1", "a.ts");
+
+    await h.controller.loadNow({ bufferId: "id_1", path: "a.ts" });
+    h.controller.enqueue([{ bufferId: "id_1", path: "a.ts" }]);
+    await flushRestoreWork();
+
+    expect(readFileContent).toHaveBeenCalledTimes(1);
+  });
+
   test("loadNow preserves the persisted editor state of a queued job", async () => {
     const pending = new Map<string, Deferred<string>>();
     readFileContent.mockImplementation((path: string) => {
@@ -223,10 +239,11 @@ describe("createSessionRestoreController", () => {
     h.validPaths.set("id_b.ts", "b.ts");
     h.validPaths.set("id_c.ts", "renamed.ts");
 
+    const editorState = { cursor: { line: 8, column: 3, offset: 30 }, scrollTop: 120 };
     h.controller.enqueue([
       { bufferId: "id_a.ts", path: "a.ts" },
       { bufferId: "id_b.ts", path: "b.ts" },
-      { bufferId: "id_c.ts", path: "before-rename.ts" },
+      { bufferId: "id_c.ts", path: "before-rename.ts", editorState },
     ]);
     const load = h.controller.loadNow({ bufferId: "id_c.ts", path: "renamed.ts" });
     pending.get("a.ts")!.resolve("content");
@@ -236,8 +253,22 @@ describe("createSessionRestoreController", () => {
     expect(h.applyLoaded).toHaveBeenCalledWith(
       "id_c.ts",
       expect.objectContaining({ kind: "text", content: "renamed content" }),
-      undefined,
+      editorState,
     );
+  });
+
+  test("clears loading when an in-flight result belongs to the old path", async () => {
+    const pending = deferRead();
+    readFileContent.mockReturnValue(pending.promise);
+    const h = makeHarness();
+    h.validPaths.set("id_1", "a-renamed.ts");
+    h.controller.enqueue([{ bufferId: "id_1", path: "a.ts" }]);
+
+    pending.resolve("old content");
+    await flushRestoreWork();
+
+    expect(h.applyLoaded).not.toHaveBeenCalled();
+    expect(h.markUnloaded).toHaveBeenCalledWith("id_1", "a.ts");
   });
 
   test("drops a result when a newer restore session replaces this controller", async () => {

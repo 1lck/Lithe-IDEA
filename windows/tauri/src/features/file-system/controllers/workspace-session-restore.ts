@@ -84,6 +84,8 @@ export interface SessionRestoreCallbacks {
     editorState?: PersistedEditorViewState,
   ) => void;
   markFailed: (bufferId: string, error: string) => void;
+  /** Return a loading placeholder to the idle state after a stale path result. */
+  markUnloaded: (bufferId: string, expectedPath: string) => void;
   /** True while this controller still owns the workspace restore session. */
   isSessionCurrent: () => boolean;
   /** True while the buffer still exists and still points at `path`. */
@@ -95,7 +97,7 @@ export interface SessionRestoreController {
   enqueue: (jobs: RestoreJob[]) => void;
   /** Promote a queued buffer and load it immediately (used on tab activation). */
   promote: (bufferId: string) => void;
-  /** Load a single job immediately, bypassing the background concurrency cap. */
+  /** Load a single job immediately, while still respecting the concurrency cap. */
   loadNow: (job: RestoreJob) => Promise<void>;
   /** Drop all pending work and ignore any in-flight completion. */
   dispose: () => void;
@@ -107,6 +109,7 @@ export function createSessionRestoreController(
 ): SessionRestoreController {
   const queue: RestoreJob[] = [];
   const activeByBufferId = new Map<string, RestoreJob>();
+  const completedByBufferId = new Map<string, string>();
   const completionByBufferId = new Map<string, { promise: Promise<void>; resolve: () => void }>();
   let inFlight = 0;
   let disposed = false;
@@ -134,13 +137,20 @@ export function createSessionRestoreController(
   };
 
   const runJob = async (job: RestoreJob) => {
+    let applied = false;
     callbacks.markLoading(job.bufferId);
     try {
       const loaded = await loadFileContent(job.path);
       if (disposed) return;
       if (!callbacks.isSessionCurrent()) return; // a newer restore replaced this session
-      if (!callbacks.isBufferValid(job.bufferId, job.path)) return; // tab closed / path moved
+      if (!callbacks.isBufferValid(job.bufferId, job.path)) {
+        // A rename/move can leave the same buffer alive with a new path. Clear
+        // the stale loading state so the next activation can load that path.
+        callbacks.markUnloaded(job.bufferId, job.path);
+        return;
+      }
       callbacks.applyLoaded(job.bufferId, loaded, job.editorState);
+      applied = true;
     } catch (error) {
       if (disposed) return;
       if (!callbacks.isSessionCurrent()) return;
@@ -148,6 +158,7 @@ export function createSessionRestoreController(
       callbacks.markFailed(job.bufferId, error instanceof Error ? error.message : String(error));
     } finally {
       activeByBufferId.delete(job.bufferId);
+      if (applied) completedByBufferId.set(job.bufferId, job.path);
       inFlight -= 1;
       complete(job.bufferId);
       pump();
@@ -173,6 +184,9 @@ export function createSessionRestoreController(
       if (disposed) return;
       for (const job of jobs) {
         if (activeByBufferId.has(job.bufferId)) continue;
+        const completedPath = completedByBufferId.get(job.bufferId);
+        if (completedPath === job.path) continue;
+        if (completedPath !== undefined) completedByBufferId.delete(job.bufferId);
         if (queue.some((queued) => queued.path === job.path)) continue;
         queue.push(job);
       }
@@ -195,11 +209,16 @@ export function createSessionRestoreController(
       const activeCompletion = completionByBufferId.get(job.bufferId);
       if (activeByBufferId.has(job.bufferId)) return activeCompletion?.promise ?? Promise.resolve();
 
+      if (completedByBufferId.get(job.bufferId) === job.path) return Promise.resolve();
+      completedByBufferId.delete(job.bufferId);
+
       const index = queue.findIndex((queued) => queued.bufferId === job.bufferId);
       // Prefer the queued job so promotion preserves its persisted editor view
       // state instead of replacing it with the caller's minimal buffer identity.
       const queuedJob = index >= 0 ? queue.splice(index, 1)[0] : undefined;
-      const jobToLoad = queuedJob?.path === job.path ? queuedJob : job;
+      const jobToLoad = queuedJob
+        ? { ...job, editorState: job.editorState ?? queuedJob.editorState }
+        : job;
       const completion = completionFor(jobToLoad.bufferId);
 
       if (inFlight < SESSION_RESTORE_CONCURRENCY) {
@@ -216,6 +235,7 @@ export function createSessionRestoreController(
       disposed = true;
       queue.length = 0;
       activeByBufferId.clear();
+      completedByBufferId.clear();
       for (const completion of completionByBufferId.values()) completion.resolve();
       completionByBufferId.clear();
     },
