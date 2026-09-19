@@ -1,0 +1,74 @@
+name: CI Extension Host
+
+# The VS Code extension host prototype (#737) is not packaged by macOS or
+# Windows yet, so it is validated here instead of in the product lanes.
+on:
+  pull_request:
+    paths:
+      - "extension-host/**"
+      - "shared/contracts/vscode-extension-host.md"
+      - ".agents/skills/write-stable-tests/scripts/**"
+      - ".github/workflows/ci-extension-host.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-extension-host-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Extension host (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          # The stability verifier diffs against the pull request base.
+          fetch-depth: 0
+
+      # The host runs under Node, like it will in the products; Bun only installs
+      # packages and runs the tests, which launch the host with `node`.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: extension-host/package.json
+
+      - name: Install dependencies
+        working-directory: extension-host
+        run: bun install --frozen-lockfile
+
+      - name: Type-check
+        working-directory: extension-host
+        run: bun run typecheck
+
+      - name: Build
+        working-directory: extension-host
+        run: bun run build
+
+      - name: Verify test stability rules
+        run: node .agents/skills/write-stable-tests/scripts/verify-test-stability.mjs --platform all --base "${{ github.event.pull_request.base.sha || 'HEAD~1' }}" --head HEAD
+
+      - name: Test with per-test timing
+        run: >
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs
+          --working-directory extension-host
+          --warn-ms 5000 --max-ms 30000 --suite-timeout-ms 300000
+          --report .artifacts/test-stability/extension-host.json
+          -- test
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-host-test-stability
+          path: .artifacts/test-stability/
+          if-no-files-found: ignore

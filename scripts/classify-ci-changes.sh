@@ -383,6 +383,10 @@ while IFS=$'\t' read -r status first_path _; do
         infra/docker/*)
             rust_database=true
             ;;
+        extension-host/*)
+            # The VS Code extension host prototype (#737) is not packaged by any
+            # product yet; ci-extension-host.yml validates it on its own.
+            ;;
         *)
             # New or unclassified repository areas are validated conservatively
             # until their ownership is made explicit above.

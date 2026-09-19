@@ -1,0 +1,4 @@
+[install]
+# Theia's plugin runtime resolves transitive packages through Node's hoisted
+# layout, so this standalone package does not use the root isolated linker.
+linker = "hoisted"
