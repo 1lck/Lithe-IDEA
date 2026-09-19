@@ -38,6 +38,7 @@ export function mapCoreConfiguration(value: CoreResolvedConfiguration): RunConfi
     modulePath: maven?.module && maven.module !== "." ? maven.module : undefined,
     mavenReactorPath: maven?.reactorPath,
     mainClass: maven?.mainClass,
+    sourcePath: java?.source,
     cwd: value.cwd && value.cwd !== "." ? value.cwd : "",
     args: value.args ?? [],
     env: value.env ?? {},

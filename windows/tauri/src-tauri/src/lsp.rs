@@ -29,6 +29,7 @@ const JDTLS_EXECUTABLE_NAMES: &[&str] = &["jdtls.bat", "jdtls.cmd", "jdtls.exe",
 const MAX_CURRENT_EXE_JDTLS_WALK_DEPTH: usize = 12;
 const JDTLS_CORE_PLUGIN_PREFIX: &str = "org.eclipse.jdt.ls.core_";
 const EQUINOX_LAUNCHER_PLUGIN_PREFIX: &str = "org.eclipse.equinox.launcher_";
+const JAVA_DEBUG_BUNDLE_PREFIX: &str = "com.microsoft.java.debug.plugin-";
 const BUNDLED_JDTLS_MANIFEST: &str = include_str!("../../../../third_party/jdtls/manifest.json");
 static JDT_CACHE_OPERATION_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -56,6 +57,7 @@ pub struct JdtlsLaunchResources {
     pub launcher_jar_path: String,
     pub configuration_directory: String,
     pub lombok_agent_path: String,
+    pub java_debug_bundle_path: String,
 }
 
 /// Environment values the Java language server needs from the host.
@@ -78,6 +80,7 @@ struct ResolvedJdtlsLaunchResources {
     launcher_jar_path: PathBuf,
     configuration_directory: PathBuf,
     lombok_agent_path: PathBuf,
+    java_debug_bundle_path: PathBuf,
 }
 
 /// Resolves the built-in Java language-server executable, JDK, and cache directory.
@@ -164,6 +167,7 @@ pub fn lsp_resolve_java_launch(
                 launcher_jar_path: normalize_path(&resources.launcher_jar_path),
                 configuration_directory: normalize_path(&resources.configuration_directory),
                 lombok_agent_path: normalize_path(&resources.lombok_agent_path),
+                java_debug_bundle_path: normalize_path(&resources.java_debug_bundle_path),
             }
         }),
         cache_directory: normalize_path(&cache_directory),
@@ -223,7 +227,13 @@ fn resolve_jdtls_launch_resources(
         let plugins = root.join("plugins");
         let configuration_directory = root.join("config_win");
         let lombok_agent_path = root.join("lombok").join("lombok.jar");
+        let java_debug_directory = root.join("java-debug");
         let Some(launcher_jar_path) = first_equinox_launcher(&plugins)? else {
+            continue;
+        };
+        let Some(java_debug_bundle_path) =
+            first_regular_file(&java_debug_directory, JAVA_DEBUG_BUNDLE_PREFIX, ".jar")?
+        else {
             continue;
         };
         if configuration_directory.is_dir() && lombok_agent_path.is_file() {
@@ -231,6 +241,7 @@ fn resolve_jdtls_launch_resources(
                 launcher_jar_path,
                 configuration_directory,
                 lombok_agent_path,
+                java_debug_bundle_path,
             });
         }
     }
@@ -241,42 +252,47 @@ fn resolve_jdtls_launch_resources(
         .collect::<Vec<_>>()
         .join(", ");
     Err(format!(
-        "Expected an Equinox launcher JAR, config_win, and lombok/lombok.jar under: {roots}"
+        "Expected an Equinox launcher JAR, config_win, lombok/lombok.jar, and a Java Debug Server bundle under: {roots}"
     ))
 }
 
 fn first_equinox_launcher(plugins: &Path) -> Result<Option<PathBuf>, String> {
-    let entries = match std::fs::read_dir(plugins) {
+    first_regular_file(plugins, EQUINOX_LAUNCHER_PLUGIN_PREFIX, ".jar")
+}
+
+fn first_regular_file(
+    directory: &Path,
+    prefix: &str,
+    suffix: &str,
+) -> Result<Option<PathBuf>, String> {
+    let entries = match std::fs::read_dir(directory) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => {
             return Err(format!(
-                "Failed to inspect JDTLS plugins at {}: {error}",
-                plugins.display()
+                "Failed to inspect JDTLS resources at {}: {error}",
+                directory.display()
             ));
         }
     };
-    let mut launchers = Vec::new();
+    let mut matching_files = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|error| {
             format!(
-                "Failed to inspect an entry in JDTLS plugins at {}: {error}",
-                plugins.display()
+                "Failed to inspect an entry in JDTLS resources at {}: {error}",
+                directory.display()
             )
         })?;
         let path = entry.path();
         let Some(name) = path.file_name().and_then(OsStr::to_str) else {
             continue;
         };
-        if path.is_file()
-            && name.starts_with(EQUINOX_LAUNCHER_PLUGIN_PREFIX)
-            && name.ends_with(".jar")
-        {
-            launchers.push(path);
+        if path.is_file() && name.starts_with(prefix) && name.ends_with(suffix) {
+            matching_files.push(path);
         }
     }
-    launchers.sort();
-    Ok(launchers.into_iter().next())
+    matching_files.sort();
+    Ok(matching_files.into_iter().next())
 }
 
 fn find_jdtls_executable(
@@ -605,19 +621,30 @@ mod tests {
         let plugins = root.join("plugins");
         let configuration_directory = root.join("config_win");
         let lombok_directory = root.join("lombok");
+        let java_debug_directory = root.join("java-debug");
         fs::create_dir_all(&plugins).expect("plugins");
         fs::create_dir_all(&configuration_directory).expect("config_win");
         fs::create_dir_all(&lombok_directory).expect("lombok");
+        fs::create_dir_all(&java_debug_directory).expect("java-debug");
         fs::write(plugins.join("org.eclipse.equinox.launcher_2.0.0.jar"), [])
             .expect("second Equinox launcher");
         let launcher_jar_path = plugins.join("org.eclipse.equinox.launcher_1.0.0.jar");
         fs::write(&launcher_jar_path, []).expect("first Equinox launcher");
         let lombok_agent_path = lombok_directory.join("lombok.jar");
         fs::write(&lombok_agent_path, []).expect("Lombok agent");
+        fs::write(
+            java_debug_directory.join("com.microsoft.java.debug.plugin-0.54.0.jar"),
+            [],
+        )
+        .expect("second Java Debug Server bundle");
+        let java_debug_bundle_path =
+            java_debug_directory.join("com.microsoft.java.debug.plugin-0.53.1.jar");
+        fs::write(&java_debug_bundle_path, []).expect("Java Debug Server bundle");
         ResolvedJdtlsLaunchResources {
             launcher_jar_path,
             configuration_directory,
             lombok_agent_path,
+            java_debug_bundle_path,
         }
     }
 

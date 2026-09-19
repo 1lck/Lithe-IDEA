@@ -4,6 +4,7 @@ export interface JdtlsLaunchResources {
   launcherJarPath: string;
   configurationDirectory: string;
   lombokAgentPath: string;
+  javaDebugBundlePath: string;
 }
 
 export interface JavaLspLaunch {

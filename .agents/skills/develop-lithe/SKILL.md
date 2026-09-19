@@ -26,6 +26,44 @@ those notes, load `.agents/skills/agent-notes/SKILL.md`.
   `.agents/notes/implemented/architecture/2026-09-13-resizable-ui-performance-boundaries.md`.
 - Do not introduce a new architectural direction as part of an unrelated task.
 
+## Reuse mature developer tooling before building replacements
+
+Treat reimplementing established IDE infrastructure as an exceptional architectural
+decision, not a normal feature-development shortcut. Before adding or expanding
+language intelligence, project import, build modeling, dependency resolution,
+compilation, formatting, refactoring, test discovery, run/debug planning, or
+LSP/DAP behavior:
+
+- Inventory the capabilities already available in Lithe's bundled upstream tools,
+  their current versions, official extension points, and compatible mature
+  open-source alternatives. Check whether upgrading or enabling an existing
+  capability closes the gap before writing a parallel implementation.
+- Reuse the largest coherent upstream subsystem whose license, distribution model,
+  resource cost, and platform support satisfy the product requirement. Do not reuse
+  a few commands while independently recreating the subsystem's project state,
+  dependency graph, lifecycle, or semantic model.
+- Keep upstream-owned facts in their owning engine. For example, Java symbols,
+  source roots, module ownership, classpaths, compilation state, and debug targets
+  should come from the selected Java/project backend when it exposes them. Core may
+  validate and normalize those results, but must not become a second source of
+  truth merely to make the behavior cross-platform.
+- Keep Lithe-owned value focused on product orchestration: bounded lifecycle,
+  cancellation, stale-result protection, resource budgets, stable cross-platform
+  contracts, presentation, and end-to-end workflows.
+- A custom implementation is acceptable only when the upstream capability is
+  absent, cannot meet a demonstrated requirement, cannot legally be distributed,
+  or violates a measured product constraint. Record the evidence, rejected reuse
+  options, ownership boundary, and removal or migration path in the relevant Agent
+  Note when the decision creates or expands a long-lived subsystem.
+- Never reverse-engineer, copy, bundle, or design around proprietary tooling beyond
+  its license. Public behavior and open standards may inform an independent
+  implementation only when the applicable terms permit it.
+
+Partial reuse must preserve the upstream subsystem's correctness boundary. Define
+and test the complete user-visible sequence, such as save -> synchronize project
+state -> build -> resolve runtime paths -> launch, instead of testing only that
+individual upstream commands were called.
+
 ## Respect repository ownership
 
 | Path | Responsibility |
@@ -65,6 +103,10 @@ implementation and must not import Swift source or depend on macOS types.
 - Deterministic behavior shared by both products belongs in `rust/lithe-core/`.
   Native filesystem, process, terminal, runtime, security, persistence, and UI
   behavior belongs in platform adapters.
+- Cross-platform use alone does not justify duplicating semantics already owned by
+  a mature upstream engine. Put only Lithe's stable normalization and orchestration
+  contract in Core; keep language, build, project-model, and debugger facts in the
+  selected provider.
 - Windows feature code must import `@/platform/tauri-core` instead of the Tauri
   core API directly. Shared operations route through `lithe-core`; Windows-only
   terminal, watcher, credential, process, and WebView behavior stays in the

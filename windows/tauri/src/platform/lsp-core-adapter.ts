@@ -1415,6 +1415,89 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     ) as JsonRecord;
     return parseDebugServerPort(result?.value) as T;
   }
+  if (command === "java_prepare_run_launch") {
+    const workspacePath = String(args.workspacePath ?? "");
+    const sourcePath = String(args.sourcePath ?? "");
+    const configuredMainClass = String(args.mainClass ?? "");
+    const session = sessionForWorkspace(workspacePath, "java");
+    const execute = async (title: string, javaCommand: string, arguments_: unknown[]) => {
+      const result = normalizeCoreValue(
+        await requestOperation(session, {
+          sessionId: session.id,
+          operation: "executeCommand",
+          command: { title, command: javaCommand, arguments: arguments_ },
+        }),
+      ) as JsonRecord;
+      return result?.value;
+    };
+    const candidates = await execute("Resolve Java Main Class", "vscode.java.resolveMainClass", []);
+    if (!Array.isArray(candidates)) {
+      throw lspAdapterError(
+        "invalid_response",
+        "The Java language service returned an invalid main-class list.",
+      );
+    }
+    const exact = candidates.filter((candidate): candidate is JsonRecord => {
+      if (!candidate || typeof candidate !== "object") return false;
+      const filePath = typeof candidate.filePath === "string" ? candidate.filePath : "";
+      return filePath.length > 0 && normalizedPathKey(filePath) === normalizedPathKey(sourcePath);
+    });
+    const pathlessMatches = candidates.filter((candidate): candidate is JsonRecord =>
+      Boolean(
+        candidate &&
+        typeof candidate === "object" &&
+        candidate.mainClass === configuredMainClass &&
+        typeof candidate.filePath !== "string",
+      ),
+    );
+    const selected =
+      exact.length === 1 ? exact[0] : pathlessMatches.length === 1 ? pathlessMatches[0] : null;
+    if (!selected || typeof selected.mainClass !== "string") {
+      throw lspAdapterError(
+        "invalid_response",
+        "The Java language service could not identify one launch target for this source file.",
+      );
+    }
+    const projectName = typeof selected.projectName === "string" ? selected.projectName : undefined;
+    const buildStatus = await execute("Build Java Workspace", "vscode.java.buildWorkspace", [
+      JSON.stringify({
+        mainClass: selected.mainClass,
+        projectName,
+        filePath: sourcePath,
+        isFullBuild: false,
+      }),
+    ]);
+    if (Number(buildStatus) !== 1) {
+      throw lspAdapterError(
+        "operation_failed",
+        "The Java project build failed. Fix the reported Java errors and try again.",
+      );
+    }
+    const paths = await execute("Resolve Java Runtime Classpath", "vscode.java.resolveClasspath", [
+      selected.mainClass,
+      projectName ?? "",
+      "runtime",
+    ]);
+    if (!Array.isArray(paths) || paths.length !== 2) {
+      throw lspAdapterError(
+        "invalid_response",
+        "The Java language service returned an invalid runtime classpath.",
+      );
+    }
+    const modulePaths = Array.isArray(paths[0])
+      ? paths[0].filter((value): value is string => typeof value === "string")
+      : [];
+    const classPaths = Array.isArray(paths[1])
+      ? paths[1].filter((value): value is string => typeof value === "string")
+      : [];
+    if (modulePaths.length === 0 && classPaths.length === 0) {
+      throw lspAdapterError(
+        "invalid_response",
+        "The Java language service returned no runtime paths.",
+      );
+    }
+    return { mainClass: selected.mainClass, projectName, modulePaths, classPaths } as T;
+  }
   if (command === "java_navigation_markers") {
     const session = sessionForFile(args.sessionFilePath ?? args.filePath);
     const uri = typeof args.documentUri === "string" ? args.documentUri : fileUri(args.filePath);

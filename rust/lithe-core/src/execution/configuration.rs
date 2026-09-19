@@ -12,7 +12,7 @@ use std::path::{Component, Path, PathBuf};
 
 const VERSION: u32 = 2;
 const LEGACY_VERSION: u32 = 1;
-const GENERATOR_REVISION: &str = "3";
+const GENERATOR_REVISION: &str = "4";
 /// Toolchain requirements and `project.json` are separate documents that happen
 /// to live under `.lithe`. Their schema did not change with run-config v2, so
 /// they keep their own version and must not be validated against `VERSION`.
@@ -76,6 +76,9 @@ pub struct LaunchPlanRequest {
     pub current_file: Option<String>,
     #[serde(default)]
     pub class_path: Option<String>,
+    /// JDT LS-resolved runtime paths for a project-owned Java main class.
+    #[serde(default)]
+    pub java_launch: Option<JavaLaunchRequest>,
     #[serde(default)]
     pub debug_port: Option<u16>,
     /// Host-owned local layer. When present, Core uses it instead of `.lithe/run/local.json`.
@@ -84,6 +87,17 @@ pub struct LaunchPlanRequest {
     /// Project Maven defaults supplied by the native host for Maven-backed plans.
     #[serde(default)]
     pub maven_context: Option<crate::project::MavenLaunchContextRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Runtime path groups resolved by the Java project model before launch.
+pub struct JavaLaunchRequest {
+    pub main_class: String,
+    #[serde(default)]
+    pub class_paths: Vec<String>,
+    #[serde(default)]
+    pub module_paths: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -715,11 +729,9 @@ fn java_module_identity(module: Option<&str>) -> String {
 /// Copies a scanned `@SpringBootApplication` class onto the module that declares
 /// the Maven plugin.
 ///
-/// The detector knows a module is a service but not which class boots it, and
-/// `spring-boot:run` resolves the main class itself when none is given. Naming it
-/// explicitly is still worth doing: a module with two candidate classes otherwise
-/// fails at launch time with a Maven error rather than starting the one the editor
-/// already found.
+/// The detector knows a module is a service but not which class boots it. A
+/// unique scanned source lets the language service select the exact target; two
+/// candidates remain ambiguous and must not be guessed.
 fn adopt_annotated_main_classes(
     configurations: &mut [RunConfiguration],
     annotated: &[(String, String)],
@@ -737,8 +749,8 @@ fn adopt_annotated_main_classes(
         let mut matches = annotated
             .iter()
             .filter(|(path, _)| within_maven_module(path, &module, maven_root))
-            .map(|(_, qualified_name)| qualified_name);
-        let Some(main_class) = matches.next() else {
+            .map(|(path, qualified_name)| (path, qualified_name));
+        let Some((source_path, main_class)) = matches.next() else {
             continue;
         };
         if matches.next().is_some() {
@@ -751,6 +763,9 @@ fn adopt_annotated_main_classes(
         if let Some(object) = maven.as_object_mut() {
             object.insert("mainClass".to_string(), json!(main_class));
         }
+        configuration
+            .extensions
+            .insert("java".to_string(), json!({ "source": source_path }));
     }
 }
 
@@ -1524,6 +1539,7 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
     // host joins with the platform-specific separator.
     let mut pre_launch_steps: Vec<Value> = Vec::new();
     let mut plan_classpath: Vec<Value> = Vec::new();
+    let mut plan_modulepath: Vec<Value> = Vec::new();
     let java_toolchain = config["toolchains"]["java"]
         .as_str()
         .unwrap_or("project-jdk")
@@ -1533,6 +1549,10 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
     let uses_maven_toolchain = config["toolchains"]["maven"]
         .as_str()
         .is_some_and(|value| !value.is_empty());
+    let is_direct_java_project_launch = uses_maven_toolchain
+        && (is_java_main
+            || (provider == "spring-boot.maven"
+                && config["extensions"]["java"]["source"].is_string()));
     let goal = framework_goal(provider);
     // A framework that owns its own debug agent takes a port instead of raw JVM
     // flags, so JDWP must not also be forced into `jvmArguments`: two agents on
@@ -1592,35 +1612,46 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         arguments.extend(jvm_arguments);
         arguments.push(json!(main_class));
         arguments.extend(program_arguments);
-    } else if is_java_main && uses_maven_toolchain {
-        if request.maven_context.is_none() {
-            arguments.extend([json!("-B"), json!("-ntp")]);
-            if let Some(module) = maven["module"].as_str().filter(|m| *m != ".") {
-                arguments.extend([json!("-pl"), json!(module), json!("-am")]);
-            }
-        }
-        let main = maven["mainClass"].as_str().ok_or_else(|| {
+    } else if is_direct_java_project_launch {
+        let java_launch = request.java_launch.as_ref().ok_or_else(|| {
             CoreError::new(
                 ErrorCode::InvalidRequest,
-                "Java application is missing its main class",
+                "Java project launch metadata is unavailable; wait for the Java language service and try again",
             )
         })?;
-        arguments.push(json!(format!("-Dexec.mainClass={main}")));
-        let uses_test_classpath = uses_java_test_source_set(config);
-        if uses_test_classpath {
-            // Exec Maven Plugin excludes test output and dependencies by default.
-            arguments.push(json!("-Dexec.classpathScope=test"));
+        if java_launch.class_paths.is_empty() && java_launch.module_paths.is_empty() {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Java project launch metadata contains no runtime paths",
+            ));
         }
-        if !program_arguments.is_empty() {
-            arguments.push(json!(format!(
-                "-Dexec.args={}",
-                string_arguments(&program_arguments)
-            )));
+        if java_launch.main_class.is_empty() {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Java project launch metadata is missing its main class",
+            ));
         }
-        if uses_test_classpath {
-            arguments.push(json!("test-compile"));
+        let _configured_main = maven["mainClass"].as_str().ok_or_else(|| {
+            CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Java project launch is missing its main class",
+            )
+        })?;
+        // The Java project model already built the workspace and resolved the
+        // exact target module paths. Maven remains the project model, but it no
+        // longer receives a reactor-wide Java launch goal that would try the
+        // same main class in parent and dependency projects.
+        plan_classpath.extend(java_launch.class_paths.iter().cloned().map(Value::String));
+        plan_modulepath.extend(java_launch.module_paths.iter().cloned().map(Value::String));
+        arguments.extend(jvm_arguments);
+        if java_launch.main_class.split_once('/').is_some() {
+            // JDT prefixes JPMS targets as `module/name.Type`. Java Debug
+            // Server accepts that identity directly, while the `java` CLI
+            // requires the module launcher flag.
+            arguments.push(json!("-m"));
         }
-        arguments.push(json!("org.codehaus.mojo:exec-maven-plugin:3.5.0:java"));
+        arguments.push(json!(java_launch.main_class));
+        arguments.extend(program_arguments);
     } else if is_java_main {
         let source = config["extensions"]["java"]["source"]
             .as_str()
@@ -1703,7 +1734,7 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
             arguments.push(json!(goal.goal));
         }
     }
-    let executable_kind = if is_current || (is_java_main && !uses_maven_toolchain) {
+    let executable_kind = if is_current || is_direct_java_project_launch || is_java_main {
         "java"
     } else {
         "maven"
@@ -1764,13 +1795,16 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
             "JAVA_HOME": { "toolchain": java_toolchain, "property": "home" }
         }
     });
-    // Optional fields stay absent for the single-process plans (Maven, npm,
-    // frameworks) so their contract and every existing consumer are unchanged.
+    // Optional fields stay absent for ordinary process and Maven-goal plans.
+    // Direct Java project launches carry the paths their language model resolved.
     if !pre_launch_steps.is_empty() {
         plan["preLaunchSteps"] = Value::Array(pre_launch_steps);
     }
     if !plan_classpath.is_empty() {
         plan["classpath"] = Value::Array(plan_classpath);
+    }
+    if !plan_modulepath.is_empty() {
+        plan["modulepath"] = Value::Array(plan_modulepath);
     }
     Ok(plan)
 }
@@ -1811,21 +1845,6 @@ fn configuration_override_has_key(
 fn is_maven_backed(provider: &str) -> bool {
     matches!(provider, "java.current-file" | "java.main" | "maven.module")
         || framework_goal(provider).is_some()
-}
-
-fn uses_java_test_source_set(configuration: &Value) -> bool {
-    match configuration["extensions"]["java"]["sourceSet"].as_str() {
-        Some("test") => true,
-        Some(_) => false,
-        // Generated documents from older versions predate the explicit source
-        // set. Preserve their launch behavior until regeneration replaces them.
-        None => configuration["extensions"]["java"]["source"]
-            .as_str()
-            .is_some_and(|source| {
-                let normalized = source.to_ascii_lowercase();
-                normalized.starts_with("src/test/") || normalized.contains("/src/test/")
-            }),
-    }
 }
 
 /// How a framework's Maven goal expects a debugger to be attached.

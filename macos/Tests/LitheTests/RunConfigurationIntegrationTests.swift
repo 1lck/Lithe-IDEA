@@ -3078,6 +3078,50 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func runAllSpringBootServicesUsesPreparedJavaTargetAndProjectJDK() async throws {
+        let configuration = JavaRunConfiguration(
+            id: "spring-boot.maven:ruoyi-admin",
+            name: "ruoyi-admin",
+            kind: .springBoot,
+            modulePath: "ruoyi-admin",
+            mainClass: "com.ruoyi.RuoYiApplication"
+        )
+        let target = JavaDebugLaunchTarget(
+            mainClass: "com.ruoyi.RuoYiApplication",
+            projectName: "ruoyi-admin",
+            modulePaths: [],
+            classPaths: ["/workspace/RuoYi/ruoyi-admin/target/classes"]
+        )
+        let plan = SharedLaunchPlan(
+            executable: .toolchain("project-jdk"),
+            arguments: ["com.ruoyi.RuoYiApplication"],
+            workingDirectory: ".",
+            classpath: target.classPaths
+        )
+        let fixture = makeFixture(
+            status: .ready,
+            effective: [EffectiveRunConfiguration(configuration: configuration, options: JavaRunOptions())],
+            plans: [configuration.id: plan]
+        )
+
+        await fixture.service.loadProject(
+            at: fixture.root,
+            files: [],
+            mavenProject: fixture.mavenProject,
+            snapshotID: UUID()
+        )
+        fixture.service.runAllServices(javaLaunches: [configuration.id: target])
+
+        let request = try #require(fixture.processFactory.processes.last?.requests.last)
+        #expect(request.executablePath == "/toolchains/jdk/bin/java")
+        #expect(request.arguments == [
+            "-cp", "/workspace/RuoYi/ruoyi-admin/target/classes",
+            "com.ruoyi.RuoYiApplication",
+        ])
+        #expect(fixture.operations.javaLaunchTargets == [target])
+    }
+
+    @Test
     func toolchainBackedGoPlanUsesTheRegisteredProviderInRunService() async throws {
         let configuration = RunConfiguration(
             id: "go:api",
@@ -4529,6 +4573,7 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
     private(set) var resolveCalls = 0
     private(set) var migrationCalls = 0
     private(set) var launchPlanIDs: [String] = []
+    private(set) var javaLaunchTargets: [JavaDebugLaunchTarget?] = []
     private(set) var debugPorts: [Int?] = []
     private(set) var createdDrafts: [RunConfigurationDraft] = []
     private(set) var lastToolchainCandidates: [ProjectToolchainCandidate] = []
@@ -4588,6 +4633,24 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
             throw RunConfigurationOperationFailure(message: "Missing test launch plan")
         }
         return plan
+    }
+    func launchPlan(
+        at projectURL: URL,
+        configurationID: String,
+        currentFile: String?,
+        classPath: String?,
+        javaLaunch: JavaDebugLaunchTarget?,
+        debugPort: Int?,
+        mavenContext: MavenLaunchContext?
+    ) throws -> SharedLaunchPlan {
+        javaLaunchTargets.append(javaLaunch)
+        return try launchPlan(
+            at: projectURL,
+            configurationID: configurationID,
+            currentFile: currentFile,
+            classPath: classPath,
+            debugPort: debugPort
+        )
     }
     func saveEditorChanges(
         _ options: RunOptions,

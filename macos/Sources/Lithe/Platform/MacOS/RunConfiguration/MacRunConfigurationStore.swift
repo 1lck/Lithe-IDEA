@@ -93,6 +93,7 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
                     execution: value.execution.flatMap(RunConfigurationExecution.init(rawValue:)),
                     modulePath: maven?.module == "." ? nil : maven?.module,
                     mainClass: maven?.mainClass,
+                    sourcePath: java?.source,
                     mavenReactorPath: maven?.reactorPath,
                     debugAdapter: value.debug?.adapter,
                     disabled: value.disabled
@@ -145,6 +146,7 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         configurationID: String,
         currentFile: String?,
         classPath: String?,
+        javaLaunch: JavaDebugLaunchTarget?,
         debugPort: Int?,
         mavenContext: MavenLaunchContext?
     ) throws -> SharedLaunchPlan {
@@ -154,6 +156,7 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             configurationID: configurationID,
             currentFile: currentFile,
             classPath: classPath,
+            javaLaunch: javaLaunch,
             debugPort: debugPort,
             mavenContext: mavenContext
         ) {
@@ -194,7 +197,8 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             workingDirectory: value.workingDirectory,
             environment: value.env ?? [:],
             preLaunchSteps: preLaunchSteps,
-            classpath: value.classpath ?? []
+            classpath: value.classpath ?? [],
+            modulepath: value.modulepath ?? []
         )
     }
 

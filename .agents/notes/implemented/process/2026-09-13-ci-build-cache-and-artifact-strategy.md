@@ -5,9 +5,9 @@
 ## 先说结论
 
 CI 缓存的是经过版本和依赖约束的中间构建结果，不缓存最终安装包。普通
-Swift 源码 PR 先通过完整 Swift 编译和测试获得快速反馈；只有可能影响资源、
-依赖、工具链或安装包结构的改动才按架构生成测试包。测试安装包保留有限
-时间，并附带校验和，方便下载验证。
+PR 先通过编译和测试获得快速反馈；macOS 仅在包敏感改动时生成测试包，
+Windows PR 不再生成安装包。Windows 安装包由 preview 和稳定版发布工作流
+负责，避免发布产物阻塞日常代码验证。
 
 ## 问题
 
@@ -36,8 +36,8 @@ macOS CI 与发布工作流统一使用 `macos-26` runner 上的 Xcode 26.6，�
 Git 性能基线和 Git 状态观察属于专项验证。只有 Git 生产代码、对应专项测试或
 测试工具链发生变化时才运行；普通搜索、编辑器或设置界面改动不会为无关的
 Git 性能测试增加等待时间。推送到 `main` 或手动运行时，再使用相同编译产物
-组装通用 DMG；Windows 构建一次 Release 包和前端类型检查，产出 Windows
-x64 NSIS 安装包。
+组装通用 DMG。Windows PR 把前端验证与 Rust 测试放在两个独立 job 中并行
+执行；Windows x64 NSIS 安装包只由 preview 和稳定版发布工作流生成。
 
 CI 缓存 Cargo fingerprints、build script outputs 和依赖 outputs，不缓存
 最终可执行文件。缓存覆盖 `rust/target/macos` 的 Rust Core 和 `rust/target`
@@ -45,14 +45,15 @@ CI 缓存 Cargo fingerprints、build script outputs 和依赖 outputs，不缓�
 版本、构建参数、依赖 manifest 和 build script。最终打包仍然重新运行必要的
 构建步骤，确保产物来自当前验证过的源代码。
 
-每个测试包同时提供 SHA-256 校验和。artifact 默认保留 14 天；DMG 和 NSIS
+每个安装包同时提供 SHA-256 校验和。artifact 默认保留 14 天；DMG 和 NSIS
 本身已经压缩，因此包裹 artifact 使用压缩级别 0。macOS CI 使用临时 ad-hoc
-签名，Windows CI 安装包不假定已经配置发布者证书。
+签名；Windows preview 与稳定版发布工作流分别执行各自的签名策略。
 
 PR 的测试合并提交必须在构建摘要中可追溯。被分类器选中的 macOS 任一架构
 失败都使 macOS gate 失败；架构任务使用 `fail-fast: false`，以便另一架构仍可
-完成并上传诊断产物。文档和普通 Swift 源码变更可以跳过产品打包，但需要完整
-验证或测试安装包时应通过工作流手动运行请求。
+完成并上传诊断产物。Windows gate 分别检查前端和 Rust job：被选中的 job 必须
+成功，未被选中的 job 必须跳过。需要 Windows 安装包时手动运行 preview 发布
+工作流，不在 PR CI 中等待完整 Release 编译和 NSIS 打包。
 
 并发缓存主要缩短串行等待和反馈时间，不承诺减少总 runner 分钟；队列等待
 和可用 runner 数量属于 CI 基础设施因素，不能与编译优化混为一谈。
@@ -83,8 +84,13 @@ PR 的测试合并提交必须在构建摘要中可追溯。被分类器选中�
 
 ### 为所有 CI 任务强制上传完整安装包
 
-会增加文档-only 或不需要产品包的构建时间和存储成本，因此只在产品构建 lane
-被选中时上传测试包。
+会增加文档-only 或不需要产品包的构建时间和存储成本。macOS 只在产品构建
+lane 被选中时上传测试包；Windows PR 不上传安装包。
+
+Windows PR 曾经只要命中产品 lane 就先生成完整 NSIS 包，导致前端与 Rust
+测试必须等待 Release 编译结束。安装包不是合并判断的输入，且 preview 发布
+工作流已经提供可安装产物，因此 Windows PR 完全移除打包步骤，而不是仅把它
+挪到另一个仍会阻塞 gate 的 job。
 
 ### 为每个 Swift 源码 PR 强制生成双架构安装包
 
@@ -98,6 +104,7 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 - 普通 macOS Swift PR 更快得到必需检查结果；被选中的打包改动仍获得两个架构
   的真实安装物。
 - Git 专项验证不会再延长无关 Swift 改动的反馈时间。
+- Windows 前端失败与 Rust 失败可以独立、并行反馈，不再等待 NSIS 安装包。
 - 缓存命中时可减少 Rust 相关重复编译，同时通过完整缓存键避免跨环境误复用。
 - artifact、校验和、合并提交与 gate 结果共同提供可追溯的测试交付物。
 - 冷构建、编译器变化、依赖变化和 runner 排队仍可能很慢，不能把缓存策略
@@ -110,7 +117,7 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 - `./scripts/test-macos.sh`
 - `./scripts/verify-windows-boundaries.sh`
 - `gh run download <run-id> --repo 1lck/Lithe-IDEA --pattern 'Lithe-macos-*'`
-- `gh run download <run-id> --repo 1lck/Lithe-IDEA --pattern 'Lithe-windows-x64-*'`
+- `gh workflow run release-preview-windows.yml -f source_branch=<branch>`
 
 具体下载方式、工作流入口和历史耗时记录见
 [`docs/ci-builds.md`](../../../../docs/ci-builds.md)。
