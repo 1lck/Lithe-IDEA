@@ -154,7 +154,12 @@ export function createSessionRestoreController(
     } catch (error) {
       if (disposed) return;
       if (!callbacks.isSessionCurrent()) return;
-      if (!callbacks.isBufferValid(job.bufferId, job.path)) return;
+      if (!callbacks.isBufferValid(job.bufferId, job.path)) {
+        // Keep the stale-path failure symmetric with the successful read path;
+        // otherwise a renamed buffer would remain stuck in `loading` forever.
+        callbacks.markUnloaded(job.bufferId, job.path);
+        return;
+      }
       callbacks.markFailed(job.bufferId, error instanceof Error ? error.message : String(error));
     } finally {
       activeByBufferId.delete(job.bufferId);

@@ -15,6 +15,7 @@ const { createSessionRestoreController, SESSION_RESTORE_CONCURRENCY } =
 interface Deferred<T> {
   promise: Promise<T>;
   resolve: (value: T) => void;
+  reject: (reason?: unknown) => void;
 }
 
 const controllers = new Set<SessionRestoreController>();
@@ -22,13 +23,19 @@ const pendingReads = new Set<Deferred<string>>();
 
 function deferRead(): Deferred<string> {
   let resolve!: (value: string) => void;
+  let reject!: (reason?: unknown) => void;
   const deferred: Deferred<string> = {
-    promise: new Promise<string>((nextResolve) => {
+    promise: new Promise<string>((nextResolve, nextReject) => {
       resolve = nextResolve;
+      reject = nextReject;
     }),
     resolve(value) {
       pendingReads.delete(deferred);
       resolve(value);
+    },
+    reject(reason) {
+      pendingReads.delete(deferred);
+      reject(reason);
     },
   };
   pendingReads.add(deferred);
@@ -268,6 +275,21 @@ describe("createSessionRestoreController", () => {
     await flushRestoreWork();
 
     expect(h.applyLoaded).not.toHaveBeenCalled();
+    expect(h.markUnloaded).toHaveBeenCalledWith("id_1", "a.ts");
+  });
+
+  test("clears loading when an in-flight stale read fails", async () => {
+    const pending = deferRead();
+    readFileContent.mockReturnValue(pending.promise);
+    const h = makeHarness();
+    h.validPaths.set("id_1", "a-renamed.ts");
+    h.controller.enqueue([{ bufferId: "id_1", path: "a.ts" }]);
+
+    pending.reject(new Error("old path missing"));
+    await flushRestoreWork();
+
+    expect(h.applyLoaded).not.toHaveBeenCalled();
+    expect(h.markFailed).not.toHaveBeenCalled();
     expect(h.markUnloaded).toHaveBeenCalledWith("id_1", "a.ts");
   });
 
