@@ -53,7 +53,7 @@ import {
   configurationUsesMaven,
 } from "../utils/run-configuration";
 import { editorSaveFailureMessage, runEditorSaveWorkflow } from "../services/run-editor-save";
-import { prepareJavaRunLaunch } from "../services/java-run-launch";
+import { prepareJavaRunLaunch, usesJavaProjectPreparation } from "../services/java-run-launch";
 import { createOutputStamper, trimRunOutput, type OutputStamper } from "../utils/output-timestamper";
 
 const MAXIMUM_OUTPUT_CHARACTERS = 500_000;
@@ -141,6 +141,10 @@ const defaultRunStoreDependencies: RunStoreDependencies = {
 // the host joins it with `;` on Windows. JVM options may precede the main class
 // in any order.
 const CLASSPATH_SEPARATOR = ";";
+// Core may first wait for JDT Maven project updates and an earlier build, which
+// can take minutes on a cold multi-module project.
+const JAVA_PREPARATION_NOTICE =
+  "Preparing the Java launch: waiting for the Java language service to update and build the project...\n";
 const CLASSPATH_FLAGS = new Set(["-cp", "-classpath", "--class-path"]);
 // Merges the launch classpath into `args`. When the user already passes a
 // `-cp`/`-classpath`/`--class-path`, our entries are prepended into that same
@@ -511,6 +515,34 @@ export const createRunStore = (
             ? await dependencies.mavenLaunchContextForWorkspace(root, [], workspaceId)
             : null;
           if (!isCurrent()) return null;
+          if (usesJavaProjectPreparation(configuration)) {
+            // Show the wait in the session panel so a long first build does not
+            // look like an unresponsive Run action. The launch replaces this
+            // text with its command line; a failure is appended after it.
+            if (sessionId === PRIMARY_SESSION_ID) {
+              set({
+                primaryTitle: configuration.name,
+                primaryExitCode: null,
+                primaryOutput: JAVA_PREPARATION_NOTICE,
+                selectedSessionId: null,
+              });
+            } else {
+              set((current) => ({
+                selectedSessionId: sessionId,
+                sessions: [
+                  ...current.sessions.filter((session) => session.id !== sessionId),
+                  {
+                    id: sessionId,
+                    configurationId: configuration.id,
+                    title: configuration.name,
+                    output: JAVA_PREPARATION_NOTICE,
+                    isRunning: false,
+                    exitCode: null,
+                  },
+                ],
+              }));
+            }
+          }
           const javaLaunch = await dependencies.prepareJavaRunLaunch(
             { workspaceId, root },
             configuration,
