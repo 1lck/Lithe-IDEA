@@ -106,6 +106,25 @@ capability → Rust 以 LSP request ID 关联 deadline，用不透明 operation
 ID 投影 terminal result。停止 session 时先 `shutdown` 后 `exit`，服务器
 无响应则由超时路径强制停止，不直接用 `terminate()` 代替。
 
+### Windows 工作区打开时的 Git 优先级
+
+大型 Maven 工作区的仓库扫描和 Java 导入会竞争磁盘、进程资源。Windows 的
+首次 Git 准备（bootstrap）先通过已有 Rust Core 能力发现所有工作区根目录中的
+仓库，并等待各仓库 status 查询。后台 Java 探测与编辑器恢复共用这次准备；
+`resolveEditorLspLaunch` 必须在解析 Maven 上下文和 JDTLS 启动资源之前等待它。
+例如恢复上次打开的 `Main.java` 时，应先等 Git，再请求 Maven 上下文，不能只
+推迟后台预热而让编辑器的 `startForFile` 提前开始导入。
+
+这只是 Windows 产品启动编排，不改变 Rust 的 Git 发现规则、操作期限或
+JDTLS 的项目模型。准备任务按工作区运行实例和根目录集合复用，关闭后重开
+必须重新准备；等待期间实例或根集合变化，则丢弃旧结果并取消该次 Java 启动。
+Git 失败保留日志并允许语言服务继续，沿用底层操作的有界超时，不能永久阻塞
+编辑器。重新激活时可刷新过期 status，但并发调用必须加入已有任务。
+
+等待所有仓库不代表改变已有 UI 的路径契约。文件树与底栏继续接收主工作区
+根目录的原始 status；Git 面板才使用带仓库前缀的合并列表，否则
+`src/Main.java` 会变成无法与文件树匹配的 `repo/src/Main.java`。
+
 ### Catalog 与工具发现边界
 
 内置 provider catalog 位于
@@ -145,6 +164,9 @@ capability 为准。
 
 ## 考虑过的备选方案
 
+- **仅延后 Windows 后台 Java 预热，或统一增加 Git 超时**：前者遗漏恢复文档的
+  启动入口，后者延长故障等待而没有减少启动竞争。因此在共同的 Java 启动解析
+  入口等待 Git 准备，继续使用已有查询期限。
 - **维持 Swift/Rust 两侧各自持有一份 LSP 生命周期状态**：改动成本
   最低，两边可以独立推进。但基线审计证明文档生命周期、初始化、请求
   生命周期、传输、诊断和关闭六个关注点已经在两侧重复且互相竞争，
@@ -171,6 +193,9 @@ capability 为准。
 
 ## 后果
 
+- Windows 首次打开 Java 文档需要等待 Git 首轮查询完成；大型仓库的语言服务
+  会相应晚启动，但减少了两者竞争导致 Git 超时的机会。Git 失败时只等待已有
+  操作期限，随后允许 Java 继续，并由 Git 界面的独立重试恢复仓库数据。
 - 新语言服务器接入只需要在 Rust Core 一侧实现生命周期，Swift/Windows
   平台只做工具发现和 UI 投影，不再需要在两侧分别维护状态机。
 - 单个 provider 的失败、缺失或空结果不会阻断仍可工作的本地能力，
@@ -189,6 +214,12 @@ capability 为准。
   的唯一真值来源。
 
 ## 验证
+
+Windows 启动回归由 `workspace-git-bootstrap.test.ts` 验证恢复 Java 文档与后台
+共用准备任务、子仓库未完成时不启动 Maven、失败后继续、关闭重开丢弃旧结果，
+以及文件树仍能匹配主仓库的修改标记。相关用例与扫描合并、Git 历史恢复用例
+一起进入 Windows CI 的 Git 隔离测试清单；使用
+`.agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs` 输出单例计时。
 
 迁移完成的判定标准（均已通过测试验证）：未初始化的进程不能变为
 ready；initialize 出错不能变为 ready；两次 sync 分别产生 open
@@ -219,3 +250,5 @@ frame 缓冲区、open-document 集合、pending LSP 请求或语言服务器子
 - `macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift`
 - `macos/Sources/Lithe/Core/Ports/LanguageTooling.swift`
 - `macos/Tests/LitheTests/RealGoplsIntegrationTests.swift`
+- `windows/tauri/src/features/editor/lsp/`
+- `windows/tauri/src/features/workspace/services/workspace-git-bootstrap.ts`
