@@ -176,10 +176,17 @@ extension AppModel {
         showNotification(String(localized: "Java service is preparing"))
     }
 
-    func handleJavaWorkspaceFileChanges(_ changes: [WorkspaceFileChange]) {
+    func handleWorkspaceFileChanges(_ changes: [WorkspaceFileChange]) {
         guard let workspaceURL else { return }
+        runFeatureIfActive?.markDependencyFilesChanged(changes.map(\.fileURL))
         let maven = mavenFeatureIfActive
         let forwarded = changes.filter { change in
+            if Self.isWorkspaceDependencyMetadata(
+                change.fileURL,
+                workspaceURL: workspaceURL
+            ) {
+                return false
+            }
             guard maven?.project != nil,
                   change.fileURL.lastPathComponent.lowercased() == "pom.xml" else { return true }
             maven?.markPomChanged(change.fileURL)
@@ -199,6 +206,18 @@ extension AppModel {
             },
             sessions: languageToolingSessionsIfActive
         )
+    }
+
+    private static func isWorkspaceDependencyMetadata(
+        _ fileURL: URL,
+        workspaceURL: URL
+    ) -> Bool {
+        let directory = workspaceURL.standardizedFileURL
+            .appendingPathComponent(".lithe", isDirectory: true)
+            .appendingPathComponent("dependencies", isDirectory: true)
+            .standardizedFileURL.path
+        let path = fileURL.standardizedFileURL.path
+        return path == directory || path.hasPrefix(directory + "/")
     }
 
     func reloadMavenProject(rescan: Bool) async {

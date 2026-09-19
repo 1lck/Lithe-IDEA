@@ -672,6 +672,52 @@ struct ExecutionModuleTests {
     }
 
     @Test
+    func dependencyBrowserUsesNonJavaRunServiceConfiguration() async throws {
+        let service = RunService(
+            runtime: TestRuntime(),
+            process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(contents: [
+                URL(fileURLWithPath: "/workspace/go.mod"): "module example.dev/api"
+            ]),
+            preferences: TestRunPreferences(),
+            serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: TestGoProjectRunConfigurationOperations(),
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        defer { service.reset() }
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let goModule = root.appendingPathComponent("go.mod")
+        let main = root.appendingPathComponent("cmd/api/main.go")
+
+        await service.loadProject(at: root, files: [goModule, main], mavenProject: nil)
+
+        let dependencyService = try #require(service.dependencyServices.first)
+        #expect(dependencyService.id == "go:api")
+        #expect(dependencyService.displayName == "Go API")
+        #expect(dependencyService.providerID == "go")
+
+        service.updateDependencyPaths(
+            DependencyPathConfiguration(dependencyPaths: ["vendor/modules"]),
+            serviceID: dependencyService.id
+        )
+        let graph = try #require(
+            try await service.resolveDependencies(serviceID: dependencyService.id)
+        )
+        let rootNode = try #require(graph.roots.first)
+        #expect(rootNode.title == "Go API")
+        #expect(rootNode.subtitle == "Go")
+        #expect(rootNode.children[0].children.map(\.id) == ["/workspace/cmd/api"])
+        #expect(rootNode.children[2].children.map(\.id) == ["/workspace/vendor/modules"])
+
+        let revision = service.dependencyRevision
+        service.markDependencyFilesChanged([goModule])
+        #expect(service.dependencyRevision == revision + 1)
+    }
+
+    @Test
     func goTestsRunThroughExtensionOwnedSession() throws {
         let builtInProcess = TestStreamingProcess()
         let extensionSession = TestLanguageExecutionSession()

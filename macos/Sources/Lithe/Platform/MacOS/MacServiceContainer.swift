@@ -363,7 +363,8 @@ final class MacServiceContainer {
                             executableResolver: executableResolver,
                             languageProviderCatalog: languagePackRegistry.catalog,
                             languageRunProviders: languagePackRegistry.runProviders,
-                            extensionRequiredLanguageIDs: pluginLanguageIDs
+                            extensionRequiredLanguageIDs: pluginLanguageIDs,
+                            dependencyStore: MacWorkspaceDependencyStore(storage: fileStorage)
                         ),
                         tests: LanguageTestService(
                             catalog: languagePackRegistry.catalog,
