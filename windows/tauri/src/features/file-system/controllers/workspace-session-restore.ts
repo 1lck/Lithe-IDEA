@@ -84,8 +84,8 @@ export interface SessionRestoreCallbacks {
     editorState?: PersistedEditorViewState,
   ) => void;
   markFailed: (bufferId: string, error: string) => void;
-  /** True while the owning workspace is still the active one. */
-  isCurrent: () => boolean;
+  /** True while this controller still owns the workspace restore session. */
+  isSessionCurrent: () => boolean;
   /** True while the buffer still exists and still points at `path`. */
   isBufferValid: (bufferId: string, path: string) => boolean;
 }
@@ -107,36 +107,64 @@ export function createSessionRestoreController(
 ): SessionRestoreController {
   const queue: RestoreJob[] = [];
   const activeByBufferId = new Map<string, RestoreJob>();
+  const completionByBufferId = new Map<string, { promise: Promise<void>; resolve: () => void }>();
   let inFlight = 0;
   let disposed = false;
+
+  const completionFor = (bufferId: string) => {
+    const existing = completionByBufferId.get(bufferId);
+    if (existing) return existing;
+
+    let resolve!: () => void;
+    const completion = {
+      promise: new Promise<void>((nextResolve) => {
+        resolve = nextResolve;
+      }),
+      resolve: () => resolve(),
+    };
+    completionByBufferId.set(bufferId, completion);
+    return completion;
+  };
+
+  const complete = (bufferId: string) => {
+    const completion = completionByBufferId.get(bufferId);
+    if (!completion) return;
+    completionByBufferId.delete(bufferId);
+    completion.resolve();
+  };
 
   const runJob = async (job: RestoreJob) => {
     callbacks.markLoading(job.bufferId);
     try {
       const loaded = await loadFileContent(job.path);
       if (disposed) return;
-      if (!callbacks.isCurrent()) return; // workspace switched away
+      if (!callbacks.isSessionCurrent()) return; // a newer restore replaced this session
       if (!callbacks.isBufferValid(job.bufferId, job.path)) return; // tab closed / path moved
       callbacks.applyLoaded(job.bufferId, loaded, job.editorState);
     } catch (error) {
       if (disposed) return;
-      if (!callbacks.isCurrent()) return;
+      if (!callbacks.isSessionCurrent()) return;
       if (!callbacks.isBufferValid(job.bufferId, job.path)) return;
       callbacks.markFailed(job.bufferId, error instanceof Error ? error.message : String(error));
     } finally {
       activeByBufferId.delete(job.bufferId);
       inFlight -= 1;
+      complete(job.bufferId);
       pump();
     }
+  };
+
+  const startJob = (job: RestoreJob) => {
+    inFlight += 1;
+    activeByBufferId.set(job.bufferId, job);
+    void runJob(job);
   };
 
   const pump = () => {
     if (disposed) return;
     while (inFlight < SESSION_RESTORE_CONCURRENCY && queue.length > 0) {
       const job = queue.shift()!;
-      inFlight += 1;
-      activeByBufferId.set(job.bufferId, job);
-      void runJob(job);
+      startJob(job);
     }
   };
 
@@ -157,30 +185,39 @@ export function createSessionRestoreController(
       if (index < 0) return; // already in flight or unknown
       const [job] = queue.splice(index, 1);
       if (job) {
-        inFlight += 1;
-        activeByBufferId.set(job.bufferId, job);
-        void runJob(job);
+        queue.unshift(job);
+        pump();
       }
     },
 
-    async loadNow(job) {
-      if (disposed || activeByBufferId.has(job.bufferId)) return;
-      const index = queue.findIndex(
-        (queued) => queued.bufferId === job.bufferId || queued.path === job.path,
-      );
+    loadNow(job) {
+      if (disposed) return Promise.resolve();
+      const activeCompletion = completionByBufferId.get(job.bufferId);
+      if (activeByBufferId.has(job.bufferId)) return activeCompletion?.promise ?? Promise.resolve();
+
+      const index = queue.findIndex((queued) => queued.bufferId === job.bufferId);
       // Prefer the queued job so promotion preserves its persisted editor view
       // state instead of replacing it with the caller's minimal buffer identity.
       const queuedJob = index >= 0 ? queue.splice(index, 1)[0] : undefined;
-      const jobToLoad = queuedJob ?? job;
-      inFlight += 1;
-      activeByBufferId.set(jobToLoad.bufferId, jobToLoad);
-      await runJob(jobToLoad);
+      const jobToLoad = queuedJob?.path === job.path ? queuedJob : job;
+      const completion = completionFor(jobToLoad.bufferId);
+
+      if (inFlight < SESSION_RESTORE_CONCURRENCY) {
+        startJob(jobToLoad);
+      } else {
+        // User-selected tabs take precedence, but never create unbounded I/O.
+        queue.unshift(jobToLoad);
+      }
+
+      return completion.promise;
     },
 
     dispose() {
       disposed = true;
       queue.length = 0;
       activeByBufferId.clear();
+      for (const completion of completionByBufferId.values()) completion.resolve();
+      completionByBufferId.clear();
     },
 
     pendingCount: () => queue.length,

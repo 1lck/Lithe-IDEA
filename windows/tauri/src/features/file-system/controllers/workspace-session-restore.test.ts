@@ -57,7 +57,7 @@ interface Harness {
   markLoading: ReturnType<typeof mock>;
   applyLoaded: ReturnType<typeof mock>;
   markFailed: ReturnType<typeof mock>;
-  isCurrent: ReturnType<typeof mock>;
+  isSessionCurrent: ReturnType<typeof mock>;
   isBufferValid: ReturnType<typeof mock>;
   validPaths: Map<string, string>;
   setCurrent: (value: boolean) => void;
@@ -69,14 +69,14 @@ function makeHarness(): Harness {
   const markFailed = mock((_id: string, _error: string) => {});
   let current = true;
   const validPaths = new Map<string, string>();
-  const isCurrent = mock(() => current);
+  const isSessionCurrent = mock(() => current);
   const isBufferValid = mock((id: string, path: string) => validPaths.get(id) === path);
 
   const controller = createSessionRestoreController({
     markLoading,
     applyLoaded,
     markFailed,
-    isCurrent,
+    isSessionCurrent,
     isBufferValid,
   });
   controllers.add(controller);
@@ -86,7 +86,7 @@ function makeHarness(): Harness {
     markLoading,
     applyLoaded,
     markFailed,
-    isCurrent,
+    isSessionCurrent,
     isBufferValid,
     validPaths,
     setCurrent: (value) => {
@@ -140,11 +140,14 @@ describe("createSessionRestoreController", () => {
     expect(readFileContent).toHaveBeenCalledTimes(1);
   });
 
-  test("promote loads a queued buffer immediately, ahead of the queue", () => {
+  test("promote prioritizes a queued buffer without exceeding the concurrency cap", async () => {
     const readOrder: string[] = [];
+    const pending = new Map<string, Deferred<string>>();
     readFileContent.mockImplementation((path: string) => {
       readOrder.push(path);
-      return deferRead().promise;
+      const deferred = deferRead();
+      pending.set(path, deferred);
+      return deferred.promise;
     });
 
     const h = makeHarness();
@@ -152,8 +155,12 @@ describe("createSessionRestoreController", () => {
     for (const path of paths) h.validPaths.set(`id_${path}`, path);
 
     h.controller.enqueue(paths.map((path) => ({ bufferId: `id_${path}`, path })));
-    // a.ts and b.ts fill the concurrency slots, then c.ts jumps ahead of d.ts.
+    // a.ts and b.ts fill the slots; c.ts moves ahead of d.ts but waits for a slot.
     h.controller.promote("id_c.ts");
+    expect(readOrder).toEqual(["a.ts", "b.ts"]);
+
+    pending.get("a.ts")!.resolve("content");
+    await flushRestoreWork();
 
     expect(readOrder).toEqual(["a.ts", "b.ts", "c.ts"]);
     expect(h.controller.pendingCount()).toBe(1); // d.ts still queued
@@ -175,9 +182,13 @@ describe("createSessionRestoreController", () => {
   });
 
   test("loadNow preserves the persisted editor state of a queued job", async () => {
-    readFileContent.mockImplementation((path: string) =>
-      path === "c.ts" ? Promise.resolve("content") : deferRead().promise,
-    );
+    const pending = new Map<string, Deferred<string>>();
+    readFileContent.mockImplementation((path: string) => {
+      if (path === "c.ts") return Promise.resolve("content");
+      const deferred = deferRead();
+      pending.set(path, deferred);
+      return deferred.promise;
+    });
     const h = makeHarness();
     for (const path of ["a.ts", "b.ts", "c.ts"]) h.validPaths.set(`id_${path}`, path);
     const editorState = { cursor: { line: 4, column: 2, offset: 14 }, scrollTop: 96 };
@@ -187,7 +198,10 @@ describe("createSessionRestoreController", () => {
       { bufferId: "id_b.ts", path: "b.ts" },
       { bufferId: "id_c.ts", path: "c.ts", editorState },
     ]);
-    await h.controller.loadNow({ bufferId: "id_c.ts", path: "c.ts" });
+    const load = h.controller.loadNow({ bufferId: "id_c.ts", path: "c.ts" });
+    expect(readFileContent).toHaveBeenCalledTimes(SESSION_RESTORE_CONCURRENCY);
+    pending.get("a.ts")!.resolve("content");
+    await load;
 
     expect(h.applyLoaded).toHaveBeenCalledWith(
       "id_c.ts",
@@ -196,7 +210,37 @@ describe("createSessionRestoreController", () => {
     );
   });
 
-  test("drops a result when the workspace is no longer current", async () => {
+  test("loadNow replaces a queued job whose buffer path changed", async () => {
+    const pending = new Map<string, Deferred<string>>();
+    readFileContent.mockImplementation((path: string) => {
+      if (path === "renamed.ts") return Promise.resolve("renamed content");
+      const deferred = deferRead();
+      pending.set(path, deferred);
+      return deferred.promise;
+    });
+    const h = makeHarness();
+    h.validPaths.set("id_a.ts", "a.ts");
+    h.validPaths.set("id_b.ts", "b.ts");
+    h.validPaths.set("id_c.ts", "renamed.ts");
+
+    h.controller.enqueue([
+      { bufferId: "id_a.ts", path: "a.ts" },
+      { bufferId: "id_b.ts", path: "b.ts" },
+      { bufferId: "id_c.ts", path: "before-rename.ts" },
+    ]);
+    const load = h.controller.loadNow({ bufferId: "id_c.ts", path: "renamed.ts" });
+    pending.get("a.ts")!.resolve("content");
+    await load;
+
+    expect(readFileContent).toHaveBeenCalledWith("renamed.ts");
+    expect(h.applyLoaded).toHaveBeenCalledWith(
+      "id_c.ts",
+      expect.objectContaining({ kind: "text", content: "renamed content" }),
+      undefined,
+    );
+  });
+
+  test("drops a result when a newer restore session replaces this controller", async () => {
     const pending = new Map<string, Deferred<string>>();
     readFileContent.mockImplementation(
       (path: string) => {
@@ -210,7 +254,7 @@ describe("createSessionRestoreController", () => {
     h.validPaths.set("id_1", "a.ts");
     h.controller.enqueue([{ bufferId: "id_1", path: "a.ts" }]);
 
-    h.setCurrent(false); // workspace switched away while reading
+    h.setCurrent(false); // a newer restore replaced this controller while reading
     pending.get("a.ts")!.resolve("content");
     await flushRestoreWork();
 

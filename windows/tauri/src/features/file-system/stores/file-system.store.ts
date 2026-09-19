@@ -796,6 +796,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
   let latestTreeRevealRequestId = 0;
   let sessionRestoreController: SessionRestoreController | null = null;
   let sessionRestoreJobs = new Map<string, RestoreJob>();
+  let sessionRestoreGeneration = 0;
   let deferredAiSession: ReturnType<typeof readPersistedAiWorkspaceSession> | undefined;
 
   return createStore<ScopedFileSystemStoreState>()(
@@ -888,6 +889,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
 
       resetWorkspace: async () => {
         // Drop any in-flight session restore before tearing down buffers.
+        sessionRestoreGeneration += 1;
         sessionRestoreController?.dispose();
         sessionRestoreController = null;
         sessionRestoreJobs.clear();
@@ -1009,6 +1011,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           );
 
           // Drop any controller left over from a previous restore for this workspace.
+          const restoreGeneration = ++sessionRestoreGeneration;
           sessionRestoreController?.dispose();
           sessionRestoreController = null;
           sessionRestoreJobs.clear();
@@ -1058,7 +1061,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           sessionRestoreJobs = new Map(editorJobs.map((job) => [job.bufferId, job]));
 
           // 2. Wire the bounded background restore controller for editor buffers.
-          sessionRestoreController = createSessionRestoreController({
+          const restoreController = createSessionRestoreController({
             markLoading: (bufferId) => bufferActions.markBufferLoading(bufferId),
             applyLoaded: (bufferId, loaded, editorState) =>
               bufferActions.replaceRestoredBufferContent(
@@ -1068,12 +1071,15 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
                 editorState,
               ),
             markFailed: (bufferId, error) => bufferActions.markBufferLoadFailed(bufferId, error),
-            isCurrent: () => workspaceRuntimeRegistry.getActiveWorkspaceId() === workspaceId,
+            // A prewarmed workspace is intentionally inactive while its saved tabs
+            // hydrate. Only a newer restore or teardown makes this session stale.
+            isSessionCurrent: () => sessionRestoreGeneration === restoreGeneration,
             isBufferValid: (bufferId, path) => {
               const buffer = getBufferById(bufferStore.getState().buffers, bufferId);
               return !!buffer && buffer.path === path;
             },
           });
+          sessionRestoreController = restoreController;
           bufferActions.setSessionRestorePromoter((bufferId) => {
             const buffer = getBufferById(bufferStore.getState().buffers, bufferId);
             if (buffer) {
@@ -1082,7 +1088,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
                 restoredJob?.path === buffer.path
                   ? restoredJob
                   : { bufferId, path: buffer.path };
-              void sessionRestoreController?.loadNow(job);
+              void restoreController.loadNow(job);
             }
           });
 
@@ -1090,7 +1096,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           //    resolves as soon as the active tab is ready.
           const activeJob = editorJobs.find((job) => job.path === restorePlan.activeBufferPath);
           if (activeJob) {
-            await sessionRestoreController.loadNow(activeJob);
+            await restoreController.loadNow(activeJob);
           }
 
           // 4. Enqueue the remaining editor buffers for bounded background loading.
@@ -1098,7 +1104,13 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             ? editorJobs.filter((job) => job !== activeJob)
             : editorJobs;
           if (backgroundJobs.length > 0) {
-            sessionRestoreController.enqueue(backgroundJobs);
+            // Preserve the previous idle boundary so content hydration does not
+            // compete with first render and workspace startup services.
+            void waitForWorkspaceIdle().then(() => {
+              if (sessionRestoreGeneration === restoreGeneration) {
+                restoreController.enqueue(backgroundJobs);
+              }
+            });
           }
 
           // 5. Activate the session's active buffer.
