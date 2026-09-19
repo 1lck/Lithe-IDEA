@@ -51,6 +51,25 @@ afterEach(() => {
 });
 
 describe("setMarkdownViewMode", () => {
+  test("late restore preserves edits and their dirty lifecycle", () => {
+    const buffer = editorBuffer("pending", "docs/pending.md");
+    buffer.loadState = "loading";
+    buffer.content = "new edit";
+    buffer.savedContent = "old content";
+    buffer.contentRevision = 1;
+    buffer.isDirty = true;
+    buffer.documentLifecycle = { status: "dirty", revision: 1, savedRevision: 0 };
+    setBuffers([buffer], buffer.id);
+    useBufferStore.getStore(WORKSPACE).getState().actions
+      .replaceRestoredBufferContent(buffer.id, "stale disk content", "markdown");
+    const restored = bufferById(buffer.id) as EditorContent;
+    expect(restored.content).toBe("new edit");
+    expect(restored.savedContent).toBe("old content");
+    expect(restored.isDirty).toBe(true);
+    expect(restored.documentLifecycle).toEqual(buffer.documentLifecycle);
+    expect(restored.loadState).toBe("loaded");
+  });
+
   test("stores the display mode on a markdown editor buffer", () => {
     setBuffers([editorBuffer("readme", "docs/readme.md")], "readme");
     const { setMarkdownViewMode } = useBufferStore.getStore(WORKSPACE).getState().actions;

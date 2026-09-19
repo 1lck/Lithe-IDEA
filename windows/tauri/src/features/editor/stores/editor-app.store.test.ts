@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { toast } from "sonner";
+import * as native from "@/platform/tauri-core";
+import { saveActiveFileAs } from "@/features/keymaps/commands/file-command-actions";
+import { applyWorkspaceEdit } from "../lsp/workspace-edit";
+import { replaceAllInSources, replaceNextInSource } from "@/features/global-search/utils/source-replace";
 import type { EditorContent } from "@/features/panes/types/pane-content.types";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { saveWorkspaceBeforeLaunch } from "../services/save-workspace-before-launch";
@@ -61,6 +65,82 @@ afterEach(() => {
 });
 
 describe("workspace-scoped editor actions", () => {
+  for (const operation of ["rename", "replace-all", "replace-next"] as const) {
+    test(`${operation} rejects unloaded targets before changing other documents`, async () => {
+      const a = editorBuffer("a", "old name", { path: "C:/fixture/a.txt", isVirtual: false });
+      const b = editorBuffer("b", "", { path: "C:/fixture/b.txt", isVirtual: false });
+      b.loadState = "loading";
+      setWorkspaceBuffers(WORKSPACE_A, [a, b], a.id);
+      workspaceRuntimeRegistry.activateWorkspace({ id: WORKSPACE_A, name: "Workspace A" }, "ready");
+      const options = { caseSensitive: true, wholeWord: false, useRegex: false };
+      const edit = { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } }, newText: "new" };
+      const task = operation === "rename"
+        ? applyWorkspaceEdit({ changes: { "file:///C:/fixture/a.txt": [edit], "file:///C:/fixture/b.txt": [edit] } })
+        : operation === "replace-all"
+          ? replaceAllInSources([a.path, b.path], "old", "new", options)
+          : replaceNextInSource({ filePath: b.path, line: 1, column: 1 }, "old", "new", options);
+      await expect(task).rejects.toThrow("b.txt");
+      expect(getEditorBuffer(WORKSPACE_A, a.id).content).toBe("old name");
+      expect(getEditorBuffer(WORKSPACE_A, a.id).isDirty).toBe(false);
+      expect(getEditorBuffer(WORKSPACE_A, b.id).content).toBe("");
+    });
+  }
+
+  test("unrelated loading tabs do not block replacement or lose later edits", async () => {
+    const a = editorBuffer("a", "old name", { path: "C:/fixture/a.txt", isVirtual: false });
+    const b = editorBuffer("b", "", { path: "C:/fixture/b.txt", isVirtual: false });
+    b.loadState = "loading";
+    setWorkspaceBuffers(WORKSPACE_A, [a, b], a.id);
+    workspaceRuntimeRegistry.activateWorkspace({ id: WORKSPACE_A, name: "Workspace A" }, "ready");
+    expect(await replaceAllInSources([a.path], "old", "new", {
+      caseSensitive: true, wholeWord: false, useRegex: false,
+    })).toBe(1);
+    const actions = useBufferStore.getStore(WORKSPACE_A).getState().actions;
+    actions.replaceRestoredBufferContent(a.id, "stale content", "plaintext");
+    expect(getEditorBuffer(WORKSPACE_A, a.id).content).toBe("new name");
+    expect(getEditorBuffer(WORKSPACE_A, a.id).savedContent).toBe("old name");
+    expect(getEditorBuffer(WORKSPACE_A, a.id).isDirty).toBe(true);
+  });
+
+  for (const loadState of ["unloaded", "loading", "error"] as const) {
+    test(`rejects saving a remote ${loadState} placeholder before SSH writes`, async () => {
+      const buffer = editorBuffer("remote", "", {
+        path: "remote://test/work/source.txt", isVirtual: false,
+      });
+      buffer.loadState = loadState;
+      setWorkspaceBuffers(WORKSPACE_A, [buffer], buffer.id);
+      const failure = spyOn(toast, "error").mockImplementation(() => "test-toast");
+      const invoke = spyOn(native, "invoke").mockResolvedValue(undefined);
+      try {
+        expect(await useEditorAppStore.getStore(WORKSPACE_A).getState().actions.handleSave())
+          .toBe("failed");
+        expect(getEditorBuffer(WORKSPACE_A, buffer.id).isDirty).toBe(false);
+        expect(failure).toHaveBeenCalledTimes(1);
+        expect(invoke).not.toHaveBeenCalled();
+      } finally {
+        invoke.mockRestore();
+        failure.mockRestore();
+      }
+    });
+  }
+
+  test("save-as rejects a loading placeholder without writing a file", async () => {
+    const buffer = editorBuffer("pending", "", { isVirtual: false });
+    buffer.loadState = "loading";
+    setWorkspaceBuffers(WORKSPACE_A, [buffer], buffer.id);
+    workspaceRuntimeRegistry.activateWorkspace({ id: WORKSPACE_A, name: "Workspace A" }, "ready");
+    const failure = spyOn(toast, "error").mockImplementation(() => "test-toast");
+    const invoke = spyOn(native, "invoke").mockResolvedValue(undefined);
+    try {
+      await saveActiveFileAs();
+      expect(invoke).not.toHaveBeenCalled();
+      expect(failure).toHaveBeenCalledTimes(1);
+    } finally {
+      invoke.mockRestore();
+      failure.mockRestore();
+    }
+  });
+
   test("routes content changes to the source workspace", async () => {
     setWorkspaceBuffers(
       WORKSPACE_A,

@@ -1964,6 +1964,18 @@ const createBufferStore = (workspaceId: string) => {
         ) => {
           const buffer = getBufferById(get().buffers, bufferId);
           if (!buffer || !isEditorContent(buffer)) return;
+          // A disk reload or another edit may have populated this placeholder
+          // while the restore read was pending. Preserve that newer revision.
+          if (buffer.isDirty || (buffer.contentRevision ?? 0) > 0) {
+            set((state) => {
+              const current = state.buffers.find((item) => item.id === bufferId);
+              if (current && isEditorContent(current)) {
+                current.loadState = "loaded";
+                current.loadError = undefined;
+              }
+            });
+            return;
+          }
           restorePersistedEditorViewState(buffer, editorState);
           set((state) => {
             const buf = state.buffers.find((b) => b.id === bufferId);

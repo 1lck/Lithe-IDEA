@@ -1,4 +1,5 @@
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { bufferNotLoadedMessage, isBufferContentLoaded } from "../utils/buffer-load-state";
 import { isLocalDocumentPath, readDocumentFile, saveDocumentFile } from "@/platform/document-files";
 import { decideDocumentLifecycle } from "@/platform/document-lifecycle";
 import { invoke } from "@/platform/tauri-core";
@@ -236,6 +237,10 @@ async function saveEditorBufferById(
   const { updateSettingsFromJSON } = useSettingsStore.getState().actions;
   const activeBuffer = getBufferById(buffers, bufferId);
   if (!activeBuffer || !isEditorContent(activeBuffer) || activeBuffer.readOnly) return "failed";
+  if (!isBufferContentLoaded(activeBuffer)) {
+    toast.error(bufferNotLoadedMessage(activeBuffer.name));
+    return "failed";
+  }
 
   let claimedSave: ClaimedDocumentSave | null = null;
 
