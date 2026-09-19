@@ -47,6 +47,15 @@ let semanticOperationId = "";
 let semanticRequestResult: unknown = { locations: [] };
 let semanticRequestResults: unknown[] = [];
 let releaseInitialization: (() => void) | undefined;
+
+/** A queued semantic outcome that Core reports as a structured request error. */
+interface CoreRequestFailure {
+  coreError: { code: string; message: string; stage?: string };
+}
+
+function isCoreRequestFailure(value: unknown): value is CoreRequestFailure {
+  return typeof value === "object" && value !== null && "coreError" in value;
+}
 let releaseRuntimeReady: (() => void) | undefined;
 
 function readyEvents(sessionId: string) {
@@ -225,6 +234,9 @@ const executeCore = mock(
         }
         if (semanticRequestPending) {
           semanticRequestPending = false;
+          const outcome = semanticRequestResults.length > 0
+            ? semanticRequestResults.shift()
+            : semanticRequestResult;
           return {
             id: request.id,
             ok: true as const,
@@ -235,9 +247,9 @@ const executeCore = mock(
                   providerId: "java",
                   sessionId,
                   operationId: semanticOperationId,
-                  result: semanticRequestResults.length > 0
-                    ? semanticRequestResults.shift()
-                    : semanticRequestResult,
+                  ...(isCoreRequestFailure(outcome)
+                    ? { error: outcome.coreError }
+                    : { result: outcome }),
                 },
               ],
             },
@@ -434,6 +446,9 @@ describe("Rust Core LSP adapter failures", () => {
     expect(failure?.code).toBe("serverExited");
     expect(failure?.details).toBe("JVM startup failed; exit code 13");
     expect(startPayload?.initializeTimeoutMilliseconds).toBe(30_000);
+    // Core owns both deadlines; Java builds get the long project-build bound.
+    expect(startPayload?.requestTimeoutMilliseconds).toBe(30_000);
+    expect(startPayload?.javaBuildTimeoutMilliseconds).toBe(600_000);
     expect(startPayload?.runtimeExecutablePath).toBe("C:/Lithe/jdk/bin/java.exe");
     expect(startPayload?.jdtlsLaunchResources).toEqual({
       launcherJarPath: "C:/Lithe/jdtls/plugins/equinox.jar",
@@ -645,6 +660,55 @@ describe("Rust Core LSP adapter failures", () => {
       "vscode.java.buildWorkspace",
       "vscode.java.resolveClasspath",
     ]);
+  });
+
+  test("reports Core's Java build failure instead of a generic source-error hint", async () => {
+    scenario = "semantic-request";
+    semanticRequestResults = [
+      {
+        value: [
+          {
+            mainClass: "example.Main",
+            projectName: "service",
+            filePath: "C:/work/service/src/main/java/example/Main.java",
+          },
+        ],
+      },
+      {
+        coreError: {
+          code: "javaBuildFailed",
+          stage: "javaBuild",
+          message:
+            "The Java language service could not complete the project build. " +
+            "Check the Java language server log for the build error.",
+        },
+      },
+    ];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    let failure: (Error & { code?: string }) | null = null;
+    try {
+      await invokeLsp("java_prepare_run_launch", {
+        workspacePath: "C:/work",
+        sourcePath: "C:/work/service/src/main/java/example/Main.java",
+        mainClass: "example.Main",
+      });
+    } catch (error) {
+      failure = error as Error & { code?: string };
+    }
+
+    expect(failure?.code).toBe("javaBuildFailed");
+    expect(failure?.message).toContain("could not complete the project build");
+    expect(failure?.message).not.toContain("Fix the reported Java errors");
+    expect(
+      requestPayloads.slice(-1).map((payload) =>
+        (payload.command as { command?: string } | undefined)?.command),
+    ).toEqual(["vscode.java.buildWorkspace"]);
   });
 
   test("rejects an invalid Java Debug Server port", async () => {
