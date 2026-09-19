@@ -5,6 +5,59 @@ import Testing
 
 @Suite("Project runtime settings")
 struct ProjectRuntimeSettingsTests {
+    @Test @MainActor
+    func changedProjectSettingsRejectLateExtensionRuntimeConfiguration() async throws {
+        let started = TestGate()
+        let release = TestGate()
+        let root = URL(fileURLWithPath: "/fixture/project")
+        let service = ProjectRuntimeService(runtimeLocator: ProjectRuntimeSettingsTestLocator(
+            bundledHome: "/fixture/bundled", discoveryStarted: started, discoveryRelease: release),
+            store: ProjectRuntimeSettingsTestStore())
+        service.openProject(at: root)
+        service.updateSettings(ProjectRuntimeSettings(javaHomePath: "/fixture/first"))
+        let preparation = Task { try await service.prepareJavaExtensionConfiguration(for: root) }
+        defer { preparation.cancel(); started.open(); release.open() }
+        #expect(await started.waitUntilOpen())
+        service.updateSettings(ProjectRuntimeSettings(javaHomePath: "/fixture/second"))
+        release.open()
+        await #expect(throws: CancellationError.self) { try await preparation.value }
+    }
+
+    @Test(arguments: [8, 17, 21]) @MainActor
+    func extensionConfigurationSeparatesBundledServerJDKFromProjectSDK(major: Int) async throws {
+        let root = URL(fileURLWithPath: "/fixture/project")
+        let locator = ProjectRuntimeSettingsTestLocator(
+            discoveredJavaRuntimes: [.init(homePath: "/fixture/discovered", version: "\(major)", vendor: "Test")],
+            bundledHome: "/fixture/bundled", versions: ["/fixture/project/sdk": "\(major)"])
+        let service = ProjectRuntimeService(runtimeLocator: locator, store: ProjectRuntimeSettingsTestStore())
+        service.openProject(at: root)
+        service.updateSettings(ProjectRuntimeSettings(javaHomePath: "sdk"))
+        let configuration = try await service.prepareJavaExtensionConfiguration(for: root)
+        #expect(configuration == .object(["user": .object([
+            "java.jdt.ls.java.home": .string("/fixture/bundled"),
+            "java.configuration.runtimes": .array([.object([
+                "name": .string(major == 8 ? "JavaSE-1.8" : "JavaSE-\(major)"),
+                "path": .string("/fixture/project/sdk"), "default": .bool(true)
+            ])])
+        ])]))
+    }
+
+    @Test @MainActor
+    func extensionConfigurationRejectsMissingBundledRuntimeAndInvalidSelectedSDK() async throws {
+        let root = URL(fileURLWithPath: "/fixture/project")
+        let missing = ProjectRuntimeService(runtimeLocator: ProjectRuntimeSettingsTestLocator(), store: ProjectRuntimeSettingsTestStore())
+        missing.openProject(at: root)
+        await #expect(throws: (any Error).self) { try await missing.prepareJavaExtensionConfiguration(for: root) }
+        let invalid = ProjectRuntimeService(runtimeLocator: ProjectRuntimeSettingsTestLocator(
+            validJavaHomes: ["/fixture/bundled"], bundledHome: "/fixture/bundled"), store: ProjectRuntimeSettingsTestStore())
+        invalid.openProject(at: root)
+        invalid.updateSettings(ProjectRuntimeSettings(javaHomePath: "/fixture/missing"))
+        await #expect(throws: (any Error).self) { try await invalid.prepareJavaExtensionConfiguration(for: root) }
+        await #expect(throws: CancellationError.self) {
+            try await invalid.prepareJavaExtensionConfiguration(for: URL(fileURLWithPath: "/fixture/other"))
+        }
+    }
+
     @Test
     func overlayPrefersRunConfigurationThenSubprojectThenProjectJDK() {
         var settings = ProjectRuntimeSettings(javaHomePath: "/jdk-21")
@@ -214,10 +267,18 @@ private final class ProjectRuntimeSettingsTestStore: KeyValueStore, @unchecked S
 private struct ProjectRuntimeSettingsTestLocator: RuntimeLocator {
     var validJavaHomes: Set<String>?
     var discoveredJavaRuntimes: [JavaRuntimeCandidate] = []
+    var bundledHome: String?
+    var versions: [String: String] = [:]
+    var discoveryStarted: TestGate?
+    var discoveryRelease: TestGate?
+
+    func bundledJdkHome() -> URL? { bundledHome.map { URL(fileURLWithPath: $0) } }
 
     func environment() -> [String: String] { [:] }
     func discover() -> RuntimeDiscoveryResult {
-        RuntimeDiscoveryResult(javaRuntimes: discoveredJavaRuntimes, mavenRuntimes: [])
+        discoveryStarted?.open()
+        if let discoveryRelease { #expect(discoveryRelease.waitSynchronously()) }
+        return RuntimeDiscoveryResult(javaRuntimes: discoveredJavaRuntimes, mavenRuntimes: [])
     }
     func validJavaHome(path: String) -> URL? {
         if let validJavaHomes {
@@ -226,7 +287,7 @@ private struct ProjectRuntimeSettingsTestLocator: RuntimeLocator {
         return URL(fileURLWithPath: path, isDirectory: true)
     }
     func javaRuntime(at homeURL: URL) -> JavaRuntimeCandidate? {
-        JavaRuntimeCandidate(homePath: homeURL.path, version: "21", vendor: "Test")
+        JavaRuntimeCandidate(homePath: homeURL.path, version: versions[homeURL.path] ?? "21", vendor: "Test")
     }
     func isExecutable(at url: URL) -> Bool { false }
     func systemMavenExecutable() -> URL? { nil }

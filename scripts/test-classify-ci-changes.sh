@@ -30,6 +30,7 @@ mkdir -p \
     macos/Sources/LitheGitModule \
     macos/Tests/LitheGitPerformanceTests \
     infra/docker/database-validation \
+    extension-host/src \
     rust/lithe-core/src/tests \
     rust/lithe-core/src/lsp \
     rust/lithe-core/tests \
@@ -42,6 +43,7 @@ printf '%s\n' '#[test]' 'fn source_test() { assert_eq!(1, 1); }' > rust/lithe-co
 printf '%s\n' '#[test]' 'fn value_is_one() { assert_eq!(1, 1); }' > rust/lithe-core/tests/value.rs
 printf '%s\n' 'fn main() {}' > rust/lithe-db-sidecar/src/main.rs
 printf '%s\n' 'services: {}' > infra/docker/database-validation/compose.yaml
+printf '%s\n' 'export const value = 1;' > extension-host/src/main.ts
 printf '%s\n' '#!/bin/zsh' 'print -- package' > scripts/verify-macos-package.sh
 printf '%s\n' 'struct App {}' > macos/Sources/Lithe/App.swift
 printf '%s\n' 'struct RustCoreBridge {}' > macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift
@@ -123,6 +125,7 @@ modify_rust_code() { printf '%s\n' '//! Test module.' 'pub fn value() -> u8 { 2 
 modify_rust_test() { printf '%s\n' '#[test]' 'fn value_is_two() { assert_eq!(2, 2); }' > rust/lithe-core/tests/value.rs; }
 modify_rust_source_test() { printf '%s\n' '#[test]' 'fn source_test() { assert_eq!(2, 2); }' > rust/lithe-core/src/lsp/tests.rs; }
 modify_database_rust() { printf '%s\n' 'fn main() { println!("updated"); }' > rust/lithe-db-sidecar/src/main.rs; }
+modify_extension_host() { printf '%s\n' 'export const value = 2;' > extension-host/src/main.ts; }
 modify_database_docker() { printf '%s\n' 'services:' '  mariadb: {}' > infra/docker/database-validation/compose.yaml; }
 modify_macos_package_verifier() { printf '%s\n' '#!/bin/zsh' 'print -- updated-package' > scripts/verify-macos-package.sh; }
 modify_localization_packaging() { printf '%s\n' '#!/bin/zsh' 'print -- localizations' > scripts/package-macos-localizations.sh; }
@@ -188,6 +191,9 @@ assert_classification rust-source-test \
 assert_classification database-rust \
     "$(classification false false false false true true false false false false)" \
     modify_database_rust
+assert_classification extension-host \
+    "$(classification false false false false false false false false false false)" \
+    modify_extension_host
 assert_classification database-docker \
     "$(classification false false false false true false false false false false)" \
     modify_database_docker

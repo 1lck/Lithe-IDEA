@@ -72,6 +72,10 @@ MacServiceContainer
    的恢复机制，不等同于进程隔离，也不能宣称第三方模块崩溃不会终止应用。
 9. 静态贡献目录可以被工作台读取而不构造模块；模块实例激活后才发布
    实际贡献，休眠、禁用或失败回滚时移除这些贡献。
+10. 同一模块的并发激活共享一个启动任务，依赖图先校验，避免循环依赖互相等待。
+    禁用先阻止新启动，再取消并等待已有激活退出；即使模块忽略取消并返回成功，
+    运行时也不能发布迟到的能力。失败回滚保留禁用决定，残留活动资源阻止重新启用。
+    全局关闭期间拒绝新激活，清理任务归运行时持有，不随调用者取消而中断。
 
 ### 插件宿主边界
 
@@ -129,6 +133,7 @@ API 也没有以此为前提。Lithe 先采用同进程模块边界和可恢复�
 - `./scripts/verify-shared-contracts.sh`
 - `./scripts/test-macos.sh`
 - `macos/Tests/LitheApplicationKernelTests/ModuleRuntimeTests.swift`
+- `macos/Tests/LitheTests/ModuleRuntimeActivationTests.swift`
 
 这些检查覆盖禁用模块不调用 factory、依赖顺序、能力冲突、lease 阻塞
 休眠、资源回收、唤醒重建、关闭清理、贡献目录、Safe Mode、隔离恢复和

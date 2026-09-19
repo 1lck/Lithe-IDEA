@@ -1,0 +1,160 @@
+name: CI Extension Host
+
+# The host has a Linux protocol lane and a native macOS supervisor lane.
+# Real Java extension downloads/imports remain outside this fast probe suite.
+on:
+  pull_request:
+    paths:
+      - "extension-host/**"
+      - "macos/**"
+      - "Package.swift"
+      - "Package.resolved"
+      - "scripts/test-macos.sh"
+      - ".github/actions/setup-macos-toolchain/**"
+      - "shared/contracts/vscode-extension-host.md"
+      - ".agents/skills/write-stable-tests/scripts/**"
+      - ".github/workflows/ci-extension-host.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-extension-host-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  managed-runtime:
+    name: Managed extension runtime (macOS)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: extension-host/package.json
+      - name: Prepare fixed upstream resources
+        run: >
+          bun extension-host/scripts/package-runtime.ts darwin-arm64,darwin-x64
+          .artifacts/extension-host-runtime
+      - name: Verify both layouts and execute the native runtime
+        run: |
+          bun extension-host/scripts/verify-runtime.ts .artifacts/extension-host-runtime \
+            darwin-arm64,darwin-x64 --layout-only
+          case "$(uname -m)" in
+            arm64) platform=darwin-arm64 ;;
+            x86_64) platform=darwin-x64 ;;
+            *) exit 1 ;;
+          esac
+          bun extension-host/scripts/verify-runtime.ts .artifacts/extension-host-runtime "$platform"
+
+  test:
+    name: Extension host (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          # The stability verifier diffs against the pull request base.
+          fetch-depth: 0
+
+      # The host runs under Node, like it will in the products; Bun only installs
+      # packages and runs the tests, which launch the host with `node`.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: extension-host/package.json
+
+      - name: Install dependencies
+        working-directory: extension-host
+        run: bun install --frozen-lockfile
+
+      - name: Type-check
+        working-directory: extension-host
+        run: bun run typecheck
+
+      - name: Build
+        working-directory: extension-host
+        run: bun run build
+
+      - name: Verify test stability rules
+        run: node .agents/skills/write-stable-tests/scripts/verify-test-stability.mjs --platform all --base "${{ github.event.pull_request.base.sha || 'HEAD~1' }}" --head HEAD
+
+      - name: Test with per-test timing
+        run: >
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs
+          --working-directory extension-host
+          --warn-ms 5000 --max-ms 30000 --suite-timeout-ms 300000
+          --report .artifacts/test-stability/extension-host.json
+          -- test
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-host-test-stability
+          path: .artifacts/test-stability/
+          if-no-files-found: ignore
+
+  macos-supervisor:
+    name: Extension host (macOS supervisor)
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Swift and Xcode
+        uses: ./.github/actions/setup-macos-toolchain
+
+      - name: Prepare verified SwiftPM cache
+        uses: ./.github/actions/prepare-macos-dependency-cache
+        with:
+          swiftpm: "true"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Bun prepares the existing host package; the Swift timing harness itself
+      # remains Node/Swift-only and the extension process runs under Node.
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: extension-host/package.json
+
+      - name: Build extension host
+        working-directory: extension-host
+        run: |
+          bun install --frozen-lockfile
+          bun run typecheck
+          bun run build
+
+      - name: Exercise native process, module and document boundaries
+        timeout-minutes: 12
+        run: |
+          LITHE_EXTENSION_HOST_NODE="$(command -v node)"
+          export LITHE_EXTENSION_HOST_NODE
+          export LITHE_EXTENSION_HOST_ROOT="$GITHUB_WORKSPACE/extension-host"
+          ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
+            --stall-timeout-seconds 240 --suite-timeout-seconds 660 \
+            --report .artifacts/test-stability/extension-host-macos.json -- \
+            --filter ExtensionHost
+
+      - name: Upload native test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-host-macos-test-stability
+          path: .artifacts/test-stability/
+          if-no-files-found: error

@@ -1,0 +1,26 @@
+{
+  "name": "@lithe/vscode-extension-host",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Node process that runs unmodified VS Code extensions against Lithe services (issue #737 prototype).",
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "bun build src/main.ts --target=node --format=cjs --packages=external --outfile=dist/main.js",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test",
+    "test": "bun run build && bun test test"
+  },
+  "dependencies": {
+    "@theia/core": "1.75.0",
+    "@theia/editor": "1.75.0",
+    "@theia/filesystem": "1.75.0",
+    "@theia/plugin-ext": "1.75.0",
+    "@theia/plugin-ext-vscode": "1.75.0",
+    "@theia/plugin-utils": "1.75.0"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.12",
+    "@types/node": "22.19.1",
+    "typescript": "5.9.3"
+  },
+  "packageManager": "bun@1.3.12"
+}

@@ -383,6 +383,10 @@ while IFS=$'\t' read -r status first_path _; do
         infra/docker/*)
             rust_database=true
             ;;
+        extension-host/*)
+            # The extension preview (#737) has its own CI; managed packaging is
+            # opt-in and its download smoke lane runs on workflow_dispatch.
+            ;;
         *)
             # New or unclassified repository areas are validated conservatively
             # until their ownership is made explicit above.

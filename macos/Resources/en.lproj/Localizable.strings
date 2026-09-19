@@ -1083,3 +1083,8 @@
 "Fetch completed with no reference changes." = "Fetch completed with no reference changes.";
 "Maven Build" = "Maven Build";
 "Hide Maven Build tool window" = "Hide Maven Build tool window";
+
+/* Java extension workspace trust */
+"Trust this workspace for Java extensions?" = "Trust this workspace for Java extensions?";
+"Java extensions can run build scripts and other tools from %@. Continue only if you trust this project's source." = "Java extensions can run build scripts and other tools from %@. Continue only if you trust this project's source.";
+"Trust and Enable" = "Trust and Enable";

@@ -210,6 +210,49 @@ final class ProjectRuntimeService: ObservableObject {
         return executableURL
     }
 
+    /// The bundled JDK runs JDT LS; project SDK selection remains user-owned.
+    func prepareJavaExtensionConfiguration(for workspace: URL) async throws -> ToolingJSONValue {
+        let root = workspace.standardizedFileURL
+        guard projectURL?.standardizedFileURL == root else { throw CancellationError() }
+        let preparation = await prepareJavaLanguageServerRuntime()
+        guard case .ready(let executable) = preparation else {
+            throw NSError(domain: "JavaExtensionRuntime", code: 1, userInfo: [NSLocalizedDescriptionKey:
+                javaLanguageServerRuntimeFailureMessage() ?? "The Java language server runtime is unavailable."])
+        }
+        let requestedSettings = settings
+        let configured = normalizedOverridePath(requestedSettings.javaHomePath)
+        let locator = runtimeLocator
+        let runtimes = try await Task.detached(priority: .utility) {
+            let selected = configured.isEmpty ? locator.environment()["JAVA_HOME"] ?? "" : configured
+            var candidates = locator.discover().javaRuntimes
+            if !selected.isEmpty {
+                guard let home = locator.validJavaHome(path: selected), let runtime = locator.javaRuntime(at: home),
+                      let major = runtime.majorVersion, major >= 8 else {
+                    throw NSError(domain: "JavaExtensionRuntime", code: 2, userInfo: [NSLocalizedDescriptionKey:
+                        "The selected project JDK is invalid. Choose a valid JDK in project settings."])
+                }
+                candidates.removeAll { $0.homePath == runtime.homePath }
+                candidates.insert(runtime, at: 0)
+            }
+            // One runtime per execution environment; the user's selected SDK wins.
+            var seen = Set<Int>()
+            var hasDefault = false
+            return candidates.compactMap { candidate -> ToolingJSONValue? in
+                guard let major = candidate.majorVersion, major >= 8, seen.insert(major).inserted else { return nil }
+                let isDefault = !hasDefault
+                hasDefault = true
+                return .object(["name": .string(major == 8 ? "JavaSE-1.8" : "JavaSE-\(major)"),
+                    "path": .string(candidate.homePath), "default": .bool(isDefault)])
+            }
+        }.value
+        try Task.checkCancellation()
+        guard projectURL?.standardizedFileURL == root, settings == requestedSettings else { throw CancellationError() }
+        return .object(["user": .object([
+            "java.jdt.ls.java.home": .string(executable.deletingLastPathComponent().deletingLastPathComponent().path),
+            "java.configuration.runtimes": .array(runtimes)
+        ])])
+    }
+
     func javaLanguageServerRuntimeFailureMessage() -> String? {
         guard case .failed(let message) = javaLanguageServerRuntimePreparation else {
             return nil

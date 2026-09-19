@@ -7,6 +7,33 @@ import Testing
 
 @MainActor
 struct LanguageIntelligenceModuleTests {
+    @Test func extensionTakeoverRequiresLegacyTerminationAndAllowsFallbackAfterCleanup() async throws {
+        let root = URL(fileURLWithPath: "/fixture/workspace")
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java")))
+        let legacy = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(runtimes: [
+            WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: legacy)
+        ])
+        defer { manager.stopAllLanguageServers() }
+        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        let host = ExtensionHostSession(transport: HostModuleTransport())
+        // A teardown callback returning is not enough: the actual legacy session
+        // must no longer report a running process.
+        await #expect(throws: ExtensionHostFailure.self) {
+            try await manager.acquireExtensionHostOwnership(providerID: "java", session: host, stopLegacy: {})
+        }
+        #expect(!manager.hasExtensionHostOwnership)
+        #expect(legacy.isRunning)
+        try await manager.acquireExtensionHostOwnership(providerID: "java", session: host) { legacy.stop() }
+        #expect(!legacy.isRunning)
+        #expect(manager.hasExtensionHostOwnership)
+        #expect(legacy.startCallCount == 1)
+        await host.stop()
+        #expect(!manager.hasExtensionHostOwnership)
+        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        #expect(legacy.startCallCount == 2)
+    }
+
     @Test(arguments: ["Main.java", "main.go", "main.rs"])
     func sessionStartupChecksCurrentPreferenceForEachWorkspace(fileName: String) throws {
         let root = URL(fileURLWithPath: "/workspace/disabled-lsp", isDirectory: true)

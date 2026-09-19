@@ -161,7 +161,7 @@ final class MacServiceContainer {
             recoveryStore: moduleStore,
             launchMode: moduleLaunchMode
         ))
-        let bundledLanguageManifests = BundledLanguagePluginCatalog.manifests
+        let bundledLanguageManifests = BundledLanguagePluginCatalog.manifests + [JavaExtensionPluginCatalog.manifest]
         let moduleRegistry = ModuleRegistry(
             runtime: moduleRuntime,
             pluginManifests: BuiltInPluginCatalog.manifests
@@ -522,6 +522,45 @@ final class MacServiceContainer {
                     })
                 }
             }
+            try moduleRegistry.register(ModuleFactory(manifest: JavaExtensionPluginCatalog.moduleManifest) {
+                ExtensionHostModule(
+                    manifest: JavaExtensionPluginCatalog.moduleManifest,
+                    capabilityID: JavaExtensionPluginCatalog.capabilityID,
+                    makeSession: { ExtensionHostSession(transport: MacExtensionHostTransport()) },
+                    startup: { context in
+                        guard let workspace = context.workspaceURL else {
+                            throw ExtensionHostFailure("invalidParams", "Open a workspace before activating Java extensions.")
+                        }
+                        let startup = try MacExtensionHostResources(
+                            storageRoot: fileStorage.applicationSupportDirectory()
+                                .appendingPathComponent("Lithe/extension-host", isDirectory: true)
+                        ).startup(workspace: workspace, environment: ProcessInfo.processInfo.environment)
+                        guard await platformUI.requestExtensionWorkspaceTrust(workspace) else {
+                            throw ExtensionHostFailure("workspaceNotTrusted", "Java extensions were not enabled because this workspace was not trusted.")
+                        }
+                        try Task.checkCancellation()
+                        let configuration = try await runtimeService.prepareJavaExtensionConfiguration(for: workspace)
+                        guard case .object(var initialize) = startup.initialize else {
+                            throw ExtensionHostFailure("invalidParams", "Invalid extension host startup configuration.")
+                        }
+                        initialize["configuration"] = configuration
+                        initialize["workspaceTrusted"] = .bool(true)
+                        return ExtensionHostStartupConfiguration(launch: startup.launch, initialize: .object(initialize))
+                    },
+                    onSessionCreated: { context, session in
+                        guard let capability = context.capabilities.capability(.languageIntelligence) as? LanguageIntelligenceCapability else {
+                            throw ExtensionHostFailure("notInitialized", "Language intelligence is unavailable.")
+                        }
+                        try await capability.sessions.acquireExtensionHostOwnership(providerID: "java", session: session) {
+                            let legacyModule = ModuleID.languageServerExtension("java")
+                            if (try? moduleRuntime.snapshot(for: legacyModule)) != nil {
+                                try await moduleRuntime.shutdown(legacyModule)
+                            }
+                        }
+                        capability.sessions.attachExtensionHostSession(session)
+                    }
+                )
+            })
             try moduleRegistry.validate()
         } catch {
             preconditionFailure("Invalid workspace module graph: \(error.localizedDescription)")

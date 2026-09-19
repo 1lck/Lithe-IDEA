@@ -6,6 +6,7 @@ import LitheApplicationKernel
 @testable import LitheDatabaseModule
 @testable import LitheGitModule
 import LitheLocalHistoryModule
+import LitheLanguageIntelligenceModule
 import LitheModuleAPI
 import LitheSearchModule
 import Testing
@@ -6894,11 +6895,52 @@ struct DocumentFeatureGuardedPersistenceTests {
             return .saved
         }))
         defer { model.reset() }
+        var savedEvents = 0
+        let observation = model.documentEvents.sink { event in
+            if case .saved = event { savedEvents += 1 }
+        }
+        defer { observation.cancel() }
         do { try await model.save(document); Issue.record("New input must prevent dependent workflows from proceeding") }
         catch { #expect(error is DocumentFeatureModel.SaveProgress, "Unexpected save error: \(error)") }
         #expect(document.text == "new input")
         #expect(document.savedText == "saving snapshot")
         #expect(document.isDirty)
+        #expect(savedEvents == 0)
+    }
+
+    @Test func completedWritePublishesSavedEventWithCleanAuthoritativeContent() async throws {
+        let document = EditorDocument(url: URL(fileURLWithPath: "/fixture/A.java"), text: "baseline", modificationDate: nil)
+        document.text = "saved content"
+        let model = feature(EmptyWorkspaceFileOperations(guardedWrite: { _, _ in .saved }))
+        defer { model.reset() }
+        var savedText: String?
+        let observation = model.documentEvents.sink { event in
+            if case .saved(let saved) = event {
+                #expect(saved === document)
+                #expect(!saved.isDirty)
+                savedText = saved.text
+            }
+        }
+        defer { observation.cancel() }
+        try await model.save(document)
+        #expect(savedText == "saved content")
+    }
+
+    @Test func productDocumentLifecycleFeedsExtensionBridgeThroughReset() async throws {
+        let model = feature(EmptyWorkspaceFileOperations(guardedWrite: { _, _ in .saved }))
+        configure(model)
+        let transport = DocumentRecordingTransport()
+        let connection = ExtensionHostConnection(transport: transport)
+        let bridge = ExtensionHostDocumentBridge(connection: connection, documents: model, languageID: { _ in "java" })
+        defer { bridge.stop(); connection.close(); model.reset() }
+        let document = try await open(model)
+        document.text = "edited through product"
+        model.documentDidChange(document)
+        try await model.save(document)
+        model.reset()
+        try await bridge.waitForPendingEvents()
+        #expect(transport.methods == ["host/documentOpened", "host/documentChanged",
+            "host/documentChanged", "host/documentSaved", "host/documentClosed"])
     }
 
     private func configure(_ model: DocumentFeatureModel, enabled: @escaping @MainActor () -> Bool = { false },

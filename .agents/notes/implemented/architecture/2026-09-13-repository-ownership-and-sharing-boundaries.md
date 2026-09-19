@@ -38,6 +38,7 @@ Swift 源码，也不得依赖 macOS 类型。
 | `Plugins/mac/` | macOS 所有的插件包 |
 | `Plugins/win/` | Windows 所有的插件包 |
 | `frontend/editor/` | 两端共同依赖的 Monaco 表现层、分词与编辑器模型；不调用平台 API |
+| `extension-host/` | 运行未经修改的 VS Code 扩展的 Node 进程（#737 预览，支持显式受管资源打包）；只通过 `shared/contracts/vscode-extension-host.md` 与 Lithe 通信 |
 | `shared/` | 跨平台契约和夹具，不放编译实现 |
 | `infra/` | 仓库级开发和验证基础设施 |
 | `third_party/` | 固定版本的上游清单和必要的局部源码补丁 |
@@ -258,6 +259,7 @@ Core 操作会随协议演进持续增加，逐个新增 Tauri command 会在
 - `windows/`
 - `shared/`
 - `frontend/editor/`
+- `extension-host/`
 - `scripts/`
 - `infra/`
 - `third_party/`

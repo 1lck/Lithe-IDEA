@@ -79,6 +79,7 @@ individual upstream commands were called.
 | `Plugins/mac/` | macOS-owned plugin packages |
 | `Plugins/win/` | Windows-owned plugin packages |
 | `frontend/editor/` | Shared Monaco presentation, tokenization, and editor model lifecycle; no platform APIs |
+| `extension-host/` | Node process running unmodified VS Code extensions on Theia's plugin side; talks to Lithe only through `shared/contracts/vscode-extension-host.md` (#737 preview, opt-in managed packaging) |
 | `shared/` | Cross-platform contracts and fixtures, not compiled implementation |
 | `infra/` | Repository-level development and validation infrastructure |
 | `third_party/` | Upstream code; leave unchanged unless the task explicitly targets it |

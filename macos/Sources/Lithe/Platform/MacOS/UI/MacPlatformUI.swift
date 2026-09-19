@@ -53,6 +53,15 @@ final class MacPlatformUI: PlatformUI {
     func stopAccessingProject(_ url: URL) {
         url.stopAccessingSecurityScopedResource()
     }
+
+    func requestExtensionWorkspaceTrust(_ url: URL) async -> Bool {
+        let prompt = ExtensionWorkspaceTrustPrompt()
+        return await withTaskCancellationHandler {
+            await prompt.present(url)
+        } onCancel: {
+            Task { @MainActor in prompt.cancel() }
+        }
+    }
 }
 
 enum MarkdownClipboardImageReader {

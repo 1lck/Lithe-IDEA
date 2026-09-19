@@ -11,7 +11,7 @@ package final class LanguageIntelligenceFeatureGraph: NSObject, LanguageIntellig
         self.tools = tools
     }
 
-    package var isActive: Bool { !sessions.activeLanguageServerIDs.isEmpty }
+    package var isActive: Bool { !sessions.activeLanguageServerIDs.isEmpty || sessions.hasExtensionHostOwnership }
     package var hasActiveLanguageServers: Bool { isActive }
 
     package func activate(context: ModuleContext) {
@@ -31,6 +31,7 @@ package final class LanguageIntelligenceFeatureGraph: NSObject, LanguageIntellig
 
     package func stop() async {
         sessions.stopAll()
+        await sessions.waitForExtensionHostCleanup()
         sessions.clearDiagnostics()
     }
 }

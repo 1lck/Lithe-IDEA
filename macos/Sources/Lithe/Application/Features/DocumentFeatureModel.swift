@@ -127,7 +127,7 @@ final class DocumentFeatureModel: ObservableObject {
         previewDocuments[path] = nil
         processExternalChanges([document.url])
         onDocumentCollectionChanged?()
-        onDocumentOpened?(document)
+        publishDocumentOpened(document)
     }
 
     /// Includes transient source previews, which still own live editor buffers.
@@ -151,6 +151,7 @@ final class DocumentFeatureModel: ObservableObject {
                         self.externalChangeTasks.removeValue(forKey: document.id)?.cancel()
                         self.externalChangeIDs.removeValue(forKey: document.id)
                         self.previewDocuments[document.url.standardizedFileURL.path] = nil
+                        self.publishDocumentClosed(document)
                         self.onDocumentCollectionChanged?()
                     }
                 case .failure(let error):
@@ -171,6 +172,24 @@ final class DocumentFeatureModel: ObservableObject {
     private var autoSaveEnabledProvider: (@MainActor () -> Bool)?
     private var autoSaveDelayProvider: (@MainActor () -> TimeInterval)?
     private var notify: (@MainActor (String) -> Void)?
+    private let eventSubject = PassthroughSubject<DocumentFeatureEvent, Never>()
+    var documentEvents: AnyPublisher<DocumentFeatureEvent, Never> { eventSubject.eraseToAnyPublisher() }
+
+    private func publishDocumentOpened(_ document: EditorDocument) {
+        eventSubject.send(.opened(document))
+        onDocumentOpened?(document)
+    }
+
+    private func publishDocumentChanged(_ document: EditorDocument) {
+        eventSubject.send(.changed(document))
+        onDocumentChanged?(document)
+    }
+
+    private func publishDocumentClosed(_ document: EditorDocument) {
+        eventSubject.send(.closed(document))
+        onDocumentClosed?(document)
+    }
+
     private var onDocumentOpened: (@MainActor (EditorDocument) -> Void)?
     private var onDocumentChanged: (@MainActor (EditorDocument) -> Void)?
     private var onDocumentClosed: (@MainActor (EditorDocument) -> Void)?
@@ -260,6 +279,7 @@ final class DocumentFeatureModel: ObservableObject {
     }
 
     func reset() {
+        for document in observedDocuments { eventSubject.send(.closed(document)) }
         cancelPendingClose()
         previewDiscardID = nil
         persistenceGeneration = UUID()
@@ -304,7 +324,7 @@ final class DocumentFeatureModel: ObservableObject {
             latestFileOpenRequestID = UUID()
             activeDocumentID = existing.id
             if !isReadOnly && !wasPreview {
-                onDocumentOpened?(existing)
+                publishDocumentOpened(existing)
             }
             return
         }
@@ -359,7 +379,7 @@ final class DocumentFeatureModel: ObservableObject {
             self.activeDocumentID = document.id
             self.standaloneFileLoadState = .loaded
             self.onDocumentCollectionChanged?()
-            self.onDocumentOpened?(document)
+            self.publishDocumentOpened(document)
         }
     }
 
@@ -417,7 +437,7 @@ final class DocumentFeatureModel: ObservableObject {
                 activeDocumentID = existing.id
             }
             if !isReadOnly && !asPreview && !wasPreview {
-                onDocumentOpened?(existing)
+                publishDocumentOpened(existing)
             }
             return
         }
@@ -522,7 +542,7 @@ final class DocumentFeatureModel: ObservableObject {
             activeDocumentID = document.id
         }
         onDocumentCollectionChanged?()
-        onDocumentOpened?(document)
+        publishDocumentOpened(document)
     }
 
     func requestProjectTreeReveal(for fileURL: URL, isDirectory: Bool = false) {
@@ -557,7 +577,7 @@ final class DocumentFeatureModel: ObservableObject {
         openDocuments.append(document)
         activeDocumentID = document.id
         onDocumentCollectionChanged?()
-        onDocumentOpened?(document)
+        publishDocumentOpened(document)
     }
 
     func moveDocument(_ documentID: UUID, before targetDocumentID: UUID) {
@@ -881,7 +901,7 @@ final class DocumentFeatureModel: ObservableObject {
 
     @discardableResult
     func documentDidChange(_ document: EditorDocument) -> Task<Void, Never>? {
-        onDocumentChanged?(document)
+        publishDocumentChanged(document)
         autoSaveTasks[document.id]?.task.cancel()
         guard autoSaveEnabledProvider?() == true else {
             autoSaveTasks.removeValue(forKey: document.id)
@@ -952,7 +972,7 @@ final class DocumentFeatureModel: ObservableObject {
                 guard decision.action == .reloadFromDisk else { return }
                 if document.isDirty { self.onRecordDiscard?(document) }
                 document.replaceWithDiskContent(content)
-                self.onDocumentChanged?(document)
+                self.publishDocumentChanged(document)
                 self.notify?("Loaded file-system version")
             } catch {
                 if !Task.isCancelled { self.notify?("Could not reload \(url.lastPathComponent)") }
@@ -1049,7 +1069,7 @@ final class DocumentFeatureModel: ObservableObject {
                     default: break
                     }
                     if self.openDocuments.contains(where: { $0 === document }) {
-                        self.onDocumentChanged?(document)
+                        self.publishDocumentChanged(document)
                     }
                 } catch {
                     if !Task.isCancelled { self.notify?("Could not process an external change to \(url.lastPathComponent)") }
@@ -1091,7 +1111,7 @@ final class DocumentFeatureModel: ObservableObject {
         externalChangeIDs.removeValue(forKey: document.id)
         autoSaveTasks[document.id]?.task.cancel()
         autoSaveTasks[document.id] = nil
-        onDocumentClosed?(document)
+        publishDocumentClosed(document)
         let wasActive = activeDocumentID == document.id
         openDocuments.remove(at: index)
         if wasActive {
@@ -1201,7 +1221,7 @@ final class DocumentFeatureModel: ObservableObject {
                 document.observeDiskConflict(content)
                 document.applyLifecycleState(conflict.state)
                 autoSaveTasks.removeValue(forKey: document.id)?.task.cancel()
-                onDocumentChanged?(document)
+                publishDocumentChanged(document)
                 throw CocoaError(.userCancelled)
             }
         } catch SaveProgress.newerRevisionPending {
@@ -1259,6 +1279,9 @@ final class DocumentFeatureModel: ObservableObject {
             operationID: operationID
         )
         document.markSavedWithoutWriting(state: completed.state, savedContent: savedContent)
+        // A completed write of an older revision must not mark the current
+        // buffer saved in downstream language mirrors.
+        if !document.isDirty { eventSubject.send(.saved(document)) }
     }
 
     private func workspaceRelativePath(for url: URL, root: URL) -> String? {

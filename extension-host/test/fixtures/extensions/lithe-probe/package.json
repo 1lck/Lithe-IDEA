@@ -1,0 +1,33 @@
+{
+  "name": "lithe-probe",
+  "displayName": "Lithe Probe",
+  "publisher": "lithe-test",
+  "version": "0.0.1",
+  "private": true,
+  "license": "Apache-2.0",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "litheProbe.editAndSave",
+        "title": "Edit and save through Lithe"
+      }
+    ],
+    "configuration": {
+      "title": "Lithe Probe",
+      "properties": {
+        "litheProbe.greeting": {
+          "type": "string",
+          "default": "hello"
+        },
+        "litheProbe.nested.limit": {
+          "type": "number",
+          "default": 3
+        }
+      }
+    }
+  }
+}

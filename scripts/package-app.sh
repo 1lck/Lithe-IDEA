@@ -52,6 +52,19 @@ fi
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 
+# The migration preview is opt-in until the product workflow passes acceptance.
+# Resources are prepared and checksum-verified by extension-host/scripts/package-runtime.ts.
+if [[ -n "${LITHE_EXTENSION_HOST_ROOT:-}" ]]; then
+    case "$ARCH" in
+        universal) extension_platforms="darwin-arm64,darwin-x64" ;;
+        arm64) extension_platforms="darwin-arm64" ;;
+        x86_64) extension_platforms="darwin-x64" ;;
+    esac
+    bun "$ROOT_DIR/extension-host/scripts/verify-runtime.ts" \
+        "$LITHE_EXTENSION_HOST_ROOT" "$extension_platforms" --layout-only
+    cp -R "$LITHE_EXTENSION_HOST_ROOT" "$APP_DIR/Contents/Resources/ExtensionHost"
+fi
+
 database_sidecar="${LITHE_DB_SIDECAR_EXECUTABLE:-}"
 if [[ -z "$database_sidecar" && "${LITHE_SKIP_DATABASE_SIDECAR:-0}" != "1" ]]; then
     database_sidecar=$(LITHE_ARCH="$ARCH" "$ROOT_DIR/scripts/build-database-sidecar.sh")

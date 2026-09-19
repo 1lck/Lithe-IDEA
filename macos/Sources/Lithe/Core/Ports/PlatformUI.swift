@@ -13,12 +13,15 @@ protocol PlatformUI: AnyObject {
     func markdownImageFromClipboard() -> MarkdownImageSource?
     func startAccessingProject(_ url: URL) -> Bool
     func stopAccessingProject(_ url: URL)
+    /// Explicit consent before workspace extensions can execute project tooling.
+    func requestExtensionWorkspaceTrust(_ url: URL) async -> Bool
 }
 
 extension PlatformUI {
     func activateApplication() {}
     func startAccessingProject(_ url: URL) -> Bool { false }
     func stopAccessingProject(_ url: URL) {}
+    func requestExtensionWorkspaceTrust(_ url: URL) async -> Bool { false }
 }
 
 protocol ShortcutDetector: AnyObject {

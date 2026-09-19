@@ -16,6 +16,13 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
     }
 
     private var entries: [ModuleID: Entry] = [:]
+    private struct Transition {
+        let id: UUID
+        let task: Task<Void, Error>
+    }
+    private var activations: [ModuleID: Transition] = [:]
+    private var shutdowns: [ModuleID: Transition] = [:]
+    private var shutdownAllDepth = 0
     private var capabilities: [ModuleCapabilityID: (provider: ModuleID, value: AnyObject)] = [:]
     private var eventObservers: [UUID: @MainActor (ModuleEvent) -> Void] = [:]
     private var moduleContributions: [ModuleID: [ModuleContribution]] = [:]
@@ -121,6 +128,48 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
 
     @discardableResult
     public func activate(_ id: ModuleID) async throws -> any LitheModule {
+        if let shutdown = shutdowns[id] { try await shutdown.task.value }
+        try checkActivationAllowed(id)
+        if let activation = activations[id] {
+            try await activation.task.value
+            try Task.checkCancellation()
+            return try activeInstance(id)
+        }
+        // Coalescing must not turn a dependency cycle into a task waiting for itself.
+        try validateGraph()
+        let ticket = UUID()
+        let task = Task { @MainActor in _ = try await self.performActivation(id) }
+        activations[id] = Transition(id: ticket, task: task)
+        defer { if activations[id]?.id == ticket { activations.removeValue(forKey: id) } }
+        try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: { task.cancel() }
+        try Task.checkCancellation()
+        return try activeInstance(id)
+    }
+
+    private func activeInstance(_ id: ModuleID) throws -> any LitheModule {
+        guard let entry = entries[id], entry.isEnabled,
+              entry.state == .active || entry.state == .idle, let instance = entry.instance else {
+            throw CancellationError()
+        }
+        return instance
+    }
+
+    private func checkActivationAllowed(_ id: ModuleID) throws {
+        try Task.checkCancellation()
+        guard shutdownAllDepth == 0 else { throw CancellationError() }
+        guard let entry = entries[id] else { throw ModuleRuntimeError.unknownModule(id) }
+        guard !entry.isQuarantined else { throw ModuleRuntimeError.moduleQuarantined(id) }
+        guard !entry.isSuppressedBySafeMode else {
+            throw ModuleRuntimeError.optionalModuleUnavailableInSafeMode(id)
+        }
+        guard entry.isEnabled else { throw ModuleRuntimeError.moduleDisabled(id) }
+        guard entry.state != .preparingToSleep else { throw CancellationError() }
+    }
+
+    private func performActivation(_ id: ModuleID) async throws -> any LitheModule {
+        try checkActivationAllowed(id)
         guard var entry = entries[id] else { throw ModuleRuntimeError.unknownModule(id) }
         guard !entry.isQuarantined else { throw ModuleRuntimeError.moduleQuarantined(id) }
         guard !entry.isSuppressedBySafeMode else {
@@ -129,6 +178,10 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
         guard entry.isEnabled else { throw ModuleRuntimeError.moduleDisabled(id) }
         if let instance = entry.instance, entry.state == .active || entry.state == .idle {
             return instance
+        }
+        let existingActiveKinds = entry.resources.resourceSnapshots().filter(\.isActive).map(\.kind)
+        guard existingActiveKinds.isEmpty else {
+            throw ModuleRuntimeError.activeResourcesRemain(module: id, kinds: existingActiveKinds)
         }
 
         for dependency in entry.factory.manifest.dependencies.sorted(by: dependencyOrder) {
@@ -143,6 +196,7 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
             }
         }
 
+        try checkActivationAllowed(id)
         if !entry.factory.manifest.isRequired {
             addPendingActivation(id)
         }
@@ -163,6 +217,7 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
                 contributions: self
             )
             try await instance.activate(context: context)
+            try checkActivationAllowed(id)
             entry.resources.recordActivity()
             entry.instance = instance
             entry.state = .active
@@ -189,6 +244,9 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
             entry.resources.releaseStoppedResources()
             removeCapabilities(providedBy: id)
             removeContributions(for: id)
+            // Teardown may have disabled this module while activation was suspended.
+            // Preserve that decision instead of restoring the startup snapshot.
+            entry.isEnabled = entries[id]?.isEnabled ?? false
             entry.instance = nil
             if !activeKinds.isEmpty {
                 entry.state = .failed(message: "Resources remain active after failed activation")
@@ -204,6 +262,7 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
     }
 
     public func setEnabled(_ enabled: Bool, for id: ModuleID) async throws {
+        if let shutdown = shutdowns[id] { try await shutdown.task.value }
         guard var entry = entries[id] else { throw ModuleRuntimeError.unknownModule(id) }
         if enabled, entry.isSuppressedBySafeMode {
             throw ModuleRuntimeError.optionalModuleUnavailableInSafeMode(id)
@@ -214,9 +273,15 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
         }
         guard entry.isEnabled != enabled else {
             entries[id] = entry
+            if !enabled, entry.instance != nil || activations[id] != nil
+                || entry.resources.resourceSnapshots().contains(where: { $0.isActive }) {
+                try await shutdown(id)
+            }
             return
         }
         if enabled {
+            let activeKinds = entry.resources.resourceSnapshots().filter(\.isActive).map(\.kind)
+            guard activeKinds.isEmpty else { throw ModuleRuntimeError.activeResourcesRemain(module: id, kinds: activeKinds) }
             entry.isEnabled = true
             entry.state = .inactive
             entries[id] = entry
@@ -231,6 +296,8 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
             guard dependents.isEmpty else {
                 throw ModuleRuntimeError.enabledDependentsPreventDisable(module: id, dependents: dependents)
             }
+            // Deny new startup before the first suspension in teardown.
+            entry.isEnabled = false
             entries[id] = entry
             try await shutdown(id)
             guard var stopped = entries[id] else { return }
@@ -280,6 +347,7 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
     }
 
     public func sleep(_ id: ModuleID) async throws {
+        if activations[id] != nil { try await shutdown(id) }
         guard var entry = entries[id] else { throw ModuleRuntimeError.unknownModule(id) }
         let dependents = instantiatedDependents(of: id)
         guard dependents.isEmpty else {
@@ -335,6 +403,21 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
     }
 
     public func shutdown(_ id: ModuleID) async throws {
+        if let shutdown = shutdowns[id] { return try await shutdown.task.value }
+        let ticket = UUID()
+        let task = Task { @MainActor in try await self.performShutdown(id) }
+        shutdowns[id] = Transition(id: ticket, task: task)
+        defer { if shutdowns[id]?.id == ticket { shutdowns.removeValue(forKey: id) } }
+        // Cleanup belongs to the runtime, not to a caller that may disappear.
+        try await task.value
+    }
+
+    private func performShutdown(_ id: ModuleID) async throws {
+        if let activation = activations[id] {
+            activation.task.cancel()
+            _ = await activation.task.result
+            if activations[id]?.id == activation.id { activations.removeValue(forKey: id) }
+        }
         guard var entry = entries[id] else { throw ModuleRuntimeError.unknownModule(id) }
         if let instance = entry.instance {
             await instance.shutdown()
@@ -358,6 +441,8 @@ public final class ModuleRuntime: ModuleCapabilityResolver, ModuleEventPublishin
     }
 
     public func shutdownAll() async {
+        shutdownAllDepth += 1
+        defer { shutdownAllDepth -= 1 }
         for id in entries.keys.sorted().reversed() {
             try? await shutdown(id)
         }

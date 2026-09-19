@@ -60,6 +60,9 @@ package final class LanguageToolingSessionManager: ObservableObject,
     private var languageServerWorkspaceFingerprints: [String: String] = [:]
     private var languageServerSessionIdentities: [String: ObjectIdentifier] = [:]
     private var diagnosticsByProviderID: [String: [URL: [LanguageServerDiagnostic]]] = [:]
+    private var extensionHostProviderIDs: [String: String] = [:]
+    private var extensionHostProviderIDsByGeneration: [ObjectIdentifier: String] = [:]
+    private var extensionHostOwners: [String: ExtensionHostSession] = [:]
     private var languageFeatureProviders: [any LanguageFeatureProvider]
     private var languageServerFeatureProviders: [String: LanguageServerFeatureProvider] = [:]
     private var languageServerReadyWaiters: [UUID: LanguageServerReadyWaiter] = [:]
@@ -100,6 +103,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
             return providerID
         })
     }
+
+    package var hasExtensionHostOwnership: Bool { !extensionHostOwners.isEmpty }
 
     package func configureMavenContextProvider(
         _ provider: @escaping (LanguageProviderDescriptor, URL) -> MavenLaunchContext?
@@ -153,7 +158,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
         support: LanguageSupportDeclaration
     ) -> Bool {
         let configuration = provider.configuration
-        guard configuration.languageID == support.id,
+        guard extensionHostOwners[support.id] == nil,
+              configuration.languageID == support.id,
               let ownerModuleID = support.languageServerModuleID,
               !configuration.executableNames.isEmpty,
               let runtimeFactory else { return false }
@@ -190,7 +196,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             ownerModuleID: ownerModuleID
         ) else { return false }
 
-        stopLanguageServer(providerID: support.id)
+        stopLegacyLanguageServer(providerID: support.id)
         runtimesByID[support.id] = runtime
         extensionRuntimeIDs.insert(support.id)
         extensionProviderIdentities[support.id] = providerIdentity
@@ -203,12 +209,136 @@ package final class LanguageToolingSessionManager: ObservableObject,
 
     package func unregisterLanguageServerExtension(languageID: String) {
         guard extensionRuntimeIDs.contains(languageID) else { return }
-        stopLanguageServer(providerID: languageID)
+        stopLegacyLanguageServer(providerID: languageID)
         runtimesByID[languageID] = nil
         extensionRuntimeIDs.remove(languageID)
         extensionProviderIdentities[languageID] = nil
         extensionLanguageIdentifiers[languageID] = nil
         extensionLifecycles[languageID] = nil
+    }
+
+    package func registerExtensionHostProvider(_ provider: any LanguageFeatureProvider) {
+        languageFeatureProviders.removeAll { $0.id == provider.id }
+        languageFeatureProviders.append(provider)
+    }
+
+    /// Reserves the language before awaiting legacy teardown, closing the race
+    /// with editor, import and Run/Debug entry points that can start a session.
+    /// The reservation outlives provider invalidation and is released only after
+    /// the extension host's complete process group has stopped.
+    package func acquireExtensionHostOwnership(
+        providerID: String,
+        session: ExtensionHostSession,
+        stopLegacy: @MainActor () async throws -> Void
+    ) async throws {
+        guard session.state == .idle, extensionHostOwners[providerID] == nil else {
+            throw ExtensionHostFailure("alreadyInitialized", "A language provider switch is already active.")
+        }
+        let legacy = languageServers[providerID]
+        extensionHostOwners[providerID] = session
+        do {
+            try await stopLegacy()
+            try Task.checkCancellation()
+            guard session.state == .idle, extensionHostOwners[providerID] === session else {
+                throw ExtensionHostFailure("cancelled", "The workspace closed during the language provider switch.")
+            }
+            guard legacy?.isRunning != true else {
+                throw ExtensionHostFailure("timeout", "The previous language provider has not stopped. The extension host was not started.")
+            }
+            stopLegacyLanguageServer(providerID: providerID)
+            session.onStopped = { [weak self, weak session] in
+                guard let self, let session, self.extensionHostOwners[providerID] === session else { return }
+                self.extensionHostOwners[providerID] = nil
+            }
+        } catch {
+            if extensionHostOwners[providerID] === session { extensionHostOwners[providerID] = nil }
+            throw error
+        }
+    }
+
+    package func unregisterExtensionHostProvider(id: String) {
+        languageFeatureProviders.removeAll { $0.id == id }
+    }
+
+    /// Binds one extension-host generation to the existing editor provider and
+    /// diagnostic stores. The host remains the owner of provider callbacks;
+    /// this manager only adapts notifications and controls their lifetime.
+    package func attachExtensionHostSession(_ session: ExtensionHostSession) {
+        let generation = ObjectIdentifier(session)
+        let providerPrefix = "extension-host:\(generation)"
+        session.onLanguageProviderRegistered = { [weak self, weak session] kind, handle, languages in
+            guard let self, let session else { return }
+            let providerID = "\(providerPrefix):\(handle)"
+            let provider = ExtensionHostLanguageFeatureProvider(
+                id: providerID,
+                languageIDs: languages,
+                kinds: [kind],
+                provide: { [weak self, weak session] requestedKind, context in
+                    guard let session else {
+                        throw LanguageToolingSessionError.toolingUnavailable("The extension host is unavailable.")
+                    }
+                    let result = try await session.provideLanguageFeature(
+                        kind: requestedKind,
+                        handle: handle,
+                        uri: context.fileURL.absoluteString,
+                        line: context.position.line + 1,
+                        character: context.position.utf16Column + 1
+                    )
+                    guard self?.extensionHostProviderIDs["\(generation):\(handle)"] == providerID else {
+                        throw ExtensionHostFailure("cancelled", "Language provider was unregistered.")
+                    }
+                    return result
+                },
+                resolve: { [weak self, weak session] data, fileURL in
+                    guard let session, case .object(var params) = data else {
+                        throw ExtensionHostFailure("invalidParams", "Completion item is unavailable.")
+                    }
+                    params["uri"] = .string(fileURL.absoluteString)
+                    let value = try await session.connection.request("host/resolveCompletion", params: .object(params))
+                    guard self?.extensionHostProviderIDs["\(generation):\(handle)"] == providerID else {
+                        throw ExtensionHostFailure("cancelled", "Language provider was unregistered.")
+                    }
+                    return value
+                }
+            )
+            self.registerExtensionHostProvider(provider)
+            self.extensionHostProviderIDs["\(generation):\(handle)"] = providerID
+        }
+        session.onLanguageProviderUnregistered = { [weak self] handle in
+            guard let self else { return }
+            let key = "\(generation):\(handle)"
+            if let providerID = self.extensionHostProviderIDs.removeValue(forKey: key) {
+                self.unregisterExtensionHostProvider(id: providerID)
+            }
+        }
+        session.onDiagnosticsChanged = { [weak self] id, delta in
+            self?.applyExtensionHostDiagnostics(delta, collectionID: id, providerID: providerPrefix)
+        }
+        session.onDiagnosticsCleared = { [weak self] id in
+            self?.clearExtensionHostDiagnostics(collectionID: id, providerID: providerPrefix)
+        }
+        session.onDiagnostic = { [weak self] message in
+            self?.recordLanguageServerLog(providerID: providerPrefix, level: .warning, message: message)
+        }
+        session.onInvalidated = { [weak self, weak session] in
+            guard let session else { return }
+            self?.detachExtensionHostSession(session)
+        }
+        extensionHostProviderIDsByGeneration[generation] = providerPrefix
+    }
+
+    package func detachExtensionHostSession(_ session: ExtensionHostSession) {
+        let generation = ObjectIdentifier(session)
+        let prefix = extensionHostProviderIDsByGeneration.removeValue(forKey: generation) ?? "extension-host:\(generation)"
+        languageFeatureProviders.removeAll { $0.id.hasPrefix(prefix + ":") }
+        extensionHostProviderIDs = extensionHostProviderIDs.filter { !$0.value.hasPrefix(prefix + ":") }
+        diagnosticsByProviderID = diagnosticsByProviderID.filter { !$0.key.hasPrefix(prefix + ":") }
+        session.onLanguageProviderRegistered = nil
+        session.onLanguageProviderUnregistered = nil
+        session.onDiagnosticsChanged = nil
+        session.onDiagnosticsCleared = nil
+        session.onInvalidated = nil
+        rebuildDiagnostics()
     }
 
     package func provider(for fileURL: URL) -> LanguageProviderDescriptor? {
@@ -230,7 +360,10 @@ package final class LanguageToolingSessionManager: ObservableObject,
             languageServerFeatures[$0.id]
         } ?? []
         for provider in languageFeatureProviders {
-            if provider.supports(.completion, in: context) { result.insert(.completion) }
+            if provider.supports(.completion, in: context) {
+                result.insert(.completion)
+                if provider is ExtensionHostLanguageFeatureProvider { result.insert(.completionResolve) }
+            }
             if provider.supports(.hover, in: context) { result.insert(.hover) }
             if provider.supports(.navigation(method: "textDocument/definition"), in: context) {
                 result.insert(.definition)
@@ -841,6 +974,67 @@ package final class LanguageToolingSessionManager: ObservableObject,
         rebuildDiagnostics()
     }
 
+    private func applyExtensionHostDiagnostics(
+        _ delta: ToolingJSONValue,
+        collectionID: String,
+        providerID: String
+    ) {
+        guard case .array(let entries) = delta else { return }
+        for entry in entries {
+            guard case .array(let pair) = entry, pair.count == 2,
+                  case .string(let uri) = pair[0],
+                  let url = URL(string: uri), url.isFileURL else { continue }
+            let diagnostics = Self.extensionHostDiagnostics(pair[1])
+            replaceDiagnostics(diagnostics, for: url, providerID: providerID + ":" + collectionID)
+        }
+    }
+
+    private func clearExtensionHostDiagnostics(collectionID: String, providerID: String) {
+        clearDiagnostics(providerID: providerID + ":" + collectionID)
+    }
+
+    private static func extensionHostDiagnostics(_ value: ToolingJSONValue) -> [LanguageServerDiagnostic] {
+        guard case .array(let values) = value else { return [] }
+        return values.compactMap { item in
+            guard case .object(let fields) = item,
+                  case .string(let message) = fields["message"],
+                  let range = extensionHostRange(fields["range"]) else { return nil }
+            let severity: Int? = if case .integer(let value) = fields["severity"] { value } else { nil }
+            let code: String? = if case .string(let value) = fields["code"] { value } else { nil }
+            let source: String? = if case .string(let value) = fields["source"] { value } else { nil }
+            let tags: [Int] = if case .array(let values) = fields["tags"] {
+                values.compactMap { if case .integer(let value) = $0 { value } else { nil } }
+            } else { [] }
+            var related: [LanguageServerDiagnosticRelatedInformation] = []
+            if case .array(let entries) = fields["relatedInformation"] {
+                related = entries.compactMap { entry in
+                    guard case .object(let info) = entry,
+                          case .string(let uri) = info["uri"], let url = URL(string: uri),
+                          case .string(let message) = info["message"],
+                          let range = extensionHostRange(info["range"]) else { return nil }
+                    return LanguageServerDiagnosticRelatedInformation(fileURL: url, range: range, message: message)
+                }
+            }
+            return LanguageServerDiagnostic(
+                range: range, severity: severity, message: message, source: source, code: code,
+                tags: tags, relatedInformation: related
+            )
+        }
+    }
+
+    private static func extensionHostRange(_ value: ToolingJSONValue?) -> LanguageServerRange? {
+        guard case .object(let range)? = value,
+              case .integer(let startLine)? = range["startLine"],
+              case .integer(let startCharacter)? = range["startColumn"],
+              case .integer(let endLine)? = range["endLine"],
+              case .integer(let endCharacter)? = range["endColumn"],
+              startLine > 0, startCharacter > 0, endLine > 0, endCharacter > 0 else { return nil }
+        return LanguageServerRange(
+            start: LanguageServerPosition(line: startLine - 1, utf16Column: startCharacter - 1),
+            end: LanguageServerPosition(line: endLine - 1, utf16Column: endCharacter - 1)
+        )
+    }
+
     package func clearLanguageServerLogs() {
         languageServerLogs = []
     }
@@ -881,6 +1075,11 @@ package final class LanguageToolingSessionManager: ObservableObject,
     }
 
     package func stopLanguageServer(providerID: String) {
+        extensionHostOwners[providerID]?.requestStop()
+        stopLegacyLanguageServer(providerID: providerID)
+    }
+
+    private func stopLegacyLanguageServer(providerID: String) {
         let operationID = languageServerOperationIDs[providerID]
         if languageServers[providerID] != nil {
             let wasPreparing = switch languageServerStates[providerID] {
@@ -920,6 +1119,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
     }
 
     package func stopAllLanguageServers() {
+        for session in extensionHostOwners.values { session.requestStop() }
         for providerID in languageServers.keys.sorted() {
             stopLanguageServer(providerID: providerID)
         }
@@ -1222,6 +1422,13 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 capability: "completion item resolve"
             )
         }
+        if case .object(let data)? = item.data, case .string(let providerID)? = data["extensionHostProvider"] {
+            guard let provider = languageFeatureProviders.first(where: { $0.id == providerID }) as? ExtensionHostLanguageFeatureProvider else {
+                throw ExtensionHostFailure("cancelled", "Completion provider is no longer registered.")
+            }
+            try provider.resolveCompletion(item, fileURL: fileURL, completion: completion)
+            return
+        }
         if let session = readyLanguageServerSession(for: fileURL) {
             try session.resolveCompletion(item, fileURL: fileURL, completion: completion)
             return
@@ -1275,6 +1482,11 @@ package final class LanguageToolingSessionManager: ObservableObject,
         rootURL: URL,
         operationID requestedOperationID: UUID?
     ) throws -> any LanguageServerSession {
+        guard extensionHostOwners[descriptor.id] == nil else {
+            throw LanguageToolingSessionError.toolingUnavailable(
+                "This language is owned by the extension host. Disable the extension preview before using the legacy provider."
+            )
+        }
         // All entry points, including Maven reload, testing, and debugging, must
         // recheck the current workspace preference before creating or reusing a session.
         guard isLanguageServerEnabled(descriptor.id, rootURL) else {
@@ -1485,6 +1697,10 @@ package final class LanguageToolingSessionManager: ObservableObject,
 
     package func stopAll() {
         stopAllLanguageServers()
+    }
+
+    package func waitForExtensionHostCleanup() async {
+        for session in Array(extensionHostOwners.values) { _ = await session.stop() }
     }
 
     private func unavailableLanguageServerError(for fileURL: URL) -> LanguageToolingSessionError {
