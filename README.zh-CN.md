@@ -189,7 +189,7 @@ flowchart LR
 <summary><strong>如何开发</strong></summary>
 
 
-开发环境需要 Swift 6.2 或更高版本。运行完整测试需要 Xcode；基础 SwiftPM 构建只需要 Command Line Tools。
+开发环境和 CI 使用 `.swift-version` 固定的 Swift 6.3.3 与 Xcode 26.6。运行完整测试需要 Xcode；基础 SwiftPM 构建只需要匹配的 Command Line Tools。使用 Xcode 27 的开发者也可以在本地构建，构建脚本会自动识别 macOS 27 SDK 的兼容路径。`Package.swift` 仍保留 Swift 6.2 的 manifest API 下限，这不会选择编译器版本。
 
 在项目根目录运行开发版本：
 
