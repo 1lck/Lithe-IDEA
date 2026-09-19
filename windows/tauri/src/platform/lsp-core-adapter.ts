@@ -17,6 +17,14 @@ import {
 type JsonRecord = Record<string, any>;
 
 const INITIALIZE_TIMEOUT_MS = 30_000;
+// Core owns request deadlines and reports them as structured `requestTimeout`
+// errors. The local timer only guards against a Core that stops answering, so
+// it fires after Core's deadline instead of racing it.
+const LSP_REQUEST_TIMEOUT_MS = 30_000;
+// A Java project build includes waiting for JDT project configuration and for
+// an earlier build; large Maven projects need minutes on a cold build.
+const JAVA_BUILD_TIMEOUT_MS = 10 * 60_000;
+const CORE_DEADLINE_GRACE_MS = 5_000;
 const SESSION_CLEANUP_TIMEOUT_MS = 5_000;
 const POLL_INTERVAL_MS = 20;
 
@@ -769,6 +777,8 @@ async function createSession(args: JsonRecord, key: string): Promise<Session> {
         workspaceFingerprint: args.workspaceFingerprint ?? null,
         mavenContext: args.mavenContext ?? null,
         initializeTimeoutMilliseconds: INITIALIZE_TIMEOUT_MS,
+        requestTimeoutMilliseconds: LSP_REQUEST_TIMEOUT_MS,
+        javaBuildTimeoutMilliseconds: JAVA_BUILD_TIMEOUT_MS,
       },
       operationId,
     );
@@ -990,6 +1000,7 @@ async function requestOperation(
   session: Session,
   payload: JsonRecord,
   command = "lsp.request",
+  coreTimeoutMilliseconds = LSP_REQUEST_TIMEOUT_MS,
 ): Promise<unknown> {
   const started = await core<{ operationId: string }>(command, payload);
   const operation = new LspOperationLog("semanticRequest", started.operationId, {
@@ -1016,7 +1027,7 @@ async function requestOperation(
         });
       });
       reject(new Error("LSP request timed out"));
-    }, 30_000);
+    }, coreTimeoutMilliseconds + CORE_DEADLINE_GRACE_MS);
     session.pending.set(started.operationId, {
       resolve: (value) => {
         clearTimeout(timeout);
@@ -1420,13 +1431,23 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     const sourcePath = String(args.sourcePath ?? "");
     const configuredMainClass = String(args.mainClass ?? "");
     const session = sessionForWorkspace(workspacePath, "java");
-    const execute = async (title: string, javaCommand: string, arguments_: unknown[]) => {
+    const execute = async (
+      title: string,
+      javaCommand: string,
+      arguments_: unknown[],
+      coreTimeoutMilliseconds = LSP_REQUEST_TIMEOUT_MS,
+    ) => {
       const result = normalizeCoreValue(
-        await requestOperation(session, {
-          sessionId: session.id,
-          operation: "executeCommand",
-          command: { title, command: javaCommand, arguments: arguments_ },
-        }),
+        await requestOperation(
+          session,
+          {
+            sessionId: session.id,
+            operation: "executeCommand",
+            command: { title, command: javaCommand, arguments: arguments_ },
+          },
+          "lsp.request",
+          coreTimeoutMilliseconds,
+        ),
       ) as JsonRecord;
       return result?.value;
     };
@@ -1459,18 +1480,26 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
       );
     }
     const projectName = typeof selected.projectName === "string" ? selected.projectName : undefined;
-    const buildStatus = await execute("Build Java Workspace", "vscode.java.buildWorkspace", [
-      JSON.stringify({
-        mainClass: selected.mainClass,
-        projectName,
-        filePath: sourcePath,
-        isFullBuild: false,
-      }),
-    ]);
+    // Core serializes this build behind JDT project configuration and earlier
+    // builds, and reports compilation errors, build failures, and cancellation
+    // as distinct structured errors.
+    const buildStatus = await execute(
+      "Build Java Workspace",
+      "vscode.java.buildWorkspace",
+      [
+        JSON.stringify({
+          mainClass: selected.mainClass,
+          projectName,
+          filePath: sourcePath,
+          isFullBuild: false,
+        }),
+      ],
+      JAVA_BUILD_TIMEOUT_MS,
+    );
     if (Number(buildStatus) !== 1) {
       throw lspAdapterError(
-        "operation_failed",
-        "The Java project build failed. Fix the reported Java errors and try again.",
+        "invalid_response",
+        "The Java language service returned an unexpected project build status.",
       );
     }
     const paths = await execute("Resolve Java Runtime Classpath", "vscode.java.resolveClasspath", [
