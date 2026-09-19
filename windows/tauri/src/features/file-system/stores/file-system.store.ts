@@ -26,8 +26,6 @@ import { getLineSlice } from "@/features/editor/utils/large-file";
 import { getAncestorDirectoryPaths } from "@/features/file-explorer/utils/file-explorer-tree-utils";
 import { useFileTreeStore } from "@/features/file-explorer/stores/file-explorer-tree.store";
 import { createProjectFileScanCoordinator } from "@/features/file-system/controllers/project-file-scan-coordinator";
-import { discoverWorkspaceRepositories } from "@/features/git/api/git-repo-api";
-import { getWorkspaceGitStatus } from "@/features/git/api/git-status-api";
 import { useGitBlameStore } from "@/features/git/stores/git-blame.store";
 import { useGitStore } from "@/features/git/stores/git.store";
 import { gitDiffCache } from "@/features/git/utils/git-diff-cache";
@@ -58,10 +56,8 @@ import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace
 import { workspaceSessionRepository } from "@/features/workspace/persistence/workspace-session-repository";
 import { switchWorkspaceRuntime } from "@/features/workspace/services/workspace-lifecycle";
 import { scheduleWorkspacePrewarm } from "@/features/workspace/services/workspace-prewarm";
-import {
-  bootstrapWorkspaceGit,
-  runGitBeforeJava,
-} from "@/features/workspace/services/workspace-startup-priority";
+import { runGitBeforeJava } from "@/features/workspace/services/workspace-startup-priority";
+import { ensureWorkspaceGitBootstrap } from "@/features/workspace/services/workspace-git-bootstrap";
 import {
   createWorkspaceScopedStore,
   type WorkspaceScopedStore,
@@ -471,7 +467,9 @@ const initializeLocalWorkspaceInBackground = (
     activationVersion === workspaceServiceActivationVersion &&
     workspaceRuntimeRegistry.getActiveWorkspaceId() === workspaceId &&
     get().rootFolderPath === path;
-  if (!options.preserveGitStatus) {
+  // Restored editors may have already published this workspace's bootstrap.
+  // Do not erase it before the background path joins the completed task.
+  if (!options.preserveGitStatus && gitStore.getState().currentWorkspaceRepoPath !== path) {
     gitStore.getState().actions.setWorkspaceGitStatus(null, path);
   }
 
@@ -580,16 +578,10 @@ const initializeLocalWorkspaceInBackground = (
 
           const gitStatusStartedAt = performance.now();
           logWorkspaceOpenStep("start", "getGitStatus", path);
-          await bootstrapWorkspaceGit({
-            workspaceRootPaths: getWorkspaceFolderPaths(get),
-            discoverRepositories: (workspaceRootPaths) =>
-              discoverWorkspaceRepositories(workspaceRootPaths),
-            loadStatus: getWorkspaceGitStatus,
-            isCurrent: isCurrentActivation,
-            publishStatus: (gitStatus) => {
-              gitStore.getState().actions.setWorkspaceGitStatus(gitStatus, path);
-            },
-          });
+          await ensureWorkspaceGitBootstrap(
+            { workspaceId, root: path },
+            { refresh: options.preserveGitStatus },
+          );
           logWorkspaceOpenStep("end", "getGitStatus", path, gitStatusStartedAt);
         },
         isCurrent: isCurrentActivation,

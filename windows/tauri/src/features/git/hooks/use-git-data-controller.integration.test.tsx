@@ -322,12 +322,18 @@ test("history errors survive working-tree refreshes until history succeeds", asy
 
 
 test("a failed initial status can recover without waiting for optional metadata", async () => {
-  getWorkspaceGitStatus.mockResolvedValue(null);
+  getWorkspaceGitStatus.mockRejectedValueOnce(new Error("Operation timed out"));
   await mount();
-  getWorkspaceGitStatus.mockResolvedValue(status);
+  expect(getGitHistory).not.toHaveBeenCalled();
   await act(async () => { await controller.refreshGitData(["working-tree"]); });
   expect(useGitStore.getState().gitStatus).toEqual(status);
   expect(controller.hasLoadError).toBe(false);
+  expect(controller.hasHistoryLoadError).toBe(true);
+  expect(getGitHistory).not.toHaveBeenCalled();
+
+  await act(async () => { await controller.refresh(); });
+  expect(getGitHistory).toHaveBeenCalledTimes(1);
+  expect(controller.hasHistoryLoadError).toBe(false);
 });
 
 test("switching repositories does not carry over a previous history failure", async () => {

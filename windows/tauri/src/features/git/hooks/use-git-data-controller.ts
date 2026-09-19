@@ -131,6 +131,9 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
     } catch (error) {
       if (requestId === requestIdRef.current) {
         setFailedRepoPath(repoPath);
+        // Optional metadata has not been requested yet. A status-only recovery
+        // must leave the history retry visible until a history query succeeds.
+        setFailedHistoryRepoPath(repoPath);
         console.error("Failed to load initial Git status:", error);
       }
     } finally {

@@ -40,6 +40,7 @@ const {
   rollbackFilesChanges,
   setFilesStaged,
   getWorkspaceGitStatus,
+  getWorkspaceRootGitStatus,
   getGitStatus,
 } = await import("./git-status-api");
 const { getWorkingTreePathDiff } = await import("./git-diff-api");
@@ -265,6 +266,26 @@ describe("Git staging write coordination", () => {
 });
 
 describe("Git status query failures", () => {
+  test("bootstrap preserves root-relative paths while reading every discovered repository", async () => {
+    const snapshot = await getWorkspaceRootGitStatus("C:/repo", [
+      "C:/repo", "C:/workspace/service-a", "C:/workspace/service-b",
+    ]);
+    expect(snapshot?.files.map((file) => file.path)).toEqual(["src/App.tsx"]);
+    const queriedRepos = invoke.mock.calls
+      .filter(([command]) => command === "git_status")
+      .map(([, args]) => args?.repoPath);
+    expect(queriedRepos.sort()).toEqual([
+      "C:/repo", "C:/workspace/service-a", "C:/workspace/service-b",
+    ]);
+  });
+
+  test("bootstrap reports a child repository failure even when the root status succeeds", async () => {
+    unavailableRepo = "C:/workspace/service-b";
+    await expect(getWorkspaceRootGitStatus("C:/repo", [
+      "C:/repo", "C:/workspace/service-b",
+    ])).rejects.toThrow("no snapshot");
+  });
+
   test("rejects an empty snapshot for a selected repository and recovers on retry", async () => {
     unavailableRepo = "C:/repo";
     await expect(getWorkspaceGitStatus(["C:/repo"])).rejects.toThrow("no snapshot");
