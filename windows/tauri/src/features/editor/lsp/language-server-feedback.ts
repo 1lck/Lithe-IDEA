@@ -2,29 +2,30 @@ import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { createTranslator } from "@/i18n/locale";
 import { toast } from "sonner";
 import { getLanguageDisplayName } from "../utils/language-id";
+import {
+  languageServerFeedbackId,
+  languageServerInteractiveToastOptions,
+  languageServerPreparingToastOptions,
+} from "./language-server-feedback-options";
 
 export function languageDisplayName(languageId: string | undefined): string {
   return languageId ? getLanguageDisplayName(languageId) : "Language";
 }
 
-function serverKey(workspacePath: string, languageId: string): string {
-  return `${workspacePath.replace(/\\/g, "/").toLowerCase()}:${languageId}`;
-}
-
 export function showLanguageServerReady(workspacePath: string, languageId: string): void {
   const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
   toast.success(t("lsp.readyNamed", { name: languageDisplayName(languageId) }), {
-    id: serverKey(workspacePath, languageId),
+    ...languageServerInteractiveToastOptions(workspacePath, languageId),
     duration: 3500,
   });
 }
 
 export function showLanguageServerPreparing(workspacePath: string, languageId: string): void {
   const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
-  toast.loading(t("lsp.preparingNamed", { name: languageDisplayName(languageId) }), {
-    id: serverKey(workspacePath, languageId),
-    duration: Number.POSITIVE_INFINITY,
-  });
+  toast.loading(
+    t("lsp.preparingNamed", { name: languageDisplayName(languageId) }),
+    languageServerPreparingToastOptions(workspacePath, languageId),
+  );
 }
 
 export type LanguageServerFailureFeedback =
@@ -49,16 +50,13 @@ export function showLanguageServerFailure(
     { name },
   );
   const detail = "detail" in failure ? failure.detail?.trim() : undefined;
-  toast.error(
-    detail ? `${message} ${detail}` : message,
-    {
-      id: serverKey(workspacePath, languageId),
-      duration: 10_000,
-      action: { label: t("lsp.retry"), onClick: retry },
-    },
-  );
+  toast.error(detail ? `${message} ${detail}` : message, {
+    ...languageServerInteractiveToastOptions(workspacePath, languageId),
+    duration: 10_000,
+    action: { label: t("lsp.retry"), onClick: retry },
+  });
 }
 
 export function clearLanguageServerReadyFeedback(workspacePath: string, languageId?: string): void {
-  if (languageId) toast.dismiss(serverKey(workspacePath, languageId));
+  if (languageId) toast.dismiss(languageServerFeedbackId(workspacePath, languageId));
 }

@@ -241,6 +241,7 @@ jobs:
             .artifacts/test-stability/git-execution-integration.*
             .artifacts/test-stability/git-host-rust.*
             .artifacts/test-stability/git-console-bridge.*
+            .artifacts/test-stability/rust-comment-checker.xml
           if-no-files-found: ignore
           retention-days: 14
 

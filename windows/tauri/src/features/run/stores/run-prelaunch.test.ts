@@ -7,6 +7,7 @@ const configuration: RunConfiguration = {
   name: "Standalone",
   provider: "java.main",
   kindTitle: "Java Application",
+  category: "project" as const,
   execution: "service",
   cwd: "",
   args: [],
@@ -61,6 +62,10 @@ function standaloneDependencies(overrides: Partial<RunStoreDependencies> = {}): 
     startRunProcess,
     stopRunProcess: mock(async () => undefined),
     prepareJavaRunLaunch: mock(async () => null),
+    javaBuildFailurePolicyForWorkspace: () => "ask",
+    setJavaBuildFailurePolicy: mock(() => undefined),
+    rebuildJavaIndexForWorkspace: mock(async () => undefined),
+    presentJavaLaunchDecision: mock(() => undefined),
     ...overrides,
   };
   return { dependencies, executePreLaunchStep, startRunProcess };
@@ -83,7 +88,7 @@ describe("Standalone Java compile-then-run", () => {
     }));
     const { dependencies, startRunProcess } = standaloneDependencies({
       createLaunchPlan,
-      prepareJavaRunLaunch: mock(async () => javaLaunch),
+      prepareJavaRunLaunch: mock(async () => ({ kind: "ready" as const, target: javaLaunch })),
     });
     const projectConfiguration = {
       ...configuration,
@@ -226,5 +231,308 @@ describe("Standalone Java compile-then-run", () => {
         output: expect.stringContaining("Compilation failed (exit code 1)."),
       }),
     ]);
+  });
+});
+
+// Issue #692: a cold multi-module build can wait minutes for JDT project
+// updates, so the panel must show that preparation is in progress instead of
+// staying blank until the JVM starts.
+describe("Java project launch preparation feedback", () => {
+  const projectConfiguration: RunConfiguration = {
+    ...configuration,
+    id: "ruoyi-admin",
+    name: "ruoyi-admin",
+    sourcePath: "ruoyi-admin/src/main/java/org/dromara/DromaraApplication.java",
+    mainClass: "org.dromara.DromaraApplication",
+    mavenReactorPath: ".",
+  };
+  const javaLaunch = {
+    mainClass: "org.dromara.DromaraApplication",
+    projectName: "ruoyi-admin",
+    classPaths: ["D:/work/ruoyi-admin/target/classes"],
+    modulePaths: [],
+  };
+  const projectPlan = {
+    executable: { toolchain: "project-jdk" as const },
+    arguments: ["org.dromara.DromaraApplication"],
+    workingDirectory: ".",
+    classpath: javaLaunch.classPaths,
+  };
+  const failedPreparation = {
+    kind: "buildFailed" as const,
+    target: javaLaunch,
+    failure: {
+      code: "javaBuildCompilationErrors" as const,
+      message: "The Java project has compilation errors.",
+      report: {
+        markerScope: "launchTarget" as const,
+        builderFailedEarlier: true,
+        elapsedMilliseconds: 7,
+        recovery: "rebuildJavaIndex" as const,
+      },
+    },
+  };
+
+  function storeWith(
+    runConfiguration: RunConfiguration,
+    overrides: Partial<RunStoreDependencies>,
+  ) {
+    const { dependencies } = standaloneDependencies({
+      createLaunchPlan: mock(async () => projectPlan),
+      ...overrides,
+    });
+    const store = createRunStore("workspace", dependencies);
+    store.setState({
+      root: "D:/work",
+      configurations: [runConfiguration],
+      diagnostics: [],
+      effectiveRuntimeExecutablePaths: {},
+    });
+    return store;
+  }
+
+  test("shows a service's preparation notice until its command line replaces it", async () => {
+    let outputWhilePreparing: string | undefined;
+    const store = storeWith(projectConfiguration, {
+      prepareJavaRunLaunch: mock(async () => {
+        outputWhilePreparing = store.getState().sessions[0]?.output;
+        return { kind: "ready" as const, target: javaLaunch };
+      }),
+    });
+
+    await store.getState().actions.runConfiguration(projectConfiguration.id);
+
+    expect(outputWhilePreparing).toContain("waiting for the Java language service");
+    expect(store.getState().selectedSessionId).toBe(projectConfiguration.id);
+    const session = store.getState().sessions[0];
+    expect(session.isRunning).toBe(true);
+    expect(session.output).toStartWith("$ java.exe");
+    expect(session.output).not.toContain("waiting for the Java language service");
+  });
+
+  test("keeps the notice above the Core build error when preparation fails", async () => {
+    const store = storeWith(projectConfiguration, {
+      prepareJavaRunLaunch: mock(async () => {
+        throw new Error("The Java project build was cancelled before it finished.");
+      }),
+    });
+
+    await store.getState().actions.runConfiguration(projectConfiguration.id);
+
+    const session = store.getState().sessions[0];
+    expect(session).toEqual(
+      expect.objectContaining({ id: projectConfiguration.id, isRunning: false, exitCode: 1 }),
+    );
+    expect(session.output).toMatch(
+      /waiting for the Java language service[\s\S]*The Java project build was cancelled/,
+    );
+  });
+
+  test("shows the notice in the primary panel for an application launch", async () => {
+    const application: RunConfiguration = { ...projectConfiguration, execution: "application" };
+    let primaryWhilePreparing: { output: string; title: string | null } | undefined;
+    const store = storeWith(application, {
+      prepareJavaRunLaunch: mock(async () => {
+        const state = store.getState();
+        primaryWhilePreparing = { output: state.primaryOutput, title: state.primaryTitle };
+        return { kind: "ready" as const, target: javaLaunch };
+      }),
+    });
+
+    await store.getState().actions.runConfiguration(application.id);
+
+    expect(primaryWhilePreparing?.title).toBe("ruoyi-admin");
+    expect(primaryWhilePreparing?.output).toContain("waiting for the Java language service");
+    expect(store.getState().primaryOutput).toStartWith("$ java.exe");
+  });
+
+  test("does not show the notice for standalone Java compiled with javac", async () => {
+    let outputWhilePreparing: string | undefined = "not called";
+    const { dependencies } = standaloneDependencies({
+      prepareJavaRunLaunch: mock(async () => {
+        outputWhilePreparing = store.getState().sessions[0]?.output;
+        return null;
+      }),
+    });
+    const store = createRunStore("workspace", dependencies);
+    store.setState({
+      root: "D:/work",
+      configurations: [configuration],
+      diagnostics: [],
+      effectiveRuntimeExecutablePaths: {},
+    });
+
+    await store.getState().actions.runConfiguration(configuration.id);
+
+    expect(outputWhilePreparing).toBeUndefined();
+  });
+
+  test("continues the same launch after one failed build without rebuilding", async () => {
+    const prepare = mock(async () => failedPreparation);
+    const presentDecision = mock(() => undefined);
+    const store = storeWith(projectConfiguration, {
+      prepareJavaRunLaunch: prepare,
+      presentJavaLaunchDecision: presentDecision,
+    });
+    let observedMessage: string | undefined;
+    const unsubscribe = store.subscribe((state) => {
+      const decision = state.javaLaunchDecisions[projectConfiguration.id];
+      if (!decision || observedMessage) return;
+      observedMessage = decision.failure.message;
+      state.actions.continueJavaLaunch(projectConfiguration.id, decision.decisionId, false);
+    });
+
+    try {
+      expect(await store.getState().actions.runConfiguration(projectConfiguration.id)).toBe(
+        projectConfiguration.id,
+      );
+    } finally {
+      unsubscribe();
+    }
+
+    expect(observedMessage).toContain("compilation errors");
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(presentDecision).toHaveBeenCalledWith("workspace");
+    expect(store.getState().sessions[0].isRunning).toBe(true);
+    expect(store.getState().sessions[0].output).toContain(
+      "Continuing with the Java output currently available on disk.",
+    );
+    expect(store.getState().javaLaunchDecisions).toEqual({});
+  });
+
+  test("remembers Always Continue for the workspace", async () => {
+    const setPolicy = mock(() => undefined);
+    const store = storeWith(projectConfiguration, {
+      prepareJavaRunLaunch: mock(async () => failedPreparation),
+      setJavaBuildFailurePolicy: setPolicy,
+    });
+    const unsubscribe = store.subscribe((state) => {
+      const decision = state.javaLaunchDecisions[projectConfiguration.id];
+      if (decision) {
+        state.actions.continueJavaLaunch(projectConfiguration.id, decision.decisionId, true);
+      }
+    });
+
+    try {
+      await store.getState().actions.runConfiguration(projectConfiguration.id);
+    } finally {
+      unsubscribe();
+    }
+
+    expect(setPolicy).toHaveBeenCalledWith("D:/work", "alwaysProceed");
+  });
+
+  test("an Always Continue workspace never pauses for the same terminal failure", async () => {
+    const store = storeWith(projectConfiguration, {
+      prepareJavaRunLaunch: mock(async () => failedPreparation),
+      javaBuildFailurePolicyForWorkspace: () => "alwaysProceed",
+    });
+
+    expect(await store.getState().actions.runConfiguration(projectConfiguration.id)).toBe(
+      projectConfiguration.id,
+    );
+    expect(store.getState().javaLaunchDecisions).toEqual({});
+    expect(store.getState().sessions[0].isRunning).toBe(true);
+  });
+
+  test("cancel leaves the failed launch stopped", async () => {
+    const { dependencies, startRunProcess } = standaloneDependencies({
+      createLaunchPlan: mock(async () => projectPlan),
+      prepareJavaRunLaunch: mock(async () => failedPreparation),
+    });
+    const store = createRunStore("workspace", dependencies);
+    store.setState({
+      root: "D:/work",
+      configurations: [projectConfiguration],
+      diagnostics: [],
+      effectiveRuntimeExecutablePaths: {},
+    });
+    const unsubscribe = store.subscribe((state) => {
+      const decision = state.javaLaunchDecisions[projectConfiguration.id];
+      if (decision) {
+        state.actions.cancelJavaLaunch(projectConfiguration.id, decision.decisionId);
+      }
+    });
+
+    try {
+      expect(await store.getState().actions.runConfiguration(projectConfiguration.id)).toBeNull();
+    } finally {
+      unsubscribe();
+    }
+
+    expect(startRunProcess).not.toHaveBeenCalled();
+    expect(store.getState().sessions[0].isRunning).toBe(false);
+  });
+
+  test("rebuild index cancels the pending launch and clears only this workspace", async () => {
+    const rebuild = mock(async () => undefined);
+    const store = storeWith(projectConfiguration, {
+      prepareJavaRunLaunch: mock(async () => failedPreparation),
+      rebuildJavaIndexForWorkspace: rebuild,
+    });
+    let recovery: Promise<void> | undefined;
+    const unsubscribe = store.subscribe((state) => {
+      const decision = state.javaLaunchDecisions[projectConfiguration.id];
+      if (decision && !recovery) {
+        recovery = state.actions.rebuildJavaIndex(projectConfiguration.id, decision.decisionId);
+      }
+    });
+
+    try {
+      expect(await store.getState().actions.runConfiguration(projectConfiguration.id)).toBeNull();
+      await recovery;
+    } finally {
+      unsubscribe();
+    }
+
+    expect(rebuild).toHaveBeenCalledWith("D:/work");
+    expect(store.getState().sessions[0].output).toContain("Java index cleared");
+  });
+});
+
+// The Tauri host rejects with the plain string its Rust handler returned, so
+// the panel used to replace every launch failure with a generic sentence.
+describe("Java launch failure reporting", () => {
+  test("shows the host's reason when the rejection is a string", async () => {
+    const { dependencies } = standaloneDependencies({
+      startRunProcess: mock(async () => {
+        throw "Unable to start process: The filename or extension is too long. (os error 206)";
+      }),
+    });
+    const store = createRunStore("workspace", dependencies);
+    store.setState({
+      root: "D:/work",
+      configurations: [configuration],
+      diagnostics: [],
+      effectiveRuntimeExecutablePaths: {},
+    });
+
+    await store.getState().actions.runConfiguration(configuration.id);
+
+    const session = store.getState().sessions[0];
+    expect(session.output).toContain("os error 206");
+    expect(session.output).not.toContain("Unable to start the run configuration.");
+    expect(session.exitCode).toBe(1);
+  });
+
+  test("falls back to a readable sentence when the host reports nothing", async () => {
+    const { dependencies } = standaloneDependencies({
+      startRunProcess: mock(async () => {
+        throw "";
+      }),
+    });
+    const store = createRunStore("workspace", dependencies);
+    store.setState({
+      root: "D:/work",
+      configurations: [configuration],
+      diagnostics: [],
+      effectiveRuntimeExecutablePaths: {},
+    });
+
+    await store.getState().actions.runConfiguration(configuration.id);
+
+    expect(store.getState().sessions[0].output).toContain(
+      "Unable to start the run configuration.",
+    );
   });
 });

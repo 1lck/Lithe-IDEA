@@ -25,6 +25,7 @@ struct RunView: View {
         let _ = LitheSignpost.bodyEvaluated("RunView")
         VStack(spacing: 0) {
             toolWindowHeader
+            ProjectPreparationStatusView()
 
             if !feature.portConflicts.isEmpty {
                 portConflictBanner

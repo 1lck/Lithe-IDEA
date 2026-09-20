@@ -20,6 +20,13 @@ use crate::lsp::languages::jdt::{
     ProviderLocation, WorkspaceConfigurationItem,
 };
 use crate::lsp::languages::jdt::{MavenProfileProjectResult, MavenProfileTaskStatus};
+use crate::lsp::languages::jdt_build::{
+    is_java_build_command, java_build_failure, java_build_outcome, java_build_report,
+    project_job_progress, JavaBuildCoordinator, JavaBuildDeparture, JavaBuildDispatch,
+    JavaBuildReport, DEFAULT_JAVA_BUILD_TIMEOUT_MS,
+};
+#[cfg(test)]
+use crate::lsp::languages::jdt_build::{JavaBuildMarkerScope, JavaBuildRecovery};
 use crate::lsp::languages::jdt_navigation::{JavaNavigationMarkerBatch, MAX_JAVA_NAVIGATION_TASKS};
 use crate::lsp::languages::jdt_progress::JavaPreparationDiagnostics;
 use crate::protocol::{CoreError, ErrorCode};
@@ -40,6 +47,8 @@ const DEFAULT_SERVICE_READY_ABSOLUTE_TIMEOUT_MS: u64 = 10 * 60_000;
 const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS: u64 = 2_000;
 const MONITOR_INTERVAL_MS: u64 = 10;
+/// JSON-RPC method carrying Java Debug Server build commands.
+const JAVA_BUILD_METHOD: &str = "workspace/executeCommand";
 
 static ENGINE: OnceLock<LspEngine> = OnceLock::new();
 
@@ -103,6 +112,12 @@ pub struct StartServerRequest {
     pub service_ready_absolute_timeout_milliseconds: u64,
     #[serde(default = "default_request_timeout")]
     pub request_timeout_milliseconds: u64,
+    /// Bound for one Java project build requested through
+    /// `vscode.java.buildWorkspace`, including the wait for project
+    /// configuration and earlier builds. Ordinary requests keep
+    /// `request_timeout_milliseconds`.
+    #[serde(default = "default_java_build_timeout")]
+    pub java_build_timeout_milliseconds: u64,
     #[serde(default = "default_shutdown_timeout")]
     pub shutdown_timeout_milliseconds: u64,
 }
@@ -322,6 +337,8 @@ pub struct CancelOperationRequest {
 /// Ordered events drained from a session since the previous poll.
 pub struct PollEventsResponse {
     pub events: Vec<LspRuntimeEvent>,
+    /// Current Java preparation projection, including when the event queue was already drained.
+    pub project_preparation: Option<Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -408,6 +425,10 @@ pub struct LspRuntimeError {
     pub underlying_message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub process_exit_code: Option<i32>,
+    /// Evidence behind an unsuccessful Java launch build. Present only for
+    /// `javaBuild` failures; hosts that do not read it are unaffected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub java_build_report: Option<JavaBuildReport>,
 }
 
 #[cfg(test)]
@@ -444,6 +465,9 @@ enum PendingKind {
     JavaResolveNavigation,
     /// JDT LS project setting update that applies selected Maven profiles.
     JdtMavenProfiles,
+    /// Java Debug Server workspace build shared by the callers that
+    /// `JavaBuildCoordinator` tracks; it carries no operation ID of its own.
+    JavaBuild,
     /// Shutdown handshake after which the engine sends `exit`.
     Shutdown,
 }
@@ -470,6 +494,7 @@ struct JavaNavigationMarkerCacheEntry {
 }
 
 struct SessionState {
+    preparation_snapshot: Option<crate::lsp::languages::project_preparation::ProjectPreparation>,
     lifecycle: LspLifecycleState,
     client: LspClientState,
     pending: BTreeMap<String, PendingRequest>,
@@ -498,6 +523,13 @@ struct SessionState {
     // arrives, including responses to advisory cancellation after a timeout.
     maven_profile_generation: u64,
     maven_profile_request_generations: BTreeMap<String, u64>,
+    /// Serialized, configuration-gated `vscode.java.buildWorkspace` calls.
+    java_builds: JavaBuildCoordinator,
+    java_build_timeout: Duration,
+    /// Deadline cancellations awaiting the outbound worker, never written by the monitor.
+    deadline_cancellations: Vec<String>,
+    /// Bounds an outbound maintenance write independently of caller deadlines.
+    maintenance_write_deadline: Option<Instant>,
 }
 
 struct RuntimeSession {
@@ -540,6 +572,10 @@ fn default_service_ready_absolute_timeout() -> u64 {
 
 fn default_request_timeout() -> u64 {
     DEFAULT_REQUEST_TIMEOUT_MS
+}
+
+fn default_java_build_timeout() -> u64 {
+    DEFAULT_JAVA_BUILD_TIMEOUT_MS
 }
 
 fn default_shutdown_timeout() -> u64 {
@@ -729,17 +765,31 @@ pub fn cancel_operation(request: CancelOperationRequest) -> Result<(), CoreError
 
 /// Drains all currently queued events in deterministic sequence order.
 pub fn poll_events(request: SessionRequest) -> Result<PollEventsResponse, CoreError> {
+    let session = engine().session(&request.session_id)?;
+    let events = session.poll_events()?;
+    let project_preparation = session
+        .lock_state()?
+        .preparation_snapshot
+        .as_ref()
+        .map(|snapshot| json!(snapshot));
     Ok(PollEventsResponse {
-        events: engine().session(&request.session_id)?.poll_events()?,
+        events,
+        project_preparation,
     })
 }
 
 /// Waits until queued events exist or the supplied timeout elapses.
 pub fn wait_events(request: WaitEventsRequest) -> Result<PollEventsResponse, CoreError> {
+    let session = engine().session(&request.session_id)?;
+    let events = session.wait_events(Duration::from_millis(request.timeout_milliseconds))?;
+    let project_preparation = session
+        .lock_state()?
+        .preparation_snapshot
+        .as_ref()
+        .map(|snapshot| json!(snapshot));
     Ok(PollEventsResponse {
-        events: engine()
-            .session(&request.session_id)?
-            .wait_events(Duration::from_millis(request.timeout_milliseconds))?,
+        events,
+        project_preparation,
     })
 }
 
@@ -895,6 +945,7 @@ impl LspEngine {
         let service_ready_absolute_timeout =
             Duration::from_millis(request.service_ready_absolute_timeout_milliseconds);
         let request_timeout = Duration::from_millis(request.request_timeout_milliseconds);
+        let java_build_timeout = Duration::from_millis(request.java_build_timeout_milliseconds);
         let shutdown_timeout = Duration::from_millis(request.shutdown_timeout_milliseconds);
         let initialize = client_initialize(ClientInitializeRequest {
             state: LspClientState::default(),
@@ -946,6 +997,7 @@ impl LspEngine {
                 java_navigation_marker_batches: BTreeMap::new(),
                 java_navigation_marker_cache: BTreeMap::new(),
                 pending_workspace_file_changes: BTreeMap::new(),
+                preparation_snapshot: None,
                 events: VecDeque::new(),
                 next_sequence: 1,
                 initialize_deadline: Some(now + initialize_timeout),
@@ -963,6 +1015,10 @@ impl LspEngine {
                 maven_profile_applied_fingerprint: None,
                 maven_profile_generation: 0,
                 maven_profile_request_generations: BTreeMap::new(),
+                java_builds: JavaBuildCoordinator::default(),
+                java_build_timeout,
+                deadline_cancellations: Vec::new(),
+                maintenance_write_deadline: None,
             }),
             event_signal: Condvar::new(),
             process: process.handle,
@@ -983,6 +1039,7 @@ impl LspEngine {
             .insert(session_id.clone(), session.clone());
         session.spawn_readers(process.output, process.errors);
         session.spawn_monitor();
+        session.spawn_outbound_maintenance();
         let outbound_order = session.lock_outbound_order()?;
         if let Err(error) = session.send_messages(&outbound_order, initialize.messages) {
             session.fail(
@@ -1287,7 +1344,9 @@ impl RuntimeSession {
                     "Language server is not ready.",
                 ));
             }
-            if state.request_by_operation.contains_key(&operation_id) {
+            if state.request_by_operation.contains_key(&operation_id)
+                || state.java_builds.contains(&operation_id)
+            {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
                     "The language-server operation ID is already pending.",
@@ -1332,6 +1391,25 @@ impl RuntimeSession {
                         "The language server did not advertise this capability.",
                     )
                     .with_details(capability));
+                }
+            }
+
+            // Java project builds are queued behind project configuration and
+            // earlier builds instead of being written immediately.
+            if request.operation == LspSemanticOperation::ExecuteCommand {
+                if let Some(command) = request
+                    .command
+                    .as_ref()
+                    .filter(|command| is_java_build_command(&self.provider_id, command))
+                {
+                    let now = Instant::now();
+                    let timeout = state.java_build_timeout;
+                    state
+                        .java_builds
+                        .enqueue(operation_id, command.clone(), now, timeout);
+                    let messages = self.dispatch_java_build_locked(&mut state, now);
+                    drop(state);
+                    return self.send_messages_or_fail(&outbound_order, messages, "javaBuild");
                 }
             }
 
@@ -1483,6 +1561,32 @@ impl RuntimeSession {
         let outbound_order = self.lock_outbound_order()?;
         let request_id = {
             let mut state = self.lock_state()?;
+            if let Some(departure) = state.java_builds.cancel(operation_id) {
+                let error = runtime_error(
+                    self,
+                    "requestCancelled",
+                    "request",
+                    Some(JAVA_BUILD_METHOD),
+                    None,
+                    "Language-server request was cancelled.",
+                    None,
+                    None,
+                );
+                push_request_event(
+                    self,
+                    &mut state,
+                    operation_id,
+                    JAVA_BUILD_METHOD,
+                    None,
+                    Some(error),
+                );
+                drop(state);
+                return self.send_messages_or_fail(
+                    &outbound_order,
+                    java_build_cancellation(departure),
+                    "requestCancel",
+                );
+            }
             let request_id = state
                 .request_by_operation
                 .remove(operation_id)
@@ -1688,7 +1792,12 @@ impl RuntimeSession {
             state: state.lifecycle,
             initialized: state.client.initialized,
             open_documents: state.client.open_documents.clone(),
-            pending_operation_ids: state.request_by_operation.keys().cloned().collect(),
+            pending_operation_ids: {
+                let mut ids: Vec<String> = state.request_by_operation.keys().cloned().collect();
+                ids.extend(state.java_builds.operation_ids());
+                ids.sort();
+                ids
+            },
             diagnostic_versions: state.client.diagnostic_versions.clone(),
         })
     }
@@ -2258,6 +2367,15 @@ impl RuntimeSession {
                         state.maven_profile_deadline = None;
                     }
                 }
+                Some(PendingKind::JavaBuild) => {
+                    if let Some(request_id) = response_id.as_deref() {
+                        let event = reduced
+                            .events
+                            .iter()
+                            .find(|event| event.request_id.as_deref() == Some(request_id));
+                        self.complete_java_build_locked(&mut state, request_id, event);
+                    }
+                }
                 Some(PendingKind::VirtualDocument) => {
                     if let Some(pending) = pending_before.as_ref() {
                         if let Some(operation_id) = &pending.operation_id {
@@ -2385,6 +2503,15 @@ impl RuntimeSession {
                 let capabilities = state.client.server_capabilities.clone();
                 push_features_event(self, &mut state, capabilities);
             }
+            let now = Instant::now();
+            if let Some(progress) =
+                project_job_progress(&self.provider_id, method, value.get("params"))
+            {
+                state.java_builds.observe_progress(progress, now);
+            }
+            // A build response, a finished project job, or finished Maven
+            // profiles can each unblock the next queued build.
+            outbound.extend(self.dispatch_java_build_locked(&mut state, now));
         }
 
         if let Some((code, detail)) = fail_initialize {
@@ -2646,6 +2773,239 @@ impl RuntimeSession {
         flush_queued_documents_locked(&mut state)
     }
 
+    /// Starts the next queued Java build when nothing blocks it. The caller
+    /// holds `outbound_order` and must write the returned messages before
+    /// releasing it, so request IDs reach the server in allocation order.
+    fn dispatch_java_build_locked(&self, state: &mut SessionState, now: Instant) -> Vec<String> {
+        if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
+            return Vec::new();
+        }
+        let maven_profiles_running = state.maven_profile_status == MavenProfileTaskStatus::Running;
+        let mut allocated = None;
+        let dispatch = state
+            .java_builds
+            .dispatch(maven_profiles_running, now, |command| {
+                let response =
+                    allocate_raw_request(state.client.clone(), JAVA_BUILD_METHOD, command.clone())?;
+                let request_id = (response.state.next_request_id - 1).to_string();
+                allocated = Some(response);
+                Ok::<_, CoreError>(request_id)
+            });
+        refresh_project_preparation(self, state);
+        let dispatch = match dispatch {
+            Ok(dispatch) => dispatch,
+            Err((error, operation_ids)) => {
+                let detail = core_error_detail(&error);
+                for operation_id in operation_ids {
+                    let error = runtime_error(
+                        self,
+                        "invalidRequest",
+                        "javaBuild",
+                        Some(JAVA_BUILD_METHOD),
+                        None,
+                        "Could not encode the Java project build request.",
+                        Some(&detail),
+                        None,
+                    );
+                    push_request_event(
+                        self,
+                        state,
+                        &operation_id,
+                        JAVA_BUILD_METHOD,
+                        None,
+                        Some(error),
+                    );
+                }
+                return Vec::new();
+            }
+        };
+        match dispatch {
+            JavaBuildDispatch::Idle => Vec::new(),
+            JavaBuildDispatch::Blocked { block, newly } => {
+                if newly {
+                    push_log_event(
+                        self,
+                        state,
+                        "info",
+                        "Java project build is waiting",
+                        Some(json!({ "reason": block.as_str() }).to_string()),
+                    );
+                }
+                Vec::new()
+            }
+            JavaBuildDispatch::Started {
+                request_id,
+                waiter_count,
+                waited,
+            } => {
+                let Some(response) = allocated else {
+                    return Vec::new();
+                };
+                state.client = response.state;
+                state.pending.insert(
+                    request_id,
+                    PendingRequest {
+                        kind: PendingKind::JavaBuild,
+                        operation_id: None,
+                        method: JAVA_BUILD_METHOD.to_string(),
+                        document_uri: None,
+                        document_version: None,
+                        created_at: now,
+                        // Callers own their deadlines in the coordinator; this
+                        // entry lives until JDT answers, even after timeouts.
+                        deadline: now + state.java_build_timeout,
+                    },
+                );
+                push_log_event(
+                    self,
+                    state,
+                    "info",
+                    "Java project build started",
+                    Some(
+                        json!({
+                            "waiterCount": waiter_count,
+                            "waitedMilliseconds": waited.as_millis() as u64,
+                        })
+                        .to_string(),
+                    ),
+                );
+                response.messages
+            }
+        }
+    }
+
+    /// Publishes the terminal result of a Java build to every caller sharing it.
+    fn complete_java_build_locked(
+        &self,
+        state: &mut SessionState,
+        request_id: &str,
+        event: Option<&super::LspClientEvent>,
+    ) {
+        let Some(completed) = state.java_builds.complete(request_id, Instant::now()) else {
+            return;
+        };
+        let raw_status = event
+            .and_then(|event| event.result.as_ref())
+            .and_then(|result| result.get("value"));
+        let outcome = java_build_outcome(raw_status);
+        // Captured before recording this outcome so the first builder failure
+        // reports itself as the origin rather than as a later casualty.
+        let builder_failed_earlier = state.java_builds.builder_failed_earlier();
+        state.java_builds.observe_outcome(outcome);
+        let report = java_build_report(
+            outcome,
+            &completed.command,
+            builder_failed_earlier,
+            completed.elapsed,
+        );
+        let error = if let Some(detail) = event.and_then(|event| event.error.as_deref()) {
+            Some(runtime_error(
+                self,
+                "serverError",
+                "javaBuild",
+                Some(JAVA_BUILD_METHOD),
+                None,
+                "Language server returned an error.",
+                Some(detail),
+                None,
+            ))
+        } else {
+            java_build_failure(outcome).map(|(code, message)| {
+                runtime_error(
+                    self,
+                    code,
+                    "javaBuild",
+                    Some(JAVA_BUILD_METHOD),
+                    None,
+                    message,
+                    raw_status.map(Value::to_string).as_deref(),
+                    None,
+                )
+            })
+        };
+        let error = error.map(|mut error| {
+            error.java_build_report = Some(report);
+            error
+        });
+        let result = if error.is_none() {
+            event.and_then(|event| event.result.clone())
+        } else {
+            None
+        };
+        push_log_event(
+            self,
+            state,
+            if error.is_none() { "info" } else { "warning" },
+            "Java project build finished",
+            Some(
+                json!({
+                    "outcome": format!("{outcome:?}"),
+                    "errorCode": error.as_ref().map(|error| error.code.clone()),
+                    "elapsedMilliseconds": completed.elapsed.as_millis() as u64,
+                    "waiterCount": completed.operation_ids.len(),
+                    "markerScope": report.marker_scope,
+                    "builderFailedEarlier": report.builder_failed_earlier,
+                    "recovery": report.recovery,
+                })
+                .to_string(),
+            ),
+        );
+        for operation_id in completed.operation_ids {
+            push_request_event(
+                self,
+                state,
+                &operation_id,
+                JAVA_BUILD_METHOD,
+                result.clone(),
+                error.clone(),
+            );
+        }
+    }
+
+    /// One session-owned writer retries queued builds and sends deadline cancellations.
+    /// The monitor remains free to terminate a stalled write and expire other callers.
+    fn spawn_outbound_maintenance(self: &Arc<Self>) {
+        let session = self.clone();
+        thread::spawn(move || {
+            while session.active.load(Ordering::Acquire) {
+                session.pump_outbound_maintenance();
+                thread::sleep(Duration::from_millis(MONITOR_INTERVAL_MS));
+            }
+        });
+    }
+
+    fn pump_outbound_maintenance(&self) {
+        if !self.lock_state().is_ok_and(|state| {
+            state.java_builds.has_queued() || !state.deadline_cancellations.is_empty()
+        }) {
+            return;
+        }
+        let Ok(outbound_order) = self.outbound_order.try_lock() else {
+            return;
+        };
+        let Ok(mut state) = self.lock_state() else {
+            return;
+        };
+        let mut messages: Vec<String> = std::mem::take(&mut state.deadline_cancellations)
+            .into_iter()
+            .map(|id| {
+                json!({ "jsonrpc": "2.0", "method": "$/cancelRequest", "params": { "id": id } })
+                    .to_string()
+            })
+            .collect();
+        messages.extend(self.dispatch_java_build_locked(&mut state, Instant::now()));
+        if messages.is_empty() {
+            return;
+        }
+        state.maintenance_write_deadline = Some(Instant::now() + state.request_timeout);
+        drop(state);
+        // Process termination by the monitor releases a blocked native stdin write.
+        let _ = self.send_messages_or_fail(&outbound_order, messages, "outboundMaintenance");
+        if let Ok(mut state) = self.lock_state() {
+            state.maintenance_write_deadline = None;
+        }
+    }
+
     fn expire_deadlines(&self) {
         let now = Instant::now();
         let mut cancellations = Vec::new();
@@ -2653,7 +3013,14 @@ impl RuntimeSession {
         let mut service_ready_timeout = None;
         let mut maven_context_timeout = false;
         let mut shutdown_timeout = false;
+        let mut maintenance_write_timeout = false;
         if let Ok(mut state) = self.lock_state() {
+            maintenance_write_timeout = state
+                .maintenance_write_deadline
+                .is_some_and(|deadline| now >= deadline);
+            if maintenance_write_timeout {
+                state.maintenance_write_deadline = None;
+            }
             if state.lifecycle == LspLifecycleState::Initializing
                 && state
                     .initialize_deadline
@@ -2722,6 +3089,35 @@ impl RuntimeSession {
                 }
                 cancellations.push(request_id);
             }
+            let maven_profiles_running =
+                state.maven_profile_status == MavenProfileTaskStatus::Running;
+            let departure = state.java_builds.expire(maven_profiles_running, now);
+            for waiter in &departure.expired {
+                let error = runtime_error(
+                    self,
+                    "requestTimeout",
+                    "javaBuild",
+                    Some(JAVA_BUILD_METHOD),
+                    None,
+                    "The Java project build did not finish in time.",
+                    Some(&format!(
+                        "elapsedMilliseconds={}, phase={}",
+                        waiter.elapsed.as_millis(),
+                        waiter.phase
+                    )),
+                    None,
+                );
+                push_request_event(
+                    self,
+                    &mut state,
+                    &waiter.operation_id,
+                    JAVA_BUILD_METHOD,
+                    None,
+                    Some(error),
+                );
+            }
+            // Advisory: the in-flight slot remains until JDT answers.
+            cancellations.extend(departure.cancel_request_id);
             let expired_maven_requests: Vec<_> = state
                 .pending
                 .iter()
@@ -2816,7 +3212,16 @@ impl RuntimeSession {
                 );
             }
         }
-        if initialize_timeout {
+        if maintenance_write_timeout {
+            self.fail(
+                "transportFailed",
+                "outboundMaintenance",
+                "Language-server stdin write timed out.",
+                None,
+                None,
+            );
+            self.kill_process();
+        } else if initialize_timeout {
             // Timeout termination must not wait behind a blocked stdin write;
             // killing the process is what releases that write.
             self.fail(
@@ -2846,49 +3251,16 @@ impl RuntimeSession {
                     None,
                 );
             }
-            if !cancellations.is_empty() {
-                let messages = cancellations
-                    .into_iter()
-                    .map(|id| {
-                        json!({
-                            "jsonrpc": "2.0",
-                            "method": "$/cancelRequest",
-                            "params": { "id": id }
-                        })
-                        .to_string()
-                    })
-                    .collect();
-                if let Ok(outbound_order) = self.lock_outbound_order() {
-                    let _ = self.send_messages(&outbound_order, messages);
-                }
-            }
         } else if shutdown_timeout {
             self.kill_process();
-        } else if !cancellations.is_empty() {
-            let messages = cancellations
-                .into_iter()
-                .map(|id| {
-                    json!({
-                        "jsonrpc": "2.0",
-                        "method": "$/cancelRequest",
-                        "params": { "id": id }
-                    })
-                    .to_string()
-                })
-                .collect();
-            match self.lock_outbound_order() {
-                Ok(outbound_order) => {
-                    let _ = self.send_messages(&outbound_order, messages);
-                }
-                Err(error) => {
-                    self.fail(
-                        "transportFailed",
-                        "outboundOrder",
-                        "Language-server outbound ordering failed.",
-                        Some(core_error_detail(&error)),
-                        None,
-                    );
-                    self.kill_process();
+        }
+        if !cancellations.is_empty() {
+            if let Ok(mut state) = self.lock_state() {
+                if !matches!(
+                    state.lifecycle,
+                    LspLifecycleState::Stopped | LspLifecycleState::Failed
+                ) {
+                    state.deadline_cancellations.extend(cancellations);
                 }
             }
         }
@@ -3378,6 +3750,51 @@ fn enqueue_runtime_event(
     event: LspRuntimeEvent,
 ) {
     state.events.push_back(event);
+    refresh_project_preparation(session, state);
+    session.event_signal.notify_all();
+}
+
+// Reuse the build coordinator's gate; never infer readiness from a log message.
+fn refresh_project_preparation(session: &RuntimeSession, state: &mut SessionState) {
+    if session.provider_id != "java" {
+        return;
+    }
+    let configuring = state
+        .java_builds
+        .project_configuration_running(Instant::now());
+    let snapshot = crate::lsp::languages::project_preparation::snapshot(
+        state.lifecycle,
+        state.maven_profile_status,
+        configuring,
+        state.java_builds.in_flight_request_id().is_some(),
+    );
+    if state.preparation_snapshot.as_ref() == Some(&snapshot) {
+        return;
+    }
+    let result = json!(snapshot);
+    state.preparation_snapshot = Some(snapshot);
+    let sequence = take_sequence(state);
+    state.events.push_back(LspRuntimeEvent {
+        kind: "projectPreparation".to_string(),
+        sequence,
+        provider_id: session.provider_id.clone(),
+        session_id: session.id.clone(),
+        state: None,
+        operation_id: None,
+        method: None,
+        uri: None,
+        version: None,
+        diagnostics: None,
+        result: Some(result),
+        error: None,
+        capabilities: None,
+        server_info: None,
+        level: None,
+        message: None,
+        detail: None,
+        maven_profile_project: None,
+        maven_profile_task: None,
+    });
     session.event_signal.notify_all();
 }
 
@@ -3851,6 +4268,7 @@ fn runtime_error(
         message: message.to_string(),
         underlying_message: underlying.map(ToString::to_string),
         process_exit_code,
+        java_build_report: None,
     }
 }
 
@@ -3904,6 +4322,47 @@ fn fail_feature_requests(
             );
         }
     }
+    let (build_operation_ids, build_request_id) = state.java_builds.drain();
+    if let Some(request_id) = build_request_id {
+        state.pending.remove(&request_id);
+        state.client.pending_requests.remove(&request_id);
+    }
+    for operation_id in build_operation_ids {
+        let error = runtime_error(
+            session,
+            code,
+            stage,
+            Some(JAVA_BUILD_METHOD),
+            None,
+            message,
+            None,
+            exit_code,
+        );
+        push_request_event(
+            session,
+            state,
+            &operation_id,
+            JAVA_BUILD_METHOD,
+            None,
+            Some(error),
+        );
+    }
+}
+
+/// Serializes the advisory JDT cancellation a departure requires, if any.
+fn java_build_cancellation(departure: JavaBuildDeparture) -> Vec<String> {
+    departure
+        .cancel_request_id
+        .map(|id| {
+            json!({
+                "jsonrpc": "2.0",
+                "method": "$/cancelRequest",
+                "params": { "id": id }
+            })
+            .to_string()
+        })
+        .into_iter()
+        .collect()
 }
 
 fn clear_runtime_diagnostics(session: &RuntimeSession, state: &mut SessionState) {
@@ -3926,6 +4385,9 @@ fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     state.request_by_operation.clear();
     state.java_navigation_marker_batches.clear();
     state.java_navigation_marker_cache.clear();
+    state.java_builds = JavaBuildCoordinator::default();
+    state.deadline_cancellations.clear();
+    state.maintenance_write_deadline = None;
     state.pending_workspace_file_changes.clear();
     state.initialize_deadline = None;
     state.shutdown_deadline = None;
@@ -4017,6 +4479,7 @@ mod tests {
             service_ready_idle_timeout_milliseconds: 45_000,
             service_ready_absolute_timeout_milliseconds: 600_000,
             request_timeout_milliseconds: 10_000,
+            java_build_timeout_milliseconds: DEFAULT_JAVA_BUILD_TIMEOUT_MS,
             shutdown_timeout_milliseconds: 10_000,
         }
     }
@@ -4211,6 +4674,40 @@ mod tests {
                 )
                 .expect("a ready session should accept the request");
             operation_id
+        }
+
+        /// Issues a workspace `executeCommand` request and returns its operation ID.
+        fn execute_command(&self, command: Value) -> String {
+            let operation_id = self.engine.next_operation_id();
+            self.session()
+                .request(
+                    SemanticRequest {
+                        session_id: self.session_id.clone(),
+                        operation_id: Some(operation_id.clone()),
+                        operation: LspSemanticOperation::ExecuteCommand,
+                        uri: None,
+                        virtual_uri: None,
+                        position: None,
+                        new_name: None,
+                        range: None,
+                        diagnostics: Vec::new(),
+                        completion_item: None,
+                        code_action: None,
+                        command: Some(command),
+                    },
+                    operation_id.clone(),
+                )
+                .expect("a ready session should accept the command");
+            operation_id
+        }
+
+        /// The recorded JSON-RPC message with the given request ID.
+        fn written_request(&self, request_id: &str) -> Value {
+            self.server
+                .messages()
+                .into_iter()
+                .find(|message| message["id"] == request_id)
+                .expect("the request should have been written")
         }
 
         /// The notification the server received for `method`, if any.
@@ -6405,6 +6902,7 @@ public class Main {
                 service_ready_idle_timeout_milliseconds: 45_000,
                 service_ready_absolute_timeout_milliseconds: 600_000,
                 request_timeout_milliseconds: 30_000,
+                java_build_timeout_milliseconds: DEFAULT_JAVA_BUILD_TIMEOUT_MS,
                 shutdown_timeout_milliseconds: 10_000,
             })
             .expect("real JDTLS should start");
@@ -7132,6 +7630,7 @@ public class Main {
             service_ready_idle_timeout_milliseconds: 1,
             service_ready_absolute_timeout_milliseconds: 1,
             request_timeout_milliseconds: 1,
+            java_build_timeout_milliseconds: DEFAULT_JAVA_BUILD_TIMEOUT_MS,
             shutdown_timeout_milliseconds: 1,
         };
         assert!(validate_start_request(&request).is_err());
@@ -7188,5 +7687,393 @@ public class Main {
         assert_eq!(request.initialize_timeout_milliseconds, 30_000);
         assert_eq!(request.service_ready_idle_timeout_milliseconds, 45_000);
         assert_eq!(request.service_ready_absolute_timeout_milliseconds, 600_000);
+    }
+
+    const JAVA_PROBE_COMMAND: &str = "java.probe";
+
+    fn java_build_command() -> Value {
+        json!({
+            "title": "Build Java Workspace",
+            "command": "vscode.java.buildWorkspace",
+            "arguments": ["{\"mainClass\":\"demo.App\",\"isFullBuild\":false}"]
+        })
+    }
+
+    fn java_probe_command() -> Value {
+        json!({ "command": JAVA_PROBE_COMMAND, "arguments": [] })
+    }
+
+    /// A ready JDT session whose Java builds use `java_build_timeout_milliseconds`.
+    fn java_build_harness(java_build_timeout_milliseconds: u64) -> Harness {
+        let mut harness = Harness::start(|request| {
+            request.provider_id = "java".to_string();
+            request.cache_directory = Some(
+                std::env::temp_dir()
+                    .join("lithe-lsp-engine-tests")
+                    .to_string_lossy()
+                    .into_owned(),
+            );
+            request.java_build_timeout_milliseconds = java_build_timeout_milliseconds;
+        });
+        harness.server.complete_java_initialize(json!({
+            "executeCommandProvider": {
+                "commands": ["vscode.java.buildWorkspace", JAVA_PROBE_COMMAND]
+            }
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+        harness
+    }
+
+    #[test]
+    fn java_preparation_reports_configuration_but_not_background_indexing() {
+        let mut harness = java_build_harness(60_000);
+        let session = harness.engine.session(&harness.session_id).unwrap();
+        send_project_job_progress(
+            &mut harness,
+            "index",
+            json!({ "kind": "begin", "title": "Indexing" }),
+        );
+        assert_eq!(
+            session
+                .lock_state()
+                .unwrap()
+                .preparation_snapshot
+                .as_ref()
+                .unwrap()
+                .phase,
+            "ready"
+        );
+        send_project_job_progress(
+            &mut harness,
+            "config",
+            json!({ "kind": "begin", "message": "Update project sample" }),
+        );
+        assert_eq!(
+            session
+                .lock_state()
+                .unwrap()
+                .preparation_snapshot
+                .as_ref()
+                .unwrap()
+                .phase,
+            "configuring"
+        );
+        send_project_job_progress(&mut harness, "config", json!({ "kind": "end" }));
+        harness.poll();
+        // The snapshot survives consuming all events, so a reconnect can render readiness.
+        assert_eq!(
+            session
+                .lock_state()
+                .unwrap()
+                .preparation_snapshot
+                .as_ref()
+                .unwrap()
+                .phase,
+            "ready"
+        );
+        assert!(harness
+            .events
+            .iter()
+            .any(|event| event.kind == "projectPreparation"
+                && event
+                    .result
+                    .as_ref()
+                    .is_some_and(|result| result["phase"] == "configuring")));
+    }
+
+    fn send_project_job_progress(harness: &mut Harness, token: &str, value: Value) {
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "$/progress",
+            "params": { "token": token, "value": value }
+        }));
+        // Progress is logged and recorded under the same state lock, so the
+        // log proves the coordinator observed it.
+        let token = token.to_string();
+        harness.await_event(move |event| {
+            event.message.as_deref() == Some("$/progress")
+                && event.detail.as_deref().is_some_and(|detail| {
+                    detail.contains(&token) && detail.contains(value_kind(&value))
+                })
+        });
+    }
+
+    fn value_kind(value: &Value) -> &str {
+        value["kind"].as_str().unwrap_or_default()
+    }
+
+    fn java_log_detail<'a>(harness: &'a mut Harness, message: &'static str) -> &'a str {
+        harness
+            .await_event(move |event| event.message.as_deref() == Some(message))
+            .detail
+            .as_deref()
+            .unwrap_or_default()
+    }
+
+    /// Issue #692: Run built while JDT was still updating Maven projects and
+    /// repeated Run clicks started overlapping builds. Builds now wait for the
+    /// project job to end, run one at a time, and identical queued requests
+    /// share the next build.
+    #[test]
+    fn java_builds_wait_for_project_updates_and_never_overlap() {
+        let mut harness = java_build_harness(60_000);
+        send_project_job_progress(
+            &mut harness,
+            "update-1",
+            json!({ "kind": "begin", "message": "Update project ruoyi-vue-plus" }),
+        );
+
+        let first = harness.execute_command(java_build_command());
+        assert!(
+            java_log_detail(&mut harness, "Java project build is waiting")
+                .contains("waitingForProjectConfiguration")
+        );
+        // An ordinary command is written immediately; being the first
+        // executeCommand on the wire proves the build was held back.
+        let probe = harness.execute_command(java_probe_command());
+        let probe_id = harness
+            .server
+            .await_request_at("workspace/executeCommand", 0)
+            .expect("the probe should reach JDT LS");
+        assert_eq!(
+            harness.written_request(&probe_id)["params"]["command"],
+            JAVA_PROBE_COMMAND
+        );
+
+        send_project_job_progress(&mut harness, "update-1", json!({ "kind": "end" }));
+        let first_build = harness
+            .server
+            .await_request_at("workspace/executeCommand", 1)
+            .expect("the build should start once the project update ends");
+        assert_eq!(
+            harness.written_request(&first_build)["params"],
+            java_build_command()
+        );
+
+        let second = harness.execute_command(java_build_command());
+        let third = harness.execute_command(java_build_command());
+        harness.execute_command(java_probe_command());
+        let second_probe = harness
+            .server
+            .await_request_at("workspace/executeCommand", 2)
+            .expect("the second probe should reach JDT LS");
+        assert_eq!(
+            harness.written_request(&second_probe)["params"]["command"],
+            JAVA_PROBE_COMMAND,
+            "no second build may start while the first is running"
+        );
+
+        harness
+            .server
+            .send(json!({ "jsonrpc": "2.0", "id": first_build, "result": 1 }));
+        let first_event = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(first.as_str()))
+            .clone();
+        assert!(first_event.error.is_none());
+        assert_eq!(first_event.result, Some(json!({ "value": 1 })));
+
+        let shared_build = harness
+            .server
+            .await_request_at("workspace/executeCommand", 3)
+            .expect("the queued callers should start one shared build");
+        assert_eq!(
+            harness.written_request(&shared_build)["params"],
+            java_build_command()
+        );
+        harness
+            .server
+            .send(json!({ "jsonrpc": "2.0", "id": shared_build, "result": 2 }));
+        for operation_id in [&second, &third] {
+            let event = harness
+                .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
+                .clone();
+            let error = event
+                .error
+                .as_ref()
+                .expect("WITH_ERROR must report build evidence");
+            assert_eq!(error.code, "javaBuildCompilationErrors");
+            assert_eq!(error.stage, "javaBuild");
+            let report = error
+                .java_build_report
+                .as_ref()
+                .expect("a terminal build verdict must include its evidence");
+            assert_eq!(report.marker_scope, JavaBuildMarkerScope::Workspace);
+            assert!(!report.builder_failed_earlier);
+            assert_eq!(report.recovery, JavaBuildRecovery::None);
+            let serialized = serde_json::to_value(error).expect("runtime error should serialize");
+            assert_eq!(serialized["javaBuildReport"]["markerScope"], "workspace");
+            assert_eq!(serialized["javaBuildReport"]["builderFailedEarlier"], false);
+            assert!(serialized["javaBuildReport"]["elapsedMilliseconds"].is_u64());
+            assert_eq!(serialized["javaBuildReport"]["recovery"], "none");
+        }
+        let builds_written = harness
+            .server
+            .messages()
+            .into_iter()
+            .filter(|message| message["params"]["command"] == "vscode.java.buildWorkspace")
+            .count();
+        assert_eq!(builds_written, 2);
+
+        for request_id in [probe_id, second_probe] {
+            harness
+                .server
+                .send(json!({ "jsonrpc": "2.0", "id": request_id, "result": null }));
+        }
+        harness.await_event(|event| event.operation_id.as_deref() == Some(probe.as_str()));
+    }
+
+    /// A caller deadline sends advisory cancellation, but JDT may keep
+    /// building, so the next build waits for the old build's late answer.
+    #[test]
+    fn a_timed_out_java_build_keeps_its_slot_until_jdt_answers() {
+        let mut harness = java_build_harness(100);
+        let first = harness.execute_command(java_build_command());
+        let first_build = harness
+            .server
+            .await_request_at("workspace/executeCommand", 0)
+            .expect("an unblocked build should start immediately");
+
+        let timeout = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(first.as_str()))
+            .clone()
+            .error
+            .expect("the caller deadline should fail the operation");
+        assert_eq!(timeout.code, "requestTimeout");
+        assert!(timeout
+            .underlying_message
+            .as_deref()
+            .is_some_and(|detail| detail.contains("phase=building")));
+        assert!(harness.server.await_notification("$/cancelRequest"));
+        let cancellation = harness
+            .notification("$/cancelRequest")
+            .expect("the cancellation should be recorded");
+        assert_eq!(cancellation["params"]["id"], first_build);
+
+        let second = harness.execute_command(java_build_command());
+        let queued_timeout = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(second.as_str()))
+            .clone()
+            .error
+            .expect("the queued caller should time out");
+        assert!(queued_timeout
+            .underlying_message
+            .as_deref()
+            .is_some_and(|detail| detail.contains("phase=waitingForPreviousBuild")));
+
+        harness
+            .server
+            .send(json!({ "jsonrpc": "2.0", "id": first_build, "result": 3 }));
+        assert!(java_log_detail(&mut harness, "Java project build finished")
+            .contains("\"waiterCount\":0"));
+        harness.execute_command(java_build_command());
+        let next_build = harness
+            .server
+            .await_request_at("workspace/executeCommand", 1)
+            .expect("the answered build should release the slot");
+        assert_ne!(next_build, first_build);
+    }
+
+    /// A stalled maintenance write must not stop waiter deadlines or prevent
+    /// transport termination. Past timestamps drive each timeout without sleeps.
+    fn assert_blocked_maintenance_write_terminates(cancellation: bool) {
+        struct Cleanup(Arc<RuntimeSession>);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                self.0.kill_process();
+            }
+        }
+
+        let mut harness = java_build_harness(60_000);
+        let session = harness.session();
+        let _cleanup = Cleanup(session.clone());
+        if cancellation {
+            let probe = harness.execute_command(java_probe_command());
+            let request_id = harness
+                .server
+                .await_request("workspace/executeCommand")
+                .unwrap();
+            harness.server.pause_input();
+            session
+                .lock_state()
+                .unwrap()
+                .pending
+                .get_mut(&request_id)
+                .unwrap()
+                .deadline = Instant::now();
+            harness.await_event(|event| event.operation_id.as_deref() == Some(probe.as_str()));
+            assert!(harness.server.await_input_pause());
+        } else {
+            harness.server.pause_input();
+        }
+        // Queue directly to exercise the maintenance writer, not the caller's
+        // immediate dispatch or the stdout reader's progress-triggered dispatch.
+        session.lock_state().unwrap().java_builds.enqueue(
+            "blocked-build".into(),
+            java_build_command(),
+            Instant::now(),
+            Duration::from_secs(60),
+        );
+        if !cancellation {
+            assert!(harness.server.await_input_pause());
+        }
+
+        for operation_id in ["expired-one", "expired-two"] {
+            session.lock_state().unwrap().java_builds.enqueue(
+                operation_id.into(),
+                java_build_command(),
+                Instant::now() - Duration::from_secs(2),
+                Duration::from_secs(1),
+            );
+            let error = harness
+                .await_event(|event| event.operation_id.as_deref() == Some(operation_id))
+                .error
+                .as_ref()
+                .expect("the monitor must keep expiring callers");
+            assert_eq!(error.code, "requestTimeout");
+        }
+
+        // Force the write's own deadline after proving the monitor remained live.
+        session.lock_state().unwrap().maintenance_write_deadline = Some(Instant::now());
+        harness.await_state(LspLifecycleState::Failed);
+        let error = harness
+            .await_event(|event| event.operation_id.as_deref() == Some("blocked-build"))
+            .error
+            .as_ref()
+            .expect("the stalled transport must fail its remaining caller");
+        assert_eq!(error.code, "transportFailed");
+        assert!(harness.server.await_input_resumed());
+        assert!(session.process.exit_status().is_some());
+        assert!(harness.snapshot().pending_operation_ids.is_empty());
+    }
+
+    #[test]
+    fn blocked_java_build_write_preserves_deadlines_and_terminates() {
+        assert_blocked_maintenance_write_terminates(false);
+    }
+
+    #[test]
+    fn blocked_deadline_cancellation_preserves_deadlines_and_terminates() {
+        assert_blocked_maintenance_write_terminates(true);
+    }
+
+    #[test]
+    fn stopping_the_session_fails_queued_java_builds() {
+        let mut harness = java_build_harness(60_000);
+        send_project_job_progress(
+            &mut harness,
+            "update-1",
+            json!({ "kind": "begin", "message": "Updating project configurations" }),
+        );
+        let queued = harness.execute_command(java_build_command());
+        java_log_detail(&mut harness, "Java project build is waiting");
+
+        harness.session().stop().expect("stop should succeed");
+        let error = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(queued.as_str()))
+            .clone()
+            .error
+            .expect("a stopping session cannot build");
+        assert_eq!(error.code, "requestCancelled");
+        assert!(harness.snapshot().pending_operation_ids.is_empty());
     }
 }

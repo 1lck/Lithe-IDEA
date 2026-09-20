@@ -576,6 +576,7 @@ package struct LanguageServerCodeAction: Identifiable, Equatable, Sendable {
 
 @MainActor
 package protocol LanguageServerSession: AnyObject {
+    var onProjectPreparation: ((ProjectPreparationSnapshot) -> Void)? { get set }
     var onMavenProfileTask: ((String) -> Void)? { get set }
     var onMavenProfileProject: ((MavenProfileProjectResult) -> Void)? { get set }
     var isRunning: Bool { get }
@@ -685,6 +686,10 @@ package extension LanguageServerSession {
     }
     func semanticTokens(fileURL: URL, completion: @escaping (Result<LanguageServerSemanticTokens, Error>) -> Void) throws {
         completion(.success(.empty))
+    }
+    var onProjectPreparation: ((ProjectPreparationSnapshot) -> Void)? {
+        get { nil }
+        set {}
     }
     var onMavenProfileTask: ((String) -> Void)? {
         get { nil }

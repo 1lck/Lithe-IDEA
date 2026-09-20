@@ -173,20 +173,70 @@ package struct LanguageServerRuntimeError: Equatable, Sendable {
     package let message: String
     package let underlyingMessage: String?
     package let processExitCode: Int?
+    package let javaBuildReport: JavaBuildReport?
 
     package init(
         code: String,
         stage: String,
         message: String,
         underlyingMessage: String?,
-        processExitCode: Int?
+        processExitCode: Int?,
+        javaBuildReport: JavaBuildReport? = nil
     ) {
         self.code = code
         self.stage = stage
         self.message = message
         self.underlyingMessage = underlyingMessage
         self.processExitCode = processExitCode
+        self.javaBuildReport = javaBuildReport
     }
+}
+
+package enum JavaBuildMarkerScope: String, Codable, Equatable, Sendable {
+    case launchTarget
+    case workspace
+}
+
+package enum JavaBuildRecovery: String, Codable, Equatable, Sendable {
+    case none
+    case rebuildJavaIndex
+}
+
+/// Evidence reported by Core for one terminal Java build verdict.
+package struct JavaBuildReport: Codable, Equatable, Sendable {
+    package let markerScope: JavaBuildMarkerScope
+    package let builderFailedEarlier: Bool
+    package let elapsedMilliseconds: UInt64
+    package let recovery: JavaBuildRecovery
+
+    package init(
+        markerScope: JavaBuildMarkerScope,
+        builderFailedEarlier: Bool,
+        elapsedMilliseconds: UInt64,
+        recovery: JavaBuildRecovery
+    ) {
+        self.markerScope = markerScope
+        self.builderFailedEarlier = builderFailedEarlier
+        self.elapsedMilliseconds = elapsedMilliseconds
+        self.recovery = recovery
+    }
+}
+
+package struct JavaLaunchBuildFailure: Equatable, Sendable {
+    package let code: String
+    package let message: String
+    package let report: JavaBuildReport?
+
+    package init(code: String, message: String, report: JavaBuildReport?) {
+        self.code = code
+        self.message = message
+        self.report = report
+    }
+}
+
+package enum JavaLaunchPreparation: Equatable, Sendable {
+    case ready(JavaDebugLaunchTarget)
+    case buildFailed(target: JavaDebugLaunchTarget, failure: JavaLaunchBuildFailure)
 }
 
 package struct LanguageServerRuntimeEvent: Equatable, Sendable {
@@ -391,4 +441,17 @@ package extension LanguageServerRuntimeCore {
 package protocol LanguageServerProcessRegistry: AnyObject {
     func registerLanguageServerProcess(pid: Int32, moduleID: ModuleID)
     func unregisterLanguageServerProcess(pid: Int32, moduleID: ModuleID)
+}
+
+/// Read-only preparation facts published by Rust; ready does not imply a successful build.
+package struct ProjectPreparationSnapshot: Codable, Equatable, Sendable {
+    package let phase: String
+    package let status: String
+    package let blocksRun: Bool
+
+    package init(phase: String, status: String, blocksRun: Bool) {
+        self.phase = phase
+        self.status = status
+        self.blocksRun = blocksRun
+    }
 }

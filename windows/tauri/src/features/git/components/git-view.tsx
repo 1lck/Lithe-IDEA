@@ -92,6 +92,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   const {
     activeRepoPath,
     hasLoadError,
+    hasHistoryLoadError,
     refresh: handleManualRefresh,
     refreshWorkingTree,
   } = useGitDataController({
@@ -673,9 +674,10 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     );
   }
 
+  const showLoadError = hasLoadError || (activeTab === "history" && hasHistoryLoadError);
   const loadError = (
     <div role="alert" className="flex items-center justify-between gap-2 p-3 ui-text-sm text-destructive">
-      <span>{t("git.statusLoadFailed")}</span>
+      <span>{t(hasLoadError ? "git.statusLoadFailed" : "git.historyLoadFailed")}</span>
       <Button size="xs" variant="ghost" disabled={isRefreshing} onClick={() => void handleManualRefresh()}>
         {t("git.log.retry")}
       </Button>
@@ -706,7 +708,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
           {renderRefreshButton()}
           {renderActionsButton()}
         </SidebarTitleBar>
-        {hasLoadError && loadError}
+        {showLoadError && loadError}
         <SidebarTabBar items={gitTabs} value={activeTab} onChange={setActiveTab}>
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden isolate">
             <SidebarTabPanels

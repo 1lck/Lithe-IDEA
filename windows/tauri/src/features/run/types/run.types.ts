@@ -16,12 +16,16 @@ export interface RunDiagnostic {
   toolchain?: string;
 }
 
+/** Whether an entry runs this project or the infrastructure it depends on. */
+export type RunCategory = "project" | "infrastructure";
+
 export interface RunConfiguration {
   id: string;
   name: string;
   provider: string;
   kindTitle: string;
   execution: RunExecution;
+  category: RunCategory;
   modulePath?: string;
   mavenReactorPath?: string;
   mainClass?: string;
@@ -169,6 +173,7 @@ export interface CoreResolvedConfiguration {
   name: string;
   provider: string;
   execution?: RunExecution | string;
+  category?: RunCategory | string;
   args?: string[];
   cwd?: string;
   env?: Record<string, string>;

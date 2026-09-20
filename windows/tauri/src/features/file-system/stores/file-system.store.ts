@@ -8,10 +8,7 @@ import type { StoreApi } from "zustand";
 import { createStore } from "zustand/vanilla";
 import { useAIChatStore } from "@/features/ai/stores/ai-chat.store";
 import type { CodeEditorRef } from "@/features/editor/components/code-editor";
-import {
-  buildPersistedEditorViewState,
-  restorePersistedEditorViewState,
-} from "@/features/editor/stores/editor-session-state";
+import { buildPersistedEditorViewState } from "@/features/editor/stores/editor-session-state";
 import {
   clearQueuedWorkspaceSessionSave,
   useBufferStore,
@@ -25,7 +22,7 @@ import { fileOpenBenchmark } from "@/features/editor/utils/file-open-benchmark";
 import { getLineSlice } from "@/features/editor/utils/large-file";
 import { getAncestorDirectoryPaths } from "@/features/file-explorer/utils/file-explorer-tree-utils";
 import { useFileTreeStore } from "@/features/file-explorer/stores/file-explorer-tree.store";
-import { getGitStatus } from "@/features/git/api/git-status-api";
+import { createProjectFileScanCoordinator } from "@/features/file-system/controllers/project-file-scan-coordinator";
 import { useGitBlameStore } from "@/features/git/stores/git-blame.store";
 import { useGitStore } from "@/features/git/stores/git.store";
 import { gitDiffCache } from "@/features/git/utils/git-diff-cache";
@@ -56,6 +53,8 @@ import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace
 import { workspaceSessionRepository } from "@/features/workspace/persistence/workspace-session-repository";
 import { switchWorkspaceRuntime } from "@/features/workspace/services/workspace-lifecycle";
 import { scheduleWorkspacePrewarm } from "@/features/workspace/services/workspace-prewarm";
+import { runGitBeforeJava } from "@/features/workspace/services/workspace-startup-priority";
+import { ensureWorkspaceGitBootstrap } from "@/features/workspace/services/workspace-git-bootstrap";
 import {
   createWorkspaceScopedStore,
   type WorkspaceScopedStore,
@@ -124,7 +123,6 @@ import {
   prepareProjectTransitionWithUnsavedBuffers,
 } from "../controllers/workspace-project-transition";
 import {
-  buildWorkspaceRestoreBatch,
   buildWorkspaceRestorePlan,
   getEditorWorkspaceScope,
   isLocalFileInWorkspace,
@@ -132,7 +130,11 @@ import {
   normalizeWorkspaceFolders,
   selectRestoredWorkspaceFolders,
 } from "../controllers/workspace-session";
-import type { WorkspaceSessionBuffer } from "../controllers/workspace-session";
+import {
+  createSessionRestoreController,
+  type RestoreJob,
+  type SessionRestoreController,
+} from "../controllers/workspace-session-restore";
 
 const getCurrentTranslator = () =>
   createTranslator(useSettingsStore.getState().settings.displayLanguage);
@@ -275,7 +277,6 @@ const readProviderDirectoryEntries = async (
 };
 
 const textFileDecoder = new TextDecoder("utf-8");
-const IMMEDIATE_SESSION_BUFFERS_TO_RESTORE = 1;
 const pendingWorkspaceSessionWrites = new Map<string, ReturnType<typeof setTimeout>>();
 
 const scheduleWorkspaceSessionWrite = (projectPath: string, write: () => void) => {
@@ -376,24 +377,6 @@ const serializeWorkspaceBuffer = (
   return null;
 };
 
-const restoreEditorSessionStateForPath = (
-  bufferSession: BufferSession | WorkspaceSessionBuffer,
-  workspaceId?: string,
-) => {
-  if (bufferSession.type !== "editor" || !bufferSession.editorState) {
-    return;
-  }
-
-  const bufferState = workspaceId
-    ? useBufferStore.getStore(workspaceId).getState()
-    : useBufferStore.getState();
-  const openedBuffer = getBufferByPath(bufferState.buffers, bufferSession.path);
-
-  if (openedBuffer?.type === "editor") {
-    restorePersistedEditorViewState(openedBuffer, bufferSession.editorState);
-  }
-};
-
 const reconnectRemoteConnection = async (connectionId: string) => {
   const connection = await connectionStore.getConnection(connectionId);
   if (!connection) {
@@ -461,9 +444,67 @@ const initializeLocalWorkspaceInBackground = (
 ) => {
   const activationVersion = ++workspaceServiceActivationVersion;
   const gitStore = useGitStore.getStore(workspaceId);
-  if (!options.preserveGitStatus) {
+  const isCurrentActivation = () =>
+    activationVersion === workspaceServiceActivationVersion &&
+    workspaceRuntimeRegistry.getActiveWorkspaceId() === workspaceId &&
+    get().rootFolderPath === path;
+  // Restored editors may have already published this workspace's bootstrap.
+  // Do not erase it before the background path joins the completed task.
+  if (!options.preserveGitStatus && gitStore.getState().currentWorkspaceRepoPath !== path) {
     gitStore.getState().actions.setWorkspaceGitStatus(null, path);
   }
+
+  const startJavaWorkspaceDetection = () => {
+    void (async () => {
+      const operation = new LspOperationLog("javaWorkspaceDetection", crypto.randomUUID(), {
+        workspaceId,
+        workspacePath: path,
+        languageId: "java",
+      });
+      try {
+        const projectFiles = await get().getAllProjectFiles();
+        if (!isCurrentActivation()) {
+          operation.cancelled("workspace-activation-superseded");
+          return;
+        }
+
+        const [{ getRelativePath, pathStartsWithRoot }, { resolveJavaWorkspacePolicy },
+          { getJavaWorkspaceLanguageServerOwner }, { loadMavenProjectForWorkspace }] = await Promise.all([
+          import("@/utils/path-helpers"),
+          import("@/platform/java-workspace-policy"),
+          import("@/features/editor/lsp/java-workspace-language-server"),
+          import("@/features/maven/stores/maven.store"),
+        ]);
+        const workspaceFiles = projectFiles.filter(
+          (entry) => !entry.isDir && pathStartsWithRoot(entry.path, path),
+        );
+        const relativeToAbsolute = new Map(
+          workspaceFiles.map((entry) => [getRelativePath(entry.path, path), entry.path]),
+        );
+        await loadMavenProjectForWorkspace(path, [...relativeToAbsolute.keys()], workspaceId);
+        if (!isCurrentActivation()) {
+          operation.cancelled("workspace-activation-superseded");
+          return;
+        }
+        const policy = await resolveJavaWorkspacePolicy([...relativeToAbsolute.keys()]);
+        const javaFile = policy.representativeJavaPath
+          ? relativeToAbsolute.get(policy.representativeJavaPath)
+          : undefined;
+        if (!policy.shouldStart || !javaFile) {
+          operation.cancelled("java-workspace-not-detected");
+          return;
+        }
+
+        operation.succeeded({ representativeJavaPath: policy.representativeJavaPath });
+        await getJavaWorkspaceLanguageServerOwner().prewarm(
+          { workspaceId, root: path },
+          javaFile,
+        );
+      } catch (error) {
+        operation.failed(error);
+      }
+    })();
+  };
 
   return (async () => {
     const backgroundInitStartedAt = performance.now();
@@ -472,11 +513,7 @@ const initializeLocalWorkspaceInBackground = (
       if (options.deferWatcher) {
         await waitForWorkspaceIdle();
       }
-      if (
-        activationVersion !== workspaceServiceActivationVersion ||
-        workspaceRuntimeRegistry.getActiveWorkspaceId() !== workspaceId ||
-        get().rootFolderPath !== path
-      ) {
+      if (!isCurrentActivation()) {
         return;
       }
 
@@ -497,11 +534,7 @@ const initializeLocalWorkspaceInBackground = (
 
       await waitForWorkspaceIdle();
 
-      if (
-        activationVersion !== workspaceServiceActivationVersion ||
-        workspaceRuntimeRegistry.getActiveWorkspaceId() !== workspaceId ||
-        get().rootFolderPath !== path
-      ) {
+      if (!isCurrentActivation()) {
         return;
       }
 
@@ -509,95 +542,38 @@ const initializeLocalWorkspaceInBackground = (
 
       await waitForWorkspaceIdle();
 
-      if (
-        activationVersion !== workspaceServiceActivationVersion ||
-        workspaceRuntimeRegistry.getActiveWorkspaceId() !== workspaceId ||
-        get().rootFolderPath !== path
-      ) {
+      if (!isCurrentActivation()) {
         return;
       }
 
-      void (async () => {
-        const operation = new LspOperationLog("javaWorkspaceDetection", crypto.randomUUID(), {
-          workspaceId,
-          workspacePath: path,
-          languageId: "java",
-        });
-        try {
-          const projectFiles = await get().getAllProjectFiles();
+      await runGitBeforeJava({
+        bootstrapGit: async () => {
+          const gitState = gitStore.getState();
           if (
-            activationVersion !== workspaceServiceActivationVersion ||
-            workspaceRuntimeRegistry.getActiveWorkspaceId() !== workspaceId ||
-            get().rootFolderPath !== path
+            options.preserveGitStatus &&
+            gitState.currentWorkspaceRepoPath === path &&
+            Date.now() - gitState.workspaceGitStatusUpdatedAt < (options.maxGitStatusAgeMs ?? 15_000)
           ) {
-            operation.cancelled("workspace-activation-superseded");
             return;
           }
 
-          const [{ getRelativePath, pathStartsWithRoot }, { resolveJavaWorkspacePolicy },
-            { getJavaWorkspaceLanguageServerOwner }, { loadMavenProjectForWorkspace }] = await Promise.all([
-            import("@/utils/path-helpers"),
-            import("@/platform/java-workspace-policy"),
-            import("@/features/editor/lsp/java-workspace-language-server"),
-            import("@/features/maven/stores/maven.store"),
-          ]);
-          const workspaceFiles = projectFiles.filter(
-            (entry) => !entry.isDir && pathStartsWithRoot(entry.path, path),
-          );
-          const relativeToAbsolute = new Map(
-            workspaceFiles.map((entry) => [getRelativePath(entry.path, path), entry.path]),
-          );
-          await loadMavenProjectForWorkspace(path, [...relativeToAbsolute.keys()], workspaceId);
-          if (
-            activationVersion !== workspaceServiceActivationVersion ||
-            workspaceRuntimeRegistry.getActiveWorkspaceId() !== workspaceId ||
-            get().rootFolderPath !== path
-          ) {
-            operation.cancelled("workspace-activation-superseded");
-            return;
-          }
-          const policy = await resolveJavaWorkspacePolicy([...relativeToAbsolute.keys()]);
-          const javaFile = policy.representativeJavaPath
-            ? relativeToAbsolute.get(policy.representativeJavaPath)
-            : undefined;
-          if (!policy.shouldStart || !javaFile) {
-            operation.cancelled("java-workspace-not-detected");
-            return;
-          }
-
-          operation.succeeded({ representativeJavaPath: policy.representativeJavaPath });
-          await getJavaWorkspaceLanguageServerOwner().prewarm(
+          const gitStatusStartedAt = performance.now();
+          logWorkspaceOpenStep("start", "getGitStatus", path);
+          await ensureWorkspaceGitBootstrap(
             { workspaceId, root: path },
-            javaFile,
+            { refresh: options.preserveGitStatus },
           );
-        } catch (error) {
-          operation.failed(error);
-        }
-      })();
-
-      const gitState = gitStore.getState();
-      if (
-        options.preserveGitStatus &&
-        gitState.currentWorkspaceRepoPath === path &&
-        Date.now() - gitState.workspaceGitStatusUpdatedAt < (options.maxGitStatusAgeMs ?? 15_000)
-      ) {
-        logWorkspaceOpenStep("end", "backgroundInit", path, backgroundInitStartedAt);
-        return;
-      }
-
-      const gitStatusStartedAt = performance.now();
-      logWorkspaceOpenStep("start", "getGitStatus", path);
-      const gitStatus = await getGitStatus(path);
-      logWorkspaceOpenStep("end", "getGitStatus", path, gitStatusStartedAt);
-
-      if (
-        activationVersion !== workspaceServiceActivationVersion ||
-        get().rootFolderPath !== path
-      ) {
-        return;
-      }
-
-      gitStore.getState().actions.setWorkspaceGitStatus(gitStatus, path);
+          logWorkspaceOpenStep("end", "getGitStatus", path, gitStatusStartedAt);
+        },
+        isCurrent: isCurrentActivation,
+        onGitBootstrapError: (error) => {
+          if (isCurrentActivation()) {
+            gitStore.getState().actions.setWorkspaceGitStatus(null, path);
+          }
+          console.error("Failed to bootstrap workspace Git before Java:", error);
+        },
+        startJava: startJavaWorkspaceDetection,
+      });
       logWorkspaceOpenStep("end", "backgroundInit", path, backgroundInitStartedAt);
     } catch (error) {
       if (get().rootFolderPath === path) {
@@ -813,9 +789,11 @@ const scheduleInactiveWorkspacePrewarm = () => {
 const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemStoreState> => {
   let latestFileOpenRequestId = 0;
   let latestTreeRevealRequestId = 0;
-  let pendingSessionBuffers: BufferSession[] = [];
-  let resumePendingSessionRestore: (() => void) | null = null;
+  let sessionRestoreController: SessionRestoreController | null = null;
+  let sessionRestoreJobs = new Map<string, RestoreJob>();
+  let sessionRestoreGeneration = 0;
   let deferredAiSession: ReturnType<typeof readPersistedAiWorkspaceSession> | undefined;
+  const coordinateProjectFileScan = createProjectFileScanCoordinator<FileEntry[]>();
 
   return createStore<ScopedFileSystemStoreState>()(
     immer((set, get) => ({
@@ -896,7 +874,6 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
       },
 
       resumeWorkspaceSession: () => {
-        resumePendingSessionRestore?.();
         const projectPath = get().rootFolderPath;
         if (!projectPath) {
           return;
@@ -907,6 +884,12 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
       },
 
       resetWorkspace: async () => {
+        // Drop any in-flight session restore before tearing down buffers.
+        sessionRestoreGeneration += 1;
+        sessionRestoreController?.dispose();
+        sessionRestoreController = null;
+        sessionRestoreJobs.clear();
+
         // Reset all project-related state to return to welcome screen
         set((state) => {
           state.files = [];
@@ -1015,7 +998,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           const { actions: bufferActions } = bufferStore.getState();
           const restorePlan = buildWorkspaceRestorePlan(session);
 
-          const candidateBuffersToRestore = [
+          const candidateBuffers = [
             restorePlan.initialBuffer,
             ...restorePlan.remainingBuffers,
           ].filter(
@@ -1023,177 +1006,129 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
               !!buffer && buffer.path !== skipBufferPath,
           );
 
-          const { buffersToRestore, deferredBuffers } = buildWorkspaceRestoreBatch(
-            candidateBuffersToRestore,
-            IMMEDIATE_SESSION_BUFFERS_TO_RESTORE,
-          );
-          pendingSessionBuffers = [...deferredBuffers];
+          // Drop any controller left over from a previous restore for this workspace.
+          const restoreGeneration = ++sessionRestoreGeneration;
+          sessionRestoreController?.dispose();
+          sessionRestoreController = null;
+          sessionRestoreJobs.clear();
 
-          const restoreBuffers = async (buffers: typeof buffersToRestore) => {
-            for (const buffer of buffers) {
-              if (buffer.type === "terminal") {
-                const restoredBufferId = bufferActions.openContent({
-                  type: "terminal",
-                  name: buffer.name,
-                  command: buffer.initialCommand,
-                  shell: buffer.shell,
-                  workingDirectory: buffer.workingDirectory,
-                  remoteConnectionId: buffer.remoteConnectionId,
-                  sessionId: buffer.sessionId,
-                  path: buffer.path,
-                });
-
-                if (buffer.isPinned) {
-                  bufferActions.handleTabPin(restoredBufferId);
-                }
-
-                continue;
-              }
-
-              if (buffer.type === "webViewer") {
-                const restoredBufferId = bufferActions.openContent({
-                  type: "webViewer",
-                  url: buffer.url ?? "about:blank",
-                  zoomLevel: buffer.zoomLevel,
-                  profileKey: buffer.profileKey,
-                  history: buffer.history,
-                  historyIndex: buffer.historyIndex,
-                });
-
-                if (buffer.isPinned) {
-                  bufferActions.handleTabPin(restoredBufferId);
-                }
-
-                continue;
-              }
-
-              frontendTrace("info", "workspace-open", "restoreSession:buffer:start", {
-                projectPath,
-                bufferPath: buffer.path,
+          // 1. Recreate every saved buffer as a metadata-only placeholder so the
+          //    full tab order/pin/preview state is present before the pane layout
+          //    is restored. Terminal and webViewer buffers open immediately (no
+          //    file read); editor buffers stay "unloaded" until their file loads.
+          const editorJobs: RestoreJob[] = [];
+          for (const buffer of candidateBuffers) {
+            if (buffer.type === "terminal") {
+              const restoredBufferId = bufferActions.openContent({
+                type: "terminal",
+                name: buffer.name,
+                command: buffer.initialCommand,
+                shell: buffer.shell,
+                workingDirectory: buffer.workingDirectory,
+                remoteConnectionId: buffer.remoteConnectionId,
+                sessionId: buffer.sessionId,
+                path: buffer.path,
               });
-              // Use handleFileSelect to open the file (it handles reading content)
-              await get().handleFileSelect(
-                buffer.path,
-                false,
-                undefined,
-                undefined,
-                undefined,
-                buffer.isPreview,
-              );
-              restoreEditorSessionStateForPath(buffer, workspaceId);
-              frontendTrace("info", "workspace-open", "restoreSession:buffer:end", {
-                projectPath,
-                bufferPath: buffer.path,
+              if (buffer.isPinned) bufferActions.handleTabPin(restoredBufferId);
+              continue;
+            }
+
+            if (buffer.type === "webViewer") {
+              const restoredBufferId = bufferActions.openContent({
+                type: "webViewer",
+                url: buffer.url ?? "about:blank",
+                zoomLevel: buffer.zoomLevel,
+                profileKey: buffer.profileKey,
+                history: buffer.history,
+                historyIndex: buffer.historyIndex,
               });
-
-              // If it was pinned, we might need to handle that, but handleFileSelect doesn't support pinning arg.
-              // We can pin it after opening if needed.
-              if (buffer.isPinned) {
-                const newBuffers = bufferStore.getState().buffers;
-                const openedBuffer = getBufferByPath(newBuffers, buffer.path);
-                if (openedBuffer) {
-                  bufferActions.handleTabPin(openedBuffer.id);
-                }
-              }
+              if (buffer.isPinned) bufferActions.handleTabPin(restoredBufferId);
+              continue;
             }
-          };
 
-          await restoreBuffers(buffersToRestore);
+            const bufferId = bufferActions.createRestoredBufferMetadata({
+              path: buffer.path,
+              name: buffer.name,
+              isPinned: buffer.isPinned,
+              isPreview: buffer.isPreview ?? false,
+              editorState: buffer.editorState,
+            });
+            editorJobs.push({ bufferId, path: buffer.path, editorState: buffer.editorState });
+          }
+          sessionRestoreJobs = new Map(editorJobs.map((job) => [job.bufferId, job]));
 
-          // Restore active buffer
-          if (restorePlan.activeBufferPath) {
-            const { buffers } = bufferStore.getState();
-            const activeBuffer = getBufferByPath(buffers, restorePlan.activeBufferPath);
-            if (activeBuffer) {
-              bufferStore.getState().actions.setActiveBuffer(activeBuffer.id);
+          // 2. Wire the bounded background restore controller for editor buffers.
+          const restoreController = createSessionRestoreController({
+            markLoading: (bufferId) => bufferActions.markBufferLoading(bufferId),
+            applyLoaded: (bufferId, loaded, editorState) =>
+              bufferActions.replaceRestoredBufferContent(
+                bufferId,
+                loaded.content ?? "",
+                loaded.language,
+                editorState,
+              ),
+            markFailed: (bufferId, error) => bufferActions.markBufferLoadFailed(bufferId, error),
+            markUnloaded: (bufferId, expectedPath) =>
+              bufferActions.markBufferUnloaded(bufferId, expectedPath),
+            // A prewarmed workspace is intentionally inactive while its saved tabs
+            // hydrate. Only a newer restore or teardown makes this session stale.
+            isSessionCurrent: () => sessionRestoreGeneration === restoreGeneration,
+            isBufferValid: (bufferId, path) => {
+              const buffer = getBufferById(bufferStore.getState().buffers, bufferId);
+              return !!buffer && buffer.path === path;
+            },
+          });
+          sessionRestoreController = restoreController;
+          bufferActions.setSessionRestorePromoter((bufferId) => {
+            const buffer = getBufferById(bufferStore.getState().buffers, bufferId);
+            if (buffer) {
+              const restoredJob = sessionRestoreJobs.get(bufferId);
+              const job =
+                restoredJob
+                  ? { ...restoredJob, path: buffer.path }
+                  : { bufferId, path: buffer.path };
+              void restoreController.loadNow(job);
             }
+          });
+
+          // 3. Load the active editor buffer synchronously so `restoreSession`
+          //    resolves as soon as the active tab is ready.
+          const activeJob = editorJobs.find((job) => job.path === restorePlan.activeBufferPath);
+          if (activeJob) {
+            await restoreController.loadNow(activeJob);
           }
 
-          if (deferredBuffers.length > 0) {
-            console.info("[workspace-open] restoreSession:deferred", {
-              projectPath,
-              totalBuffers: candidateBuffersToRestore.length,
-              restoredBuffers: buffersToRestore.length,
-              deferredBuffers: deferredBuffers.length,
-            });
-            frontendTrace("info", "workspace-open", "restoreSession:deferred", {
-              projectPath,
-              totalBuffers: candidateBuffersToRestore.length,
-              restoredBuffers: buffersToRestore.length,
-              deferredBuffers: deferredBuffers.length,
-            });
-
-            let isRestoringDeferredBuffers = false;
-            resumePendingSessionRestore = () => {
-              if (isRestoringDeferredBuffers || pendingSessionBuffers.length === 0) {
-                return;
-              }
-
-              isRestoringDeferredBuffers = true;
-              void (async () => {
-                let restoredBufferCount = 0;
-
-                while (pendingSessionBuffers.length > 0) {
-                  await waitForWorkspaceIdle();
-                  if (
-                    get().rootFolderPath !== projectPath ||
-                    workspaceRuntimeRegistry.getActiveWorkspaceId() !== workspaceId
-                  ) {
-                    return;
-                  }
-
-                  const nextBuffer = pendingSessionBuffers[0];
-                  if (!nextBuffer) {
-                    break;
-                  }
-
-                  try {
-                    await restoreBuffers([nextBuffer]);
-                  } catch (error) {
-                    console.warn(
-                      `[workspace-open] failed to restore deferred tab ${nextBuffer.path}`,
-                      error,
-                    );
-                  }
-                  pendingSessionBuffers.shift();
-                  restoredBufferCount++;
-
-                  if (restorePlan.activeBufferPath) {
-                    const activeBuffer = getBufferByPath(
-                      bufferStore.getState().buffers,
-                      restorePlan.activeBufferPath,
-                    );
-                    if (activeBuffer) {
-                      bufferStore.getState().actions.setActiveBuffer(activeBuffer.id);
-                    }
-                  }
-                }
-
-                if (pendingSessionBuffers.length === 0) {
-                  resumePendingSessionRestore = null;
-                  restoreProjectPaneState(projectPath, workspaceId);
-                  frontendTrace("info", "workspace-open", "restoreSession:deferred:end", {
-                    projectPath,
-                    restoredBuffers: restoredBufferCount,
-                  });
-                }
-              })()
-                .catch((error) => {
-                  console.warn("[workspace-open] failed to restore deferred saved tabs", error);
-                  frontendTrace("warn", "workspace-open", "restoreSession:deferred:error", {
-                    projectPath,
-                    error: getErrorMessage(error),
-                  });
-                })
-                .finally(() => {
-                  isRestoringDeferredBuffers = false;
+          // 4. Enqueue the remaining editor buffers for bounded background loading.
+          const backgroundJobs = activeJob
+            ? editorJobs.filter((job) => job !== activeJob)
+            : editorJobs;
+          if (backgroundJobs.length > 0) {
+            // Preserve the previous idle boundary so content hydration does not
+            // compete with first render and workspace startup services.
+            void waitForWorkspaceIdle().then(() => {
+              if (sessionRestoreGeneration === restoreGeneration) {
+                const pendingJobs = backgroundJobs.filter((job) => {
+                  const buffer = getBufferById(bufferStore.getState().buffers, job.bufferId);
+                  return (
+                    buffer?.type === "editor" &&
+                    buffer.path === job.path &&
+                    buffer.loadState === "unloaded"
+                  );
                 });
-            };
+                restoreController.enqueue(pendingJobs);
+              }
+            });
+          }
 
-            window.setTimeout(() => resumePendingSessionRestore?.(), 250);
-          } else {
-            pendingSessionBuffers = [];
-            resumePendingSessionRestore = null;
+          // 5. Activate the session's active buffer.
+          if (restorePlan.activeBufferPath) {
+            const activeBuffer = getBufferByPath(
+              bufferStore.getState().buffers,
+              restorePlan.activeBufferPath,
+            );
+            if (activeBuffer) {
+              bufferActions.setActiveBuffer(activeBuffer.id);
+            }
           }
         }
 
@@ -1227,17 +1162,12 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         const openPersistedBuffers = buffers
           .map((buffer) => serializeWorkspaceBuffer(buffer, currentRootPath, workspaceFolderPaths))
           .filter((buffer): buffer is BufferSession => buffer !== null);
-        const openBufferPaths = new Set(openPersistedBuffers.map((buffer) => buffer.path));
-        const persistedBuffers = [
-          ...openPersistedBuffers,
-          ...pendingSessionBuffers.filter((buffer) => !openBufferPaths.has(buffer.path)),
-        ];
 
         clearQueuedWorkspaceSessionSave(currentRootPath);
         scheduleWorkspaceSessionWrite(currentRootPath, () => {
           workspaceSessionRepository.save({
             projectPath: currentRootPath,
-            buffers: persistedBuffers,
+            buffers: openPersistedBuffers,
             activeBufferPath: activeBuffer?.path || null,
             terminals,
             aiSession,
@@ -2514,21 +2444,23 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         });
 
         if (canUseNativeFileSearch(rootFolderPath)) {
-          const nativeRootPaths = await ensureWorkspaceFileSearch(workspaceFolderPaths);
-          const indexedFiles = await fffListFiles(nativeRootPaths);
-          const files = indexedFiles.map<FileEntry>((file) => ({
-            name: file.name,
-            path: file.path,
-            isDir: false,
-          }));
-          frontendTrace("info", "project-files", "getAllProjectFiles:end", {
-            rootFolderPath,
-            workspaceFolders: workspaceFolderPaths,
-            files: files.length,
-            source: "fff",
-            durationMs: Math.round((performance.now() - scanStartedAt) * 100) / 100,
+          return coordinateProjectFileScan(cachePath, async () => {
+            const nativeRootPaths = await ensureWorkspaceFileSearch(workspaceFolderPaths);
+            const indexedFiles = await fffListFiles(nativeRootPaths);
+            const files = indexedFiles.map<FileEntry>((file) => ({
+              name: file.name,
+              path: file.path,
+              isDir: false,
+            }));
+            frontendTrace("info", "project-files", "getAllProjectFiles:end", {
+              rootFolderPath,
+              workspaceFolders: workspaceFolderPaths,
+              files: files.length,
+              source: "fff",
+              durationMs: Math.round((performance.now() - scanStartedAt) * 100) / 100,
+            });
+            return files;
           });
-          return files;
         }
 
         // Check cache first (cache for 5 minutes for better UX)
@@ -2550,7 +2482,23 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         // If we have cached files for this path (even if old), return them and update in background
         const hasCachedFiles = projectFilesCache?.files && projectFilesCache.files.length > 0;
 
-        const scanFiles = async () => {
+        const publishProjectFiles = (files: FileEntry[]) => {
+          if (
+            get().rootFolderPath !== rootFolderPath ||
+            getWorkspaceFolderPaths(get).join("\n") !== cachePath
+          ) {
+            return;
+          }
+          set((state) => {
+            state.projectFilesCache = {
+              path: cachePath,
+              files,
+              timestamp: Date.now(),
+            };
+          });
+        };
+
+        const scanFiles = async (): Promise<FileEntry[]> => {
           try {
             const allFiles: FileEntry[] = [];
             let processedFiles = 0;
@@ -2610,14 +2558,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
               await scanDirectory(workspaceFolderPath);
             }
 
-            // Update cache with new results
-            set((state) => {
-              state.projectFilesCache = {
-                path: cachePath,
-                files: allFiles,
-                timestamp: now,
-              };
-            });
+            publishProjectFiles(allFiles);
             frontendTrace("info", "project-files", "getAllProjectFiles:end", {
               rootFolderPath,
               workspaceFolders: workspaceFolderPaths,
@@ -2625,6 +2566,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
               processedFiles,
               durationMs: Math.round((performance.now() - scanStartedAt) * 100) / 100,
             });
+            return allFiles;
           } catch (error) {
             console.error("Failed to index project files:", error);
             frontendTrace("error", "project-files", "getAllProjectFiles:error", {
@@ -2632,17 +2574,17 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
               workspaceFolders: workspaceFolderPaths,
               durationMs: Math.round((performance.now() - scanStartedAt) * 100) / 100,
             });
+            return projectFilesCache?.files || [];
           }
         };
 
         // If we don't have cached files, wait for the scan to complete
         if (!hasCachedFiles) {
-          await scanFiles();
-          return get().projectFilesCache?.files || [];
+          return coordinateProjectFileScan(cachePath, scanFiles);
         }
 
         // Otherwise, return cached files and update in background
-        setTimeout(scanFiles, 0);
+        void coordinateProjectFileScan(cachePath, scanFiles);
         return projectFilesCache?.files || [];
       },
 

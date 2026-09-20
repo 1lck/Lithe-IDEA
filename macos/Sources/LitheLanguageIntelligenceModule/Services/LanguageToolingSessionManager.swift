@@ -39,6 +39,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
     @Published package private(set) var semanticTokensGeneration: UInt64 = 0
     @Published package private(set) var languageServerFeatures: [String: LanguageServerFeatureSet] = [:]
     @Published package private(set) var languageServerLogs: [LanguageServerLogEntry] = []
+    @Published package private(set) var projectPreparation: ProjectPreparationSnapshot?
     @Published package private(set) var mavenProfileProjectResults: [URL: MavenProfileProjectResult] = [:]
     @Published package private(set) var languageServerStates: [String: LanguageServerSessionState] = [:]
     @Published package private(set) var languageServerInfos: [String: LanguageServerInfo] = [:]
@@ -348,7 +349,12 @@ package final class LanguageToolingSessionManager: ObservableObject,
         fileURL: URL,
         rootURL: URL
     ) async throws -> JavaDebugLaunchTarget {
-        try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL)
+        switch try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL) {
+        case .ready(let target):
+            return target
+        case .buildFailed(_, let failure):
+            throw LanguageToolingSessionError.toolingUnavailable(failure.message)
+        }
     }
 
     /// Builds the owning Java project and resolves the exact runtime paths used
@@ -356,14 +362,14 @@ package final class LanguageToolingSessionManager: ObservableObject,
     package func prepareJavaRunLaunchTarget(
         fileURL: URL,
         rootURL: URL
-    ) async throws -> JavaDebugLaunchTarget {
+    ) async throws -> JavaLaunchPreparation {
         try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL)
     }
 
     private func prepareJavaLaunchTarget(
         fileURL: URL,
         rootURL: URL
-    ) async throws -> JavaDebugLaunchTarget {
+    ) async throws -> JavaLaunchPreparation {
         let normalizedRoot = rootURL.standardizedFileURL
         let resolvedFile = fileURL.standardizedFileURL.resolvingSymlinksInPath()
         _ = try startLanguageServer(providerID: "java", rootURL: normalizedRoot)
@@ -412,20 +418,33 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 "The Java workspace build request could not be encoded."
             )
         }
-        let buildValue = try await executeJavaCommand(
-            "vscode.java.buildWorkspace",
-            arguments: [.string(buildJSON)],
-            rootURL: normalizedRoot
-        )
-        let buildStatus: Int?
-        switch buildValue {
-        case .integer(let value): buildStatus = value
-        case .string(let value): buildStatus = Int(value)
-        default: buildStatus = nil
-        }
-        guard buildStatus == 1 else {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "The Java project build failed. Fix the reported Java errors and try again."
+        var buildFailure: JavaLaunchBuildFailure?
+        do {
+            let buildValue = try await executeJavaCommand(
+                "vscode.java.buildWorkspace",
+                arguments: [.string(buildJSON)],
+                rootURL: normalizedRoot
+            )
+            let buildStatus: Int?
+            switch buildValue {
+            case .integer(let value): buildStatus = value
+            case .string(let value): buildStatus = Int(value)
+            default: buildStatus = nil
+            }
+            guard buildStatus == 1 else {
+                throw LanguageToolingSessionError.toolingUnavailable(
+                    "The Java language service returned an unexpected project build status."
+                )
+            }
+        } catch let failure as LanguageServerRequestFailure {
+            let error = failure.runtimeError
+            guard error.code == "javaBuildCompilationErrors" || error.code == "javaBuildFailed" else {
+                throw failure
+            }
+            buildFailure = JavaLaunchBuildFailure(
+                code: error.code,
+                message: failure.localizedDescription,
+                report: error.javaBuildReport
             )
         }
         let classpathValue = try await executeJavaCommand(
@@ -450,12 +469,16 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 "The Java language service could not resolve the runtime classpath."
             )
         }
-        return JavaDebugLaunchTarget(
+        let target = JavaDebugLaunchTarget(
             mainClass: selected.mainClass,
             projectName: selected.projectName,
             modulePaths: modulePaths,
             classPaths: classPaths
         )
+        if let buildFailure {
+            return .buildFailed(target: target, failure: buildFailure)
+        }
+        return .ready(target)
     }
 
     /// Resolves one Java source file or discovered test item through the Java
@@ -656,7 +679,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
               case .string(let mainClass)? = object["mainClass"],
               mainClass.isEmpty == false else { return nil }
         let projectName: String?
-        if case .string(let value)? = object["projectName"], value.isEmpty == false {
+        if case .string(let value)? = object["projectName"],
+           value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
             projectName = value
         } else {
             projectName = nil
@@ -881,6 +905,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
     }
 
     package func stopLanguageServer(providerID: String) {
+        if providerID == "java" { projectPreparation = nil }
         let operationID = languageServerOperationIDs[providerID]
         if languageServers[providerID] != nil {
             let wasPreparing = switch languageServerStates[providerID] {
@@ -1701,6 +1726,10 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 self.languageServerInfos[providerID] = info
             }
         }
+        session.onProjectPreparation = { [weak self] snapshot in
+            guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
+            if providerID == "java" { self.projectPreparation = snapshot }
+        }
         session.onMavenProfileTask = { [weak self] status in
             guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
             if status == "running" { self.mavenProfileProjectResults.removeAll() }
@@ -1737,6 +1766,20 @@ package final class LanguageToolingSessionManager: ObservableObject,
     ) {
         guard languageServerSessionIdentities[providerID] == sessionIdentity else { return }
         languageServerStates[providerID] = state
+        if providerID == "java" {
+            switch state {
+            case .startingProcess: projectPreparation = .init(phase: "starting", status: "loading", blocksRun: true)
+            case .initializing: projectPreparation = .init(phase: "importing", status: "loading", blocksRun: true)
+            case .failed:
+                let phase = projectPreparation?.phase
+                projectPreparation = .init(
+                    phase: phase == "ready" ? "starting" : (phase ?? "starting"),
+                    status: "failed", blocksRun: true
+                )
+            case .stopped, .stopping: projectPreparation = nil
+            case .ready: break // Rust may still be synchronizing project configuration.
+            }
+        }
         resumeLanguageServerReadyWaiters(
             providerID: providerID,
             state: state,

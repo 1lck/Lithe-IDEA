@@ -1,9 +1,23 @@
 import Foundation
+import LitheCoreContracts
 import Testing
 @testable import Lithe
 
 @Suite("Java language server runtime")
 struct JavaLanguageServerRuntimeTests {
+    @Test
+    func projectPreparationFixtureDecodesEverySharedStage() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        struct Fixture: Decodable { let snapshots: [ProjectPreparationSnapshot] }
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf:
+            root.appendingPathComponent("shared/fixtures/lsp/project-preparation-v1.json")))
+        #expect(fixture.snapshots.map(\.phase) == ["starting", "importing", "configuring", "building", "ready", "configuring", "stopped"])
+        #expect(fixture.snapshots.filter { !$0.blocksRun }.map(\.phase) == ["ready", "configuring"])
+        #expect(fixture.snapshots.filter { $0.status == "failed" }.allSatisfy { !$0.blocksRun })
+    }
+
     @Test
     func mavenRuntimeFixtureDecodesStructuredTaskAndDistinctProjects() throws {
         let root = URL(fileURLWithPath: #filePath)

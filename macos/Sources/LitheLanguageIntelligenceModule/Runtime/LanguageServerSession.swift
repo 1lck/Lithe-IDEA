@@ -2,6 +2,18 @@ import Foundation
 import LitheCoreContracts
 import LitheModuleAPI
 
+package struct LanguageServerRequestFailure: LocalizedError, Equatable, Sendable {
+    package let runtimeError: LanguageServerRuntimeError
+
+    package var errorDescription: String? {
+        var message = runtimeError.message
+        if let underlying = runtimeError.underlyingMessage, !underlying.isEmpty {
+            message += ": \(underlying)"
+        }
+        return message
+    }
+}
+
 /// A language-server session projected from the Rust runtime.
 ///
 /// This type starts a session, publishes semantic requests, drains
@@ -40,6 +52,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
 
     package var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)?
     package var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)?
+    package var onProjectPreparation: ((ProjectPreparationSnapshot) -> Void)?
     package var onMavenProfileTask: ((String) -> Void)?
     package var onMavenProfileProject: ((MavenProfileProjectResult) -> Void)?
     package var onStateChange: ((LanguageServerSessionState) -> Void)?
@@ -555,6 +568,13 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// Applies one runtime event and reports whether it ended the session.
     private func handle(_ event: LanguageServerRuntimeEvent) -> Bool {
         switch event.type {
+        case "projectPreparation":
+            switch Self.decodeEventResult(event, as: ProjectPreparationSnapshot.self) {
+            case .success(let snapshot): onProjectPreparation?(snapshot)
+            case .failure(let error): onLog?(.error, "Invalid project preparation event", error.localizedDescription, nil)
+            }
+            return false
+
         case "stateChanged":
             return handleStateChange(event)
         case "requestCompleted":
@@ -573,7 +593,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                 if error.code == "staleDocumentVersion" || error.code == "requestCancelled" {
                     pending.completion(.failure(CancellationError()))
                 } else {
-                    pending.completion(.failure(LanguageServerRuntimeSessionError.serverError(Self.message(for: error))))
+                    pending.completion(.failure(LanguageServerRequestFailure(runtimeError: error)))
                 }
             } else {
                 onLog?(
@@ -830,7 +850,6 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         case unsupportedNavigation(String)
         case missingResult
         case sessionStopped
-        case serverError(String)
         case staleDocument
 
         var errorDescription: String? {
@@ -851,8 +870,6 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                 "Language server response did not include a result."
             case .sessionStopped:
                 "Language server session stopped before the request completed."
-            case .serverError(let message):
-                message
             case .staleDocument:
                 "The document changed before Java navigation completed."
             }

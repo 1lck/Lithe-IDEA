@@ -1,4 +1,5 @@
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { requireLoadedBufferContent } from "@/features/editor/utils/buffer-load-state";
 import { getSourceEditorBufferByPath } from "@/features/editor/utils/buffer-index";
 import { buildSearchRegex } from "@/features/editor/utils/search";
 import { readFileContent } from "@/features/file-system/controllers/file-operations";
@@ -34,17 +35,20 @@ function getSourceContent(filePath: string): SourceContent | null {
   const openSourceBuffer = getSourceEditorBufferByPath(buffers, filePath);
 
   if (openSourceBuffer) {
+    requireLoadedBufferContent(openSourceBuffer);
     return { bufferId: openSourceBuffer.id, content: openSourceBuffer.content };
   }
 
   return null;
 }
 
-function getOpenSourceContentByPath(): Map<string, SourceContent> {
+function getOpenSourceContentByPath(filePaths: string[]): Map<string, SourceContent> {
   const sourcesByPath = new Map<string, SourceContent>();
+  const targets = new Set(filePaths);
 
   for (const buffer of useBufferStore.getState().buffers) {
-    if (buffer.type === "editor" && !buffer.isVirtual) {
+    if (buffer.type === "editor" && !buffer.isVirtual && targets.has(buffer.path)) {
+      requireLoadedBufferContent(buffer);
       sourcesByPath.set(buffer.path, { bufferId: buffer.id, content: buffer.content });
     }
   }
@@ -128,7 +132,7 @@ export async function replaceAllInSources(
 ): Promise<number> {
   const regex = buildSearchRegex(query, options);
   if (!regex) return 0;
-  const openSourcesByPath = getOpenSourceContentByPath();
+  const openSourcesByPath = getOpenSourceContentByPath(filePaths);
   let nextFileIndex = 0;
   let totalReplacements = 0;
 

@@ -11,7 +11,7 @@ import { toMonacoLanguageId } from "./language";
 import { SourceText } from "./source-text";
 import { toMonacoModelValue } from "./line-endings";
 import { acquireMonacoModel } from "./model-lifecycle";
-import { installThemes } from "./theme";
+import { defineWorkbenchTheme, installThemes, type WorkbenchThemeInput } from "./theme";
 import { installJavaTextMate } from "./textmate";
 import { Emitter } from "monaco-editor/esm/vs/base/common/event.js";
 import { MONACO_SEMANTIC_TOKEN_LEGEND, encodeMonacoSemanticTokens } from "./semantic-tokens";
@@ -836,14 +836,20 @@ export function mountWorkbench(host: WorkbenchHost) {
       } finally { updating = false; }
     },
     configure(payload: any) {
-      monaco.editor.setTheme(payload.dark ? "lithe-dark" : "lithe-light");
+      const theme = payload.theme as WorkbenchThemeInput | undefined;
+      const name = theme ? defineWorkbenchTheme(theme, host.palette)
+        : payload.dark ? "lithe-dark" : "lithe-light";
       Object.assign(displayOptions, {
+        // Standalone updateOptions and newly created split editors both apply
+        // this construction theme globally, so it must track the host theme.
+        theme: name,
         fontFamily: payload.fontFamily,
         fontSize: payload.fontSize,
         wordWrap: payload.wrap ? "on" : "off",
         minimap: { enabled: payload.minimap !== false },
       });
       for (const view of allEditors()) view.updateOptions(displayOptions);
+      monaco.editor.setTheme(name);
     },
     async debugState(id: string, state: { breakpoints: { line: number; enabled: boolean; verified: boolean; logpoint: boolean; conditional?: boolean; message?: string }[]; muted: boolean; paused?: boolean; canRunToCursor?: boolean; executionLine?: number; revision?: number; variables?: { name: string; value: string }[] }) {
       await activation;
@@ -994,8 +1000,13 @@ export function mountWorkbench(host: WorkbenchHost) {
     window.MonacoEnvironment = { getWorker() { const worker = new Worker(url); workers.push(worker); return worker; } };
     await ensureMonacoLanguageTokenizer("java");
     installThemes(host.palette);
+    const bootstrapTheme = defineWorkbenchTheme({
+      id: "bootstrap",
+      dark: true,
+      colors: { background: "#00000000" },
+    }, host.palette);
     displayOptions = {
-      model: null, automaticLayout: true, minimap: { enabled: true }, theme: "lithe-dark", fontSize: 13,
+      model: null, automaticLayout: true, minimap: { enabled: true }, theme: bootstrapTheme, fontSize: 13,
       glyphMargin: true, scrollBeyondLastLine: false, fixedOverflowWidgets: true, "semanticHighlighting.enabled": true,
     };
     editor = monaco.editor.create(document.querySelector("#editor") as HTMLElement, displayOptions);

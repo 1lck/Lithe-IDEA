@@ -195,7 +195,8 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
                         stage: $0.stage,
                         message: $0.message,
                         underlyingMessage: $0.underlyingMessage,
-                        processExitCode: $0.processExitCode
+                        processExitCode: $0.processExitCode,
+                        javaBuildReport: $0.javaBuildReport
                     )
                 },
                 capabilities: event.capabilities,

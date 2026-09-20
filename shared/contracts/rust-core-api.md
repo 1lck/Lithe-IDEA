@@ -17,7 +17,22 @@ void lithe_core_free_string(char *value);
 The macOS package uses the small C bridge in `macos/Sources/LitheRustCore/`. The
 canonical C declarations are in `rust/lithe-core/include/lithe_core.h`.
 Native clients can link the same `staticlib` or `cdylib`; Rust hosts call
-`lithe_core::execute_json` and `lithe_core::cancel_operation` directly.
+`lithe_core::execute_json` and `lithe_core::cancel_operation` directly. A Rust
+host also calls `lithe_core::execution::plan_launch_command` before spawning a
+Java process. It estimates the Windows command-line limit and moves oversized
+classpath/module-path options into argument-file text. The planner requires a
+Java executable and a known JDK feature version of at least 9, obtained through
+`java_feature_version_from_release`; other launches remain unchanged. It stops
+at the application target (class, JAR, or module), preserving all program arguments.
+Core owns the Unicode argument-file text and quoting. The Windows host encodes
+that text losslessly using the launcher's actual system code page, independently
+of the JDK feature version: JEP 400 does not make native launcher arguments UTF-8.
+An unrepresentable path is reported as an actionable failure, never substituted.
+The host also escapes backslash bytes introduced by multibyte encoding inside
+quoted values, since the native argument-file parser processes bytes.
+Every execution owns an exclusively created temporary file; partial writes and
+spawn failures clean it up, while successful launches retain it until that exact
+process exits. A replacement execution never shares its predecessor's file.
 Strings returned by the core are UTF-8 JSON allocated by Rust. The caller must
 release response strings with `lithe_core_free_string`.
 
@@ -1117,7 +1132,8 @@ commands are the semantic LSP runtime boundary. `lsp.startServer` accepts the
 provider ID, selected executable/arguments/environment, root URI, working
 directory, initialization options, optional runtime executable,
 `jdtlsLaunchResources`, cache directory, and `workspaceFingerprint`, plus
-initialize, post-initialize readiness, request, and shutdown deadlines.
+initialize, post-initialize readiness, request, Java project build
+(`javaBuildTimeoutMilliseconds`), and shutdown deadlines.
 Java callers may also provide the versioned `mavenContext` accepted by
 `maven.launchPlan`. Core validates its reactor and recursively declared modules,
 publishes `settingsPath` through
@@ -1273,6 +1289,47 @@ command fields, and returns `{ operationId }`. Supported operations include
 completion, hover, definition/declaration/type-definition, references,
 implementation, rename, formatting, code actions and resolve, execute command,
 inlay hints, full-document semantic tokens, folding ranges, code lens, and provider virtual documents.
+For the Java provider, an `executeCommand` whose command is
+`vscode.java.buildWorkspace` is coordinated by Core instead of being written
+immediately. Core writes it only when no earlier build is awaiting its JDT
+response, the Maven profile task is not `running`, and no JDT work-done
+progress job named `Update project …`, `Updating project configurations`,
+`Applying the selected build files…`, or `Updating workspace folders` is open;
+a job without progress for 120 seconds stops blocking. Identical queued build
+commands share one JDT request, while a running build is never shared. Each
+caller is bounded by `javaBuildTimeoutMilliseconds` from `lsp.startServer`
+(default 600000), measured from submission; its `requestTimeout` error has stage
+`javaBuild` and an `underlyingMessage` naming the reached phase
+(`building`, `waitingForPreviousBuild`, `waitingForMavenProfiles`, or
+`waitingForProjectConfiguration`). Cancellation or timeout sends
+`$/cancelRequest` only when no running or queued caller still needs a build,
+and the build keeps its slot until JDT answers. A successful build completes
+with the unchanged `{ value: 1 }` result. Other JDT `BuildWorkspaceStatus`
+values complete with stage `javaBuild` and code `javaBuildCompilationErrors`
+(`WITH_ERROR`), `javaBuildFailed` (`FAILED`), `javaBuildCancelled`
+(`CANCELLED`), or `invalidServerResult`. `javaBuildCompilationErrors` and
+`javaBuildFailed` additionally carry `javaBuildReport` with `markerScope`
+(`launchTarget` or `workspace`), `builderFailedEarlier`,
+`elapsedMilliseconds`, and `recovery` (`none` or `rebuildJavaIndex`). The marker
+scope is inferred from the dispatched command: `launchTarget` means the request
+named a project, not that Core observed Java Debug Server's final project
+selection. Elapsed time is evidence only and must not become a heuristic gate.
+The versioned examples are in
+`shared/fixtures/lsp/java-build-report-v1.json`.
+
+Hosts treat these two terminal build outcomes as evidence rather than an
+irrevocable launch veto. After resolving the usable runtime paths, they may let
+the user continue that same launch attempt without issuing another build. A
+cancelled, timed-out, rejected, or unrecognized build has no usable verdict and
+must be retried instead of overridden. Hosts present Core's message and report
+instead of inferring a cause. Core logs `Java project build is waiting` (with `reason`),
+`Java project build started`, and `Java project build finished` (with
+`outcome`, `errorCode`, `elapsedMilliseconds`, and `waiterCount`).
+Background build retries and deadline cancellations are written by a separate
+session-owned worker. The deadline monitor never writes to stdin. A background
+write that exceeds `requestTimeoutMilliseconds` fails the session with
+`transportFailed` at stage `outboundMaintenance` and terminates the server to
+release the stalled pipe; the Java build deadline still bounds queue and build time.
 The `semanticTokens` operation uses the open document URI and normal version,
 timeout, and cancellation rules. Its result is
 `{ tokenTypes, tokenModifiers, tokens: [{ line, startChar, length, tokenType, tokenModifiers }] }`.
@@ -1435,6 +1492,31 @@ Module menus first match reactor and module, then apply the default preference;
 they must not infer ownership from an overridden working directory. The shared
 `run-configuration/maven-module-ownership.json` fixture covers independent
 reactors, cwd overrides, and the ordinary Java main / Current File capabilities.
+
+Each configuration carries a `category` of `project` or `infrastructure`.
+Docker Compose detections are `infrastructure`: a Compose file in an application
+repository declares the databases and brokers the project runs against, not the
+project itself. The field is omitted for `project`, which is the default, so
+existing generated documents keep their exact shape. Hosts present
+infrastructure apart from the project's own services and must not include it in
+"run all services" or in the default service selection.
+
+Windows implements this grouping. During the macOS transition, Compose entries
+remain in its execution-based Services scope; category-based grouping and service
+selection filtering are pending there.
+
+Display names that repeat are qualified by Core, because hosts show the name
+alone: the first candidate that separates every entry in the group wins, trying
+the Maven module, then the working directory, then the source manifest. Three
+Compose files each declaring `compose up` become `compose up (script/docker)`
+and so on, while a name that occurs once is never decorated. Ids are unaffected.
+
+Java entry points are read from the Java syntax tree rather than matched as
+text, so a `static void main` or `@SpringBootApplication` inside a string
+literal or comment — common in test fixtures and documentation samples — does
+not become a run configuration. A declared `main` under `src/test` remains a
+valid entry and keeps the test classpath; see
+`shared/fixtures/execution/maven-java-main-source-sets-v1.json`.
 
 A process detector declares a runtime binding only when that command genuinely
 consumes the runtime. npm, pnpm, and Yarn scripts consume `project-node`; Bun
@@ -1663,3 +1745,19 @@ Completion items returned by the LSP client and runtime preserve `insertTextForm
 this field through completion resolution. Monaco applies snippet text with its
 snippet insertion rule so placeholders participate in selection and undo rather
 than being inserted as literal source text.
+
+### Java preparation snapshot
+
+Java `projectPreparation` runtime events carry a `result` object with `phase`
+(`starting`, `importing`, `configuring`, `building`, `ready`, `stopped`), `status`
+(`idle`, `loading`, `ready`, `failed`) and boolean `blocksRun`.
+`lsp.pollEvents` and `lsp.waitEvents` also return `projectPreparation` (the current
+snapshot or null) alongside `events`, so restored consumers need not replay the
+queue. Event session identity and sequence retain their existing semantics.
+
+The snapshot reuses the existing service-ready signal, profile-task results and
+configuration/build coordinator. Generic indexing never blocks Run. Profile
+failure is visible but does not globally block unrelated targets; callers still
+build the selected target before launching. A successful preparation does not
+promise compilation success. Shared examples live in
+`shared/fixtures/lsp/project-preparation-v1.json`.

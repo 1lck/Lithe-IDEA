@@ -121,6 +121,14 @@ export class SourceText {
   }
   get value(): string { return textOf(this.current); }
 
+  /** Reads exact source text using offsets from Monaco's normalized LF model. */
+  textInNormalizedRange(offset: number, count: number): string {
+    const availableLength = length(this.current);
+    const start = Math.max(0, Math.min(availableLength, Math.trunc(offset)));
+    const end = Math.max(start, Math.min(availableLength, start + Math.max(0, Math.trunc(count))));
+    return slice(this.current, start, end - start);
+  }
+
   private remember(version: number): void {
     // Monaco 0.55.1 assigns new edits its monotonically increasing versionId,
     // but restores alternativeVersionId on undo/redo (including grouped edits).

@@ -1495,6 +1495,28 @@ export function MonacoEditor({
     editorAPI.setActiveEditorAdapter({
       ownerId: adapterOwnerId,
       executeCommand,
+      getCursorPosition: () => {
+        const editor = editorRef.current;
+        const model = modelRef.current;
+        const position = editor?.getPosition();
+        if (!model || model.isDisposed() || !position) return null;
+        return toEditorPosition(model, position);
+      },
+      getSelectedText: () => {
+        const editor = editorRef.current;
+        const model = modelRef.current;
+        const currentSelection = editor?.getSelection();
+        if (!model || model.isDisposed() || !currentSelection || currentSelection.isEmpty()) {
+          return null;
+        }
+
+        const startOffset = model.getOffsetAt(currentSelection.getStartPosition());
+        const endOffset = model.getOffsetAt(currentSelection.getEndPosition());
+        return acquireEditorModelSource(
+          model,
+          previousContentRef.current,
+        ).textInNormalizedRange(startOffset, endOffset - startOffset);
+      },
       insertText: (text, position) => {
         if (!canEdit) return;
         const editor = editorRef.current;

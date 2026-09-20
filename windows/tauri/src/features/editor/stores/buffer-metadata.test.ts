@@ -39,6 +39,17 @@ describe("editor buffer surface", () => {
     expect(editorBufferSurfacesEqual(before, after)).toBe(false);
   });
 
+  test("treats a completed restored load as a new editor surface", () => {
+    const before = getEditorBufferSurface(
+      editorBuffer({ content: "", contentRevision: 0, loadState: "loading" }),
+    );
+    const after = getEditorBufferSurface(
+      editorBuffer({ content: "from disk", contentRevision: 1, loadState: "loaded" }),
+    );
+
+    expect(editorBufferSurfacesEqual(before, after)).toBe(false);
+  });
+
   test("carries the markdown view mode so switching modes re-renders the editor", () => {
     const before = getEditorBufferSurface(editorBuffer({ path: "docs/readme.md" }));
     const after = getEditorBufferSurface(

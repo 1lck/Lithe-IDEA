@@ -32,7 +32,11 @@ test("resolves workspace A Maven context while workspace B is active", async () 
       workspaceId: "workspace-a",
       root: "D:/work-a",
     },
-    { resolveJavaLspLaunch, mavenLaunchContextForWorkspace },
+    {
+      resolveJavaLspLaunch,
+      mavenLaunchContextForWorkspace,
+      ensureWorkspaceGitBootstrap: async () => "skipped",
+    },
   );
 
   expect(workspaceRuntimeRegistry.getActiveWorkspaceId()).toBe("workspace-b");

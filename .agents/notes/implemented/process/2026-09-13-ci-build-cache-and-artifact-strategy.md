@@ -20,12 +20,23 @@ Rust Core、数据库辅助 crate 和前端构建的耗时来源不同；如果�
 macOS CI 与发布工作流统一使用 `macos-26` runner 上的 Xcode 26.6，编译器
 固定为 `.swift-version` 中的 Swift 6.3.3。共用的 `setup-macos-toolchain` action
 选择 Xcode 后校验实际编译器版本；不一致就立即失败，不能悄悄使用 runner 的
-默认版本。SwiftPM 缓存键与完整性校验都读取这个版本文件。
+默认版本。SwiftPM 缓存键与完整性校验都读取这个版本文件。这个基线不能因为
+某台开发机升级了 Xcode 27 而改变，否则仍在 macOS 15 上工作的开发者会被迫
+升级开发环境。
 
-此前在旧 runner 上通过 Swiftly 安装独立工具链失败，测试未能启动。因此改用
-已预装的完整 Xcode，让 Swift、链接器和 SDK 保持匹配。升级编译器不改变应用
-的 Swift 5 语言模式、测试的 Swift 6 语言模式或 macOS 13 最低运行版本。
-后续升级必须一起验证安装选择、编译、测试和双架构打包。
+此前在旧 runner 上通过 Swiftly 安装独立工具链失败，测试未能启动。因此继续
+使用完整 Xcode，让 Swift、链接器和 SDK 保持匹配。Xcode 27/SDK 27 只作为
+开发者本机的兼容路径，不进入 CI 基线；`MacOS13SDKCompatibility.h` 仅在
+macOS 13 SDK 上补充缺失的 `NSView.clipsToBounds` 声明，SDK 14 及更高版本
+不会重复导入 AppKit，也不会触发模块定义冲突。这个修复同时覆盖旧 SDK 和
+SDK 27。升级工具链不改变应用的 Swift 5 语言模式、测试的 Swift 6 语言模式
+或 macOS 13 最低运行版本。
+
+部分新版 SwiftPM 会把 `--triple` 的默认产品放在 `.build/out/Products`，
+不再自动隔离 arm64 与 x86_64。构建脚本先读取 `swift build --show-bin-path`
+判断实际布局：只有检测到这个新版布局时才使用 `.build/<triple>` 作为独立
+scratch path；Xcode 26.6/Swift 6.3.3 继续使用原来的默认路径。插件构建同时
+兼容旧版的 `Modules/` 目录和新版直接放在产品目录中的模块文件。
 
 路径分类器先决定 PR 需要哪些验证。普通 `macos/Sources/` 改动由 Swift 测试
 负责完整编译，不再重复生成两个 DMG。资源、SwiftPM 图、Rust bridge、平台
@@ -115,6 +126,11 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 
 - `actionlint .github/workflows/ci-macos.yml .github/workflows/ci-windows.yml`
 - `./scripts/test-macos.sh`
+- `./scripts/build-macos.sh --configuration debug --triple arm64-apple-macosx`
+- `./scripts/build-macos.sh --configuration debug --triple x86_64-apple-macosx`
+- `./scripts/build-official-plugins.sh --configuration debug --triple arm64-apple-macosx`
+- `./scripts/build-official-plugins.sh --configuration debug --triple x86_64-apple-macosx`
+- `./scripts/verify-rust-core.sh`
 - `./scripts/verify-windows-boundaries.sh`
 - `gh run download <run-id> --repo 1lck/Lithe-IDEA --pattern 'Lithe-macos-*'`
 - `gh workflow run release-preview-windows.yml -f source_branch=<branch>`
@@ -129,6 +145,10 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 - `.github/workflows/ci-windows.yml`
 - `scripts/classify-ci-changes.sh`
 - `scripts/test-classify-ci-changes.sh`
+- `scripts/build-macos.sh`
+- `scripts/build-official-plugins.sh`
+- `scripts/verify-rust-core.sh`
+- `scripts/MacOS13SDKCompatibility.h`
 - `rust/`
 - `macos/`
 - `windows/tauri/`

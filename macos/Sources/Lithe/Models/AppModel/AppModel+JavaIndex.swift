@@ -35,6 +35,7 @@ extension AppModel {
     }
 
     func bindLanguageIntelligenceCapability(_ capability: LanguageIntelligenceCapability) {
+        languageToolingFeature.bindProjectPreparation(capability.sessions)
         cacheModuleCapability(
             capability,
             id: .languageIntelligence,
