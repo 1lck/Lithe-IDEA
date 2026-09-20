@@ -978,6 +978,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             rules: visibilityRules
         )
         let requiresProjectServiceReload = changedURLs.contains { url in
+            let name = url.lastPathComponent.lowercased()
             let dependencyIndex = workspaceURL.standardizedFileURL
                 .appendingPathComponent(".lithe", isDirectory: true)
                 .appendingPathComponent("dependencies", isDirectory: true)
@@ -986,7 +987,10 @@ package final class WorkspaceFeatureModel: ObservableObject {
             let isLitheConfiguration = url.pathExtension.lowercased() == "json"
                 && url.path.hasPrefix(workspaceURL.appendingPathComponent(".lithe").path + "/")
                 && url.standardizedFileURL != dependencyIndex
-            return isLitheConfiguration
+            let isBuildManagementFile = name == "pom.xml"
+                || name == "build.gradle"
+                || name == "build.gradle.kts"
+            return isLitheConfiguration || isBuildManagementFile
         }
         if requiresProjectServiceReload { await reloadProjectServices?() }
         await requestGitRefreshNow()
