@@ -3,7 +3,7 @@
   "continuableFailures": [
     {
       "code": "javaBuildCompilationErrors",
-      "message": "The Java project has compilation errors. Fix the reported errors and try again.",
+      "message": "The Java project build reported compilation errors.",
       "javaBuildReport": {
         "markerScope": "launchTarget",
         "builderFailedEarlier": false,

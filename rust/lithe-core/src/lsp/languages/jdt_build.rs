@@ -279,7 +279,7 @@ pub(crate) fn java_build_failure(
         JavaBuildOutcome::Succeeded => None,
         JavaBuildOutcome::CompilationErrors => Some((
             "javaBuildCompilationErrors",
-            "The Java project has compilation errors. Fix the reported errors and try again.",
+            "The Java project build reported compilation errors.",
         )),
         JavaBuildOutcome::Failed => Some((
             "javaBuildFailed",
