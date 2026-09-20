@@ -55,6 +55,7 @@ import {
 import { editorSaveFailureMessage, runEditorSaveWorkflow } from "../services/run-editor-save";
 import { prepareJavaRunLaunch, usesJavaProjectPreparation } from "../services/java-run-launch";
 import { createOutputStamper, trimRunOutput, type OutputStamper } from "../utils/output-timestamper";
+import { frontendTrace } from "@/utils/frontend-trace";
 
 const MAXIMUM_OUTPUT_CHARACTERS = 500_000;
 const sessionWorkspaces = new Map<string, string>();
@@ -140,6 +141,19 @@ const defaultRunStoreDependencies: RunStoreDependencies = {
 // Classpath joining is the host's job: Rust emits a platform-neutral list and
 // the host joins it with `;` on Windows. JVM options may precede the main class
 // in any order.
+/// Reads the failure the host reported.
+///
+/// A Tauri command that fails rejects with the plain string its Rust handler
+/// returned, so an `instanceof Error` check alone discards the operating
+/// system's reason, such as a command line refused for its length.
+function launchFailureMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  const message = (error as { message?: unknown } | null)?.message;
+  if (typeof message === "string" && message.trim()) return message;
+  return "Unable to start the run configuration.";
+}
+
 const CLASSPATH_SEPARATOR = ";";
 // Core may first wait for JDT Maven project updates and an earlier build, which
 // can take minutes on a cold multi-module project.
@@ -688,8 +702,16 @@ export const createRunStore = (
           return { sessionId, executionId };
         } catch (error) {
           if (!isCurrent()) return null;
-          const message =
-            error instanceof Error ? error.message : "Unable to start the run configuration.";
+          const message = launchFailureMessage(error);
+          // The reason used to be dropped whenever it was not an Error, which
+          // is every failure the Tauri host reports, so neither the panel nor
+          // the log said why a launch was refused.
+          frontendTrace("error", "run.launch", "launchFailed", {
+            configurationId: configuration.id,
+            provider: configuration.provider,
+            sessionId,
+            reason: message,
+          });
           if (sessionId === PRIMARY_SESSION_ID) {
             set({
               primaryRunning: false,

@@ -6,7 +6,7 @@ mod community;
 mod debug;
 mod diagnostics;
 mod editor;
-mod execution;
+pub mod execution;
 mod git;
 mod github;
 mod languages;
