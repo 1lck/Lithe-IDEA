@@ -170,8 +170,26 @@ describe("owner-directed navigation", () => {
   });
 });
 
-
 describe("Monaco command ownership", () => {
+  test("reads selected text from the active editor adapter", () => {
+    const getSelectedText = mock(() => "selected current line");
+    editorAPI.setActiveEditorAdapter({
+      ownerId: "pane-a:buffer-a",
+      getSelectedText,
+      insertText: () => undefined,
+      deleteRange: () => undefined,
+      replaceRange: () => undefined,
+      selectAll: () => undefined,
+      clearSelection: () => undefined,
+      focus: () => undefined,
+      undo: () => undefined,
+      redo: () => undefined,
+    });
+
+    expect(editorAPI.getActiveSelectionText()).toBe("selected current line");
+    expect(getSelectedText).toHaveBeenCalledTimes(1);
+  });
+
   test("routes editing and selection commands without reading legacy editor state", () => {
     const executeCommand = mock((_command: EditorCommand) => undefined);
     editorAPI.setActiveEditorAdapter({
