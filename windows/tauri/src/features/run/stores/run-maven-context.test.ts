@@ -84,6 +84,7 @@ describe("Maven-backed Run context", () => {
       saveWorkspaceBeforeLaunch,
       startRunProcess,
       stopRunProcess,
+      seedMavenLocalConfiguration: () => undefined,
       prepareJavaRunLaunch: mock(async () => null),
     };
     const store = createRunStore("workspace", dependencies);
@@ -145,6 +146,7 @@ describe("Maven-backed Run context", () => {
       executePreLaunchStep: mock(async () => ({ exitCode: 0, output: "" })),
       startRunProcess,
       stopRunProcess: mock(async () => undefined),
+      seedMavenLocalConfiguration: () => undefined,
       prepareJavaRunLaunch: mock(async () => null),
     };
     const store = createRunStore("workspace", dependencies);

@@ -71,6 +71,7 @@ const settingsTabLabels: Record<SettingsTab, string> = {
   logs: "Logs",
   advanced: "Advanced",
   terminal: "Terminal",
+  maven: "Maven",
   "file-explorer": "Files",
 };
 

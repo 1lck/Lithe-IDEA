@@ -60,6 +60,7 @@ function standaloneDependencies(overrides: Partial<RunStoreDependencies> = {}): 
     saveWorkspaceBeforeLaunch: mock(async () => undefined),
     startRunProcess,
     stopRunProcess: mock(async () => undefined),
+    seedMavenLocalConfiguration: () => undefined,
     prepareJavaRunLaunch: mock(async () => null),
     ...overrides,
   };

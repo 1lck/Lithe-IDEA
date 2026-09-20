@@ -175,6 +175,7 @@ fn main() {
             lsp::lsp_resolve_java_launch,
             lsp::lsp_rebuild_java_index,
             maven::maven_load_configuration,
+            maven::maven_resolve_effective_configuration,
             maven::maven_write_configuration,
             run::run_list_java_sources,
             run::run_write_generated,

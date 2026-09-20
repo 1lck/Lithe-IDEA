@@ -11,6 +11,7 @@ export const SETTINGS_SEARCH_TAB_LABELS: Record<SettingsTab, string> = {
   "file-explorer": "Files",
   git: "Git",
   terminal: "Terminal",
+  maven: "Maven",
   keyboard: "Keybindings",
   ai: "Agent",
   advanced: "Advanced",

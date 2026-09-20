@@ -16,6 +16,7 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Switch from "@/ui/switch";
 import { LogSettingsPanel } from "./log-settings-panel";
+import { MavenSettingsPanel } from "./tabs/maven-settings-panel";
 import { GitSettings } from "./tabs/git-settings";
 
 export type MacSettingsCategory =
@@ -25,6 +26,7 @@ export type MacSettingsCategory =
   | "keyboard"
   | "terminal"
   | "lsp"
+  | "maven"
   | "ai"
   | "logs"
   | "updates";
@@ -596,6 +598,8 @@ export function MacSettingsPanel({
       return <TerminalPanel />;
     case "lsp":
       return <LspPanel />;
+    case "maven":
+      return <MavenSettingsPanel />;
     case "ai":
       return <AiPanel />;
     case "logs":

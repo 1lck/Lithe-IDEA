@@ -50,6 +50,7 @@ import {
   type MavenModule,
   type MavenSettings,
 } from "../types/maven.types";
+import { MavenDetectedValue } from "./maven-detected-value";
 import { MavenSourceRootRows } from "./maven-source-root-rows";
 import {
   MavenLifecycleContextMenu,
@@ -148,6 +149,7 @@ function MavenSettingsDialog({
   onSave: (settings: MavenSettings) => void;
 }) {
   const { t } = useTranslation();
+  const effectiveConfiguration = useMavenStore((state) => state.effectiveConfiguration);
   const [draft, setDraft] = useState(initial);
 
   const choosePath = async (field: keyof MavenSettings, directory: boolean) => {
@@ -251,6 +253,11 @@ function MavenSettingsDialog({
                 </Button>
               </Tooltip>
             </div>
+            <MavenDetectedValue
+              field={field}
+              value={draft[field]}
+              effective={effectiveConfiguration}
+            />
           </label>
         ))}
       </div>

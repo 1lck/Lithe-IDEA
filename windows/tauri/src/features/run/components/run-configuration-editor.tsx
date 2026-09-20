@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { MavenDetectedValue } from "@/features/maven/components/maven-detected-value";
+import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { Button } from "@/ui/button";
 import Dialog from "@/ui/dialog";
 import { Field, FieldDescription, FieldLabel } from "@/ui/field";
@@ -51,6 +53,11 @@ interface ToolchainFieldProps {
   candidates: Array<{ value: string; label: string }>;
   onSelect: (value: string) => void;
   onPick: () => void;
+  /**
+   * Extra content under the field, used by the Maven paths to show what a blank
+   * field resolves to. Left undefined by fields without a detected value.
+   */
+  footer?: ReactNode;
 }
 
 function ToolchainField({
@@ -63,6 +70,7 @@ function ToolchainField({
   candidates,
   onSelect,
   onPick,
+  footer,
 }: ToolchainFieldProps) {
   const options = [{ value: "", label: autoLabel }, ...candidates];
   const hasCustomValue = Boolean(value) && !options.some((option) => option.value === value);
@@ -90,6 +98,7 @@ function ToolchainField({
         </Button>
       </div>
       <FieldDescription>{hint}</FieldDescription>
+      {footer}
     </Field>
   );
 }
@@ -106,11 +115,44 @@ export function RunConfigurationEditor({
   onSave,
 }: RunConfigurationEditorProps) {
   const { t } = useTranslation();
-  const [draft, setDraft] = useState(() => configurationOverrides(options, globalToolchain));
-  const [toolchainDraft, setToolchainDraft] = useState(globalToolchain);
+  // The Maven settings page owns the project-wide Maven paths, so this editor
+  // shows and edits the same values instead of a private copy.
+  const mavenSettingsPath = useMavenStore((state) => state.settingsPath);
+  const mavenLocalRepositoryPath = useMavenStore((state) => state.localRepositoryPath);
+  const mavenExecutablePath = useMavenStore((state) => state.mavenExecutablePath);
+  const mavenJavaHomePath = useMavenStore((state) => state.javaHomePath);
+  const mavenEffectiveConfiguration = useMavenStore((state) => state.effectiveConfiguration);
+  const updateMavenConfiguration = useMavenStore((state) => state.actions.updateLocalConfiguration);
+  const [draft, setDraft] = useState(() => ({
+    ...configurationOverrides(options, globalToolchain),
+    mavenExecutablePath,
+    mavenJavaHomePath,
+  }));
+  const [toolchainDraft, setToolchainDraft] = useState(() => ({
+    ...globalToolchain,
+    mavenExecutablePath,
+    mavenJavaHomePath,
+  }));
   const [scope, setScope] = useState<RunSaveScope>("local");
   const [envText, setEnvText] = useState(environmentText(options.environment));
   const [saving, setSaving] = useState(false);
+
+  // Both sections edit the same shared Maven paths, so one edit updates the
+  // other section and vice versa.
+  const setSharedMavenPaths = (patch: {
+    mavenExecutablePath?: string;
+    mavenJavaHomePath?: string;
+  }) => {
+    setToolchainDraft((current) => ({ ...current, ...patch }));
+    setDraft((current) => ({ ...current, ...patch }));
+  };
+
+  // The drafts above snapshot the store when this editor mounts; mirror later
+  // changes so values saved from the settings page (or loaded afterwards) show.
+  useEffect(() => {
+    setSharedMavenPaths({ mavenExecutablePath, mavenJavaHomePath });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setSharedMavenPaths updates both drafts and is recreated each render
+  }, [mavenExecutablePath, mavenJavaHomePath]);
 
   const projectUsesMaven = configurationUsesMaven(configuration);
   const projectUsesJava = configurationUsesJava(configuration);
@@ -134,10 +176,27 @@ export function RunConfigurationEditor({
         : runtime.executablePath,
     }));
 
+  // The Maven paths show what a blank field resolves to, exactly as the settings
+  // page does; other toolchain fields have no detected counterpart here.
+  const detectedMavenValue = (
+    field: "mavenExecutablePath" | "mavenJavaHomePath",
+    value: string,
+  ) => {
+    const effectiveField =
+      field === "mavenExecutablePath" ? "mavenExecutablePath" : "javaHomePath";
+    return (
+      <MavenDetectedValue field={effectiveField} value={value} effective={mavenEffectiveConfiguration} />
+    );
+  };
+
   const pickDirectory = (field: "javaHomePath" | "mavenJavaHomePath" | "workingDirectoryPath") => {
     void open({ directory: true, multiple: false }).then((selected) => {
       if (typeof selected === "string" && selected) {
-        setDraft((current) => ({ ...current, [field]: selected }));
+        if (field === "mavenJavaHomePath") {
+          setSharedMavenPaths({ mavenJavaHomePath: selected });
+        } else {
+          setDraft((current) => ({ ...current, [field]: selected }));
+        }
       }
     });
   };
@@ -145,19 +204,19 @@ export function RunConfigurationEditor({
   const pickToolchainDirectory = (field: "javaHomePath" | "mavenJavaHomePath") => {
     void open({ directory: true, multiple: false }).then((selected) => {
       if (typeof selected === "string" && selected) {
-        setToolchainDraft((current) => ({ ...current, [field]: selected }));
+        if (field === "mavenJavaHomePath") {
+          setSharedMavenPaths({ mavenJavaHomePath: selected });
+        } else {
+          setToolchainDraft((current) => ({ ...current, [field]: selected }));
+        }
       }
     });
   };
 
-  const pickMavenHome = (target: "configuration" | "project") => {
+  const pickMavenHome = () => {
     void open({ directory: true, multiple: false }).then((selected) => {
       if (typeof selected === "string" && selected) {
-        if (target === "project") {
-          setToolchainDraft((current) => ({ ...current, mavenExecutablePath: selected }));
-        } else {
-          setDraft((current) => ({ ...current, mavenExecutablePath: selected }));
-        }
+        setSharedMavenPaths({ mavenExecutablePath: selected });
       }
     });
   };
@@ -181,7 +240,17 @@ export function RunConfigurationEditor({
     const runOptions = { ...draft, environment: environmentFromText(envText) };
     try {
       const saved = await onSave(runOptions, toolchainDraft, scope);
-      if (saved) onClose();
+      if (saved) {
+        // These fields are the shared Maven settings, so a saved override is
+        // written back for every surface that reads them.
+        updateMavenConfiguration({
+          settingsPath: mavenSettingsPath,
+          localRepositoryPath: mavenLocalRepositoryPath,
+          mavenExecutablePath: toolchainDraft.mavenExecutablePath,
+          javaHomePath: toolchainDraft.mavenJavaHomePath,
+        });
+        onClose();
+      }
     } finally {
       setSaving(false);
     }
@@ -235,8 +304,12 @@ export function RunConfigurationEditor({
                 autoLabel={t("run.toolchainAuto")}
                 customLabel={t("run.toolchainCurrent")}
                 candidates={mavenCandidates}
-                onSelect={(value) => setToolchainDraft((current) => ({ ...current, mavenExecutablePath: value }))}
-                onPick={() => pickMavenHome("project")}
+                onSelect={(value) => setSharedMavenPaths({ mavenExecutablePath: value })}
+                onPick={() => pickMavenHome()}
+                footer={detectedMavenValue(
+                  "mavenExecutablePath",
+                  toolchainDraft.mavenExecutablePath,
+                )}
               />
               <ToolchainField
                 id="run-maven-jdk"
@@ -246,8 +319,12 @@ export function RunConfigurationEditor({
                 autoLabel={t("run.toolchainAuto")}
                 customLabel={t("run.toolchainCurrent")}
                 candidates={javaCandidates}
-                onSelect={(value) => setToolchainDraft((current) => ({ ...current, mavenJavaHomePath: value }))}
+                onSelect={(value) => setSharedMavenPaths({ mavenJavaHomePath: value })}
                 onPick={() => pickToolchainDirectory("mavenJavaHomePath")}
+                footer={detectedMavenValue(
+                  "mavenJavaHomePath",
+                  toolchainDraft.mavenJavaHomePath,
+                )}
               />
             </>
           ) : null}
@@ -339,8 +416,9 @@ export function RunConfigurationEditor({
                   autoLabel={t("run.toolchainProjectDefault")}
                   customLabel={t("run.toolchainCurrent")}
                   candidates={mavenCandidates}
-                  onSelect={(value) => setDraft((current) => ({ ...current, mavenExecutablePath: value }))}
-                  onPick={() => pickMavenHome("configuration")}
+                  onSelect={(value) => setSharedMavenPaths({ mavenExecutablePath: value })}
+                  onPick={() => pickMavenHome()}
+                  footer={detectedMavenValue("mavenExecutablePath", draft.mavenExecutablePath)}
                 />
                 <ToolchainField
                   id="run-configuration-maven-jdk"
@@ -350,8 +428,9 @@ export function RunConfigurationEditor({
                   autoLabel={t("run.toolchainProjectDefault")}
                   customLabel={t("run.toolchainCurrent")}
                   candidates={javaCandidates}
-                  onSelect={(value) => setDraft((current) => ({ ...current, mavenJavaHomePath: value }))}
+                  onSelect={(value) => setSharedMavenPaths({ mavenJavaHomePath: value })}
                   onPick={() => pickDirectory("mavenJavaHomePath")}
+                  footer={detectedMavenValue("mavenJavaHomePath", draft.mavenJavaHomePath)}
                 />
                 <Field>
                   <FieldLabel htmlFor="run-maven-tests">{t("run.mavenTests")}</FieldLabel>

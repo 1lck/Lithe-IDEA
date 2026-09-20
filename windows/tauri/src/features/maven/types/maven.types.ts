@@ -156,6 +156,17 @@ export interface MavenSettings {
   javaHomePath: string;
 }
 
+/**
+ * What a Maven launch would use for the current settings. A `null` field means
+ * the machine-level detection found nothing, not that the field is disabled.
+ */
+export interface MavenEffectiveConfiguration {
+  settingsPath: string | null;
+  localRepositoryPath: string | null;
+  mavenExecutablePath: string | null;
+  javaHomePath: string | null;
+}
+
 export const MAVEN_LIFECYCLE_PHASES = [
   "clean",
   "validate",

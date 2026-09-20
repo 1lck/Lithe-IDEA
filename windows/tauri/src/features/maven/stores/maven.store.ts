@@ -13,6 +13,7 @@ import {
 } from "../api/maven-core-api";
 import {
   loadMavenConfiguration,
+  resolveMavenEffectiveConfiguration,
   resolveMavenLaunch,
   startMavenProcess,
   stopMavenProcess,
@@ -26,6 +27,7 @@ import {
 import type {
   MavenDependencyLoad,
   MavenDiagnostic,
+  MavenEffectiveConfiguration,
   MavenLaunchContext,
   MavenLocalConfiguration,
   MavenPortableConfiguration,
@@ -66,6 +68,7 @@ export interface MavenStoreDependencies {
   parseMavenDependencies: typeof parseMavenDependencies;
   parseMavenTestResults: typeof parseMavenTestResults;
   resolveMavenLaunch: typeof resolveMavenLaunch;
+  resolveMavenEffectiveConfiguration: typeof resolveMavenEffectiveConfiguration;
   saveWorkspaceBeforeLaunch: typeof saveWorkspaceBeforeLaunch;
   scanMavenProject: typeof scanMavenProject;
   startMavenProcess: typeof startMavenProcess;
@@ -83,6 +86,7 @@ const defaultMavenStoreDependencies: MavenStoreDependencies = {
   parseMavenDependencies,
   parseMavenTestResults,
   resolveMavenLaunch,
+  resolveMavenEffectiveConfiguration,
   saveWorkspaceBeforeLaunch,
   scanMavenProject,
   startMavenProcess,
@@ -118,6 +122,11 @@ export interface MavenState {
   mavenExecutablePath: string;
   javaHomePath: string;
   configurationSaveError: string | null;
+  /**
+   * What a Maven launch would use for the saved configuration, shared by every
+   * surface that shows these fields. `null` hides the detected values.
+   */
+  effectiveConfiguration: MavenEffectiveConfiguration | null;
   reloadRequired: boolean;
   projectReloadRequired: boolean;
   reloadRevision: number;
@@ -150,6 +159,8 @@ export interface MavenState {
     restoreDefaultProfiles: () => void;
     setSkipTests: (enabled: boolean) => void;
     updateLocalConfiguration: (settings: MavenSettings) => void;
+    seedLocalConfiguration: (settings: Partial<MavenSettings>) => void;
+    resolveEffectiveConfiguration: () => Promise<void>;
     acknowledgeReload: (revision?: number) => void;
     runGoals: (
       goals: string[],
@@ -295,6 +306,7 @@ export const createMavenStore = (
 ) => {
   let projectLoadRevision = 0;
   let configurationRevision = 0;
+  let effectiveConfigurationRevision = 0;
   let launchRevision = 0;
   let diagnosticsRevision = 0;
   let dependencyRevision = 0;
@@ -496,6 +508,7 @@ export const createMavenStore = (
       mavenExecutablePath: "",
       javaHomePath: "",
       configurationSaveError: null,
+      effectiveConfiguration: null,
       reloadRequired: false,
       projectReloadRequired: false,
       reloadRevision: 0,
@@ -516,58 +529,148 @@ export const createMavenStore = (
       dependencyOutput: "",
       actions: {
         loadProject: async (root, visiblePaths = []) => {
-          const revision = ++projectLoadRevision;
-          configurationRevision += 1;
-          diagnosticsRevision += 1;
-          invalidateDependencies();
-          const previous = get();
-          if (previous.root && previous.root !== root && previous.activeSessionId) {
-            launchRevision += 1;
-            clearTestTimer();
+          try {
+            const revision = ++projectLoadRevision;
+            configurationRevision += 1;
             diagnosticsRevision += 1;
-            await dependencies.stopMavenProcess(previous.activeSessionId).catch(() => undefined);
-            releaseMavenSessionWorkspace(previous.activeSessionId);
-          }
-          if (previous.root && previous.root !== root) {
-            await synchronizePomWatches(new Set());
-            if (projectLoadRevision !== revision) return;
-          }
-          set({
-            root,
-            visiblePaths: [...visiblePaths],
-            projectStatus: "loading",
-            projectError: null,
-            configurationSaveError:
-              previous.root === root ? previous.configurationSaveError : null,
-            testResults: null,
-            activeTestRun: null,
-            ...(previous.root !== root
-              ? { reloadRequired: false, projectReloadRequired: false }
-              : {}),
-            ...(previous.root && previous.root !== root
-              ? {
+            invalidateDependencies();
+            const previous = get();
+            if (previous.root && previous.root !== root && previous.activeSessionId) {
+              launchRevision += 1;
+              clearTestTimer();
+              diagnosticsRevision += 1;
+              await dependencies.stopMavenProcess(previous.activeSessionId).catch(() => undefined);
+              releaseMavenSessionWorkspace(previous.activeSessionId);
+            }
+            if (previous.root && previous.root !== root) {
+              await synchronizePomWatches(new Set());
+              if (projectLoadRevision !== revision) return;
+            }
+            set({
+              root,
+              visiblePaths: [...visiblePaths],
+              projectStatus: "loading",
+              projectError: null,
+              configurationSaveError:
+                previous.root === root ? previous.configurationSaveError : null,
+              testResults: null,
+              activeTestRun: null,
+              ...(previous.root !== root
+                ? { reloadRequired: false, projectReloadRequired: false }
+                : {}),
+              ...(previous.root && previous.root !== root
+                ? {
+                    project: null,
+                    taskStatus: "idle" as const,
+                    taskError: null,
+                    activeSessionId: null,
+                    taskTitle: null,
+                    output: "",
+                    issues: [],
+                    lastExitCode: null,
+                    testResults: null,
+                    activeTestRun: null,
+                    lastTestRun: null,
+                  }
+                : {}),
+            });
+            try {
+              const project = await dependencies.scanMavenProject(root, visiblePaths);
+              if (projectLoadRevision !== revision || get().root !== root) return;
+              if (!project) {
+                await synchronizePomWatches(new Set());
+                if (projectLoadRevision !== revision || get().root !== root) return;
+                set({
+                  projectStatus: "ready",
                   project: null,
-                  taskStatus: "idle" as const,
-                  taskError: null,
-                  activeSessionId: null,
-                  taskTitle: null,
-                  output: "",
-                  issues: [],
-                  lastExitCode: null,
+                  selectedProfiles: [],
+                  customProfiles: [],
+                  skipTests: false,
+                  settingsPath: "",
+                  localRepositoryPath: "",
+                  mavenExecutablePath: "",
+                  javaHomePath: "",
+                  reloadRequired: false,
                   testResults: null,
                   activeTestRun: null,
                   lastTestRun: null,
-                }
-              : {}),
-          });
-          try {
-            const project = await dependencies.scanMavenProject(root, visiblePaths);
-            if (projectLoadRevision !== revision || get().root !== root) return;
-            if (!project) {
-              await synchronizePomWatches(new Set());
+                });
+                return;
+              }
+              const configurationRevisionBeforeWriteWait = configurationRevision;
+              const pendingConfigurationWriteTask = configurationWriteTask;
+              let configurationWriteSucceeded = true;
+              let configurationWriteError: unknown;
+              try {
+                await pendingConfigurationWriteTask;
+              } catch (error) {
+                configurationWriteSucceeded = false;
+                configurationWriteError = error;
+              }
               if (projectLoadRevision !== revision || get().root !== root) return;
+              const preserveInMemoryConfiguration =
+                previous.root === root && !configurationWriteSucceeded;
+              if (preserveInMemoryConfiguration) {
+                set({
+                  configurationSaveError:
+                    configurationWriteError instanceof Error
+                      ? configurationWriteError.message
+                      : "Unable to save Maven configuration.",
+                });
+              }
+              const loadedConfiguration = preserveInMemoryConfiguration
+                ? null
+                : await dependencies.loadMavenConfiguration(root, project.relativePath);
+              if (projectLoadRevision !== revision || get().root !== root) return;
+              await synchronizePomWatches(mavenPomPaths(root, project));
+              if (projectLoadRevision !== revision || get().root !== root) return;
+              const preserveLatestInMemoryConfiguration =
+                previous.root === root &&
+                (!configurationWriteSucceeded ||
+                  configurationRevision !== configurationRevisionBeforeWriteWait);
+              const stored = preserveLatestInMemoryConfiguration
+                ? storedConfiguration(get())
+                : (loadedConfiguration ?? {});
+              const customProfiles = normalizedProfiles(stored.portable?.customProfiles ?? []);
+              const knownProfiles = new Set([
+                ...project.profiles.map((profile) => profile.id),
+                ...customProfiles,
+              ]);
+              const defaultProfiles = project.profiles
+                .filter((profile) => profile.isActiveByDefault)
+                .map((profile) => profile.id);
+              const selectedProfiles = normalizedProfiles(
+                stored.portable?.selectedProfiles ?? defaultProfiles,
+              ).filter((profile) => knownProfiles.has(profile));
               set({
                 projectStatus: "ready",
+                projectError: null,
+                project,
+                selectedProfiles,
+                customProfiles,
+                skipTests: stored.portable?.skipTests ?? false,
+                settingsPath: normalizedPath(stored.local?.settingsPath),
+                localRepositoryPath: normalizedPath(stored.local?.localRepositoryPath),
+                mavenExecutablePath: normalizedPath(stored.local?.mavenExecutablePath),
+                javaHomePath: normalizedPath(stored.local?.javaHomePath),
+              });
+            } catch (error) {
+              if (projectLoadRevision !== revision || get().root !== root) return;
+              const message =
+                error instanceof Error ? error.message : "Unable to scan the Maven project.";
+              if (previous.root === root && previous.project) {
+                set((state) => ({
+                  projectStatus: "failed",
+                  projectError: message,
+                  reloadRequired: true,
+                  projectReloadRequired: true,
+                  reloadRevision: state.reloadRevision + 1,
+                }));
+                return;
+              }
+              set({
+                projectStatus: "failed",
+                projectError: message,
                 project: null,
                 selectedProfiles: [],
                 customProfiles: [],
@@ -576,99 +679,17 @@ export const createMavenStore = (
                 localRepositoryPath: "",
                 mavenExecutablePath: "",
                 javaHomePath: "",
-                reloadRequired: false,
                 testResults: null,
                 activeTestRun: null,
                 lastTestRun: null,
               });
-              return;
             }
-            const configurationRevisionBeforeWriteWait = configurationRevision;
-            const pendingConfigurationWriteTask = configurationWriteTask;
-            let configurationWriteSucceeded = true;
-            let configurationWriteError: unknown;
-            try {
-              await pendingConfigurationWriteTask;
-            } catch (error) {
-              configurationWriteSucceeded = false;
-              configurationWriteError = error;
-            }
-            if (projectLoadRevision !== revision || get().root !== root) return;
-            const preserveInMemoryConfiguration =
-              previous.root === root && !configurationWriteSucceeded;
-            if (preserveInMemoryConfiguration) {
-              set({
-                configurationSaveError:
-                  configurationWriteError instanceof Error
-                    ? configurationWriteError.message
-                    : "Unable to save Maven configuration.",
-              });
-            }
-            const loadedConfiguration = preserveInMemoryConfiguration
-              ? null
-              : await dependencies.loadMavenConfiguration(root, project.relativePath);
-            if (projectLoadRevision !== revision || get().root !== root) return;
-            await synchronizePomWatches(mavenPomPaths(root, project));
-            if (projectLoadRevision !== revision || get().root !== root) return;
-            const preserveLatestInMemoryConfiguration =
-              previous.root === root &&
-              (!configurationWriteSucceeded ||
-                configurationRevision !== configurationRevisionBeforeWriteWait);
-            const stored = preserveLatestInMemoryConfiguration
-              ? storedConfiguration(get())
-              : (loadedConfiguration ?? {});
-            const customProfiles = normalizedProfiles(stored.portable?.customProfiles ?? []);
-            const knownProfiles = new Set([
-              ...project.profiles.map((profile) => profile.id),
-              ...customProfiles,
-            ]);
-            const defaultProfiles = project.profiles
-              .filter((profile) => profile.isActiveByDefault)
-              .map((profile) => profile.id);
-            const selectedProfiles = normalizedProfiles(
-              stored.portable?.selectedProfiles ?? defaultProfiles,
-            ).filter((profile) => knownProfiles.has(profile));
-            set({
-              projectStatus: "ready",
-              projectError: null,
-              project,
-              selectedProfiles,
-              customProfiles,
-              skipTests: stored.portable?.skipTests ?? false,
-              settingsPath: normalizedPath(stored.local?.settingsPath),
-              localRepositoryPath: normalizedPath(stored.local?.localRepositoryPath),
-              mavenExecutablePath: normalizedPath(stored.local?.mavenExecutablePath),
-              javaHomePath: normalizedPath(stored.local?.javaHomePath),
-            });
-          } catch (error) {
-            if (projectLoadRevision !== revision || get().root !== root) return;
-            const message =
-              error instanceof Error ? error.message : "Unable to scan the Maven project.";
-            if (previous.root === root && previous.project) {
-              set((state) => ({
-                projectStatus: "failed",
-                projectError: message,
-                reloadRequired: true,
-                projectReloadRequired: true,
-                reloadRevision: state.reloadRevision + 1,
-              }));
-              return;
-            }
-            set({
-              projectStatus: "failed",
-              projectError: message,
-              project: null,
-              selectedProfiles: [],
-              customProfiles: [],
-              skipTests: false,
-              settingsPath: "",
-              localRepositoryPath: "",
-              mavenExecutablePath: "",
-              javaHomePath: "",
-              testResults: null,
-              activeTestRun: null,
-              lastTestRun: null,
-            });
+          } finally {
+            // Deliberately not awaited: the scan has already produced the project
+            // state, and detection probes the machine, which must not delay
+            // opening a workspace. The action resolves once detection settles.
+            const resolveEffectiveConfiguration = get().actions.resolveEffectiveConfiguration;
+            void resolveEffectiveConfiguration();
           }
         },
 
@@ -757,6 +778,67 @@ export const createMavenStore = (
           }
           set(next);
           configurationDidChange();
+          void get().actions.resolveEffectiveConfiguration();
+        },
+
+        // Fills blank local fields from another configuration surface, such as
+        // the run feature's legacy project toolchain. Existing values win and the
+        // reload prompt stays off: this migrates an already effective value
+        // instead of recording a user edit. Workspaces without a Maven project
+        // never seed, because the shared configuration exists only with one.
+        seedLocalConfiguration: (settings) => {
+          const state = get();
+          if (!state.project) return;
+          const next = {
+            settingsPath: state.settingsPath || normalizedPath(settings.settingsPath),
+            localRepositoryPath:
+              state.localRepositoryPath || normalizedPath(settings.localRepositoryPath),
+            mavenExecutablePath:
+              state.mavenExecutablePath || normalizedPath(settings.mavenExecutablePath),
+            javaHomePath: state.javaHomePath || normalizedPath(settings.javaHomePath),
+          };
+          if (
+            next.settingsPath === state.settingsPath &&
+            next.localRepositoryPath === state.localRepositoryPath &&
+            next.mavenExecutablePath === state.mavenExecutablePath &&
+            next.javaHomePath === state.javaHomePath
+          ) {
+            return;
+          }
+          set(next);
+          persistConfiguration();
+          void get().actions.resolveEffectiveConfiguration();
+        },
+
+        // Resolves the values a launch would use for the saved configuration, so
+        // every surface showing these fields can display what blank ones fall
+        // back to. A detection failure hides them instead of reporting an error,
+        // and a workspace without a Maven project clears them without asking the
+        // host at all.
+        resolveEffectiveConfiguration: async () => {
+          const state = get();
+          if (!state.root || !state.project) {
+            if (get().effectiveConfiguration !== null) set({ effectiveConfiguration: null });
+            return;
+          }
+          const revision = ++effectiveConfigurationRevision;
+          try {
+            const resolved = await dependencies.resolveMavenEffectiveConfiguration(
+              state.root,
+              state.project.relativePath,
+              {
+                settingsPath: state.settingsPath,
+                localRepositoryPath: state.localRepositoryPath,
+                mavenExecutablePath: state.mavenExecutablePath,
+                javaHomePath: state.javaHomePath,
+              },
+            );
+            if (effectiveConfigurationRevision !== revision) return;
+            set({ effectiveConfiguration: resolved });
+          } catch {
+            if (effectiveConfigurationRevision !== revision) return;
+            set({ effectiveConfiguration: null });
+          }
         },
 
         acknowledgeReload: (revision) => {
