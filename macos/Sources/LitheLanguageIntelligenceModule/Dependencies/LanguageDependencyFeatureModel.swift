@@ -16,6 +16,12 @@ package protocol LanguageDependencyProviding: AnyObject {
         files: [URL],
         sessions: LanguageToolingSessionManager
     ) async throws -> DependencyGraph
+
+    func resolveChildren(
+        for node: DependencyNode,
+        workspaceURL: URL,
+        sessions: LanguageToolingSessionManager
+    ) async throws -> [DependencyNode]
 }
 
 @MainActor
@@ -85,6 +91,26 @@ package final class LanguageDependencyFeatureModel: ObservableObject {
         try Task.checkCancellation()
         guard generation == workspaceGeneration else { throw CancellationError() }
         return graph
+    }
+
+    package func resolveChildren(
+        providerID: String,
+        node: DependencyNode
+    ) async throws -> [DependencyNode]? {
+        guard let workspaceURL,
+              languages.contains(where: { $0.providerID == providerID }),
+              let provider = providers.first(where: { $0.providerID == providerID }) else {
+            return nil
+        }
+        let generation = workspaceGeneration
+        let children = try await provider.resolveChildren(
+            for: node,
+            workspaceURL: workspaceURL,
+            sessions: sessions
+        )
+        try Task.checkCancellation()
+        guard generation == workspaceGeneration else { throw CancellationError() }
+        return children
     }
 
     package func invalidate() {
@@ -195,6 +221,92 @@ private final class JavaLanguageDependencyProvider: LanguageDependencyProviding 
             ]
         )
         return DependencyGraph(providerID: providerID, roots: [root])
+    }
+
+    func resolveChildren(
+        for node: DependencyNode,
+        workspaceURL: URL,
+        sessions: LanguageToolingSessionManager
+    ) async throws -> [DependencyNode] {
+        guard case .archive(let archiveURL) = node.source else { return [] }
+        let symbols = try await sessions.workspaceSymbols(
+            providerID: providerID,
+            query: "*",
+            rootURL: workspaceURL
+        )
+        let matchingSymbols = symbols
+            .filter { $0.url.scheme?.lowercased() == "jdt" }
+            .filter { Self.symbolBelongsToArchive($0.url, archiveURL: archiveURL) }
+            .sorted {
+                let lhs = (($0.containerName ?? "") + "." + $0.name)
+                let rhs = (($1.containerName ?? "") + "." + $1.name)
+                return lhs.localizedStandardCompare(rhs) == .orderedAscending
+            }
+        // `workspace/symbol` has no standard max-results parameter. Keep the
+        // dependency browser responsive after the user explicitly expands a
+        // library, while leaving the language server's index authoritative.
+        return Self.classNodes(
+            from: Array(matchingSymbols.prefix(500)),
+            archiveURL: archiveURL
+        )
+    }
+
+    private static func symbolBelongsToArchive(_ uri: URL, archiveURL: URL) -> Bool {
+        let decoded = uri.absoluteString.removingPercentEncoding ?? uri.absoluteString
+        let archiveName = archiveURL.lastPathComponent
+        return decoded.localizedCaseInsensitiveContains(archiveName)
+    }
+
+    private static func classNodes(
+        from symbols: [LanguageServerWorkspaceSymbol],
+        archiveURL: URL
+    ) -> [DependencyNode] {
+        struct Entry {
+            let symbol: LanguageServerWorkspaceSymbol
+            let components: [String]
+        }
+        let entries = symbols.compactMap { symbol -> Entry? in
+            let package = symbol.containerName?.split(separator: ".").map(String.init) ?? []
+            guard !symbol.name.isEmpty else { return nil }
+            return Entry(symbol: symbol, components: package + [symbol.name])
+        }
+        var children: [String: Set<String>] = [:]
+        var symbolsByPath: [String: LanguageServerWorkspaceSymbol] = [:]
+        for entry in entries {
+            var parent = ""
+            for component in entry.components {
+                let path = parent.isEmpty ? component : parent + "/" + component
+                children[parent, default: []].insert(path)
+                parent = path
+            }
+            symbolsByPath[entry.components.joined(separator: "/")] = entry.symbol
+        }
+
+        func makeNode(_ path: String) -> DependencyNode {
+            let childPaths = (children[path] ?? []).sorted {
+                $0.localizedStandardCompare($1) == .orderedAscending
+            }
+            if let symbol = symbolsByPath[path] {
+                return DependencyNode(
+                    id: "dependency-symbol:\(archiveURL.path):\(symbol.url.absoluteString)",
+                    title: symbol.name,
+                    subtitle: symbol.url.absoluteString,
+                    kind: .file,
+                    source: .virtualDocument(symbol.url)
+                )
+            }
+            return DependencyNode(
+                id: "dependency-package:\(archiveURL.path):\(path)",
+                title: path.split(separator: "/").last.map(String.init) ?? path,
+                kind: .directory,
+                source: .generated,
+                children: childPaths.map(makeNode)
+            )
+        }
+
+        return (children[""] ?? []).sorted {
+            $0.localizedStandardCompare($1) == .orderedAscending
+        }.map(makeNode)
     }
 
     private func urls(_ value: ToolingJSONValue?) -> [URL] {

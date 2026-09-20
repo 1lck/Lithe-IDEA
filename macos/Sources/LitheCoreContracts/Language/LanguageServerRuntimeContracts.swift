@@ -292,6 +292,7 @@ package protocol LanguageServerRuntimeCore: Sendable {
         operation: LanguageServerOperation,
         fileURL: URL?,
         virtualURI: String?,
+        query: String?,
         position: LanguageServerPosition?,
         newName: String?,
         range: LanguageServerRange?,

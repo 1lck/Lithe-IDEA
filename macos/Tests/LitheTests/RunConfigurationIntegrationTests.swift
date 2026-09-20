@@ -5012,6 +5012,7 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         operation: LanguageServerOperation,
         fileURL: URL?,
         virtualURI: String?,
+        query: String?,
         position: LanguageServerPosition?,
         newName: String?,
         range: LanguageServerRange?,

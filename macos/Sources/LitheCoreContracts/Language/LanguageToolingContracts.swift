@@ -302,6 +302,27 @@ package struct LanguageServerLocation: Equatable, Sendable {
     }
 }
 
+/// A symbol returned by the language server's workspace index. Binary Java
+/// symbols may point at a provider-owned `jdt://` URI instead of a file.
+package struct LanguageServerWorkspaceSymbol: Equatable, Sendable {
+    package let name: String
+    package let containerName: String?
+    package let url: URL
+    package let range: LanguageServerRange
+
+    package init(
+        name: String,
+        containerName: String?,
+        url: URL,
+        range: LanguageServerRange
+    ) {
+        self.name = name
+        self.containerName = containerName
+        self.url = url
+        self.range = range
+    }
+}
+
 package struct LanguageServerHover: Equatable, Sendable {
     package let contents: String
     package let isMarkdown: Bool
@@ -398,6 +419,8 @@ package enum LanguageServerOperation: String, Equatable, Sendable {
     case foldingRanges
     case semanticTokens
     case codeLens
+    /// `workspace/symbol` lookup used by language-owned project browsers.
+    case workspaceSymbols
     /// Resolving a server-owned source that has no file on disk, such as a
     /// decompiled class behind a `jdt://` URI.
     case virtualDocument
@@ -667,6 +690,10 @@ package protocol LanguageServerSession: AnyObject {
         uri: String,
         completion: @escaping (Result<String, Error>) -> Void
     ) throws
+    func workspaceSymbols(
+        query: String,
+        completion: @escaping (Result<[LanguageServerWorkspaceSymbol], Error>) -> Void
+    ) throws
     func javaNavigationMarkers(
         fileURL: URL,
         completion: @escaping (Result<[JavaNavigationMarker], Error>) -> Void
@@ -686,6 +713,12 @@ package extension LanguageServerSession {
     }
     func semanticTokens(fileURL: URL, completion: @escaping (Result<LanguageServerSemanticTokens, Error>) -> Void) throws {
         completion(.success(.empty))
+    }
+    func workspaceSymbols(
+        query _: String,
+        completion: @escaping (Result<[LanguageServerWorkspaceSymbol], Error>) -> Void
+    ) throws {
+        completion(.success([]))
     }
     var onProjectPreparation: ((ProjectPreparationSnapshot) -> Void)? {
         get { nil }

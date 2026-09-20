@@ -464,6 +464,17 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
     }
 
+    package func workspaceSymbols(
+        query: String,
+        completion: @escaping (Result<[LanguageServerWorkspaceSymbol], Error>) -> Void
+    ) throws {
+        try request(.workspaceSymbols, fileURL: nil, query: query) { result in
+            completion(result.flatMap {
+                Self.decodeEventResult($0, as: WorkspaceSymbolsPayload.self)
+            }.map { $0.makeModels() })
+        }
+    }
+
     package func stop() {
         guard let sessionID else {
             failPendingOperations(with: LanguageServerRuntimeSessionError.sessionStopped)
@@ -490,6 +501,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         _ operation: LanguageServerOperation,
         fileURL: URL?,
         virtualURI: String? = nil,
+        query: String? = nil,
         position: LanguageServerPosition? = nil,
         newName: String? = nil,
         range: LanguageServerRange? = nil,
@@ -507,6 +519,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             operation: operation,
             fileURL: fileURL?.standardizedFileURL,
             virtualURI: virtualURI,
+            query: query,
             position: position,
             newName: newName,
             range: range,
@@ -1044,6 +1057,39 @@ private struct JavaNavigationLocationsPayload: Decodable {
 
 private struct VirtualDocumentPayload: Decodable {
     let text: String
+}
+
+private struct WorkspaceSymbolsPayload: Decodable {
+    private struct Symbol: Decodable {
+        struct Location: Decodable {
+            let uri: String
+            let range: RangePayload
+        }
+
+        let name: String
+        let containerName: String?
+        let location: Location
+
+        func makeModel() -> LanguageServerWorkspaceSymbol? {
+            guard let url = URL(string: location.uri) else { return nil }
+            return LanguageServerWorkspaceSymbol(
+                name: name,
+                containerName: containerName,
+                url: url,
+                range: location.range.makeModel()
+            )
+        }
+    }
+
+    private let symbols: [Symbol]
+
+    init(from decoder: Decoder) throws {
+        symbols = try decoder.singleValueContainer().decode([Symbol].self)
+    }
+
+    func makeModels() -> [LanguageServerWorkspaceSymbol] {
+        symbols.compactMap { $0.makeModel() }
+    }
 }
 
 private struct WorkspaceEditPayload: Decodable {

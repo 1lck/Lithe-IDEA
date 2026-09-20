@@ -282,6 +282,8 @@ pub enum LspSemanticOperation {
     SemanticTokens,
     /// `textDocument/codeLens`.
     CodeLens,
+    /// `workspace/symbol` lookup for language-owned project browsers.
+    WorkspaceSymbols,
     /// Provider-specific retrieval of a read-only virtual document.
     VirtualDocument,
 }
@@ -294,6 +296,9 @@ pub struct SemanticRequest {
     #[serde(default)]
     pub operation_id: Option<String>,
     pub operation: LspSemanticOperation,
+    /// Query text for workspace symbol searches. Other operations leave it unset.
+    #[serde(default)]
+    pub query: Option<String>,
     #[serde(default)]
     pub uri: Option<String>,
     #[serde(default)]
@@ -663,6 +668,7 @@ pub fn java_navigation_markers(
             session_id: request.session_id,
             operation_id: Some(operation_id.clone()),
             operation: LspSemanticOperation::CodeLens,
+            query: None,
             uri: Some(request.uri),
             virtual_uri: None,
             position: None,
@@ -710,6 +716,7 @@ pub fn java_resolve_navigation(
             session_id: request.session_id,
             operation_id: Some(operation_id.clone()),
             operation,
+            query: None,
             uri: Some(request.uri),
             virtual_uri: None,
             position: Some(LspPosition {
@@ -1468,6 +1475,13 @@ impl RuntimeSession {
                         }),
                     )?
                 }
+                LspSemanticOperation::WorkspaceSymbols => allocate_raw_request(
+                    state.client.clone(),
+                    method,
+                    json!({
+                        "query": request.query.unwrap_or_default()
+                    }),
+                )?,
                 _ => {
                     let uri = uri.clone().ok_or_else(|| {
                         CoreError::new(
@@ -3534,6 +3548,7 @@ fn semantic_method(operation: LspSemanticOperation) -> &'static str {
         LspSemanticOperation::FoldingRanges => "textDocument/foldingRange",
         LspSemanticOperation::SemanticTokens => "textDocument/semanticTokens/full",
         LspSemanticOperation::CodeLens => "textDocument/codeLens",
+        LspSemanticOperation::WorkspaceSymbols => "workspace/symbol",
     }
 }
 
@@ -3559,6 +3574,7 @@ fn semantic_capability(operation: LspSemanticOperation) -> Option<&'static str> 
         LspSemanticOperation::FoldingRanges => Some("foldingRanges"),
         LspSemanticOperation::SemanticTokens => Some("semanticTokens"),
         LspSemanticOperation::CodeLens => Some("codeLens"),
+        LspSemanticOperation::WorkspaceSymbols => Some("workspaceSymbols"),
     }
 }
 
@@ -4632,6 +4648,7 @@ mod tests {
                         session_id: self.session_id.clone(),
                         operation_id: Some(operation_id.clone()),
                         operation,
+                        query: None,
                         uri: Some(uri.to_string()),
                         virtual_uri: None,
                         position: Some(LspPosition {
@@ -4660,6 +4677,7 @@ mod tests {
                         session_id: self.session_id.clone(),
                         operation_id: Some(operation_id.clone()),
                         operation: LspSemanticOperation::ExecuteCommand,
+                        query: None,
                         uri: None,
                         virtual_uri: None,
                         position: None,
@@ -4673,6 +4691,32 @@ mod tests {
                     operation_id.clone(),
                 )
                 .expect("a ready session should accept the command");
+            operation_id
+        }
+
+        /// Issues a workspace symbol request without requiring a synchronized document.
+        fn workspace_symbols(&self, query: &str) -> String {
+            let operation_id = self.engine.next_operation_id();
+            self.session()
+                .request(
+                    SemanticRequest {
+                        session_id: self.session_id.clone(),
+                        operation_id: Some(operation_id.clone()),
+                        operation: LspSemanticOperation::WorkspaceSymbols,
+                        query: Some(query.to_string()),
+                        uri: None,
+                        virtual_uri: None,
+                        position: None,
+                        new_name: None,
+                        range: None,
+                        diagnostics: Vec::new(),
+                        completion_item: None,
+                        code_action: None,
+                        command: None,
+                    },
+                    operation_id.clone(),
+                )
+                .expect("a ready session should accept workspace symbols");
             operation_id
         }
 
@@ -4773,6 +4817,7 @@ mod tests {
                     session_id: session.id.clone(),
                     operation_id: Some(operation_id.clone()),
                     operation,
+                    query: None,
                     uri: uri.map(str::to_string),
                     virtual_uri: virtual_uri.map(str::to_string),
                     position,
@@ -6210,6 +6255,7 @@ mod tests {
                     session_id: harness.session_id.clone(),
                     operation_id: Some("op-formatting".to_string()),
                     operation: LspSemanticOperation::Formatting,
+                    query: None,
                     uri: Some(uri.to_string()),
                     virtual_uri: None,
                     position: None,
@@ -6276,6 +6322,7 @@ mod tests {
                         session_id: harness.session_id.clone(),
                         operation_id: Some("op-formatting-2".to_string()),
                         operation: LspSemanticOperation::Formatting,
+                        query: None,
                         uri: Some(uri.to_string()),
                         virtual_uri: None,
                         position: None,
@@ -6391,6 +6438,14 @@ mod tests {
             semantic_capability(LspSemanticOperation::VirtualDocument),
             Some("executeCommand")
         );
+        assert_eq!(
+            semantic_method(LspSemanticOperation::WorkspaceSymbols),
+            "workspace/symbol"
+        );
+        assert_eq!(
+            semantic_capability(LspSemanticOperation::WorkspaceSymbols),
+            Some("workspaceSymbols")
+        );
     }
 
     #[test]
@@ -6409,6 +6464,7 @@ mod tests {
                     session_id: harness.session_id.clone(),
                     operation_id: Some(operation_id.clone()),
                     operation: LspSemanticOperation::ExecuteCommand,
+                    query: None,
                     uri: None,
                     virtual_uri: None,
                     position: None,
@@ -6435,6 +6491,26 @@ mod tests {
             .expect("the command should reach the language server");
         assert_eq!(request["params"]["command"], "source.fix");
         assert!(request["params"].get("textDocument").is_none());
+    }
+
+    #[test]
+    fn workspace_symbols_use_query_without_an_open_document() {
+        let mut harness = Harness::start(|_| {});
+        harness.server.complete_initialize(json!({
+            "workspaceSymbolProvider": true
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+
+        let operation_id = harness.workspace_symbols("Widget");
+        let request = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["method"] == "workspace/symbol")
+            .expect("the workspace symbol request should reach the language server");
+        assert_eq!(request["params"]["query"], "Widget");
+        assert!(request["params"].get("textDocument").is_none());
+        harness.session().cancel_operation(&operation_id).ok();
     }
 
     #[test]
@@ -6538,6 +6614,7 @@ mod tests {
                     session_id: harness.session_id.clone(),
                     operation_id: Some(operation_id.clone()),
                     operation: LspSemanticOperation::VirtualDocument,
+                    query: None,
                     uri: None,
                     virtual_uri: Some(virtual_uri.to_string()),
                     position: None,
@@ -6712,6 +6789,7 @@ mod tests {
                     session_id: harness.session_id.clone(),
                     operation_id: Some(physical_operation_id.clone()),
                     operation: LspSemanticOperation::References,
+                    query: None,
                     uri: Some("file:///workspace/Unopened.java".to_string()),
                     virtual_uri: None,
                     position: Some(LspPosition {
@@ -7024,6 +7102,7 @@ public class Main {
                     session_id: harness.session_id.clone(),
                     operation_id: Some(operation_id.clone()),
                     operation: LspSemanticOperation::CodeLens,
+                    query: None,
                     uri: Some(uri.to_string()),
                     virtual_uri: None,
                     position: None,
@@ -7170,6 +7249,7 @@ public class Main {
                     session_id: harness.session_id.clone(),
                     operation_id: Some(operation_id.clone()),
                     operation: LspSemanticOperation::CodeLens,
+                    query: None,
                     uri: Some(uri.to_string()),
                     virtual_uri: None,
                     position: None,
@@ -7289,6 +7369,7 @@ public class Main {
                     session_id: harness.session_id.clone(),
                     operation_id: Some(operation_id.clone()),
                     operation: LspSemanticOperation::CodeLens,
+                    query: None,
                     uri: Some(uri.to_string()),
                     virtual_uri: None,
                     position: None,
@@ -7364,6 +7445,7 @@ public class Main {
                     session_id: harness.session_id.clone(),
                     operation_id: Some(operation_id.clone()),
                     operation: LspSemanticOperation::CodeLens,
+                    query: None,
                     uri: Some(uri.to_string()),
                     virtual_uri: None,
                     position: None,
@@ -7442,6 +7524,7 @@ public class Main {
                     session_id: harness.session_id.clone(),
                     operation_id: Some(operation_id.clone()),
                     operation: LspSemanticOperation::CodeLens,
+                    query: None,
                     uri: Some(uri.to_string()),
                     virtual_uri: None,
                     position: None,
@@ -7528,6 +7611,7 @@ public class Main {
                     session_id: harness.session_id.clone(),
                     operation_id: Some(operation_id.clone()),
                     operation: LspSemanticOperation::JavaSuperImplementation,
+                    query: None,
                     uri: Some(uri.to_string()),
                     virtual_uri: None,
                     position: Some(LspPosition {

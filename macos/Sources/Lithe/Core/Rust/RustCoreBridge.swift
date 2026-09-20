@@ -1869,6 +1869,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let operation: String
         let uri: String?
         let virtualUri: String?
+        let query: String?
         let position: LspTextEditsRequest.TextEdit.Range.Position?
         let newName: String?
         let range: LspTextEditsRequest.TextEdit.Range?
@@ -1883,6 +1884,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             operation: String,
             uri: String? = nil,
             virtualUri: String? = nil,
+            query: String? = nil,
             position: LspTextEditsRequest.TextEdit.Range.Position? = nil,
             newName: String? = nil,
             range: LspTextEditsRequest.TextEdit.Range? = nil,
@@ -1896,6 +1898,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             self.operation = operation
             self.uri = uri
             self.virtualUri = virtualUri
+            self.query = query
             self.position = position
             self.newName = newName
             self.range = range
@@ -3776,6 +3779,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         operation: LanguageServerOperation,
         fileURL: URL? = nil,
         virtualURI: String? = nil,
+        query: String? = nil,
         position: LanguageServerPosition? = nil,
         newName: String? = nil,
         range: LanguageServerRange? = nil,
@@ -3791,6 +3795,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 operation: operation.rawValue,
                 uri: fileURL?.standardizedFileURL.absoluteString,
                 virtualUri: virtualURI,
+                query: query,
                 position: position.map {
                     .init(line: $0.line, utf16Column: $0.utf16Column)
                 },

@@ -111,6 +111,8 @@ private struct LanguageDependencySection: View {
     @State private var isResolving = false
     @State private var resolutionError: String?
     @State private var resolutionTask: Task<Void, Never>?
+    @State private var loadingNodeIDs: Set<String> = []
+    @State private var childErrors: [String: String] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -186,7 +188,11 @@ private struct LanguageDependencySection: View {
                 DependencyTreeNodeView(
                     node: node,
                     depth: 1,
-                    expandedNodeIDs: $expandedNodeIDs
+                    expandedNodeIDs: $expandedNodeIDs,
+                    loadingNodeIDs: loadingNodeIDs,
+                    childErrors: childErrors,
+                    providerID: language.providerID,
+                    onExpand: loadChildren
                 )
             }
         } else {
@@ -202,6 +208,8 @@ private struct LanguageDependencySection: View {
         resolutionTask?.cancel()
         resolutionTask = nil
         graph = nil
+        loadingNodeIDs.removeAll()
+        childErrors.removeAll()
         resolutionError = nil
         isResolving = false
         if isExpanded { loadDependencies() }
@@ -234,6 +242,55 @@ private struct LanguageDependencySection: View {
             }
         }
     }
+
+    private func loadChildren(for node: DependencyNode) {
+        guard loadingNodeIDs.insert(node.id).inserted else { return }
+        childErrors[node.id] = nil
+        Task { @MainActor in
+            defer { loadingNodeIDs.remove(node.id) }
+            do {
+                let children = try await feature.resolveChildren(
+                    providerID: language.providerID,
+                    node: node
+                ) ?? []
+                guard let graph else { return }
+                self.graph = DependencyGraph(
+                    providerID: graph.providerID,
+                    roots: graph.roots.map { replaceChildren(of: node.id, in: $0, with: children) }
+                )
+            } catch is CancellationError {
+                return
+            } catch {
+                childErrors[node.id] = error.localizedDescription
+            }
+        }
+    }
+
+    private func replaceChildren(
+        of nodeID: String,
+        in node: DependencyNode,
+        with children: [DependencyNode]
+    ) -> DependencyNode {
+        if node.id == nodeID {
+            return DependencyNode(
+                id: node.id,
+                title: node.title,
+                subtitle: node.subtitle,
+                kind: node.kind,
+                source: node.source,
+                children: children
+            )
+        }
+        guard !node.children.isEmpty else { return node }
+        return DependencyNode(
+            id: node.id,
+            title: node.title,
+            subtitle: node.subtitle,
+            kind: node.kind,
+            source: node.source,
+            children: node.children.map { replaceChildren(of: nodeID, in: $0, with: children) }
+        )
+    }
 }
 
 private struct DependencyTreeNodeView: View {
@@ -241,20 +298,32 @@ private struct DependencyTreeNodeView: View {
     let node: DependencyNode
     let depth: Int
     @Binding var expandedNodeIDs: Set<String>
+    let loadingNodeIDs: Set<String>
+    let childErrors: [String: String]
+    let providerID: String
+    let onExpand: @MainActor (DependencyNode) -> Void
     @State private var isPathRevealed = false
     @State private var pathRevealTask: Task<Void, Never>?
 
     private var isExpanded: Bool { expandedNodeIDs.contains(node.id) }
     private var hasChildren: Bool { !node.children.isEmpty }
+    private var isLazyExpandable: Bool {
+        if case .archive = node.source { return true }
+        return false
+    }
+    private var isLoadingChildren: Bool { loadingNodeIDs.contains(node.id) }
 
     var body: some View {
-        if node.kind == .group || hasChildren {
+        if node.kind == .group || hasChildren || isLazyExpandable {
             VStack(alignment: .leading, spacing: 0) {
                 Button {
                     if isExpanded {
                         expandedNodeIDs.remove(node.id)
                     } else {
                         expandedNodeIDs.insert(node.id)
+                        if isLazyExpandable && !hasChildren && !isLoadingChildren {
+                            onExpand(node)
+                        }
                     }
                     revealPath()
                 } label: {
@@ -292,9 +361,24 @@ private struct DependencyTreeNodeView: View {
                             DependencyTreeNodeView(
                                 node: child,
                                 depth: depth + 1,
-                                expandedNodeIDs: $expandedNodeIDs
+                                expandedNodeIDs: $expandedNodeIDs,
+                                loadingNodeIDs: loadingNodeIDs,
+                                childErrors: childErrors,
+                                providerID: providerID,
+                                onExpand: onExpand
                             )
                         }
+                    } else if isLoadingChildren {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .padding(.leading, CGFloat(42 + depth * 14))
+                            .frame(minHeight: 26)
+                    } else if let childError = childErrors[node.id] {
+                        Text(childError)
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .padding(.leading, CGFloat(42 + depth * 14))
+                            .frame(minHeight: 26)
                     } else {
                         Text("No paths")
                             .font(.system(size: 10.5))
@@ -344,8 +428,14 @@ private struct DependencyTreeNodeView: View {
             revealPath()
         }
         .onTapGesture(count: 2) {
-            guard case .file(let url) = node.source else { return }
-            model.openFile(url)
+            switch node.source {
+            case .file(let url):
+                model.openFile(url)
+            case .virtualDocument(let url):
+                model.openLanguageVirtualDocument(url, providerID: providerID)
+            default:
+                break
+            }
         }
         .onDisappear {
             pathRevealTask?.cancel()

@@ -665,6 +665,33 @@ package final class LanguageToolingSessionManager: ObservableObject,
         }
     }
 
+    /// Performs a bounded, user-triggered workspace symbol lookup. JDTLS owns
+    /// the classpath-to-`jdt://` mapping; this façade only routes the request
+    /// and preserves the session lifecycle contract.
+    package func workspaceSymbols(
+        providerID: String,
+        query: String,
+        rootURL: URL
+    ) async throws -> [LanguageServerWorkspaceSymbol] {
+        let normalizedRoot = rootURL.standardizedFileURL
+        _ = try startLanguageServer(providerID: providerID, rootURL: normalizedRoot)
+        try await waitUntilLanguageServerReady(providerID: providerID, rootURL: normalizedRoot)
+        guard languageServerStates[providerID] == .ready,
+              let session = languageServers[providerID],
+              session.isRunning else {
+            throw LanguageToolingSessionError.toolingUnavailable(providerID)
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            do {
+                try session.workspaceSymbols(query: query) { result in
+                    continuation.resume(with: result)
+                }
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+
     private func executeJavaTestCommand(
         _ commandID: String,
         arguments: [ToolingJSONValue],

@@ -42,4 +42,33 @@ extension AppModel {
         )
         return feature
     }
+
+    func openLanguageVirtualDocument(_ url: URL, providerID: String) {
+        guard let sessions = languageToolingSessionsIfActive else {
+            showNotification("Language server is not ready")
+            return
+        }
+        let expectedWorkspace = workspaceURL?.standardizedFileURL
+        do {
+            try sessions.resolveVirtualDocument(providerID: providerID, uri: url) { [weak self] result in
+                guard let self,
+                      self.workspaceURL?.standardizedFileURL == expectedWorkspace else { return }
+                switch result {
+                case .success(let text):
+                    self.virtualDocumentProviderIDs[url] = providerID
+                    let className = url.path.split(separator: "/").last.map(String.init)
+                        ?? "Virtual source"
+                    self.documentFeature.openVirtualDocument(
+                        url,
+                        text: text,
+                        displayPath: "Decompiled \(className)"
+                    )
+                case .failure(let error):
+                    self.showNotification(error.localizedDescription)
+                }
+            }
+        } catch {
+            showNotification(error.localizedDescription)
+        }
+    }
 }

@@ -97,6 +97,27 @@ struct LanguageIntelligenceModuleTests {
             "dependency-path:/cache/maven-worker-2.jar",
             "dependency-path:/cache/worker-2.jar",
         ])
+
+        session.workspaceSymbolResult = .success([
+            LanguageServerWorkspaceSymbol(
+                name: "Widget",
+                containerName: "com.example",
+                url: URL(string: "jdt://contents/example-1.jar/com/example/Widget.class")!,
+                range: LanguageServerRange(
+                    start: LanguageServerPosition(line: 0, utf16Column: 0),
+                    end: LanguageServerPosition(line: 0, utf16Column: 6)
+                )
+            )
+        ])
+        let jar = try #require(groups[2].children.first)
+        let classes = try await feature.resolveChildren(providerID: "java", node: jar)
+        let packageNode = try #require(classes?.first)
+        #expect(packageNode.title == "com")
+        let classNode = packageNode.children.first?.children.first
+        #expect(classNode?.source == .virtualDocument(
+            URL(string: "jdt://contents/example-1.jar/com/example/Widget.class")!
+        ))
+        #expect(session.workspaceSymbolQueries == ["*"])
     }
 
     @Test
@@ -1198,6 +1219,8 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
     private(set) var startCallCount = 0
     var startError: Error?
     private(set) var executedCommands: [LanguageServerCommand] = []
+    var workspaceSymbolResult: Result<[LanguageServerWorkspaceSymbol], Error> = .success([])
+    private(set) var workspaceSymbolQueries: [String] = []
     private var startWaiters: [UUID: CheckedContinuation<Void, Error>] = [:]
     private var startTimeoutTasks: [UUID: Task<Void, Never>] = [:]
     private var executeWaiters: [UUID: (
@@ -1414,6 +1437,14 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
         completion _: @escaping (Result<String, Error>) -> Void
     ) throws {
         throw WorkspaceStateSessionError.unexpectedOperation
+    }
+
+    func workspaceSymbols(
+        query: String,
+        completion: @escaping (Result<[LanguageServerWorkspaceSymbol], Error>) -> Void
+    ) throws {
+        workspaceSymbolQueries.append(query)
+        completion(workspaceSymbolResult)
     }
 
     func stop() {

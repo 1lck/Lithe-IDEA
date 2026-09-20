@@ -46,6 +46,13 @@ Lithe 负责语言会话生命周期、取消、过期结果保护、确定性�
   三秒后自动收起；这只是展示行为，不改变依赖模型。
 - 新语言要显示依赖，必须在语言智能模块中注册自己的贡献器，并复用该语言服务器公开
   的项目模型能力。SwiftUI 侧栏不得按 Java、Node.js、Rust 等语言名称分支。
+- JAR 依赖节点不拼接或猜测 `jdt://` URI。用户展开具体 JAR 后，Java Provider 才通过
+  标准 `workspace/symbol` 请求取得 JDTLS 返回的真实符号位置；只有 URI 能匹配该 JAR
+  且 scheme 为 `jdt` 的结果才进入类树。类节点使用 `DependencySource.virtualDocument`，
+  双击后复用已有 `resolveVirtualDocument` 和 `java.decompile` 链路打开只读源码。
+- `workspace/symbol` 没有标准的最大结果参数，因此查询只在用户展开 JAR 时发生，并在
+  Provider 侧最多投影 500 个符号。这个上限是依赖浏览器的展示预算，不是第二份 Java
+  索引；JDTLS 仍然拥有符号和 classpath 的事实。
 
 正确做法示例：Java Provider 向现有 JDTLS 会话请求项目 source paths 和 libraries，
 再返回语言无关的 `DependencyGraph`。
@@ -65,12 +72,20 @@ Lithe 负责语言会话生命周期、取消、过期结果保护、确定性�
   哪个项目模型，也带来不可预测的性能和机器环境差异。
 - **为所有 LSP 提供通用目录猜测回退**：已否决。LSP 标准没有依赖协议；没有贡献器时
   明确显示为空，比展示似是而非的树更可诊断。
+- **根据 JAR 路径直接拼接 `jdt://` URI**：已否决。JDTLS 的 URI 包含内部 Eclipse
+  handle 信息，路径本身不能可靠生成合法 URI，也无法保证能被 `java.decompile` 解析。
+- **打开依赖侧栏时对每个 JAR 做 `workspace/symbol("*")`**：已否决。全量符号查询可能
+  很重，且用户通常不会查看所有库；改为点击 JAR 后懒加载，并用展示上限和会话超时保护。
 
 ## 后果
 
 依赖侧栏和 Run 模块不再互相激活或共享状态。多个同语言服务天然聚合为一个语言入口，
 Java 多模块项目使用 JDTLS 已导入的真实源码根、输出目录和依赖库。工作区不再产生
 依赖浏览器专用 JSON 文件，文件监听也不需要为这些文件设置例外。
+
+Java JAR 可以继续展开到包和类；类的源码不落盘，而是由 JDTLS 根据 `jdt://` URI
+即时反编译并以只读虚拟文档打开。代价是首次展开库会等待一次 workspace symbol 请求，
+大型库只显示前 500 个匹配类，不能把这个列表当作完整的 classpath 索引。
 
 代价是当前只有 Java/JDTLS 注册了依赖贡献器；Node.js、Go、Rust、Python 等语言在各自
 Provider 接入成熟的上游项目模型前不会显示依赖。语言服务器启动或项目导入失败时，

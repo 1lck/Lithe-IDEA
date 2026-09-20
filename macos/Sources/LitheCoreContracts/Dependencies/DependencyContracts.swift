@@ -32,6 +32,8 @@ package enum DependencySource: Codable, Equatable, Sendable {
     case directory(URL)
     case file(URL)
     case archive(URL)
+    /// A server-owned document such as a JDTLS `jdt://` class file.
+    case virtualDocument(URL)
     case generated
     case unavailable
 
@@ -44,6 +46,7 @@ package enum DependencySource: Codable, Equatable, Sendable {
         case directory
         case file
         case archive
+        case virtualDocument
         case generated
         case unavailable
     }
@@ -59,6 +62,9 @@ package enum DependencySource: Codable, Equatable, Sendable {
             try container.encode(url, forKey: .url)
         case .archive(let url):
             try container.encode(Kind.archive, forKey: .kind)
+            try container.encode(url, forKey: .url)
+        case .virtualDocument(let url):
+            try container.encode(Kind.virtualDocument, forKey: .kind)
             try container.encode(url, forKey: .url)
         case .generated:
             try container.encode(Kind.generated, forKey: .kind)
@@ -76,6 +82,8 @@ package enum DependencySource: Codable, Equatable, Sendable {
             self = .file(try container.decode(URL.self, forKey: .url))
         case .archive:
             self = .archive(try container.decode(URL.self, forKey: .url))
+        case .virtualDocument:
+            self = .virtualDocument(try container.decode(URL.self, forKey: .url))
         case .generated:
             self = .generated
         case .unavailable:
