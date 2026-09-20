@@ -18,6 +18,7 @@
 //! The coordinator is a deterministic state machine. The engine supplies the
 //! clock, allocates JSON-RPC IDs, and publishes the resulting events.
 
+use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, Instant};
@@ -148,6 +149,98 @@ pub(crate) enum JavaBuildOutcome {
     Unrecognized,
 }
 
+/// Which projects' error markers decided an unsuccessful build.
+///
+/// Java Debug Server judges a build from the markers on the project owning the
+/// main class plus the projects on its classpath. When it cannot identify that
+/// owner it falls back to every project in the workspace, and an unrelated
+/// module can then decide the verdict. The fallback is silent upstream, so the
+/// scope travels in the report instead.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum JavaBuildMarkerScope {
+    /// The request named the owning project, so the verdict is scoped to it.
+    LaunchTarget,
+    /// No owning project was named; every project could decide the verdict.
+    Workspace,
+}
+
+/// Recovery action a host should offer for an unsuccessful build.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum JavaBuildRecovery {
+    /// Nothing beyond fixing the reported code is indicated.
+    None,
+    /// The language service's own builder failed, which leaves error markers
+    /// that later builds neither refresh nor clear. Resetting the Java index is
+    /// the only way back to a trustworthy verdict.
+    RebuildJavaIndex,
+}
+
+/// Evidence behind one unsuccessful Java launch build.
+///
+/// A host must be able to explain a blocked launch and offer a way forward, so
+/// this carries facts rather than a verdict: nothing here gates the launch by
+/// itself, and the host decides what to show and which actions to enable.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct JavaBuildReport {
+    /// Which projects the error markers were read from.
+    pub marker_scope: JavaBuildMarkerScope,
+    /// An earlier build in this session ended with a builder failure, so the
+    /// markers behind this verdict may predate the current sources.
+    pub builder_failed_earlier: bool,
+    /// Wall-clock duration of this build, measured from dispatch to response.
+    /// A near-zero value means the incremental builder compiled nothing and the
+    /// markers were carried over rather than produced now.
+    pub elapsed_milliseconds: u64,
+    /// Recovery action the host should offer alongside the reported errors.
+    pub recovery: JavaBuildRecovery,
+}
+
+/// Derives the marker scope from the arguments sent to Java Debug Server.
+///
+/// The command carries one JSON-encoded string argument. A missing, blank, or
+/// unparsable `projectName` all reach Java Debug Server as blank, because it
+/// applies `isNotBlank` before falling back to resolving the main class.
+pub(crate) fn java_build_marker_scope(command: &Value) -> JavaBuildMarkerScope {
+    let named_project = command
+        .get("arguments")
+        .and_then(Value::as_array)
+        .and_then(|arguments| arguments.first())
+        .and_then(Value::as_str)
+        .and_then(|encoded| serde_json::from_str::<Value>(encoded).ok())
+        .as_ref()
+        .and_then(|payload| payload.get("projectName"))
+        .and_then(Value::as_str)
+        .is_some_and(|name| !name.trim().is_empty());
+    if named_project {
+        JavaBuildMarkerScope::LaunchTarget
+    } else {
+        JavaBuildMarkerScope::Workspace
+    }
+}
+
+/// Builds the report that accompanies an unsuccessful build.
+pub(crate) fn java_build_report(
+    outcome: JavaBuildOutcome,
+    command: &Value,
+    builder_failed_earlier: bool,
+    elapsed: Duration,
+) -> JavaBuildReport {
+    let recovery = if outcome == JavaBuildOutcome::Failed || builder_failed_earlier {
+        JavaBuildRecovery::RebuildJavaIndex
+    } else {
+        JavaBuildRecovery::None
+    };
+    JavaBuildReport {
+        marker_scope: java_build_marker_scope(command),
+        builder_failed_earlier,
+        elapsed_milliseconds: elapsed.as_millis() as u64,
+        recovery,
+    }
+}
+
 /// Status returned by a Gradle build server when compilation fails.
 const GRADLE_BUILD_SERVER_COMPILATION_ERROR: i64 = 100;
 
@@ -266,6 +359,9 @@ pub(crate) enum JavaBuildDispatch {
 pub(crate) struct CompletedJavaBuild {
     pub operation_ids: Vec<String>,
     pub elapsed: Duration,
+    /// The `executeCommand` params this build was dispatched with, so the
+    /// completion can report which projects decided the verdict.
+    pub command: Value,
 }
 
 /// Caller whose deadline elapsed before its build answered.
@@ -293,9 +389,27 @@ pub(crate) struct JavaBuildCoordinator {
     configuration_jobs: BTreeMap<String, ConfigurationJob>,
     /// Last block reason reported, so the monitor logs a reason once per change.
     reported_block: Option<JavaBuildBlock>,
+    /// A build in this session ended with a builder failure. JDT keeps the
+    /// error markers that failure left behind, and later incremental builds
+    /// neither refresh nor clear them, so every subsequent verdict is suspect
+    /// until the Java index is rebuilt.
+    builder_failed: bool,
 }
 
 impl JavaBuildCoordinator {
+    /// Whether a builder failure was already observed in this session.
+    pub(crate) fn builder_failed_earlier(&self) -> bool {
+        self.builder_failed
+    }
+
+    /// Records a terminal outcome so later builds can report that their markers
+    /// may predate the current sources.
+    pub(crate) fn observe_outcome(&mut self, outcome: JavaBuildOutcome) {
+        if outcome == JavaBuildOutcome::Failed {
+            self.builder_failed = true;
+        }
+    }
+
     /// Adds a caller. An identical queued build is shared; a running build
     /// never is, because it may have started before the caller saved files.
     pub(crate) fn enqueue(
@@ -453,6 +567,7 @@ impl JavaBuildCoordinator {
                 .map(|waiter| waiter.operation_id)
                 .collect(),
             elapsed: now.saturating_duration_since(build.started_at),
+            command: build.batch.command,
         })
     }
 
@@ -599,6 +714,104 @@ mod tests {
             token: token.to_string(),
             label: label.to_string(),
         }
+    }
+
+    #[test]
+    fn marker_scope_follows_the_project_name_java_debug_would_use() {
+        let command = |arguments: Value| {
+            json!({
+                "command": JAVA_BUILD_WORKSPACE_COMMAND,
+                "arguments": arguments,
+            })
+        };
+        let encoded = |payload: Value| json!([payload.to_string()]);
+
+        assert_eq!(
+            java_build_marker_scope(&command(encoded(
+                json!({ "mainClass": "a.Main", "projectName": "service" })
+            ))),
+            JavaBuildMarkerScope::LaunchTarget
+        );
+        // Java Debug Server applies `isNotBlank`, so a missing field, an empty
+        // string, and whitespace all take the workspace-wide fallback.
+        assert_eq!(
+            java_build_marker_scope(&command(encoded(json!({ "mainClass": "a.Main" })))),
+            JavaBuildMarkerScope::Workspace
+        );
+        assert_eq!(
+            java_build_marker_scope(&command(encoded(
+                json!({ "mainClass": "a.Main", "projectName": "" })
+            ))),
+            JavaBuildMarkerScope::Workspace
+        );
+        assert_eq!(
+            java_build_marker_scope(&command(encoded(
+                json!({ "mainClass": "a.Main", "projectName": "   " })
+            ))),
+            JavaBuildMarkerScope::Workspace
+        );
+        // A payload Core cannot parse must not be reported as scoped.
+        assert_eq!(
+            java_build_marker_scope(&command(json!(["not json"]))),
+            JavaBuildMarkerScope::Workspace
+        );
+        assert_eq!(
+            java_build_marker_scope(&command(json!([]))),
+            JavaBuildMarkerScope::Workspace
+        );
+    }
+
+    #[test]
+    fn a_builder_failure_marks_every_later_verdict_as_suspect() {
+        let mut coordinator = JavaBuildCoordinator::default();
+        let command = json!({
+            "command": JAVA_BUILD_WORKSPACE_COMMAND,
+            "arguments": [json!({ "projectName": "service" }).to_string()],
+        });
+
+        // The failure itself is the origin, not a casualty of an earlier one.
+        assert!(!coordinator.builder_failed_earlier());
+        let failure = java_build_report(
+            JavaBuildOutcome::Failed,
+            &command,
+            coordinator.builder_failed_earlier(),
+            Duration::from_millis(5012),
+        );
+        coordinator.observe_outcome(JavaBuildOutcome::Failed);
+        assert!(!failure.builder_failed_earlier);
+        assert_eq!(failure.recovery, JavaBuildRecovery::RebuildJavaIndex);
+
+        // JDT keeps the markers that failure left, so the near-instant
+        // incremental build afterwards compiled nothing and its verdict is
+        // carried over rather than freshly produced.
+        let leftover = java_build_report(
+            JavaBuildOutcome::CompilationErrors,
+            &command,
+            coordinator.builder_failed_earlier(),
+            Duration::from_millis(7),
+        );
+        assert!(leftover.builder_failed_earlier);
+        assert_eq!(leftover.elapsed_milliseconds, 7);
+        assert_eq!(leftover.recovery, JavaBuildRecovery::RebuildJavaIndex);
+        assert_eq!(leftover.marker_scope, JavaBuildMarkerScope::LaunchTarget);
+    }
+
+    #[test]
+    fn compilation_errors_without_a_builder_failure_need_no_workspace_reset() {
+        let mut coordinator = JavaBuildCoordinator::default();
+        coordinator.observe_outcome(JavaBuildOutcome::Succeeded);
+        coordinator.observe_outcome(JavaBuildOutcome::Cancelled);
+        assert!(!coordinator.builder_failed_earlier());
+
+        let report = java_build_report(
+            JavaBuildOutcome::CompilationErrors,
+            &json!({ "command": JAVA_BUILD_WORKSPACE_COMMAND, "arguments": [] }),
+            coordinator.builder_failed_earlier(),
+            Duration::from_millis(12511),
+        );
+        assert!(!report.builder_failed_earlier);
+        assert_eq!(report.recovery, JavaBuildRecovery::None);
+        assert_eq!(report.marker_scope, JavaBuildMarkerScope::Workspace);
     }
 
     #[test]

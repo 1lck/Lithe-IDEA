@@ -21,8 +21,9 @@ use crate::lsp::languages::jdt::{
 };
 use crate::lsp::languages::jdt::{MavenProfileProjectResult, MavenProfileTaskStatus};
 use crate::lsp::languages::jdt_build::{
-    is_java_build_command, java_build_failure, java_build_outcome, project_job_progress,
-    JavaBuildCoordinator, JavaBuildDeparture, JavaBuildDispatch, DEFAULT_JAVA_BUILD_TIMEOUT_MS,
+    is_java_build_command, java_build_failure, java_build_outcome, java_build_report,
+    project_job_progress, JavaBuildCoordinator, JavaBuildDeparture, JavaBuildDispatch,
+    JavaBuildReport, DEFAULT_JAVA_BUILD_TIMEOUT_MS,
 };
 use crate::lsp::languages::jdt_navigation::{JavaNavigationMarkerBatch, MAX_JAVA_NAVIGATION_TASKS};
 use crate::lsp::languages::jdt_progress::JavaPreparationDiagnostics;
@@ -422,6 +423,10 @@ pub struct LspRuntimeError {
     pub underlying_message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub process_exit_code: Option<i32>,
+    /// Evidence behind an unsuccessful Java launch build. Present only for
+    /// `javaBuild` failures; hosts that do not read it are unaffected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub java_build_report: Option<JavaBuildReport>,
 }
 
 #[cfg(test)]
@@ -2881,6 +2886,16 @@ impl RuntimeSession {
             .and_then(|event| event.result.as_ref())
             .and_then(|result| result.get("value"));
         let outcome = java_build_outcome(raw_status);
+        // Captured before recording this outcome so the first builder failure
+        // reports itself as the origin rather than as a later casualty.
+        let builder_failed_earlier = state.java_builds.builder_failed_earlier();
+        state.java_builds.observe_outcome(outcome);
+        let report = java_build_report(
+            outcome,
+            &completed.command,
+            builder_failed_earlier,
+            completed.elapsed,
+        );
         let error = if let Some(detail) = event.and_then(|event| event.error.as_deref()) {
             Some(runtime_error(
                 self,
@@ -2906,6 +2921,10 @@ impl RuntimeSession {
                 )
             })
         };
+        let error = error.map(|mut error| {
+            error.java_build_report = Some(report);
+            error
+        });
         let result = if error.is_none() {
             event.and_then(|event| event.result.clone())
         } else {
@@ -2922,6 +2941,9 @@ impl RuntimeSession {
                     "errorCode": error.as_ref().map(|error| error.code.clone()),
                     "elapsedMilliseconds": completed.elapsed.as_millis() as u64,
                     "waiterCount": completed.operation_ids.len(),
+                    "markerScope": report.marker_scope,
+                    "builderFailedEarlier": report.builder_failed_earlier,
+                    "recovery": report.recovery,
                 })
                 .to_string(),
             ),
@@ -4244,6 +4266,7 @@ fn runtime_error(
         message: message.to_string(),
         underlying_message: underlying.map(ToString::to_string),
         process_exit_code,
+        java_build_report: None,
     }
 }
 
