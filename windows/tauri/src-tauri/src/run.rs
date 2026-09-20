@@ -344,7 +344,8 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
         return Err("A run process must be started from an active window.".into());
     }
     stop_session(&args.window_label, &args.session_id, None);
-    let mut command = command_for_executable(&args.executable, &args.arguments);
+    let (arguments, argfile) = prepare_launch_arguments(&args)?;
+    let mut command = command_for_executable(&args.executable, &arguments);
     command
         .current_dir(&args.working_directory)
         .envs(&args.environment)
@@ -352,9 +353,13 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     apply_creation_flags(&mut command);
-    let mut child = command
-        .spawn()
-        .map_err(|error| format!("Unable to start process: {error}"))?;
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            remove_launch_argfile(argfile.as_deref());
+            return Err(spawn_failure_message(&args.executable, &arguments, &error));
+        }
+    };
     let pid = child.id();
     let stdin = child.stdin.take();
     let stdout = child.stdout.take();
@@ -392,8 +397,106 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
         pid,
         stdout_reader,
         stderr_reader,
+        argfile,
     );
     Ok(())
+}
+
+/// Moves an oversized launch into a JDK argument file.
+///
+/// A resolved Java classpath for a large multi-module project is hundreds of
+/// absolute jar paths, which exceeds what `CreateProcessW` accepts. Core
+/// decides whether shortening is required and what the file must contain; this
+/// host owns the temporary file. `java @file` requires JDK 9 or newer, and the
+/// file is only written when the command would otherwise be rejected outright.
+fn prepare_launch_arguments(
+    args: &StartProcessArgs,
+) -> Result<(Vec<String>, Option<PathBuf>), String> {
+    let argfile_path = launch_argfile_path(&args.window_label, &args.session_id);
+    match lithe_core::execution::plan_launch_command(
+        &args.executable,
+        &args.arguments,
+        &argfile_path,
+        None,
+        java_feature_version(&args.executable),
+    ) {
+        lithe_core::execution::LaunchCommandPlan::Direct => Ok((args.arguments.clone(), None)),
+        lithe_core::execution::LaunchCommandPlan::Argfile {
+            arguments,
+            argfile_contents,
+        } => {
+            if let Some(parent) = argfile_path.parent() {
+                fs::create_dir_all(parent).map_err(|error| {
+                    format!(
+                        "Could not create the Java launch argument directory {}: {error}",
+                        parent.display()
+                    )
+                })?;
+            }
+            // JDK 18 and newer read argument files as UTF-8; an older JDK uses
+            // the platform charset, so a non-ASCII path can still need one.
+            fs::write(&argfile_path, argfile_contents).map_err(|error| {
+                format!(
+                    "Could not write the Java launch argument file {}: {error}",
+                    argfile_path.display()
+                )
+            })?;
+            Ok((arguments, Some(argfile_path)))
+        }
+    }
+}
+
+/// Reads the feature version of the JVM that will expand the argument file.
+///
+/// The JDK ships a `release` file beside its `bin` directory, so the version is
+/// available without starting a process. An unreadable file yields `None`, and
+/// Core then keeps the launch unshortened unless the file would be ASCII.
+fn java_feature_version(executable: &str) -> Option<u32> {
+    let home = Path::new(executable).parent()?.parent()?;
+    let contents = fs::read_to_string(home.join("release")).ok()?;
+    lithe_core::execution::java_feature_version_from_release(&contents)
+}
+
+fn launch_argfile_path(window_label: &str, session_id: &str) -> PathBuf {
+    let key = format!("{window_label}-{session_id}");
+    let file_name = format!(
+        "launch-{}.argfile",
+        key.chars()
+            .map(|character| if character.is_ascii_alphanumeric() {
+                character
+            } else {
+                '-'
+            })
+            .collect::<String>()
+    );
+    std::env::temp_dir().join("lithe-run").join(file_name)
+}
+
+fn remove_launch_argfile(argfile: Option<&Path>) {
+    if let Some(path) = argfile {
+        let _ = fs::remove_file(path);
+    }
+}
+
+/// Explains a refused spawn with the detail the operating system reported.
+///
+/// The generic host message used to replace the real cause, so a command line
+/// rejected for its length looked identical to a missing executable.
+fn spawn_failure_message(executable: &str, arguments: &[String], error: &std::io::Error) -> String {
+    let length: usize = executable.chars().count()
+        + arguments
+            .iter()
+            .map(|argument| argument.chars().count() + 1)
+            .sum::<usize>();
+    let hint = if error.raw_os_error() == Some(206) {
+        " The command line is too long for Windows even after moving the Java class path into an argument file."
+    } else {
+        ""
+    };
+    format!(
+        "Unable to start process: {error} (executable={executable}, arguments={}, commandLength={length}).{hint}",
+        arguments.len()
+    )
 }
 
 #[tauri::command]
@@ -1604,6 +1707,7 @@ fn spawn_output_reader<T: Read + Send + 'static>(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_exit_waiter(
     app: AppHandle,
     window_label: String,
@@ -1612,6 +1716,7 @@ fn spawn_exit_waiter(
     pid: u32,
     stdout_reader: thread::JoinHandle<()>,
     stderr_reader: thread::JoinHandle<()>,
+    argfile: Option<PathBuf>,
 ) {
     thread::spawn(move || {
         let exit_code = child
@@ -1619,6 +1724,9 @@ fn spawn_exit_waiter(
             .ok()
             .and_then(|status| status.code())
             .unwrap_or(-1);
+        // The JVM reads the argument file while starting, so it is removed only
+        // after the process it configured has ended.
+        remove_launch_argfile(argfile.as_deref());
         let _ = stdout_reader.join();
         let _ = stderr_reader.join();
         let session_key = run_session_key(&window_label, &session_id);
@@ -2192,5 +2300,100 @@ mod tests {
             "resolved_main = {resolved_main}"
         );
         fs::remove_dir_all(home).ok();
+    }
+
+    /// Regression: RuoYi-Vue-Plus resolves hundreds of jars, so the inline
+    /// class path exceeded the Windows command-line limit and the spawn failed
+    /// before the JVM started. The class path now moves into a JDK argfile.
+    #[test]
+    fn an_oversized_java_launch_writes_and_removes_an_argument_file() {
+        let classpath = (0..600)
+            .map(|index| {
+                format!("C:\\Users\\developer\\.m2\\repository\\org\\example\\artifact-{index}\\1.0.{index}\\artifact-{index}-1.0.{index}.jar")
+            })
+            .collect::<Vec<_>>()
+            .join(";");
+        let args = StartProcessArgs {
+            window_label: "main".into(),
+            session_id: "primary".into(),
+            execution_id: None,
+            executable: "C:\\jdk\\bin\\java.exe".into(),
+            arguments: vec![
+                "-cp".into(),
+                classpath.clone(),
+                "org.dromara.DromaraApplication".into(),
+            ],
+            working_directory: ".".into(),
+            environment: HashMap::new(),
+        };
+
+        let (arguments, argfile) =
+            prepare_launch_arguments(&args).expect("an oversized launch should be shortened");
+        let argfile = argfile.expect("an argument file should be written");
+        assert_eq!(
+            arguments,
+            [
+                format!("@{}", argfile.display()),
+                "org.dromara.DromaraApplication".to_string(),
+            ]
+        );
+        let contents = fs::read_to_string(&argfile).expect("the argument file should exist");
+        assert!(contents.starts_with("-cp\n\""));
+        // Backslashes are escape characters inside a quoted argfile value.
+        assert!(contents.contains("C:\\\\Users\\\\developer"));
+        remove_launch_argfile(Some(&argfile));
+        assert!(!argfile.exists());
+    }
+
+    #[test]
+    fn an_ordinary_launch_keeps_its_arguments_and_writes_no_file() {
+        let args = StartProcessArgs {
+            window_label: "main".into(),
+            session_id: "primary".into(),
+            execution_id: None,
+            executable: "C:\\jdk\\bin\\java.exe".into(),
+            arguments: vec!["-cp".into(), "target/classes".into(), "Main".into()],
+            working_directory: ".".into(),
+            environment: HashMap::new(),
+        };
+
+        let (arguments, argfile) = prepare_launch_arguments(&args).expect("a short launch is kept");
+        assert_eq!(arguments, args.arguments);
+        assert!(argfile.is_none());
+        assert!(!launch_argfile_path("main", "primary").exists());
+    }
+
+    #[test]
+    fn the_java_feature_version_comes_from_the_release_file_beside_bin() {
+        let home = std::env::temp_dir().join(format!(
+            "lithe-run-release-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(home.join("bin")).unwrap();
+        fs::write(home.join("release"), "JAVA_VERSION=\"21.0.2\"\n").unwrap();
+        let executable = home.join("bin").join("java.exe");
+
+        assert_eq!(
+            java_feature_version(&executable.to_string_lossy()),
+            Some(21)
+        );
+        // A JDK without a readable release file stays unknown rather than
+        // guessing a version that decides how the argument file is encoded.
+        assert_eq!(java_feature_version("C:\\missing\\bin\\java.exe"), None);
+        fs::remove_dir_all(home).ok();
+    }
+
+    /// The host used to return a message that hid the operating system's
+    /// reason, so every failure read "Unable to start the run configuration."
+    #[test]
+    fn a_refused_spawn_reports_the_operating_system_reason() {
+        let error = std::io::Error::from_raw_os_error(2);
+        let message = spawn_failure_message("C:\\missing\\java.exe", &["Main".to_string()], &error);
+        assert!(message.contains("C:\\missing\\java.exe"), "{message}");
+        assert!(message.contains("arguments=1"), "{message}");
+        assert!(message.contains("commandLength="), "{message}");
     }
 }

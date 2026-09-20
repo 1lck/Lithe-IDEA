@@ -17,7 +17,22 @@ void lithe_core_free_string(char *value);
 The macOS package uses the small C bridge in `macos/Sources/LitheRustCore/`. The
 canonical C declarations are in `rust/lithe-core/include/lithe_core.h`.
 Native clients can link the same `staticlib` or `cdylib`; Rust hosts call
-`lithe_core::execute_json` and `lithe_core::cancel_operation` directly.
+`lithe_core::execute_json` and `lithe_core::cancel_operation` directly. A Rust
+host also calls `lithe_core::execution::plan_launch_command` before spawning a
+process: it reports whether the assembled command line fits the operating
+system limit (32,767 UTF-16 code units on Windows) and, when it does not,
+returns the JDK argument-file contents plus the shortened arguments. Core
+decides what moves into the file and how it is quoted; the host owns the
+file's path, creation, and removal after the process exits. Only class-path and
+module-path options move, so JVM options, the main class, and program arguments
+keep their order. Hosts also pass the JVM's feature version, which Core reads
+from a JDK `release` file through
+`lithe_core::execution::java_feature_version_from_release`: argument files need
+JDK 9, and only JDK 18 and newer decode them as UTF-8, so a file whose contents
+are not ASCII is produced only for those releases. Otherwise Core leaves the
+command unshortened and the host reports the operating system's refusal, which
+is safer than a silently mis-decoded class path. The file is written only when
+the command would otherwise be refused.
 Strings returned by the core are UTF-8 JSON allocated by Rust. The caller must
 release response strings with `lithe_core_free_string`.
 
