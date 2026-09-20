@@ -257,6 +257,17 @@ impl ScriptedServer {
         true
     }
 
+    /// Waits for a paused writer to leave its barrier after release or termination.
+    pub fn await_input_resumed(&self) -> bool {
+        let pause = self.shared.input_pause.lock().unwrap();
+        let (pause, _) = self
+            .shared
+            .input_pause_changed
+            .wait_timeout_while(pause, Duration::from_secs(5), |pause| pause.blocked)
+            .unwrap();
+        !pause.blocked
+    }
+
     /// Releases a paused engine write and disables the pause barrier.
     pub fn resume_input(&self) {
         let mut pause = self.shared.input_pause.lock().unwrap();
@@ -305,6 +316,7 @@ impl LspProcessHandle for ScriptedProcess {
                 }
                 pause.blocked = false;
                 pause.release_requested = false;
+                self.shared.input_pause_changed.notify_all();
             }
         }
         if self.shared.input_broken.load(Ordering::Acquire)
@@ -333,6 +345,13 @@ impl LspProcessHandle for ScriptedProcess {
             *exit = Some(Some(9));
         }
         drop(exit);
+        // Killing a native server closes its pipe and releases blocked writes.
+        // Mirror that boundary so fault-injection tests clean up even on panic.
+        self.shared.input_closed.store(true, Ordering::Release);
+        let mut pause = self.shared.input_pause.lock().unwrap();
+        pause.release_requested = true;
+        self.shared.input_pause_changed.notify_all();
+        drop(pause);
         self.shared.ready.notify_all();
     }
 }

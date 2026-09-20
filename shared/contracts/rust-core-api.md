@@ -1296,6 +1296,11 @@ values complete with stage `javaBuild` and code `javaBuildCompilationErrors`
 inferring a cause. Core logs `Java project build is waiting` (with `reason`),
 `Java project build started`, and `Java project build finished` (with
 `outcome`, `errorCode`, `elapsedMilliseconds`, and `waiterCount`).
+Background build retries and deadline cancellations are written by a separate
+session-owned worker. The deadline monitor never writes to stdin. A background
+write that exceeds `requestTimeoutMilliseconds` fails the session with
+`transportFailed` at stage `outboundMaintenance` and terminates the server to
+release the stalled pipe; the Java build deadline still bounds queue and build time.
 The `semanticTokens` operation uses the open document URI and normal version,
 timeout, and cancellation rules. Its result is
 `{ tokenTypes, tokenModifiers, tokens: [{ line, startChar, length, tokenType, tokenModifiers }] }`.

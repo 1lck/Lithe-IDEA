@@ -516,6 +516,10 @@ struct SessionState {
     /// Serialized, configuration-gated `vscode.java.buildWorkspace` calls.
     java_builds: JavaBuildCoordinator,
     java_build_timeout: Duration,
+    /// Deadline cancellations awaiting the outbound worker, never written by the monitor.
+    deadline_cancellations: Vec<String>,
+    /// Bounds an outbound maintenance write independently of caller deadlines.
+    maintenance_write_deadline: Option<Instant>,
 }
 
 struct RuntimeSession {
@@ -988,6 +992,8 @@ impl LspEngine {
                 maven_profile_request_generations: BTreeMap::new(),
                 java_builds: JavaBuildCoordinator::default(),
                 java_build_timeout,
+                deadline_cancellations: Vec::new(),
+                maintenance_write_deadline: None,
             }),
             event_signal: Condvar::new(),
             process: process.handle,
@@ -1008,6 +1014,7 @@ impl LspEngine {
             .insert(session_id.clone(), session.clone());
         session.spawn_readers(process.output, process.errors);
         session.spawn_monitor();
+        session.spawn_outbound_maintenance();
         let outbound_order = session.lock_outbound_order()?;
         if let Err(error) = session.send_messages(&outbound_order, initialize.messages) {
             session.fail(
@@ -1866,7 +1873,6 @@ impl RuntimeSession {
                     break;
                 }
                 session.expire_deadlines();
-                session.pump_java_builds();
                 thread::sleep(Duration::from_millis(MONITOR_INTERVAL_MS));
             }
         });
@@ -2750,12 +2756,12 @@ impl RuntimeSession {
             return Vec::new();
         }
         let maven_profiles_running = state.maven_profile_status == MavenProfileTaskStatus::Running;
-        let client = state.client.clone();
         let mut allocated = None;
         let dispatch = state
             .java_builds
             .dispatch(maven_profiles_running, now, |command| {
-                let response = allocate_raw_request(client, JAVA_BUILD_METHOD, command.clone())?;
+                let response =
+                    allocate_raw_request(state.client.clone(), JAVA_BUILD_METHOD, command.clone())?;
                 let request_id = (response.state.next_request_id - 1).to_string();
                 allocated = Some(response);
                 Ok::<_, CoreError>(request_id)
@@ -2913,27 +2919,48 @@ impl RuntimeSession {
         }
     }
 
-    /// Monitor-driven retry for builds blocked by project configuration. It
-    /// skips a tick instead of waiting behind a blocked stdin write so the
-    /// monitor keeps enforcing deadlines.
-    fn pump_java_builds(&self) {
-        if !self
-            .lock_state()
-            .is_ok_and(|state| state.java_builds.has_queued())
-        {
+    /// One session-owned writer retries queued builds and sends deadline cancellations.
+    /// The monitor remains free to terminate a stalled write and expire other callers.
+    fn spawn_outbound_maintenance(self: &Arc<Self>) {
+        let session = self.clone();
+        thread::spawn(move || {
+            while session.active.load(Ordering::Acquire) {
+                session.pump_outbound_maintenance();
+                thread::sleep(Duration::from_millis(MONITOR_INTERVAL_MS));
+            }
+        });
+    }
+
+    fn pump_outbound_maintenance(&self) {
+        if !self.lock_state().is_ok_and(|state| {
+            state.java_builds.has_queued() || !state.deadline_cancellations.is_empty()
+        }) {
             return;
         }
         let Ok(outbound_order) = self.outbound_order.try_lock() else {
             return;
         };
-        // A poisoned state lock is reported by the next caller that needs it.
         let Ok(mut state) = self.lock_state() else {
             return;
         };
-        let messages = self.dispatch_java_build_locked(&mut state, Instant::now());
+        let mut messages: Vec<String> = std::mem::take(&mut state.deadline_cancellations)
+            .into_iter()
+            .map(|id| {
+                json!({ "jsonrpc": "2.0", "method": "$/cancelRequest", "params": { "id": id } })
+                    .to_string()
+            })
+            .collect();
+        messages.extend(self.dispatch_java_build_locked(&mut state, Instant::now()));
+        if messages.is_empty() {
+            return;
+        }
+        state.maintenance_write_deadline = Some(Instant::now() + state.request_timeout);
         drop(state);
-        // A failed write fails the session inside the send helper.
-        let _ = self.send_messages_or_fail(&outbound_order, messages, "javaBuild");
+        // Process termination by the monitor releases a blocked native stdin write.
+        let _ = self.send_messages_or_fail(&outbound_order, messages, "outboundMaintenance");
+        if let Ok(mut state) = self.lock_state() {
+            state.maintenance_write_deadline = None;
+        }
     }
 
     fn expire_deadlines(&self) {
@@ -2943,7 +2970,14 @@ impl RuntimeSession {
         let mut service_ready_timeout = None;
         let mut maven_context_timeout = false;
         let mut shutdown_timeout = false;
+        let mut maintenance_write_timeout = false;
         if let Ok(mut state) = self.lock_state() {
+            maintenance_write_timeout = state
+                .maintenance_write_deadline
+                .is_some_and(|deadline| now >= deadline);
+            if maintenance_write_timeout {
+                state.maintenance_write_deadline = None;
+            }
             if state.lifecycle == LspLifecycleState::Initializing
                 && state
                     .initialize_deadline
@@ -3135,7 +3169,16 @@ impl RuntimeSession {
                 );
             }
         }
-        if initialize_timeout {
+        if maintenance_write_timeout {
+            self.fail(
+                "transportFailed",
+                "outboundMaintenance",
+                "Language-server stdin write timed out.",
+                None,
+                None,
+            );
+            self.kill_process();
+        } else if initialize_timeout {
             // Timeout termination must not wait behind a blocked stdin write;
             // killing the process is what releases that write.
             self.fail(
@@ -3165,49 +3208,16 @@ impl RuntimeSession {
                     None,
                 );
             }
-            if !cancellations.is_empty() {
-                let messages = cancellations
-                    .into_iter()
-                    .map(|id| {
-                        json!({
-                            "jsonrpc": "2.0",
-                            "method": "$/cancelRequest",
-                            "params": { "id": id }
-                        })
-                        .to_string()
-                    })
-                    .collect();
-                if let Ok(outbound_order) = self.lock_outbound_order() {
-                    let _ = self.send_messages(&outbound_order, messages);
-                }
-            }
         } else if shutdown_timeout {
             self.kill_process();
-        } else if !cancellations.is_empty() {
-            let messages = cancellations
-                .into_iter()
-                .map(|id| {
-                    json!({
-                        "jsonrpc": "2.0",
-                        "method": "$/cancelRequest",
-                        "params": { "id": id }
-                    })
-                    .to_string()
-                })
-                .collect();
-            match self.lock_outbound_order() {
-                Ok(outbound_order) => {
-                    let _ = self.send_messages(&outbound_order, messages);
-                }
-                Err(error) => {
-                    self.fail(
-                        "transportFailed",
-                        "outboundOrder",
-                        "Language-server outbound ordering failed.",
-                        Some(core_error_detail(&error)),
-                        None,
-                    );
-                    self.kill_process();
+        }
+        if !cancellations.is_empty() {
+            if let Ok(mut state) = self.lock_state() {
+                if !matches!(
+                    state.lifecycle,
+                    LspLifecycleState::Stopped | LspLifecycleState::Failed
+                ) {
+                    state.deadline_cancellations.extend(cancellations);
                 }
             }
         }
@@ -4287,6 +4297,8 @@ fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     state.java_navigation_marker_batches.clear();
     state.java_navigation_marker_cache.clear();
     state.java_builds = JavaBuildCoordinator::default();
+    state.deadline_cancellations.clear();
+    state.maintenance_write_deadline = None;
     state.pending_workspace_file_changes.clear();
     state.initialize_deadline = None;
     state.shutdown_deadline = None;
@@ -7800,6 +7812,89 @@ public class Main {
             .await_request_at("workspace/executeCommand", 1)
             .expect("the answered build should release the slot");
         assert_ne!(next_build, first_build);
+    }
+
+    /// A stalled maintenance write must not stop waiter deadlines or prevent
+    /// transport termination. Past timestamps drive each timeout without sleeps.
+    fn assert_blocked_maintenance_write_terminates(cancellation: bool) {
+        struct Cleanup(Arc<RuntimeSession>);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                self.0.kill_process();
+            }
+        }
+
+        let mut harness = java_build_harness(60_000);
+        let session = harness.session();
+        let _cleanup = Cleanup(session.clone());
+        if cancellation {
+            let probe = harness.execute_command(java_probe_command());
+            let request_id = harness
+                .server
+                .await_request("workspace/executeCommand")
+                .unwrap();
+            harness.server.pause_input();
+            session
+                .lock_state()
+                .unwrap()
+                .pending
+                .get_mut(&request_id)
+                .unwrap()
+                .deadline = Instant::now();
+            harness.await_event(|event| event.operation_id.as_deref() == Some(probe.as_str()));
+            assert!(harness.server.await_input_pause());
+        } else {
+            harness.server.pause_input();
+        }
+        // Queue directly to exercise the maintenance writer, not the caller's
+        // immediate dispatch or the stdout reader's progress-triggered dispatch.
+        session.lock_state().unwrap().java_builds.enqueue(
+            "blocked-build".into(),
+            java_build_command(),
+            Instant::now(),
+            Duration::from_secs(60),
+        );
+        if !cancellation {
+            assert!(harness.server.await_input_pause());
+        }
+
+        for operation_id in ["expired-one", "expired-two"] {
+            session.lock_state().unwrap().java_builds.enqueue(
+                operation_id.into(),
+                java_build_command(),
+                Instant::now() - Duration::from_secs(2),
+                Duration::from_secs(1),
+            );
+            let error = harness
+                .await_event(|event| event.operation_id.as_deref() == Some(operation_id))
+                .error
+                .as_ref()
+                .expect("the monitor must keep expiring callers");
+            assert_eq!(error.code, "requestTimeout");
+        }
+
+        // Force the write's own deadline after proving the monitor remained live.
+        session.lock_state().unwrap().maintenance_write_deadline = Some(Instant::now());
+        harness.await_state(LspLifecycleState::Failed);
+        let error = harness
+            .await_event(|event| event.operation_id.as_deref() == Some("blocked-build"))
+            .error
+            .as_ref()
+            .expect("the stalled transport must fail its remaining caller");
+        assert_eq!(error.code, "transportFailed");
+        assert!(harness.server.await_input_resumed());
+        assert!(session.process.exit_status().is_some());
+        assert!(harness.snapshot().pending_operation_ids.is_empty());
+    }
+
+    #[test]
+    fn blocked_java_build_write_preserves_deadlines_and_terminates() {
+        assert_blocked_maintenance_write_terminates(false);
+    }
+
+    #[test]
+    fn blocked_deadline_cancellation_preserves_deadlines_and_terminates() {
+        assert_blocked_maintenance_write_terminates(true);
     }
 
     #[test]
