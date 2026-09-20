@@ -23,6 +23,7 @@ import { runOptionsFor, useRunStore } from "../stores/run.store";
 import { PRIMARY_SESSION_ID, type RunConfiguration } from "../types/run.types";
 import {
   configurationsForExecution,
+  infrastructureConfigurations,
   blockingToolchainDiagnosticForConfiguration,
   workspaceRelativePath,
 } from "../utils/run-configuration";
@@ -67,6 +68,7 @@ export default function RunPane() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedServiceIDs, setSelectedServiceIDsLocal] = useState<string[]>([]);
   const [otherConfigurationsCollapsed, setOtherConfigurationsCollapsed] = useState(true);
+  const [infrastructureCollapsed, setInfrastructureCollapsed] = useState(true);
 
   useEffect(() => {
     void ensureRunProcessListeners();
@@ -83,6 +85,10 @@ export default function RunPane() {
     [configurations],
   );
   const tasks = useMemo(() => configurationsForExecution(configurations, "task"), [configurations]);
+  // Compose databases and caches are runnable, but they are not this project's
+  // services: keeping them in their own collapsed section stops nineteen
+  // containers from burying the one Spring Boot service.
+  const infrastructure = useMemo(() => infrastructureConfigurations(configurations), [configurations]);
   const otherConfigurations = useMemo(() => [...applications, ...tasks], [applications, tasks]);
   const selectedConfiguration =
     configurations.find((configuration) => configuration.id === selectedConfigurationId) ?? null;
@@ -250,6 +256,26 @@ export default function RunPane() {
                   onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
                   onEdit={setEditingId}
                 />
+                {infrastructure.length > 0 ? <button
+                  type="button"
+                  aria-expanded={!infrastructureCollapsed}
+                  className="mt-2 flex w-full items-center justify-between px-2 py-1 text-left font-medium text-subtle-foreground ui-text-sm hover:text-foreground"
+                  onClick={() => setInfrastructureCollapsed((collapsed) => !collapsed)}
+                >
+                  {t("run.infrastructure")}
+                  <span aria-hidden>{infrastructureCollapsed ? "▸" : "▾"}</span>
+                </button> : null}
+                {infrastructure.length > 0 && !infrastructureCollapsed ? (
+                  <ConfigurationSection
+                    title={t("run.infrastructure")}
+                    configurations={infrastructure}
+                    selectedId={selectedConfigurationId}
+                    sessions={sessions}
+                    onSelect={actions.selectConfiguration}
+                    onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
+                    onEdit={setEditingId}
+                  />
+                ) : null}
                 {otherConfigurations.length > 0 ? <button
                   type="button"
                   aria-expanded={!otherConfigurationsCollapsed}

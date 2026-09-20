@@ -1436,6 +1436,31 @@ they must not infer ownership from an overridden working directory. The shared
 `run-configuration/maven-module-ownership.json` fixture covers independent
 reactors, cwd overrides, and the ordinary Java main / Current File capabilities.
 
+Each configuration carries a `category` of `project` or `infrastructure`.
+Docker Compose detections are `infrastructure`: a Compose file in an application
+repository declares the databases and brokers the project runs against, not the
+project itself. The field is omitted for `project`, which is the default, so
+existing generated documents keep their exact shape. Hosts present
+infrastructure apart from the project's own services and must not include it in
+"run all services" or in the default service selection.
+
+Windows implements this grouping. During the macOS transition, Compose entries
+remain in its execution-based Services scope; category-based grouping and service
+selection filtering are pending there.
+
+Display names that repeat are qualified by Core, because hosts show the name
+alone: the first candidate that separates every entry in the group wins, trying
+the Maven module, then the working directory, then the source manifest. Three
+Compose files each declaring `compose up` become `compose up (script/docker)`
+and so on, while a name that occurs once is never decorated. Ids are unaffected.
+
+Java entry points are read from the Java syntax tree rather than matched as
+text, so a `static void main` or `@SpringBootApplication` inside a string
+literal or comment — common in test fixtures and documentation samples — does
+not become a run configuration. A declared `main` under `src/test` remains a
+valid entry and keeps the test classpath; see
+`shared/fixtures/execution/maven-java-main-source-sets-v1.json`.
+
 A process detector declares a runtime binding only when that command genuinely
 consumes the runtime. npm, pnpm, and Yarn scripts consume `project-node`; Bun
 scripts keep their independent `bun` command and do not acquire a Node

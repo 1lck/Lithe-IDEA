@@ -1,4 +1,9 @@
 //! Docker Compose service discovery from the standard manifest names.
+//!
+//! Compose files in an application repository normally declare the databases,
+//! caches, and brokers the project runs against, so these detections are
+//! reported as infrastructure and hosts present them apart from the project's
+//! own services.
 
 use super::{Detected, DirectoryContext};
 
@@ -42,6 +47,7 @@ pub fn detect(ctx: &DirectoryContext) -> Vec<Detected> {
                 "compose",
                 serde_json::json!({ "file": file, "service": name }),
             )
+            .as_infrastructure()
         })
         .collect::<Vec<_>>();
     // The whole stack is usually what the user wants first, so offer it as a
@@ -57,7 +63,8 @@ pub fn detect(ctx: &DirectoryContext) -> Vec<Detected> {
                 ctx,
                 file,
             )
-            .with_extension("compose", serde_json::json!({ "file": file })),
+            .with_extension("compose", serde_json::json!({ "file": file }))
+            .as_infrastructure(),
         );
     }
     detected
