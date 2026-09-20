@@ -7,6 +7,7 @@ pub(crate) mod jdt;
 pub(crate) mod jdt_build;
 pub(crate) mod jdt_navigation;
 pub(crate) mod jdt_progress;
+pub(crate) mod project_preparation;
 #[cfg(test)]
 pub(crate) mod swift;
 

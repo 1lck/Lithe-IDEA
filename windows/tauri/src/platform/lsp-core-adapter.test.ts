@@ -1,3 +1,4 @@
+import { getProjectPreparation } from "@/features/run/stores/project-preparation.store";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
@@ -27,6 +28,7 @@ const frontendTrace = mock(() => undefined);
 const cancelCoreOperation = mock(async () => false);
 const commands: string[] = [];
 let scenario:
+  | "preparation-snapshot"
   | "capabilities"
   | "delayed-start"
   | "failure"
@@ -60,6 +62,12 @@ let releaseRuntimeReady: (() => void) | undefined;
 
 function readyEvents(sessionId: string) {
   return [
+    {
+      type: "projectPreparation",
+      providerId: "java",
+      sessionId,
+      result: { phase: "ready", status: "ready", blocksRun: false },
+    },
     {
       type: "featuresChanged",
       providerId: "java",
@@ -132,6 +140,12 @@ const executeCore = mock(
           };
         }
         return { id: request.id, ok: true as const, data: { events: [] } };
+      }
+      if (scenario === "preparation-snapshot") {
+        return { id: request.id, ok: true as const, data: {
+          events: sessionPollCount === 1 ? readyEvents(sessionId).filter((event) => event.type !== "projectPreparation") : [],
+          projectPreparation: { phase: "configuring", status: "loading", blocksRun: true },
+        } };
       }
       if (scenario === "capabilities" || scenario === "multi-session") {
         return {
@@ -585,6 +599,22 @@ describe("Rust Core LSP adapter failures", () => {
       getLspWorkspaceSessionSnapshot({ workspacePath: "C:/work", languageId: "java" }),
     ).toBeNull();
     expect(ownsLspSession("java-session")).toBe(false);
+  });
+
+  test("restores preparation from the current snapshot without a preparation event", async () => {
+    scenario = "preparation-snapshot";
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work", languageId: "java", providerId: "java", serverPath: "C:/Lithe/jdtls.bat",
+    });
+    expect(getProjectPreparation("C:/work")).toEqual({
+      sessionId: "java-session", phase: "configuring", status: "loading", blocksRun: true,
+    });
+    await expect(invokeLsp("java_prepare_run_launch", {
+      workspacePath: "C:/work", sourcePath: "C:/work/Main.java", mainClass: "Main",
+    })).rejects.toThrow("preparation is incomplete");
+    expect(commands).not.toContain("lsp.request");
+    await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
+    expect(getProjectPreparation("C:/work")).toBeUndefined();
   });
 
   test("starts the Java Debug Server through the ready workspace session", async () => {

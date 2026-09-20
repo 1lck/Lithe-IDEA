@@ -1,4 +1,5 @@
 import SwiftUI
+import LitheCoreContracts
 
 struct RunView: View {
     @EnvironmentObject private var model: AppModel
@@ -7,6 +8,11 @@ struct RunView: View {
     private var selectedSessionID: String? {
         get { feature.selectedProjectSessionID }
         nonmutating set { feature.selectedConfigurationID = newValue ?? RunConfiguration.currentFileID }
+    }
+    @State private var preparation: ProjectPreparationSnapshot?
+    private var preparationBlocksRun: Bool {
+        guard preparation?.blocksRun == true, let configuration = selectedRunnableConfiguration else { return false }
+        return configuration.kind == .javaMain || configuration.kind == .springBoot
     }
     @State private var browser = RunBrowserState()
     @State private var contentTab: ContentTab = .console
@@ -25,6 +31,8 @@ struct RunView: View {
         let _ = LitheSignpost.bodyEvaluated("RunView")
         VStack(spacing: 0) {
             toolWindowHeader
+            ProjectPreparationStatusView()
+                .onReceive(model.languageToolingFeature.$projectPreparation) { preparation = $0 }
 
             if !feature.portConflicts.isEmpty {
                 portConflictBanner
@@ -307,7 +315,7 @@ struct RunView: View {
             .litheIconButton()
             .foregroundStyle(selectedSessionIsRunning ? LitheTheme.warning : LitheTheme.success)
             .help(selectedSessionIsRunning ? "Stop run" : "Run configuration")
-            .disabled(feature.isLoadingProject)
+            .disabled(feature.isLoadingProject || (!selectedSessionIsRunning && preparationBlocksRun))
 
             Button {
                 if let configuration = selectedRunnableConfiguration {

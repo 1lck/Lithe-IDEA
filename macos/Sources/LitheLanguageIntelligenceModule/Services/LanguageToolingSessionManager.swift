@@ -39,6 +39,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
     @Published package private(set) var semanticTokensGeneration: UInt64 = 0
     @Published package private(set) var languageServerFeatures: [String: LanguageServerFeatureSet] = [:]
     @Published package private(set) var languageServerLogs: [LanguageServerLogEntry] = []
+    @Published package private(set) var projectPreparation: ProjectPreparationSnapshot?
     @Published package private(set) var mavenProfileProjectResults: [URL: MavenProfileProjectResult] = [:]
     @Published package private(set) var languageServerStates: [String: LanguageServerSessionState] = [:]
     @Published package private(set) var languageServerInfos: [String: LanguageServerInfo] = [:]
@@ -368,6 +369,13 @@ package final class LanguageToolingSessionManager: ObservableObject,
         let resolvedFile = fileURL.standardizedFileURL.resolvingSymlinksInPath()
         _ = try startLanguageServer(providerID: "java", rootURL: normalizedRoot)
         try await waitUntilLanguageServerReady(providerID: "java", rootURL: normalizedRoot)
+        if projectPreparation?.blocksRun == true {
+            throw LanguageToolingSessionError.toolingUnavailable(
+                projectPreparation?.status == "failed"
+                    ? "Java project preparation failed. Open language service settings to retry."
+                    : "The Java project is still being prepared. View preparation progress and run again when ready."
+            )
+        }
         let value = try await executeJavaCommand(
             "vscode.java.resolveMainClass",
             arguments: [],
@@ -883,6 +891,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
     }
 
     package func stopLanguageServer(providerID: String) {
+        if providerID == "java" { projectPreparation = nil }
         let operationID = languageServerOperationIDs[providerID]
         if languageServers[providerID] != nil {
             let wasPreparing = switch languageServerStates[providerID] {
@@ -1703,6 +1712,10 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 self.languageServerInfos[providerID] = info
             }
         }
+        session.onProjectPreparation = { [weak self] snapshot in
+            guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
+            if providerID == "java" { self.projectPreparation = snapshot }
+        }
         session.onMavenProfileTask = { [weak self] status in
             guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
             if status == "running" { self.mavenProfileProjectResults.removeAll() }
@@ -1739,6 +1752,15 @@ package final class LanguageToolingSessionManager: ObservableObject,
     ) {
         guard languageServerSessionIdentities[providerID] == sessionIdentity else { return }
         languageServerStates[providerID] = state
+        if providerID == "java" {
+            switch state {
+            case .startingProcess: projectPreparation = .init(phase: "starting", status: "loading", blocksRun: true)
+            case .initializing: projectPreparation = .init(phase: "importing", status: "loading", blocksRun: true)
+            case .failed: projectPreparation = .init(phase: "starting", status: "failed", blocksRun: true)
+            case .stopped, .stopping: projectPreparation = nil
+            case .ready: break // Rust may still be synchronizing project configuration.
+            }
+        }
         resumeLanguageServerReadyWaiters(
             providerID: providerID,
             state: state,

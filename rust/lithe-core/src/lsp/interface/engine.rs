@@ -334,6 +334,8 @@ pub struct CancelOperationRequest {
 /// Ordered events drained from a session since the previous poll.
 pub struct PollEventsResponse {
     pub events: Vec<LspRuntimeEvent>,
+    /// Current Java preparation projection, including when the event queue was already drained.
+    pub project_preparation: Option<Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -485,6 +487,7 @@ struct JavaNavigationMarkerCacheEntry {
 }
 
 struct SessionState {
+    preparation_snapshot: Option<crate::lsp::languages::project_preparation::ProjectPreparation>,
     lifecycle: LspLifecycleState,
     client: LspClientState,
     pending: BTreeMap<String, PendingRequest>,
@@ -755,17 +758,31 @@ pub fn cancel_operation(request: CancelOperationRequest) -> Result<(), CoreError
 
 /// Drains all currently queued events in deterministic sequence order.
 pub fn poll_events(request: SessionRequest) -> Result<PollEventsResponse, CoreError> {
+    let session = engine().session(&request.session_id)?;
+    let events = session.poll_events()?;
+    let project_preparation = session
+        .lock_state()?
+        .preparation_snapshot
+        .as_ref()
+        .map(|snapshot| json!(snapshot));
     Ok(PollEventsResponse {
-        events: engine().session(&request.session_id)?.poll_events()?,
+        events,
+        project_preparation,
     })
 }
 
 /// Waits until queued events exist or the supplied timeout elapses.
 pub fn wait_events(request: WaitEventsRequest) -> Result<PollEventsResponse, CoreError> {
+    let session = engine().session(&request.session_id)?;
+    let events = session.wait_events(Duration::from_millis(request.timeout_milliseconds))?;
+    let project_preparation = session
+        .lock_state()?
+        .preparation_snapshot
+        .as_ref()
+        .map(|snapshot| json!(snapshot));
     Ok(PollEventsResponse {
-        events: engine()
-            .session(&request.session_id)?
-            .wait_events(Duration::from_millis(request.timeout_milliseconds))?,
+        events,
+        project_preparation,
     })
 }
 
@@ -973,6 +990,7 @@ impl LspEngine {
                 java_navigation_marker_batches: BTreeMap::new(),
                 java_navigation_marker_cache: BTreeMap::new(),
                 pending_workspace_file_changes: BTreeMap::new(),
+                preparation_snapshot: None,
                 events: VecDeque::new(),
                 next_sequence: 1,
                 initialize_deadline: Some(now + initialize_timeout),
@@ -2766,6 +2784,7 @@ impl RuntimeSession {
                 allocated = Some(response);
                 Ok::<_, CoreError>(request_id)
             });
+        refresh_project_preparation(self, state);
         let dispatch = match dispatch {
             Ok(dispatch) => dispatch,
             Err((error, operation_ids)) => {
@@ -3707,6 +3726,51 @@ fn enqueue_runtime_event(
     event: LspRuntimeEvent,
 ) {
     state.events.push_back(event);
+    refresh_project_preparation(session, state);
+    session.event_signal.notify_all();
+}
+
+// Reuse the build coordinator's gate; never infer readiness from a log message.
+fn refresh_project_preparation(session: &RuntimeSession, state: &mut SessionState) {
+    if session.provider_id != "java" {
+        return;
+    }
+    let configuring = state
+        .java_builds
+        .project_configuration_running(Instant::now());
+    let snapshot = crate::lsp::languages::project_preparation::snapshot(
+        state.lifecycle,
+        state.maven_profile_status,
+        configuring,
+        state.java_builds.in_flight_request_id().is_some(),
+    );
+    if state.preparation_snapshot.as_ref() == Some(&snapshot) {
+        return;
+    }
+    let result = json!(snapshot);
+    state.preparation_snapshot = Some(snapshot);
+    let sequence = take_sequence(state);
+    state.events.push_back(LspRuntimeEvent {
+        kind: "projectPreparation".to_string(),
+        sequence,
+        provider_id: session.provider_id.clone(),
+        session_id: session.id.clone(),
+        state: None,
+        operation_id: None,
+        method: None,
+        uri: None,
+        version: None,
+        diagnostics: None,
+        result: Some(result),
+        error: None,
+        capabilities: None,
+        server_info: None,
+        level: None,
+        message: None,
+        detail: None,
+        maven_profile_project: None,
+        maven_profile_task: None,
+    });
     session.event_signal.notify_all();
 }
 
@@ -7633,6 +7697,63 @@ public class Main {
         }));
         harness.await_state(LspLifecycleState::Ready);
         harness
+    }
+
+    #[test]
+    fn java_preparation_reports_configuration_but_not_background_indexing() {
+        let mut harness = java_build_harness(60_000);
+        let session = harness.engine.session(&harness.session_id).unwrap();
+        send_project_job_progress(
+            &mut harness,
+            "index",
+            json!({ "kind": "begin", "title": "Indexing" }),
+        );
+        assert_eq!(
+            session
+                .lock_state()
+                .unwrap()
+                .preparation_snapshot
+                .as_ref()
+                .unwrap()
+                .phase,
+            "ready"
+        );
+        send_project_job_progress(
+            &mut harness,
+            "config",
+            json!({ "kind": "begin", "message": "Update project sample" }),
+        );
+        assert_eq!(
+            session
+                .lock_state()
+                .unwrap()
+                .preparation_snapshot
+                .as_ref()
+                .unwrap()
+                .phase,
+            "configuring"
+        );
+        send_project_job_progress(&mut harness, "config", json!({ "kind": "end" }));
+        harness.poll();
+        // The snapshot survives consuming all events, so a reconnect can render readiness.
+        assert_eq!(
+            session
+                .lock_state()
+                .unwrap()
+                .preparation_snapshot
+                .as_ref()
+                .unwrap()
+                .phase,
+            "ready"
+        );
+        assert!(harness
+            .events
+            .iter()
+            .any(|event| event.kind == "projectPreparation"
+                && event
+                    .result
+                    .as_ref()
+                    .is_some_and(|result| result["phase"] == "configuring")));
     }
 
     fn send_project_job_progress(harness: &mut Harness, token: &str, value: Value) {

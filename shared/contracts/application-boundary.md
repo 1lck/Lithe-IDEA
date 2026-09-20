@@ -420,3 +420,18 @@ restores the preview. SVG is rendered as image data, never inserted into the
 application DOM as executable markup. Rendering and resizable layout are owned
 by the platform. The behavior fixture is
 [`svg-preview-v1.json`](../fixtures/editor/svg-preview-v1.json).
+
+### Java project preparation presentation
+
+Core projects the existing Java session, Maven profile task, and JDT build gate
+into `projectPreparation` runtime events. Both products render this in their
+status bar and Run panel, with language service settings and diagnostic access.
+`starting`, `importing`, `configuring`, and `building` describe actual work;
+`ready` describes preparation completion, not successful compilation or a valid
+launch configuration. Ordinary indexing is not a run prerequisite.
+
+Preparation is scoped to the Java workspace session. Only JDT-backed launch
+paths honor `blocksRun`; other language and Maven-goal launchers keep their own
+prerequisites. Partial profile failures remain visible without blocking unrelated
+modules: the target build still validates its own readiness. Consumers reject old
+session updates and clear state on explicit stop/workspace replacement.

@@ -1,3 +1,8 @@
+import {
+  beginProjectPreparation,
+  updateProjectPreparation,
+  projectPreparationStore,
+} from "../stores/project-preparation.store";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { RunConfiguration } from "../types/run.types";
 
@@ -44,6 +49,7 @@ function configuration(provider: string): RunConfiguration {
 }
 
 beforeEach(() => {
+  projectPreparationStore.setState({ entries: {} });
   prewarm.mockClear();
   invokeLsp.mockClear();
 });
@@ -77,4 +83,30 @@ describe("Java project launch preparation", () => {
     expect(prewarm).not.toHaveBeenCalled();
     expect(invokeLsp).not.toHaveBeenCalled();
   });
+});
+
+test("service readiness does not launch while project configuration is still syncing", async () => {
+  beginProjectPreparation("D:/work/RuoYi", "java");
+  updateProjectPreparation("D:/work/RuoYi", "java", {
+    phase: "configuring",
+    status: "loading",
+    blocksRun: true,
+  });
+  await expect(
+    prepareJavaRunLaunch(
+      { workspaceId: "workspace", root: "D:/work/RuoYi" },
+      configuration("spring-boot.maven"),
+    ),
+  ).rejects.toThrow("still being prepared");
+  expect(invokeLsp).not.toHaveBeenCalled();
+  updateProjectPreparation("D:/work/RuoYi", "java", {
+    phase: "ready",
+    status: "ready",
+    blocksRun: false,
+  });
+  await prepareJavaRunLaunch(
+    { workspaceId: "workspace", root: "D:/work/RuoYi" },
+    configuration("spring-boot.maven"),
+  );
+  expect(invokeLsp).toHaveBeenCalledTimes(1);
 });
