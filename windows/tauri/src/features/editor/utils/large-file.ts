@@ -1,7 +1,9 @@
 const LARGE_FILE_TOKENIZATION_SIZE_THRESHOLD = 20 * 1024 * 1024;
 const LARGE_FILE_TOKENIZATION_LINE_THRESHOLD = 300_000;
-const RESPONSIVE_LARGE_FILE_SIZE_THRESHOLD = 2 * 1024 * 1024;
-const RESPONSIVE_LARGE_FILE_LINE_THRESHOLD = 50_000;
+const RICH_EDITOR_SERVICE_SIZE_THRESHOLD = 2 * 1024 * 1024;
+// Keep Monaco's lightweight tokenizer available, but do not attach language
+// services to single source files large enough to exhaust JDT LS on Windows.
+const RICH_EDITOR_SERVICE_LINE_THRESHOLD = 30_000;
 
 export interface LargeFileCheck {
   contentLength: number;
@@ -121,8 +123,8 @@ export function isTooLargeForEditorServices({ contentLength, lineCount }: LargeF
   if (contentLength > LARGE_FILE_TOKENIZATION_SIZE_THRESHOLD) return true;
   if (lineCount != null && lineCount > LARGE_FILE_TOKENIZATION_LINE_THRESHOLD) return true;
 
-  if (contentLength >= RESPONSIVE_LARGE_FILE_SIZE_THRESHOLD) return true;
-  if (lineCount != null && lineCount >= RESPONSIVE_LARGE_FILE_LINE_THRESHOLD) return true;
+  if (contentLength >= RICH_EDITOR_SERVICE_SIZE_THRESHOLD) return true;
+  if (lineCount != null && lineCount >= RICH_EDITOR_SERVICE_LINE_THRESHOLD) return true;
 
   return false;
 }
@@ -138,13 +140,13 @@ export function isTooLargeForSyntaxTokenization({
 }
 
 export function shouldUseLargeEditorMode(content: string): boolean {
-  if (content.length >= RESPONSIVE_LARGE_FILE_SIZE_THRESHOLD) return true;
+  if (content.length >= RICH_EDITOR_SERVICE_SIZE_THRESHOLD) return true;
 
   let lineCount = 1;
   for (let index = 0; index < content.length; index++) {
     if (content.charCodeAt(index) === 10) {
       lineCount++;
-      if (lineCount >= RESPONSIVE_LARGE_FILE_LINE_THRESHOLD) return true;
+      if (lineCount >= RICH_EDITOR_SERVICE_LINE_THRESHOLD) return true;
     }
   }
 
@@ -161,15 +163,15 @@ export function getLargeEditorModeInfo(
 
   const includeLineOffsets = options?.includeLineOffsets === true;
   let lineCount = 1;
-  let crossedResponsiveLineThreshold = false;
+  let crossedRichServiceLineThreshold = false;
   let lineOffsets: number[] | undefined;
 
   for (let index = 0; index < content.length; index++) {
     if (content.charCodeAt(index) !== 10) continue;
     lineCount++;
 
-    if (lineCount >= RESPONSIVE_LARGE_FILE_LINE_THRESHOLD) {
-      crossedResponsiveLineThreshold = true;
+    if (lineCount >= RICH_EDITOR_SERVICE_LINE_THRESHOLD) {
+      crossedRichServiceLineThreshold = true;
       if (!includeLineOffsets) continue;
       if (lineOffsets) {
         lineOffsets.push(index + 1);
@@ -182,8 +184,8 @@ export function getLargeEditorModeInfo(
   }
 
   const largeContentMode =
-    content.length >= RESPONSIVE_LARGE_FILE_SIZE_THRESHOLD ||
-    crossedResponsiveLineThreshold ||
+    content.length >= RICH_EDITOR_SERVICE_SIZE_THRESHOLD ||
+    crossedRichServiceLineThreshold ||
     isTooLargeForEditorServices({ contentLength: content.length, lineCount });
 
   if (includeLineOffsets && largeContentMode && !lineOffsets) {
