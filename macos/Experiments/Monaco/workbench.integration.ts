@@ -385,6 +385,36 @@ async function verify() {
     assert(editor.getModel()?.getValue() === "left", "split close changed primary document");
     await window.lithe.retain([]);
   });
+  await check("host themes replace the Monaco surface and reveal the native wallpaper", async () => {
+    await window.lithe.activate({
+      id: "theme-surface", text: "theme", revision: 0, language: "plaintext", readonly: true,
+    });
+    const surface = editor.getDomNode()!;
+    const backgroundColor = () => getComputedStyle(surface).backgroundColor.replace(/ /g, "");
+    try {
+      window.lithe.configure({
+        fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true,
+        theme: { id: "probe-light-solid", dark: false, colors: {
+          background: "#F2F3F4FF", foreground: "#121314FF",
+        } },
+      });
+      const solid = backgroundColor();
+      assert(["rgb(242,243,244)", "rgba(242,243,244,1)"].includes(solid),
+        `host light theme did not replace Monaco's initial dark surface: ${solid}`);
+      window.lithe.configure({
+        fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true,
+        theme: { id: "probe-light-wallpaper", dark: false, colors: {
+          background: "#00000000", foreground: "#121314FF",
+        } },
+      });
+      const transparent = backgroundColor();
+      assert(transparent === "rgba(0,0,0,0)",
+        `transparent Monaco surface still covered the native wallpaper: ${transparent}`);
+    } finally {
+      window.lithe.configure({ dark: false, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
+      await window.lithe.retain([]);
+    }
+  });
   await check("modal preview restores the main caret while sharing undo", async () => {
     const text = "class Preview {}";
     await send({ type: "open", text });
