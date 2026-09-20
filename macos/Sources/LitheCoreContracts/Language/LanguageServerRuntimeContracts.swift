@@ -392,3 +392,16 @@ package protocol LanguageServerProcessRegistry: AnyObject {
     func registerLanguageServerProcess(pid: Int32, moduleID: ModuleID)
     func unregisterLanguageServerProcess(pid: Int32, moduleID: ModuleID)
 }
+
+/// Read-only preparation facts published by Rust; ready does not imply a successful build.
+package struct ProjectPreparationSnapshot: Codable, Equatable, Sendable {
+    package let phase: String
+    package let status: String
+    package let blocksRun: Bool
+
+    package init(phase: String, status: String, blocksRun: Bool) {
+        self.phase = phase
+        self.status = status
+        self.blocksRun = blocksRun
+    }
+}

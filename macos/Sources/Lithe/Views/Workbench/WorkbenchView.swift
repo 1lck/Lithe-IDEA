@@ -1753,6 +1753,7 @@ struct WorkbenchView: View {
             .help(LocalizedStringKey(
                 model.activeDocument?.isReadOnly == true ? "Read-only document" : "Save"
             ))
+            ProjectPreparationStatusView(compact: true)
             MemoryUsageStatusView()
             FrameRateStatusView()
             gitStatus
@@ -1762,6 +1763,7 @@ struct WorkbenchView: View {
     private var compactStatusItems: some View {
         HStack(spacing: 10) {
             EditorCaretPositionLabel(chrome: model.editorChrome) { model.showGoToLine() }
+            ProjectPreparationStatusView(compact: true)
             MemoryUsageStatusView()
             FrameRateStatusView()
             gitStatus

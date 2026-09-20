@@ -1,3 +1,4 @@
+import { ProjectPreparationStatus } from "@/features/run/components/project-preparation-status";
 import { useMemo } from "react";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import {
@@ -47,6 +48,7 @@ const Footer = () => {
       aria-label={t("footer.statusBar")}
     >
       <ChromeGroup gap="tight" grow className="min-w-0">
+        <ProjectPreparationStatus compact />
         {filePathItem ? (
           <div className="flex min-h-(--lithe-chrome-control-height) min-w-0 flex-1 items-center overflow-hidden">
             {filePathItem.content}

@@ -1731,3 +1731,19 @@ Completion items returned by the LSP client and runtime preserve `insertTextForm
 this field through completion resolution. Monaco applies snippet text with its
 snippet insertion rule so placeholders participate in selection and undo rather
 than being inserted as literal source text.
+
+### Java preparation snapshot
+
+Java `projectPreparation` runtime events carry a `result` object with `phase`
+(`starting`, `importing`, `configuring`, `building`, `ready`, `stopped`), `status`
+(`idle`, `loading`, `ready`, `failed`) and boolean `blocksRun`.
+`lsp.pollEvents` and `lsp.waitEvents` also return `projectPreparation` (the current
+snapshot or null) alongside `events`, so restored consumers need not replay the
+queue. Event session identity and sequence retain their existing semantics.
+
+The snapshot reuses the existing service-ready signal, profile-task results and
+configuration/build coordinator. Generic indexing never blocks Run. Profile
+failure is visible but does not globally block unrelated targets; callers still
+build the selected target before launching. A successful preparation does not
+promise compilation success. Shared examples live in
+`shared/fixtures/lsp/project-preparation-v1.json`.

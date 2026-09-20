@@ -10,6 +10,19 @@ import Testing
 @MainActor
 struct RunConfigurationIntegrationTests {
     @Test
+    func projectPreparationDoesNotBlockStandaloneOrMavenGoalLaunchers() {
+        func configuration(_ kind: RunConfigurationKind, reactor: String? = nil) -> RunConfiguration {
+            RunConfiguration(id: "sample", name: "Sample", kind: kind, modulePath: nil,
+                             mainClass: "sample.Main", mavenReactorPath: reactor)
+        }
+        #expect(!configuration(.javaMain).usesJavaProjectPreparation)
+        #expect(!configuration(.currentFile, reactor: ".").usesJavaProjectPreparation)
+        #expect(!configuration(.mavenModule, reactor: ".").usesJavaProjectPreparation)
+        #expect(configuration(.javaMain, reactor: ".").usesJavaProjectPreparation)
+        #expect(configuration(.springBoot, reactor: ".").usesJavaProjectPreparation)
+    }
+
+    @Test
     func portConflictTitleIncludesTheActualPortAndConfigurations() {
         let conflict = RunPortConflict(
             port: 18080,
