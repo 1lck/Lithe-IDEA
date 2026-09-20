@@ -9,6 +9,11 @@ import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 import { presentMavenProfileTask } from "./maven-profile-task";
 import { isJavaLifecycle, ownedLifecycleHandler } from "./owned-lifecycle-event";
+import {
+  clearLanguageServerReadyFeedback,
+  showLanguageServerPreparing,
+  showLanguageServerReady,
+} from "./language-server-feedback";
 import type {
   CompletionItem,
   Hover,
@@ -574,33 +579,31 @@ export class LspClient {
 
   private async setupLanguageLifecycleListener() {
     try {
-      await listen<{ sessionId?: string; providerId?: string; phase?: import("./stores/lsp.store").LanguageLifecyclePhase; status?: string }>(
+      await listen<{
+        sessionId?: string;
+        providerId?: string;
+        workspacePath?: string;
+        phase?: import("./stores/lsp.store").LanguageLifecyclePhase;
+        status?: string;
+      }>(
         "lsp://language-lifecycle",
         ownedLifecycleHandler(ownsLspSession, (payload) => {
           if (!payload.sessionId || !payload.phase) return;
-          const lifecycleToastId = `java-language-lifecycle:${payload.sessionId}`;
           useLspStore.getState().actions.updateLanguageLifecycle(payload.sessionId, payload.phase);
           if (!isJavaLifecycle(payload)) return;
           if (payload.phase === "stopped" || payload.phase === "failed") {
             useLspStore.getState().actions.clearMavenProfileProjects(payload.sessionId);
             toast.dismiss(`java-maven-profiles:${payload.sessionId}`);
-            toast.dismiss(lifecycleToastId);
+            if (payload.workspacePath) {
+              clearLanguageServerReadyFeedback(payload.workspacePath, JAVA_LANGUAGE_ID);
+            }
             return;
           }
+          if (!payload.workspacePath) return;
           if (payload.phase === "projectImporting") {
-            toast.loading("Language service connected; importing project", {
-              id: lifecycleToastId,
-            });
-          } else if (payload.phase === "fullyReady") {
-            toast.success("Java language service is ready", {
-              id: lifecycleToastId,
-              duration: 2500,
-            });
-          } else if (payload.phase === "serviceReady") {
-            toast.success("Java language service is ready", {
-              id: lifecycleToastId,
-              duration: 2500,
-            });
+            showLanguageServerPreparing(payload.workspacePath, JAVA_LANGUAGE_ID);
+          } else if (payload.phase === "fullyReady" || payload.phase === "serviceReady") {
+            showLanguageServerReady(payload.workspacePath, JAVA_LANGUAGE_ID);
           }
         }),
       );
