@@ -23,6 +23,17 @@ test("mixed newline edits and grouped undo preserve source bytes", () => {
   expect(native).toBe(original);
 });
 
+test("selection ranges keep their source text after CRLF normalization", () => {
+  const original = "first line\r\nselected second line\r\nthird line\r\n";
+  const model = normalized(original);
+  const start = model.indexOf("selected second line");
+  const end = model.indexOf("\nthird line");
+  const source = new SourceText(original, 1);
+
+  expect(source.textInNormalizedRange(start, end - start)).toBe("selected second line");
+  expect(source.textInNormalizedRange(0, end)).toBe("first line\r\nselected second line");
+});
+
 test("persistent pieces survive bounded repeated edits across chunk boundaries", () => {
   const original = "a\r\n".repeat(2000);
   const source = new SourceText(original, 1);

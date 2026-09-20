@@ -17,7 +17,22 @@ void lithe_core_free_string(char *value);
 The macOS package uses the small C bridge in `macos/Sources/LitheRustCore/`. The
 canonical C declarations are in `rust/lithe-core/include/lithe_core.h`.
 Native clients can link the same `staticlib` or `cdylib`; Rust hosts call
-`lithe_core::execute_json` and `lithe_core::cancel_operation` directly.
+`lithe_core::execute_json` and `lithe_core::cancel_operation` directly. A Rust
+host also calls `lithe_core::execution::plan_launch_command` before spawning a
+Java process. It estimates the Windows command-line limit and moves oversized
+classpath/module-path options into argument-file text. The planner requires a
+Java executable and a known JDK feature version of at least 9, obtained through
+`java_feature_version_from_release`; other launches remain unchanged. It stops
+at the application target (class, JAR, or module), preserving all program arguments.
+Core owns the Unicode argument-file text and quoting. The Windows host encodes
+that text losslessly using the launcher's actual system code page, independently
+of the JDK feature version: JEP 400 does not make native launcher arguments UTF-8.
+An unrepresentable path is reported as an actionable failure, never substituted.
+The host also escapes backslash bytes introduced by multibyte encoding inside
+quoted values, since the native argument-file parser processes bytes.
+Every execution owns an exclusively created temporary file; partial writes and
+spawn failures clean it up, while successful launches retain it until that exact
+process exits. A replacement execution never shares its predecessor's file.
 Strings returned by the core are UTF-8 JSON allocated by Rust. The caller must
 release response strings with `lithe_core_free_string`.
 
@@ -1716,3 +1731,19 @@ Completion items returned by the LSP client and runtime preserve `insertTextForm
 this field through completion resolution. Monaco applies snippet text with its
 snippet insertion rule so placeholders participate in selection and undo rather
 than being inserted as literal source text.
+
+### Java preparation snapshot
+
+Java `projectPreparation` runtime events carry a `result` object with `phase`
+(`starting`, `importing`, `configuring`, `building`, `ready`, `stopped`), `status`
+(`idle`, `loading`, `ready`, `failed`) and boolean `blocksRun`.
+`lsp.pollEvents` and `lsp.waitEvents` also return `projectPreparation` (the current
+snapshot or null) alongside `events`, so restored consumers need not replay the
+queue. Event session identity and sequence retain their existing semantics.
+
+The snapshot reuses the existing service-ready signal, profile-task results and
+configuration/build coordinator. Generic indexing never blocks Run. Profile
+failure is visible but does not globally block unrelated targets; callers still
+build the selected target before launching. A successful preparation does not
+promise compilation success. Shared examples live in
+`shared/fixtures/lsp/project-preparation-v1.json`.

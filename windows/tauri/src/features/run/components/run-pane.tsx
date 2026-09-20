@@ -1,3 +1,6 @@
+import { useProjectPreparation } from "../stores/project-preparation.store";
+import { usesJavaProjectPreparation } from "../services/java-run-launch";
+import { ProjectPreparationStatus } from "./project-preparation-status";
 import { useEffect, useMemo, useState } from "react";
 import { isBackendCapabilityAvailable } from "@/config/backend-capabilities";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
@@ -32,16 +35,21 @@ import { RunConfigurationEditor } from "./run-configuration-editor";
 import { RunConfigurationListSplit } from "./run-configuration-list-split";
 import { JavaCupIcon, RunIcon } from "./run-icon";
 import { RunOutputText } from "./run-output-text";
+import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { useRunPreferencesStore } from "../stores/run-preferences.store";
 
 export default function RunPane() {
   const { t } = useTranslation();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
+  const preparation = useProjectPreparation(rootFolderPath);
   const setIsBottomPaneVisible = useUIState((state) => state.setIsBottomPaneVisible);
   const activeFilePath = useBufferStore((state) => {
     const activeBuffer = getBufferById(state.buffers, state.activeBufferId);
     return activeBuffer?.type === "editor" && !activeBuffer.isVirtual ? activeBuffer.path : undefined;
   });
+  const mavenExecutablePath = useMavenStore((state) =>
+    state.root === rootFolderPath ? state.mavenExecutablePath : "",
+  );
   const status = useRunStore((state) => state.status);
   const isLoading = useRunStore((state) => state.isLoading);
   const isGenerating = useRunStore((state) => state.isGenerating);
@@ -77,7 +85,7 @@ export default function RunPane() {
   useEffect(() => {
     if (!rootFolderPath || !isBackendCapabilityAvailable("run")) return;
     void actions.loadProject(rootFolderPath);
-  }, [actions, rootFolderPath]);
+  }, [actions, rootFolderPath, mavenExecutablePath]);
 
   const services = useMemo(() => configurationsForExecution(configurations, "service"), [configurations]);
   const applications = useMemo(
@@ -132,6 +140,12 @@ export default function RunPane() {
     services.forEach((service) => void actions.runConfiguration(service.id, currentFile));
   };
 
+  const launchConfiguration = selectedConfiguration?.execution === "group"
+    ? applications[0] ?? services[0]
+    : selectedConfiguration ?? applications[0] ?? services[0];
+  const preparationBlocksRun = !isSelectedRunning && Boolean(preparation?.blocksRun &&
+    launchConfiguration && usesJavaProjectPreparation(launchConfiguration));
+
   const runSelected = () => {
     if (isSelectedRunning) {
       void actions.stop(selectedSession?.id);
@@ -146,6 +160,7 @@ export default function RunPane() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
+      <ProjectPreparationStatus />
       <div className="flex h-(--lithe-pane-header-height) shrink-0 items-center gap-2 border-border/70 border-b px-3">
         <RunIcon className="size-4 text-subtle-foreground" />
         <div className="min-w-0 flex-1 truncate font-medium ui-text-sm">
@@ -160,7 +175,7 @@ export default function RunPane() {
           </span>
         ) : null}
         <Tooltip content={isSelectedRunning ? t("run.stop") : t("run.run")} side="bottom">
-          <Button variant="ghost" size="icon-xs" onClick={runSelected} disabled={isLoading} aria-label={t("run.run")}>
+          <Button variant="ghost" size="icon-xs" onClick={runSelected} disabled={isLoading || preparationBlocksRun} aria-label={t("run.run")}>
             {isSelectedRunning ? <StopIcon className="text-warning" /> : <PlayIcon className="text-success" />}
           </Button>
         </Tooltip>

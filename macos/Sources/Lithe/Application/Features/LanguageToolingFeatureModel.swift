@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheCoreContracts
 import LitheLanguageIntelligenceModule
 
 /// Owns language-provider selection and workspace-scoped language-server UI state.
@@ -10,6 +11,8 @@ final class LanguageToolingFeatureModel: ObservableObject {
     @Published private(set) var catalog: LanguageProviderCatalog
     @Published private(set) var catalogSnapshot: LanguageProviderCatalogSnapshot
     @Published private(set) var disabledProviderIDs: Set<String> = []
+    @Published private(set) var projectPreparation: ProjectPreparationSnapshot?
+    private var preparationObservation: AnyCancellable?
     private(set) var startupFailures: [String: String] = [:]
 
     private let catalogSource: any LanguageProviderCatalogSource
@@ -49,7 +52,14 @@ final class LanguageToolingFeatureModel: ObservableObject {
         sessionsProvider = provider
     }
 
+    func bindProjectPreparation(_ sessions: LanguageToolingSessionManager) {
+        preparationObservation = sessions.$projectPreparation.removeDuplicates().sink { [weak self] snapshot in
+            self?.projectPreparation = snapshot
+        }
+    }
+
     func resetWorkspaceState() {
+        projectPreparation = nil
         startupFailures.removeAll()
     }
 

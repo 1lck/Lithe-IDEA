@@ -1,3 +1,4 @@
+import { getProjectPreparation } from "../stores/project-preparation.store";
 import { getJavaWorkspaceLanguageServerOwner } from "@/features/editor/lsp/java-workspace-language-server";
 import type { WorkspaceLaunchScope } from "@/features/workspace/types/workspace-launch-scope";
 import { invokeLsp } from "@/platform/lsp-core-adapter";
@@ -24,6 +25,12 @@ export async function prepareJavaRunLaunch(
   const preparation = await getJavaWorkspaceLanguageServerOwner().prewarm(scope, sourcePath);
   if (preparation.kind !== "ready") {
     throw new Error(`The Java language service is not ready (${preparation.kind}).`);
+  }
+  const project = getProjectPreparation(scope.root);
+  if (project?.blocksRun) {
+    throw new Error(project.status === "failed"
+      ? "Java project preparation failed. Open language service settings to retry."
+      : "The Java project is still being prepared. View project preparation progress and run again when it is ready.");
   }
   return invokeLsp<JavaLaunchTarget>("java_prepare_run_launch", {
     workspacePath: scope.root,

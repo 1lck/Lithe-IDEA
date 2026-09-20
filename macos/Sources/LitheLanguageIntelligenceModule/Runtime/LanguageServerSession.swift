@@ -40,6 +40,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
 
     package var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)?
     package var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)?
+    package var onProjectPreparation: ((ProjectPreparationSnapshot) -> Void)?
     package var onMavenProfileTask: ((String) -> Void)?
     package var onMavenProfileProject: ((MavenProfileProjectResult) -> Void)?
     package var onStateChange: ((LanguageServerSessionState) -> Void)?
@@ -555,6 +556,13 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// Applies one runtime event and reports whether it ended the session.
     private func handle(_ event: LanguageServerRuntimeEvent) -> Bool {
         switch event.type {
+        case "projectPreparation":
+            switch Self.decodeEventResult(event, as: ProjectPreparationSnapshot.self) {
+            case .success(let snapshot): onProjectPreparation?(snapshot)
+            case .failure(let error): onLog?(.error, "Invalid project preparation event", error.localizedDescription, nil)
+            }
+            return false
+
         case "stateChanged":
             return handleStateChange(event)
         case "requestCompleted":

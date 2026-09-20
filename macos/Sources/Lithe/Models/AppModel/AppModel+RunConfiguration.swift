@@ -485,8 +485,7 @@ extension AppModel {
         for configuration: RunConfiguration,
         identity: WorkspaceIdentity
     ) async throws -> JavaDebugLaunchTarget? {
-        guard (configuration.kind == .javaMain || configuration.kind == .springBoot),
-              configuration.mavenReactorPath != nil else { return nil }
+        guard configuration.usesJavaProjectPreparation else { return nil }
         guard let workspaceURL,
               let sourceURL = runWorkflowCoordinator.sourceURLForDebug(
                 configuration: configuration,

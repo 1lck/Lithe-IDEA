@@ -178,7 +178,10 @@ jobs:
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 120000 --report .artifacts/test-stability/windows-documents.json -- src/features/editor/stores/editor-app.store.test.ts src/features/editor/services/document-external-change-workflow.test.ts src/features/editor/services/document-save-lifecycle.test.ts src/features/editor/services/document-watch-controller.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           bun test src/features/editor/lsp/language-server-navigation.test.ts src/features/editor/lsp/java-navigation-marker-loader.test.ts src/features/editor/engines/monaco/definition-link-scheduler.test.ts src/features/editor/engines/monaco/java-implementation-markers.test.ts
-          bun test src/features/editor/lsp/java-workspace-language-server.test.ts src/features/editor/lsp/java-workspace-change-scheduler.test.ts
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-editor-ownership.json -- src/features/editor/extensions/api.owner-navigation.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-java-workspace.json -- src/features/editor/lsp/java-workspace-language-server.test.ts src/features/editor/lsp/java-workspace-change-scheduler.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           bun test src/features/debugger/services/debug-adapter-events.test.ts
           bun test src/features/run
           bun test src/features/file-explorer/lib/java-clipboard-class.test.ts src/features/file-explorer/lib/paste-java-class-from-clipboard.test.ts

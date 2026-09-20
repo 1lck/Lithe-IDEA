@@ -52,6 +52,8 @@ import { calculateLineHeight } from "../utils/lines";
 interface ActiveEditorAdapter {
   ownerId: string;
   executeCommand?: (command: EditorCommand) => void;
+  getCursorPosition?: () => Position | null;
+  getSelectedText?: () => string | null;
   insertText: (text: string, position?: Position) => void;
   deleteRange: (range: Range) => void;
   replaceRange: (range: Range, text: string) => void;
@@ -210,6 +212,10 @@ class EditorAPIImpl implements EditorAPI {
     return useEditorStateStore.getState().selection ?? null;
   }
 
+  getActiveSelectionText(): string | null | undefined {
+    return this.activeEditorAdapter?.getSelectedText?.();
+  }
+
   setSelection(range?: Range | null): void {
     this.selection = range ?? null;
     useEditorStateStore.getState().actions.setSelection(range ?? undefined);
@@ -225,6 +231,8 @@ class EditorAPIImpl implements EditorAPI {
   }
 
   getCursorPosition(): Position {
+    const activePosition = this.activeEditorAdapter?.getCursorPosition?.();
+    if (activePosition) return activePosition;
     return useEditorStateStore.getState().cursorPosition;
   }
 

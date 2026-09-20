@@ -96,6 +96,71 @@ test("debounces and coalesces watcher changes into one Core policy operation", a
   ]);
 });
 
+test("drops workspace-root events before resolving the Core file policy", async () => {
+  const timer = new ManualTimer();
+  const notify = mock(async () => undefined);
+  const resolvePolicy = mock(async (_workspacePaths: string[], changedPaths: string[]) =>
+    policyFor(changedPaths, "source"),
+  );
+  const operations = operationRecorder();
+  const scheduler = new JavaWorkspaceChangeScheduler({
+    resolvePolicy,
+    notify,
+    createOperationLog: operations.factory,
+    setTimer: timer.set,
+    clearTimer: timer.clear,
+  });
+
+  scheduler.schedule("workspace-1", "C:/work", {
+    path: "C:/work",
+    kind: "changed",
+    includeSource: true,
+  });
+  scheduler.schedule("workspace-1", "C:/work", {
+    path: "C:/work/src/Main.java",
+    kind: "changed",
+    includeSource: true,
+  });
+
+  await timer.fireNext();
+
+  expect(resolvePolicy).toHaveBeenCalledWith([], ["src/Main.java"]);
+  expect(notify).toHaveBeenCalledWith("C:/work", [
+    { path: "C:/work/src/Main.java", kind: "changed" },
+  ]);
+  expect(operations.records).toEqual([
+    expect.objectContaining({ outcome: "succeeded" }),
+  ]);
+});
+
+test("finishes a root-only watcher batch without calling Core", async () => {
+  const timer = new ManualTimer();
+  const resolvePolicy = mock(async () => policyFor([], "source"));
+  const notify = mock(async () => undefined);
+  const operations = operationRecorder();
+  const scheduler = new JavaWorkspaceChangeScheduler({
+    resolvePolicy,
+    notify,
+    createOperationLog: operations.factory,
+    setTimer: timer.set,
+    clearTimer: timer.clear,
+  });
+
+  scheduler.schedule("workspace-1", "C:/work/", {
+    path: "C:\\work",
+    kind: "changed",
+    includeSource: true,
+  });
+
+  await timer.fireNext();
+
+  expect(resolvePolicy).not.toHaveBeenCalled();
+  expect(notify).not.toHaveBeenCalled();
+  expect(operations.records).toEqual([
+    expect.objectContaining({ outcome: "cancelled", details: "no-workspace-contained-paths" }),
+  ]);
+});
+
 test("cancels a scheduled timer when its workspace closes", () => {
   const timer = new ManualTimer();
   const operations = operationRecorder();

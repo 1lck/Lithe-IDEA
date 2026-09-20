@@ -15,6 +15,8 @@ use std::sync::{Mutex, OnceLock};
 use std::thread;
 use tauri::{AppHandle, Emitter, Manager};
 
+mod launch_arguments;
+
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const SKIPPED_DIRECTORIES: &[&str] = &[
     "target",
@@ -344,7 +346,8 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
         return Err("A run process must be started from an active window.".into());
     }
     stop_session(&args.window_label, &args.session_id, None);
-    let mut command = command_for_executable(&args.executable, &args.arguments);
+    let (arguments, argfile) = prepare_launch_arguments(&args)?;
+    let mut command = command_for_executable(&args.executable, &arguments);
     command
         .current_dir(&args.working_directory)
         .envs(&args.environment)
@@ -352,9 +355,13 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     apply_creation_flags(&mut command);
-    let mut child = command
-        .spawn()
-        .map_err(|error| format!("Unable to start process: {error}"))?;
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            drop(argfile);
+            return Err(spawn_failure_message(&args.executable, &arguments, &error));
+        }
+    };
     let pid = child.id();
     let stdin = child.stdin.take();
     let stdout = child.stdout.take();
@@ -392,8 +399,36 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
         pid,
         stdout_reader,
         stderr_reader,
+        argfile,
     );
     Ok(())
+}
+
+fn prepare_launch_arguments(
+    args: &StartProcessArgs,
+) -> Result<(Vec<String>, Option<launch_arguments::LaunchArgumentFile>), String> {
+    launch_arguments::prepare(&args.executable, &args.arguments)
+}
+
+/// Explains a refused spawn with the detail the operating system reported.
+///
+/// The generic host message used to replace the real cause, so a command line
+/// rejected for its length looked identical to a missing executable.
+fn spawn_failure_message(executable: &str, arguments: &[String], error: &std::io::Error) -> String {
+    let length: usize = executable.chars().count()
+        + arguments
+            .iter()
+            .map(|argument| argument.chars().count() + 1)
+            .sum::<usize>();
+    let hint = if error.raw_os_error() == Some(206) {
+        " The command line is too long for Windows even after moving the Java class path into an argument file."
+    } else {
+        ""
+    };
+    format!(
+        "Unable to start process: {error} (executable={executable}, arguments={}, commandLength={length}).{hint}",
+        arguments.len()
+    )
 }
 
 #[tauri::command]
@@ -1604,6 +1639,7 @@ fn spawn_output_reader<T: Read + Send + 'static>(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_exit_waiter(
     app: AppHandle,
     window_label: String,
@@ -1612,6 +1648,7 @@ fn spawn_exit_waiter(
     pid: u32,
     stdout_reader: thread::JoinHandle<()>,
     stderr_reader: thread::JoinHandle<()>,
+    argfile: Option<launch_arguments::LaunchArgumentFile>,
 ) {
     thread::spawn(move || {
         let exit_code = child
@@ -1619,6 +1656,9 @@ fn spawn_exit_waiter(
             .ok()
             .and_then(|status| status.code())
             .unwrap_or(-1);
+        // The JVM reads the argument file while starting, so it is removed only
+        // after the process it configured has ended.
+        drop(argfile);
         let _ = stdout_reader.join();
         let _ = stderr_reader.join();
         let session_key = run_session_key(&window_label, &session_id);
@@ -2192,5 +2232,16 @@ mod tests {
             "resolved_main = {resolved_main}"
         );
         fs::remove_dir_all(home).ok();
+    }
+
+    /// The host used to return a message that hid the operating system's
+    /// reason, so every failure read "Unable to start the run configuration."
+    #[test]
+    fn a_refused_spawn_reports_the_operating_system_reason() {
+        let error = std::io::Error::from_raw_os_error(2);
+        let message = spawn_failure_message("C:\\missing\\java.exe", &["Main".to_string()], &error);
+        assert!(message.contains("C:\\missing\\java.exe"), "{message}");
+        assert!(message.contains("arguments=1"), "{message}");
+        assert!(message.contains("commandLength="), "{message}");
     }
 }

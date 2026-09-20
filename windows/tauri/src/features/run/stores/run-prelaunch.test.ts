@@ -349,3 +349,50 @@ describe("Java project launch preparation feedback", () => {
     expect(outputWhilePreparing).toBeUndefined();
   });
 });
+
+// The Tauri host rejects with the plain string its Rust handler returned, so
+// the panel used to replace every launch failure with a generic sentence.
+describe("Java launch failure reporting", () => {
+  test("shows the host's reason when the rejection is a string", async () => {
+    const { dependencies } = standaloneDependencies({
+      startRunProcess: mock(async () => {
+        throw "Unable to start process: The filename or extension is too long. (os error 206)";
+      }),
+    });
+    const store = createRunStore("workspace", dependencies);
+    store.setState({
+      root: "D:/work",
+      configurations: [configuration],
+      diagnostics: [],
+      effectiveRuntimeExecutablePaths: {},
+    });
+
+    await store.getState().actions.runConfiguration(configuration.id);
+
+    const session = store.getState().sessions[0];
+    expect(session.output).toContain("os error 206");
+    expect(session.output).not.toContain("Unable to start the run configuration.");
+    expect(session.exitCode).toBe(1);
+  });
+
+  test("falls back to a readable sentence when the host reports nothing", async () => {
+    const { dependencies } = standaloneDependencies({
+      startRunProcess: mock(async () => {
+        throw "";
+      }),
+    });
+    const store = createRunStore("workspace", dependencies);
+    store.setState({
+      root: "D:/work",
+      configurations: [configuration],
+      diagnostics: [],
+      effectiveRuntimeExecutablePaths: {},
+    });
+
+    await store.getState().actions.runConfiguration(configuration.id);
+
+    expect(store.getState().sessions[0].output).toContain(
+      "Unable to start the run configuration.",
+    );
+  });
+});

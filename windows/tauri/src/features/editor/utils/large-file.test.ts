@@ -4,6 +4,7 @@ import {
   applyIncrementalLargeEditorModeInfo,
   getLargeEditorModeInfo,
   isTooLargeForEditorServices,
+  isTooLargeForSyntaxTokenization,
 } from "./large-file";
 
 describe("large editor service gating", () => {
@@ -16,13 +17,23 @@ describe("large editor service gating", () => {
     ).toBe(true);
   });
 
-  test("treats 50,000-line files as too large for expensive editor services", () => {
+  test("keeps basic syntax highlighting while gating language services at 30,000 lines", () => {
+    const file = {
+      contentLength: 300_000,
+      lineCount: 30_000,
+    };
+
+    expect(isTooLargeForEditorServices(file)).toBe(true);
+    expect(isTooLargeForSyntaxTokenization(file)).toBe(false);
+  });
+
+  test("keeps language services enabled immediately below the line budget", () => {
     expect(
       isTooLargeForEditorServices({
-        contentLength: 100,
-        lineCount: 50_000,
+        contentLength: 300_000,
+        lineCount: 29_999,
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   test("does not build unused line offsets on the typing path", () => {

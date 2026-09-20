@@ -1,3 +1,11 @@
+import {
+  getProjectPreparation,
+  failProjectPreparation,
+  beginProjectPreparation,
+  updateProjectPreparation,
+  clearProjectPreparation,
+  type ProjectPreparation,
+} from "@/features/run/stores/project-preparation.store";
 import { emit } from "@tauri-apps/api/event";
 import { executeCore, type CoreResponse } from "@/core/lithe-core-client";
 import { frontendTrace } from "@/utils/frontend-trace";
@@ -272,10 +280,14 @@ function restorePersistedSessions(): void {
       const previous = sessions.get(key);
       if (previous) removeSessionMappings(previous);
       sessions.set(key, session);
+      if (session.languageId === "java") beginProjectPreparation(session.workspacePath, session.id);
       for (const file of stored.files) attachFile(session, file, crypto.randomUUID());
     }
     for (const session of sessions.values()) {
-      if (session.files.size === 0) removeSessionMappings(session);
+      if (session.files.size === 0) {
+        if (session.languageId === "java") clearProjectPreparation(session.workspacePath, session.id);
+        removeSessionMappings(session);
+      }
     }
   } catch (reason) {
     storage.removeItem(SESSION_STORAGE_KEY);
@@ -416,6 +428,13 @@ function isInitializationTimeout(reason: unknown): boolean {
 }
 
 async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Promise<void> {
+  if (event.type === "projectPreparation" && event.result && session.languageId === "java") {
+    updateProjectPreparation(session.workspacePath, session.id, event.result as ProjectPreparation);
+  }
+  if (event.type === "stateChanged" && event.state === "failed" && session.languageId === "java") {
+    failProjectPreparation(session.workspacePath, session.id);
+  }
+
   await dispatchRuntimeEvent(event, session.workspacePath);
   if (event.type === "stateChanged" && event.state) {
     const phase = event.state === "processStarting"
@@ -471,11 +490,14 @@ async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Prom
 }
 
 async function poll(session: Session, timeoutMilliseconds = 30_000): Promise<RuntimeEvent[]> {
-  const response = await core<{ events: RuntimeEvent[] }>("lsp.waitEvents", {
+  const response = await core<{ events: RuntimeEvent[]; projectPreparation?: ProjectPreparation }>("lsp.waitEvents", {
     sessionId: session.id,
     timeoutMilliseconds,
   });
   for (const event of response.events) await dispatchSessionEvent(session, event);
+  if (session.languageId === "java" && response.projectPreparation) {
+    updateProjectPreparation(session.workspacePath, session.id, response.projectPreparation);
+  }
   return response.events;
 }
 
@@ -547,6 +569,7 @@ async function runEventPump(session: Session, owner: EventPumpOwner): Promise<vo
     const error = reason instanceof Error ? reason : new Error(String(reason));
     rejectPendingOperations(session, error);
     transitionSessionLifecycle(session.lifecycle, "failed");
+    if (session.languageId === "java") failProjectPreparation(session.workspacePath, session.id);
     removeSessionMappings(session);
     persistSessions();
     owner.operation.failed(error);
@@ -635,6 +658,7 @@ async function cleanupFailedStart(
   session: Session,
   operationId: string,
 ): Promise<void> {
+  if (session.languageId === "java") failProjectPreparation(session.workspacePath, session.id);
   stoppingSessionIds.add(session.id);
   if (sessions.get(key) === session) sessions.delete(key);
   removeSessionMappings(session);
@@ -733,6 +757,7 @@ async function recoverSession(session: Session): Promise<Session | null> {
     operation.succeeded();
     return session;
   } catch (reason) {
+    if (session.languageId === "java") failProjectPreparation(session.workspacePath, session.id);
     removeSessionMappings(session);
     persistSessions();
     operation.failed(reason);
@@ -799,6 +824,7 @@ async function createSession(args: JsonRecord, key: string): Promise<Session> {
     documentVersions: new Map(),
   };
   sessions.set(key, session);
+  if (session.languageId === "java") beginProjectPreparation(session.workspacePath, session.id);
   persistSessions();
   try {
     await waitUntilReady(session);
@@ -934,6 +960,7 @@ async function start(args: JsonRecord): Promise<void> {
 }
 
 async function stopSession(session: Session): Promise<void> {
+  if (session.languageId === "java") clearProjectPreparation(session.workspacePath, session.id);
   const key = sessionKey(session.workspacePath, session.languageId);
   stoppingSessionIds.add(session.id);
   removeSessionMappings(session);
@@ -1268,6 +1295,8 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     return undefined as T;
   }
   if (command === "lsp_stop") {
+    const preparation = getProjectPreparation(args.workspacePath);
+    if (preparation) clearProjectPreparation(args.workspacePath, preparation.sessionId);
     const matches = [...sessions.values()].filter(
       (session) =>
         normalizedPathKey(session.workspacePath) === normalizedPathKey(args.workspacePath),
@@ -1431,6 +1460,9 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     const sourcePath = String(args.sourcePath ?? "");
     const configuredMainClass = String(args.mainClass ?? "");
     const session = sessionForWorkspace(workspacePath, "java");
+    if (getProjectPreparation(workspacePath)?.blocksRun) {
+      throw new Error("Java project preparation is incomplete. See project preparation status in the Run panel.");
+    }
     const execute = async (
       title: string,
       javaCommand: string,

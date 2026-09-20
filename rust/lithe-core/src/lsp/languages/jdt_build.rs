@@ -356,6 +356,14 @@ impl JavaBuildCoordinator {
             .map(|build| build.request_id.as_str())
     }
 
+    /// Reports the same bounded project-update gate used by build dispatch.
+    pub(crate) fn project_configuration_running(&mut self, now: Instant) -> bool {
+        self.configuration_jobs.retain(|_, job| {
+            now.saturating_duration_since(job.last_activity) < PROJECT_CONFIGURATION_IDLE_TIMEOUT
+        });
+        !self.configuration_jobs.is_empty()
+    }
+
     /// Records a project-configuration job's lifecycle from work-done progress.
     pub(crate) fn observe_progress(&mut self, progress: ProjectJobProgress, now: Instant) {
         match progress {

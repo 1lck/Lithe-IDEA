@@ -98,9 +98,12 @@ function activeEditorNavigationContext() {
   const activeBuffer = bufferStore.buffers.find(
     (buffer) => buffer.id === bufferStore.activeBufferId,
   );
-  const editorState = useEditorStateStore.getState();
   if (!activeBuffer || activeBuffer.type !== "editor" || !activeBuffer.path) return null;
-  return { bufferStore, activeBuffer, editorState };
+  return {
+    bufferStore,
+    activeBuffer,
+    cursorPosition: editorAPI.getCursorPosition(),
+  };
 }
 
 function canonicalizeEditorPath(path: string): string {
@@ -203,8 +206,8 @@ function mybatisLocationsForActiveFile(): SpringNavigationLocation[] {
     mybatisState.index,
     mybatisState.root,
     context.activeBuffer.path,
-    context.editorState.cursorPosition.line,
-    context.editorState.cursorPosition.column,
+    context.cursorPosition.line,
+    context.cursorPosition.column,
   );
 }
 
@@ -219,13 +222,13 @@ function springLocationsForActiveFile(
         springState.index,
         springState.root,
         context.activeBuffer.path,
-        context.editorState.cursorPosition.line,
+        context.cursorPosition.line,
       )
     : resolveSpringReferences(
         springState.index,
         springState.root,
         context.activeBuffer.path,
-        context.editorState.cursorPosition.line,
+        context.cursorPosition.line,
       );
 }
 
@@ -291,8 +294,8 @@ async function presentSpringReferences(
     {
       symbol,
       filePath: context.activeBuffer.path,
-      line: context.editorState.cursorPosition.line,
-      column: context.editorState.cursorPosition.column,
+      line: context.cursorPosition.line,
+      column: context.cursorPosition.column,
     },
     locations.map((location) => ({
       filePath: location.filePath,
@@ -309,6 +312,7 @@ async function presentLspLocations(
   locations: LspLocation[],
   symbol: string,
   sourceBuffer: EditorContent,
+  sourcePosition: { line: number; column: number },
 ): Promise<void> {
   const [{ readFileContent }, { filePathFromUri }] = await Promise.all([
     import("@/features/file-system/controllers/file-operations"),
@@ -347,8 +351,8 @@ async function presentLspLocations(
     {
       symbol,
       filePath: sourceBuffer.path,
-      line: useEditorStateStore.getState().cursorPosition.line,
-      column: useEditorStateStore.getState().cursorPosition.column,
+      line: sourcePosition.line,
+      column: sourcePosition.column,
     },
     locations.map((location) => {
       const filePath = filePathFromUri(location.uri);
@@ -390,7 +394,7 @@ async function goToActiveLspLocation(
   const bufferStore = useBufferStore.getState();
   const activeBuffer = bufferStore.buffers.find((b) => b.id === bufferStore.activeBufferId);
   const editorState = useEditorStateStore.getState();
-  const cursorPosition = editorState.cursorPosition;
+  const cursorPosition = editorAPI.getCursorPosition();
   const requestLine = options.position?.line ?? cursorPosition.line;
   const requestCharacter = options.position?.character ?? cursorPosition.column;
 
@@ -463,7 +467,12 @@ async function goToActiveLspLocation(
   });
 
   if (navigationLocationPresentation(locations.length, options.showMultipleResults) === "list") {
-    await presentLspLocations(locations, translateNavigationLabel(label), activeBuffer);
+    await presentLspLocations(
+      locations,
+      translateNavigationLabel(label),
+      activeBuffer,
+      cursorPosition,
+    );
     return;
   }
 
@@ -616,7 +625,7 @@ export async function goToReferences(): Promise<void> {
   const lspClient = LspClient.getInstance();
   const bufferStore = useBufferStore.getState();
   const activeBuffer = bufferStore.buffers.find((b) => b.id === bufferStore.activeBufferId);
-  const cursorPosition = useEditorStateStore.getState().cursorPosition;
+  const cursorPosition = editorAPI.getCursorPosition();
 
   if (!activeBuffer?.path) return;
 
@@ -746,6 +755,7 @@ export async function goToReferences(): Promise<void> {
 export async function goBack(): Promise<void> {
   const bufferStore = useBufferStore.getState();
   const editorState = useEditorStateStore.getState();
+  const cursorPosition = editorAPI.getCursorPosition();
   const activeBufferId = bufferStore.activeBufferId;
   const activeBuffer = bufferStore.buffers.find((b) => b.id === activeBufferId);
 
@@ -756,9 +766,9 @@ export async function goBack(): Promise<void> {
           bufferId: activeBufferId,
           filePath: activeBuffer.path,
           paneId,
-          line: editorState.cursorPosition.line,
-          column: editorState.cursorPosition.column,
-          offset: editorState.cursorPosition.offset,
+          line: cursorPosition.line,
+          column: cursorPosition.column,
+          offset: cursorPosition.offset,
           scrollTop: editorState.scrollTop,
           scrollLeft: editorState.scrollLeft,
         }
