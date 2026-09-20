@@ -23,7 +23,7 @@ mod python;
 mod scan;
 mod shell;
 
-use super::types::{Confidence, Execution};
+use super::types::{Confidence, Execution, RunCategory};
 use crate::protocol::CoreError;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -42,6 +42,8 @@ pub struct Detected {
     /// Human label, unique within its directory for a given provider.
     pub name: String,
     pub execution: Execution,
+    /// Whether this runs the project or the infrastructure it depends on.
+    pub category: RunCategory,
     pub confidence: Confidence,
     /// The program to spawn, or `None` when `toolchains` names the executable.
     pub command: Option<String>,
@@ -126,6 +128,7 @@ impl Detected {
             provider: provider.to_string(),
             name: name.to_string(),
             execution,
+            category: RunCategory::Project,
             confidence: Confidence::Declared,
             command: Some(command.to_string()),
             args: args.into_iter().map(str::to_string).collect(),
@@ -136,6 +139,12 @@ impl Detected {
             extensions: BTreeMap::new(),
             source: ctx.join_relative(source),
         }
+    }
+
+    /// Marks a detection as external infrastructure rather than project code.
+    pub fn as_infrastructure(mut self) -> Self {
+        self.category = RunCategory::Infrastructure;
+        self
     }
 
     /// Replaces the default declared confidence with the detector's evidence level.

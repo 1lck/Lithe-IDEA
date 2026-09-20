@@ -39,3 +39,32 @@ impl Default for Confidence {
         Self::Declared
     }
 }
+
+/// Whether a configuration runs the project itself or the external services it
+/// depends on.
+///
+/// A Docker Compose file in a Java repository usually declares databases and
+/// caches, not the application. Both are runnable, but presenting nineteen
+/// containers beside the one Spring Boot service buries it, so hosts group
+/// infrastructure separately instead of dropping it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RunCategory {
+    /// Code in this repository: a service, application, or build task.
+    Project,
+    /// External dependencies the project runs against, such as Compose services.
+    Infrastructure,
+}
+
+impl Default for RunCategory {
+    fn default() -> Self {
+        Self::Project
+    }
+}
+
+impl RunCategory {
+    /// Lets serialization omit the common case so generated documents stay small.
+    pub fn is_project(&self) -> bool {
+        matches!(self, Self::Project)
+    }
+}
