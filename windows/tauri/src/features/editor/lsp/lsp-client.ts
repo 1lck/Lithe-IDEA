@@ -31,7 +31,7 @@ import type {
 import { hasTextContent, shouldStartLsp } from "@/features/panes/types/pane-content.types";
 import { useBufferStore } from "../stores/buffer.store";
 import { logger } from "../utils/logger";
-import { normalizePath } from "@/utils/path-helpers";
+import { normalizePath, pathStartsWithRoot } from "@/utils/path-helpers";
 import { getLanguageDisplayName } from "../utils/language-id";
 import {
   isBuiltInLspPath,
@@ -39,6 +39,7 @@ import {
   languageIdForEditorFile,
 } from "./built-in-language-support";
 import { resolvePublishedDiagnosticsFilePath } from "./diagnostics-file-path";
+import { decideWorkspaceDiagnostics } from "./diagnostics-retention";
 import { resolveEditorLspLaunch } from "./resolve-editor-lsp-launch";
 import type { LspSemanticTokensResponse } from "./semantic-token-types";
 import {
@@ -192,6 +193,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+/**
+ * Upper bound on unopened workspace files tracked for diagnostics at once. A
+ * language server can report markers for an entire monorepo, and the panel
+ * stops being useful long before the store becomes a memory problem.
+ */
+const MAX_WORKSPACE_DIAGNOSTIC_FILES = 2000;
+
 function trackedFileKey(filePath: string): string {
   const normalized = normalizePath(filePath);
   return /^(?:[A-Za-z]:\/|\/\/)/.test(normalized) ? normalized.toLowerCase() : normalized;
@@ -228,6 +236,13 @@ export class LspClient {
   private workspaceStartTasks = new Map<string, PendingWorkspaceStart>();
   private documentOpenTasks = new Map<string, PendingDocumentOpen>();
   private documents = new Map<string, TrackedLspDocument>();
+  /**
+   * Unopened workspace files that currently carry diagnostics, keyed by
+   * tracked-file key so lookups match the rest of the client, with the exact
+   * store path as the value so the entries can be cleared again.
+   */
+  private workspaceDiagnosticFiles = new Map<string, string>();
+  private workspaceDiagnosticLimitReported = false;
 
   private constructor() {
     this.setupDiagnosticsListener();
@@ -433,6 +448,74 @@ export class LspClient {
     };
   }
 
+  /**
+   * Workspace roots that currently own a language server. Published
+   * diagnostics are kept only for files inside one of these roots, which
+   * excludes JDK sources, dependency jars, and decompiled class files without
+   * needing a separate project-store dependency here.
+   */
+  private activeWorkspaceRoots(): string[] {
+    const roots = new Set<string>();
+    for (const serverKey of this.activeLanguageServers) {
+      const { workspacePath } = this.parseServerKey(serverKey);
+      if (workspacePath) roots.add(workspacePath);
+    }
+    return [...roots];
+  }
+
+  /**
+   * Decides whether a published diagnostic set for `filePath` should reach the
+   * store, and keeps the workspace-wide bookkeeping that bounds it.
+   *
+   * Open files are never bounded: the editor must always show its own markers.
+   * Files the user never opened are tracked so that a clean rebuild removes
+   * their entries instead of leaving empty rows behind, and so that a very
+   * large workspace cannot grow the store without limit.
+   */
+  private retainWorkspaceDiagnostics(filePath: string, diagnosticCount: number): boolean {
+    const trackingKey = trackedFileKey(filePath);
+    const isDocumentOpen = this.isDocumentOpen(filePath);
+    const decision = decideWorkspaceDiagnostics({
+      isDocumentOpen,
+      diagnosticCount,
+      isTracked: this.workspaceDiagnosticFiles.has(trackingKey),
+      trackedFileCount: this.workspaceDiagnosticFiles.size,
+      maxTrackedFiles: MAX_WORKSPACE_DIAGNOSTIC_FILES,
+    });
+
+    if (decision === "clear") {
+      this.workspaceDiagnosticFiles.delete(trackingKey);
+      useDiagnosticsStore.getState().actions.clearDiagnosticsForOwner(filePath, "lsp");
+      return false;
+    }
+
+    if (decision === "ignore") {
+      if (diagnosticCount > 0 && !this.workspaceDiagnosticLimitReported) {
+        this.workspaceDiagnosticLimitReported = true;
+        logger.warn(
+          "LSPClient",
+          `Workspace diagnostics reached the ${MAX_WORKSPACE_DIAGNOSTIC_FILES} file limit; ` +
+            `dropping diagnostics for additional unopened files such as ${filePath}`,
+        );
+      }
+      return false;
+    }
+
+    if (!isDocumentOpen) this.workspaceDiagnosticFiles.set(trackingKey, filePath);
+    return true;
+  }
+
+  /** Drops diagnostics kept for unopened files under a workspace being closed. */
+  private clearWorkspaceDiagnostics(workspacePath: string): void {
+    const { clearDiagnosticsForOwner } = useDiagnosticsStore.getState().actions;
+    for (const [trackingKey, filePath] of this.workspaceDiagnosticFiles) {
+      if (!pathStartsWithRoot(filePath, workspacePath)) continue;
+      this.workspaceDiagnosticFiles.delete(trackingKey);
+      clearDiagnosticsForOwner(filePath, "lsp");
+    }
+    this.workspaceDiagnosticLimitReported = false;
+  }
+
   private parseServerKey(serverKey: string): { workspacePath: string; languageId: string } {
     const separatorIndex = serverKey.lastIndexOf(":");
     if (separatorIndex === -1) {
@@ -505,15 +588,18 @@ export class LspClient {
                 .filter((document) => document.phase === "open")
                 .map((document) => document.filePath),
             ),
+            this.activeWorkspaceRoots(),
           );
 
           if (!filePath) {
             logger.debug(
               "LSPClient",
-              `Ignoring diagnostics for closed document: ${publishedFilePath}`,
+              `Ignoring diagnostics outside the open workspaces: ${publishedFilePath}`,
             );
             return;
           }
+
+          if (!this.retainWorkspaceDiagnostics(filePath, diagnostics?.length ?? 0)) return;
 
           const publishedVersion = event.payload.version;
           const currentVersion = this.documents.get(trackedFileKey(filePath))?.version;
@@ -744,6 +830,8 @@ export class LspClient {
           this.activeLanguages.delete(displayName);
         }
       }
+
+      this.clearWorkspaceDiagnostics(workspacePath);
 
       // Update status store
       this.updateLspStatus();
