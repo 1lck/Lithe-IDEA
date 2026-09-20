@@ -35,7 +35,7 @@ test("shows the standard continue and recovery choices with build evidence", () 
   );
 
   expect(markup).toContain("Run Anyway");
-  expect(markup).toContain("Always Continue");
+  expect(markup).toContain("Always Continue in This Workspace");
   expect(markup).toContain("Rebuild Java Index");
   expect(markup).toContain("Open Logs");
   expect(markup).toContain("reported errors may be left over");

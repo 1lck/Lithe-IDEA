@@ -54,7 +54,7 @@ struct JavaLaunchDecisionDialog: View {
                 }
                 .buttonStyle(.borderedProminent)
 
-                Button(chinese ? "始终继续" : "Always Continue") {
+                Button(chinese ? "对此工作区始终继续" : "Always Continue in This Workspace") {
                     model.completeJavaLaunchDecision(.alwaysContinue, requestID: request.id)
                 }
 

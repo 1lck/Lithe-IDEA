@@ -1535,7 +1535,7 @@ const catalogs = {
       "The build could not confirm one target project, so errors from other workspace modules may have affected this result.",
     "run.javaBuildElapsed": "Build response time: {milliseconds} ms. This is evidence only and does not decide whether you may run.",
     "run.javaBuildContinue": "Run Anyway",
-    "run.javaBuildAlwaysContinue": "Always Continue",
+    "run.javaBuildAlwaysContinue": "Always Continue in This Workspace",
     "run.javaBuildRebuildIndex": "Rebuild Java Index",
     "run.javaBuildOpenLogs": "Open Logs",
     "run.javaBuildAlwaysContinueEnabled":
@@ -5919,7 +5919,7 @@ const catalogs = {
       "本次构建未能确认唯一目标项目，因此其他工作区模块的错误可能影响了结果。",
     "run.javaBuildElapsed": "构建响应耗时：{milliseconds} 毫秒。该数据只用于说明情况，不决定是否允许运行。",
     "run.javaBuildContinue": "仍然运行",
-    "run.javaBuildAlwaysContinue": "以后始终继续",
+    "run.javaBuildAlwaysContinue": "对此工作区始终继续",
     "run.javaBuildRebuildIndex": "重建 Java 索引",
     "run.javaBuildOpenLogs": "打开日志",
     "run.javaBuildAlwaysContinueEnabled": "此工作区遇到 Java 构建失败时会直接继续启动，不再询问。",
