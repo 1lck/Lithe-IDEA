@@ -151,6 +151,7 @@ modify_shared_fixture() { printf '%s\n' '{"operation":"updated"}' > shared/fixtu
 modify_windows_frontend() { printf '%s\n' 'export const value = 2;' > windows/tauri/src/value.ts; }
 modify_windows_rust() { printf '%s\n' 'fn main() { println!("updated"); }' > windows/tauri/src-tauri/src/main.rs; }
 modify_download_cache_validator() { printf '%s\n' 'console.log("updated");' > scripts/verify-download-cache.mjs; }
+modify_worktree_resource_registry() { printf '%s\n' '{"schemaVersion":1,"resources":[]}' > scripts/worktree-resources.json; }
 modify_test_stability_runner() {
     mkdir -p .agents/skills/write-stable-tests/scripts
     printf '%s\n' '#!/bin/zsh' 'print -- test-stability' > .agents/skills/write-stable-tests/scripts/test-stability-macos.sh
@@ -275,6 +276,9 @@ assert_classification windows-rust \
 assert_classification download-cache-validator \
     "$(classification true true true true false true true true false false)" \
     modify_download_cache_validator
+assert_classification worktree-resource-registry \
+    "$(classification true true true true false true true true false false)" \
+    modify_worktree_resource_registry
 assert_classification test-stability-runner \
     "$(classification true true true true false false true true false false true)" \
     modify_test_stability_runner
