@@ -8,6 +8,10 @@ import {
 } from "@/features/run/stores/project-preparation.store";
 import { emit } from "@tauri-apps/api/event";
 import { executeCore, type CoreResponse } from "@/core/lithe-core-client";
+import {
+  canOverrideJavaBuildVerdict,
+  type JavaBuildReport,
+} from "@/platform/java-launch-readiness";
 import { frontendTrace } from "@/utils/frontend-trace";
 import {
   createSessionLifecycle,
@@ -96,6 +100,7 @@ interface RuntimeError {
   message?: string;
   underlyingMessage?: string;
   processExitCode?: number;
+  javaBuildReport?: JavaBuildReport;
 }
 
 interface RuntimeEvent {
@@ -481,8 +486,12 @@ async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Prom
   if (event.error) {
     const error = new Error(event.error.message ?? "LSP request failed") as Error & {
       code?: string;
+      javaBuildReport?: JavaBuildReport;
     };
     error.code = event.error.code;
+    // Evidence behind a blocked Java launch travels with the failure so the
+    // Run panel can explain it and offer the matching recovery.
+    error.javaBuildReport = event.error.javaBuildReport;
     pending.reject(error);
   } else {
     pending.resolve(event.result);
@@ -1459,6 +1468,9 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     const workspacePath = String(args.workspacePath ?? "");
     const sourcePath = String(args.sourcePath ?? "");
     const configuredMainClass = String(args.mainClass ?? "");
+    // Set when the user saw a build verdict in the Run panel and chose to
+    // launch regardless. It never skips the build itself.
+    const overrideBuildVerdict = args.overrideBuildVerdict === true;
     const session = sessionForWorkspace(workspacePath, "java");
     if (getProjectPreparation(workspacePath)?.blocksRun) {
       throw new Error("Java project preparation is incomplete. See project preparation status in the Run panel.");
@@ -1511,23 +1523,40 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
         "The Java language service could not identify one launch target for this source file.",
       );
     }
-    const projectName = typeof selected.projectName === "string" ? selected.projectName : undefined;
+    // A blank project name reaches Java Debug Server exactly as a missing one
+    // does, because it applies `isNotBlank`; Core reports the resulting marker
+    // scope back in the build report.
+    const projectName =
+      typeof selected.projectName === "string" && selected.projectName.trim().length > 0
+        ? selected.projectName
+        : undefined;
     // Core serializes this build behind JDT project configuration and earlier
     // builds, and reports compilation errors, build failures, and cancellation
-    // as distinct structured errors.
-    const buildStatus = await execute(
-      "Build Java Workspace",
-      "vscode.java.buildWorkspace",
-      [
-        JSON.stringify({
-          mainClass: selected.mainClass,
-          projectName,
-          filePath: sourcePath,
-          isFullBuild: false,
-        }),
-      ],
-      JAVA_BUILD_TIMEOUT_MS,
-    );
+    // as distinct structured errors carrying the evidence behind the verdict.
+    //
+    // The verdict is evidence, not a veto. When the user already saw it and
+    // chose to launch anyway, the build still runs -- its output is what the
+    // launch uses -- but a verdict the user may override no longer stops it.
+    let buildStatus: unknown;
+    try {
+      buildStatus = await execute(
+        "Build Java Workspace",
+        "vscode.java.buildWorkspace",
+        [
+          JSON.stringify({
+            mainClass: selected.mainClass,
+            projectName,
+            filePath: sourcePath,
+            isFullBuild: false,
+          }),
+        ],
+        JAVA_BUILD_TIMEOUT_MS,
+      );
+    } catch (reason) {
+      const code = (reason as { code?: string } | null)?.code;
+      if (!overrideBuildVerdict || !canOverrideJavaBuildVerdict(code)) throw reason;
+      buildStatus = 1;
+    }
     if (Number(buildStatus) !== 1) {
       throw lspAdapterError(
         "invalid_response",

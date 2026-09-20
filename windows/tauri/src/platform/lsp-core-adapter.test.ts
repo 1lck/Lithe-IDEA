@@ -53,7 +53,12 @@ let releaseInitialization: (() => void) | undefined;
 
 /** A queued semantic outcome that Core reports as a structured request error. */
 interface CoreRequestFailure {
-  coreError: { code: string; message: string; stage?: string };
+  coreError: {
+    code: string;
+    message: string;
+    stage?: string;
+    javaBuildReport?: Record<string, unknown>;
+  };
 }
 
 function isCoreRequestFailure(value: unknown): value is CoreRequestFailure {
@@ -754,6 +759,165 @@ describe("Rust Core LSP adapter failures", () => {
       requestPayloads.slice(-1).map((payload) =>
         (payload.command as { command?: string } | undefined)?.command),
     ).toEqual(["vscode.java.buildWorkspace"]);
+  });
+
+  test("launches past a build verdict the user chose to override", async () => {
+    // The verdict is evidence, not a veto: the build still runs, and the launch
+    // continues with the classpath the language service resolves.
+    scenario = "semantic-request";
+    semanticRequestResults = [
+      {
+        value: [
+          {
+            mainClass: "example.Main",
+            projectName: "service",
+            filePath: "C:/work/service/src/main/java/example/Main.java",
+          },
+        ],
+      },
+      {
+        coreError: {
+          code: "javaBuildCompilationErrors",
+          stage: "javaBuild",
+          message: "The Java project has compilation errors.",
+          javaBuildReport: {
+            markerScope: "launchTarget",
+            builderFailedEarlier: true,
+            elapsedMilliseconds: 7,
+            recovery: "rebuildJavaIndex",
+          },
+        },
+      },
+      { value: [["C:/work/service/target/modules"], ["C:/work/service/target/classes"]] },
+    ];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    const target = await invokeLsp("java_prepare_run_launch", {
+      workspacePath: "C:/work",
+      sourcePath: "C:/work/service/src/main/java/example/Main.java",
+      mainClass: "example.Main",
+      overrideBuildVerdict: true,
+    });
+
+    expect(target).toEqual({
+      mainClass: "example.Main",
+      projectName: "service",
+      modulePaths: ["C:/work/service/target/modules"],
+      classPaths: ["C:/work/service/target/classes"],
+    });
+    expect(
+      requestPayloads.slice(-3).map((payload) =>
+        (payload.command as { command?: string } | undefined)?.command),
+    ).toEqual([
+      "vscode.java.resolveMainClass",
+      "vscode.java.buildWorkspace",
+      "vscode.java.resolveClasspath",
+    ]);
+  });
+
+  test("still blocks an overridden launch when the build reached no verdict", async () => {
+    // A cancelled build says nothing about the code, so there is nothing to
+    // override; retrying is the useful action.
+    scenario = "semantic-request";
+    semanticRequestResults = [
+      {
+        value: [
+          {
+            mainClass: "example.Main",
+            projectName: "service",
+            filePath: "C:/work/service/src/main/java/example/Main.java",
+          },
+        ],
+      },
+      {
+        coreError: {
+          code: "javaBuildCancelled",
+          stage: "javaBuild",
+          message: "The Java project build was cancelled before it finished.",
+        },
+      },
+    ];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    let failure: (Error & { code?: string }) | null = null;
+    try {
+      await invokeLsp("java_prepare_run_launch", {
+        workspacePath: "C:/work",
+        sourcePath: "C:/work/service/src/main/java/example/Main.java",
+        mainClass: "example.Main",
+        overrideBuildVerdict: true,
+      });
+    } catch (error) {
+      failure = error as Error & { code?: string };
+    }
+
+    expect(failure?.code).toBe("javaBuildCancelled");
+    expect(
+      requestPayloads.slice(-1).map((payload) =>
+        (payload.command as { command?: string } | undefined)?.command),
+    ).toEqual(["vscode.java.buildWorkspace"]);
+  });
+
+  test("carries the build report to the caller when the launch is blocked", async () => {
+    scenario = "semantic-request";
+    semanticRequestResults = [
+      {
+        value: [
+          {
+            mainClass: "example.Main",
+            projectName: "service",
+            filePath: "C:/work/service/src/main/java/example/Main.java",
+          },
+        ],
+      },
+      {
+        coreError: {
+          code: "javaBuildCompilationErrors",
+          stage: "javaBuild",
+          message: "The Java project has compilation errors.",
+          javaBuildReport: {
+            markerScope: "workspace",
+            builderFailedEarlier: false,
+            elapsedMilliseconds: 8,
+            recovery: "none",
+          },
+        },
+      },
+    ];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    let failure: (Error & { javaBuildReport?: unknown }) | null = null;
+    try {
+      await invokeLsp("java_prepare_run_launch", {
+        workspacePath: "C:/work",
+        sourcePath: "C:/work/service/src/main/java/example/Main.java",
+        mainClass: "example.Main",
+      });
+    } catch (error) {
+      failure = error as Error & { javaBuildReport?: unknown };
+    }
+
+    expect(failure?.javaBuildReport).toEqual({
+      markerScope: "workspace",
+      builderFailedEarlier: false,
+      elapsedMilliseconds: 8,
+      recovery: "none",
+    });
   });
 
   test("rejects an invalid Java Debug Server port", async () => {
