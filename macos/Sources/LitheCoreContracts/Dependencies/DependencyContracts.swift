@@ -80,27 +80,31 @@ package struct WorkspaceDependencyConfiguration: Codable, Equatable, Sendable {
     }
 }
 
-/// A run service exposed in the dependency sidebar. Provider metadata controls
-/// how paths are supplemented; the sidebar never branches on a language name.
+/// A language-level dependency entry exposed in the dependency sidebar.
+/// Multiple run configurations can contribute to one entry when they use the
+/// same provider and resolve to the same source roots.
 package struct DependencyServiceDescriptor: Identifiable, Equatable, Sendable {
     package let id: String
     package let displayName: String
     package let providerID: String
     package let providerDisplayName: String
     package let systemImage: String
+    package let configurationIDs: [String]
 
     package init(
         id: String,
         displayName: String,
         providerID: String,
         providerDisplayName: String,
-        systemImage: String
+        systemImage: String,
+        configurationIDs: [String] = []
     ) {
         self.id = id
         self.displayName = displayName
         self.providerID = providerID
         self.providerDisplayName = providerDisplayName
         self.systemImage = systemImage
+        self.configurationIDs = configurationIDs.isEmpty ? [id] : configurationIDs
     }
 }
 

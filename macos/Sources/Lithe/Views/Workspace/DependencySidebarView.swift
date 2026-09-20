@@ -85,7 +85,7 @@ private struct RunServiceDependencySidebarContent: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             GeometryReader { geometry in
-                ScrollView([.vertical, .horizontal]) {
+                ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(feature.dependencyServices) { service in
                             DependencyServiceSection(
@@ -162,10 +162,12 @@ private struct DependencyServiceSection: View {
                         Text(service.displayName)
                             .font(.system(size: LitheTheme.Metrics.treeFontSize, weight: .semibold))
                             .foregroundStyle(LitheTheme.primaryText)
-                        Text(hasCustomConfiguration ? String(localized: "Configured") : service.providerDisplayName)
-                            .font(.system(size: 9.5))
-                            .foregroundStyle(LitheTheme.secondaryText)
-                            .lineLimit(1)
+                        if let subtitle = serviceSubtitle {
+                            Text(subtitle)
+                                .font(.system(size: 9.5))
+                                .foregroundStyle(LitheTheme.secondaryText)
+                                .lineLimit(1)
+                        }
                     }
                     Spacer(minLength: 4)
                 }
@@ -249,6 +251,11 @@ private struct DependencyServiceSection: View {
             || !paths.excludedPaths.isEmpty
     }
 
+    private var serviceSubtitle: String? {
+        if hasCustomConfiguration { return String(localized: "Configured") }
+        return service.displayName == service.providerDisplayName ? nil : service.providerDisplayName
+    }
+
     private func invalidateAndReload() {
         resolutionTask?.cancel()
         resolutionTask = nil
@@ -288,6 +295,8 @@ private struct DependencyTreeNodeView: View {
     let depth: Int
     @Binding var expandedNodeIDs: Set<String>
     let onExclude: (String) -> Void
+    @State private var isPathRevealed = false
+    @State private var pathRevealTask: Task<Void, Never>?
 
     private var isExpanded: Bool { expandedNodeIDs.contains(node.id) }
 
@@ -348,33 +357,51 @@ private struct DependencyTreeNodeView: View {
     }
 
     private var pathRow: some View {
-        HStack(spacing: 6) {
-            LitheSystemIcon(systemImage: node.kind == .packageNode ? "shippingbox" : "folder")
-                .font(.system(size: 11))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .frame(width: 16)
-            VStack(alignment: .leading, spacing: 1) {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                LitheSystemIcon(systemImage: node.kind == .packageNode ? "shippingbox" : "folder")
+                    .font(.system(size: 11))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .frame(width: 16)
                 Text(node.title)
                     .font(.system(size: LitheTheme.Metrics.treeFontSize))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
-                if let subtitle = node.subtitle {
-                    Text(subtitle)
-                        .font(.system(size: 9.5, design: .monospaced))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .lineLimit(1)
-                }
+                Spacer(minLength: 4)
             }
-            Spacer(minLength: 4)
+            .padding(.leading, CGFloat(22 + depth * 14))
+            .padding(.trailing, 8)
+            .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+
+            if isPathRevealed, let subtitle = node.subtitle {
+                DependencyPathRevealStrip(path: subtitle)
+                    .padding(.leading, CGFloat(22 + depth * 14))
+                    .padding(.trailing, 8)
+                    .padding(.bottom, 4)
+            }
         }
-        .padding(.leading, CGFloat(22 + depth * 14))
-        .padding(.trailing, 8)
-        .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
         .contentShape(Rectangle())
+        .onTapGesture { revealPath() }
+        .onDisappear {
+            pathRevealTask?.cancel()
+            pathRevealTask = nil
+        }
         .litheContextMenu(items: {
             guard let path = dependencyPath else { return [] }
             return [.action(String(localized: "Exclude from dependency tree")) { onExclude(path) }]
         })
+    }
+
+    private func revealPath() {
+        guard node.subtitle != nil else { return }
+        pathRevealTask?.cancel()
+        isPathRevealed = true
+        pathRevealTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            isPathRevealed = false
+            pathRevealTask = nil
+        }
     }
 
     private var dependencyPath: String? {
@@ -382,6 +409,30 @@ private struct DependencyTreeNodeView: View {
         case .directory(let url), .archive(let url): url.path
         case .generated, .unavailable: nil
         }
+    }
+}
+
+private struct DependencyPathRevealStrip: View {
+    let path: String
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            Text(path)
+                .font(.system(size: 9.5, design: .monospaced))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, 6)
+        }
+        .frame(maxWidth: .infinity, minHeight: 22, maxHeight: 22, alignment: .leading)
+        .background(LitheTheme.toolHeader.opacity(0.72))
+        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .overlay {
+            RoundedRectangle(cornerRadius: 3)
+                .stroke(LitheTheme.divider, lineWidth: 1)
+        }
+        .help("Full path")
+        .accessibilityLabel(path)
+        .accessibilityAddTraits(.isStaticText)
     }
 }
 

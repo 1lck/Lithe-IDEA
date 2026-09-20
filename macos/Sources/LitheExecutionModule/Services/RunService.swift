@@ -186,28 +186,21 @@ package final class RunService: ObservableObject {
         return roots
     }
 
-    /// Run configurations are the dependency browser's service inventory. The
-    /// language/build provider enriches each service, but never owns the sidebar.
+    /// Projects run configurations into language-level dependency entries.
+    /// Configurations with the same provider and source roots share one entry;
+    /// the sidebar does not expose every launch name as a separate root.
     package var dependencyServices: [DependencyServiceDescriptor] {
-        configurations
-            .filter { $0.id != RunConfiguration.currentFileID && !$0.disabled }
-            .map { configuration in
-                let providerID = configuration.kind.providerID
-                let providerName = languageProviderCatalog.descriptors
-                    .first(where: { $0.id == providerID })?.displayName
-                    ?? configuration.kind.title
-                return DependencyServiceDescriptor(
-                    id: configuration.id,
-                    displayName: configuration.name,
-                    providerID: providerID,
-                    providerDisplayName: providerName,
-                    systemImage: configuration.systemImage
-                )
-            }
+        dependencyServiceGroups.map(\.descriptor)
     }
 
     package func dependencyPaths(for serviceID: String) -> DependencyPathConfiguration {
-        dependencyConfiguration.services[serviceID] ?? DependencyPathConfiguration()
+        if let stored = dependencyConfiguration.services[serviceID] {
+            return stored
+        }
+        guard let group = dependencyServiceGroups.first(where: { $0.descriptor.id == serviceID }) else {
+            return DependencyPathConfiguration()
+        }
+        return mergedDependencyPaths(for: group.descriptor.configurationIDs)
     }
 
     package func resolveDependencies(serviceID: String) async throws -> DependencyGraph? {
@@ -911,23 +904,93 @@ package final class RunService: ObservableObject {
 
     private func dependencyContext(serviceID: String) -> DependencyResolutionContext? {
         guard let workspace = projectURL,
-              let configuration = configurations.first(where: { $0.id == serviceID }) else {
+              let group = dependencyServiceGroups.first(where: { $0.descriptor.id == serviceID }) else {
             return nil
         }
-        let providerID = configuration.kind.providerID
-        let providerName = languageProviderCatalog.descriptors
-            .first(where: { $0.id == providerID })?.displayName
-            ?? configuration.kind.title
+        let sourceRoots = Self.uniqueURLs(group.configurations.flatMap {
+            dependencySourceRoots(for: $0, workspaceURL: workspace)
+        })
+        let classpath = Self.uniqueURLs(group.configurations.flatMap(dependencyClasspathProvider))
         return DependencyResolutionContext(
-            serviceID: configuration.id,
-            serviceDisplayName: configuration.name,
-            providerID: providerID,
-            providerDisplayName: providerName,
+            serviceID: group.descriptor.id,
+            serviceDisplayName: group.descriptor.displayName,
+            providerID: group.descriptor.providerID,
+            providerDisplayName: group.descriptor.providerDisplayName,
             workspaceURL: workspace,
-            sourceRoots: dependencySourceRoots(for: configuration, workspaceURL: workspace),
-            classpath: dependencyClasspathProvider(configuration),
-            dependencyPaths: dependencyPaths(for: configuration.id)
+            sourceRoots: sourceRoots,
+            classpath: classpath,
+            dependencyPaths: dependencyPaths(for: group.descriptor.id)
         )
+    }
+
+    private var dependencyServiceGroups: [DependencyServiceGroup] {
+        var configurationsByKey: [DependencyServiceGroupKey: [RunConfiguration]] = [:]
+        for configuration in configurations where configuration.id != RunConfiguration.currentFileID && !configuration.disabled {
+            let providerID = configuration.kind.providerID
+            let sourceRoots = projectURL.map {
+                dependencySourceRoots(for: configuration, workspaceURL: $0)
+            } ?? []
+            let key = DependencyServiceGroupKey(
+                providerID: providerID,
+                sourceRootPaths: sourceRoots.map(\.path).sorted()
+            )
+            configurationsByKey[key, default: []].append(configuration)
+        }
+
+        return configurationsByKey.map { key, values in
+            let groupedConfigurations = values.sorted { $0.id < $1.id }
+            let first = groupedConfigurations[0]
+            let providerName = languageProviderCatalog.descriptors
+                .first(where: { $0.id == key.providerID })?.displayName
+                ?? first.kind.title
+            let descriptorID: String
+            if groupedConfigurations.count == 1 {
+                descriptorID = first.id
+            } else {
+                let digestInput = "\(key.providerID)|\(key.sourceRootPaths.joined(separator: "|"))"
+                let digest = SHA256.hash(data: Data(digestInput.utf8))
+                    .map { String(format: "%02x", $0) }
+                    .joined()
+                descriptorID = "dependency:\(key.providerID):\(digest.prefix(16))"
+            }
+            return DependencyServiceGroup(
+                descriptor: DependencyServiceDescriptor(
+                    id: descriptorID,
+                    displayName: providerName,
+                    providerID: key.providerID,
+                    providerDisplayName: providerName,
+                    systemImage: first.systemImage,
+                    configurationIDs: groupedConfigurations.map(\.id)
+                ),
+                configurations: groupedConfigurations
+            )
+        }
+        .sorted {
+            let nameOrder = $0.descriptor.displayName.localizedStandardCompare($1.descriptor.displayName)
+            return nameOrder == .orderedSame
+                ? $0.descriptor.id < $1.descriptor.id
+                : nameOrder == .orderedAscending
+        }
+    }
+
+    private func mergedDependencyPaths(for configurationIDs: [String]) -> DependencyPathConfiguration {
+        let configurations = configurationIDs.compactMap { dependencyConfiguration.services[$0] }
+        guard !configurations.isEmpty else { return DependencyPathConfiguration() }
+        return DependencyPathConfiguration(
+            sourcePaths: normalizedDependencyPaths(configurations.flatMap(\.sourcePaths)),
+            binaryPaths: normalizedDependencyPaths(configurations.flatMap(\.binaryPaths)),
+            dependencyPaths: normalizedDependencyPaths(configurations.flatMap(\.dependencyPaths)),
+            additionalSearchPaths: normalizedDependencyPaths(configurations.flatMap(\.additionalSearchPaths)),
+            excludedPaths: normalizedDependencyPaths(configurations.flatMap(\.excludedPaths))
+        )
+    }
+
+    private static func uniqueURLs(_ urls: [URL]) -> [URL] {
+        var seen: Set<String> = []
+        return urls
+            .map(\.standardizedFileURL)
+            .filter { seen.insert($0.path).inserted }
+            .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
     }
 
     private func dependencySourceRoots(
@@ -1856,6 +1919,16 @@ package final class RunService: ObservableObject {
 private struct DependencyServiceIndexInput: Sendable {
     let context: DependencyResolutionContext
     let managementFiles: [URL]
+}
+
+private struct DependencyServiceGroupKey: Hashable {
+    let providerID: String
+    let sourceRootPaths: [String]
+}
+
+private struct DependencyServiceGroup {
+    let descriptor: DependencyServiceDescriptor
+    let configurations: [RunConfiguration]
 }
 
 private struct DependencyServiceFileInput: Codable, Sendable {

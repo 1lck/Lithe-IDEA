@@ -696,7 +696,7 @@ struct ExecutionModuleTests {
 
         let dependencyService = try #require(service.dependencyServices.first)
         #expect(dependencyService.id == "go:api")
-        #expect(dependencyService.displayName == "Go API")
+        #expect(dependencyService.displayName == "Go")
         #expect(dependencyService.providerID == "go")
 
         service.updateDependencyPaths(
@@ -707,7 +707,7 @@ struct ExecutionModuleTests {
             try await service.resolveDependencies(serviceID: dependencyService.id)
         )
         let rootNode = try #require(graph.roots.first)
-        #expect(rootNode.title == "Go API")
+        #expect(rootNode.title == "Go")
         #expect(rootNode.subtitle == "Go")
         #expect(rootNode.children[0].children.map(\.id) == ["/workspace/cmd/api"])
         #expect(rootNode.children[2].children.map(\.id) == ["/workspace/vendor/modules"])
@@ -715,6 +715,62 @@ struct ExecutionModuleTests {
         let revision = service.dependencyRevision
         service.markDependencyFilesChanged([goModule])
         #expect(service.dependencyRevision == revision + 1)
+    }
+
+    @Test
+    func dependencyBrowserAggregatesSameLanguageAndSourceRoots() async throws {
+        let service = RunService(
+            runtime: TestRuntime(),
+            process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(),
+            serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: MultipleRunConfigurationOperations(configurations: [
+                RunConfiguration(
+                    id: "node:api",
+                    name: "API",
+                    kind: .process(provider: "node.api"),
+                    execution: .service,
+                    modulePath: "apps/api",
+                    mainClass: nil
+                ),
+                RunConfiguration(
+                    id: "node:worker",
+                    name: "Worker",
+                    kind: .process(provider: "node.worker"),
+                    execution: .service,
+                    modulePath: "apps/api",
+                    mainClass: nil
+                ),
+                RunConfiguration(
+                    id: "node:dashboard",
+                    name: "Dashboard",
+                    kind: .process(provider: "node.dashboard"),
+                    execution: .service,
+                    modulePath: "apps/dashboard",
+                    mainClass: nil
+                )
+            ]),
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        defer { service.reset() }
+
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        await service.loadProject(at: root, files: [], mavenProject: nil)
+
+        let services = service.dependencyServices
+        #expect(services.count == 2)
+        let aggregated = try #require(services.first { $0.configurationIDs.count == 2 })
+        #expect(aggregated.displayName == "Node.js")
+        #expect(aggregated.providerID == "node")
+        #expect(aggregated.configurationIDs == ["node:api", "node:worker"])
+
+        let separate = try #require(services.first { $0.configurationIDs == ["node:dashboard"] })
+        #expect(separate.displayName == "Node.js")
+        #expect(separate.id != aggregated.id)
     }
 
     @Test
@@ -2308,6 +2364,45 @@ private struct TestGoProjectRunConfigurationOperations: RunConfigurationOperatio
             workingDirectory: "."
         )
     }
+    func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String { draft.name }
+    func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
+}
+
+private struct MultipleRunConfigurationOperations: RunConfigurationOperations {
+    let configurations: [RunConfiguration]
+
+    func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
+        ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
+    }
+
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+        RunConfigurationGenerationResult(entryCount: configurations.count)
+    }
+
+    func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
+        RunConfigurationResolution(
+            configurations: configurations.map {
+                EffectiveRunConfiguration(configuration: $0, options: RunOptions())
+            },
+            diagnostics: [],
+            defaultConfigurationID: configurations.first?.id
+        )
+    }
+
+    func launchPlan(
+        at projectURL: URL,
+        configurationID: String,
+        currentFile: String?,
+        classPath: String?,
+        debugPort: Int?
+    ) throws -> SharedLaunchPlan {
+        SharedLaunchPlan(
+            executable: .toolchain("project-node"),
+            arguments: [configurationID],
+            workingDirectory: "."
+        )
+    }
+
     func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String { draft.name }
     func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
 }
