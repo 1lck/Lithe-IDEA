@@ -1756,7 +1756,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             switch state {
             case .startingProcess: projectPreparation = .init(phase: "starting", status: "loading", blocksRun: true)
             case .initializing: projectPreparation = .init(phase: "importing", status: "loading", blocksRun: true)
-            case .failed: projectPreparation = .init(phase: "starting", status: "failed", blocksRun: true)
+            case .failed: projectPreparation = .init(phase: projectPreparation?.phase ?? "starting", status: "failed", blocksRun: true)
             case .stopped, .stopping: projectPreparation = nil
             case .ready: break // Rust may still be synchronizing project configuration.
             }

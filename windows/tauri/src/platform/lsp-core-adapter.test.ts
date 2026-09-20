@@ -28,6 +28,7 @@ const frontendTrace = mock(() => undefined);
 const cancelCoreOperation = mock(async () => false);
 const commands: string[] = [];
 let scenario:
+  | "poll-failure"
   | "preparation-snapshot"
   | "capabilities"
   | "delayed-start"
@@ -119,6 +120,9 @@ const executeCore = mock(
       // Core's waitEvents command is a blocking long poll. Yield a task here
       // so empty mock responses cannot create a tight microtask-only pump.
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      if (scenario === "poll-failure") {
+        throw new Error("Core event transport unavailable");
+      }
       if (scenario === "delayed-start") {
         if (pollCount === 1) {
           await new Promise<void>((resolve) => {
@@ -599,6 +603,17 @@ describe("Rust Core LSP adapter failures", () => {
       getLspWorkspaceSessionSnapshot({ workspacePath: "C:/work", languageId: "java" }),
     ).toBeNull();
     expect(ownsLspSession("java-session")).toBe(false);
+  });
+
+  test("startup poll failure retires preparation and explicit stop clears the failed snapshot", async () => {
+    scenario = "poll-failure";
+    await expect(invokeLsp("lsp_start", {
+      workspacePath: "C:/work", languageId: "java", providerId: "java", serverPath: "C:/Lithe/jdtls.bat",
+    })).rejects.toThrow("Core event transport unavailable");
+    expect(getProjectPreparation("C:/work")?.status).toBe("failed");
+    expect(getLspWorkspaceSessionSnapshot({ workspacePath: "C:/work", languageId: "java" })).toBeNull();
+    await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
+    expect(getProjectPreparation("C:/work")).toBeUndefined();
   });
 
   test("restores preparation from the current snapshot without a preparation event", async () => {

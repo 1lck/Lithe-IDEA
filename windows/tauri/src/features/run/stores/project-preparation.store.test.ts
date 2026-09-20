@@ -2,6 +2,7 @@ import { beforeEach, expect, test } from "bun:test";
 import fixture from "../../../../../../shared/fixtures/lsp/project-preparation-v1.json";
 import {
   beginProjectPreparation,
+  failProjectPreparation,
   clearProjectPreparation,
   getProjectPreparation,
   projectPreparationStore,
@@ -34,4 +35,28 @@ test("shared stages stay scoped to their workspace without blocking unrelated wo
     expect(getProjectPreparation("C:/one")).toEqual({ ...snapshot, sessionId: "one" });
     expect(getProjectPreparation("C:/two")?.phase).toBe("starting");
   }
+});
+
+test("transport failure stays visible through late cleanup events until restart", () => {
+  beginProjectPreparation("C:/project", "old");
+  updateProjectPreparation("C:/project", "old", {
+    phase: "importing",
+    status: "loading",
+    blocksRun: true,
+  });
+  failProjectPreparation("C:/project", "old");
+  updateProjectPreparation("C:/project", "old", {
+    phase: "stopped",
+    status: "idle",
+    blocksRun: true,
+  });
+  expect(getProjectPreparation("C:/project")).toEqual({
+    sessionId: "old",
+    phase: "importing",
+    status: "failed",
+    blocksRun: true,
+  });
+  beginProjectPreparation("C:/project", "new");
+  failProjectPreparation("C:/project", "old");
+  expect(getProjectPreparation("C:/project")?.status).toBe("loading");
 });

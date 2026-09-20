@@ -29,13 +29,25 @@ export function updateProjectPreparation(
   value: ProjectPreparation,
 ) {
   projectPreparationStore.setState((state) =>
-    state.entries[key(root)]?.sessionId !== sessionId
+    state.entries[key(root)]?.sessionId !== sessionId ||
+    (state.entries[key(root)]?.status === "failed" && state.entries[key(root)]?.blocksRun)
       ? state
       : {
           entries: { ...state.entries, [key(root)]: { ...value, sessionId } },
         },
   );
 }
+/** Transport failures are terminal even when Core cannot deliver a final event. */
+export function failProjectPreparation(root: string, sessionId: string) {
+  const previous = getProjectPreparation(root);
+  if (previous?.sessionId !== sessionId) return;
+  updateProjectPreparation(root, sessionId, {
+    phase: previous.phase === "ready" ? "starting" : previous.phase,
+    status: "failed",
+    blocksRun: true,
+  });
+}
+
 export function clearProjectPreparation(root: string, sessionId: string) {
   projectPreparationStore.setState((state) => {
     if (state.entries[key(root)]?.sessionId !== sessionId) return state;
