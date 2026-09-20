@@ -1528,6 +1528,19 @@ const catalogs = {
     "run.identifyAgain": "Identify Again",
     "run.toolchainNeedsAttention": "Project toolchain needs attention",
     "run.staleConfigurations": "Run configurations may be out of date",
+    "run.javaBuildFailedTitle": "The Java build for {name} did not finish successfully",
+    "run.javaBuildMarkersMayRemain":
+      "The language-service builder failed in this session, so some reported errors may be left over from that failure.",
+    "run.javaBuildWorkspaceScope":
+      "The build could not confirm one target project, so errors from other workspace modules may have affected this result.",
+    "run.javaBuildElapsed": "Build response time: {milliseconds} ms. This is evidence only and does not decide whether you may run.",
+    "run.javaBuildContinue": "Run Anyway",
+    "run.javaBuildAlwaysContinue": "Always Continue in This Workspace",
+    "run.javaBuildRebuildIndex": "Rebuild Java Index",
+    "run.javaBuildOpenLogs": "Open Logs",
+    "run.javaBuildAlwaysContinueEnabled":
+      "This workspace continues Java launches after build failures without asking.",
+    "run.javaBuildAskAgain": "Ask Again on Build Failure",
     "run.editService": "Edit Service",
     "run.generatedEntries": "Generated {count} runnable project entries.",
     "run.editorTitle": "Run Configuration",
@@ -5899,6 +5912,18 @@ const catalogs = {
     "run.identifyAgain": "重新识别",
     "run.toolchainNeedsAttention": "项目工具链需要处理",
     "run.staleConfigurations": "运行配置可能已过期",
+    "run.javaBuildFailedTitle": "{name} 的 Java 构建未成功完成",
+    "run.javaBuildMarkersMayRemain":
+      "语言服务的构建器在本次会话中发生过失败，因此当前报告的部分错误可能是那次失败留下的。",
+    "run.javaBuildWorkspaceScope":
+      "本次构建未能确认唯一目标项目，因此其他工作区模块的错误可能影响了结果。",
+    "run.javaBuildElapsed": "构建响应耗时：{milliseconds} 毫秒。该数据只用于说明情况，不决定是否允许运行。",
+    "run.javaBuildContinue": "仍然运行",
+    "run.javaBuildAlwaysContinue": "对此工作区始终继续",
+    "run.javaBuildRebuildIndex": "重建 Java 索引",
+    "run.javaBuildOpenLogs": "打开日志",
+    "run.javaBuildAlwaysContinueEnabled": "此工作区遇到 Java 构建失败时会直接继续启动，不再询问。",
+    "run.javaBuildAskAgain": "构建失败时重新询问",
     "run.editService": "编辑服务",
     "run.generatedEntries": "已生成 {count} 个可运行项目入口。",
     "run.editorTitle": "运行配置",

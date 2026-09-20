@@ -1307,8 +1307,22 @@ and the build keeps its slot until JDT answers. A successful build completes
 with the unchanged `{ value: 1 }` result. Other JDT `BuildWorkspaceStatus`
 values complete with stage `javaBuild` and code `javaBuildCompilationErrors`
 (`WITH_ERROR`), `javaBuildFailed` (`FAILED`), `javaBuildCancelled`
-(`CANCELLED`), or `invalidServerResult`; hosts present the message instead of
-inferring a cause. Core logs `Java project build is waiting` (with `reason`),
+(`CANCELLED`), or `invalidServerResult`. `javaBuildCompilationErrors` and
+`javaBuildFailed` additionally carry `javaBuildReport` with `markerScope`
+(`launchTarget` or `workspace`), `builderFailedEarlier`,
+`elapsedMilliseconds`, and `recovery` (`none` or `rebuildJavaIndex`). The marker
+scope is inferred from the dispatched command: `launchTarget` means the request
+named a project, not that Core observed Java Debug Server's final project
+selection. Elapsed time is evidence only and must not become a heuristic gate.
+The versioned examples are in
+`shared/fixtures/lsp/java-build-report-v1.json`.
+
+Hosts treat these two terminal build outcomes as evidence rather than an
+irrevocable launch veto. After resolving the usable runtime paths, they may let
+the user continue that same launch attempt without issuing another build. A
+cancelled, timed-out, rejected, or unrecognized build has no usable verdict and
+must be retried instead of overridden. Hosts present Core's message and report
+instead of inferring a cause. Core logs `Java project build is waiting` (with `reason`),
 `Java project build started`, and `Java project build finished` (with
 `outcome`, `errorCode`, `elapsedMilliseconds`, and `waiterCount`).
 Background build retries and deadline cancellations are written by a separate

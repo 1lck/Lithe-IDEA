@@ -125,6 +125,7 @@ extension AppModel {
     }
 
     func cancelJavaLanguageServerPreparation() {
+        cancelPendingJavaLaunchDecision()
         if case .preparing(let owner) = javaFeature.languageServerWorkspaceState {
             languageToolingSessionsIfActive?.recordLanguageServerLog(
                 providerID: "java",

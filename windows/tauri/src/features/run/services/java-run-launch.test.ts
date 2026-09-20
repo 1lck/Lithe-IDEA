@@ -8,10 +8,13 @@ import type { RunConfiguration } from "../types/run.types";
 
 const prewarm = mock(async () => ({ kind: "ready" as const }));
 const invokeLsp = mock(async () => ({
-  mainClass: "com.ruoyi.RuoYiApplication",
-  projectName: "ruoyi-admin",
-  classPaths: ["D:/work/RuoYi/ruoyi-admin/target/classes"],
-  modulePaths: [],
+  kind: "ready" as const,
+  target: {
+    mainClass: "com.ruoyi.RuoYiApplication",
+    projectName: "ruoyi-admin",
+    classPaths: ["D:/work/RuoYi/ruoyi-admin/target/classes"],
+    modulePaths: [],
+  },
 }));
 
 mock.module("@/features/editor/lsp/java-workspace-language-server", () => ({
@@ -70,7 +73,7 @@ describe("Java project launch preparation", () => {
       sourcePath: "D:/work/RuoYi/ruoyi-admin/src/main/java/com/ruoyi/RuoYiApplication.java",
       mainClass: "com.ruoyi.RuoYiApplication",
     });
-    expect(target?.mainClass).toBe("com.ruoyi.RuoYiApplication");
+    expect(target?.target.mainClass).toBe("com.ruoyi.RuoYiApplication");
   });
 
   test("leaves non-Java framework services on their own launcher", async () => {
@@ -85,24 +88,12 @@ describe("Java project launch preparation", () => {
   });
 });
 
-test("service readiness does not launch while project configuration is still syncing", async () => {
+test("Core owns the bounded wait when project configuration is still syncing", async () => {
   beginProjectPreparation("D:/work/RuoYi", "java");
   updateProjectPreparation("D:/work/RuoYi", "java", {
     phase: "configuring",
     status: "loading",
     blocksRun: true,
-  });
-  await expect(
-    prepareJavaRunLaunch(
-      { workspaceId: "workspace", root: "D:/work/RuoYi" },
-      configuration("spring-boot.maven"),
-    ),
-  ).rejects.toThrow("still being prepared");
-  expect(invokeLsp).not.toHaveBeenCalled();
-  updateProjectPreparation("D:/work/RuoYi", "java", {
-    phase: "ready",
-    status: "ready",
-    blocksRun: false,
   });
   await prepareJavaRunLaunch(
     { workspaceId: "workspace", root: "D:/work/RuoYi" },

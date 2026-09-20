@@ -62,6 +62,10 @@ function standaloneDependencies(overrides: Partial<RunStoreDependencies> = {}): 
     startRunProcess,
     stopRunProcess: mock(async () => undefined),
     prepareJavaRunLaunch: mock(async () => null),
+    javaBuildFailurePolicyForWorkspace: () => "ask",
+    setJavaBuildFailurePolicy: mock(() => undefined),
+    rebuildJavaIndexForWorkspace: mock(async () => undefined),
+    presentJavaLaunchDecision: mock(() => undefined),
     ...overrides,
   };
   return { dependencies, executePreLaunchStep, startRunProcess };
@@ -84,7 +88,7 @@ describe("Standalone Java compile-then-run", () => {
     }));
     const { dependencies, startRunProcess } = standaloneDependencies({
       createLaunchPlan,
-      prepareJavaRunLaunch: mock(async () => javaLaunch),
+      prepareJavaRunLaunch: mock(async () => ({ kind: "ready" as const, target: javaLaunch })),
     });
     const projectConfiguration = {
       ...configuration,
@@ -254,6 +258,20 @@ describe("Java project launch preparation feedback", () => {
     workingDirectory: ".",
     classpath: javaLaunch.classPaths,
   };
+  const failedPreparation = {
+    kind: "buildFailed" as const,
+    target: javaLaunch,
+    failure: {
+      code: "javaBuildCompilationErrors" as const,
+      message: "The Java project has compilation errors.",
+      report: {
+        markerScope: "launchTarget" as const,
+        builderFailedEarlier: true,
+        elapsedMilliseconds: 7,
+        recovery: "rebuildJavaIndex" as const,
+      },
+    },
+  };
 
   function storeWith(
     runConfiguration: RunConfiguration,
@@ -278,7 +296,7 @@ describe("Java project launch preparation feedback", () => {
     const store = storeWith(projectConfiguration, {
       prepareJavaRunLaunch: mock(async () => {
         outputWhilePreparing = store.getState().sessions[0]?.output;
-        return javaLaunch;
+        return { kind: "ready" as const, target: javaLaunch };
       }),
     });
 
@@ -317,7 +335,7 @@ describe("Java project launch preparation feedback", () => {
       prepareJavaRunLaunch: mock(async () => {
         const state = store.getState();
         primaryWhilePreparing = { output: state.primaryOutput, title: state.primaryTitle };
-        return javaLaunch;
+        return { kind: "ready" as const, target: javaLaunch };
       }),
     });
 
@@ -347,6 +365,128 @@ describe("Java project launch preparation feedback", () => {
     await store.getState().actions.runConfiguration(configuration.id);
 
     expect(outputWhilePreparing).toBeUndefined();
+  });
+
+  test("continues the same launch after one failed build without rebuilding", async () => {
+    const prepare = mock(async () => failedPreparation);
+    const presentDecision = mock(() => undefined);
+    const store = storeWith(projectConfiguration, {
+      prepareJavaRunLaunch: prepare,
+      presentJavaLaunchDecision: presentDecision,
+    });
+    let observedMessage: string | undefined;
+    const unsubscribe = store.subscribe((state) => {
+      const decision = state.javaLaunchDecisions[projectConfiguration.id];
+      if (!decision || observedMessage) return;
+      observedMessage = decision.failure.message;
+      state.actions.continueJavaLaunch(projectConfiguration.id, decision.decisionId, false);
+    });
+
+    try {
+      expect(await store.getState().actions.runConfiguration(projectConfiguration.id)).toBe(
+        projectConfiguration.id,
+      );
+    } finally {
+      unsubscribe();
+    }
+
+    expect(observedMessage).toContain("compilation errors");
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(presentDecision).toHaveBeenCalledWith("workspace");
+    expect(store.getState().sessions[0].isRunning).toBe(true);
+    expect(store.getState().sessions[0].output).toContain(
+      "Continuing with the Java output currently available on disk.",
+    );
+    expect(store.getState().javaLaunchDecisions).toEqual({});
+  });
+
+  test("remembers Always Continue for the workspace", async () => {
+    const setPolicy = mock(() => undefined);
+    const store = storeWith(projectConfiguration, {
+      prepareJavaRunLaunch: mock(async () => failedPreparation),
+      setJavaBuildFailurePolicy: setPolicy,
+    });
+    const unsubscribe = store.subscribe((state) => {
+      const decision = state.javaLaunchDecisions[projectConfiguration.id];
+      if (decision) {
+        state.actions.continueJavaLaunch(projectConfiguration.id, decision.decisionId, true);
+      }
+    });
+
+    try {
+      await store.getState().actions.runConfiguration(projectConfiguration.id);
+    } finally {
+      unsubscribe();
+    }
+
+    expect(setPolicy).toHaveBeenCalledWith("D:/work", "alwaysProceed");
+  });
+
+  test("an Always Continue workspace never pauses for the same terminal failure", async () => {
+    const store = storeWith(projectConfiguration, {
+      prepareJavaRunLaunch: mock(async () => failedPreparation),
+      javaBuildFailurePolicyForWorkspace: () => "alwaysProceed",
+    });
+
+    expect(await store.getState().actions.runConfiguration(projectConfiguration.id)).toBe(
+      projectConfiguration.id,
+    );
+    expect(store.getState().javaLaunchDecisions).toEqual({});
+    expect(store.getState().sessions[0].isRunning).toBe(true);
+  });
+
+  test("cancel leaves the failed launch stopped", async () => {
+    const { dependencies, startRunProcess } = standaloneDependencies({
+      createLaunchPlan: mock(async () => projectPlan),
+      prepareJavaRunLaunch: mock(async () => failedPreparation),
+    });
+    const store = createRunStore("workspace", dependencies);
+    store.setState({
+      root: "D:/work",
+      configurations: [projectConfiguration],
+      diagnostics: [],
+      effectiveRuntimeExecutablePaths: {},
+    });
+    const unsubscribe = store.subscribe((state) => {
+      const decision = state.javaLaunchDecisions[projectConfiguration.id];
+      if (decision) {
+        state.actions.cancelJavaLaunch(projectConfiguration.id, decision.decisionId);
+      }
+    });
+
+    try {
+      expect(await store.getState().actions.runConfiguration(projectConfiguration.id)).toBeNull();
+    } finally {
+      unsubscribe();
+    }
+
+    expect(startRunProcess).not.toHaveBeenCalled();
+    expect(store.getState().sessions[0].isRunning).toBe(false);
+  });
+
+  test("rebuild index cancels the pending launch and clears only this workspace", async () => {
+    const rebuild = mock(async () => undefined);
+    const store = storeWith(projectConfiguration, {
+      prepareJavaRunLaunch: mock(async () => failedPreparation),
+      rebuildJavaIndexForWorkspace: rebuild,
+    });
+    let recovery: Promise<void> | undefined;
+    const unsubscribe = store.subscribe((state) => {
+      const decision = state.javaLaunchDecisions[projectConfiguration.id];
+      if (decision && !recovery) {
+        recovery = state.actions.rebuildJavaIndex(projectConfiguration.id, decision.decisionId);
+      }
+    });
+
+    try {
+      expect(await store.getState().actions.runConfiguration(projectConfiguration.id)).toBeNull();
+      await recovery;
+    } finally {
+      unsubscribe();
+    }
+
+    expect(rebuild).toHaveBeenCalledWith("D:/work");
+    expect(store.getState().sessions[0].output).toContain("Java index cleared");
   });
 });
 

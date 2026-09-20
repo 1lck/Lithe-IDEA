@@ -2,6 +2,18 @@ import Foundation
 import LitheCoreContracts
 import LitheModuleAPI
 
+package struct LanguageServerRequestFailure: LocalizedError, Equatable, Sendable {
+    package let runtimeError: LanguageServerRuntimeError
+
+    package var errorDescription: String? {
+        var message = runtimeError.message
+        if let underlying = runtimeError.underlyingMessage, !underlying.isEmpty {
+            message += ": \(underlying)"
+        }
+        return message
+    }
+}
+
 /// A language-server session projected from the Rust runtime.
 ///
 /// This type starts a session, publishes semantic requests, drains
@@ -581,7 +593,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                 if error.code == "staleDocumentVersion" || error.code == "requestCancelled" {
                     pending.completion(.failure(CancellationError()))
                 } else {
-                    pending.completion(.failure(LanguageServerRuntimeSessionError.serverError(Self.message(for: error))))
+                    pending.completion(.failure(LanguageServerRequestFailure(runtimeError: error)))
                 }
             } else {
                 onLog?(
@@ -838,7 +850,6 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         case unsupportedNavigation(String)
         case missingResult
         case sessionStopped
-        case serverError(String)
         case staleDocument
 
         var errorDescription: String? {
@@ -859,8 +870,6 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                 "Language server response did not include a result."
             case .sessionStopped:
                 "Language server session stopped before the request completed."
-            case .serverError(let message):
-                message
             case .staleDocument:
                 "The document changed before Java navigation completed."
             }
