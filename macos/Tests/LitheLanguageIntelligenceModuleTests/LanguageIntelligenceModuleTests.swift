@@ -23,8 +23,8 @@ struct LanguageIntelligenceModuleTests {
         feature.prepare(
             workspaceURL: root,
             files: [
-                root.appendingPathComponent("api/src/Main.java"),
-                root.appendingPathComponent("worker/src/Worker.java"),
+                root.appendingPathComponent("api/src/main/java/com/example/Main.java"),
+                root.appendingPathComponent("worker/src/main/java/com/example/Worker.java"),
             ]
         )
         #expect(feature.languages.map(\.id) == ["java"])
@@ -55,6 +55,9 @@ struct LanguageIntelligenceModuleTests {
             "org.eclipse.jdt.ls.core.referencedLibraries": .array([
                 .string("/cache/example-1.jar"),
             ]),
+            "org.eclipse.jdt.ls.core.classpathEntries": .array([
+                .object(["path": .string("/cache/maven-api-1.jar")]),
+            ]),
         ])))
 
         _ = try await session.waitForExecuteCommand(number: 3)
@@ -69,21 +72,30 @@ struct LanguageIntelligenceModuleTests {
                 .string("/cache/example-1.jar"),
                 .string("/cache/worker-2.jar"),
             ]),
+            "org.eclipse.jdt.ls.core.classpathEntries": .array([
+                .object(["path": .string("/cache/maven-worker-2.jar")]),
+            ]),
         ])))
 
         let graph = try #require(try await resolution.value)
         let groups = try #require(graph.roots.first?.children)
-        #expect(groups[0].children.map(\.id) == [
-            "/workspace/java-dependencies/api/src/main/java",
-            "/workspace/java-dependencies/worker/src/main/java",
+        let sourceRoots = groups[0].children
+        #expect(sourceRoots.map(\.id) == [
+            "source-root:/workspace/java-dependencies/api/src/main/java",
+            "source-root:/workspace/java-dependencies/worker/src/main/java",
         ])
+        #expect(sourceRoots[0].children.first?.title == "com")
+        #expect(sourceRoots[0].children.first?.children.first?.title == "example")
+        #expect(sourceRoots[0].children.first?.children.first?.children.first?.title == "Main.java")
         #expect(groups[1].children.map(\.id) == [
-            "/workspace/java-dependencies/api/target/classes",
-            "/workspace/java-dependencies/worker/target/classes",
+            "source-root:/workspace/java-dependencies/api/target/classes",
+            "source-root:/workspace/java-dependencies/worker/target/classes",
         ])
         #expect(groups[2].children.map(\.id) == [
-            "/cache/example-1.jar",
-            "/cache/worker-2.jar",
+            "dependency-path:/cache/example-1.jar",
+            "dependency-path:/cache/maven-api-1.jar",
+            "dependency-path:/cache/maven-worker-2.jar",
+            "dependency-path:/cache/worker-2.jar",
         ])
     }
 

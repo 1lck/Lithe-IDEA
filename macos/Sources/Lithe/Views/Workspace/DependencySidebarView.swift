@@ -223,6 +223,10 @@ private struct LanguageDependencySection: View {
                 try Task.checkCancellation()
                 guard expectedRevision == feature.revision else { return }
                 graph = resolved
+                if expandedNodeIDs.isEmpty,
+                   let root = resolved?.roots.first {
+                    expandedNodeIDs = Set(root.children.filter { !$0.children.isEmpty }.map(\.id))
+                }
             } catch is CancellationError {
                 return
             } catch {
@@ -233,6 +237,7 @@ private struct LanguageDependencySection: View {
 }
 
 private struct DependencyTreeNodeView: View {
+    @EnvironmentObject private var model: AppModel
     let node: DependencyNode
     let depth: Int
     @Binding var expandedNodeIDs: Set<String>
@@ -240,9 +245,10 @@ private struct DependencyTreeNodeView: View {
     @State private var pathRevealTask: Task<Void, Never>?
 
     private var isExpanded: Bool { expandedNodeIDs.contains(node.id) }
+    private var hasChildren: Bool { !node.children.isEmpty }
 
     var body: some View {
-        if node.kind == .group {
+        if node.kind == .group || hasChildren {
             VStack(alignment: .leading, spacing: 0) {
                 Button {
                     if isExpanded {
@@ -256,13 +262,19 @@ private struct DependencyTreeNodeView: View {
                             .font(.system(size: 8, weight: .bold))
                             .foregroundStyle(LitheTheme.secondaryText)
                             .frame(width: 10)
-                        LitheSystemIcon(systemImage: node.title == "Dependencies" ? "shippingbox" : "folder")
+                        LitheSystemIcon(systemImage: nodeIcon)
                             .font(.system(size: 11))
                             .foregroundStyle(LitheTheme.secondaryText)
                             .frame(width: 16)
-                        Text(LocalizedStringKey(node.title))
-                            .font(.system(size: LitheTheme.Metrics.treeFontSize))
-                            .foregroundStyle(LitheTheme.primaryText)
+                        if node.kind == .group {
+                            Text(LocalizedStringKey(node.title))
+                                .font(.system(size: LitheTheme.Metrics.treeFontSize))
+                                .foregroundStyle(LitheTheme.primaryText)
+                        } else {
+                            Text(node.title)
+                                .font(.system(size: LitheTheme.Metrics.treeFontSize))
+                                .foregroundStyle(LitheTheme.primaryText)
+                        }
                         Spacer(minLength: 4)
                     }
                     .padding(.leading, CGFloat(8 + depth * 14))
@@ -274,13 +286,7 @@ private struct DependencyTreeNodeView: View {
                 .lithePointer()
 
                 if isExpanded {
-                    if node.children.isEmpty {
-                        Text("No paths")
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(LitheTheme.secondaryText)
-                            .padding(.leading, CGFloat(42 + depth * 14))
-                            .frame(minHeight: 26)
-                    } else {
+                    if !node.children.isEmpty {
                         ForEach(node.children) { child in
                             DependencyTreeNodeView(
                                 node: child,
@@ -288,7 +294,19 @@ private struct DependencyTreeNodeView: View {
                                 expandedNodeIDs: $expandedNodeIDs
                             )
                         }
+                    } else {
+                        Text("No paths")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .padding(.leading, CGFloat(42 + depth * 14))
+                            .frame(minHeight: 26)
                     }
+                }
+                if isPathRevealed, let subtitle = node.subtitle {
+                    DependencyPathRevealStrip(path: subtitle)
+                        .padding(.leading, CGFloat(22 + depth * 14))
+                        .padding(.trailing, 8)
+                        .padding(.bottom, 4)
                 }
             }
         } else {
@@ -299,7 +317,7 @@ private struct DependencyTreeNodeView: View {
     private var pathRow: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
-                LitheSystemIcon(systemImage: node.kind == .packageNode ? "shippingbox" : "folder")
+                LitheSystemIcon(systemImage: nodeIcon)
                     .font(.system(size: 11))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(width: 16)
@@ -321,10 +339,25 @@ private struct DependencyTreeNodeView: View {
             }
         }
         .contentShape(Rectangle())
-        .onTapGesture { revealPath() }
+        .onTapGesture {
+            revealPath()
+        }
+        .onTapGesture(count: 2) {
+            guard case .file(let url) = node.source else { return }
+            model.openFile(url)
+        }
         .onDisappear {
             pathRevealTask?.cancel()
             pathRevealTask = nil
+        }
+    }
+
+    private var nodeIcon: String {
+        if node.title == "Dependencies" { return "shippingbox" }
+        switch node.kind {
+        case .file: return "doc.text"
+        case .packageNode: return "shippingbox"
+        default: return "folder"
         }
     }
 

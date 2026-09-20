@@ -13,6 +13,7 @@ package protocol LanguageDependencyProviding: AnyObject {
 
     func resolve(
         workspaceURL: URL,
+        files: [URL],
         sessions: LanguageToolingSessionManager
     ) async throws -> DependencyGraph
 }
@@ -25,6 +26,7 @@ package final class LanguageDependencyFeatureModel: ObservableObject {
     private let sessions: LanguageToolingSessionManager
     private let providers: [any LanguageDependencyProviding]
     private var workspaceURL: URL?
+    private var workspaceFiles: [URL] = []
     private var workspaceGeneration = UUID()
 
     package init(
@@ -39,6 +41,7 @@ package final class LanguageDependencyFeatureModel: ObservableObject {
     /// starts no server; resolving an expanded language remains lazy.
     package func prepare(workspaceURL: URL, files: [URL], forceRefresh: Bool = false) {
         let normalizedWorkspace = workspaceURL.standardizedFileURL
+        let normalizedFiles = Self.normalizedFiles(files)
         let available = providers.compactMap { provider -> LanguageDependencyDescriptor? in
             guard let language = sessions.catalogSnapshot.descriptors.first(where: {
                 $0.id == provider.providerID
@@ -58,8 +61,10 @@ package final class LanguageDependencyFeatureModel: ObservableObject {
 
         guard self.workspaceURL != normalizedWorkspace
                 || languages != available
+                || workspaceFiles != normalizedFiles
                 || forceRefresh else { return }
         self.workspaceURL = normalizedWorkspace
+        workspaceFiles = normalizedFiles
         languages = available
         workspaceGeneration = UUID()
         revision &+= 1
@@ -72,7 +77,11 @@ package final class LanguageDependencyFeatureModel: ObservableObject {
             return nil
         }
         let generation = workspaceGeneration
-        let graph = try await provider.resolve(workspaceURL: workspaceURL, sessions: sessions)
+        let graph = try await provider.resolve(
+            workspaceURL: workspaceURL,
+            files: workspaceFiles,
+            sessions: sessions
+        )
         try Task.checkCancellation()
         guard generation == workspaceGeneration else { throw CancellationError() }
         return graph
@@ -85,9 +94,18 @@ package final class LanguageDependencyFeatureModel: ObservableObject {
 
     package func reset() {
         workspaceURL = nil
+        workspaceFiles = []
         languages = []
         workspaceGeneration = UUID()
         revision &+= 1
+    }
+
+    private static func normalizedFiles(_ files: [URL]) -> [URL] {
+        var seen: Set<String> = []
+        return files
+            .map(\.standardizedFileURL)
+            .filter { seen.insert($0.path).inserted }
+            .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
     }
 }
 
@@ -99,9 +117,11 @@ private final class JavaLanguageDependencyProvider: LanguageDependencyProviding 
     private let sourcePathsKey = "org.eclipse.jdt.ls.core.sourcePaths"
     private let outputPathKey = "org.eclipse.jdt.ls.core.outputPath"
     private let referencedLibrariesKey = "org.eclipse.jdt.ls.core.referencedLibraries"
+    private let classpathEntriesKey = "org.eclipse.jdt.ls.core.classpathEntries"
 
     func resolve(
         workspaceURL: URL,
+        files: [URL],
         sessions: LanguageToolingSessionManager
     ) async throws -> DependencyGraph {
         let projectsValue = try await sessions.executeDependencyCommand(
@@ -123,7 +143,12 @@ private final class JavaLanguageDependencyProvider: LanguageDependencyProviding 
         var sources: [URL] = []
         var outputs: [URL] = []
         var libraries: [URL] = []
-        let keys = [sourcePathsKey, outputPathKey, referencedLibrariesKey]
+        let keys = [
+            sourcePathsKey,
+            outputPathKey,
+            referencedLibrariesKey,
+            classpathEntriesKey,
+        ]
 
         for projectURI in projectURIs {
             try Task.checkCancellation()
@@ -141,10 +166,16 @@ private final class JavaLanguageDependencyProvider: LanguageDependencyProviding 
                     "The Java language service returned invalid project settings."
                 )
             }
-            sources.append(contentsOf: urls(values[sourcePathsKey]))
-            outputs.append(contentsOf: urls(values[outputPathKey]))
+            let projectSources = urls(values[sourcePathsKey])
+            let projectOutputs = urls(values[outputPathKey])
+            sources.append(contentsOf: projectSources)
+            outputs.append(contentsOf: projectOutputs)
             libraries.append(contentsOf: urls(values[referencedLibrariesKey]))
+            libraries.append(contentsOf: classpathURLs(values[classpathEntriesKey]))
         }
+
+        let nonDependencyPaths = Set((sources + outputs).map { $0.standardizedFileURL.path })
+        libraries.removeAll { nonDependencyPaths.contains($0.standardizedFileURL.path) }
 
         let root = DependencyNode(
             id: "language:java",
@@ -152,7 +183,13 @@ private final class JavaLanguageDependencyProvider: LanguageDependencyProviding 
             kind: .group,
             source: .generated,
             children: [
-                group(id: "sources", title: "Source Code", urls: sources, kind: .directory),
+                group(
+                    id: "sources",
+                    title: "Source Code",
+                    urls: sources,
+                    kind: .directory,
+                    workspaceFiles: files
+                ),
                 group(id: "outputs", title: "Build Outputs", urls: outputs, kind: .directory),
                 group(id: "dependencies", title: "Dependencies", urls: libraries, kind: .packageNode),
             ]
@@ -174,6 +211,16 @@ private final class JavaLanguageDependencyProvider: LanguageDependencyProviding 
         }
     }
 
+    private func classpathURLs(_ value: ToolingJSONValue?) -> [URL] {
+        guard case .array(let values) = value else { return [] }
+        return values.compactMap { value in
+            guard case .object(let entry) = value,
+                  case .string(let path)? = entry["path"],
+                  !path.isEmpty else { return nil }
+            return fileURL(path)
+        }
+    }
+
     private func fileURL(_ value: String) -> URL {
         if let url = URL(string: value), url.isFileURL { return url.standardizedFileURL }
         return URL(fileURLWithPath: value).standardizedFileURL
@@ -183,7 +230,8 @@ private final class JavaLanguageDependencyProvider: LanguageDependencyProviding 
         id: String,
         title: String,
         urls: [URL],
-        kind: DependencyNodeKind
+        kind: DependencyNodeKind,
+        workspaceFiles: [URL] = []
     ) -> DependencyNode {
         var seen: Set<String> = []
         let nodes = urls
@@ -191,12 +239,15 @@ private final class JavaLanguageDependencyProvider: LanguageDependencyProviding 
             .filter { seen.insert($0.path).inserted }
             .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
             .map { url in
-                DependencyNode(
-                    id: url.path,
+                if kind == .directory {
+                    return directoryNode(url, files: workspaceFiles)
+                }
+                return DependencyNode(
+                    id: "dependency-path:\(url.path)",
                     title: url.lastPathComponent.isEmpty ? url.path : url.lastPathComponent,
                     subtitle: url.path,
                     kind: kind,
-                    source: kind == .directory ? .directory(url) : .archive(url)
+                    source: .archive(url)
                 )
             }
         return DependencyNode(
@@ -205,6 +256,61 @@ private final class JavaLanguageDependencyProvider: LanguageDependencyProviding 
             kind: .group,
             source: .generated,
             children: nodes
+        )
+    }
+
+    private func directoryNode(_ root: URL, files: [URL]) -> DependencyNode {
+        let normalizedRoot = root.standardizedFileURL
+        let rootPath = normalizedRoot.path
+        var childrenByParent: [String: Set<String>] = [:]
+        var urlsByPath: [String: URL] = [:]
+
+        for file in files.map(\.standardizedFileURL) {
+            let path = file.path
+            guard path.hasPrefix(rootPath + "/") else { continue }
+            let relativePath = String(path.dropFirst(rootPath.count + 1))
+            var parentPath = rootPath
+            for component in relativePath.split(separator: "/") {
+                let childPath = parentPath + "/" + component
+                childrenByParent[parentPath, default: []].insert(childPath)
+                urlsByPath[childPath] = URL(fileURLWithPath: childPath)
+                parentPath = childPath
+            }
+        }
+
+        func makeNode(_ path: String) -> DependencyNode {
+            let childPaths = (childrenByParent[path] ?? []).sorted { lhs, rhs in
+                let lhsIsDirectory = childrenByParent[lhs] != nil
+                let rhsIsDirectory = childrenByParent[rhs] != nil
+                if lhsIsDirectory != rhsIsDirectory { return lhsIsDirectory }
+                return lhs.localizedStandardCompare(rhs) == .orderedAscending
+            }
+            let url = urlsByPath[path] ?? URL(fileURLWithPath: path)
+            let isDirectory = !childPaths.isEmpty
+            return DependencyNode(
+                id: "source-path:\(path)",
+                title: url.lastPathComponent.isEmpty ? path : url.lastPathComponent,
+                subtitle: url.path,
+                kind: isDirectory ? .directory : .file,
+                source: isDirectory ? .directory(url) : .file(url),
+                children: childPaths.map(makeNode)
+            )
+        }
+
+        return DependencyNode(
+            id: "source-root:\(rootPath)",
+            title: normalizedRoot.lastPathComponent.isEmpty ? rootPath : normalizedRoot.lastPathComponent,
+            subtitle: rootPath,
+            kind: .directory,
+            source: .directory(normalizedRoot),
+            children: (childrenByParent[rootPath] ?? [])
+                .sorted { lhs, rhs in
+                    let lhsIsDirectory = childrenByParent[lhs] != nil
+                    let rhsIsDirectory = childrenByParent[rhs] != nil
+                    if lhsIsDirectory != rhsIsDirectory { return lhsIsDirectory }
+                    return lhs.localizedStandardCompare(rhs) == .orderedAscending
+                }
+                .map(makeNode)
         )
     }
 }

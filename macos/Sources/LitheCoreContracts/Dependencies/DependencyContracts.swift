@@ -30,6 +30,7 @@ package enum DependencyNodeKind: String, Codable, Equatable, Sendable {
 
 package enum DependencySource: Codable, Equatable, Sendable {
     case directory(URL)
+    case file(URL)
     case archive(URL)
     case generated
     case unavailable
@@ -41,6 +42,7 @@ package enum DependencySource: Codable, Equatable, Sendable {
 
     private enum Kind: String, Codable {
         case directory
+        case file
         case archive
         case generated
         case unavailable
@@ -51,6 +53,9 @@ package enum DependencySource: Codable, Equatable, Sendable {
         switch self {
         case .directory(let url):
             try container.encode(Kind.directory, forKey: .kind)
+            try container.encode(url, forKey: .url)
+        case .file(let url):
+            try container.encode(Kind.file, forKey: .kind)
             try container.encode(url, forKey: .url)
         case .archive(let url):
             try container.encode(Kind.archive, forKey: .kind)
@@ -67,6 +72,8 @@ package enum DependencySource: Codable, Equatable, Sendable {
         switch try container.decode(Kind.self, forKey: .kind) {
         case .directory:
             self = .directory(try container.decode(URL.self, forKey: .url))
+        case .file:
+            self = .file(try container.decode(URL.self, forKey: .url))
         case .archive:
             self = .archive(try container.decode(URL.self, forKey: .url))
         case .generated:

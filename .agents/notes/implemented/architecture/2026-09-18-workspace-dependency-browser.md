@@ -33,8 +33,13 @@ Lithe 负责语言会话生命周期、取消、过期结果保护、确定性�
 - 侧栏展开语言时才解析依赖。工作区切换、文件变化和手动刷新都会更新 generation；
   较早请求返回后必须以 `CancellationError` 丢弃，不能污染新工作区。
 - Java 贡献器复用 JDTLS 的 `java.project.getAll` 和 `java.project.getSettings`。后者读取
-  `org.eclipse.jdt.ls.core.sourcePaths`、`outputPath` 和 `referencedLibraries`，分别形成
-  `Source Code`、`Build Outputs` 和 `Dependencies`。多模块结果按规范化路径去重并排序。
+  `org.eclipse.jdt.ls.core.sourcePaths`、`outputPath`、`referencedLibraries` 和
+  `classpathEntries`，分别形成 `Source Code`、`Build Outputs` 和 `Dependencies`。
+  Maven/Gradle 解析出的库通常只出现在 `classpathEntries`，不能只依赖
+  `referencedLibraries`。多模块结果按规范化路径去重并排序。
+- LSP 返回的源码根只定义树的边界；源码根下面的目录和文件使用当前工作区快照中已有的
+  文件 URL 组装成层次树，不重新扫描磁盘，也不由运行服务推导。源码文件节点可继续打开
+  编辑器，目录和路径节点保留点击后临时显示完整路径的行为。
 - 依赖侧栏不再创建 `.lithe/dependencies/config.json` 或 `index.json`。JDTLS 持有自己的
   项目模型和缓存；Lithe 不保存第二份可能过期的依赖真相。
 - 路径默认不直接显示。用户点击路径节点后，侧栏临时显示可横向滚动的完整路径条带，
