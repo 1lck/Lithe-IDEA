@@ -7,11 +7,9 @@ import {
   createLaunchPlan,
   generateRunConfiguration,
   inspectRunConfiguration,
-  resolveRunConfiguration,
   saveRunConfigurationEditorChanges,
 } from "../api/run-core-api";
 import {
-  discoverRunToolchains,
   executePreLaunchStep,
   listJavaSources,
   resolveRunLaunch,
@@ -42,19 +40,16 @@ import {
 import {
   defaultGeneratedConfigurationId,
   blockingToolchainDiagnosticForConfiguration,
-  effectiveRuntimeExecutablePaths,
-  mapCoreConfiguration,
-  mapCoreToolchain,
   mapDiagnostics,
   mergeLaunchEnvironment,
   recoveryActionForError,
   recoveryPathFromMessage,
-  selectedToolchainCandidates,
   configurationUsesMaven,
 } from "../utils/run-configuration";
 import { editorSaveFailureMessage, runEditorSaveWorkflow } from "../services/run-editor-save";
 import { prepareJavaRunLaunch, usesJavaProjectPreparation } from "../services/java-run-launch";
 import { createOutputStamper, trimRunOutput, type OutputStamper } from "../utils/output-timestamper";
+import { resolveConfigurations, type ResolvedRunProject } from "../services/resolve-run-project";
 import { frontendTrace } from "@/utils/frontend-trace";
 
 const MAXIMUM_OUTPUT_CHARACTERS = 500_000;
@@ -117,6 +112,8 @@ interface RunState {
 }
 
 export interface RunStoreDependencies {
+  inspectRunConfiguration?: typeof inspectRunConfiguration;
+  resolveConfigurations?: typeof resolveConfigurations;
   createLaunchPlan: typeof createLaunchPlan;
   mavenLaunchContextForWorkspace: typeof mavenLaunchContextForWorkspace;
   resolveRunLaunch: typeof resolveRunLaunch;
@@ -194,17 +191,6 @@ function mergeJavaPath(
   return [defaultFlag, joined, ...args];
 }
 
-interface ResolvedRunProject {
-  configurations: RunConfiguration[];
-  diagnostics: RunDiagnostic[];
-  defaultConfigurationId: string | null;
-  discoveredJava: JavaRuntime[];
-  discoveredMaven: MavenRuntime[];
-  discoveredRuntimes: GenericRuntime[];
-  globalToolchain: GlobalToolchain;
-  effectiveRuntimeExecutablePaths: Record<string, string>;
-}
-
 type RunProjectSnapshot =
   | { status: "missing"; diagnostics: RunDiagnostic[] }
   | ({ status: "ready" } & ResolvedRunProject);
@@ -265,58 +251,17 @@ function optionsFromConfiguration(configuration: RunConfiguration): RunOptions {
   };
 }
 
-async function resolveConfigurations(root: string): Promise<ResolvedRunProject> {
-  const automatic = await discoverRunToolchains(root);
-  const automaticRuntimePaths = effectiveRuntimeExecutablePaths(automatic.runtimes, {});
-  const preliminary = await resolveRunConfiguration(
-    root,
-    selectedToolchainCandidates(automatic, {
-      ...EMPTY_GLOBAL_TOOLCHAIN,
-      runtimeExecutablePaths: automaticRuntimePaths,
-    }),
-  );
-  const globalToolchain = mapCoreToolchain(
-    preliminary.toolchain,
-    preliminary.localToolchains,
-  );
-  const hasSelectedToolchain = Boolean(
-    globalToolchain.javaHomePath ||
-      globalToolchain.mavenExecutablePath ||
-      Object.values(globalToolchain.runtimeExecutablePaths).some(Boolean),
-  );
-  const discovered = hasSelectedToolchain
-    ? await discoverRunToolchains(root, globalToolchain)
-    : automatic;
-  const effectiveRuntimePaths = effectiveRuntimeExecutablePaths(
-    discovered.runtimes,
-    globalToolchain.runtimeExecutablePaths,
-  );
-  const candidates = selectedToolchainCandidates(discovered, {
-    ...globalToolchain,
-    runtimeExecutablePaths: effectiveRuntimePaths,
-  });
-  const resolved = hasSelectedToolchain
-    ? await resolveRunConfiguration(root, candidates)
-    : preliminary;
-  return {
-    configurations: (resolved.configurations ?? []).map(mapCoreConfiguration),
-    diagnostics: mapDiagnostics(resolved.diagnostics),
-    defaultConfigurationId: resolved.defaultRunConfiguration ?? null,
-    discoveredJava: discovered.java,
-    discoveredMaven: discovered.maven,
-    discoveredRuntimes: discovered.runtimes,
-    globalToolchain,
-    effectiveRuntimeExecutablePaths: effectiveRuntimePaths,
-  };
-}
-
-async function readRunProjectSnapshot(root: string): Promise<RunProjectSnapshot> {
-  const inspection = await inspectRunConfiguration(root);
+async function readRunProjectSnapshot(
+  root: string,
+  workspaceId: string,
+  dependencies: RunStoreDependencies,
+): Promise<RunProjectSnapshot> {
+  const inspection = await (dependencies.inspectRunConfiguration ?? inspectRunConfiguration)(root);
   const inspectionDiagnostics = mapDiagnostics(inspection.diagnostics);
   if (inspection.status !== "ready") {
     return { status: "missing", diagnostics: inspectionDiagnostics };
   }
-  const resolved = await resolveConfigurations(root);
+  const resolved = await (dependencies.resolveConfigurations ?? resolveConfigurations)(root, workspaceId);
   return {
     status: "ready",
     ...resolved,
@@ -355,9 +300,11 @@ function readyRunState(
 
 export const createRunStore = (
   workspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId(),
-  dependencies: RunStoreDependencies = defaultRunStoreDependencies,
+  overrides: Partial<RunStoreDependencies> = {},
 ) => {
+  const dependencies = { ...defaultRunStoreDependencies, ...overrides };
   const executions = new Map<string, string>();
+  let projectLoadRevision = 0;
   return createStore<RunState>()((set, get) => ({
     root: null,
     status: "missing",
@@ -383,6 +330,7 @@ export const createRunStore = (
     effectiveRuntimeExecutablePaths: {},
     actions: {
       loadProject: async (root) => {
+        const revision = ++projectLoadRevision;
         set({
           root,
           isLoading: true,
@@ -390,7 +338,8 @@ export const createRunStore = (
           generationNotice: null,
         });
         try {
-          const snapshot = await readRunProjectSnapshot(root);
+          const snapshot = await readRunProjectSnapshot(root, workspaceId, dependencies);
+          if (revision !== projectLoadRevision || get().root !== root) return;
           if (snapshot.status === "missing") {
             set({
               status: "missing",
@@ -403,6 +352,7 @@ export const createRunStore = (
           }
           set(readyRunState(snapshot, get().selectedConfigurationId));
         } catch (error) {
+          if (revision !== projectLoadRevision || get().root !== root) return;
           const message =
             error instanceof Error ? error.message : "Project run configuration is invalid";
           const code =
@@ -429,7 +379,7 @@ export const createRunStore = (
             toolchainRequirements: generated.toolchainRequirements,
             defaultRunConfiguration: defaultGeneratedConfigurationId(generated.generated),
           });
-          const resolved = await resolveConfigurations(root);
+          const resolved = await (dependencies.resolveConfigurations ?? resolveConfigurations)(root, workspaceId);
           const notice =
             generated.entryCount === 0 ? "no-entries" : `generated:${generated.entryCount}`;
           set({
@@ -817,7 +767,7 @@ export const createRunStore = (
             return writeRunDocuments(root, documents);
           },
           reload: async () => {
-            const snapshot = await readRunProjectSnapshot(root);
+            const snapshot = await readRunProjectSnapshot(root, workspaceId, dependencies);
             if (snapshot.status === "missing") {
               throw new Error(
                 snapshot.diagnostics[0]?.message ?? "Run configuration is not ready.",
