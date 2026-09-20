@@ -11,6 +11,7 @@ import LitheModuleAPI
 package protocol LanguageIntelligenceServiceGraph: AnyObject {
     var sessions: LanguageToolingSessionManager { get }
     var tools: LanguageServerToolService { get }
+    var dependencies: LanguageDependencyFeatureModel { get }
     var hasActiveLanguageServers: Bool { get }
 
     func activate(context: ModuleContext)
@@ -22,10 +23,12 @@ package protocol LanguageIntelligenceServiceGraph: AnyObject {
 public final class LanguageIntelligenceCapability: NSObject {
     package let sessions: LanguageToolingSessionManager
     package let tools: LanguageServerToolService
+    package let dependencies: LanguageDependencyFeatureModel
 
     fileprivate init(graph: any LanguageIntelligenceServiceGraph) {
         sessions = graph.sessions
         tools = graph.tools
+        dependencies = graph.dependencies
     }
 }
 

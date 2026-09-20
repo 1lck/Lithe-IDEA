@@ -233,32 +233,6 @@ package final class RunFeatureModel: ObservableObject {
         service.blockingToolchainDiagnostic(for: service.selectedConfiguration)
     }
     package var sourceSearchRoots: [URL] { service.sourceSearchRoots }
-    package var dependencyServices: [DependencyServiceDescriptor] { service.dependencyServices }
-    package var dependencyRevision: Int { service.dependencyRevision }
-    package var dependencyConfigurationSaveError: String? {
-        service.dependencyConfigurationSaveError
-    }
-    package func dependencyPaths(for serviceID: String) -> DependencyPathConfiguration {
-        service.dependencyPaths(for: serviceID)
-    }
-    package func resolveDependencies(serviceID: String) async throws -> DependencyGraph? {
-        try await service.resolveDependencies(serviceID: serviceID)
-    }
-    package func updateDependencyPaths(
-        _ paths: DependencyPathConfiguration,
-        serviceID: String
-    ) {
-        service.updateDependencyPaths(paths, serviceID: serviceID)
-    }
-    package func excludeDependencyPath(_ path: String, serviceID: String) {
-        service.excludeDependencyPath(path, serviceID: serviceID)
-    }
-    package func restoreDependencyPath(_ path: String, serviceID: String) {
-        service.restoreDependencyPath(path, serviceID: serviceID)
-    }
-    package func markDependencyFilesChanged(_ urls: [URL]) {
-        service.markDependencyFilesChanged(urls)
-    }
     package func isProjectReady(for workspace: URL, snapshotID: UUID?) -> Bool { service.isProjectReady(for: workspace, snapshotID: snapshotID) }
     package func hasReadyInventory(for workspace: URL) -> Bool { service.hasReadyInventory(for: workspace) }
 

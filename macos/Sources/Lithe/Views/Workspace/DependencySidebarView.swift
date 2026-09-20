@@ -1,24 +1,23 @@
 import LitheCoreContracts
-import LitheExecutionModule
+import LitheLanguageIntelligenceModule
 import SwiftUI
 
 struct DependencySidebarView: View {
     @EnvironmentObject private var model: AppModel
     let refreshRevision: Int
-    @State private var isPreparing = false
     @State private var activationFailed = false
 
     var body: some View {
         Group {
-            if let feature = model.runFeatureIfActive {
-                RunServiceDependencySidebarContent(
+            if model.workspaceURL == nil {
+                placeholder(systemImage: "shippingbox", title: "No project loaded")
+            } else if let feature = model.languageDependencyFeatureIfActive {
+                LanguageDependencySidebarContent(
                     feature: feature,
                     refreshRevision: refreshRevision
                 )
-            } else if model.workspaceURL == nil {
-                placeholder(systemImage: "shippingbox", title: "No project loaded")
             } else if activationFailed {
-                placeholder(systemImage: "exclamationmark.triangle", title: "Could not load service dependencies")
+                placeholder(systemImage: "exclamationmark.triangle", title: "Could not load language dependencies")
             } else {
                 VStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -29,8 +28,8 @@ struct DependencySidebarView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .task(id: "\(model.workspaceURL?.standardizedFileURL.path ?? ""):\(refreshRevision)") {
-            await prepareRunServices()
+        .task(id: "\(model.workspaceURL?.standardizedFileURL.path ?? ""):\(model.workspaceSnapshotID?.uuidString ?? ""):\(refreshRevision)") {
+            await prepareLanguageDependencies()
         }
     }
 
@@ -47,38 +46,31 @@ struct DependencySidebarView: View {
     }
 
     @MainActor
-    private func prepareRunServices() async {
-        guard !isPreparing, let workspaceURL = model.workspaceURL else { return }
-        isPreparing = true
-        defer { isPreparing = false }
-        guard await model.activateExecutionModule() != nil else {
-            activationFailed = true
+    private func prepareLanguageDependencies() async {
+        guard let workspaceURL = model.workspaceURL else { return }
+        let prepared = await model.prepareLanguageDependencyFeature(
+            workspaceURL: workspaceURL,
+            files: model.projectFiles,
+            forceRefresh: refreshRevision > 0
+        )
+        guard model.workspaceURL?.standardizedFileURL == workspaceURL.standardizedFileURL else {
             return
         }
-        activationFailed = false
-        await model.loadProjectServicesForAppliedSnapshot(at: workspaceURL)
+        activationFailed = prepared == nil
     }
 }
 
-private struct RunServiceDependencySidebarContent: View {
-    @ObservedObject var feature: RunFeatureModel
+private struct LanguageDependencySidebarContent: View {
+    @ObservedObject var feature: LanguageDependencyFeatureModel
     let refreshRevision: Int
 
     var body: some View {
-        if feature.isLoadingProject {
-            VStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("Loading run services...")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if feature.dependencyServices.isEmpty {
+        if feature.languages.isEmpty {
             VStack(spacing: 8) {
                 Image(systemName: "shippingbox")
                     .font(.system(size: 20, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
-                Text("No run services configured")
+                Text("No language server provides dependencies")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
             }
@@ -87,10 +79,10 @@ private struct RunServiceDependencySidebarContent: View {
             GeometryReader { geometry in
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 0) {
-                        ForEach(feature.dependencyServices) { service in
-                            DependencyServiceSection(
+                        ForEach(feature.languages) { language in
+                            LanguageDependencySection(
                                 feature: feature,
-                                service: service,
+                                language: language,
                                 refreshRevision: refreshRevision
                             )
                         }
@@ -109,16 +101,15 @@ private struct RunServiceDependencySidebarContent: View {
     }
 }
 
-private struct DependencyServiceSection: View {
-    @ObservedObject var feature: RunFeatureModel
-    let service: DependencyServiceDescriptor
+private struct LanguageDependencySection: View {
+    @ObservedObject var feature: LanguageDependencyFeatureModel
+    let language: LanguageDependencyDescriptor
     let refreshRevision: Int
     @State private var graph: DependencyGraph?
     @State private var expandedNodeIDs: Set<String> = []
     @State private var isExpanded = false
     @State private var isResolving = false
     @State private var resolutionError: String?
-    @State private var isConfigurationPresented = false
     @State private var resolutionTask: Task<Void, Never>?
 
     var body: some View {
@@ -126,74 +117,41 @@ private struct DependencyServiceSection: View {
             serviceRow
             if isExpanded { serviceContent }
         }
-        .onChange(of: feature.dependencyRevision) { _ in invalidateAndReload() }
+        .onChange(of: feature.revision) { _ in invalidateAndReload() }
         .onChange(of: refreshRevision) { _ in invalidateAndReload() }
         .onDisappear {
             resolutionTask?.cancel()
             resolutionTask = nil
         }
-        .popover(isPresented: $isConfigurationPresented, arrowEdge: .trailing) {
-            DependencyPathConfigurationEditor(
-                serviceName: service.displayName,
-                configuration: feature.dependencyPaths(for: service.id),
-                saveError: feature.dependencyConfigurationSaveError
-            ) {
-                feature.updateDependencyPaths($0, serviceID: service.id)
-            }
-        }
     }
 
     private var serviceRow: some View {
-        HStack(spacing: 0) {
-            Button {
-                isExpanded.toggle()
-                if isExpanded, graph == nil { loadDependencies() }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .frame(width: 10)
-                    LitheSystemIcon(systemImage: service.systemImage)
-                        .font(.system(size: 12))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .frame(width: 16)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(service.displayName)
-                            .font(.system(size: LitheTheme.Metrics.treeFontSize, weight: .semibold))
-                            .foregroundStyle(LitheTheme.primaryText)
-                        if let subtitle = serviceSubtitle {
-                            Text(subtitle)
-                                .font(.system(size: 9.5))
-                                .foregroundStyle(LitheTheme.secondaryText)
-                                .lineLimit(1)
-                        }
-                    }
-                    Spacer(minLength: 4)
-                }
-                .padding(.leading, 8)
-                .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .lithePointer()
-
-            Button {
-                isConfigurationPresented = true
-            } label: {
-                LitheSystemIcon(systemImage: "gearshape")
-                    .font(.system(size: 11))
+        Button {
+            isExpanded.toggle()
+            if isExpanded, graph == nil { loadDependencies() }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(LitheTheme.secondaryText)
-                    .frame(width: 28, height: 28)
+                    .frame(width: 10)
+                LitheSystemIcon(systemImage: language.systemImage)
+                    .font(.system(size: 12))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .frame(width: 16)
+                Text(language.displayName)
+                    .font(.system(size: LitheTheme.Metrics.treeFontSize, weight: .semibold))
+                    .foregroundStyle(LitheTheme.primaryText)
+                Spacer(minLength: 4)
             }
-            .buttonStyle(.plain)
-            .lithePointer()
-            .help("Configure dependency search paths")
-            .accessibilityIdentifier("dependency-path-settings-\(service.id)")
-            .padding(.trailing, 4)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .lithePointer()
         .frame(minWidth: 220)
-        .accessibilityIdentifier("dependency-service-\(service.id)")
+        .accessibilityIdentifier("dependency-language-\(language.id)")
     }
 
     @ViewBuilder
@@ -201,7 +159,7 @@ private struct DependencyServiceSection: View {
         if isResolving {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.mini)
-                Text("Resolving service paths...")
+                Text("Resolving language dependencies...")
                     .font(.system(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
@@ -209,7 +167,7 @@ private struct DependencyServiceSection: View {
             .frame(minHeight: 28)
         } else if let resolutionError {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Could not load service dependencies")
+                Text("Could not load language dependencies")
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(LitheTheme.primaryText)
                 Text(resolutionError)
@@ -229,31 +187,15 @@ private struct DependencyServiceSection: View {
                     node: node,
                     depth: 1,
                     expandedNodeIDs: $expandedNodeIDs
-                ) { path in
-                    feature.excludeDependencyPath(path, serviceID: service.id)
-                }
+                )
             }
         } else {
-            Text("No paths resolved for this service")
+            Text("No dependencies reported by this language server")
                 .font(.system(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .padding(.leading, 28)
                 .frame(minHeight: 28)
         }
-    }
-
-    private var hasCustomConfiguration: Bool {
-        let paths = feature.dependencyPaths(for: service.id)
-        return !paths.sourcePaths.isEmpty
-            || !paths.binaryPaths.isEmpty
-            || !paths.dependencyPaths.isEmpty
-            || !paths.additionalSearchPaths.isEmpty
-            || !paths.excludedPaths.isEmpty
-    }
-
-    private var serviceSubtitle: String? {
-        if hasCustomConfiguration { return String(localized: "Configured") }
-        return service.displayName == service.providerDisplayName ? nil : service.providerDisplayName
     }
 
     private func invalidateAndReload() {
@@ -276,10 +218,10 @@ private struct DependencyServiceSection: View {
                 resolutionTask = nil
             }
             do {
-                let expectedRevision = feature.dependencyRevision
-                let resolved = try await feature.resolveDependencies(serviceID: service.id)
+                let expectedRevision = feature.revision
+                let resolved = try await feature.resolve(providerID: language.providerID)
                 try Task.checkCancellation()
-                guard expectedRevision == feature.dependencyRevision else { return }
+                guard expectedRevision == feature.revision else { return }
                 graph = resolved
             } catch is CancellationError {
                 return
@@ -294,7 +236,6 @@ private struct DependencyTreeNodeView: View {
     let node: DependencyNode
     let depth: Int
     @Binding var expandedNodeIDs: Set<String>
-    let onExclude: (String) -> Void
     @State private var isPathRevealed = false
     @State private var pathRevealTask: Task<Void, Never>?
 
@@ -344,8 +285,7 @@ private struct DependencyTreeNodeView: View {
                             DependencyTreeNodeView(
                                 node: child,
                                 depth: depth + 1,
-                                expandedNodeIDs: $expandedNodeIDs,
-                                onExclude: onExclude
+                                expandedNodeIDs: $expandedNodeIDs
                             )
                         }
                     }
@@ -386,10 +326,6 @@ private struct DependencyTreeNodeView: View {
             pathRevealTask?.cancel()
             pathRevealTask = nil
         }
-        .litheContextMenu(items: {
-            guard let path = dependencyPath else { return [] }
-            return [.action(String(localized: "Exclude from dependency tree")) { onExclude(path) }]
-        })
     }
 
     private func revealPath() {
@@ -404,12 +340,6 @@ private struct DependencyTreeNodeView: View {
         }
     }
 
-    private var dependencyPath: String? {
-        switch node.source {
-        case .directory(let url), .archive(let url): url.path
-        case .generated, .unavailable: nil
-        }
-    }
 }
 
 private struct DependencyPathRevealStrip: View {
@@ -433,121 +363,5 @@ private struct DependencyPathRevealStrip: View {
         .help("Full path")
         .accessibilityLabel(path)
         .accessibilityAddTraits(.isStaticText)
-    }
-}
-
-private struct DependencyPathConfigurationEditor: View {
-    @Environment(\.dismiss) private var dismiss
-    let serviceName: String
-    let saveError: String?
-    let onSave: (DependencyPathConfiguration) -> Void
-    @State private var sourcePaths: String
-    @State private var binaryPaths: String
-    @State private var dependencyPaths: String
-    @State private var additionalPaths: String
-    @State private var excludedPaths: [String]
-
-    init(
-        serviceName: String,
-        configuration: DependencyPathConfiguration,
-        saveError: String?,
-        onSave: @escaping (DependencyPathConfiguration) -> Void
-    ) {
-        self.serviceName = serviceName
-        self.saveError = saveError
-        self.onSave = onSave
-        _sourcePaths = State(initialValue: configuration.sourcePaths.joined(separator: "\n"))
-        _binaryPaths = State(initialValue: configuration.binaryPaths.joined(separator: "\n"))
-        _dependencyPaths = State(initialValue: configuration.dependencyPaths.joined(separator: "\n"))
-        _additionalPaths = State(initialValue: configuration.additionalSearchPaths.joined(separator: "\n"))
-        _excludedPaths = State(initialValue: configuration.excludedPaths)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Search Paths: \(serviceName)")
-                .font(.system(size: 14, weight: .semibold))
-            Text("One path per line. Relative paths are resolved from the workspace.")
-                .font(.system(size: 11))
-                .foregroundStyle(LitheTheme.secondaryText)
-
-            pathEditor(title: "Source Code", text: $sourcePaths)
-            pathEditor(title: "Build Outputs", text: $binaryPaths)
-            pathEditor(title: "Dependencies", text: $dependencyPaths)
-            pathEditor(title: "Additional Search Paths", text: $additionalPaths)
-
-            if !excludedPaths.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Excluded Paths")
-                        .font(.system(size: 11, weight: .medium))
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 3) {
-                            ForEach(excludedPaths, id: \.self) { path in
-                                HStack(spacing: 6) {
-                                    Text(path)
-                                        .font(.system(size: 10, design: .monospaced))
-                                        .lineLimit(1)
-                                    Spacer(minLength: 0)
-                                    Button {
-                                        excludedPaths.removeAll { $0 == path }
-                                    } label: {
-                                        LitheSystemIcon(systemImage: "arrow.uturn.backward")
-                                    }
-                                    .buttonStyle(.borderless)
-                                    .help("Restore path")
-                                }
-                            }
-                        }
-                    }
-                    .frame(maxHeight: 84)
-                }
-            }
-
-            if let saveError {
-                Text(saveError)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(LitheTheme.error)
-                    .lineLimit(2)
-            }
-
-            HStack {
-                Spacer(minLength: 0)
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                Button("Save") {
-                    onSave(DependencyPathConfiguration(
-                        sourcePaths: lines(sourcePaths),
-                        binaryPaths: lines(binaryPaths),
-                        dependencyPaths: lines(dependencyPaths),
-                        additionalSearchPaths: lines(additionalPaths),
-                        excludedPaths: excludedPaths
-                    ))
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(14)
-        .frame(width: 380)
-    }
-
-    private func pathEditor(title: LocalizedStringKey, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(LitheTheme.primaryText)
-            TextEditor(text: text)
-                .font(.system(size: 11, design: .monospaced))
-                .frame(height: 42)
-                .padding(3)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(LitheTheme.divider, lineWidth: 1)
-                }
-        }
-    }
-
-    private func lines(_ value: String) -> [String] {
-        value.split(whereSeparator: \.isNewline).map(String.init)
     }
 }

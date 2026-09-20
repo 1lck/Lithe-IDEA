@@ -7,6 +7,102 @@ import Testing
 
 @MainActor
 struct LanguageIntelligenceModuleTests {
+    @Test
+    func dependencyBrowserUsesOneJavaLanguageContributionFromJdtls() async throws {
+        let root = URL(fileURLWithPath: "/workspace/java-dependencies", isDirectory: true)
+        let java = try #require(LanguageProviderCatalog.compatibilityFallback.descriptors.first {
+            $0.id == "java"
+        })
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: java, session: session)]
+        )
+        let feature = LanguageDependencyFeatureModel(sessions: manager)
+        defer { manager.stopAllLanguageServers() }
+
+        feature.prepare(
+            workspaceURL: root,
+            files: [
+                root.appendingPathComponent("api/src/Main.java"),
+                root.appendingPathComponent("worker/src/Worker.java"),
+            ]
+        )
+        #expect(feature.languages.map(\.id) == ["java"])
+
+        let resolution = Task { @MainActor in
+            try await feature.resolve(providerID: "java")
+        }
+        try await session.waitUntilStarted()
+        session.publish(.ready)
+
+        let projectCommand = try await session.waitForExecuteCommand(number: 1)
+        #expect(projectCommand.command == "java.project.getAll")
+        session.completeExecuteReturningValue(.success(.array([
+            .string("file:///workspace/java-dependencies/api"),
+            .string("file:///workspace/java-dependencies/worker"),
+        ])))
+
+        let apiCommand = try await session.waitForExecuteCommand(number: 2)
+        #expect(apiCommand.command == "java.project.getSettings")
+        #expect(apiCommand.arguments.first == .string("file:///workspace/java-dependencies/api"))
+        session.completeExecuteReturningValue(.success(.object([
+            "org.eclipse.jdt.ls.core.sourcePaths": .array([
+                .string("/workspace/java-dependencies/api/src/main/java"),
+            ]),
+            "org.eclipse.jdt.ls.core.outputPath": .string(
+                "/workspace/java-dependencies/api/target/classes"
+            ),
+            "org.eclipse.jdt.ls.core.referencedLibraries": .array([
+                .string("/cache/example-1.jar"),
+            ]),
+        ])))
+
+        _ = try await session.waitForExecuteCommand(number: 3)
+        session.completeExecuteReturningValue(.success(.object([
+            "org.eclipse.jdt.ls.core.sourcePaths": .array([
+                .string("/workspace/java-dependencies/worker/src/main/java"),
+            ]),
+            "org.eclipse.jdt.ls.core.outputPath": .string(
+                "/workspace/java-dependencies/worker/target/classes"
+            ),
+            "org.eclipse.jdt.ls.core.referencedLibraries": .array([
+                .string("/cache/example-1.jar"),
+                .string("/cache/worker-2.jar"),
+            ]),
+        ])))
+
+        let graph = try #require(try await resolution.value)
+        let groups = try #require(graph.roots.first?.children)
+        #expect(groups[0].children.map(\.id) == [
+            "/workspace/java-dependencies/api/src/main/java",
+            "/workspace/java-dependencies/worker/src/main/java",
+        ])
+        #expect(groups[1].children.map(\.id) == [
+            "/workspace/java-dependencies/api/target/classes",
+            "/workspace/java-dependencies/worker/target/classes",
+        ])
+        #expect(groups[2].children.map(\.id) == [
+            "/cache/example-1.jar",
+            "/cache/worker-2.jar",
+        ])
+    }
+
+    @Test
+    func dependencyBrowserDoesNotInferEntriesWithoutLanguageContribution() {
+        let root = URL(fileURLWithPath: "/workspace/node-services", isDirectory: true)
+        let feature = LanguageDependencyFeatureModel(sessions: LanguageToolingSessionManager())
+
+        feature.prepare(
+            workspaceURL: root,
+            files: [
+                root.appendingPathComponent("apps/api/server.ts"),
+                root.appendingPathComponent("apps/worker/worker.ts"),
+            ]
+        )
+
+        #expect(feature.languages.isEmpty)
+    }
+
     @Test(arguments: ["Main.java", "main.go", "main.rs"])
     func sessionStartupChecksCurrentPreferenceForEachWorkspace(fileName: String) throws {
         let root = URL(fileURLWithPath: "/workspace/disabled-lsp", isDirectory: true)
@@ -974,13 +1070,20 @@ private final class Recorder {
 
 @MainActor
 private final class TestGraph: LanguageIntelligenceServiceGraph {
-    let sessions = LanguageToolingSessionManager()
+    let sessions: LanguageToolingSessionManager
     let tools = LanguageServerToolService(
         runtimeService: TestLanguageToolRuntime(),
         commandRunner: TestLanguageToolCommandRunner(),
         settingsStore: TestLanguageToolSettingsStore()
     )
+    let dependencies: LanguageDependencyFeatureModel
     var hasActiveLanguageServers = false
+
+    init() {
+        let sessions = LanguageToolingSessionManager()
+        self.sessions = sessions
+        dependencies = LanguageDependencyFeatureModel(sessions: sessions)
+    }
 
     func activate(context: ModuleContext) {}
     func prepareForSleep() async throws {}

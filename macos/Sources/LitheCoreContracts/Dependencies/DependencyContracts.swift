@@ -1,147 +1,22 @@
 import Foundation
 
-/// Project-owned paths that should be visible for one configured run service.
-/// Paths may be workspace-relative or absolute local paths supplied by the user.
-package struct DependencyPathConfiguration: Codable, Equatable, Sendable {
-    package static let currentVersion = 1
-
-    package var version: Int
-    package var sourcePaths: [String]
-    package var binaryPaths: [String]
-    package var dependencyPaths: [String]
-    package var additionalSearchPaths: [String]
-    /// Paths hidden from this service's dependency tree. Entries may be workspace-relative
-    /// or absolute and match the entry itself and every descendant.
-    package var excludedPaths: [String]
-
-    package init(
-        version: Int = currentVersion,
-        sourcePaths: [String] = [],
-        binaryPaths: [String] = [],
-        dependencyPaths: [String] = [],
-        additionalSearchPaths: [String] = [],
-        excludedPaths: [String] = []
-    ) {
-        self.version = version
-        self.sourcePaths = sourcePaths
-        self.binaryPaths = binaryPaths
-        self.dependencyPaths = dependencyPaths
-        self.additionalSearchPaths = additionalSearchPaths
-        self.excludedPaths = excludedPaths
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case version
-        case sourcePaths
-        case binaryPaths
-        case dependencyPaths
-        case additionalSearchPaths
-        case excludedPaths
-    }
-
-    package init(from decoder: Decoder) throws {
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        version = try values.decodeIfPresent(Int.self, forKey: .version) ?? Self.currentVersion
-        sourcePaths = try values.decodeIfPresent([String].self, forKey: .sourcePaths) ?? []
-        binaryPaths = try values.decodeIfPresent([String].self, forKey: .binaryPaths) ?? []
-        dependencyPaths = try values.decodeIfPresent([String].self, forKey: .dependencyPaths) ?? []
-        additionalSearchPaths = try values.decodeIfPresent(
-            [String].self,
-            forKey: .additionalSearchPaths
-        ) ?? []
-        excludedPaths = try values.decodeIfPresent([String].self, forKey: .excludedPaths) ?? []
-    }
-
-    package func encode(to encoder: Encoder) throws {
-        var values = encoder.container(keyedBy: CodingKeys.self)
-        try values.encode(version, forKey: .version)
-        try values.encode(sourcePaths, forKey: .sourcePaths)
-        try values.encode(binaryPaths, forKey: .binaryPaths)
-        try values.encode(dependencyPaths, forKey: .dependencyPaths)
-        try values.encode(additionalSearchPaths, forKey: .additionalSearchPaths)
-        try values.encode(excludedPaths, forKey: .excludedPaths)
-    }
-}
-
-/// Workspace JSON keyed by run-configuration ID. Keeping service paths apart
-/// prevents two services that use the same language from sharing exclusions.
-package struct WorkspaceDependencyConfiguration: Codable, Equatable, Sendable {
-    package static let currentVersion = 1
-
-    package var version: Int
-    package var services: [String: DependencyPathConfiguration]
-
-    package init(
-        version: Int = currentVersion,
-        services: [String: DependencyPathConfiguration] = [:]
-    ) {
-        self.version = version
-        self.services = services
-    }
-}
-
-/// A language-level dependency entry exposed in the dependency sidebar.
-/// Multiple run configurations can contribute to one entry when they use the
-/// same provider and resolve to the same source roots.
-package struct DependencyServiceDescriptor: Identifiable, Equatable, Sendable {
+/// One language-server contribution exposed in the dependency sidebar.
+package struct LanguageDependencyDescriptor: Identifiable, Equatable, Sendable {
     package let id: String
     package let displayName: String
     package let providerID: String
-    package let providerDisplayName: String
     package let systemImage: String
-    package let configurationIDs: [String]
 
     package init(
         id: String,
         displayName: String,
         providerID: String,
-        providerDisplayName: String,
-        systemImage: String,
-        configurationIDs: [String] = []
+        systemImage: String
     ) {
         self.id = id
         self.displayName = displayName
         self.providerID = providerID
-        self.providerDisplayName = providerDisplayName
         self.systemImage = systemImage
-        self.configurationIDs = configurationIDs.isEmpty ? [id] : configurationIDs
-    }
-}
-
-/// Identifies the project-scoped paths a dependency provider is allowed to use.
-/// Providers must consume paths resolved by the owning runtime instead of
-/// rediscovering dependencies from a machine-wide cache.
-package struct DependencyResolutionContext: Equatable, Sendable {
-    package let serviceID: String
-    package let serviceDisplayName: String
-    package let providerID: String
-    package let providerDisplayName: String
-    package let workspaceURL: URL
-    package let sourceRoots: [URL]
-    package let resourceRoots: [URL]
-    package let classpath: [URL]
-    package let dependencyPaths: DependencyPathConfiguration
-
-    package init(
-        serviceID: String = "workspace",
-        serviceDisplayName: String? = nil,
-        providerID: String = "workspace",
-        providerDisplayName: String? = nil,
-        workspaceURL: URL,
-        sourceRoots: [URL] = [],
-        resourceRoots: [URL] = [],
-        classpath: [URL] = [],
-        dependencyPaths: DependencyPathConfiguration = .init()
-    ) {
-        self.serviceID = serviceID
-        self.serviceDisplayName = serviceDisplayName ?? serviceID
-        self.providerID = providerID
-        self.providerDisplayName = providerDisplayName ?? providerID
-        self.workspaceURL = workspaceURL.standardizedFileURL
-        self.sourceRoots = sourceRoots.map { $0.standardizedFileURL }
-        self.resourceRoots = resourceRoots.map { $0.standardizedFileURL }
-        self.classpath = classpath.map { $0.standardizedFileURL }
-        self.dependencyPaths = dependencyPaths
     }
 }
 
@@ -230,87 +105,10 @@ package struct DependencyNode: Codable, Identifiable, Equatable, Sendable {
 
 package struct DependencyGraph: Codable, Equatable, Sendable {
     package let providerID: String
-    package let serviceID: String
     package let roots: [DependencyNode]
 
-    package init(providerID: String, serviceID: String = "workspace", roots: [DependencyNode]) {
+    package init(providerID: String, roots: [DependencyNode]) {
         self.providerID = providerID
-        self.serviceID = serviceID
         self.roots = roots
     }
-
-    /// Merges service graphs while preserving the first-seen deterministic order.
-    /// Shared source roots and artifacts therefore appear once in an aggregated view.
-    package static func aggregate(_ graphs: [DependencyGraph]) -> [DependencyNode] {
-        var seen: Set<String> = []
-        return graphs
-            .flatMap(\.roots)
-            .filter { seen.insert(Self.identity(for: $0)).inserted }
-    }
-
-    private static func identity(for node: DependencyNode) -> String {
-        switch node.source {
-        case .directory(let url), .archive(let url): return url.standardizedFileURL.path
-        case .generated: return "generated:\(node.id)"
-        case .unavailable: return "unavailable:\(node.id)"
-        }
-    }
-}
-
-/// A persisted projection of a dependency provider. The input signature is
-/// owned by the service and must change whenever configuration or an input file
-/// changes. Providers can therefore reuse this graph without rediscovering the
-/// workspace on every IDE launch.
-package struct DependencyIndex: Codable, Equatable, Sendable {
-    package static let currentVersion = 1
-
-    package let version: Int
-    package let inputSignature: String
-    package let graph: DependencyGraph
-
-    package init(
-        version: Int = currentVersion,
-        inputSignature: String,
-        graph: DependencyGraph
-    ) {
-        self.version = version
-        self.inputSignature = inputSignature
-        self.graph = graph
-    }
-}
-
-package struct WorkspaceDependencyIndexes: Codable, Equatable, Sendable {
-    package static let currentVersion = 1
-
-    package let version: Int
-    package var services: [String: DependencyIndex]
-
-    package init(
-        version: Int = currentVersion,
-        services: [String: DependencyIndex] = [:]
-    ) {
-        self.version = version
-        self.services = services
-    }
-}
-
-package protocol WorkspaceDependencyStoring: Sendable {
-    func loadDependencyConfiguration(workspaceURL: URL) throws -> WorkspaceDependencyConfiguration?
-    func saveDependencyConfiguration(
-        _ configuration: WorkspaceDependencyConfiguration,
-        workspaceURL: URL
-    ) throws
-    func loadDependencyIndexes(workspaceURL: URL) throws -> WorkspaceDependencyIndexes?
-    func saveDependencyIndexes(
-        _ indexes: WorkspaceDependencyIndexes,
-        workspaceURL: URL
-    ) throws
-}
-
-// Note: 工作区依赖浏览器的路径 ownership 见
-// .agents/notes/implemented/architecture/2026-09-18-workspace-dependency-browser.md
-/// Language-specific dependency discovery entry point.
-package protocol WorkspaceDependencyProvider: Sendable {
-    var providerID: String { get }
-    func resolve(context: DependencyResolutionContext) async throws -> DependencyGraph
 }

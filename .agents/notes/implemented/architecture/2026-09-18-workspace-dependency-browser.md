@@ -1,59 +1,92 @@
-# Agent 笔记：工作区依赖浏览器与运行服务 Provider 边界
+# Agent 笔记：工作区依赖浏览器与语言服务器 Provider 边界
 
 状态：已实现
 
 ## 先说结论
 
-依赖侧栏的输入来自当前工作区的运行服务配置，而不是 Java、Maven 或某个全局缓存目录。侧栏按 Provider 和解析出的源码根集合聚合为语言级入口；同一 Node.js、Rust 或其他语言的多个运行配置如果指向同一套源码，只展示一个入口，源码不同的配置仍保持隔离。
+依赖侧栏只展示语言服务器或语言 Provider 注入的项目模型，不再读取
+`RunService.configurations`，也不根据启动目录猜源码根。一个语言只显示一个入口；
+该语言有多少个启动服务，不会改变依赖侧栏的结构。
 
-路径配置和索引分别保存在工作区的 `.lithe/dependencies/config.json` 与 `.lithe/dependencies/index.json`。索引输入没有变化时直接复用；依赖管理文件变化只使受影响服务的索引失效，不会因为一次依赖编辑就递归扫描整个工作区。Maven 仍然只负责自己的构建工具窗口和 Java 项目模型，依赖侧栏不改变 Maven UI。
+Lithe 负责语言会话生命周期、取消、过期结果保护、确定性排序和 UI。源码根、构建
+输出和第三方依赖属于语言引擎；没有注册依赖贡献器的语言显示为空，不回退到文件
+扫描或运行服务。
 
 ## 问题
 
-不同语言从运行服务得到的源代码、构建产物和第三方依赖位置不同。把这些规则写进项目侧栏会让 UI 依赖 Java，也无法让插件声明自己的依赖管理文件。另一方面，用户需要看到运行时没有自动发现的源码目录或生成目录，并能持久化排除某个目录及其子目录。
+运行配置描述“怎样启动一个进程”，不等于编译器或语言服务器看到的项目模型。
+同一个 Node.js 源码可以有 API、Worker 等多个启动入口；Java 的 Maven/Gradle 模块
+也可能有多个 Main 类。用运行服务生成依赖树会重复展示同一份源码，并遗漏生成源码、
+自定义输出目录、模块路径和语言服务器已经解析的 classpath。
+
+依赖关系也不是标准 LSP 方法。不同语言需要使用各自公开的扩展命令或 Provider API，
+因此 UI 不能直接发送 Java 命令，更不能为每种语言写路径规则。
 
 ## 决策
 
-- `RunService.configurations` 是依赖侧栏的输入，而不是一行一个服务清单。`Current File` 和 disabled 配置不显示；其余配置按 `providerID + 源码根集合` 聚合成语言级入口，入口显示 Provider 名称并保留组内运行配置 ID。
-- `DependencyResolutionContext`、`DependencyNode`、`DependencyGraph` 和 `WorkspaceDependencyProvider` 位于 `LitheCoreContracts`。Provider 只消费运行服务已经确认的路径和用户 JSON 配置，不访问 home 目录，也不自行递归发现缓存。
-- 当前通用 Provider 是 `RunServiceDependencyProvider`。它把服务配置中的 `modulePath`、工作目录、源文件入口和显式 JSON 路径分成 `Source Code`、`Build Outputs`、`Dependencies` 和 `Additional Search Paths` 四组。未来语言插件应在自己的 Provider 元数据中声明同样的输入文件和路径补充规则，不要把语言分支加到侧栏。
-- 用户在服务行右侧的齿轮中配置源代码、构建产物、依赖和额外搜索路径；右键路径可以排除目录。排除项按工作区相对路径保存到对应服务的 `excludedPaths`，匹配该目录本身及所有子路径。
-- 聚合入口合并组内已确认的源码根、构建产物和依赖路径；组级配置优先，读取旧的单服务配置时会合并组内已有值，避免聚合后丢失用户排除项。
-- 每个服务的索引签名包含服务 ID、Provider ID、运行时路径、用户配置和 Provider 负责的依赖管理文件摘要。签名一致时复用 `index.json`；配置或管理文件变化只删除对应服务索引。
-- 文件监听只转发变化路径。`.lithe/dependencies` 元数据不发送给 Java 语言服务；索引文件不会触发工作区快照或项目服务重载，配置文件变化才重新读取运行服务配置。
-- Maven 的项目模型、构建任务、profiles 和原有工具窗口继续由 `MavenService` 与 `MavenView` 管理。通用侧栏只通过只读回调消费 Maven 已经解析出的 artifact 路径；它不会启动 Maven 或扫描本地仓库，也不修改 Maven 配置 JSON。
+- `LanguageDependencyFeatureModel` 位于 `LitheLanguageIntelligenceModule`。它从工作区
+  文件清单中选择已注册的语言依赖贡献器，并把每个语言投影成一个
+  `LanguageDependencyDescriptor`。
+- `LanguageDependencyProviding` 是语言依赖贡献入口。实现通过对应的
+  `LanguageToolingSessionManager` 会话读取项目事实；不得读取 `RunService`、启动配置或
+  机器级依赖缓存，也不得递归扫描工作区来重建上游项目模型。
+- 侧栏展开语言时才解析依赖。工作区切换、文件变化和手动刷新都会更新 generation；
+  较早请求返回后必须以 `CancellationError` 丢弃，不能污染新工作区。
+- Java 贡献器复用 JDTLS 的 `java.project.getAll` 和 `java.project.getSettings`。后者读取
+  `org.eclipse.jdt.ls.core.sourcePaths`、`outputPath` 和 `referencedLibraries`，分别形成
+  `Source Code`、`Build Outputs` 和 `Dependencies`。多模块结果按规范化路径去重并排序。
+- 依赖侧栏不再创建 `.lithe/dependencies/config.json` 或 `index.json`。JDTLS 持有自己的
+  项目模型和缓存；Lithe 不保存第二份可能过期的依赖真相。
+- 路径默认不直接显示。用户点击路径节点后，侧栏临时显示可横向滚动的完整路径条带，
+  三秒后自动收起；这只是展示行为，不改变依赖模型。
+- 新语言要显示依赖，必须在语言智能模块中注册自己的贡献器，并复用该语言服务器公开
+  的项目模型能力。SwiftUI 侧栏不得按 Java、Node.js、Rust 等语言名称分支。
+
+正确做法示例：Java Provider 向现有 JDTLS 会话请求项目 source paths 和 libraries，
+再返回语言无关的 `DependencyGraph`。
+
+不要这样做：从三个 Node.js `RunConfiguration` 生成三个依赖入口，或者看到
+`package.json` 后自行遍历 `node_modules`。
 
 ## 考虑过的备选方案
 
-- **侧栏直接扫描 Maven 本地仓库**：无法证明 JAR 属于当前运行服务，也会把机器环境和 Java 绑定在一起，因此否决。
-- **把依赖树放进 Maven 工具窗口**：会破坏 Maven 原有导航，并阻止非 Java 服务使用依赖树，因此否决。
-- **每种语言复制一套侧栏和索引状态**：会让排除、缓存和监听行为出现差异，因此采用语言无关合同和 Provider。
-- **每个运行配置直接显示一行**：同一个 Node.js 工作区可能有 API、Worker 等多个启动入口，会重复展示同一套源码；因此按源码根集合聚合，而不是把启动名称当成依赖树根。
-- **只按 Provider 名称全量合并**：同一语言可以同时管理多个源码目录；无条件合并会把不同项目的路径混在一起，因此源码根集合必须参与聚合键。
-- **每次点击或打开工作区递归扫描**：大型仓库会产生不可预测的延迟，因此只使用已有运行服务路径、工作区文件快照和持久化索引。
+- **从运行服务列表生成依赖树**：已否决。启动入口和源码所有权不是同一个概念，容易
+  重复展示同源服务，也会形成与语言服务器冲突的项目模型。
+- **按 Provider 和运行配置源码根聚合**：已实现过但被替换。它能减少重复行，仍然依赖
+  运行服务推导源码根，无法覆盖没有运行配置的模块和上游生成路径。
+- **保留 `.lithe/dependencies` 让用户手工补路径**：已否决。手工覆盖会让 Lithe 成为第二
+  份依赖真相；上游模型变化后，缓存和排除项可能继续遮蔽真实结果。
+- **侧栏直接扫描 Maven 本地仓库或 `node_modules`**：已否决。扫描无法可靠判断依赖属于
+  哪个项目模型，也带来不可预测的性能和机器环境差异。
+- **为所有 LSP 提供通用目录猜测回退**：已否决。LSP 标准没有依赖协议；没有贡献器时
+  明确显示为空，比展示似是而非的树更可诊断。
 
 ## 后果
 
-依赖浏览器可以在没有 Java 或 Maven 项目模型的工作区中显示语言级依赖入口；新增语言通常只需提供运行配置和 Provider 元数据。同源的多个运行入口不会重复占用侧栏空间，源码不同的入口仍然保持隔离。配置与索引分离后，用户路径不会和构建工具配置互相覆盖，索引也能独立失效。
+依赖侧栏和 Run 模块不再互相激活或共享状态。多个同语言服务天然聚合为一个语言入口，
+Java 多模块项目使用 JDTLS 已导入的真实源码根、输出目录和依赖库。工作区不再产生
+依赖浏览器专用 JSON 文件，文件监听也不需要为这些文件设置例外。
 
-代价是当前 Provider 对未知生态只能显示运行服务明确提供的路径；它不会猜测全局依赖缓存位置。未来接入语言插件时，需要把依赖管理文件声明加入插件元数据，并由对应 Provider 提供 classpath 或源码包，而不是在 `RunService` 或 View 中增加语言名称判断。
+代价是当前只有 Java/JDTLS 注册了依赖贡献器；Node.js、Go、Rust、Python 等语言在各自
+Provider 接入成熟的上游项目模型前不会显示依赖。语言服务器启动或项目导入失败时，
+侧栏会展示该会话的真实错误，而不是退回到不完整的猜测结果。
 
 ## 验证
 
+- `swift build --target LitheLanguageIntelligenceModule`
 - `swift build --target LitheExecutionModule`
 - `swift build --target Lithe`
-- `swift test --filter DependencyProviderTests`
-- `swift test --filter 'dependencyBrowserUsesNonJavaRunServiceConfiguration|dependencyBrowserAggregatesSameLanguageAndSourceRoots|genericProviderUsesRunServiceIdentityAndPaths|dependencyPathConfigurationDecodesPartialJson'`
+- `swift test --filter dependencyBrowser`
+- `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
+- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter dependencyBrowser`
 - `./scripts/verify-agent-notes.sh`
 - `./scripts/verify-service-boundaries.sh`
-- `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 
 ## 适用范围
 
 - `macos/Sources/LitheCoreContracts/Dependencies/DependencyContracts.swift`
-- `macos/Sources/LitheExecutionModule/Dependencies/RunServiceDependencyProvider.swift`
-- `macos/Sources/LitheExecutionModule/Services/RunService.swift`
-- `macos/Sources/LitheExecutionModule/Application/ExecutionFeatureModels.swift`
+- `macos/Sources/LitheLanguageIntelligenceModule/Dependencies/LanguageDependencyFeatureModel.swift`
+- `macos/Sources/LitheLanguageIntelligenceModule/Services/LanguageToolingSessionManager.swift`
+- `macos/Sources/LitheLanguageIntelligenceModule/Module/LanguageIntelligenceFeatureGraph.swift`
+- `macos/Sources/Lithe/Models/AppModel/AppModel+Dependencies.swift`
 - `macos/Sources/Lithe/Views/Workspace/DependencySidebarView.swift`
-- `macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Persistence/MacWorkspaceDependencyStore.swift`

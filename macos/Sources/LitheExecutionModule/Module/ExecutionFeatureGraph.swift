@@ -25,20 +25,6 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
         run.configureMavenContextProvider { [weak maven] in
             maven?.launchContext
         }
-        run.configureDependencyClasspathProvider { [weak mavenFeature] configuration in
-            guard configuration.kind.isMavenBacked || configuration.mavenReactorPath != nil else {
-                return []
-            }
-            return mavenFeature?.resolvedDependencyArtifactPaths(
-                modulePath: configuration.modulePath ?? "."
-            ) ?? []
-        }
-        maven.$dependencyStates
-            .dropFirst()
-            .sink { [weak run] _ in
-                run?.markResolvedDependencyPathsChanged()
-            }
-            .store(in: &activityObservers)
         maven.onProjectReloaded = { [weak run] workspace, project in
             run?.acceptMavenProject(project, at: workspace)
         }

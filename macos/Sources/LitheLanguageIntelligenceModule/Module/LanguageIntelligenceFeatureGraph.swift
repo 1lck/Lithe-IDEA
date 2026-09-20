@@ -5,10 +5,12 @@ import LitheModuleAPI
 package final class LanguageIntelligenceFeatureGraph: NSObject, LanguageIntelligenceServiceGraph {
     package let sessions: LanguageToolingSessionManager
     package let tools: LanguageServerToolService
+    package let dependencies: LanguageDependencyFeatureModel
 
     package init(sessions: LanguageToolingSessionManager, tools: LanguageServerToolService) {
         self.sessions = sessions
         self.tools = tools
+        dependencies = LanguageDependencyFeatureModel(sessions: sessions)
     }
 
     package var isActive: Bool { !sessions.activeLanguageServerIDs.isEmpty }
@@ -30,6 +32,7 @@ package final class LanguageIntelligenceFeatureGraph: NSObject, LanguageIntellig
     }
 
     package func stop() async {
+        dependencies.reset()
         sessions.stopAll()
         sessions.clearDiagnostics()
     }

@@ -632,6 +632,39 @@ package final class LanguageToolingSessionManager: ObservableObject,
         }
     }
 
+    /// Executes a dependency contribution command against one provider-owned
+    /// session. The caller never selects a run service or synthesizes project
+    /// paths; those facts stay in the language server.
+    package func executeDependencyCommand(
+        providerID: String,
+        commandID: String,
+        arguments: [ToolingJSONValue],
+        rootURL: URL
+    ) async throws -> ToolingJSONValue {
+        let normalizedRoot = rootURL.standardizedFileURL
+        _ = try startLanguageServer(providerID: providerID, rootURL: normalizedRoot)
+        try await waitUntilLanguageServerReady(providerID: providerID, rootURL: normalizedRoot)
+        guard languageServerStates[providerID] == .ready,
+              let session = languageServers[providerID],
+              session.isRunning else {
+            throw LanguageToolingSessionError.toolingUnavailable(providerID)
+        }
+        let command = LanguageServerCommand(
+            title: commandID,
+            command: commandID,
+            arguments: arguments
+        )
+        return try await withCheckedThrowingContinuation { continuation in
+            do {
+                try session.executeReturningValue(command, fileURL: normalizedRoot) { result in
+                    continuation.resume(with: result)
+                }
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+
     private func executeJavaTestCommand(
         _ commandID: String,
         arguments: [ToolingJSONValue],
