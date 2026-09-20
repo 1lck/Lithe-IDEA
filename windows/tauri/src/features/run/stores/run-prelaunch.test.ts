@@ -65,6 +65,7 @@ function standaloneDependencies(overrides: Partial<RunStoreDependencies> = {}): 
     javaBuildFailurePolicyForWorkspace: () => "ask",
     setJavaBuildFailurePolicy: mock(() => undefined),
     rebuildJavaIndexForWorkspace: mock(async () => undefined),
+    presentJavaLaunchDecision: mock(() => undefined),
     ...overrides,
   };
   return { dependencies, executePreLaunchStep, startRunProcess };
@@ -368,7 +369,11 @@ describe("Java project launch preparation feedback", () => {
 
   test("continues the same launch after one failed build without rebuilding", async () => {
     const prepare = mock(async () => failedPreparation);
-    const store = storeWith(projectConfiguration, { prepareJavaRunLaunch: prepare });
+    const presentDecision = mock(() => undefined);
+    const store = storeWith(projectConfiguration, {
+      prepareJavaRunLaunch: prepare,
+      presentJavaLaunchDecision: presentDecision,
+    });
     let observedMessage: string | undefined;
     const unsubscribe = store.subscribe((state) => {
       const decision = state.javaLaunchDecisions[projectConfiguration.id];
@@ -387,6 +392,7 @@ describe("Java project launch preparation feedback", () => {
 
     expect(observedMessage).toContain("compilation errors");
     expect(prepare).toHaveBeenCalledTimes(1);
+    expect(presentDecision).toHaveBeenCalledWith("workspace");
     expect(store.getState().sessions[0].isRunning).toBe(true);
     expect(store.getState().sessions[0].output).toContain(
       "Continuing with the Java output currently available on disk.",

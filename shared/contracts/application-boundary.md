@@ -397,6 +397,9 @@ offers Java: Rebuild Index. Continuing resumes the same attempt and never
 issues a second build. Cancellation, timeout, transport failure, and an unknown
 build status do not carry a code verdict and remain non-overridable. Build
 elapsed time is displayed as evidence only, never used as a trust threshold.
+Windows opens the Run tool window when a decision is required, including when
+Debug was initiated from the Maven tool window, so no launch waits on an
+unmounted prompt.
 
 Java test actions use the same Maven process lifecycle for a complete JUnit 4
 or JUnit 5 test class and for an individual method. The selector is validated

@@ -61,6 +61,7 @@ import {
 } from "../utils/output-timestamper";
 import { resolveConfigurations, type ResolvedRunProject } from "../services/resolve-run-project";
 import { frontendTrace } from "@/utils/frontend-trace";
+import { openRunDecisionPane } from "../actions/run-tool-window-actions";
 
 const MAXIMUM_OUTPUT_CHARACTERS = 500_000;
 const sessionWorkspaces = new Map<string, string>();
@@ -147,6 +148,7 @@ export interface RunStoreDependencies {
   rebuildJavaIndexForWorkspace?: typeof rebuildJavaIndexForWorkspace;
   javaBuildFailurePolicyForWorkspace?: typeof javaBuildFailurePolicyForWorkspace;
   setJavaBuildFailurePolicy?: (workspace: string, policy: "ask" | "alwaysProceed") => void;
+  presentJavaLaunchDecision?: (workspaceId: string) => void;
 }
 
 const defaultRunStoreDependencies: RunStoreDependencies = {
@@ -162,6 +164,7 @@ const defaultRunStoreDependencies: RunStoreDependencies = {
   javaBuildFailurePolicyForWorkspace,
   setJavaBuildFailurePolicy: (workspace, policy) =>
     useRunPreferencesStore.getState().actions.setJavaBuildFailurePolicy(workspace, policy),
+  presentJavaLaunchDecision: openRunDecisionPane,
 };
 
 // Classpath joining is the host's job: Rust emits a platform-neutral list and
@@ -342,6 +345,8 @@ export const createRunStore = (
       useRunPreferencesStore.getState().actions.setJavaBuildFailurePolicy(workspace, policy));
   const rebuildJavaIndex =
     dependencies.rebuildJavaIndexForWorkspace ?? rebuildJavaIndexForWorkspace;
+  const presentJavaLaunchDecision =
+    dependencies.presentJavaLaunchDecision ?? openRunDecisionPane;
   const executions = new Map<string, string>();
   const pendingJavaLaunchDecisions = new Map<
     string,
@@ -610,6 +615,7 @@ export const createRunStore = (
                   },
                 },
               }));
+              presentJavaLaunchDecision(workspaceId);
               const proceed = await decision;
               if (!isCurrent() || !proceed) {
                 if (isCurrent()) executions.delete(sessionId);
