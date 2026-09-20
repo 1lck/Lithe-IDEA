@@ -31,6 +31,8 @@ import { isMarkdownPreviewableFile } from "@/features/editor/markdown/previewabl
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { toast } from "sonner";
+import { Button } from "@/ui/button";
+import { Spinner } from "@/ui/spinner";
 import { useEditorAppStore } from "@/features/editor/stores/editor-app.store";
 import { useZoomStore } from "@/features/window/stores/zoom.store";
 import { editorAPI } from "../extensions/api";
@@ -233,6 +235,10 @@ const CodeEditor = ({
     [onChange],
   );
   const isPreviewBuffer = activeBuffer?.isPreview ?? false;
+  const restoreLoadState = activeBuffer?.type === "editor" ? activeBuffer.loadState : undefined;
+  const restoreLoadError = activeBuffer?.type === "editor" ? activeBuffer.loadError : undefined;
+  const isRestorePending = restoreLoadState === "unloaded" || restoreLoadState === "loading";
+  const hasRestoreLoadError = restoreLoadState === "error";
   const showNotebookEditor =
     activeBuffer?.type === "editor" && filePath.toLowerCase().endsWith(".ipynb");
   const [forceExpensiveServices, setForceExpensiveServices] = useState(false);
@@ -240,7 +246,12 @@ const CodeEditor = ({
     (state) => state.tooLargeForEditorServices === true,
   );
   const enableInteractiveServices =
-    isActiveSurface && !isPreviewBuffer && !readOnly && !showNotebookEditor;
+    isActiveSurface &&
+    !isPreviewBuffer &&
+    !readOnly &&
+    !showNotebookEditor &&
+    !isRestorePending &&
+    !hasRestoreLoadError;
   const enableRichEditorServices =
     enableInteractiveServices && (!tooLargeForEditorServices || forceExpensiveServices);
   const enableCodeLens = enableRichEditorServices && codeLensEnabled;
@@ -627,6 +638,11 @@ const CodeEditor = ({
     onScrollOffsetChange: syncLspOverlayTransform,
     onModelPositionResolverChange: handleModelPositionResolverChange,
   };
+  const retryBufferLoad = () => {
+    if (activeBufferId) {
+      useBufferStore.getState().actions.retryBufferLoad(activeBufferId);
+    }
+  };
 
   return (
     <>
@@ -713,7 +729,23 @@ const CodeEditor = ({
 
           {/* Main editor - absolute positioned to fill container */}
           <div className="absolute inset-0 bg-background">
-            {showMarkdownSplit ? (
+            {isRestorePending ? (
+              <div className="flex size-full items-center justify-center">
+                <Spinner label={t("ui.loading")} showLabel />
+              </div>
+            ) : hasRestoreLoadError ? (
+              <div className="flex size-full items-center justify-center p-6">
+                <div className="flex max-w-md flex-col items-center gap-3 text-center" role="alert">
+                  <p className="font-medium text-foreground">{t("editor.restoreLoadFailed")}</p>
+                  {restoreLoadError && (
+                    <p className="break-words text-sm text-subtle-foreground">{restoreLoadError}</p>
+                  )}
+                  <Button type="button" size="sm" onClick={retryBufferLoad}>
+                    {t("ui.retry")}
+                  </Button>
+                </div>
+              </div>
+            ) : showMarkdownSplit ? (
               <MarkdownSplitEditor editorProps={monacoEditorProps} />
             ) : showMarkdownPreviewSurface || showMarkdownPreview ? (
               <MarkdownPreview />

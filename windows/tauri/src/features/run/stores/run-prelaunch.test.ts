@@ -7,6 +7,7 @@ const configuration: RunConfiguration = {
   name: "Standalone",
   provider: "java.main",
   kindTitle: "Java Application",
+  category: "project" as const,
   execution: "service",
   cwd: "",
   args: [],
