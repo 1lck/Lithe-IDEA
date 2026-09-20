@@ -445,6 +445,7 @@ paths honor `blocksRun`; other language and Maven-goal launchers keep their own
 prerequisites. Partial profile failures remain visible without blocking unrelated
 modules: the target build still validates its own readiness. Consumers reject old
 session updates and clear state on explicit stop/workspace replacement.
-Core's bounded preparation wait is the single launch gate; platform services do
-not race it with a second snapshot check. The visible `ready` state therefore
+Core's bounded preparation wait is the single launch gate; platform services and
+Run controls do not race it with a second snapshot check. Preparation remains
+visible while a click queues behind Core, and a stale visible `ready` state
 cannot disagree with a separate host-owned preparation veto.
