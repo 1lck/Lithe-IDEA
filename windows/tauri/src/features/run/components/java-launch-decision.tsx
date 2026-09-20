@@ -32,7 +32,9 @@ export function JavaLaunchDecisionBanner({
       <div className="flex items-start gap-2">
         <WarningIcon className="mt-0.5 size-3.5 text-warning" />
         <div className="min-w-0 flex-1">
-          <div className="font-medium ui-text-sm">{t("run.javaBuildFailedTitle")}</div>
+          <div className="font-medium ui-text-sm">
+            {t("run.javaBuildFailedTitle", { name: decision.configurationName })}
+          </div>
           <div className="text-subtle-foreground ui-text-sm">{decision.failure.message}</div>
           {decision.failure.code === "javaBuildFailed" || report?.builderFailedEarlier ? (
             <div className="mt-1 text-subtle-foreground ui-text-sm">
