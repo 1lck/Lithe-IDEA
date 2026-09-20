@@ -423,9 +423,11 @@ package final class LanguageToolingSessionManager: ObservableObject,
         case .string(let value): buildStatus = Int(value)
         default: buildStatus = nil
         }
+        // Rust Core reports compilation errors, build failures, and
+        // cancellation as structured request errors before this point.
         guard buildStatus == 1 else {
             throw LanguageToolingSessionError.toolingUnavailable(
-                "The Java project build failed. Fix the reported Java errors and try again."
+                "The Java language service returned an unexpected project build status."
             )
         }
         let classpathValue = try await executeJavaCommand(

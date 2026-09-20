@@ -229,3 +229,123 @@ describe("Standalone Java compile-then-run", () => {
     ]);
   });
 });
+
+// Issue #692: a cold multi-module build can wait minutes for JDT project
+// updates, so the panel must show that preparation is in progress instead of
+// staying blank until the JVM starts.
+describe("Java project launch preparation feedback", () => {
+  const projectConfiguration: RunConfiguration = {
+    ...configuration,
+    id: "ruoyi-admin",
+    name: "ruoyi-admin",
+    sourcePath: "ruoyi-admin/src/main/java/org/dromara/DromaraApplication.java",
+    mainClass: "org.dromara.DromaraApplication",
+    mavenReactorPath: ".",
+  };
+  const javaLaunch = {
+    mainClass: "org.dromara.DromaraApplication",
+    projectName: "ruoyi-admin",
+    classPaths: ["D:/work/ruoyi-admin/target/classes"],
+    modulePaths: [],
+  };
+  const projectPlan = {
+    executable: { toolchain: "project-jdk" as const },
+    arguments: ["org.dromara.DromaraApplication"],
+    workingDirectory: ".",
+    classpath: javaLaunch.classPaths,
+  };
+
+  function storeWith(
+    runConfiguration: RunConfiguration,
+    overrides: Partial<RunStoreDependencies>,
+  ) {
+    const { dependencies } = standaloneDependencies({
+      createLaunchPlan: mock(async () => projectPlan),
+      ...overrides,
+    });
+    const store = createRunStore("workspace", dependencies);
+    store.setState({
+      root: "D:/work",
+      configurations: [runConfiguration],
+      diagnostics: [],
+      effectiveRuntimeExecutablePaths: {},
+    });
+    return store;
+  }
+
+  test("shows a service's preparation notice until its command line replaces it", async () => {
+    let outputWhilePreparing: string | undefined;
+    const store = storeWith(projectConfiguration, {
+      prepareJavaRunLaunch: mock(async () => {
+        outputWhilePreparing = store.getState().sessions[0]?.output;
+        return javaLaunch;
+      }),
+    });
+
+    await store.getState().actions.runConfiguration(projectConfiguration.id);
+
+    expect(outputWhilePreparing).toContain("waiting for the Java language service");
+    expect(store.getState().selectedSessionId).toBe(projectConfiguration.id);
+    const session = store.getState().sessions[0];
+    expect(session.isRunning).toBe(true);
+    expect(session.output).toStartWith("$ java.exe");
+    expect(session.output).not.toContain("waiting for the Java language service");
+  });
+
+  test("keeps the notice above the Core build error when preparation fails", async () => {
+    const store = storeWith(projectConfiguration, {
+      prepareJavaRunLaunch: mock(async () => {
+        throw new Error("The Java project build was cancelled before it finished.");
+      }),
+    });
+
+    await store.getState().actions.runConfiguration(projectConfiguration.id);
+
+    const session = store.getState().sessions[0];
+    expect(session).toEqual(
+      expect.objectContaining({ id: projectConfiguration.id, isRunning: false, exitCode: 1 }),
+    );
+    expect(session.output).toMatch(
+      /waiting for the Java language service[\s\S]*The Java project build was cancelled/,
+    );
+  });
+
+  test("shows the notice in the primary panel for an application launch", async () => {
+    const application: RunConfiguration = { ...projectConfiguration, execution: "application" };
+    let primaryWhilePreparing: { output: string; title: string | null } | undefined;
+    const store = storeWith(application, {
+      prepareJavaRunLaunch: mock(async () => {
+        const state = store.getState();
+        primaryWhilePreparing = { output: state.primaryOutput, title: state.primaryTitle };
+        return javaLaunch;
+      }),
+    });
+
+    await store.getState().actions.runConfiguration(application.id);
+
+    expect(primaryWhilePreparing?.title).toBe("ruoyi-admin");
+    expect(primaryWhilePreparing?.output).toContain("waiting for the Java language service");
+    expect(store.getState().primaryOutput).toStartWith("$ java.exe");
+  });
+
+  test("does not show the notice for standalone Java compiled with javac", async () => {
+    let outputWhilePreparing: string | undefined = "not called";
+    const { dependencies } = standaloneDependencies({
+      prepareJavaRunLaunch: mock(async () => {
+        outputWhilePreparing = store.getState().sessions[0]?.output;
+        return null;
+      }),
+    });
+    const store = createRunStore("workspace", dependencies);
+    store.setState({
+      root: "D:/work",
+      configurations: [configuration],
+      diagnostics: [],
+      effectiveRuntimeExecutablePaths: {},
+    });
+
+    await store.getState().actions.runConfiguration(configuration.id);
+
+    expect(outputWhilePreparing).toBeUndefined();
+  });
+});
