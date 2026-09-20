@@ -32,6 +32,19 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     }
 }
 
+enum JavaLaunchDecisionResolution: Equatable {
+    case runOnce
+    case alwaysContinue
+    case rebuildIndex
+    case cancel
+}
+
+struct PendingJavaLaunchDecision: Identifiable, Equatable {
+    let id: UUID
+    let workspaceURL: URL
+    let failure: JavaLaunchBuildFailure
+}
+
 /// Product-level availability switches for integrations that require external
 /// credentials or services. Keeping these switches in one place lets the UI
 /// and application model disable an integration consistently without removing

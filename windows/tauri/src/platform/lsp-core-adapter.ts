@@ -8,10 +8,7 @@ import {
 } from "@/features/run/stores/project-preparation.store";
 import { emit } from "@tauri-apps/api/event";
 import { executeCore, type CoreResponse } from "@/core/lithe-core-client";
-import {
-  canOverrideJavaBuildVerdict,
-  type JavaBuildReport,
-} from "@/platform/java-launch-readiness";
+import { readJavaBuildFailure, type JavaBuildReport } from "@/platform/java-launch-readiness";
 import { frontendTrace } from "@/utils/frontend-trace";
 import {
   createSessionLifecycle,
@@ -1468,13 +1465,7 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     const workspacePath = String(args.workspacePath ?? "");
     const sourcePath = String(args.sourcePath ?? "");
     const configuredMainClass = String(args.mainClass ?? "");
-    // Set when the user saw a build verdict in the Run panel and chose to
-    // launch regardless. It never skips the build itself.
-    const overrideBuildVerdict = args.overrideBuildVerdict === true;
     const session = sessionForWorkspace(workspacePath, "java");
-    if (getProjectPreparation(workspacePath)?.blocksRun) {
-      throw new Error("Java project preparation is incomplete. See project preparation status in the Run panel.");
-    }
     const execute = async (
       title: string,
       javaCommand: string,
@@ -1534,12 +1525,12 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     // builds, and reports compilation errors, build failures, and cancellation
     // as distinct structured errors carrying the evidence behind the verdict.
     //
-    // The verdict is evidence, not a veto. When the user already saw it and
-    // chose to launch anyway, the build still runs -- its output is what the
-    // launch uses -- but a verdict the user may override no longer stops it.
-    let buildStatus: unknown;
+    // A terminal build failure is returned with the resolved launch target so
+    // the application workflow can ask the user and continue this same attempt.
+    // Cancellation and timeouts still throw because they produced no verdict.
+    let buildFailure: ReturnType<typeof readJavaBuildFailure> = null;
     try {
-      buildStatus = await execute(
+      const buildStatus = await execute(
         "Build Java Workspace",
         "vscode.java.buildWorkspace",
         [
@@ -1552,16 +1543,15 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
         ],
         JAVA_BUILD_TIMEOUT_MS,
       );
+      if (Number(buildStatus) !== 1) {
+        throw lspAdapterError(
+          "invalid_response",
+          "The Java language service returned an unexpected project build status.",
+        );
+      }
     } catch (reason) {
-      const code = (reason as { code?: string } | null)?.code;
-      if (!overrideBuildVerdict || !canOverrideJavaBuildVerdict(code)) throw reason;
-      buildStatus = 1;
-    }
-    if (Number(buildStatus) !== 1) {
-      throw lspAdapterError(
-        "invalid_response",
-        "The Java language service returned an unexpected project build status.",
-      );
+      buildFailure = readJavaBuildFailure(reason);
+      if (!buildFailure) throw reason;
     }
     const paths = await execute("Resolve Java Runtime Classpath", "vscode.java.resolveClasspath", [
       selected.mainClass,
@@ -1586,7 +1576,12 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
         "The Java language service returned no runtime paths.",
       );
     }
-    return { mainClass: selected.mainClass, projectName, modulePaths, classPaths } as T;
+    const target = { mainClass: selected.mainClass, projectName, modulePaths, classPaths };
+    return (
+      buildFailure
+        ? { kind: "buildFailed", target, failure: buildFailure }
+        : { kind: "ready", target }
+    ) as T;
   }
   if (command === "java_navigation_markers") {
     const session = sessionForFile(args.sessionFilePath ?? args.filePath);

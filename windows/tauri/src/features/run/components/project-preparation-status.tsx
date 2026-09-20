@@ -3,6 +3,7 @@ import { useFileSystemStore } from "@/features/file-system/stores/file-system.st
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { useProjectPreparation } from "../stores/project-preparation.store";
+import { runWorkspacePreferenceKey, useRunPreferencesStore } from "../stores/run-preferences.store";
 
 /** The footer is compact; the Run panel retains the current stage and recovery entry. */
 export function ProjectPreparationStatus({ compact = false }: { compact?: boolean }) {
@@ -10,6 +11,14 @@ export function ProjectPreparationStatus({ compact = false }: { compact?: boolea
   const preparation = useProjectPreparation(root);
   const { t } = useTranslation();
   const openSettings = useUIState((state) => state.openSettingsDialog);
+  const javaBuildFailurePolicy = useRunPreferencesStore((state) =>
+    root
+      ? (state.javaBuildFailurePolicyByWorkspace[runWorkspacePreferenceKey(root)] ?? "ask")
+      : "ask",
+  );
+  const setJavaBuildFailurePolicy = useRunPreferencesStore(
+    (state) => state.actions.setJavaBuildFailurePolicy,
+  );
   if (!preparation || preparation.phase === "stopped") return null;
   if (compact && preparation.status === "ready") return null;
   const label =
@@ -63,6 +72,18 @@ export function ProjectPreparationStatus({ compact = false }: { compact?: boolea
         <button type="button" className="ml-3 underline" onClick={() => openSettings("logs")}>
           {t("preparation.logs")}
         </button>
+        {root && javaBuildFailurePolicy === "alwaysProceed" ? (
+          <div className="mt-2 border-warning/30 border-t pt-2 text-subtle-foreground">
+            <p>{t("run.javaBuildAlwaysContinueEnabled")}</p>
+            <button
+              type="button"
+              className="mt-1 underline"
+              onClick={() => setJavaBuildFailurePolicy(root, "ask")}
+            >
+              {t("run.javaBuildAskAgain")}
+            </button>
+          </div>
+        ) : null}
       </div>
     </details>
   );

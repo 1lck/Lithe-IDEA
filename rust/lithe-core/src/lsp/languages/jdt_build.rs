@@ -149,19 +149,20 @@ pub(crate) enum JavaBuildOutcome {
     Unrecognized,
 }
 
-/// Which projects' error markers decided an unsuccessful build.
+/// Which projects' error markers were requested for an unsuccessful build.
 ///
 /// Java Debug Server judges a build from the markers on the project owning the
 /// main class plus the projects on its classpath. When it cannot identify that
 /// owner it falls back to every project in the workspace, and an unrelated
-/// module can then decide the verdict. The fallback is silent upstream, so the
-/// scope travels in the report instead.
+/// module can then decide the verdict. Core cannot observe the project Java
+/// Debug Server ultimately resolves, so this is evidence inferred from the
+/// request rather than an authoritative account of the upstream marker query.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum JavaBuildMarkerScope {
-    /// The request named the owning project, so the verdict is scoped to it.
+    /// The request named the owning project and asked upstream to scope to it.
     LaunchTarget,
-    /// No owning project was named; every project could decide the verdict.
+    /// No owning project was named, so every project could decide the verdict.
     Workspace,
 }
 
@@ -185,14 +186,15 @@ pub(crate) enum JavaBuildRecovery {
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct JavaBuildReport {
-    /// Which projects the error markers were read from.
+    /// Marker scope inferred from the command arguments sent upstream.
     pub marker_scope: JavaBuildMarkerScope,
     /// An earlier build in this session ended with a builder failure, so the
     /// markers behind this verdict may predate the current sources.
     pub builder_failed_earlier: bool,
     /// Wall-clock duration of this build, measured from dispatch to response.
-    /// A near-zero value means the incremental builder compiled nothing and the
-    /// markers were carried over rather than produced now.
+    /// A near-zero value can accompany an empty incremental build, but fast
+    /// successful builds and real stored errors are possible too; this value
+    /// is evidence only and never decides whether the verdict is trustworthy.
     pub elapsed_milliseconds: u64,
     /// Recovery action the host should offer alongside the reported errors.
     pub recovery: JavaBuildRecovery,
@@ -360,7 +362,7 @@ pub(crate) struct CompletedJavaBuild {
     pub operation_ids: Vec<String>,
     pub elapsed: Duration,
     /// The `executeCommand` params this build was dispatched with, so the
-    /// completion can report which projects decided the verdict.
+    /// completion can report the marker scope requested upstream.
     pub command: Value,
 }
 
@@ -781,9 +783,8 @@ mod tests {
         assert!(!failure.builder_failed_earlier);
         assert_eq!(failure.recovery, JavaBuildRecovery::RebuildJavaIndex);
 
-        // JDT keeps the markers that failure left, so the near-instant
-        // incremental build afterwards compiled nothing and its verdict is
-        // carried over rather than freshly produced.
+        // A later verdict stays suspect because the earlier builder failure may
+        // have left markers behind. Its short duration remains evidence only.
         let leftover = java_build_report(
             JavaBuildOutcome::CompilationErrors,
             &command,

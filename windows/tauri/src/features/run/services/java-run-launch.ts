@@ -1,9 +1,13 @@
-import { getProjectPreparation } from "../stores/project-preparation.store";
 import { getJavaWorkspaceLanguageServerOwner } from "@/features/editor/lsp/java-workspace-language-server";
 import type { WorkspaceLaunchScope } from "@/features/workspace/types/workspace-launch-scope";
+import type { JavaBuildFailure } from "@/platform/java-launch-readiness";
 import { invokeLsp } from "@/platform/lsp-core-adapter";
 import { joinPath, normalizePath } from "@/utils/path-helpers";
 import type { JavaLaunchTarget, RunConfiguration } from "../types/run.types";
+
+export type JavaRunLaunchPreparation =
+  | { kind: "ready"; target: JavaLaunchTarget }
+  | { kind: "buildFailed"; target: JavaLaunchTarget; failure: JavaBuildFailure };
 
 /** Returns whether a launch is prepared through the JDT LS project build. */
 export function usesJavaProjectPreparation(configuration: RunConfiguration): boolean {
@@ -16,7 +20,7 @@ export function usesJavaProjectPreparation(configuration: RunConfiguration): boo
 export async function prepareJavaRunLaunch(
   scope: WorkspaceLaunchScope,
   configuration: RunConfiguration,
-): Promise<JavaLaunchTarget | null> {
+): Promise<JavaRunLaunchPreparation | null> {
   if (!usesJavaProjectPreparation(configuration)) return null;
   if (!configuration.sourcePath || !configuration.mainClass) {
     throw new Error(`The Java source for ${configuration.name} could not be resolved.`);
@@ -26,13 +30,9 @@ export async function prepareJavaRunLaunch(
   if (preparation.kind !== "ready") {
     throw new Error(`The Java language service is not ready (${preparation.kind}).`);
   }
-  const project = getProjectPreparation(scope.root);
-  if (project?.blocksRun) {
-    throw new Error(project.status === "failed"
-      ? "Java project preparation failed. Open language service settings to retry."
-      : "The Java project is still being prepared. View project preparation progress and run again when it is ready.");
-  }
-  return invokeLsp<JavaLaunchTarget>("java_prepare_run_launch", {
+  // Core owns the bounded wait for project configuration and earlier builds.
+  // Do not reject a launch from a transient presentation snapshot here.
+  return invokeLsp<JavaRunLaunchPreparation>("java_prepare_run_launch", {
     workspacePath: scope.root,
     sourcePath,
     mainClass: configuration.mainClass,

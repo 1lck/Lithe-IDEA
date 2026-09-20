@@ -3,7 +3,7 @@ import {
   JAVA_BUILD_COMPILATION_ERRORS,
   JAVA_BUILD_FAILED,
   canOverrideJavaBuildVerdict,
-  describeJavaLaunchBlock,
+  readJavaBuildFailure,
   type JavaBuildReport,
 } from "./java-launch-readiness";
 
@@ -36,23 +36,19 @@ describe("overridable build verdicts", () => {
   });
 });
 
-describe("describing a blocked Java launch", () => {
-  test("offers an override and keeps Core's message", () => {
-    const block = describeJavaLaunchBlock(
-      buildFailure(JAVA_BUILD_COMPILATION_ERRORS, freshVerdict),
-    );
+describe("reading a Java build failure", () => {
+  test("keeps Core's code, message, and evidence", () => {
+    const failure = readJavaBuildFailure(buildFailure(JAVA_BUILD_COMPILATION_ERRORS, freshVerdict));
 
-    expect(block?.canOverride).toBe(true);
-    expect(block?.message).toBe("The Java project has errors.");
-    expect(block?.canRebuildIndex).toBe(false);
-    expect(block?.markersMayBeStale).toBe(false);
-    expect(block?.verdictNotScopedToTarget).toBe(false);
+    expect(failure).toEqual({
+      code: JAVA_BUILD_COMPILATION_ERRORS,
+      message: "The Java project has errors.",
+      report: freshVerdict,
+    });
   });
 
-  test("flags a verdict left behind by a failed builder", () => {
-    // The RuoYi-Vue-Plus case: the builder crashed, then every later build
-    // reported the markers it left without recompiling anything.
-    const block = describeJavaLaunchBlock(
+  test("preserves evidence without turning elapsed time into a verdict", () => {
+    const failure = readJavaBuildFailure(
       buildFailure(JAVA_BUILD_COMPILATION_ERRORS, {
         ...freshVerdict,
         builderFailedEarlier: true,
@@ -61,66 +57,44 @@ describe("describing a blocked Java launch", () => {
       }),
     );
 
-    expect(block?.markersMayBeStale).toBe(true);
-    expect(block?.canRebuildIndex).toBe(true);
-    expect(block?.canOverride).toBe(true);
-  });
-
-  test("flags a build that compiled nothing even without a recorded failure", () => {
-    // A restarted language service loses the memory of the crash, but a
-    // near-instant incremental build still cannot have produced the markers.
-    const block = describeJavaLaunchBlock(
-      buildFailure(JAVA_BUILD_COMPILATION_ERRORS, { ...freshVerdict, elapsedMilliseconds: 8 }),
-    );
-
-    expect(block?.markersMayBeStale).toBe(true);
-  });
-
-  test("does not call a real build's verdict stale", () => {
-    const block = describeJavaLaunchBlock(
-      buildFailure(JAVA_BUILD_COMPILATION_ERRORS, { ...freshVerdict, elapsedMilliseconds: 49982 }),
-    );
-
-    expect(block?.markersMayBeStale).toBe(false);
-  });
-
-  test("reports a verdict that an unrelated project could have decided", () => {
-    const block = describeJavaLaunchBlock(
-      buildFailure(JAVA_BUILD_COMPILATION_ERRORS, { ...freshVerdict, markerScope: "workspace" }),
-    );
-
-    expect(block?.verdictNotScopedToTarget).toBe(true);
-  });
-
-  test("a builder failure is never called stale, because it is the origin", () => {
-    const block = describeJavaLaunchBlock(
-      buildFailure(JAVA_BUILD_FAILED, {
-        ...freshVerdict,
-        elapsedMilliseconds: 5012,
-        recovery: "rebuildJavaIndex",
-      }),
-    );
-
-    expect(block?.markersMayBeStale).toBe(false);
-    expect(block?.canRebuildIndex).toBe(true);
-    expect(block?.canOverride).toBe(true);
+    expect(failure?.report).toEqual({
+      ...freshVerdict,
+      builderFailedEarlier: true,
+      elapsedMilliseconds: 7,
+      recovery: "rebuildJavaIndex",
+    });
   });
 
   test("ignores a malformed report instead of trusting it", () => {
-    const block = describeJavaLaunchBlock(
+    const failure = readJavaBuildFailure(
       buildFailure(JAVA_BUILD_COMPILATION_ERRORS, { markerScope: "elsewhere" }),
     );
 
-    expect(block?.report).toBeUndefined();
-    expect(block?.markersMayBeStale).toBe(false);
-    expect(block?.canRebuildIndex).toBe(false);
-    // The code alone still earns the override.
-    expect(block?.canOverride).toBe(true);
+    expect(failure?.report).toBeUndefined();
+  });
+
+  test("rejects non-finite and negative elapsed evidence", () => {
+    expect(
+      readJavaBuildFailure(
+        buildFailure(JAVA_BUILD_FAILED, {
+          ...freshVerdict,
+          elapsedMilliseconds: Number.NaN,
+        }),
+      )?.report,
+    ).toBeUndefined();
+    expect(
+      readJavaBuildFailure(
+        buildFailure(JAVA_BUILD_FAILED, {
+          ...freshVerdict,
+          elapsedMilliseconds: -1,
+        }),
+      )?.report,
+    ).toBeUndefined();
   });
 
   test("returns null for failures that are not build verdicts", () => {
-    expect(describeJavaLaunchBlock(buildFailure("javaToolchainMissing"))).toBeNull();
-    expect(describeJavaLaunchBlock("cancelled")).toBeNull();
-    expect(describeJavaLaunchBlock(null)).toBeNull();
+    expect(readJavaBuildFailure(buildFailure("javaToolchainMissing"))).toBeNull();
+    expect(readJavaBuildFailure("cancelled")).toBeNull();
+    expect(readJavaBuildFailure(null)).toBeNull();
   });
 });

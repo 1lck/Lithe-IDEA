@@ -25,6 +25,8 @@ use crate::lsp::languages::jdt_build::{
     project_job_progress, JavaBuildCoordinator, JavaBuildDeparture, JavaBuildDispatch,
     JavaBuildReport, DEFAULT_JAVA_BUILD_TIMEOUT_MS,
 };
+#[cfg(test)]
+use crate::lsp::languages::jdt_build::{JavaBuildMarkerScope, JavaBuildRecovery};
 use crate::lsp::languages::jdt_navigation::{JavaNavigationMarkerBatch, MAX_JAVA_NAVIGATION_TASKS};
 use crate::lsp::languages::jdt_progress::JavaPreparationDiagnostics;
 use crate::protocol::{CoreError, ErrorCode};
@@ -7887,9 +7889,22 @@ public class Main {
                 .clone();
             let error = event
                 .error
-                .expect("WITH_ERROR must fail the launch preparation");
+                .as_ref()
+                .expect("WITH_ERROR must report build evidence");
             assert_eq!(error.code, "javaBuildCompilationErrors");
             assert_eq!(error.stage, "javaBuild");
+            let report = error
+                .java_build_report
+                .as_ref()
+                .expect("a terminal build verdict must include its evidence");
+            assert_eq!(report.marker_scope, JavaBuildMarkerScope::Workspace);
+            assert!(!report.builder_failed_earlier);
+            assert_eq!(report.recovery, JavaBuildRecovery::None);
+            let serialized = serde_json::to_value(error).expect("runtime error should serialize");
+            assert_eq!(serialized["javaBuildReport"]["markerScope"], "workspace");
+            assert_eq!(serialized["javaBuildReport"]["builderFailedEarlier"], false);
+            assert!(serialized["javaBuildReport"]["elapsedMilliseconds"].is_u64());
+            assert_eq!(serialized["javaBuildReport"]["recovery"], "none");
         }
         let builds_written = harness
             .server
