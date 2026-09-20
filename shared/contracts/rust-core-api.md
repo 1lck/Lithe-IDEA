@@ -1117,7 +1117,8 @@ commands are the semantic LSP runtime boundary. `lsp.startServer` accepts the
 provider ID, selected executable/arguments/environment, root URI, working
 directory, initialization options, optional runtime executable,
 `jdtlsLaunchResources`, cache directory, and `workspaceFingerprint`, plus
-initialize, post-initialize readiness, request, and shutdown deadlines.
+initialize, post-initialize readiness, request, Java project build
+(`javaBuildTimeoutMilliseconds`), and shutdown deadlines.
 Java callers may also provide the versioned `mavenContext` accepted by
 `maven.launchPlan`. Core validates its reactor and recursively declared modules,
 publishes `settingsPath` through
@@ -1273,6 +1274,33 @@ command fields, and returns `{ operationId }`. Supported operations include
 completion, hover, definition/declaration/type-definition, references,
 implementation, rename, formatting, code actions and resolve, execute command,
 inlay hints, full-document semantic tokens, folding ranges, code lens, and provider virtual documents.
+For the Java provider, an `executeCommand` whose command is
+`vscode.java.buildWorkspace` is coordinated by Core instead of being written
+immediately. Core writes it only when no earlier build is awaiting its JDT
+response, the Maven profile task is not `running`, and no JDT work-done
+progress job named `Update project …`, `Updating project configurations`,
+`Applying the selected build files…`, or `Updating workspace folders` is open;
+a job without progress for 120 seconds stops blocking. Identical queued build
+commands share one JDT request, while a running build is never shared. Each
+caller is bounded by `javaBuildTimeoutMilliseconds` from `lsp.startServer`
+(default 600000), measured from submission; its `requestTimeout` error has stage
+`javaBuild` and an `underlyingMessage` naming the reached phase
+(`building`, `waitingForPreviousBuild`, `waitingForMavenProfiles`, or
+`waitingForProjectConfiguration`). Cancellation or timeout sends
+`$/cancelRequest` only when no running or queued caller still needs a build,
+and the build keeps its slot until JDT answers. A successful build completes
+with the unchanged `{ value: 1 }` result. Other JDT `BuildWorkspaceStatus`
+values complete with stage `javaBuild` and code `javaBuildCompilationErrors`
+(`WITH_ERROR`), `javaBuildFailed` (`FAILED`), `javaBuildCancelled`
+(`CANCELLED`), or `invalidServerResult`; hosts present the message instead of
+inferring a cause. Core logs `Java project build is waiting` (with `reason`),
+`Java project build started`, and `Java project build finished` (with
+`outcome`, `errorCode`, `elapsedMilliseconds`, and `waiterCount`).
+Background build retries and deadline cancellations are written by a separate
+session-owned worker. The deadline monitor never writes to stdin. A background
+write that exceeds `requestTimeoutMilliseconds` fails the session with
+`transportFailed` at stage `outboundMaintenance` and terminates the server to
+release the stalled pipe; the Java build deadline still bounds queue and build time.
 The `semanticTokens` operation uses the open document URI and normal version,
 timeout, and cancellation rules. Its result is
 `{ tokenTypes, tokenModifiers, tokens: [{ line, startChar, length, tokenType, tokenModifiers }] }`.
@@ -1435,6 +1463,31 @@ Module menus first match reactor and module, then apply the default preference;
 they must not infer ownership from an overridden working directory. The shared
 `run-configuration/maven-module-ownership.json` fixture covers independent
 reactors, cwd overrides, and the ordinary Java main / Current File capabilities.
+
+Each configuration carries a `category` of `project` or `infrastructure`.
+Docker Compose detections are `infrastructure`: a Compose file in an application
+repository declares the databases and brokers the project runs against, not the
+project itself. The field is omitted for `project`, which is the default, so
+existing generated documents keep their exact shape. Hosts present
+infrastructure apart from the project's own services and must not include it in
+"run all services" or in the default service selection.
+
+Windows implements this grouping. During the macOS transition, Compose entries
+remain in its execution-based Services scope; category-based grouping and service
+selection filtering are pending there.
+
+Display names that repeat are qualified by Core, because hosts show the name
+alone: the first candidate that separates every entry in the group wins, trying
+the Maven module, then the working directory, then the source manifest. Three
+Compose files each declaring `compose up` become `compose up (script/docker)`
+and so on, while a name that occurs once is never decorated. Ids are unaffected.
+
+Java entry points are read from the Java syntax tree rather than matched as
+text, so a `static void main` or `@SpringBootApplication` inside a string
+literal or comment — common in test fixtures and documentation samples — does
+not become a run configuration. A declared `main` under `src/test` remains a
+valid entry and keeps the test classpath; see
+`shared/fixtures/execution/maven-java-main-source-sets-v1.json`.
 
 A process detector declares a runtime binding only when that command genuinely
 consumes the runtime. npm, pnpm, and Yarn scripts consume `project-node`; Bun

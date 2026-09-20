@@ -4,6 +4,7 @@ mod catalog;
 pub(crate) mod java_navigation_syntax;
 mod java_workspace;
 pub(crate) mod jdt;
+pub(crate) mod jdt_build;
 pub(crate) mod jdt_navigation;
 pub(crate) mod jdt_progress;
 #[cfg(test)]

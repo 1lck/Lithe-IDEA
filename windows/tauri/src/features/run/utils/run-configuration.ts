@@ -7,6 +7,7 @@ import {
   type GlobalToolchain,
   type JavaRuntime,
   type MavenRuntime,
+  type RunCategory,
   type RunConfiguration,
   type RunDiagnostic,
   type RunExecution,
@@ -33,6 +34,7 @@ export function mapCoreConfiguration(value: CoreResolvedConfiguration): RunConfi
     provider: value.provider,
     kindTitle: configurationTitle(value.provider),
     execution: normalizeExecution(value.execution, value.provider),
+    category: normalizeCategory(value.category),
     toolchains: value.toolchains ?? {},
     debugAdapter: value.debug?.adapter,
     modulePath: maven?.module && maven.module !== "." ? maven.module : undefined,
@@ -58,6 +60,11 @@ export function configurationTitle(provider: string): string {
   if (FRAMEWORK_TITLES[provider]) return FRAMEWORK_TITLES[provider];
   const namespace = provider.split(".")[0] ?? provider;
   return namespace.charAt(0).toUpperCase() + namespace.slice(1);
+}
+
+/** Core omits the category for project entries, which is the default. */
+export function normalizeCategory(category: string | undefined): RunCategory {
+  return category === "infrastructure" ? "infrastructure" : "project";
 }
 
 export function normalizeExecution(execution: string | undefined, provider: string): RunExecution {
@@ -90,13 +97,35 @@ export function runnableConfigurations(configurations: RunConfiguration[]): RunC
   return configurations.filter((configuration) => configuration.id !== CURRENT_FILE_ID);
 }
 
+/// Project entries only: infrastructure has its own section, so a Compose
+/// database must not be offered as one of the project's services.
 export function configurationsForExecution(
   configurations: RunConfiguration[],
   execution: RunExecution,
 ): RunConfiguration[] {
-  return runnableConfigurations(configurations)
-    .filter((configuration) => configuration.execution === execution)
-    .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
+  return sortedByName(
+    runnableConfigurations(configurations).filter(
+      (configuration) =>
+        configuration.execution === execution && configuration.category !== "infrastructure",
+    ),
+  );
+}
+
+/** Every entry Core classified as external infrastructure, such as Compose services. */
+export function infrastructureConfigurations(
+  configurations: RunConfiguration[],
+): RunConfiguration[] {
+  return sortedByName(
+    runnableConfigurations(configurations).filter(
+      (configuration) => configuration.category === "infrastructure",
+    ),
+  );
+}
+
+function sortedByName(configurations: RunConfiguration[]): RunConfiguration[] {
+  return configurations.sort((left, right) =>
+    left.name.localeCompare(right.name, undefined, { sensitivity: "base" }),
+  );
 }
 
 export function isBlockingToolchainDiagnostic(diagnostic: RunDiagnostic): boolean {

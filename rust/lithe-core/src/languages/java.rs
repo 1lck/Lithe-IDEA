@@ -333,8 +333,10 @@ pub fn server_port(request: JavaServerPortRequest) -> Result<JavaServerPortRespo
 }
 
 fn main_class(path: &str, source: &str) -> Option<JavaMainClassResponse> {
-    let main_pattern = Regex::new(r"\bstatic\s+(?:final\s+)?void\s+main\s*\(").ok()?;
-    if !main_pattern.is_match(source) {
+    // Entry points are read from the syntax tree: a `static void main` inside a
+    // string literal or comment is sample text, not a runnable class.
+    let evidence = super::java_syntax::entry_evidence(source);
+    if !evidence.has_main_method {
         return None;
     }
     let simple_name = launch_class_name(path, source)?;
@@ -346,7 +348,7 @@ fn main_class(path: &str, source: &str) -> Option<JavaMainClassResponse> {
         path: path.to_string(),
         qualified_name,
         simple_name,
-        is_spring_boot: source.contains("@SpringBootApplication"),
+        is_spring_boot: evidence.is_spring_boot_application,
     })
 }
 

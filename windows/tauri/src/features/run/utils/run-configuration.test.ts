@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   configurationsForExecution,
+  infrastructureConfigurations,
   blockingToolchainDiagnosticForConfiguration,
   configurationOverrides,
   configurationUsesMaven,
@@ -38,6 +39,53 @@ describe("run configuration mapping", () => {
     expect(configuration.debugAdapter).toBe("jdwp");
     expect(configuration.modulePath).toBeUndefined();
     expect(configuration.mavenSkipTests).toBe(false);
+  });
+
+  // Issue follow-up: a Java project's Compose files contributed nineteen
+  // database entries to the service list, burying its one Spring Boot service.
+  test("keeps Compose infrastructure out of the project's own sections", () => {
+    const configurations = [
+      mapCoreConfiguration({
+        id: "spring-boot.maven:yudao-server",
+        name: "yudao-server",
+        provider: "spring-boot.maven",
+        execution: "service",
+      }),
+      mapCoreConfiguration({
+        id: "compose.service:sql/tools/mysql",
+        name: "mysql (sql/tools)",
+        provider: "compose.service",
+        execution: "service",
+        category: "infrastructure",
+      }),
+      mapCoreConfiguration({
+        id: "compose.stack:script/docker/compose up",
+        name: "compose up (script/docker)",
+        provider: "compose.stack",
+        execution: "service",
+        category: "infrastructure",
+      }),
+    ];
+
+    expect(configurationsForExecution(configurations, "service").map((item) => item.name)).toEqual([
+      "yudao-server",
+    ]);
+    expect(infrastructureConfigurations(configurations).map((item) => item.name)).toEqual([
+      "compose up (script/docker)",
+      "mysql (sql/tools)",
+    ]);
+  });
+
+  test("treats a configuration without a category as a project entry", () => {
+    const configuration = mapCoreConfiguration({
+      id: "java-main:com.example.App",
+      name: "App",
+      provider: "java.main",
+      execution: "application",
+    });
+
+    expect(configuration.category).toBe("project");
+    expect(infrastructureConfigurations([configuration])).toEqual([]);
   });
 
   test("groups runnable configurations and hides Current File", () => {
