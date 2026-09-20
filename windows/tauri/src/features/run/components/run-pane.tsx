@@ -32,6 +32,7 @@ import { RunConfigurationEditor } from "./run-configuration-editor";
 import { RunConfigurationListSplit } from "./run-configuration-list-split";
 import { JavaCupIcon, RunIcon } from "./run-icon";
 import { RunOutputText } from "./run-output-text";
+import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { useRunPreferencesStore } from "../stores/run-preferences.store";
 
 export default function RunPane() {
@@ -42,6 +43,9 @@ export default function RunPane() {
     const activeBuffer = getBufferById(state.buffers, state.activeBufferId);
     return activeBuffer?.type === "editor" && !activeBuffer.isVirtual ? activeBuffer.path : undefined;
   });
+  const mavenExecutablePath = useMavenStore((state) =>
+    state.root === rootFolderPath ? state.mavenExecutablePath : "",
+  );
   const status = useRunStore((state) => state.status);
   const isLoading = useRunStore((state) => state.isLoading);
   const isGenerating = useRunStore((state) => state.isGenerating);
@@ -77,7 +81,7 @@ export default function RunPane() {
   useEffect(() => {
     if (!rootFolderPath || !isBackendCapabilityAvailable("run")) return;
     void actions.loadProject(rootFolderPath);
-  }, [actions, rootFolderPath]);
+  }, [actions, rootFolderPath, mavenExecutablePath]);
 
   const services = useMemo(() => configurationsForExecution(configurations, "service"), [configurations]);
   const applications = useMemo(
