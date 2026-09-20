@@ -12,7 +12,7 @@ struct RunView: View {
     @State private var preparation: ProjectPreparationSnapshot?
     private var preparationBlocksRun: Bool {
         guard preparation?.blocksRun == true, let configuration = selectedRunnableConfiguration else { return false }
-        return configuration.kind == .javaMain || configuration.kind == .springBoot
+        return configuration.usesJavaProjectPreparation
     }
     @State private var browser = RunBrowserState()
     @State private var contentTab: ContentTab = .console
