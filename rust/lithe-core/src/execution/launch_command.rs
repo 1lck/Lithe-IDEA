@@ -9,13 +9,9 @@
 //!
 //! Core decides whether shortening is required and what the file must contain.
 //! The host owns the filesystem: it chooses the path, writes the file, and
-//! deletes it once the process has started.
-//!
-//! The JVM launcher expands `@file` before any charset setting applies: JDK 18
-//! and newer read it as UTF-8, older releases use the platform encoding. A
-//! Windows user whose home directory contains non-ASCII characters would
-//! therefore get a silently corrupted class path on JDK 9-17, which is worse
-//! than a refused launch, so a non-ASCII file is only produced for JDK 18+.
+//! deletes it after that execution exits. The returned text is Unicode; the
+//! host must encode it losslessly with the launcher's native platform encoding.
+//! JEP 400 does not make Windows launcher argument files UTF-8.
 
 use std::path::Path;
 
@@ -50,14 +46,12 @@ pub enum LaunchCommandPlan {
 
 /// First JDK release that accepts `@file` argument files.
 const MINIMUM_ARGFILE_JAVA_VERSION: u32 = 9;
-/// First JDK release that reads argument files as UTF-8 (JEP 400).
-const UTF8_ARGFILE_JAVA_VERSION: u32 = 18;
 
 /// Reads the feature version from a JDK `release` file.
 ///
 /// `JAVA_VERSION="21.0.2"` yields 21 and the legacy `"1.8.0_392"` yields 8.
 /// Hosts pass the result to [`plan_launch_command`], which needs it to know
-/// whether an argument file is supported and how it will be decoded.
+/// whether an argument file is supported. Encoding is the host's responsibility.
 pub fn java_feature_version_from_release(contents: &str) -> Option<u32> {
     let value = contents
         .lines()
@@ -87,7 +81,12 @@ pub fn plan_launch_command(
     limit: Option<usize>,
     java_feature_version: Option<u32>,
 ) -> LaunchCommandPlan {
-    if java_feature_version.is_some_and(|version| version < MINIMUM_ARGFILE_JAVA_VERSION) {
+    let executable_name = executable.rsplit(['/', '\\']).next().unwrap_or(executable);
+    if !["java", "java.exe", "javaw", "javaw.exe"]
+        .iter()
+        .any(|name| executable_name.eq_ignore_ascii_case(name))
+        || !java_feature_version.is_some_and(|version| version >= MINIMUM_ARGFILE_JAVA_VERSION)
+    {
         return LaunchCommandPlan::Direct;
     }
     let limit = limit.unwrap_or(WINDOWS_COMMAND_LINE_LIMIT);
@@ -101,6 +100,18 @@ pub fn plan_launch_command(
     while index < arguments.len() {
         let argument = arguments[index].as_str();
         let value = arguments.get(index + 1);
+        // The first application target ends launcher options. Everything after
+        // it belongs to the program, even when named -p or --class-path.
+        if !argument.starts_with('-')
+            || matches!(argument, "-jar" | "-m" | "--module")
+            || argument.starts_with("--module=")
+        {
+            remaining.extend_from_slice(&arguments[index..]);
+            break;
+        }
+        if argument == "--disable-@files" {
+            return LaunchCommandPlan::Direct;
+        }
         match value {
             Some(value) if PATH_LIST_OPTIONS.contains(&argument) => {
                 if argfile_lines.is_empty() {
@@ -108,6 +119,26 @@ pub fn plan_launch_command(
                 }
                 argfile_lines.push(argument.to_string());
                 argfile_lines.push(quote_argfile_value(value));
+                index += 2;
+            }
+            Some(value)
+                if matches!(
+                    argument,
+                    "--add-modules"
+                        | "--limit-modules"
+                        | "--add-reads"
+                        | "--add-exports"
+                        | "--add-opens"
+                        | "--patch-module"
+                        | "--upgrade-module-path"
+                        | "--enable-native-access"
+                        | "--source"
+                        | "--describe-module"
+                        | "-d"
+                ) =>
+            {
+                remaining.push(argument.to_string());
+                remaining.push(value.clone());
                 index += 2;
             }
             _ => {
@@ -124,13 +155,6 @@ pub fn plan_launch_command(
     }
     let mut argfile_contents = argfile_lines.join("\n");
     argfile_contents.push('\n');
-    // An unknown JDK is treated as an older one: only ASCII content decodes the
-    // same way in every platform encoding.
-    let decodes_identically = argfile_contents.is_ascii()
-        || java_feature_version.is_some_and(|version| version >= UTF8_ARGFILE_JAVA_VERSION);
-    if !decodes_identically {
-        return LaunchCommandPlan::Direct;
-    }
     LaunchCommandPlan::Argfile {
         arguments: remaining,
         argfile_contents,
@@ -335,54 +359,90 @@ mod tests {
         ));
     }
 
-    /// The reporter's class path lives under a non-ASCII Windows home. JDK 18+
-    /// reads the argument file as UTF-8, so shortening is safe there.
     #[test]
-    fn a_non_ascii_class_path_is_shortened_only_for_utf8_capable_jdks() {
-        let entries = (0..500)
-            .map(|index| {
-                format!("C:\\Users\\易林辉\\.m2\\repository\\org\\example\\artifact-{index}\\1.0.{index}\\artifact-{index}-1.0.{index}.jar")
-            })
-            .collect::<Vec<_>>()
-            .join(";");
-        let arguments = vec!["-cp".to_string(), entries, "Main".to_string()];
-
-        assert!(matches!(
-            plan_launch_command("java.exe", &arguments, &argfile(), None, Some(21)),
-            LaunchCommandPlan::Argfile { .. }
-        ));
-        // On JDK 9-17 the launcher decodes the file with the platform encoding,
-        // which would corrupt these paths into a class path that silently
-        // resolves nothing. A refused launch with a real error is better.
-        assert_eq!(
-            plan_launch_command("java.exe", &arguments, &argfile(), None, Some(17)),
-            LaunchCommandPlan::Direct
-        );
-        assert_eq!(
-            plan_launch_command("java.exe", &arguments, &argfile(), None, None),
-            LaunchCommandPlan::Direct
-        );
+    fn unicode_text_is_returned_for_the_host_to_encode_on_supported_jdks() {
+        let arguments = vec![
+            "-cp".into(),
+            format!("C:\\Users\\示例;{}", classpath(500)),
+            "Main".into(),
+        ];
+        for version in [9, 17, 21] {
+            let LaunchCommandPlan::Argfile {
+                argfile_contents, ..
+            } = plan_launch_command("java.exe", &arguments, &argfile(), None, Some(version))
+            else {
+                panic!("a known supported JDK can use a host-encoded file");
+            };
+            assert!(argfile_contents.contains("示例"));
+        }
     }
 
     #[test]
-    fn an_ascii_class_path_is_shortened_on_every_jdk_that_supports_argfiles() {
-        let arguments = vec![
-            "-cp".to_string(),
-            classpath(500),
-            "com.example.Main".to_string(),
-        ];
-        for version in [Some(9), Some(17), Some(21), None] {
-            assert!(
-                matches!(
-                    plan_launch_command("java.exe", &arguments, &argfile(), None, version),
-                    LaunchCommandPlan::Argfile { .. }
-                ),
-                "{version:?}"
+    fn non_java_and_unknown_or_unsupported_jdks_are_not_rewritten() {
+        let arguments = vec!["-p".into(), classpath(500)];
+        for executable in ["node.exe", "python.exe", "custom-launcher"] {
+            assert_eq!(
+                plan_launch_command(executable, &arguments, &argfile(), None, Some(21)),
+                LaunchCommandPlan::Direct
             );
         }
-        // JDK 8 has no argument files at all.
+        for version in [None, Some(8)] {
+            assert_eq!(
+                plan_launch_command("java.exe", &arguments, &argfile(), None, version),
+                LaunchCommandPlan::Direct
+            );
+        }
+    }
+
+    #[test]
+    fn application_arguments_keep_their_meaning_after_every_launch_target() {
+        for target in [
+            vec!["Main"],
+            vec!["-jar", "app.jar"],
+            vec!["-m", "app/Main"],
+            vec!["--module=app/Main"],
+        ] {
+            let mut arguments = vec!["-cp".into(), classpath(500)];
+            arguments.extend(target.into_iter().map(str::to_string));
+            arguments.extend(["-p", "8080", "--class-path", "program-value"].map(str::to_string));
+            let LaunchCommandPlan::Argfile {
+                arguments: shortened,
+                argfile_contents,
+            } = plan_launch_command("java.exe", &arguments, &argfile(), None, Some(21))
+            else {
+                panic!("classpath should move");
+            };
+            assert_eq!(&shortened[1..], &arguments[2..]);
+            assert!(!argfile_contents.contains("8080"));
+            assert!(!argfile_contents.contains("program-value"));
+        }
+    }
+
+    #[test]
+    fn launcher_option_values_are_not_mistaken_for_path_options() {
+        let arguments = vec![
+            "--add-modules".into(),
+            "-p".into(),
+            "-cp".into(),
+            classpath(500),
+            "Main".into(),
+        ];
+        let LaunchCommandPlan::Argfile {
+            arguments: shortened,
+            ..
+        } = plan_launch_command("java.exe", &arguments, &argfile(), None, Some(21))
+        else {
+            panic!("classpath should move");
+        };
+        assert_eq!(&shortened[..2], &arguments[..2]);
+        let disabled = vec![
+            "--disable-@files".into(),
+            "-cp".into(),
+            classpath(500),
+            "Main".into(),
+        ];
         assert_eq!(
-            plan_launch_command("java.exe", &arguments, &argfile(), None, Some(8)),
+            plan_launch_command("java.exe", &disabled, &argfile(), None, Some(21)),
             LaunchCommandPlan::Direct
         );
     }

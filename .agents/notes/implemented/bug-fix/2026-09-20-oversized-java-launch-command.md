@@ -7,7 +7,7 @@
 Java 项目现在由项目 JDK 直接启动，JDT 解析出的运行时 classpath 会原样出现在命令行上。
 若依 Plus 这类几十模块的工程有几百个绝对 jar 路径，命令行长度超过 Windows 的
 32767 字符上限，进程根本创建不出来。现在超限时由 Core 把路径列表搬进 JDK 参数文件
-（argfile，`java @文件` 读取的选项文件），宿主负责写和删；同时启动失败的真实原因
+（argfile，`java @文件` 读取的选项文件），宿主按启动器原生编码写入并为每次执行独占管理文件；同时启动失败的真实原因
 必须能显示出来，不能再被兜底文案吞掉。
 
 ## 问题
@@ -37,15 +37,16 @@ Java 项目现在由项目 JDK 直接启动，JDT 解析出的运行时 classpat
    选项搬进 argfile，返回文件内容和缩短后的参数。宿主只负责选临时路径、写文件、
    进程退出后删除。
 2. **只搬路径列表。** JVM 选项、主类和程序参数留在命令行上；argfile 引用出现在
-   原来第一个被搬走的选项位置，所以 JVM 选项仍在主类之前，程序参数仍在其后。
+   原来第一个被搬走的选项位置。遇到主类、`-jar`、`-m` 或 `--module` 入口就停止
+   搬运，后面的 `-p` 等参数属于应用程序，必须原样保留。非 Java 命令不使用此规则。
 3. **转义由 Core 负责。** argfile 的引号字符串里反斜杠是转义符，Windows 路径的
-   每个分隔符都要写成两个；带空格的路径靠引号保持为一个参数。
-4. **按 JDK 版本决定能不能写。** JVM 启动器在任何字符集设置生效之前就展开
-   `@file`：JDK 18 及以上按 UTF-8 读取，更早的版本用平台编码，JDK 8 根本不支持。
-   宿主从 JDK 的 `release` 文件读出版本号（不用启动进程），交给 Core 判断：
-   JDK 8 不写；内容是纯 ASCII 时任何 9 以上版本都能写；含非 ASCII 字符（例如
-   `C:\Users\易林辉\.m2\...`）时只有 JDK 18+ 才写。否则保持原样，让宿主报出
-   系统的真实错误——总比把 classpath 读成乱码、最后报一个找不到类要好。
+   每个分隔符都要写成两个；带空格的路径靠引号保持为一个参数。平台编码后若
+   多字节字符的尾字节为 `0x5c`，宿主也必须转义它，防止原生解析器将其当作反斜杠。
+4. **版本和编码分别处理。** 只为确认是 Java/JDK 9+ 的启动生成参数文件；
+   无法读取版本时保持原命令。JEP 400 不改变 Windows 启动器参数使用的系统代码页，
+   不能因为 JDK 18+ 就写 UTF-8。Windows 宿主按实际 ANSI 代码页转换 Core 返回的
+   Unicode 文本，并回转校验，不能表示的字符报错，不允许替换成问号。
+   UTF-8 系统代码页才使用 UTF-8 字节；普通中文系统代码页使用对应的中文编码。
 5. **失败必须可见。** 宿主的失败消息带上系统错误、可执行文件和命令长度；
    前端把非 `Error` 的拒绝值也转成可读文本，并通过 `frontendTrace` 写日志。
 
@@ -74,13 +75,15 @@ Java 项目现在由项目 JDK 直接启动，JDT 解析出的运行时 classpat
 
 - 大型多模块 Maven 项目在 Windows 上可以启动，命令行只剩下一个 `@文件` 引用。
 - 启动失败时用户和日志都能看到系统给出的真实原因，排查不再依赖猜测。
-- 多了一个临时文件的生命周期要管：进程退出后删除，启动失败时立即删除。
-  进程存活期间被外部清理临时目录会影响下一次启动，不影响已启动的 JVM。
+- 每次执行用 `create_new` 独占创建一个参数文件，不按窗口或会话名复用。文件由
+  RAII 所有者管理（离开作用域时自动清理）：写入或启动失败时删除，成功后交给
+  该进程的退出线程删除；旧执行的清理不能影响替代它的新执行。
+  JVM 已读取参数后，外部清理文件不影响该进程；后续执行会创建新文件。
 - `@argfile` 需要 JDK 9 以上。JDK 8 上的超长 classpath 仍然无解，但那种情况
   今天本来就会失败，所以不构成回退。
-- argfile 以 UTF-8 写入，并按上面的版本规则限制适用范围。JDK 9-17 且路径含
-  非 ASCII 字符的组合仍然无法缩短，会以可见的系统错误失败；要覆盖这种情况需要
-  pathing jar（清单里的路径是百分号编码的 ASCII），属于后续工作。
+- 参数文件使用 Windows 实际系统代码页，JDK 9-17 的中文路径也可在能够无损表示
+  它们的系统代码页下使用。不支持该字符的系统代码页仍会明确失败；pathing jar
+  可以作为后续兼容方案。不能把更改 `file.encoding` 当作启动器编码的修复。
 - Java **测试**的调试仍由 Java Debug Server 自己拉起 JVM，它的
   `shortenCommandLine` 默认是 `none`，因此大工程调试测试时仍可能超限。修它需要
   在启动请求里传 `argfile` 或 `jarmanifest`，本次未做。
@@ -90,7 +93,7 @@ Java 项目现在由项目 JDK 直接启动，JDT 解析出的运行时 classpat
 - Rust Core：`cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib launch_command`
   覆盖长度判断、argfile 生成与顺序、反斜杠和空格转义、无可搬运选项时不改写、
   以及可配置上限。
-- Windows 宿主：`cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml run::tests`
+- Windows 宿主：`cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml run::`
   覆盖写入并删除 argfile、普通启动不写文件、失败消息包含系统原因。该 crate 需要
   Windows 或具备 GTK 依赖的环境才能编译。
 - Windows 前端：`bun test src/features/run` 覆盖字符串拒绝值的显示与兜底文案。
@@ -99,6 +102,7 @@ Java 项目现在由项目 JDK 直接启动，JDT 解析出的运行时 classpat
 
 - Rust Core：`rust/lithe-core/src/execution/launch_command.rs`
 - Windows：`windows/tauri/src-tauri/src/run.rs`、
+  `windows/tauri/src-tauri/src/run/launch_arguments.rs`、
   `windows/tauri/src/features/run/stores/run.store.ts`
 - 共享契约：`shared/contracts/rust-core-api.md`
 - 相关笔记：
