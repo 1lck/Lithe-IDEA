@@ -256,6 +256,7 @@ private struct DependencyTreeNodeView: View {
                     } else {
                         expandedNodeIDs.insert(node.id)
                     }
+                    revealPath()
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
