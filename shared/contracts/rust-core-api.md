@@ -1444,6 +1444,10 @@ existing generated documents keep their exact shape. Hosts present
 infrastructure apart from the project's own services and must not include it in
 "run all services" or in the default service selection.
 
+Windows implements this grouping. During the macOS transition, Compose entries
+remain in its execution-based Services scope; category-based grouping and service
+selection filtering are pending there.
+
 Display names that repeat are qualified by Core, because hosts show the name
 alone: the first candidate that separates every entry in the group wins, trying
 the Maven module, then the working directory, then the source manifest. Three

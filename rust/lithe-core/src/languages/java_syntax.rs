@@ -116,8 +116,15 @@ fn is_main_method(method: Node<'_>, source: &[u8]) -> bool {
     let is_static = method
         .named_children(&mut cursor)
         .find(|child| child.kind() == "modifiers")
-        .and_then(|modifiers| modifiers.utf8_text(source).ok())
-        .is_some_and(|modifiers| has_modifier(modifiers, "static"));
+        .is_some_and(|modifiers| {
+            // Annotation arguments and comments are also inside modifiers;
+            // only the direct keyword token establishes a static method.
+            let mut modifier_cursor = modifiers.walk();
+            let has_static = modifiers
+                .children(&mut modifier_cursor)
+                .any(|modifier| modifier.kind() == "static");
+            has_static
+        });
     if !is_static {
         return false;
     }
@@ -749,6 +756,22 @@ mod tests {
         assert!(
             entry_evidence("class A { static void main(java.lang.String... a) {} }")
                 .has_main_method
+        );
+    }
+
+    #[test]
+    fn entry_evidence_requires_a_static_modifier_token() {
+        for source in [
+            "class A { @SuppressWarnings(\"static\") public void main(String[] args) {} }",
+            "class A { public /* static */ void main(String[] args) {} }",
+        ] {
+            assert!(!entry_evidence(source).has_main_method, "{source}");
+        }
+        assert!(
+            entry_evidence(
+                "class A { @SuppressWarnings(\"unused\") public static /* entry */ void main(String[] args) {} }"
+            )
+            .has_main_method
         );
     }
 
