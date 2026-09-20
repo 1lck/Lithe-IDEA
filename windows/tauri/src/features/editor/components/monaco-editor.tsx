@@ -1495,6 +1495,13 @@ export function MonacoEditor({
     editorAPI.setActiveEditorAdapter({
       ownerId: adapterOwnerId,
       executeCommand,
+      getCursorPosition: () => {
+        const editor = editorRef.current;
+        const model = modelRef.current;
+        const position = editor?.getPosition();
+        if (!model || model.isDisposed() || !position) return null;
+        return toEditorPosition(model, position);
+      },
       getSelectedText: () => {
         const editor = editorRef.current;
         const model = modelRef.current;
