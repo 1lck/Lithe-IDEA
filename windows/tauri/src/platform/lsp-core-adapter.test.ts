@@ -756,6 +756,102 @@ describe("Rust Core LSP adapter failures", () => {
     ).toEqual(["vscode.java.buildWorkspace"]);
   });
 
+  test("explains the widened marker scope when no owning project is reported", async () => {
+    // Without a project name, Java Debug Server judges the build against every
+    // project in the workspace, so an unrelated module can block this launch.
+    scenario = "semantic-request";
+    semanticRequestResults = [
+      {
+        value: [
+          {
+            mainClass: "example.Main",
+            filePath: "C:/work/service/src/main/java/example/Main.java",
+          },
+        ],
+      },
+      {
+        coreError: {
+          code: "javaBuildCompilationErrors",
+          stage: "javaBuild",
+          message:
+            "The Java project has compilation errors. Fix the reported errors and try again.",
+        },
+      },
+    ];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    let failure: (Error & { code?: string }) | null = null;
+    try {
+      await invokeLsp("java_prepare_run_launch", {
+        workspacePath: "C:/work",
+        sourcePath: "C:/work/service/src/main/java/example/Main.java",
+        mainClass: "example.Main",
+      });
+    } catch (error) {
+      failure = error as Error & { code?: string };
+    }
+
+    expect(failure?.code).toBe("javaBuildCompilationErrors");
+    expect(failure?.message).toContain("The Java project has compilation errors.");
+    expect(failure?.message).toContain("may come from any project in the workspace");
+
+    const buildPayload = requestPayloads
+      .map((payload) => payload.command as { command?: string; arguments?: unknown[] } | undefined)
+      .find((command) => command?.command === "vscode.java.buildWorkspace");
+    expect(JSON.parse(String(buildPayload?.arguments?.[0]))).toEqual({
+      mainClass: "example.Main",
+      filePath: "C:/work/service/src/main/java/example/Main.java",
+      isFullBuild: false,
+    });
+  });
+
+  test("keeps a scoped compilation failure message unchanged", async () => {
+    scenario = "semantic-request";
+    semanticRequestResults = [
+      {
+        value: [
+          {
+            mainClass: "example.Main",
+            projectName: "service",
+            filePath: "C:/work/service/src/main/java/example/Main.java",
+          },
+        ],
+      },
+      {
+        coreError: {
+          code: "javaBuildCompilationErrors",
+          stage: "javaBuild",
+          message:
+            "The Java project has compilation errors. Fix the reported errors and try again.",
+        },
+      },
+    ];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    let failure: (Error & { code?: string }) | null = null;
+    try {
+      await invokeLsp("java_prepare_run_launch", {
+        workspacePath: "C:/work",
+        sourcePath: "C:/work/service/src/main/java/example/Main.java",
+        mainClass: "example.Main",
+      });
+    } catch (error) {
+      failure = error as Error & { code?: string };
+    }
+
+    expect(failure?.message).not.toContain("may come from any project in the workspace");
+  });
+
   test("rejects an invalid Java Debug Server port", async () => {
     scenario = "semantic-request";
     semanticRequestResult = { value: true };

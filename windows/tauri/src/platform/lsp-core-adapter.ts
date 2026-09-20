@@ -8,6 +8,10 @@ import {
 } from "@/features/run/stores/project-preparation.store";
 import { emit } from "@tauri-apps/api/event";
 import { executeCore, type CoreResponse } from "@/core/lithe-core-client";
+import {
+  describeLaunchBuildFailure,
+  resolveLaunchProjectName,
+} from "@/platform/java-launch-build-scope";
 import { frontendTrace } from "@/utils/frontend-trace";
 import {
   createSessionLifecycle,
@@ -1511,23 +1515,40 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
         "The Java language service could not identify one launch target for this source file.",
       );
     }
-    const projectName = typeof selected.projectName === "string" ? selected.projectName : undefined;
+    const projectName = resolveLaunchProjectName(selected.projectName);
+    // Whether Java Debug Server will judge this build against the launch target
+    // and its classpath, or fall back to every project in the workspace. The
+    // fallback is invisible upstream, so it is recorded here.
+    const ownerProjectResolved = projectName !== undefined;
+    const buildOperation = new LspOperationLog("javaLaunchBuild", crypto.randomUUID(), {
+      workspacePath,
+      mainClass: selected.mainClass,
+      projectName: projectName ?? null,
+      ownerProjectResolved,
+    });
     // Core serializes this build behind JDT project configuration and earlier
     // builds, and reports compilation errors, build failures, and cancellation
     // as distinct structured errors.
-    const buildStatus = await execute(
-      "Build Java Workspace",
-      "vscode.java.buildWorkspace",
-      [
-        JSON.stringify({
-          mainClass: selected.mainClass,
-          projectName,
-          filePath: sourcePath,
-          isFullBuild: false,
-        }),
-      ],
-      JAVA_BUILD_TIMEOUT_MS,
-    );
+    let buildStatus: unknown;
+    try {
+      buildStatus = await execute(
+        "Build Java Workspace",
+        "vscode.java.buildWorkspace",
+        [
+          JSON.stringify({
+            mainClass: selected.mainClass,
+            projectName,
+            filePath: sourcePath,
+            isFullBuild: false,
+          }),
+        ],
+        JAVA_BUILD_TIMEOUT_MS,
+      );
+    } catch (reason) {
+      buildOperation.failed(reason, { ownerProjectResolved });
+      throw describeLaunchBuildFailure(reason, ownerProjectResolved);
+    }
+    buildOperation.succeeded({ ownerProjectResolved });
     if (Number(buildStatus) !== 1) {
       throw lspAdapterError(
         "invalid_response",

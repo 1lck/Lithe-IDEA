@@ -79,9 +79,37 @@ Java 源码中）仍可保留 Spring Boot Maven goal 兼容路径。
    哪个阶段（例如 `phase=waitingForProjectConfiguration`）。Windows 前端本地
    计时器只作兜底，比 Core 期限多 5 秒，不再与 Core 抢先超时。
 5. **结果分类报告。** Core 按 JDT 的 `BuildWorkspaceStatus` 把非成功结果转成
-   不同错误码：`javaBuildCompilationErrors`（确有编译错误）、`javaBuildFailed`
+   不同错误码：`javaBuildCompilationErrors`（构建完成但有 error marker，
+   范围见下一节）、`javaBuildFailed`
    （构建器内部失败，需要看语言服务日志）、`javaBuildCancelled`、
    `invalidServerResult`。成功时仍返回原来的 `{ value: 1 }`。
+
+### `javaBuildCompilationErrors` 的判错范围取决于 projectName
+
+`vscode.java.buildWorkspace` 总是构建全部 Java 工程，但 Java Debug Server
+判定“这次构建算不算失败”用的是更窄的一组 error marker。读
+`Compile.java`（java-debug 0.53.1）可以看到它的顺序是：
+
+1. `JdtUtils.getMainProject(projectName, mainClass)` 找出拥有主类的工程；
+2. 找到了 → 只看该工程，加上 `isOnClasspath` 为真的那些依赖工程；
+3. **没找到（返回 null）→ 改为遍历工作区里的每一个工程**。
+
+`getMainProject` 在两种情况下返回 null：`projectName` 为空白，且按主类名
+解析不到唯一工程；或者 `projectName` 非空但 JDT 里不存在这个工程名。
+
+也就是说，同一个错误码在两种完全不同的含义之间切换：「目标工程或它的依赖
+有编译错误」和「工作区里随便哪个工程有编译错误」。后者会让一个毫不相干的
+模块挡住本次启动。上游对这个退化**没有任何提示**。
+
+因此 Windows 宿主在发起这次构建时记录 `javaLaunchBuild` 操作日志，带上
+`mainClass`、`projectName` 和 `ownerProjectResolved`。当
+`ownerProjectResolved` 为假且构建以 `javaBuildCompilationErrors` 失败时，
+错误信息追加一句说明：报告的错误可能来自工作区里的任何工程。
+
+开发者怎么做：不要假设 `resolveMainClass` 一定会返回 `projectName`。
+`JSON.stringify` 会丢掉值为 `undefined` 的字段，空字符串对上游也等同于缺失
+（它用的是 `isNotBlank`），所以两者都要按“未解析出归属工程”处理。
+判断逻辑在 `windows/tauri/src/platform/java-launch-build-scope.ts`。
 
 后台重试构建和发送超时取消通知由每个会话的独立发送线程执行，监控线程不写
 stdin（语言服务的标准输入管道），以免管道阻塞后超时检查也一起停止。后台写入
@@ -160,6 +188,9 @@ Rust Core 从已有的语言服务生命周期、Maven Profile 同步结果和 J
   参数不含 `-am`、Exec 插件或 Maven goal，并保留 JDT 返回的
   classpath/module-path。
 - macOS：语言服务命令顺序为 resolve main → build workspace → resolve classpath。
+- Windows 判错范围：`cd windows/tauri && bun test src/platform/java-launch-build-scope.test.ts
+  src/platform/lsp-core-adapter.test.ts`，覆盖 projectName 归一化、未解析归属时
+  追加说明、已解析时消息不变，以及构建载荷里不出现空的 projectName。
 - Windows：Run Store 把准备结果传入 Core，并分别用 `;` 拼 classpath/module-path。
 - 共享契约：`shared/contracts/rust-core-api.md` 与
   `shared/contracts/application-boundary.md`。
@@ -170,6 +201,8 @@ Rust Core 从已有的语言服务生命周期、Maven Profile 同步结果和 J
 - Rust Core 构建协调：`rust/lithe-core/src/lsp/languages/jdt_build.rs`、
   `rust/lithe-core/src/lsp/interface/engine.rs`
 - macOS：`LanguageToolingSessionManager`、`AppModel+RunConfiguration`、`RunService`
-- Windows：`java-run-launch.ts`、`lsp-core-adapter.ts`、`run.store.ts`
+- Windows：`java-run-launch.ts`、`lsp-core-adapter.ts`、`run.store.ts`、
+  `java-launch-build-scope.ts`
 - 相关笔记：
-  `.agents/notes/implemented/feature/2026-09-17-standalone-java-compile-then-run.md`
+  `.agents/notes/implemented/feature/2026-09-17-standalone-java-compile-then-run.md`、
+  `.agents/notes/implemented/bug-fix/2026-09-20-workspace-diagnostics-visibility.md`
