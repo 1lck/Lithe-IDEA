@@ -52,6 +52,7 @@ import { calculateLineHeight } from "../utils/lines";
 interface ActiveEditorAdapter {
   ownerId: string;
   executeCommand?: (command: EditorCommand) => void;
+  getSelectedText?: () => string | null;
   insertText: (text: string, position?: Position) => void;
   deleteRange: (range: Range) => void;
   replaceRange: (range: Range, text: string) => void;
@@ -208,6 +209,10 @@ class EditorAPIImpl implements EditorAPI {
   // Selection operations
   getSelection(): Range | null {
     return useEditorStateStore.getState().selection ?? null;
+  }
+
+  getActiveSelectionText(): string | null | undefined {
+    return this.activeEditorAdapter?.getSelectedText?.();
   }
 
   setSelection(range?: Range | null): void {

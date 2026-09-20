@@ -57,6 +57,11 @@ export class EditorModelSource {
       this.content = content;
     } finally { this.external = false; }
   }
+
+  /** Returns source-preserving text for a range expressed in Monaco offsets. */
+  textInNormalizedRange(offset: number, count: number): string {
+    return this.source.textInNormalizedRange(offset, count);
+  }
 }
 
 /** Positions for LSP are calculated against the source before a simultaneous batch. */
