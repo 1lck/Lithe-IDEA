@@ -41,6 +41,109 @@ pub(super) fn syntax_highlights(source: &str) -> Vec<JavaSyntaxHighlightResponse
     values
 }
 
+/// Structural evidence that a source declares a launchable Java entry point.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(super) struct JavaEntryEvidence {
+    /// A `static void main(String[])` method is declared in this source.
+    pub has_main_method: bool,
+    /// A type in this source carries `@SpringBootApplication`.
+    pub is_spring_boot_application: bool,
+}
+
+/// Reads entry-point evidence from the syntax tree instead of the raw text.
+///
+/// Test fixtures and documentation routinely embed Java samples in string
+/// literals, and a text match on `static void main(` turns those strings into
+/// phantom run configurations. Only declarations in the parsed tree count.
+pub(super) fn entry_evidence(source: &str) -> JavaEntryEvidence {
+    let mut parser = Parser::new();
+    if parser
+        .set_language(&tree_sitter_java::LANGUAGE.into())
+        .is_err()
+    {
+        return JavaEntryEvidence::default();
+    }
+    let Some(tree) = parser.parse(source, None) else {
+        return JavaEntryEvidence::default();
+    };
+    let mut evidence = JavaEntryEvidence::default();
+    collect_entry_evidence(tree.root_node(), source.as_bytes(), &mut evidence);
+    evidence
+}
+
+fn collect_entry_evidence(node: Node<'_>, source: &[u8], evidence: &mut JavaEntryEvidence) {
+    if node.kind() == "method_declaration" && is_main_method(node, source) {
+        evidence.has_main_method = true;
+    }
+    if matches!(node.kind(), "marker_annotation" | "annotation")
+        && node
+            .child_by_field_name("name")
+            .and_then(|name| name.utf8_text(source).ok())
+            .is_some_and(|name| {
+                name == "SpringBootApplication" || name.ends_with(".SpringBootApplication")
+            })
+    {
+        evidence.is_spring_boot_application = true;
+    }
+    if evidence.has_main_method && evidence.is_spring_boot_application {
+        return;
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_entry_evidence(child, source, evidence);
+    }
+}
+
+/// Matches the JVM entry signature: `static void main` taking one array or
+/// variadic parameter. The parameter type is not checked beyond its shape, so a
+/// fully qualified `java.lang.String` still counts.
+fn is_main_method(method: Node<'_>, source: &[u8]) -> bool {
+    if method
+        .child_by_field_name("name")
+        .and_then(|name| name.utf8_text(source).ok())
+        != Some("main")
+    {
+        return false;
+    }
+    if method
+        .child_by_field_name("type")
+        .and_then(|node| node.utf8_text(source).ok())
+        != Some("void")
+    {
+        return false;
+    }
+    let mut cursor = method.walk();
+    let is_static = method
+        .named_children(&mut cursor)
+        .find(|child| child.kind() == "modifiers")
+        .is_some_and(|modifiers| {
+            // Annotation arguments and comments are also inside modifiers;
+            // only the direct keyword token establishes a static method.
+            let mut modifier_cursor = modifiers.walk();
+            let has_static = modifiers
+                .children(&mut modifier_cursor)
+                .any(|modifier| modifier.kind() == "static");
+            has_static
+        });
+    if !is_static {
+        return false;
+    }
+    let Some(parameters) = method.child_by_field_name("parameters") else {
+        return false;
+    };
+    let mut parameter_cursor = parameters.walk();
+    let declared = parameters
+        .named_children(&mut parameter_cursor)
+        .filter(|child| matches!(child.kind(), "formal_parameter" | "spread_parameter"))
+        .collect::<Vec<_>>();
+    let [parameter] = declared.as_slice() else {
+        return false;
+    };
+    parameter
+        .utf8_text(source)
+        .is_ok_and(|text| text.contains("String"))
+}
+
 /// Discovers source-ordered JUnit methods from the shared Java syntax tree.
 pub(super) fn test_methods(source: &str) -> Result<Vec<JavaTestMethodResponse>, CoreError> {
     let mut parser = Parser::new();
@@ -617,5 +720,72 @@ mod tests {
                 },
             ]
         );
+    }
+
+    /// A Java sample inside a string literal or comment is text, not a
+    /// declaration: matching it produced run configurations for classes the JVM
+    /// cannot launch.
+    #[test]
+    fn entry_evidence_ignores_main_methods_that_are_not_declarations() {
+        let embedded = concat!(
+            "class TemplateTest {\n",
+            "    String sample = \"public class Demo { public static void main(String[] args) {} }\";\n",
+            "    // public static void main(String[] args) {}\n",
+            "    String annotation = \"@SpringBootApplication\";\n",
+            "}\n"
+        );
+        assert_eq!(entry_evidence(embedded), JavaEntryEvidence::default());
+    }
+
+    #[test]
+    fn entry_evidence_accepts_declared_entry_points() {
+        let declared = concat!(
+            "@SpringBootApplication\n",
+            "public class App {\n",
+            "    public static void main(String[] args) {}\n",
+            "}\n"
+        );
+        assert_eq!(
+            entry_evidence(declared),
+            JavaEntryEvidence {
+                has_main_method: true,
+                is_spring_boot_application: true,
+            }
+        );
+        // Varargs and a fully qualified parameter type are the same entry point.
+        assert!(
+            entry_evidence("class A { static void main(java.lang.String... a) {} }")
+                .has_main_method
+        );
+    }
+
+    #[test]
+    fn entry_evidence_requires_a_static_modifier_token() {
+        for source in [
+            "class A { @SuppressWarnings(\"static\") public void main(String[] args) {} }",
+            "class A { public /* static */ void main(String[] args) {} }",
+        ] {
+            assert!(!entry_evidence(source).has_main_method, "{source}");
+        }
+        assert!(
+            entry_evidence(
+                "class A { @SuppressWarnings(\"unused\") public static /* entry */ void main(String[] args) {} }"
+            )
+            .has_main_method
+        );
+    }
+
+    #[test]
+    fn entry_evidence_rejects_signatures_the_jvm_cannot_launch() {
+        // An instance method, a wrong return type, and a different parameter
+        // list are all ordinary methods that happen to be named `main`.
+        for source in [
+            "class A { public void main(String[] args) {} }",
+            "class A { public static int main(String[] args) { return 0; } }",
+            "class A { public static void main() {} }",
+            "class A { public static void main(String[] args, int flag) {} }",
+        ] {
+            assert!(!entry_evidence(source).has_main_method, "{source}");
+        }
     }
 }

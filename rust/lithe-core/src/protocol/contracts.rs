@@ -363,7 +363,7 @@ pub struct JavaMainClassResponse {
     pub is_spring_boot: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Source-set classification attached to one discovered Java run entry.
 pub enum JavaSourceSetResponse {

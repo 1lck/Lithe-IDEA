@@ -22,6 +22,7 @@ function configuration(provider: string): RunConfiguration {
     name: "ruoyi-admin",
     provider,
     kindTitle: "Spring Boot",
+    category: "project" as const,
     execution: "service",
     toolchains: { java: "project-jdk", maven: "project-maven" },
     mavenReactorPath: ".",

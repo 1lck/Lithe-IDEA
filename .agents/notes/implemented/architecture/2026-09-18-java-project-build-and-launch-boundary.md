@@ -10,6 +10,10 @@ JDT LS / Java Debug Server 找到精确源码目标、构建它所属的项目�
 classpath/module-path；随后 Run 模块只启动一次项目 JDK。Maven 仍负责
 描述项目，但不再充当 Java Main 的启动器。
 
+其中“构建”这一步由 Rust Core 统一排队：同一个 Java 会话里一次只跑一个
+构建；JDT 还在按 Maven Profile 更新项目时先等它结束；构建使用独立的长期限；
+构建结果的“有编译错误 / 内部失败 / 被取消”分别报告，不再一律提示“修复源码”。
+
 ## 问题
 
 把 Maven reactor 的“构建依赖”参数 `-am` 与 `exec:java` 放在同一条命令中，
@@ -43,6 +47,53 @@ Java 源码中）仍可保留 Spring Boot Maven goal 兼容路径。
 原问题换成一次不确定的错误运行。JDT 对模块化项目返回的
 `module/name.Type` 会转换为 JVM 需要的 `-m module/name.Type`。
 
+### 构建协调（Issue #692 后续）
+
+`vscode.java.buildWorkspace` 会构建 JDT 工作区里的全部 Java 项目。若依 Plus
+这类 40 多个模块、带注解处理器的项目，首次构建要 30 秒以上。Windows 复现日志
+显示了三个叠加的问题：
+
+- 前端和 Core 都给这个构建套用 30 秒的普通请求期限，构建实际用了约 32 秒，
+  启动准备在构建结束前就失败了。
+- 取消只是“建议”（advisory，JDT 可以不理会）：超时发出 `$/cancelRequest` 后
+  JDT 仍把那次构建跑完，但 Lithe 已经把请求记录删掉，下一次 Run 的构建可以
+  与它重叠。
+- Core 应用 Maven Profile 用的 `java.project.updateSettings` 很快返回，但它安排的
+  JDT 后台任务“Update project …”又跑了约 110 秒，Run 的构建全程与它重叠。
+
+因此 Core（`jdt_build.rs` 中的构建协调器，负责给构建排队的状态机）按下面的
+规则处理这个命令，两个平台都不需要自己实现：
+
+1. **先等项目配置稳定。** Maven Profile 任务仍在运行，或 JDT 通过
+   work-done progress（`$/progress`，LSP 的后台任务进度通知）报告了项目配置
+   任务（如 `Update project …`）而还没有 `end`，构建就先排队。某个配置任务
+   120 秒没有任何进度时不再阻塞，防止 JDT 漏发 `end` 让构建永远等下去。
+2. **同一会话一次只跑一个构建。** 正在运行的构建不与新请求共享，因为它可能
+   开始于用户保存文件之前；排队中参数完全相同的请求共享下一次构建，所以
+   连点几次 Run 只会多跑一次增量构建。
+3. **取消以 JDT 的答复为准。** 调用方超时或取消后，只有当运行中和排队中都
+   没人再需要构建时才发 `$/cancelRequest`；无论是否取消，构建都占着位置，
+   直到 JDT 返回结果才放下一个构建出去。
+4. **构建有自己的期限。** `javaBuildTimeoutMilliseconds` 默认 10 分钟，从进入
+   队列开始计算，覆盖“等配置 + 等上一次构建 + 构建本身”。超时错误写明卡在
+   哪个阶段（例如 `phase=waitingForProjectConfiguration`）。Windows 前端本地
+   计时器只作兜底，比 Core 期限多 5 秒，不再与 Core 抢先超时。
+5. **结果分类报告。** Core 按 JDT 的 `BuildWorkspaceStatus` 把非成功结果转成
+   不同错误码：`javaBuildCompilationErrors`（确有编译错误）、`javaBuildFailed`
+   （构建器内部失败，需要看语言服务日志）、`javaBuildCancelled`、
+   `invalidServerResult`。成功时仍返回原来的 `{ value: 1 }`。
+
+后台重试构建和发送超时取消通知由每个会话的独立发送线程执行，监控线程不写
+stdin（语言服务的标准输入管道），以免管道阻塞后超时检查也一起停止。后台写入
+使用普通请求期限作为上限；超过后终止语言服务，释放写入并失败所有剩余请求。
+构建排队期间只检查协调器状态，只有真正派发时才复制 LSP 客户端状态，避免每
+10 毫秒复制已打开的文档和诊断。
+
+开发者怎么做：新增任何“启动前要构建 Java 项目”的入口时，直接发
+`vscode.java.buildWorkspace`，由 Core 负责排队和期限。不要在宿主里自己加锁、
+自己重试或自己把超时改短；也不要在调用方被替换时主动取消构建，让 Core
+按“还有没有人需要”来决定。
+
 ## 考虑过的备选方案
 
 - 先执行 `mvn compile`，再手工猜 `target/classes` 与依赖：被否。自定义输出目录、
@@ -52,6 +103,18 @@ Java 源码中）仍可保留 Spring Boot Maven goal 兼容路径。
 - 引入完整 Maven Embedder：暂不采用。体积和维护成本较高，而产品已打包 JDT LS
   与 Java Debug Server，后者已经提供成熟的构建和 classpath 解析能力。
 
+- 只把构建超时改长：被否。超时拉长后构建仍会与 Profile 触发的项目更新以及
+  重复点击产生的构建重叠；日志中的构建器内部异常与这些重叠同时出现，虽然
+  直接因果尚未复现证实，但只改期限无法排除它们。
+- 在 Windows/macOS 宿主各自串行化构建：被否。两个平台会各写一份相同的状态机，
+  而且宿主看不到 JDT 的 `$/progress` 与 Maven Profile 任务状态，只能猜。
+- 新 Run 替换旧 Run 时立即取消旧构建：被否。新 Run 马上就需要构建，取消只会
+  让 JDT 从头再来；而且日志中一次取消与 JDT 的
+  `endRule ... does not match` 异常在时间上紧挨着（因果尚未证实），没有必要
+  主动制造这种时机。
+- 调用 JDT 命令让它“等所有后台任务结束”：JDT LS 1.38 没有提供这样的命令，
+  只能以它发出的进度通知为准。
+
 ## 后果
 
 - 多模块 Maven 的 Java Main 和已解析入口的 Spring Boot 服务只会启动一次，不再
@@ -59,9 +122,25 @@ Java 源码中）仍可保留 Spring Boot Maven goal 兼容路径。
 - Maven 生成源码、测试源码 Main 和 JPMS module-path 使用同一项目模型。
 - 点击运行可能需要等待 Java 语言服务 ready；构建失败会阻止启动并保留真实诊断。
 - 独立 Java 文件仍遵循“`javac` 编译再运行”的既有方案，不依赖语言服务。
+- 打开大型 Maven 项目后立即点击运行，可能要先等 JDT 的项目更新结束；等待原因
+  会写入日志（`Java project build is waiting`），不会再因 30 秒期限而半路失败。
+  Windows 运行面板在准备期间先显示一行“正在等待 Java 语言服务更新并构建项目”，
+  启动成功后被启动命令替换，失败时错误信息接在它后面；这行提示不把会话标成
+  运行中，避免与上一个进程迟到的退出事件相互覆盖。
+- 构建门禁依赖 JDT 进度通知里的任务名（`Update project` 等英文前缀）。升级
+  JDT LS 时要确认这些名字没有变化；如果变了，最坏情况退回到“构建不等待配置
+  任务”的旧行为，而不会让构建卡死。
+- JDT 在 Profile 命令返回之后才开始的配置任务，如果恰好晚于构建开始，
+  仍可能与构建重叠；目前日志显示任务开始早于命令返回，这个窗口没有再加
+  基于时间的等待。
 
 ## 验证
 
+- Rust 构建协调：`cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib jdt_build`
+  覆盖门禁、串行、合并、取消和超时阶段；engine 测试
+  `java_builds_wait_for_project_updates_and_never_overlap`、
+  `a_timed_out_java_build_keeps_its_slot_until_jdt_answers` 用脚本化 JDT 验证
+  线上顺序。完整校验运行 `./scripts/verify-rust-core.sh`。
 - Rust：Java Main 与已解析入口的 Spring Boot 服务启动计划必须是 `project-jdk`，
   参数不含 `-am`、Exec 插件或 Maven goal，并保留 JDT 返回的
   classpath/module-path。
@@ -73,6 +152,8 @@ Java 源码中）仍可保留 Spring Boot Maven goal 兼容路径。
 ## 适用范围
 
 - Rust Core：`rust/lithe-core/src/execution/configuration.rs`
+- Rust Core 构建协调：`rust/lithe-core/src/lsp/languages/jdt_build.rs`、
+  `rust/lithe-core/src/lsp/interface/engine.rs`
 - macOS：`LanguageToolingSessionManager`、`AppModel+RunConfiguration`、`RunService`
 - Windows：`java-run-launch.ts`、`lsp-core-adapter.ts`、`run.store.ts`
 - 相关笔记：
