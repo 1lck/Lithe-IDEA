@@ -505,7 +505,7 @@ struct RunConfigurationIntegrationTests {
 
         let selected = DebugLaunchSourceResolver().configurationForDebug(
             selected: current,
-            activeDocumentText: "@Repository class UserRepository { }",
+            activeDocumentIsLaunchable: false,
             configurations: [current, springBoot]
         )
 
@@ -513,7 +513,7 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func debugFallsBackWhenCurrentEditorTextIsUnavailable() {
+    func debugFallsBackWhenJdtCannotConfirmTheCurrentFile() {
         let current = RunConfiguration(
             id: "current-file",
             name: "Current File",
@@ -533,7 +533,7 @@ struct RunConfigurationIntegrationTests {
 
         let selected = DebugLaunchSourceResolver().configurationForDebug(
             selected: current,
-            activeDocumentText: nil,
+            activeDocumentIsLaunchable: false,
             configurations: [current, springBoot]
         )
 
@@ -541,7 +541,7 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func debugKeepsCurrentJavaFileWhenItHasAMainMethod() {
+    func debugKeepsCurrentJavaFileWhenJdtListsItAsLaunchable() {
         let current = RunConfiguration(
             id: "current-file",
             name: "Current File",
@@ -561,7 +561,7 @@ struct RunConfigurationIntegrationTests {
 
         let selected = DebugLaunchSourceResolver().configurationForDebug(
             selected: current,
-            activeDocumentText: "public static void main(String[] args) { }",
+            activeDocumentIsLaunchable: true,
             configurations: [current, springBoot]
         )
 
@@ -3892,7 +3892,7 @@ struct RunConfigurationIntegrationTests {
         )
 
         #expect(throws: (any Error).self) {
-            try store.generate(at: root, files: [source], modulePaths: [])
+            try store.generate(at: root, files: [source], modulePaths: [], javaEntrypoints: nil)
         }
         #expect(try storage.readData(from: generatedURL, options: []) == original)
     }
@@ -4622,7 +4622,12 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: status, diagnostics: [])
     }
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: generationEntryCount ?? effective.count)
     }
     func resolve(
@@ -4733,7 +4738,12 @@ private final class BlockingInspectionOperations: RunConfigurationOperations, @u
         return ProjectRunConfigurationInspection(status: .missing, diagnostics: [])
     }
 
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 0)
     }
 
@@ -4776,7 +4786,12 @@ private final class BlockingGenerationOperations: RunConfigurationOperations, @u
         ProjectRunConfigurationInspection(status: .missing, diagnostics: [])
     }
 
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         didBlock.open()
         _ = release.waitSynchronously()
         return RunConfigurationGenerationResult(entryCount: 0)
@@ -5759,7 +5774,6 @@ private struct RunTestJavaMavenOperations: JavaMavenOperations {
     func className(source: String, simpleName: String) -> String? { nil }
     func sourceDefinition(source: String, declarationName: String, memberName: String?) -> (line: Int, utf16Column: Int)? { nil }
     func serverPort(content: String, fileExtension: String) -> Int? { nil }
-    func scanRunConfigurations(at rootURL: URL, files: [URL], mavenProject: MavenProject?) -> [JavaRunConfiguration] { [] }
     func structure(source: String, declarationSources: [String]) -> JavaStructureResult? { nil }
 }
 

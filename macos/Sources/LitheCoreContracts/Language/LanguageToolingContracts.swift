@@ -401,6 +401,48 @@ package enum LanguageServerOperation: String, Equatable, Sendable {
     /// Resolving a server-owned source that has no file on disk, such as a
     /// decompiled class behind a `jdt://` URI.
     case virtualDocument
+    /// JDT's launchable Java classes in the session workspace, normalized by
+    /// Core into workspace-relative entries.
+    case javaEntrypoints
+}
+
+/// A class JDT confirmed the JVM can launch, as normalized by Core.
+///
+/// Note: 入口点归属见 .agents/notes/proposed/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
+package struct JavaEntrypoint: Codable, Equatable, Sendable {
+    /// Workspace-relative source path with `/` separators.
+    package let sourcePath: String
+    /// Class name as JDT reports it, possibly prefixed with `module/`.
+    package let mainClass: String
+    /// JDT project that owns the class; only a hint for resolving the launch.
+    package let projectName: String?
+
+    package init(sourcePath: String, mainClass: String, projectName: String? = nil) {
+        self.sourcePath = sourcePath
+        self.mainClass = mainClass
+        self.projectName = projectName
+    }
+}
+
+/// Core's `javaEntrypoints` answer. Whether a class is launchable is JDT's
+/// decision; Lithe never derives entry points from source text.
+package struct JavaEntrypoints: Codable, Equatable, Sendable {
+    /// A JDT result Core could not turn into an entry, with the reason.
+    package struct Diagnostic: Codable, Equatable, Sendable {
+        package let code: String
+        package let mainClass: String?
+        package let detail: String?
+    }
+
+    package let schemaVersion: Int
+    package let entries: [JavaEntrypoint]
+    package let diagnostics: [Diagnostic]
+
+    package init(schemaVersion: Int = 1, entries: [JavaEntrypoint], diagnostics: [Diagnostic] = []) {
+        self.schemaVersion = schemaVersion
+        self.entries = entries
+        self.diagnostics = diagnostics
+    }
 }
 
 /// Server-normalized semantic tokens use zero-based UTF-16 positions.
@@ -666,6 +708,10 @@ package protocol LanguageServerSession: AnyObject {
     func resolveVirtualDocument(
         uri: String,
         completion: @escaping (Result<String, Error>) -> Void
+    ) throws
+    /// JDT's launchable classes in the session workspace, normalized by Core.
+    func javaEntrypoints(
+        completion: @escaping (Result<JavaEntrypoints, Error>) -> Void
     ) throws
     func javaNavigationMarkers(
         fileURL: URL,

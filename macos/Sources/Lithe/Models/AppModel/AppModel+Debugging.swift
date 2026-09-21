@@ -127,9 +127,13 @@ extension AppModel {
             }
             return
         }
+        let activeDocumentIsLaunchable = selectedConfiguration.usesCurrentEditorFile
+            ? await isLaunchableJavaEntrypoint(activeDocument?.url, in: workspaceURL)
+            : false
+        guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
         let configuration = runWorkflowCoordinator.debugConfiguration(
             selected: selectedConfiguration,
-            activeDocumentText: activeDocument?.text,
+            activeDocumentIsLaunchable: activeDocumentIsLaunchable,
             configurations: runFeature.configurations
         )
         runFeature.select(configuration)

@@ -366,6 +366,41 @@ package final class LanguageToolingSessionManager: ObservableObject,
         try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL)
     }
 
+    /// JDT's launchable classes for the workspace, starting the Java service
+    /// when needed. Lithe never derives entry points from source text.
+    ///
+    /// Note: 入口点归属见 .agents/notes/proposed/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
+    package func javaEntrypoints(rootURL: URL) async throws -> JavaEntrypoints {
+        try await javaEntrypoints(in: rootURL.standardizedFileURL)
+    }
+
+    private func javaEntrypoints(in normalizedRoot: URL) async throws -> JavaEntrypoints {
+        _ = try startLanguageServer(providerID: "java", rootURL: normalizedRoot)
+        try await waitUntilLanguageServerReady(providerID: "java", rootURL: normalizedRoot)
+        guard let session = languageServers["java"], session.isRunning else {
+            throw LanguageToolingSessionError.toolingUnavailable("Java")
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            do {
+                try session.javaEntrypoints { result in
+                    continuation.resume(with: result)
+                }
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+
+    /// `file` relative to `root` with `/` separators, comparing the paths
+    /// with symbolic links resolved so `/var` and `/private/var` agree.
+    private static func workspaceRelativePath(of file: URL, in root: URL) -> String? {
+        let rootPath = root.resolvingSymlinksInPath().standardizedFileURL.path
+        let filePath = file.resolvingSymlinksInPath().standardizedFileURL.path
+        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        guard filePath.hasPrefix(prefix) else { return nil }
+        return String(filePath.dropFirst(prefix.count))
+    }
+
     private func prepareJavaLaunchTarget(
         fileURL: URL,
         rootURL: URL
@@ -374,38 +409,22 @@ package final class LanguageToolingSessionManager: ObservableObject,
         let resolvedFile = fileURL.standardizedFileURL.resolvingSymlinksInPath()
         _ = try startLanguageServer(providerID: "java", rootURL: normalizedRoot)
         try await waitUntilLanguageServerReady(providerID: "java", rootURL: normalizedRoot)
-        let value = try await executeJavaCommand(
-            "vscode.java.resolveMainClass",
-            arguments: [],
-            rootURL: normalizedRoot
-        )
-        guard case .array(let values) = value else {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "The Java language service returned an invalid main-class list."
-            )
-        }
-        let targets = values.compactMap(Self.javaDebugLaunchTarget)
-        let exactMatches = targets.filter { target in
-            guard let filePath = target.filePath else { return false }
-            return URL(fileURLWithPath: filePath)
-                .standardizedFileURL
-                .resolvingSymlinksInPath() == resolvedFile
-        }
-        let selected: JavaDebugLaunchTarget
-        if exactMatches.count == 1 {
-            selected = exactMatches[0].target
-        } else if targets.count == 1, targets[0].filePath == nil {
-            // Older JDT LS builds may omit filePath when the workspace has a
-            // single launch target. If a path is present, do not silently use
-            // another class for the current editor file: that turns a
-            // Spring-dependent source into an invalid bare-java launch.
-            selected = targets[0].target
-        } else {
+        // JDT decides which classes are launchable; Core normalizes its answer
+        // into workspace-relative entries, so the target is the entry generated
+        // from this exact source file.
+        let entrypoints = try await javaEntrypoints(in: normalizedRoot)
+        let relativeSource = Self.workspaceRelativePath(of: resolvedFile, in: normalizedRoot)
+        let exactMatches = entrypoints.entries.filter { $0.sourcePath == relativeSource }
+        guard exactMatches.count == 1 else {
             let message = exactMatches.isEmpty
                 ? "No Java main method was found in \(resolvedFile.lastPathComponent)."
                 : "More than one Java main method was found in \(resolvedFile.lastPathComponent)."
             throw LanguageToolingSessionError.toolingUnavailable(message)
         }
+        let selected = JavaDebugLaunchTarget(
+            mainClass: exactMatches[0].mainClass,
+            projectName: exactMatches[0].projectName
+        )
         let buildPayload = JavaWorkspaceBuildRequest(
             mainClass: selected.mainClass,
             projectName: selected.projectName,
@@ -670,31 +689,6 @@ package final class LanguageToolingSessionManager: ObservableObject,
             )
         }
         return values.compactMap(Self.javaTestItem)
-    }
-
-    private static func javaDebugLaunchTarget(
-        _ value: ToolingJSONValue
-    ) -> ResolvedJavaDebugLaunchTarget? {
-        guard case .object(let object) = value,
-              case .string(let mainClass)? = object["mainClass"],
-              mainClass.isEmpty == false else { return nil }
-        let projectName: String?
-        if case .string(let value)? = object["projectName"],
-           value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
-            projectName = value
-        } else {
-            projectName = nil
-        }
-        let filePath: String?
-        if case .string(let value)? = object["filePath"], value.isEmpty == false {
-            filePath = value
-        } else {
-            filePath = nil
-        }
-        return ResolvedJavaDebugLaunchTarget(
-            target: JavaDebugLaunchTarget(mainClass: mainClass, projectName: projectName),
-            filePath: filePath
-        )
     }
 
     private static func stringValues(_ value: ToolingJSONValue) -> [String] {
@@ -1889,11 +1883,6 @@ package final class LanguageToolingSessionManager: ObservableObject,
         let providerID: String
         let rootURL: URL
         let continuation: CheckedContinuation<Void, Error>
-    }
-
-    private struct ResolvedJavaDebugLaunchTarget {
-        let target: JavaDebugLaunchTarget
-        let filePath: String?
     }
 
     private struct JavaWorkspaceBuildRequest: Encodable {

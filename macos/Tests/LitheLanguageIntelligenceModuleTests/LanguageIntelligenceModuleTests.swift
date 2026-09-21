@@ -408,19 +408,20 @@ struct LanguageIntelligenceModuleTests {
         try await session.waitUntilStarted()
         session.publish(.ready)
         let command = try await session.waitForExecuteCommand()
-        #expect(command.command == "vscode.java.resolveMainClass")
-        #expect(command.arguments.isEmpty)
-        session.completeExecuteReturningValue(.success(.array([
-            .object([
-                "mainClass": .string("other/example.Main"),
-                "projectName": .string("other"),
-                "filePath": .string(root.appendingPathComponent("other/Main.java").path),
-            ]),
-            .object([
-                "mainClass": .string("service/example.Main"),
-                "projectName": .string("service"),
-                "filePath": .string(source.path),
-            ]),
+        // Core asks JDT and normalizes the answer; the launch picks the entry
+        // generated from this exact source file.
+        #expect(command.command == "javaEntrypoints")
+        session.completeJavaEntrypoints(.success(JavaEntrypoints(entries: [
+            JavaEntrypoint(
+                sourcePath: "other/Main.java",
+                mainClass: "other/example.Main",
+                projectName: "other"
+            ),
+            JavaEntrypoint(
+                sourcePath: "service/src/main/java/example/Main.java",
+                mainClass: "service/example.Main",
+                projectName: "service"
+            ),
         ])))
 
         let buildCommand = try await session.waitForExecuteCommand(number: 2)
@@ -471,12 +472,12 @@ struct LanguageIntelligenceModuleTests {
         try await session.waitUntilStarted()
         session.publish(.ready)
         _ = try await session.waitForExecuteCommand()
-        session.completeExecuteReturningValue(.success(.array([
-            .object([
-                "mainClass": .string("service/example.Main"),
-                "projectName": .string("service"),
-                "filePath": .string(source.path),
-            ]),
+        session.completeJavaEntrypoints(.success(JavaEntrypoints(entries: [
+            JavaEntrypoint(
+                sourcePath: "service/src/main/java/example/Main.java",
+                mainClass: "service/example.Main",
+                projectName: "service"
+            ),
         ])))
 
         let buildCommand = try await session.waitForExecuteCommand(number: 2)
@@ -518,7 +519,6 @@ struct LanguageIntelligenceModuleTests {
     func javaDebugLaunchTargetDoesNotBorrowAnotherFileWhenJdtlsReportsItsPath() async throws {
         let root = URL(fileURLWithPath: "/workspace/java-debug", isDirectory: true)
         let source = root.appendingPathComponent("service/src/main/java/example/UserService.java")
-        let otherMain = root.appendingPathComponent("service/src/main/java/example/Main.java")
         let descriptor = try #require(
             LanguageProviderCatalog.compatibilityFallback.provider(for: source)
         )
@@ -538,12 +538,12 @@ struct LanguageIntelligenceModuleTests {
         try await session.waitUntilStarted()
         session.publish(.ready)
         _ = try await session.waitForExecuteCommand()
-        session.completeExecuteReturningValue(.success(.array([
-            .object([
-                "mainClass": .string("service/example.Main"),
-                "projectName": .string("service"),
-                "filePath": .string(otherMain.path),
-            ])
+        session.completeJavaEntrypoints(.success(JavaEntrypoints(entries: [
+            JavaEntrypoint(
+                sourcePath: "service/src/main/java/example/Main.java",
+                mainClass: "service/example.Main",
+                projectName: "service"
+            ),
         ])))
 
         await #expect(throws: LanguageToolingSessionError.toolingUnavailable(
@@ -1157,6 +1157,7 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
     )] = [:]
     private var executeTimeoutTasks: [UUID: Task<Void, Never>] = [:]
     private var executeValueCompletion: ((Result<ToolingJSONValue, Error>) -> Void)?
+    private var javaEntrypointsCompletion: ((Result<JavaEntrypoints, Error>) -> Void)?
 
     func start(rootURL: URL, workspaceFingerprint: String?) throws {
         try start(
@@ -1264,6 +1265,12 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
         completion?(result)
     }
 
+    func completeJavaEntrypoints(_ result: Result<JavaEntrypoints, Error>) {
+        let completion = javaEntrypointsCompletion
+        javaEntrypointsCompletion = nil
+        completion?(result)
+    }
+
     func synchronize(fileURL _: URL, text _: String, languageID _: String) throws {}
     func closeDocument(_: URL) {}
 
@@ -1341,13 +1348,27 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
         throw WorkspaceStateSessionError.unexpectedOperation
     }
 
+    func javaEntrypoints(
+        completion: @escaping (Result<JavaEntrypoints, Error>) -> Void
+    ) throws {
+        // Recorded in the command sequence so tests observe it in request order.
+        javaEntrypointsCompletion = completion
+        recordExecutedCommand(
+            LanguageServerCommand(title: "javaEntrypoints", command: "javaEntrypoints", arguments: [])
+        )
+    }
+
     func executeReturningValue(
         _ command: LanguageServerCommand,
         fileURL _: URL,
         completion: @escaping (Result<ToolingJSONValue, Error>) -> Void
     ) throws {
-        executedCommands.append(command)
         executeValueCompletion = completion
+        recordExecutedCommand(command)
+    }
+
+    private func recordExecutedCommand(_ command: LanguageServerCommand) {
+        executedCommands.append(command)
         let readyWaiterIDs = executeWaiters.compactMap { waiterID, waiter in
             waiter.number <= executedCommands.count ? waiterID : nil
         }
