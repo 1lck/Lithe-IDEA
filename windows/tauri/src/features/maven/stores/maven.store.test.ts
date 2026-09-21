@@ -130,6 +130,9 @@ const createMavenPomWatchOperations = mock((_workspaceId: string) => ({
   startWatching: startWatchingMavenPom,
   stopWatching: stopWatchingMavenPom,
 }));
+const resolveEffectiveMavenExecutable = mock(
+  async (_root: string, configured: string) => configured,
+);
 
 const dependencies = {
   createMavenPomWatchOperations,
@@ -139,6 +142,7 @@ const dependencies = {
   parseMavenDiagnostics,
   parseMavenTestResults,
   parseMavenDependencies,
+  resolveEffectiveMavenExecutable,
   resolveMavenLaunch,
   saveWorkspaceBeforeLaunch,
   scanMavenProject,
@@ -153,6 +157,10 @@ beforeEach(() => {
   scanMavenProject.mockResolvedValue(project);
   loadMavenConfiguration.mockReset();
   loadMavenConfiguration.mockResolvedValue({});
+  resolveEffectiveMavenExecutable.mockReset();
+  resolveEffectiveMavenExecutable.mockImplementation(
+    async (_root: string, configured: string) => configured,
+  );
   writeMavenConfiguration.mockClear();
   createMavenLaunchPlan.mockReset();
   createMavenLaunchPlan.mockResolvedValue(launchPlan);
@@ -287,6 +295,49 @@ describe("Maven workspace state", () => {
       mavenExecutablePath: "D:/Tools/apache-maven",
       javaHomePath: "C:/Java/jdk-21",
     });
+  });
+
+  test("an unset Maven panel carries the resolved installation into the launch context", async () => {
+    // JDT LS derives the local repository and mirrors from the installation's
+    // conf/settings.xml, so an empty panel must not leave the context blank
+    // while Maven builds keep using the configured installation.
+    loadMavenConfiguration.mockResolvedValue({
+      local: { version: 1, mavenExecutablePath: "" },
+    });
+    resolveEffectiveMavenExecutable.mockResolvedValueOnce(
+      "D:/apache-maven-3.9.16/bin/mvn.cmd",
+    );
+    const store = createMavenStore("workspace", dependencies);
+
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+
+    expect(resolveEffectiveMavenExecutable).toHaveBeenCalledWith("D:/work", "");
+    expect(store.getState().mavenExecutablePath).toBe("");
+    expect(mavenLaunchContext(store.getState())?.mavenExecutablePath).toBe(
+      "D:/apache-maven-3.9.16/bin/mvn.cmd",
+    );
+  });
+
+  test("clearing the Maven path drops the previously resolved installation", async () => {
+    loadMavenConfiguration.mockResolvedValue({
+      local: { version: 1, mavenExecutablePath: "D:/Tools/apache-maven" },
+    });
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    expect(mavenLaunchContext(store.getState())?.mavenExecutablePath).toBe(
+      "D:/Tools/apache-maven",
+    );
+
+    store.getState().actions.updateLocalConfiguration({
+      settingsPath: "",
+      localRepositoryPath: "",
+      mavenExecutablePath: "",
+      javaHomePath: "",
+    });
+
+    // Keeping the old selection would import against an installation the user
+    // just removed, so the fallback stays empty until the reload recomputes it.
+    expect(mavenLaunchContext(store.getState())?.mavenExecutablePath).toBeNull();
   });
 
   test("watches the reactor and every recursively discovered module POM", async () => {

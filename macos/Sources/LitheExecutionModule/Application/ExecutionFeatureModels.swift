@@ -175,6 +175,7 @@ package final class RunFeatureModel: ObservableObject {
     package var configurationStatus: ProjectRunConfigurationStatus { service.configurationStatus }
     package var configurationDiagnostics: [RunConfigurationDiagnostic] { service.configurationDiagnostics }
     package var generationState: RunConfigurationGenerationState { service.generationState }
+    package var javaDiscoveryStatus: JavaDiscoveryStatus { service.javaDiscoveryStatus }
     package var projectLoadState: ProjectLoadState { service.projectLoadState }
     package func reportGenerationProjectNotReady() { service.reportGenerationProjectNotReady() }
     package var recoveryAction: RunConfigurationRecoveryAction { service.recoveryAction }
@@ -269,9 +270,11 @@ package final class RunFeatureModel: ObservableObject {
         await service.loadProject(at: workspaceURL, files: files, mavenProject: mavenProject, snapshotID: snapshotID)
     }
 
-    package func generateRunConfigurations() async {
+    package func generateRunConfigurations(
+        javaDiscovery: JavaEntrypointDiscovery = .notJava
+    ) async {
         isGenerationConfirmationPresented = false
-        await service.generateRunConfigurations()
+        await service.generateRunConfigurations(javaDiscovery: javaDiscovery)
     }
 
     package func requestRunConfigurationGeneration(intent: RunConfigurationGenerationIntent = .identifyOnly) {

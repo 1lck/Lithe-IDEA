@@ -11,13 +11,17 @@ use super::{
     LspClientDocument, LspClientState, LspDocumentContentChange, LspPosition, LspRange,
     ParseServerMessagesRequest,
 };
+use crate::lsp::languages::java_entrypoints::{
+    java_entrypoints_command, normalize_java_entrypoints,
+};
+use crate::lsp::languages::java_tests::{java_test_items_command, normalize_java_test_items};
 use crate::lsp::languages::jdt::{
     adapt_initialization_options, adapt_start, import_progress, initialized_notification,
-    is_structured_import_notification, is_virtual_source_uri, maven_profile_fingerprint,
-    maven_profile_update_requests, normalize_location, readiness_signal, virtual_source_content,
-    virtual_source_resolve_params, waits_for_service_ready, workspace_configuration,
-    JdtDirectLaunchResources, JdtMavenConfiguration, JdtReadinessSignal, JdtStartContext,
-    ProviderLocation, WorkspaceConfigurationItem,
+    is_structured_import_notification, is_virtual_source_uri, jdt_java_runtimes,
+    maven_profile_fingerprint, maven_profile_update_requests, normalize_location, readiness_signal,
+    virtual_source_content, virtual_source_resolve_params, waits_for_service_ready,
+    workspace_configuration, JdtDirectLaunchResources, JdtJavaRuntime, JdtMavenConfiguration,
+    JdtReadinessSignal, JdtSettings, JdtStartContext, ProviderLocation, WorkspaceConfigurationItem,
 };
 use crate::lsp::languages::jdt::{MavenProfileProjectResult, MavenProfileTaskStatus};
 use crate::lsp::languages::jdt_build::{
@@ -102,6 +106,11 @@ pub struct StartServerRequest {
     /// Project Maven context applied to JDT LS settings and imported modules.
     #[serde(default)]
     pub maven_context: Option<crate::project::MavenLaunchContextRequest>,
+    /// JDKs the platform found on this machine, most preferred first. JDT LS
+    /// binds each project to the one matching its release; without them it
+    /// can only compile for the JDK it runs on.
+    #[serde(default)]
+    pub java_runtimes: Vec<JavaRuntimeCandidate>,
     #[serde(default = "default_initialize_timeout")]
     pub initialize_timeout_milliseconds: u64,
     /// Maximum silence while waiting for a provider-specific readiness signal.
@@ -141,6 +150,16 @@ pub struct JdtlsLaunchResources {
     /// removes duplicate paths while preserving the remaining caller order.
     #[serde(default)]
     pub java_extension_bundle_paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// A JDK installation the platform discovered for the Java language service.
+pub struct JavaRuntimeCandidate {
+    /// JDK home directory.
+    pub home_path: String,
+    /// Version reported by `java -version`, such as `25.0.4` or `1.8.0_402`.
+    pub version: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -287,6 +306,12 @@ pub enum LspSemanticOperation {
     CodeLens,
     /// Provider-specific retrieval of a read-only virtual document.
     VirtualDocument,
+    /// JDT discovery of launchable Java classes in the session workspace,
+    /// normalized into workspace-relative entry points.
+    JavaEntrypoints,
+    /// Java Test extension discovery for one source file, normalized into
+    /// typed class and method items.
+    JavaTestItems,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -457,6 +482,10 @@ enum PendingKind {
     Feature,
     /// Provider-specific source retrieval normalized as a virtual document.
     VirtualDocument,
+    /// Java Debug Server main-class discovery normalized as entry points.
+    JavaEntrypoints,
+    /// Java Test extension file discovery normalized as typed test items.
+    JavaTestItems,
     /// CodeLens-derived Java gutter marker projection.
     JavaNavigationMarkers,
     /// One JDT LS CodeLens resolve step in a bounded marker batch.
@@ -536,7 +565,10 @@ struct RuntimeSession {
     id: String,
     provider_id: String,
     jdt_maven_configuration: Option<JdtMavenConfiguration>,
-    #[cfg(test)]
+    /// JDKs JDT LS may bind projects to, one per execution environment.
+    jdt_java_runtimes: Vec<JdtJavaRuntime>,
+    /// Workspace URI the server was initialized with; scopes workspace-wide
+    /// queries such as Java entry-point discovery.
     root_uri: String,
     /// Serializes protocol-state commits with complete outbound message batches.
     /// Callers acquire this before `state` whenever an action can write to the
@@ -599,6 +631,14 @@ pub fn retry_maven_profiles(request: SessionRequest) -> Result<(), CoreError> {
 }
 
 impl RuntimeSession {
+    /// Java settings Lithe owns for this session, as sent to JDT LS.
+    fn jdt_settings(&self) -> JdtSettings<'_> {
+        JdtSettings {
+            maven: self.jdt_maven_configuration.as_ref(),
+            java_runtimes: &self.jdt_java_runtimes,
+        }
+    }
+
     fn retry_maven_profiles(&self) -> Result<(), CoreError> {
         let outbound_order = self.lock_outbound_order()?;
         let state = self.lock_state()?;
@@ -802,6 +842,81 @@ fn engine() -> &'static LspEngine {
     ENGINE.get_or_init(LspEngine::new)
 }
 
+/// Bare user-level settings used when Maven Settings overrides the local
+/// repository without naming a settings file of its own.
+const EMPTY_MAVEN_SETTINGS: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
+</settings>
+"#;
+
+/// Outcome of preparing the user-level Maven settings JDT LS reads.
+#[derive(Debug, Default)]
+struct MaterializedMavenSettings {
+    /// Generated document to send as `userSettings`, when one was produced.
+    path: Option<String>,
+    /// Why the local repository override could not be applied, when it could
+    /// not be. Reported to the session log rather than failing startup.
+    warning: Option<String>,
+}
+
+/// Writes the user-level Maven settings JDT LS reads when Maven Settings
+/// overrides the local repository.
+///
+/// JDT LS exposes no preference for the repository location, so the override
+/// has to travel inside a settings document. Deriving that document from the
+/// configured settings file keeps its mirrors, servers, and proxies, and Maven
+/// still merges the installation's global settings underneath it.
+///
+/// An unreadable configured settings file degrades to no override instead of
+/// failing the session. The repository is one optional field, while failing
+/// here would leave the workspace without completion, navigation, or
+/// diagnostics for every Java file.
+fn materialized_maven_settings(
+    data_root: &Path,
+    configuration: &crate::project::MavenJdtConfiguration,
+) -> Result<MaterializedMavenSettings, CoreError> {
+    let Some(local_repository) = configuration.local_repository_path.as_deref() else {
+        return Ok(MaterializedMavenSettings::default());
+    };
+    let source = match configuration.settings_path.as_deref() {
+        Some(path) => match std::fs::read_to_string(path) {
+            Ok(source) => source,
+            Err(error) => {
+                return Ok(MaterializedMavenSettings {
+                    path: None,
+                    warning: Some(format!(
+                        "Could not read the configured Maven settings.xml, so the local repository override was not applied: {error}"
+                    )),
+                })
+            }
+        },
+        None => EMPTY_MAVEN_SETTINGS.to_string(),
+    };
+    let document = crate::project::settings_with_local_repository(&source, local_repository)?;
+    let directory = data_root.join("maven");
+    std::fs::create_dir_all(&directory).map_err(|error| {
+        CoreError::new(
+            ErrorCode::ProcessStartFailed,
+            "Could not create the Maven settings directory.",
+        )
+        .with_details(error.to_string())
+    })?;
+    let path = directory.join("settings.xml");
+    std::fs::write(&path, document).map_err(|error| {
+        CoreError::new(
+            ErrorCode::ProcessStartFailed,
+            "Could not write the generated Maven settings.",
+        )
+        .with_details(error.to_string())
+    })?;
+    Ok(MaterializedMavenSettings {
+        path: Some(path.to_string_lossy().into_owned()),
+        warning: None,
+    })
+}
+
 impl LspEngine {
     fn new() -> Self {
         Self::with_launcher(Arc::new(SystemProcessLauncher))
@@ -831,6 +946,14 @@ impl LspEngine {
             self.next_session_id.fetch_add(1, Ordering::Relaxed)
         );
         let workspace_root = PathBuf::from(&request.working_directory);
+        // Resolved before the Maven context because an overridden local
+        // repository is delivered to JDT LS as a settings document written here.
+        let data_root = request
+            .cache_directory
+            .as_deref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::temp_dir().join("lithe-lsp"));
+        let mut maven_settings_warning = None;
         let jdt_maven_configuration = request
             .maven_context
             .clone()
@@ -856,8 +979,12 @@ impl LspEngine {
                                     })
                             })
                             .collect::<Result<Vec<_>, _>>()?;
+                        let materialized = materialized_maven_settings(&data_root, &configuration)?;
+                        maven_settings_warning = materialized.warning;
+                        let settings_path = materialized.path.or(configuration.settings_path);
                         Ok(JdtMavenConfiguration {
-                            settings_path: configuration.settings_path,
+                            settings_path,
+                            global_settings_path: configuration.global_settings_path,
                             profiles: configuration.profiles,
                             project_uris,
                             source_paths: configuration.source_paths,
@@ -866,11 +993,6 @@ impl LspEngine {
                 )
             })
             .transpose()?;
-        let data_root = request
-            .cache_directory
-            .as_deref()
-            .map(PathBuf::from)
-            .unwrap_or_else(|| std::env::temp_dir().join("lithe-lsp"));
         let selected_java_executable = request
             .runtime_executable_path
             .as_deref()
@@ -947,6 +1069,7 @@ impl LspEngine {
         let request_timeout = Duration::from_millis(request.request_timeout_milliseconds);
         let java_build_timeout = Duration::from_millis(request.java_build_timeout_milliseconds);
         let shutdown_timeout = Duration::from_millis(request.shutdown_timeout_milliseconds);
+        let jdt_java_runtimes = jdt_java_runtimes(&request.java_runtimes);
         let initialize = client_initialize(ClientInitializeRequest {
             state: LspClientState::default(),
             root_uri: request.root_uri.clone(),
@@ -955,6 +1078,10 @@ impl LspEngine {
                 &request.provider_id,
                 request.initialization_options,
                 &java_extension_bundle_paths,
+                JdtSettings {
+                    maven: jdt_maven_configuration.as_ref(),
+                    java_runtimes: &jdt_java_runtimes,
+                },
             ),
         })?;
         let request_id = (initialize.state.next_request_id - 1).to_string();
@@ -975,7 +1102,7 @@ impl LspEngine {
             id: session_id.clone(),
             provider_id: request.provider_id,
             jdt_maven_configuration,
-            #[cfg(test)]
+            jdt_java_runtimes,
             root_uri: request.root_uri,
             outbound_order: Mutex::new(()),
             state: Mutex::new(SessionState {
@@ -1031,6 +1158,13 @@ impl LspEngine {
             session.log(
                 "info",
                 "Java language service process started",
+                Some(detail),
+            );
+        }
+        if let Some(detail) = maven_settings_warning {
+            session.log(
+                "warn",
+                "Maven local repository override was not applied",
                 Some(detail),
             );
         }
@@ -1320,10 +1454,11 @@ impl RuntimeSession {
                     .map(|document| document.version.max(1))
             })
         });
-        let pending_kind = if request.operation == LspSemanticOperation::VirtualDocument {
-            PendingKind::VirtualDocument
-        } else {
-            PendingKind::Feature
+        let pending_kind = match request.operation {
+            LspSemanticOperation::VirtualDocument => PendingKind::VirtualDocument,
+            LspSemanticOperation::JavaEntrypoints => PendingKind::JavaEntrypoints,
+            LspSemanticOperation::JavaTestItems => PendingKind::JavaTestItems,
+            _ => PendingKind::Feature,
         };
         self.request_with_kind(request, operation_id, pending_kind, document_version)
     }
@@ -1451,6 +1586,38 @@ impl RuntimeSession {
                         )
                     })?;
                     allocate_raw_request(state.client.clone(), method, command)?
+                }
+                LspSemanticOperation::JavaEntrypoints => {
+                    if self.provider_id != "java" {
+                        return Err(CoreError::new(
+                            ErrorCode::NotSupported,
+                            "Java entry-point discovery requires the Java language service.",
+                        ));
+                    }
+                    allocate_raw_request(
+                        state.client.clone(),
+                        method,
+                        java_entrypoints_command(&self.root_uri),
+                    )?
+                }
+                LspSemanticOperation::JavaTestItems => {
+                    if self.provider_id != "java" {
+                        return Err(CoreError::new(
+                            ErrorCode::NotSupported,
+                            "Java test discovery requires the Java language service.",
+                        ));
+                    }
+                    let uri = uri.clone().ok_or_else(|| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "Java test discovery requires a document URI.",
+                        )
+                    })?;
+                    allocate_raw_request(
+                        state.client.clone(),
+                        method,
+                        java_test_items_command(&uri),
+                    )?
                 }
                 LspSemanticOperation::VirtualDocument => {
                     let virtual_uri = request.virtual_uri.as_deref().ok_or_else(|| {
@@ -2425,6 +2592,114 @@ impl RuntimeSession {
                         }
                     }
                 }
+                Some(PendingKind::JavaEntrypoints) => {
+                    if let Some(pending) = pending_before.as_ref() {
+                        if let Some(operation_id) = &pending.operation_id {
+                            let server_error = reduced
+                                .events
+                                .iter()
+                                .find(|event| event.request_id.as_ref() == response_id.as_ref())
+                                .and_then(|event| event.error.as_ref())
+                                .map(|detail| {
+                                    runtime_error(
+                                        self,
+                                        "serverError",
+                                        "request",
+                                        Some(&pending.method),
+                                        None,
+                                        "Language server returned an error.",
+                                        Some(detail),
+                                        None,
+                                    )
+                                });
+                            let canonical_root = canonical_workspace_root(&self.root_uri);
+                            let entrypoints = value.get("result").and_then(|result| {
+                                normalize_java_entrypoints(
+                                    &self.root_uri,
+                                    canonical_root.as_deref(),
+                                    result,
+                                )
+                            });
+                            // A malformed answer must not look like "no
+                            // entry points": callers keep their last good list.
+                            let invalid_result = if server_error.is_none() && entrypoints.is_none()
+                            {
+                                Some(runtime_error(
+                                    self,
+                                    "invalidServerResult",
+                                    "request",
+                                    Some(&pending.method),
+                                    None,
+                                    "Language server returned no Java entry-point list.",
+                                    None,
+                                    None,
+                                ))
+                            } else {
+                                None
+                            };
+                            push_request_event(
+                                self,
+                                &mut state,
+                                operation_id,
+                                &pending.method,
+                                entrypoints.map(|entrypoints| {
+                                    serde_json::to_value(entrypoints)
+                                        .expect("Java entry points should encode")
+                                }),
+                                server_error.or(invalid_result),
+                            );
+                        }
+                    }
+                }
+                Some(PendingKind::JavaTestItems) => {
+                    if let Some(pending) = pending_before.as_ref() {
+                        if let Some(operation_id) = &pending.operation_id {
+                            let server_error = reduced
+                                .events
+                                .iter()
+                                .find(|event| event.request_id.as_ref() == response_id.as_ref())
+                                .and_then(|event| event.error.as_ref())
+                                .map(|detail| {
+                                    runtime_error(
+                                        self,
+                                        "serverError",
+                                        "request",
+                                        Some(&pending.method),
+                                        pending.document_uri.as_deref(),
+                                        "Java Test extension returned an error.",
+                                        Some(detail),
+                                        None,
+                                    )
+                                });
+                            let items = value.get("result").and_then(normalize_java_test_items);
+                            let invalid_result = if server_error.is_none() && items.is_none() {
+                                Some(runtime_error(
+                                    self,
+                                    "invalidServerResult",
+                                    "request",
+                                    Some(&pending.method),
+                                    pending.document_uri.as_deref(),
+                                    "Java Test extension returned no test-item list.",
+                                    None,
+                                    None,
+                                ))
+                            } else {
+                                None
+                            };
+                            push_request_event(
+                                self,
+                                &mut state,
+                                operation_id,
+                                &pending.method,
+                                items.map(|items| {
+                                    serde_json::to_value(items)
+                                        .expect("Java test items should encode")
+                                }),
+                                server_error.or(invalid_result),
+                            );
+                        }
+                    }
+                }
                 Some(PendingKind::Shutdown) => {
                     // The reducer emits `exit` only after the shutdown response.
                     state.shutdown_deadline = Some(Instant::now() + state.shutdown_timeout);
@@ -2538,7 +2813,7 @@ impl RuntimeSession {
         }
         if flush_documents {
             if let Some(notification) =
-                initialized_notification(&self.provider_id, self.jdt_maven_configuration.as_ref())
+                initialized_notification(&self.provider_id, self.jdt_settings())
             {
                 outbound.push(
                     json!({
@@ -2639,11 +2914,8 @@ impl RuntimeSession {
                     .map(ToString::to_string),
             })
             .collect();
-        let Some(values) = workspace_configuration(
-            &self.provider_id,
-            &items,
-            self.jdt_maven_configuration.as_ref(),
-        ) else {
+        let Some(values) = workspace_configuration(&self.provider_id, &items, self.jdt_settings())
+        else {
             return Ok(None);
         };
         Ok(Some(
@@ -3051,6 +3323,8 @@ impl RuntimeSession {
                         pending.kind,
                         PendingKind::Feature
                             | PendingKind::VirtualDocument
+                            | PendingKind::JavaEntrypoints
+                            | PendingKind::JavaTestItems
                             | PendingKind::JavaNavigationMarkers
                             | PendingKind::JavaNavigationMarkerResolve
                             | PendingKind::JavaResolveNavigation
@@ -3536,6 +3810,24 @@ fn java_executable_from_environment(environment: &BTreeMap<String, String>) -> O
     })
 }
 
+/// The workspace directory with symbolic links resolved, when it exists.
+///
+/// Resolving links touches the file system, so it happens here in the engine
+/// rather than in the pure normalizer that receives the result.
+fn canonical_workspace_root(root_uri: &str) -> Option<String> {
+    let path = url::Url::parse(root_uri).ok()?.to_file_path().ok()?;
+    let canonical = std::fs::canonicalize(path).ok()?;
+    let canonical = canonical.to_string_lossy().replace('\\', "/");
+    // Windows canonical paths carry a verbatim `\\?\` prefix that JDT never reports.
+    Some(
+        canonical
+            .strip_prefix("//?/UNC/")
+            .map(|rest| format!("//{rest}"))
+            .or_else(|| canonical.strip_prefix("//?/").map(str::to_string))
+            .unwrap_or(canonical),
+    )
+}
+
 fn semantic_method(operation: LspSemanticOperation) -> &'static str {
     match operation {
         LspSemanticOperation::Completion => "textDocument/completion",
@@ -3551,9 +3843,10 @@ fn semantic_method(operation: LspSemanticOperation) -> &'static str {
         LspSemanticOperation::CodeActions => "textDocument/codeAction",
         LspSemanticOperation::ResolveCompletion => "completionItem/resolve",
         LspSemanticOperation::ResolveCodeAction => "codeAction/resolve",
-        LspSemanticOperation::ExecuteCommand | LspSemanticOperation::VirtualDocument => {
-            "workspace/executeCommand"
-        }
+        LspSemanticOperation::ExecuteCommand
+        | LspSemanticOperation::VirtualDocument
+        | LspSemanticOperation::JavaEntrypoints
+        | LspSemanticOperation::JavaTestItems => "workspace/executeCommand",
         LspSemanticOperation::InlayHints => "textDocument/inlayHint",
         LspSemanticOperation::FoldingRanges => "textDocument/foldingRange",
         LspSemanticOperation::SemanticTokens => "textDocument/semanticTokens/full",
@@ -3576,9 +3869,10 @@ fn semantic_capability(operation: LspSemanticOperation) -> Option<&'static str> 
         LspSemanticOperation::CodeActions => Some("codeActions"),
         LspSemanticOperation::ResolveCompletion => Some("completionResolve"),
         LspSemanticOperation::ResolveCodeAction => Some("codeActionResolve"),
-        LspSemanticOperation::ExecuteCommand | LspSemanticOperation::VirtualDocument => {
-            Some("executeCommand")
-        }
+        LspSemanticOperation::ExecuteCommand
+        | LspSemanticOperation::VirtualDocument
+        | LspSemanticOperation::JavaEntrypoints
+        | LspSemanticOperation::JavaTestItems => Some("executeCommand"),
         LspSemanticOperation::InlayHints => Some("inlayHints"),
         LspSemanticOperation::FoldingRanges => Some("foldingRanges"),
         LspSemanticOperation::SemanticTokens => Some("semanticTokens"),
@@ -4288,6 +4582,8 @@ fn fail_feature_requests(
                 pending.kind,
                 PendingKind::Feature
                     | PendingKind::VirtualDocument
+                    | PendingKind::JavaEntrypoints
+                    | PendingKind::JavaTestItems
                     | PendingKind::JavaNavigationMarkers
                     | PendingKind::JavaNavigationMarkerResolve
                     | PendingKind::JavaResolveNavigation
@@ -4443,9 +4739,129 @@ fn workspace_file_changes_notification(
 }
 
 #[cfg(test)]
+#[path = "engine_real_jdt_tests.rs"]
+mod real_jdt_tests;
+
+#[cfg(test)]
 mod tests {
     use super::super::scripted::ScriptedServer;
     use super::*;
+
+    /// Builds an isolated data root for tests that materialize Maven settings.
+    fn maven_settings_root(label: &str) -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be valid")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "lithe-maven-{label}-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).expect("data root should be creatable");
+        root
+    }
+
+    fn maven_jdt_configuration(
+        settings_path: Option<String>,
+        local_repository_path: Option<String>,
+    ) -> crate::project::MavenJdtConfiguration {
+        crate::project::MavenJdtConfiguration {
+            profiles: Vec::new(),
+            settings_path,
+            global_settings_path: None,
+            local_repository_path,
+            project_paths: Vec::new(),
+            source_paths: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_repository_override_generates_user_settings_that_keep_configured_mirrors() {
+        // JDT LS has no repository preference, so the override travels inside a
+        // settings document. Regenerating that document must not drop the
+        // mirrors the workspace already resolves through.
+        let root = maven_settings_root("repository-override");
+        let configured = root.join("configured-settings.xml");
+        std::fs::write(
+            &configured,
+            r#"<settings><localRepository>/old</localRepository><mirrors><mirror><id>aliyunmaven</id></mirror></mirrors></settings>"#,
+        )
+        .expect("configured settings should be writable");
+        let configuration = maven_jdt_configuration(
+            Some(configured.to_string_lossy().into_owned()),
+            Some("/opt/repository".to_string()),
+        );
+
+        let materialized = materialized_maven_settings(&root, &configuration)
+            .expect("settings should be materialized");
+        let generated = materialized
+            .path
+            .expect("an override must produce a settings document");
+        assert_eq!(materialized.warning, None);
+
+        let document = std::fs::read_to_string(&generated).expect("generated file should exist");
+        assert!(document.contains("<localRepository>/opt/repository</localRepository>"));
+        assert!(document.contains("<id>aliyunmaven</id>"));
+        assert!(!document.contains("/old"));
+        // The configured file stays untouched; only the generated copy changes.
+        let original = std::fs::read_to_string(&configured).expect("source should still exist");
+        assert!(original.contains("<localRepository>/old</localRepository>"));
+        std::fs::remove_dir_all(&root).expect("data root should be removable");
+    }
+
+    #[test]
+    fn a_repository_override_without_configured_settings_generates_a_minimal_document() {
+        let root = maven_settings_root("repository-only");
+        let configuration = maven_jdt_configuration(None, Some("/opt/repository".to_string()));
+
+        let generated = materialized_maven_settings(&root, &configuration)
+            .expect("settings should be materialized")
+            .path
+            .expect("an override must produce a settings document");
+
+        let document = std::fs::read_to_string(generated).expect("generated file should exist");
+        assert!(document.contains("<localRepository>/opt/repository</localRepository>"));
+        std::fs::remove_dir_all(&root).expect("data root should be removable");
+    }
+
+    #[test]
+    fn no_repository_override_leaves_the_configured_settings_in_place() {
+        let root = maven_settings_root("no-override");
+        let configuration = maven_jdt_configuration(Some("/local/settings.xml".to_string()), None);
+
+        let materialized =
+            materialized_maven_settings(&root, &configuration).expect("settings should resolve");
+        assert_eq!(materialized.path, None);
+        assert_eq!(materialized.warning, None);
+        std::fs::remove_dir_all(&root).expect("data root should be removable");
+    }
+
+    #[test]
+    fn an_unreadable_settings_file_warns_instead_of_failing_the_java_session() {
+        // Losing the repository override costs one optional setting. Failing
+        // here would leave every Java file without completion, navigation, and
+        // diagnostics because of a stale path in Maven Settings.
+        let root = maven_settings_root("unreadable-settings");
+        let configuration = maven_jdt_configuration(
+            Some(
+                root.join("deleted-settings.xml")
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+            Some("/opt/repository".to_string()),
+        );
+
+        let materialized = materialized_maven_settings(&root, &configuration)
+            .expect("an unreadable settings file must not fail startup");
+
+        // The configured path is kept, which is what JDT LS received before the
+        // override existed.
+        assert_eq!(materialized.path, None);
+        assert!(materialized
+            .warning
+            .is_some_and(|warning| warning.contains("local repository override")));
+        std::fs::remove_dir_all(&root).expect("data root should be removable");
+    }
 
     /// The capabilities every test needs to reach `Ready` with a usable feature
     /// surface. Individual tests narrow or extend this.
@@ -4475,6 +4891,7 @@ mod tests {
             cache_directory: None,
             workspace_fingerprint: None,
             maven_context: None,
+            java_runtimes: Vec::new(),
             initialize_timeout_milliseconds: 10_000,
             service_ready_idle_timeout_milliseconds: 45_000,
             service_ready_absolute_timeout_milliseconds: 600_000,
@@ -4721,10 +5138,10 @@ mod tests {
 
     /// Owns an opt-in real-process smoke session and removes every temporary
     /// resource even when the smoke test unwinds after a failed assertion.
-    struct RealSmokeCleanup<'a> {
-        engine: &'a LspEngine,
-        session_id: String,
-        root: PathBuf,
+    pub(super) struct RealSmokeCleanup<'a> {
+        pub(super) engine: &'a LspEngine,
+        pub(super) session_id: String,
+        pub(super) root: PathBuf,
     }
 
     impl Drop for RealSmokeCleanup<'_> {
@@ -4759,7 +5176,7 @@ mod tests {
         }
     }
 
-    fn await_real_smoke_ready(
+    pub(super) fn await_real_smoke_ready(
         session: &Arc<RuntimeSession>,
     ) -> Result<Vec<LspRuntimeEvent>, String> {
         let deadline = Instant::now() + Duration::from_secs(90);
@@ -6607,6 +7024,288 @@ mod tests {
         assert!(event.error.is_none());
     }
 
+    fn request_java_entrypoints(harness: &Harness) -> (String, String) {
+        let operation_id = harness.engine.next_operation_id();
+        harness
+            .session()
+            .request(
+                SemanticRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    operation: LspSemanticOperation::JavaEntrypoints,
+                    uri: None,
+                    virtual_uri: None,
+                    position: None,
+                    new_name: None,
+                    range: None,
+                    diagnostics: Vec::new(),
+                    completion_item: None,
+                    code_action: None,
+                    command: None,
+                },
+                operation_id.clone(),
+            )
+            .expect("entry-point discovery should not require an open file");
+        let request_id = harness
+            .server
+            .await_request("workspace/executeCommand")
+            .expect("main-class discovery should reach JDT LS");
+        (operation_id, request_id)
+    }
+
+    fn java_entrypoints_harness() -> Harness {
+        let mut harness = Harness::start(|request| {
+            request.provider_id = "java".to_string();
+            request.cache_directory = Some("/tmp/lithe-lsp-engine-tests".to_string());
+        });
+        harness.server.complete_java_initialize(json!({
+            "executeCommandProvider": { "commands": ["vscode.java.resolveMainClass"] }
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+        harness
+    }
+
+    #[test]
+    fn java_entrypoints_asks_jdt_for_the_workspace_and_normalizes_the_answer() {
+        let mut harness = java_entrypoints_harness();
+        let (operation_id, request_id) = request_java_entrypoints(&harness);
+        let request = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["id"] == request_id)
+            .expect("the discovery request should be recorded");
+        assert_eq!(request["params"]["command"], "vscode.java.resolveMainClass");
+        assert_eq!(request["params"]["arguments"], json!(["file:///workspace"]));
+
+        // Java 25 forms (no-argument, instance) arrive from JDT like any other
+        // entry; Core must pass them through without judging the signature.
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": [
+                { "mainClass": "demo.StaticNoArgs", "projectName": "app", "filePath": "/workspace/src/main/java/demo/StaticNoArgs.java" },
+                { "mainClass": "Compact", "projectName": "app", "filePath": "/workspace/src/main/java/Compact.java" },
+                { "mainClass": "demo.Pathless", "projectName": "app" }
+            ]
+        }));
+        let event = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
+            .clone();
+        assert!(event.error.is_none(), "{event:?}");
+        assert_eq!(
+            event.result,
+            Some(json!({
+                "schemaVersion": 1,
+                "entries": [
+                    { "sourcePath": "src/main/java/Compact.java", "mainClass": "Compact", "projectName": "app" },
+                    { "sourcePath": "src/main/java/demo/StaticNoArgs.java", "mainClass": "demo.StaticNoArgs", "projectName": "app" }
+                ],
+                "diagnostics": [
+                    { "code": "missingSourcePath", "mainClass": "demo.Pathless" }
+                ]
+            }))
+        );
+    }
+
+    #[test]
+    fn a_malformed_java_entrypoint_answer_is_an_error_not_an_empty_list() {
+        // Reporting "no entry points" here would let callers wipe a good list.
+        let mut harness = java_entrypoints_harness();
+        let (operation_id, request_id) = request_java_entrypoints(&harness);
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": { "unexpected": true }
+        }));
+        let event = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
+            .clone();
+        assert!(event.result.is_none(), "{event:?}");
+        assert_eq!(
+            event.error.as_ref().map(|error| error.code.as_str()),
+            Some("invalidServerResult")
+        );
+    }
+
+    #[test]
+    fn a_java_entrypoint_server_error_is_reported() {
+        let mut harness = java_entrypoints_harness();
+        let (operation_id, request_id) = request_java_entrypoints(&harness);
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "error": { "code": -32601, "message": "No delegateCommandHandler for vscode.java.resolveMainClass" }
+        }));
+        let event = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
+            .clone();
+        assert!(event.result.is_none(), "{event:?}");
+        assert_eq!(
+            event.error.as_ref().map(|error| error.code.as_str()),
+            Some("serverError")
+        );
+    }
+
+    #[test]
+    fn java_entrypoints_are_refused_for_other_languages() {
+        let mut harness = Harness::start(|_| {});
+        harness
+            .server
+            .complete_initialize(json!({ "executeCommandProvider": {} }));
+        harness.await_state(LspLifecycleState::Ready);
+        let operation_id = harness.engine.next_operation_id();
+        let error = harness
+            .session()
+            .request(
+                SemanticRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    operation: LspSemanticOperation::JavaEntrypoints,
+                    uri: None,
+                    virtual_uri: None,
+                    position: None,
+                    new_name: None,
+                    range: None,
+                    diagnostics: Vec::new(),
+                    completion_item: None,
+                    code_action: None,
+                    command: None,
+                },
+                operation_id,
+            )
+            .expect_err("only the Java provider can discover Java entry points");
+        assert!(matches!(error.code, ErrorCode::NotSupported), "{error:?}");
+    }
+
+    #[test]
+    fn java_test_items_ask_the_extension_for_one_file_and_normalize_the_answer() {
+        let mut harness = java_entrypoints_harness();
+        let operation_id = harness.engine.next_operation_id();
+        let uri = "file:///workspace/src/test/java/demo/OddlyNamedSpec.java";
+        harness
+            .session()
+            .request(
+                SemanticRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    operation: LspSemanticOperation::JavaTestItems,
+                    uri: Some(uri.to_string()),
+                    virtual_uri: None,
+                    position: None,
+                    new_name: None,
+                    range: None,
+                    diagnostics: Vec::new(),
+                    completion_item: None,
+                    code_action: None,
+                    command: None,
+                },
+                operation_id.clone(),
+            )
+            .expect("test discovery should not require the file to be open");
+        let request_id = harness
+            .server
+            .await_request("workspace/executeCommand")
+            .expect("test discovery should reach the Java Test extension");
+        let request = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["id"] == request_id)
+            .expect("the discovery request should be recorded");
+        assert_eq!(
+            request["params"],
+            json!({
+                "command": "vscode.java.test.findTestTypesAndMethods",
+                "arguments": [uri]
+            })
+        );
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": [{
+                "id": "class-id",
+                "label": "OddlyNamedSpec",
+                "fullName": "demo.OddlyNamedSpec",
+                "projectName": "app",
+                "testKind": 0,
+                "testLevel": 5,
+                "children": [{
+                    "id": "method-id",
+                    "label": "customAnnotation()",
+                    "fullName": "demo.OddlyNamedSpec#customAnnotation()",
+                    "projectName": "app",
+                    "testKind": 0,
+                    "testLevel": 6,
+                    "jdtHandler": "method-handler",
+                    "range": {
+                        "start": { "line": 7, "character": 2 },
+                        "end": { "line": 9, "character": 3 }
+                    }
+                }]
+            }]
+        }));
+        let event = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
+            .clone();
+        assert!(event.error.is_none(), "{event:?}");
+        assert_eq!(
+            event
+                .result
+                .as_ref()
+                .and_then(|value| value["schemaVersion"].as_u64()),
+            Some(1)
+        );
+        assert_eq!(
+            event
+                .result
+                .as_ref()
+                .map(|value| &value["items"][0]["children"][0]["jdtHandler"]),
+            Some(&json!("method-handler"))
+        );
+    }
+
+    #[test]
+    fn malformed_java_test_answer_is_an_error_not_an_empty_list() {
+        let mut harness = java_entrypoints_harness();
+        let operation_id = harness.engine.next_operation_id();
+        harness
+            .session()
+            .request(
+                SemanticRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    operation: LspSemanticOperation::JavaTestItems,
+                    uri: Some("file:///workspace/src/test/java/demo/App.java".to_string()),
+                    virtual_uri: None,
+                    position: None,
+                    new_name: None,
+                    range: None,
+                    diagnostics: Vec::new(),
+                    completion_item: None,
+                    code_action: None,
+                    command: None,
+                },
+                operation_id.clone(),
+            )
+            .unwrap();
+        let request_id = harness
+            .server
+            .await_request("workspace/executeCommand")
+            .unwrap();
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "id": request_id, "result": { "unexpected": true }
+        }));
+        let event = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
+            .clone();
+        assert!(event.result.is_none(), "{event:?}");
+        assert_eq!(
+            event.error.as_ref().map(|error| error.code.as_str()),
+            Some("invalidServerResult")
+        );
+    }
+
     #[test]
     fn wait_events_returns_queued_events_without_waiting_the_timeout() {
         let harness = Harness::start(|_| {});
@@ -6898,6 +7597,7 @@ public class Main {
                 cache_directory: Some(root.join("cache").to_string_lossy().into_owned()),
                 workspace_fingerprint: None,
                 maven_context: None,
+                java_runtimes: Vec::new(),
                 initialize_timeout_milliseconds: 90_000,
                 service_ready_idle_timeout_milliseconds: 45_000,
                 service_ready_absolute_timeout_milliseconds: 600_000,
@@ -7626,6 +8326,7 @@ public class Main {
             cache_directory: None,
             workspace_fingerprint: None,
             maven_context: None,
+            java_runtimes: Vec::new(),
             initialize_timeout_milliseconds: 1,
             service_ready_idle_timeout_milliseconds: 1,
             service_ready_absolute_timeout_milliseconds: 1,

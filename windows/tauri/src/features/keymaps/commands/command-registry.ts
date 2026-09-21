@@ -502,7 +502,7 @@ const editCommands: Command[] = [
     id: "editor.formatDocument",
     title: "Format Document",
     category: "Edit",
-    keybinding: "shift+alt+f",
+    keybinding: "cmd+alt+l",
     execute: () => {
       void formatActiveEditorDocument();
     },

@@ -401,6 +401,129 @@ package enum LanguageServerOperation: String, Equatable, Sendable {
     /// Resolving a server-owned source that has no file on disk, such as a
     /// decompiled class behind a `jdt://` URI.
     case virtualDocument
+    /// JDT's launchable Java classes in the session workspace, normalized by
+    /// Core into workspace-relative entries.
+    case javaEntrypoints
+    /// Java Test extension classes and methods in one source file, normalized
+    /// by Core into a typed tree.
+    case javaTestItems
+}
+
+/// A class JDT confirmed the JVM can launch, as normalized by Core.
+///
+/// Note: 入口点归属见 .agents/notes/implemented/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
+package struct JavaEntrypoint: Codable, Equatable, Sendable {
+    /// Workspace-relative source path with `/` separators.
+    package let sourcePath: String
+    /// Class name as JDT reports it, possibly prefixed with `module/`.
+    package let mainClass: String
+    /// JDT project that owns the class; only a hint for resolving the launch.
+    package let projectName: String?
+
+    package init(sourcePath: String, mainClass: String, projectName: String? = nil) {
+        self.sourcePath = sourcePath
+        self.mainClass = mainClass
+        self.projectName = projectName
+    }
+}
+
+/// Core's `javaEntrypoints` answer. Whether a class is launchable is JDT's
+/// decision; Lithe never derives entry points from source text.
+package struct JavaEntrypoints: Codable, Equatable, Sendable {
+    /// A JDT result Core could not turn into an entry, with the reason.
+    package struct Diagnostic: Codable, Equatable, Sendable {
+        package let code: String
+        package let mainClass: String?
+        package let detail: String?
+    }
+
+    package let schemaVersion: Int
+    package let entries: [JavaEntrypoint]
+    package let diagnostics: [Diagnostic]
+
+    package init(schemaVersion: Int = 1, entries: [JavaEntrypoint], diagnostics: [Diagnostic] = []) {
+        self.schemaVersion = schemaVersion
+        self.entries = entries
+        self.diagnostics = diagnostics
+    }
+}
+
+/// A zero-based UTF-16 source range reported by JDT for a Java test item.
+package struct JavaTestRange: Codable, Equatable, Sendable {
+    package let startLine: Int
+    package let startUtf16Column: Int
+    package let endLine: Int
+    package let endUtf16Column: Int
+}
+
+/// One test class or method whose semantic identity comes from Java Test/JDT.
+package struct JavaTestItem: Codable, Equatable, Sendable {
+    package let id: String
+    package let label: String
+    package let fullName: String
+    package let projectName: String
+    package let kind: Int
+    package let level: Int
+    package let jdtHandler: String?
+    package let sortText: String?
+    package let range: JavaTestRange?
+    package let children: [JavaTestItem]
+
+    package init(
+        id: String,
+        label: String,
+        fullName: String,
+        projectName: String,
+        kind: Int,
+        level: Int,
+        jdtHandler: String? = nil,
+        sortText: String? = nil,
+        range: JavaTestRange? = nil,
+        children: [JavaTestItem] = []
+    ) {
+        self.id = id
+        self.label = label
+        self.fullName = fullName
+        self.projectName = projectName
+        self.kind = kind
+        self.level = level
+        self.jdtHandler = jdtHandler
+        self.sortText = sortText
+        self.range = range
+        self.children = children
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, label, fullName, projectName, jdtHandler, sortText, range, children
+        case kind = "testKind"
+        case level = "testLevel"
+    }
+
+    package func matches(identifier: String) -> Bool {
+        id == identifier || label == identifier || fullName == identifier || jdtHandler == identifier
+    }
+}
+
+/// Core's normalized Java Test discovery answer.
+package struct JavaTestItems: Codable, Equatable, Sendable {
+    package struct Diagnostic: Codable, Equatable, Sendable {
+        package let code: String
+        package let detail: String?
+    }
+
+    package let schemaVersion: Int
+    package let items: [JavaTestItem]
+    package let diagnostics: [Diagnostic]
+
+    package init(
+        schemaVersion: Int = 1,
+        items: [JavaTestItem],
+        diagnostics: [Diagnostic] = []
+    ) {
+        self.schemaVersion = schemaVersion
+        self.items = items
+        self.diagnostics = diagnostics
+    }
 }
 
 /// Server-normalized semantic tokens use zero-based UTF-16 positions.
@@ -667,6 +790,15 @@ package protocol LanguageServerSession: AnyObject {
         uri: String,
         completion: @escaping (Result<String, Error>) -> Void
     ) throws
+    /// JDT's launchable classes in the session workspace, normalized by Core.
+    func javaEntrypoints(
+        completion: @escaping (Result<JavaEntrypoints, Error>) -> Void
+    ) throws
+    /// Test classes and methods JDT reports for one source file.
+    func javaTestItems(
+        fileURL: URL,
+        completion: @escaping (Result<JavaTestItems, Error>) -> Void
+    ) throws
     func javaNavigationMarkers(
         fileURL: URL,
         completion: @escaping (Result<[JavaNavigationMarker], Error>) -> Void
@@ -744,6 +876,12 @@ package extension LanguageServerSession {
     }
     func closeDocument(_: URL) {}
     func notifyWorkspaceFilesChanged(_: [LanguageServerWorkspaceFileChange]) throws {}
+    func javaTestItems(
+        fileURL _: URL,
+        completion: @escaping (Result<JavaTestItems, Error>) -> Void
+    ) throws {
+        completion(.failure(LanguageServerFeatureUnavailable.javaTests))
+    }
     func javaNavigationMarkers(
         fileURL _: URL,
         completion: @escaping (Result<[JavaNavigationMarker], Error>) -> Void
@@ -761,8 +899,14 @@ package extension LanguageServerSession {
 
 private enum LanguageServerFeatureUnavailable: LocalizedError {
     case javaNavigation
+    case javaTests
 
-    var errorDescription: String? { "Java navigation is not supported by this language server." }
+    var errorDescription: String? {
+        switch self {
+        case .javaNavigation: "Java navigation is not supported by this language server."
+        case .javaTests: "Java test discovery is not supported by this language server."
+        }
+    }
 }
 
 @MainActor

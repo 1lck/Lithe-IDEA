@@ -31,7 +31,7 @@ mkdir -p \
     macos/Tests/LitheGitPerformanceTests \
     infra/docker/database-validation \
     rust/lithe-core/src/tests \
-    rust/lithe-core/src/lsp \
+    rust/lithe-core/src/lsp/languages \
     rust/lithe-core/tests \
     rust/lithe-db-sidecar/src \
     shared/fixtures/core \
@@ -39,6 +39,7 @@ mkdir -p \
     windows/tauri/src-tauri/src
 printf '%s\n' '//! Test module.' 'pub fn value() -> u8 { 1 }' > rust/lithe-core/src/lib.rs
 printf '%s\n' '#[test]' 'fn source_test() { assert_eq!(1, 1); }' > rust/lithe-core/src/lsp/tests.rs
+printf '%s\n' 'pub fn normalize() {}' > rust/lithe-core/src/lsp/languages/java_tests.rs
 printf '%s\n' '#[test]' 'fn value_is_one() { assert_eq!(1, 1); }' > rust/lithe-core/tests/value.rs
 printf '%s\n' 'fn main() {}' > rust/lithe-db-sidecar/src/main.rs
 printf '%s\n' 'services: {}' > infra/docker/database-validation/compose.yaml
@@ -83,6 +84,7 @@ classification() {
     local rust_comments="$9"
     local metadata="${10}"
     local git_validation="${11:-false}"
+    local java_jdt="${12:-false}"
 
     printf 'swift=%s\n' "$swift"
     printf 'plugins=%s\n' "$plugins"
@@ -92,6 +94,7 @@ classification() {
     printf 'macos_release=%s\n' "$macos_release"
     printf 'windows=%s\n' "$windows"
     printf 'windows_rust=%s\n' "$windows_rust"
+    printf 'java_jdt=%s\n' "$java_jdt"
     printf 'rust_comments=%s\n' "$rust_comments"
     printf 'metadata=%s\n' "$metadata"
     printf 'git_validation=%s\n' "$git_validation"
@@ -161,6 +164,7 @@ modify_macos_cache_action() {
 }
 modify_metadata() { printf '%s\n' 'cask "lithe" do' '  version "1.0.0"' 'end' > Casks/lithe.rb; }
 modify_classifier() { printf '%s\n' '# classifier test change' >> scripts/classify-ci-changes.sh; }
+modify_java_jdt() { printf '%s\n' 'pub fn normalize() { let _ = 1; }' > rust/lithe-core/src/lsp/languages/java_tests.rs; }
 modify_swift_and_database() {
     modify_swift_source
     modify_database_swift
@@ -213,7 +217,7 @@ assert_classification macos-performance-baseline \
     "$(classification false false false false false true false false false false)" \
     modify_macos_performance_baseline
 assert_classification unknown-script \
-    "$(classification true true true true true true true true false false true)" \
+    "$(classification true true true true true true true true false false true true)" \
     modify_unknown_script
 assert_classification swift-test \
     "$(classification true false false false false false false false false false)" \
@@ -272,6 +276,9 @@ assert_classification windows-frontend \
 assert_classification windows-rust \
     "$(classification false false false false false false true true false false)" \
     modify_windows_rust
+assert_classification java-jdt \
+    "$(classification false false false true false true true true false false false true)" \
+    modify_java_jdt
 assert_classification download-cache-validator \
     "$(classification true true true true false true true true false false)" \
     modify_download_cache_validator
@@ -296,10 +303,10 @@ assert_classification metadata \
     "$(classification false false false false false false false false false true)" \
     modify_metadata
 assert_classification classifier \
-    "$(classification true true true true true true true true false false true)" \
+    "$(classification true true true true true true true true false false true true)" \
     modify_classifier
 assert_classification rename-rust-to-markdown \
-    "$(classification true true true true true true true true false false true)" \
+    "$(classification true true true true true true true true false false true true)" \
     rename_rust_to_markdown
 
 printf '%s\n' 'CI change classifier tests passed'

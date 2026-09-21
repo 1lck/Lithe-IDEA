@@ -270,6 +270,12 @@ export const defaultKeymaps: Keybinding[] = [
     when: "editorFocus",
   },
   {
+    key: "cmd+alt+l",
+    command: "editor.formatDocument",
+    source: "default",
+    when: "editorFocus",
+  },
+  {
     key: "shift+alt+f",
     command: "editor.formatDocument",
     source: "default",

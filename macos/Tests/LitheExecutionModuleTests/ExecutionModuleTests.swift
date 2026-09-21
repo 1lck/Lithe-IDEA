@@ -29,43 +29,152 @@ struct ExecutionModuleTests {
         #expect(graph.run.moduleSessions.first?.exitCode == 1)
     }
 
-    @Test(arguments: ["pom-failure", "reload-failure", "reload-success"])
-    func mavenReloadInvalidatesAlreadyRunningInventory(outcome: String) async throws {
-        let gate = ReloadScanGate()
-        let graph = makeTestGraph(mavenOperations: ReloadMavenOperations(scanGate: gate))
-        let service = graph.maven
+    @Test
+    func mavenInventoryRefreshReusesAcceptedProject() async {
+        let operations = ReloadMavenOperations()
+        let graph = makeTestGraph(mavenOperations: operations)
         let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
-        await service.loadProject(at: root, files: [root.appendingPathComponent("old")])
-        let background = Task {
-            await service.loadProject(at: root, files: [root.appendingPathComponent("inventory")])
-        }
-        let watchdog = Task {
-            // test-stability: allow(swift-real-sleep) reason: watchdog bounds the event wait if the background scan never enters the controlled synchronous port.
-            try? await Task.sleep(for: .seconds(2))
-            guard !Task.isCancelled else { return }
-            Issue.record("Background Maven scan did not reach its gate")
-            gate.entered.continuation.finish()
-            gate.release.signal()
-            background.cancel()
+        defer { graph.maven.reset(); graph.run.reset() }
+
+        await graph.maven.loadProject(at: root, files: [root.appendingPathComponent("old")])
+        await graph.maven.loadProject(at: root, files: [root.appendingPathComponent("inventory")])
+
+        #expect(operations.scanCount == 1)
+        #expect(graph.maven.project?.artifactID == "old")
+        #expect(graph.maven.projectState == .ready)
+        #expect(!graph.maven.isLoadingProject)
+    }
+
+    @Test
+    func mavenInventoryDescriptorChangeWaitsForExplicitReload() async {
+        let operations = ReloadMavenOperations()
+        let graph = makeTestGraph(mavenOperations: operations)
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let pom = root.appendingPathComponent("pom.xml")
+        defer { graph.maven.reset(); graph.run.reset() }
+
+        await graph.maven.loadProject(
+            at: root,
+            files: [root.appendingPathComponent("old"), pom]
+        )
+        await graph.maven.loadProject(
+            at: root,
+            files: [root.appendingPathComponent("new"), pom, root.appendingPathComponent("module/pom.xml")]
+        )
+
+        #expect(operations.scanCount == 1)
+        #expect(graph.maven.project?.artifactID == "old")
+        #expect(graph.maven.isProjectReloadRequired)
+        #expect(graph.maven.isReloadRequired)
+    }
+
+    @Test
+    func mavenInitialLoadCoalescesMatchingInventory() async throws {
+        let gate = ReloadScanGate()
+        let secondStarted = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let operations = ReloadMavenOperations(scanGate: gate)
+        let graph = makeTestGraph(mavenOperations: operations)
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let pom = root.appendingPathComponent("pom.xml")
+        let first = Task { @MainActor in
+            await graph.maven.loadProject(at: root, files: [pom])
         }
         defer {
-            watchdog.cancel()
-            background.cancel()
+            first.cancel()
+            secondStarted.continuation.finish()
             gate.entered.continuation.finish()
             gate.release.signal()
-            service.reset()
+            gate.release.signal()
+            graph.maven.reset()
+            graph.run.reset()
         }
-        for await _ in gate.entered.stream { break }
-        if outcome == "pom-failure" { service.markPomChanged(root.appendingPathComponent("pom.xml")) }
-        await service.reloadProject(files: [root.appendingPathComponent("new")], rescan: true) {
-            if outcome != "reload-success" { throw ReloadTestError.failed }
+
+        try await awaitSignal(gate.entered.stream)
+        let second = Task { @MainActor in
+            secondStarted.continuation.yield(())
+            await graph.maven.loadProject(
+                at: root,
+                files: [root.appendingPathComponent("README.md"), pom]
+            )
         }
+        try await awaitSignal(secondStarted.stream)
         gate.release.signal()
-        await background.value
-        #expect(service.project?.artifactID == (outcome == "reload-success" ? "new" : "old"))
-        #expect(service.projectState == .ready)
-        #expect((service.reloadError != nil) == (outcome != "reload-success"))
-        #expect(!service.isReloading)
+        await first.value
+        await second.value
+
+        #expect(operations.scanCount == 1)
+        #expect(graph.maven.projectState == .ready)
+        #expect(!graph.maven.isLoadingProject)
+    }
+
+    @Test(arguments: ["changed", "coalesced", "unrelated", "reset", "workspace"])
+    func mavenInitialLoadRejectsChangedPomContents(outcome: String) async {
+        let gate = ReloadScanGate()
+        let operations = ReloadMavenOperations(scanGate: gate, scanArtifacts: ["old", "new"])
+        let graph = makeTestGraph(mavenOperations: operations)
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let pom = root.appendingPathComponent("pom.xml")
+        let first = Task { @MainActor in
+            await graph.maven.loadProject(at: root, files: [pom])
+        }
+        defer {
+            first.cancel()
+            gate.entered.continuation.finish()
+            gate.release.signal()
+            gate.release.signal()
+            graph.maven.reset()
+            graph.run.reset()
+        }
+        do {
+            try await awaitSignal(gate.entered.stream)
+        } catch {
+            Issue.record("Initial Maven scan did not reach its gate: \(error)")
+            graph.maven.reset()
+            gate.release.signal()
+            await first.value
+            return
+        }
+
+        #expect(graph.maven.project == nil)
+        if outcome == "unrelated" {
+            graph.maven.markPomChanged(URL(fileURLWithPath: "/workspace-copy/pom.xml"))
+            graph.maven.markPomChanged(root.appendingPathComponent("README.md"))
+        } else {
+            // The first scan has captured old contents. Multiple edits must
+            // invalidate that result without starting parallel replacement scans.
+            graph.maven.markPomChanged(pom)
+            graph.maven.markPomChanged(pom)
+        }
+        #expect(!graph.maven.isProjectReloadRequired)
+        if outcome == "reset" { graph.maven.reset() }
+        gate.release.signal()
+        gate.release.signal()
+        if outcome == "coalesced" {
+            // No MainActor suspension occurs between release and this call, so
+            // the matching request joins the first task before it can commit.
+            await graph.maven.loadProject(at: root, files: [pom])
+        } else if outcome == "workspace" {
+            let other = URL(fileURLWithPath: "/other", isDirectory: true)
+            await graph.maven.loadProject(at: other, files: [other.appendingPathComponent("pom.xml")])
+            #expect(graph.maven.project?.rootURL == other)
+        }
+        await first.value
+
+        if outcome == "reset" {
+            #expect(operations.scanCount == 1)
+            #expect(graph.maven.project == nil)
+            #expect(graph.maven.projectState == .idle)
+        } else {
+            #expect(operations.scanCount == (outcome == "unrelated" ? 1 : 2))
+            #expect(graph.maven.project?.artifactID == (outcome == "unrelated" ? "old" : "new"))
+            #expect(graph.maven.projectState == .ready)
+            #expect(!graph.maven.isReloadRequired)
+            // The fresh result must itself be reusable by later snapshots.
+            if outcome != "workspace" {
+                await graph.maven.loadProject(at: root, files: [pom])
+                #expect(operations.scanCount == (outcome == "unrelated" ? 1 : 2))
+            }
+        }
     }
 
     @Test(arguments: ["success", "failure", "new-pom", "workspace"])
@@ -1466,7 +1575,12 @@ private struct SelectionRunConfigurationOperations: RunConfigurationOperations {
     func inspect(at _: URL) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
-    func generate(at _: URL, files _: [URL], modulePaths _: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at _: URL,
+        files _: [URL],
+        modulePaths _: [String],
+        javaEntrypoints _: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: configurations.count)
     }
     func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -1494,7 +1608,12 @@ private struct FixedLaunchPlanRunConfigurationOperations: RunConfigurationOperat
     func inspect(at _: URL) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
-    func generate(at _: URL, files _: [URL], modulePaths _: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at _: URL,
+        files _: [URL],
+        modulePaths _: [String],
+        javaEntrypoints _: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
     func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -1780,14 +1899,37 @@ private func makeReloadService() async -> (MavenService, URL) {
     return (service, root)
 }
 
-private struct ReloadMavenOperations: MavenProjectOperations {
-    var scanGate: ReloadScanGate? = nil
+private final class ReloadMavenOperations: MavenProjectOperations, @unchecked Sendable {
+    private let lock = NSLock()
+    private let scanGate: ReloadScanGate?
+    private let scanArtifacts: [String]
+    private var recordedScanCount = 0
+
+    init(scanGate: ReloadScanGate? = nil, scanArtifacts: [String] = []) {
+        self.scanGate = scanGate
+        self.scanArtifacts = scanArtifacts
+    }
+
+    var scanCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedScanCount
+    }
+
     func scanMavenProject(at rootURL: URL, files: [URL]) throws -> MavenProject? {
-        let name = files.first?.lastPathComponent ?? "old"
-        if name == "inventory", let scanGate {
+        lock.lock()
+        let scanIndex = recordedScanCount
+        recordedScanCount += 1
+        lock.unlock()
+        let name = scanArtifacts.indices.contains(scanIndex)
+            ? scanArtifacts[scanIndex]
+            : files.first?.lastPathComponent ?? "old"
+        if let scanGate {
             scanGate.entered.continuation.yield(())
-            guard scanGate.release.wait(timeout: .now() + 2) == .success else {
-                Issue.record("Background Maven scan was not released before its deadline")
+            // The full test lane can delay the main-actor release while many
+            // suites start; keep deadlocks bounded without treating that load as failure.
+            guard scanGate.release.wait(timeout: .now() + 10) == .success else {
+                Issue.record("Maven scan was not released before its deadline")
                 throw ReloadTestError.failed
             }
         }
@@ -2067,7 +2209,12 @@ private final class MavenContextRunOperations: RunConfigurationOperations, @unch
         RunConfigurationResolution(configurations: [EffectiveRunConfiguration(configuration: configuration, options: RunOptions())],
                                    diagnostics: [], defaultConfigurationID: configuration.id)
     }
-    func generate(at _: URL, files _: [URL], modulePaths _: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at _: URL,
+        files _: [URL],
+        modulePaths _: [String],
+        javaEntrypoints _: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
     func launchPlan(at _: URL, configurationID _: String, currentFile _: String?, classPath _: String?, debugPort _: Int?) throws -> SharedLaunchPlan {
@@ -2092,7 +2239,12 @@ private struct SingleRunConfigurationOperations: RunConfigurationOperations {
     func inspect(at _: URL) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
-    func generate(at _: URL, files _: [URL], modulePaths _: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at _: URL,
+        files _: [URL],
+        modulePaths _: [String],
+        javaEntrypoints _: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
     func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -2135,7 +2287,12 @@ private struct TestRunConfigurationOperations: RunConfigurationOperations {
         }
         return ProjectRunConfigurationInspection(status: .missing, diagnostics: [])
     }
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 0)
     }
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -2162,7 +2319,12 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
             diagnostics: []
         )
     }
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         generatedInventories.append(files)
         return RunConfigurationGenerationResult(entryCount: 1)
     }
@@ -2192,7 +2354,12 @@ private struct FailingInspectionRunConfigurationOperations: RunConfigurationOper
             recoveryAction: .editConfiguration
         )
     }
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 0)
     }
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -2209,7 +2376,12 @@ private struct TestReadyRunConfigurationOperations: RunConfigurationOperations {
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -2242,7 +2414,12 @@ private struct TestGoProjectRunConfigurationOperations: RunConfigurationOperatio
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {

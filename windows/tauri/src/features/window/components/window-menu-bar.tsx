@@ -254,7 +254,7 @@ const WindowMenuBar = ({
             {t("menu.moveLineDown")}
           </MenubarItem>
           <MenubarItem
-            shortcut="shift+alt+f"
+            shortcut="mod+alt+l"
             onClick={() => handleCommand("editor.formatDocument")}
           >
             {t("menu.formatDocument")}

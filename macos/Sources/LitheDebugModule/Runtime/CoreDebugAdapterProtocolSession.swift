@@ -26,6 +26,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
     private let operationTimeoutMilliseconds: Int
     private var operationHandlers: [String: PendingOperation] = [:]
     private var pendingRunInTerminalRequests: [String: PendingRunInTerminalRequest] = [:]
+    private var errorOutputDecoder = StreamingUTF8Decoder()
     private var ownsCoreSession = false
     private var isStopping = false
 
@@ -53,16 +54,14 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         self.deadlineScheduler = deadlineScheduler
         self.operationTimeoutMilliseconds = max(1, operationTimeoutMilliseconds)
         transport.onData = { [weak self] data in self?.receive(data) }
-        transport.onErrorOutput = { [weak self] data in
-            guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return }
-            self?.onEvent?(.output(category: "stderr", output: text))
-        }
+        transport.onErrorOutput = { [weak self] data in self?.receiveErrorOutput(data) }
         transport.onTermination = { [weak self] code in self?.transportTerminated(exitCode: code) }
     }
 
     public func start(rootURL: URL) throws {
         guard state == .idle || state == .terminated || state == .failed else { return }
         isStopping = false
+        errorOutputDecoder.reset()
         operationHandlers = [:]
         discardPendingRunInTerminalRequests()
         capabilities = .unknown
@@ -93,6 +92,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
             try? apply(update)
         }
         transport.stop()
+        finishErrorOutput()
         releaseCoreSession()
         failPendingOperations(DebugAdapterProtocolError.stopped)
         state = .idle
@@ -606,6 +606,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
 
     private func transportTerminated(exitCode: Int) {
         guard !isStopping else { return }
+        finishErrorOutput()
         discardPendingRunInTerminalRequests()
         releaseCoreSession()
         failPendingOperations(DebugAdapterProtocolError.stopped)
@@ -615,6 +616,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
 
     private func failSession() {
         transport.stop()
+        finishErrorOutput()
         discardPendingRunInTerminalRequests()
         releaseCoreSession()
         failPendingOperations(DebugAdapterProtocolError.stopped)
@@ -625,6 +627,20 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         guard ownsCoreSession else { return }
         ownsCoreSession = false
         core.destroyDebugSession(sessionID: sessionID)
+    }
+
+    private func receiveErrorOutput(_ data: Data) {
+        let output = errorOutputDecoder.decode(data)
+        if !output.isEmpty {
+            onEvent?(.output(category: "stderr", output: output))
+        }
+    }
+
+    private func finishErrorOutput() {
+        let output = errorOutputDecoder.finish()
+        if !output.isEmpty {
+            onEvent?(.output(category: "stderr", output: output))
+        }
     }
 
     private func beginRunInTerminalRequest(

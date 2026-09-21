@@ -395,8 +395,6 @@ export function MonacoEditor({
   const languageId = documentTarget.languageId ?? getLanguageIdFromPath(filePath);
   const monacoLanguageId = toMonacoLanguageId(languageId);
   const [mavenTestsAvailable, setMavenTestsAvailable] = useState(false);
-  const javaTestMethods = useJavaTestMethods(filePath, content, mavenTestsAvailable);
-  javaTestMethodsRef.current = javaTestMethods;
   const {
     fontFamily,
     fontSize,
@@ -429,6 +427,17 @@ export function MonacoEditor({
   const inlineGitBlameEnabled = useSettingsStore((state) => state.settings.enableInlineGitBlame);
   const workspaceId = useActiveWorkspaceId();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
+  const javaTestScope = useMemo(
+    () => (rootFolderPath ? { workspaceId, root: rootFolderPath } : null),
+    [rootFolderPath, workspaceId],
+  );
+  const javaTestMethods = useJavaTestMethods(
+    javaTestScope,
+    filePath,
+    content,
+    mavenTestsAvailable,
+  );
+  javaTestMethodsRef.current = javaTestMethods;
   const workspaceFolders = useFileSystemStore((state) => state.workspaceFolders);
   const vimModeEnabled = useSettingsStore((state) => state.settings.vimMode);
   const vimRelativeLineNumbers = useSettingsStore((state) => state.settings.vimRelativeLineNumbers);

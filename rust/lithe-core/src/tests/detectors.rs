@@ -1,4 +1,4 @@
-use super::support::temporary_root;
+use super::support::{jdt_entrypoints, temporary_root};
 use crate::execute_json;
 use serde_json::Value;
 use std::fs;
@@ -469,7 +469,11 @@ fn detectors_extend_a_java_project_without_disturbing_its_configurations() {
             "command": "runConfig.generate",
             "payload": {
                 "root": root,
-                "paths": ["backend-api/src/main/java/com/demo/BackendApplication.java"]
+                "paths": ["backend-api/src/main/java/com/demo/BackendApplication.java"],
+                "javaEntrypoints": jdt_entrypoints(&[(
+                    "backend-api/src/main/java/com/demo/BackendApplication.java",
+                    "com.demo.BackendApplication"
+                )])
             }
         })
         .to_string(),
@@ -1467,7 +1471,11 @@ fn only_spring_boot_carries_a_main_class_into_its_goal() {
             "command": "runConfig.generate",
             "payload": {
                 "root": root,
-                "paths": ["api/src/main/java/com/demo/DemoApplication.java"]
+                "paths": ["api/src/main/java/com/demo/DemoApplication.java"],
+                "javaEntrypoints": jdt_entrypoints(&[(
+                    "api/src/main/java/com/demo/DemoApplication.java",
+                    "com.demo.DemoApplication"
+                )])
             }
         })
         .to_string(),
@@ -1590,11 +1598,11 @@ fn repeated_detection_names_are_qualified_by_directory() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// Regression for phantom Java entries: test fixtures embed Java samples in
-/// string literals, and matching `static void main(` as text turned those
-/// strings into run configurations for classes that cannot be launched.
+/// Run entries are exactly the classes JDT reports. Test fixtures embed Java
+/// samples in string literals and comments; JDT does not report those, and
+/// Core must not add entries of its own by reading source text.
 #[test]
-fn java_entries_ignore_main_methods_inside_strings_and_comments() {
+fn java_entries_are_exactly_the_classes_jdt_reports() {
     let root = temporary_root("detect-phantom-main");
     let sample = "src/test/java/com/demo/TemplateTest.java";
     let commented = "src/test/java/com/demo/CommentedTest.java";
@@ -1631,7 +1639,11 @@ fn java_entries_ignore_main_methods_inside_strings_and_comments() {
         &serde_json::json!({
             "id": "generate",
             "command": "runConfig.generate",
-            "payload": {"root": root, "paths": [sample, commented, real]}
+            "payload": {
+                "root": root,
+                "paths": [sample, commented, real],
+                "javaEntrypoints": jdt_entrypoints(&[(real, "com.demo.QueryTool")])
+            }
         })
         .to_string(),
     ))

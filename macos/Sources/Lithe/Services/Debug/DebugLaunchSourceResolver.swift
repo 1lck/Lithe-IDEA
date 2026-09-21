@@ -8,15 +8,18 @@ struct DebugLaunchSourceResolver {
     /// entry cannot represent a launchable Java application. IDEA keeps the
     /// editor shortcut useful in this situation instead of trying to compile
     /// an arbitrary controller, repository, or configuration class alone.
+    ///
+    /// `activeDocumentIsLaunchable` is JDT's answer for the editor file; the
+    /// source text is never scanned for a `main` signature here.
     func configurationForDebug(
         selected: RunConfiguration,
-        activeDocumentText: String?,
+        activeDocumentIsLaunchable: Bool,
         configurations: [RunConfiguration]
     ) -> RunConfiguration {
         guard selected.usesCurrentEditorFile else {
             return selected
         }
-        if activeDocumentText.map(containsJavaMainMethod) == true {
+        if activeDocumentIsLaunchable {
             return selected
         }
 
@@ -103,12 +106,5 @@ struct DebugLaunchSourceResolver {
         }
         guard !mainClass.isEmpty else { return nil }
         return "/" + mainClass.replacingOccurrences(of: ".", with: "/") + ".java"
-    }
-
-    private func containsJavaMainMethod(_ source: String) -> Bool {
-        source.range(
-            of: #"(?m)\bstatic\s+(?:public\s+|protected\s+|private\s+)?void\s+main\s*\("#,
-            options: .regularExpression
-        ) != nil
     }
 }

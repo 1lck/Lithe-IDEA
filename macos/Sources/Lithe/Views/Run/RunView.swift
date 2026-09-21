@@ -158,6 +158,24 @@ struct RunView: View {
                 "info.circle.fill"
             )
         }
+        switch feature.javaDiscoveryStatus {
+        case .loading:
+            return (
+                String(localized: "Waiting for the Java language service"),
+                String(localized: "Java entries appear after the Java language service lists runnable classes."),
+                "clock.fill"
+            )
+        case .stale:
+            return (
+                String(localized: "Refreshing Java entries"),
+                String(localized: "Showing the previous Java entries while the Java language service prepares the project."),
+                "clock.fill"
+            )
+        case .failed(let message):
+            return (String(localized: "Java entries could not be refreshed"), message, "exclamationmark.triangle.fill")
+        case .idle, .ready:
+            break
+        }
         switch feature.generationState {
         case .projectNotReady:
             return (

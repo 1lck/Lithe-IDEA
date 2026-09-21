@@ -158,6 +158,31 @@ struct TerminalModuleTests {
         #expect(output == ["early\n", "late\n"])
         feature.stopAllSessions()
     }
+
+    @Test
+    func processOutputPreservesUTF8ScalarsSplitAcrossTransportReads() throws {
+        let transport = TestTransport()
+        let feature = TerminalFeatureModel(terminalFactory: { transport })
+        var output: [String] = []
+        let created = try feature.createProcessSession(
+            TerminalProcessLaunch(
+                title: "Debug Main",
+                executablePath: "/usr/bin/java",
+                arguments: ["Main"],
+                workingDirectory: "/tmp"
+            ),
+            onOutput: { output.append($0) }
+        )
+
+        for byte in Data("日志🙂\n".utf8) {
+            transport.emitOutput(Data([byte]))
+        }
+
+        #expect(created.session.isRunning)
+        #expect(output.joined() == "日志🙂\n")
+        #expect(!output.joined().contains("�"))
+        feature.stopAllSessions()
+    }
 }
 
 @MainActor
@@ -198,6 +223,7 @@ private final class TestTransport: TerminalTransport {
         return 1234
     }
     func emitOutput(_ value: String) { onOutput?(Data(value.utf8)) }
+    func emitOutput(_ data: Data) { onOutput?(data) }
     func send(_ input: Data) throws {
         sentInputs.append(String(decoding: input, as: UTF8.self))
     }

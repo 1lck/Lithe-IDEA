@@ -1,6 +1,8 @@
 use super::support::temporary_root;
 use crate::execute_json;
-use crate::project::{jdt_configuration, MavenLaunchContextRequest};
+use crate::project::{
+    jdt_configuration, settings_with_local_repository, MavenLaunchContextRequest,
+};
 use serde_json::Value;
 use std::fs;
 
@@ -765,7 +767,7 @@ fn maven_scan_skips_a_malformed_root_descriptor_for_a_valid_nested_project() {
 }
 
 #[test]
-fn java_run_configurations_match_workspace_relative_nested_maven_modules() {
+fn jdt_entrypoints_map_to_workspace_relative_nested_maven_modules() {
     let root = temporary_root("java-nested-maven-module");
     let source = "projects/demo/service/src/main/java/com/example/App.java";
     fs::create_dir_all(root.join("projects/demo/service/src/main/java/com/example"))
@@ -778,23 +780,34 @@ fn java_run_configurations_match_workspace_relative_nested_maven_modules() {
 
     let request = serde_json::json!({
         "id": "java-nested-maven-module",
-        "command": "java.runConfigurations",
+        "command": "runConfig.generate",
         "payload": {
             "root": root,
             "paths": [source],
-            "modulePaths": ["projects/demo/service"]
+            "modulePaths": ["projects/demo/service"],
+            "javaEntrypoints": {
+                "schemaVersion": 1,
+                "entries": [{ "sourcePath": source, "mainClass": "com.example.App", "projectName": "service" }],
+                "diagnostics": []
+            }
         }
     });
     let response: Value = serde_json::from_str(&execute_json(
-        &serde_json::to_string(&request).expect("Java request should encode"),
+        &serde_json::to_string(&request).expect("generate request should encode"),
     ))
-    .expect("Java response should be JSON");
+    .expect("generate response should be JSON");
 
     assert_eq!(response["ok"], true, "{response}");
+    let configuration = response["data"]["generated"]["configurations"]
+        .as_array()
+        .and_then(|values| values.iter().find(|value| value["provider"] == "java.main"))
+        .expect("the JDT entry should become a Java configuration")
+        .clone();
     assert_eq!(
-        response["data"]["configurations"][0]["modulePath"],
+        configuration["extensions"]["maven"]["module"],
         "projects/demo/service"
     );
+    assert_eq!(response["data"]["javaEntrypointsOrigin"], "languageService");
     fs::remove_dir_all(root).expect("Java fixture should be removable");
 }
 
@@ -810,29 +823,45 @@ fn java_core_commands_return_shared_runtime_and_structure_data() {
     .expect("Java source should be writable");
     let configurations = serde_json::json!({
         "id": "java-config",
-        "command": "java.runConfigurations",
+        "command": "runConfig.generate",
         "payload": {
             "root": root,
             "paths": ["src/main/java/com/example/App.java"],
-            "modulePaths": ["src"]
+            "modulePaths": ["src"],
+            "javaEntrypoints": {
+                "schemaVersion": 1,
+                "entries": [{
+                    "sourcePath": "src/main/java/com/example/App.java",
+                    "mainClass": "com.example.App"
+                }],
+                "diagnostics": []
+            }
         }
     });
     let response: Value = serde_json::from_str(&execute_json(
         &serde_json::to_string(&configurations).expect("Java request should encode"),
     ))
     .expect("Java response should be JSON");
-    assert_eq!(response["ok"], true);
+    assert_eq!(response["ok"], true, "{response}");
+    let generated = response["data"]["generated"]["configurations"]
+        .as_array()
+        .expect("generated configurations")
+        .iter()
+        .find(|value| value["provider"] == "java.main")
+        .expect("the JDT entry should become a configuration")
+        .clone();
+    // `@SpringBootApplication` labels the JDT-confirmed entry as a service.
+    assert_eq!(generated["id"], "java-main:com.example.App");
     assert_eq!(
-        response["data"]["mainClasses"][0]["qualifiedName"],
+        generated["extensions"]["maven"]["mainClass"],
         "com.example.App"
     );
-    assert_eq!(response["data"]["configurations"][0]["kind"], "springBoot");
-    assert_eq!(response["data"]["configurations"][0]["modulePath"], "src");
+    assert_eq!(generated["extensions"]["maven"]["module"], "src");
     assert_eq!(
-        response["data"]["configurations"][0]["sourcePath"],
+        generated["extensions"]["java"]["source"],
         "src/main/java/com/example/App.java"
     );
-    assert_eq!(response["data"]["configurations"][0]["sourceSet"], "main");
+    assert_eq!(generated["extensions"]["java"]["sourceSet"], "main");
 
     let structure = serde_json::json!({
         "id": "java-structure",
@@ -850,9 +879,7 @@ fn java_core_commands_return_shared_runtime_and_structure_data() {
         structure_response["data"]["foldRegions"][0]["kind"],
         "imports"
     );
-    assert!(structure_response["data"]["testMethods"]
-        .as_array()
-        .is_some_and(Vec::is_empty));
+    assert!(structure_response["data"].get("testMethods").is_none());
     assert!(structure_response["data"]
         .get("implementationMarkers")
         .is_none());
@@ -952,64 +979,195 @@ fn java_core_commands_return_shared_runtime_and_structure_data() {
     fs::remove_dir_all(root).expect("Java fixture should be removable");
 }
 
-#[test]
-fn java_test_methods_handle_inline_annotations_and_ignore_non_code_text() {
-    // Build the Java block comment at runtime so repository lint does not parse fixture text as Rust.
-    let java_block_comment = ["/", "* @Test void commentMethod() {} *", "/"].concat();
-    let source = r#"class CalculatorTest {
-    String example = "@Test void stringMethod() {}";
-    String textBlock = """
-        @Test void textBlockMethod() {}
-        """;
-    <java-block-comment>
-    @example.Test void customAnnotation() {}
-    @org.junit.Test public void inlineJUnit4() { helper(); }
+/// Builds a minimal reactor so Maven context validation succeeds, leaving each
+/// test free to vary only the configured Maven location.
+fn maven_reactor_root(label: &str) -> std::path::PathBuf {
+    let root = temporary_root(label);
+    fs::create_dir_all(&root).expect("reactor root should be creatable");
+    fs::write(
+        root.join("pom.xml"),
+        r#"<project><artifactId>demo</artifactId></project>"#,
+    )
+    .expect("reactor pom should be writable");
+    root
+}
 
-    @org.junit.jupiter.params.ParameterizedTest(name = "case {0}")
-    @ValueSource(ints = {1, 2})
-    void parameterized(int value) {
-        String braces = "}";
-        helper();
+fn maven_jdt_context(maven_executable_path: Option<String>) -> MavenLaunchContextRequest {
+    MavenLaunchContextRequest {
+        version: 1,
+        reactor_path: ".".to_string(),
+        profiles: Vec::new(),
+        settings_path: None,
+        local_repository_path: None,
+        skip_tests: false,
+        maven_executable_path,
+        java_home_path: None,
     }
+}
 
-    @Test
-    int field = 1;
-    void helper() {}
-}"#
-    .replace("<java-block-comment>", &java_block_comment);
-    let response: Value = serde_json::from_str(&execute_json(
-        &serde_json::json!({
-            "id": "java-test-methods",
-            "command": "java.testMethods",
-            "payload": {"source": source}
-        })
-        .to_string(),
-    ))
-    .expect("Java test methods response should be JSON");
+#[test]
+fn maven_installation_settings_reach_jdt_for_a_home_or_a_launcher() {
+    // JDT LS otherwise resolves artifacts through its embedded defaults, which
+    // ignores the local repository and mirrors the command line already uses.
+    let root = maven_reactor_root("maven-jdt-global-settings");
+    let maven_home = root.join("apache-maven");
+    fs::create_dir_all(maven_home.join("bin")).expect("Maven bin should be creatable");
+    fs::create_dir_all(maven_home.join("conf")).expect("Maven conf should be creatable");
+    let settings = maven_home.join("conf").join("settings.xml");
+    fs::write(&settings, "<settings/>").expect("global settings should be writable");
+    let launcher = maven_home.join("bin").join("mvn.cmd");
+    fs::write(&launcher, "").expect("Maven launcher should be writable");
+    let expected = settings.to_string_lossy().into_owned();
 
-    assert_eq!(response["ok"], true, "{response}");
+    for configured in [
+        maven_home.to_string_lossy().into_owned(),
+        launcher.to_string_lossy().into_owned(),
+    ] {
+        let configuration = jdt_configuration(
+            root.to_str().expect("temporary root should be UTF-8"),
+            maven_jdt_context(Some(configured.clone())),
+        )
+        .expect("JDT Maven configuration should parse");
+        assert_eq!(
+            configuration.global_settings_path.as_deref(),
+            Some(expected.as_str()),
+            "the installation settings should resolve from {configured}"
+        );
+    }
+    fs::remove_dir_all(root).expect("Maven fixture should be removable");
+}
+
+#[test]
+fn maven_installation_settings_are_absent_for_wrappers_and_bare_installations() {
+    let root = maven_reactor_root("maven-jdt-global-settings-absent");
+    // A wrapper lives outside an installation, so Maven itself would fall back
+    // to the embedded defaults. JDT LS must make the same choice.
+    let wrapper = root.join("mvnw.cmd");
+    fs::write(&wrapper, "").expect("wrapper should be writable");
+    // An installation that ships no global settings must not point JDT LS at a
+    // file that does not exist.
+    let bare_home = root.join("bare-maven");
+    fs::create_dir_all(bare_home.join("bin")).expect("Maven bin should be creatable");
+    let bare_launcher = bare_home.join("bin").join("mvn");
+    fs::write(&bare_launcher, "").expect("Maven launcher should be writable");
+
+    for configured in [
+        wrapper.to_string_lossy().into_owned(),
+        bare_home.to_string_lossy().into_owned(),
+        bare_launcher.to_string_lossy().into_owned(),
+    ] {
+        let configuration = jdt_configuration(
+            root.to_str().expect("temporary root should be UTF-8"),
+            maven_jdt_context(Some(configured.clone())),
+        )
+        .expect("JDT Maven configuration should parse");
+        assert_eq!(
+            configuration.global_settings_path, None,
+            "no installation settings should resolve from {configured}"
+        );
+    }
+    fs::remove_dir_all(root).expect("Maven fixture should be removable");
+}
+
+/// Mirrors the shape of a real installation settings file: a documented
+/// `<localRepository>` plus the mirror a workspace actually resolves through.
+const SETTINGS_WITH_MIRROR: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0">
+  <!-- keep this comment -->
+  <localRepository>C:\Users\example\.m2\repository</localRepository>
+  <mirrors>
+    <mirror>
+      <id>aliyunmaven</id>
+      <mirrorOf>*</mirrorOf>
+      <url>https://maven.aliyun.com/repository/public</url>
+    </mirror>
+  </mirrors>
+</settings>
+"#;
+
+#[test]
+fn generated_maven_settings_replace_the_repository_and_keep_every_mirror() {
+    // Losing the mirror would send project import to the default remote
+    // repositories while Maven builds keep using the configured one.
+    let generated = settings_with_local_repository(SETTINGS_WITH_MIRROR, r"F:\repository")
+        .expect("settings should be rewritten");
+
+    assert!(generated.contains(r"<localRepository>F:\repository</localRepository>"));
+    assert!(!generated.contains(r"C:\Users\example\.m2\repository"));
+    assert!(generated.contains("<id>aliyunmaven</id>"));
+    assert!(generated.contains("https://maven.aliyun.com/repository/public"));
+    assert!(generated.contains("<!-- keep this comment -->"));
+}
+
+#[test]
+fn generated_maven_settings_insert_a_missing_repository_without_losing_mirrors() {
+    let source = r#"<settings>
+  <mirrors>
+    <mirror><id>aliyunmaven</id><mirrorOf>*</mirrorOf></mirror>
+  </mirrors>
+</settings>"#;
+
+    let generated = settings_with_local_repository(source, "/opt/repository")
+        .expect("settings should be rewritten");
+
+    assert!(generated.contains("<localRepository>/opt/repository</localRepository>"));
+    assert!(generated.contains("<id>aliyunmaven</id>"));
+}
+
+#[test]
+fn generated_maven_settings_expand_an_empty_repository_element() {
+    let generated = settings_with_local_repository(
+        "<settings><localRepository/></settings>",
+        "/opt/repository",
+    )
+    .expect("settings should be rewritten");
+
     assert_eq!(
-        response["data"]["methods"],
-        serde_json::json!([
-            {"name": "inlineJUnit4", "line": 7, "endLine": 7},
-            {"name": "parameterized", "line": 11, "endLine": 14}
-        ])
+        generated,
+        "<settings><localRepository>/opt/repository</localRepository></settings>"
     );
-    let structure: Value = serde_json::from_str(&execute_json(
-        &serde_json::json!({
-            "id": "java-structure-test-methods",
-            "command": "java.structure",
-            "payload": {"source": source}
-        })
-        .to_string(),
-    ))
-    .expect("Java structure response should be JSON");
-    assert_eq!(structure["ok"], true, "{structure}");
+}
+
+#[test]
+fn generated_maven_settings_escape_the_repository_path() {
+    // An unescaped `&` would produce a document Maven cannot parse.
+    let generated = settings_with_local_repository("<settings/>", "/opt/a&b")
+        .expect("settings should be rewritten");
+
+    assert!(generated.contains("<localRepository>/opt/a&amp;b</localRepository>"));
+}
+
+#[test]
+fn generated_maven_settings_leave_profile_scoped_repositories_alone() {
+    // Only the top-level element selects the repository Maven resolves through.
+    let source = r#"<settings>
+  <localRepository>/old</localRepository>
+  <profiles>
+    <profile><properties><localRepository>/profile-scoped</localRepository></properties></profile>
+  </profiles>
+</settings>"#;
+
+    let generated =
+        settings_with_local_repository(source, "/new").expect("settings should be rewritten");
+
+    assert!(generated.contains("<localRepository>/new</localRepository>"));
+    assert!(generated.contains("<localRepository>/profile-scoped</localRepository>"));
+    assert!(!generated.contains("/old"));
+}
+
+#[test]
+fn generated_maven_settings_discard_child_elements_of_the_replaced_repository() {
+    // `<localRepository>` is a text-only element, so a nested child is already
+    // invalid. The rewrite must still produce well-formed output rather than
+    // emitting a start tag whose end tag was dropped with the old content.
+    let generated = settings_with_local_repository(
+        "<settings><localRepository><a>x</a>/old</localRepository></settings>",
+        "/new",
+    )
+    .expect("settings should be rewritten");
+
     assert_eq!(
-        structure["data"]["testMethods"],
-        serde_json::json!([
-            {"name": "inlineJUnit4", "line": 8, "endLine": 8},
-            {"name": "parameterized", "line": 12, "endLine": 15}
-        ])
+        generated,
+        "<settings><localRepository>/new</localRepository></settings>"
     );
 }

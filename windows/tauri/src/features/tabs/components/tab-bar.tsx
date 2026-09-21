@@ -40,6 +40,7 @@ import { ContextMenu, ContextMenuTrigger } from "@/ui/context-menu";
 import { SortableTab, TabBarSurface, TabDndContext, useTabDragClickGuard } from "@/ui/tab-bar";
 import { cn } from "@/utils/cn";
 import { getRelativePath } from "@/utils/path-helpers";
+import { useTabWheelScroll } from "../hooks/use-tab-wheel-scroll";
 import { calculateDisplayNames } from "../utils/path-shortener";
 import {
   clearInternalTabDragData,
@@ -139,6 +140,7 @@ const TabBar = ({
   const [srAnnouncement, setSrAnnouncement] = useState<string>("");
 
   const tabBarRef = useRef<HTMLDivElement>(null);
+  const tabScrollRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef<(HTMLDivElement | null)[]>([]);
   const dragPointRef = useRef<{ x: number; y: number } | null>(null);
   const pointerPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -235,45 +237,7 @@ const TabBar = ({
     setPaneLocked(paneId, !isPaneLocked);
   }, [isPaneLocked, paneId, setPaneLocked]);
 
-  const canScrollTabsHorizontally = useCallback(() => {
-    const container = tabBarRef.current;
-    if (!container) return false;
-
-    return container.scrollWidth > container.clientWidth + 1;
-  }, []);
-
-  // Optional wheel-to-horizontal scrolling for overflowing tab strips.
-  const handleWheel = useCallback(
-    (e: React.WheelEvent<HTMLDivElement>) => {
-      const container = tabBarRef.current;
-      if (!container) return;
-      if (!horizontalTabScroll) return;
-      if (draggedBufferId) return;
-      if (e.ctrlKey || e.metaKey) return;
-      if (!canScrollTabsHorizontally()) return;
-
-      const hasHorizontalIntent = Math.abs(e.deltaX) > 0;
-      const hasShiftedVerticalIntent = e.shiftKey && Math.abs(e.deltaY) > 0;
-      const hasVerticalFallback = Math.abs(e.deltaX) === 0 && Math.abs(e.deltaY) > 0;
-
-      if (!hasHorizontalIntent && !hasShiftedVerticalIntent && !hasVerticalFallback) {
-        return;
-      }
-
-      const delta = hasHorizontalIntent ? e.deltaX : e.deltaY;
-      if (delta === 0) return;
-
-      const maxScrollLeft = container.scrollWidth - container.clientWidth;
-      if (maxScrollLeft <= 0) return;
-
-      const nextScrollLeft = Math.max(0, Math.min(container.scrollLeft + delta, maxScrollLeft));
-      if (nextScrollLeft === container.scrollLeft) return;
-
-      e.preventDefault();
-      container.scrollLeft = nextScrollLeft;
-    },
-    [canScrollTabsHorizontally, draggedBufferId, horizontalTabScroll],
-  );
+  useTabWheelScroll(tabScrollRef, horizontalTabScroll && !draggedBufferId);
 
   const sortedBuffers = useMemo(() => {
     const pinnedBuffers: PaneContent[] = [];
@@ -353,9 +317,9 @@ const TabBar = ({
   // Auto-scroll active tab into view
   useEffect(() => {
     const activeIndex = activeBufferId ? (sortedBufferIndexById.get(activeBufferId) ?? -1) : -1;
-    if (activeIndex !== -1 && tabRefs.current[activeIndex] && tabBarRef.current) {
+    if (activeIndex !== -1 && tabRefs.current[activeIndex] && tabScrollRef.current) {
       const activeTab = tabRefs.current[activeIndex];
-      const container = tabBarRef.current;
+      const container = tabScrollRef.current;
 
       if (activeTab) {
         const tabRect = activeTab.getBoundingClientRect();
@@ -665,7 +629,6 @@ const TabBar = ({
           className="group/tabbar scrollbar-hidden bg-background overscroll-x-contain"
           role="tablist"
           aria-label={t("tabs.openFiles")}
-          onWheel={handleWheel}
         >
           <div className="flex h-8 shrink-0 items-center gap-0.5">
             <Button
@@ -697,7 +660,7 @@ const TabBar = ({
           </div>
 
           <SortableContext items={sortedBufferIds} strategy={horizontalListSortingStrategy}>
-            <div className="scrollbar-hidden flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto overflow-y-hidden overscroll-x-contain">
+            <div ref={tabScrollRef} className="scrollbar-hidden flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto overflow-y-hidden overscroll-x-contain">
               {sortedBuffers.map((buffer, index) => (
                 <SortableTab
                   key={buffer.id}

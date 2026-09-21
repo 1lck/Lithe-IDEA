@@ -58,12 +58,12 @@ category 分组展示。
 `compose up (script/docker)`、`mysql (sql/tools)` 这样的名字。只出现一次的
 名字不加任何后缀，id 也不受影响。
 
-### 3. Java 入口只从语法树认
+### 3. Java 入口只采用 JDT 的语义结果
 
-`main` 方法和 `@SpringBootApplication` 改用仓库已经打包的 tree-sitter Java
-解析器识别（`java_syntax::entry_evidence`），和 JUnit 测试方法发现走同一套
-解析结果。签名要求是 `static`、返回 `void`、方法名 `main`、且只有一个数组或
-可变参数。字符串字面量和注释里的示例代码不再产生配置。
+后续架构决策已经替代这里最初采用 tree-sitter 识别 `main` 的实现：可运行类和
+测试现在由 JDT / Java Test 判定，Core 只为 JDT 已确认的入口补充
+`@SpringBootApplication` 产品分类，不再维护方法签名或测试注解规则。详见
+`../architecture/2026-09-21-java-entrypoints-owned-by-jdt.md`。
 
 `src/test` 下真实存在的 main 方法**仍然是合法入口**，继续用测试 classpath
 启动。这一点由共享 fixture
