@@ -388,6 +388,19 @@ its Maven-goal compatibility path. Run and Debug share the Java preparation path
 so module selection, generated sources, test-source mains, and dependency paths
 do not drift.
 
+An unsuccessful Java launch build is evidence, not an unconditional host veto.
+For `javaBuildCompilationErrors` and `javaBuildFailed`, the language boundary
+still resolves the target's runtime paths and returns them with Core's build
+report. Run and Debug pause the original attempt and offer Run Anyway, Always
+Continue for this workspace, and Cancel; a reported index rebuild recovery also
+offers Java: Rebuild Index. Continuing resumes the same attempt and never
+issues a second build. Cancellation, timeout, transport failure, and an unknown
+build status do not carry a code verdict and remain non-overridable. Build
+elapsed time is displayed as evidence only, never used as a trust threshold.
+Windows opens the Run tool window when a decision is required, including when
+Debug was initiated from the Maven tool window, so no launch waits on an
+unmounted prompt.
+
 Java test actions use the same Maven process lifecycle for a complete JUnit 4
 or JUnit 5 test class and for an individual method. The selector is validated
 before launch and is passed through `maven.launchPlan`; no platform assembles a
@@ -435,3 +448,7 @@ paths honor `blocksRun`; other language and Maven-goal launchers keep their own
 prerequisites. Partial profile failures remain visible without blocking unrelated
 modules: the target build still validates its own readiness. Consumers reject old
 session updates and clear state on explicit stop/workspace replacement.
+Core's bounded preparation wait is the single launch gate; platform services and
+Run controls do not race it with a second snapshot check. Preparation remains
+visible while a click queues behind Core, and a stale visible `ready` state
+cannot disagree with a separate host-owned preparation veto.

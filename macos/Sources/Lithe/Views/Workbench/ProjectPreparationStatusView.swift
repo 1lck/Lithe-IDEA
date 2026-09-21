@@ -60,6 +60,17 @@ private struct ProjectPreparationContent: View {
                         showingDetails = false
                         model.showSettings(category: .diagnostics)
                     }
+                    if model.alwaysContinuesAfterJavaBuildFailures {
+                        Divider()
+                        Text(chinese
+                            ? "此工作区的 Java 构建失败将始终继续启动。"
+                            : "Java launches always continue after build failures in this workspace.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                        Button(chinese ? "再次询问" : "Ask Again") {
+                            model.askAgainForJavaBuildFailures()
+                        }
+                    }
                 }
                 .padding(16)
                 .frame(width: 330)

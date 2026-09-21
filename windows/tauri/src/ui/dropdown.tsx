@@ -313,6 +313,12 @@ function getViewportBounds() {
   };
 }
 
+function getMenuLayoutSize(menu: HTMLElement) {
+  // Entrance transforms change getBoundingClientRect(), but must not change
+  // collision detection or the locked width when a menu item receives focus.
+  return { width: menu.offsetWidth, height: menu.offsetHeight };
+}
+
 export function Dropdown(props: DropdownProps) {
   const { t } = useTranslation();
   const {
@@ -406,7 +412,7 @@ export function Dropdown(props: DropdownProps) {
       if (hasExplicitWidth || matchAnchorWidth) return;
 
       if (lockedWidthRef.current == null) {
-        lockedWidthRef.current = menu.getBoundingClientRect().width;
+        lockedWidthRef.current = getMenuLayoutSize(menu).width;
       }
 
       if (lockedWidthRef.current != null) {
@@ -435,25 +441,25 @@ export function Dropdown(props: DropdownProps) {
       applyAnchorWidth(anchorRect);
       applyLockedWidth();
 
-      const menuRect = menu.getBoundingClientRect();
+      const menuSize = getMenuLayoutSize(menu);
 
       if (anchorAlign === "end") {
-        x = anchorRect.right - menuRect.width;
+        x = anchorRect.right - menuSize.width;
       } else {
         x = anchorRect.left;
       }
 
       if (finalSide === "bottom") {
-        if (menuRect.height <= spaceBelow || spaceBelow >= spaceAbove) {
+        if (menuSize.height <= spaceBelow || spaceBelow >= spaceAbove) {
           y = anchorRect.bottom + 6;
           finalSide = "bottom";
         } else {
-          y = anchorRect.top - menuRect.height - 6;
+          y = anchorRect.top - menuSize.height - 6;
           finalSide = "top";
         }
       } else {
-        if (menuRect.height <= spaceAbove || spaceAbove >= spaceBelow) {
-          y = anchorRect.top - menuRect.height - 6;
+        if (menuSize.height <= spaceAbove || spaceAbove >= spaceBelow) {
+          y = anchorRect.top - menuSize.height - 6;
           finalSide = "top";
         } else {
           y = anchorRect.bottom + 6;
@@ -465,26 +471,26 @@ export function Dropdown(props: DropdownProps) {
       applyMaxHeight(maxH);
       applyLockedWidth();
 
-      const menuRect = menu.getBoundingClientRect();
+      const menuSize = getMenuLayoutSize(menu);
       x = point.x;
       y = point.y;
 
-      if (x + menuRect.width > vp.left + vp.width - VIEWPORT_PADDING) {
-        x = point.x - menuRect.width;
+      if (x + menuSize.width > vp.left + vp.width - VIEWPORT_PADDING) {
+        x = point.x - menuSize.width;
       }
-      if (y + menuRect.height > vp.top + vp.height - VIEWPORT_PADDING) {
-        y = point.y - menuRect.height;
+      if (y + menuSize.height > vp.top + vp.height - VIEWPORT_PADDING) {
+        y = point.y - menuSize.height;
       }
     } else {
       return;
     }
 
-    const menuRect = menu.getBoundingClientRect();
+    const menuSize = getMenuLayoutSize(menu);
 
     const minX = vp.left + VIEWPORT_PADDING;
-    const maxX = vp.left + vp.width - menuRect.width - VIEWPORT_PADDING;
+    const maxX = vp.left + vp.width - menuSize.width - VIEWPORT_PADDING;
     const minY = vp.top + VIEWPORT_PADDING;
-    const maxY = vp.top + vp.height - menuRect.height - VIEWPORT_PADDING;
+    const maxY = vp.top + vp.height - menuSize.height - VIEWPORT_PADDING;
 
     x = Math.max(minX, Math.min(x, maxX));
     y = Math.max(minY, Math.min(y, maxY));

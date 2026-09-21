@@ -23,6 +23,67 @@ struct MonacoPreviewConfiguration: Equatable {
     let regex: Bool
 }
 
+struct MonacoWorkbenchThemeConfiguration: Equatable {
+    let id: String
+    let dark: Bool
+    let colors: [String: String]
+
+    init(colorTheme: AppColorTheme, isDark: Bool, revealsWorkbenchBackground: Bool) {
+        let palette = CodeEditorPalette(isDark: isDark, theme: colorTheme)
+        id = "macos-\(colorTheme.rawValue)-\(isDark ? "dark" : "light")-\(revealsWorkbenchBackground ? "wallpaper" : "solid")"
+        dark = isDark
+        colors = [
+            "background": revealsWorkbenchBackground ? "#00000000" : Self.cssColor(palette.background),
+            "foreground": Self.cssColor(palette.text),
+            "cursor": Self.cssColor(palette.caret),
+            "selection": Self.cssColor(palette.selection),
+            "lineHighlight": Self.cssColor(palette.currentLine),
+            "lineNumber": Self.cssColor(palette.lineNumber),
+            "activeLineNumber": Self.cssColor(palette.text),
+            "guide": Self.cssColor(palette.guide),
+            "activeGuide": Self.cssColor(palette.activeGuide),
+            "link": Self.cssColor(palette.link)
+        ]
+    }
+
+    var bridgePayload: [String: Any] {
+        ["id": id, "dark": dark, "colors": colors]
+    }
+
+    private static func cssColor(_ color: NSColor) -> String {
+        let resolved = color.usingColorSpace(.sRGB) ?? color
+        func byte(_ component: CGFloat) -> Int {
+            Int((min(max(component, 0), 1) * 255).rounded())
+        }
+        return String(
+            format: "#%02X%02X%02X%02X",
+            byte(resolved.redComponent),
+            byte(resolved.greenComponent),
+            byte(resolved.blueComponent),
+            byte(resolved.alphaComponent)
+        )
+    }
+}
+
+private struct MonacoWorkbenchDisplayConfiguration: Equatable {
+    let fontSize: Double
+    let fontFamily: String
+    let wrap: Bool
+    let minimap: Bool
+    let theme: MonacoWorkbenchThemeConfiguration
+
+    var bridgePayload: [String: Any] {
+        [
+            "fontSize": fontSize,
+            "fontFamily": fontFamily,
+            "wrap": wrap,
+            "minimap": minimap,
+            "dark": theme.dark,
+            "theme": theme.bridgePayload
+        ]
+    }
+}
+
 struct MonacoWorkbenchEditor: View {
     @EnvironmentObject private var model: AppModel
     let document: EditorDocument
@@ -37,6 +98,7 @@ struct MonacoWorkbenchEditor: View {
 
 private struct MonacoWorkbenchContent: View {
     @ObservedObject private var model: AppModel
+    @ObservedObject private var background: WorkbenchBackgroundFeatureModel
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var diagnostics: EditorDiagnosticsStore
     @Environment(\.colorScheme) private var colorScheme
@@ -52,6 +114,7 @@ private struct MonacoWorkbenchContent: View {
         self.preview = preview
         self.markdownScrollPosition = markdownScrollPosition
         self.model = model
+        _background = ObservedObject(wrappedValue: model.workbenchBackgroundFeature)
         _session = StateObject(wrappedValue: MonacoWorkbenchSession.forModel(model.id))
     }
 
@@ -59,7 +122,13 @@ private struct MonacoWorkbenchContent: View {
         Group {
             if MonacoWorkbenchResources.directory != nil {
                 MonacoWorkbenchSurface(session: session, document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model,
-                    fontSize: settings.editorFontSize, dark: colorScheme == .dark, wrap: settings.editorSoftWrapEnabled,
+                    fontSize: settings.editorFontSize,
+                    theme: MonacoWorkbenchThemeConfiguration(
+                        colorTheme: settings.colorTheme,
+                        isDark: colorScheme == .dark,
+                        revealsWorkbenchBackground: background.hasImage
+                    ),
+                    wrap: settings.editorSoftWrapEnabled,
                     minimap: settings.editorMinimapEnabled,
                     markers: diagnostics.diagnostics(for: document.url),
                     secondaryMarkers: secondaryDocument.map { diagnostics.diagnostics(for: $0.url) } ?? [])
@@ -81,7 +150,7 @@ private struct MonacoWorkbenchSurface: NSViewRepresentable {
     let markdownScrollPosition: Binding<MarkdownScrollPosition>?
     let model: AppModel
     let fontSize: Double
-    let dark: Bool
+    let theme: MonacoWorkbenchThemeConfiguration
     let wrap: Bool
     let minimap: Bool
     let markers: [EditorDiagnostic]
@@ -98,7 +167,7 @@ private struct MonacoWorkbenchSurface: NSViewRepresentable {
         coordinator.session.detachView(ownerID: coordinator.ownerID)
     }
     func updateNSView(_ view: NSView, context: Context) {
-        session.update(ownerID: context.coordinator.ownerID, document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model, fontSize: fontSize, dark: dark, wrap: wrap, minimap: minimap, markers: markers, secondaryMarkers: secondaryMarkers)
+        session.update(ownerID: context.coordinator.ownerID, document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model, fontSize: fontSize, theme: theme, wrap: wrap, minimap: minimap, markers: markers, secondaryMarkers: secondaryMarkers)
     }
 }
 
@@ -181,7 +250,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
     private var failed = false
     private var navigationID: UUID?
     private var lastSemanticState = ""
-    private var lastConfiguration = ""
+    private var lastConfiguration: MonacoWorkbenchDisplayConfiguration?
     private var lastLiveIDs: Set<String> = []
     private var debugSubscription: AnyCancellable?
     private var codeVisionSubscription: AnyCancellable?
@@ -210,6 +279,9 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         }
         configuration.userContentController.addScriptMessageHandler(MonacoWorkbenchMessages(self), contentWorld: .page, name: "litheEditor")
         let view = WKWebView(frame: .zero, configuration: configuration)
+        // The native workbench owns the wallpaper. WebKit and Monaco must both
+        // allow that surface through when a background image is configured.
+        view.setValue(false, forKey: "drawsBackground")
         view.navigationDelegate = self
         webView = view
         loadingInterval = LitheSignpost.begin("monaco.webview.load")
@@ -259,17 +331,17 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         selectMount()
     }
 
-    func update(ownerID: UUID, document: EditorDocument, secondaryDocument: EditorDocument?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, model: AppModel, fontSize: Double, dark: Bool, wrap: Bool, minimap: Bool, markers: [EditorDiagnostic], secondaryMarkers: [EditorDiagnostic]) {
+    func update(ownerID: UUID, document: EditorDocument, secondaryDocument: EditorDocument?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, model: AppModel, fontSize: Double, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, markers: [EditorDiagnostic], secondaryMarkers: [EditorDiagnostic]) {
         guard mounts[ownerID] != nil else { return }
         self.model = model
         observeFind(model: model)
         mounts[ownerID]?.update = { [weak self, weak document, weak secondaryDocument, weak model] in
             guard let self, let document, let model else { return }
-            self.present(document: document, model: model, fontSize: fontSize, dark: dark, wrap: wrap, minimap: minimap, markers: markers)
+            self.present(document: document, model: model, fontSize: fontSize, theme: theme, wrap: wrap, minimap: minimap, markers: markers)
             self.presentMarkdownScroll(document: document, binding: markdownScrollPosition)
             if let secondaryDocument {
                 self.hasSecondaryView = true
-                self.present(document: secondaryDocument, model: model, fontSize: fontSize, dark: dark, wrap: wrap, minimap: minimap, markers: secondaryMarkers, surface: "secondary")
+                self.present(document: secondaryDocument, model: model, fontSize: fontSize, theme: theme, wrap: wrap, minimap: minimap, markers: secondaryMarkers, surface: "secondary")
             } else if self.hasSecondaryView {
                 self.hasSecondaryView = false
                 self.activeIDs.removeValue(forKey: "secondary")
@@ -568,7 +640,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         }
     }
 
-    private func present(document: EditorDocument, model: AppModel, fontSize: Double, dark: Bool, wrap: Bool, minimap: Bool, markers: [EditorDiagnostic], surface: String = "primary") {
+    private func present(document: EditorDocument, model: AppModel, fontSize: Double, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, markers: [EditorDiagnostic], surface: String = "primary") {
         guard viewOwnerID != nil else { return }
         let id = document.id.uuidString
         let liveIDs = Set(model.documentFeature.editorDocuments.map { $0.id.uuidString })
@@ -633,10 +705,16 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             lastSemanticState = semanticState
             call("window.lithe.semanticRefresh()")
         }
-        let configurationKey = "\(fontSize):\(dark):\(wrap):\(minimap)"
-        if lastConfiguration != configurationKey {
-            lastConfiguration = configurationKey
-            call("window.lithe.configure(payload)", arguments: ["payload": ["fontSize": fontSize, "fontFamily": LitheTheme.editorFont(size: fontSize).familyName ?? "monospace", "dark": dark, "wrap": wrap, "minimap": minimap]])
+        let configuration = MonacoWorkbenchDisplayConfiguration(
+            fontSize: fontSize,
+            fontFamily: LitheTheme.editorFont(size: fontSize).familyName ?? "monospace",
+            wrap: wrap,
+            minimap: minimap,
+            theme: theme
+        )
+        if lastConfiguration != configuration {
+            lastConfiguration = configuration
+            call("window.lithe.configure(payload)", arguments: ["payload": configuration.bridgePayload])
         }
         if lastMarkers[id] != markers {
             lastMarkers[id] = markers

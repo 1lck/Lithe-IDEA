@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "continuableFailures": [
+    {
+      "code": "javaBuildCompilationErrors",
+      "message": "The Java project build reported compilation errors.",
+      "javaBuildReport": {
+        "markerScope": "launchTarget",
+        "builderFailedEarlier": false,
+        "elapsedMilliseconds": 506,
+        "recovery": "none"
+      }
+    },
+    {
+      "code": "javaBuildFailed",
+      "message": "The Java language service could not complete the project build. Check the Java language server log for the build error.",
+      "javaBuildReport": {
+        "markerScope": "workspace",
+        "builderFailedEarlier": true,
+        "elapsedMilliseconds": 5012,
+        "recovery": "rebuildJavaIndex"
+      }
+    }
+  ],
+  "nonContinuableCodes": [
+    "invalidServerResult",
+    "javaBuildCancelled",
+    "requestCancelled",
+    "requestTimeout"
+  ]
+}

@@ -410,12 +410,18 @@ extension AppModel {
                 resolveJavaTarget: { [weak self] in
                     guard let self else { return nil }
                     let sessions = try await self.languageSessionsForWorkspaceMaintenance()
-                    return try await sessions.resolveJavaDebugLaunchTarget(
+                    let preparation = try await sessions.prepareJavaRunLaunchTarget(
                         fileURL: fileURL,
                         rootURL: workspaceURL
                     )
+                    return try await self.resolveJavaLaunchPreparation(
+                        preparation,
+                        identity: identity
+                    )
                 }
             )
+        } catch is CancellationError {
+            return
         } catch {
             guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
             showNotification(error.localizedDescription)

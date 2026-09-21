@@ -8,6 +8,7 @@ import {
 } from "@/features/run/stores/project-preparation.store";
 import { emit } from "@tauri-apps/api/event";
 import { executeCore, type CoreResponse } from "@/core/lithe-core-client";
+import { readJavaBuildFailure, type JavaBuildReport } from "@/platform/java-launch-readiness";
 import { frontendTrace } from "@/utils/frontend-trace";
 import {
   createSessionLifecycle,
@@ -96,6 +97,7 @@ interface RuntimeError {
   message?: string;
   underlyingMessage?: string;
   processExitCode?: number;
+  javaBuildReport?: JavaBuildReport;
 }
 
 interface RuntimeEvent {
@@ -481,8 +483,12 @@ async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Prom
   if (event.error) {
     const error = new Error(event.error.message ?? "LSP request failed") as Error & {
       code?: string;
+      javaBuildReport?: JavaBuildReport;
     };
     error.code = event.error.code;
+    // Evidence behind a blocked Java launch travels with the failure so the
+    // Run panel can explain it and offer the matching recovery.
+    error.javaBuildReport = event.error.javaBuildReport;
     pending.reject(error);
   } else {
     pending.resolve(event.result);
@@ -1460,9 +1466,6 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     const sourcePath = String(args.sourcePath ?? "");
     const configuredMainClass = String(args.mainClass ?? "");
     const session = sessionForWorkspace(workspacePath, "java");
-    if (getProjectPreparation(workspacePath)?.blocksRun) {
-      throw new Error("Java project preparation is incomplete. See project preparation status in the Run panel.");
-    }
     const execute = async (
       title: string,
       javaCommand: string,
@@ -1511,28 +1514,44 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
         "The Java language service could not identify one launch target for this source file.",
       );
     }
-    const projectName = typeof selected.projectName === "string" ? selected.projectName : undefined;
+    // A blank project name reaches Java Debug Server exactly as a missing one
+    // does, because it applies `isNotBlank`; Core reports the resulting marker
+    // scope back in the build report.
+    const projectName =
+      typeof selected.projectName === "string" && selected.projectName.trim().length > 0
+        ? selected.projectName
+        : undefined;
     // Core serializes this build behind JDT project configuration and earlier
     // builds, and reports compilation errors, build failures, and cancellation
-    // as distinct structured errors.
-    const buildStatus = await execute(
-      "Build Java Workspace",
-      "vscode.java.buildWorkspace",
-      [
-        JSON.stringify({
-          mainClass: selected.mainClass,
-          projectName,
-          filePath: sourcePath,
-          isFullBuild: false,
-        }),
-      ],
-      JAVA_BUILD_TIMEOUT_MS,
-    );
-    if (Number(buildStatus) !== 1) {
-      throw lspAdapterError(
-        "invalid_response",
-        "The Java language service returned an unexpected project build status.",
+    // as distinct structured errors carrying the evidence behind the verdict.
+    //
+    // A terminal build failure is returned with the resolved launch target so
+    // the application workflow can ask the user and continue this same attempt.
+    // Cancellation and timeouts still throw because they produced no verdict.
+    let buildFailure: ReturnType<typeof readJavaBuildFailure> = null;
+    try {
+      const buildStatus = await execute(
+        "Build Java Workspace",
+        "vscode.java.buildWorkspace",
+        [
+          JSON.stringify({
+            mainClass: selected.mainClass,
+            projectName,
+            filePath: sourcePath,
+            isFullBuild: false,
+          }),
+        ],
+        JAVA_BUILD_TIMEOUT_MS,
       );
+      if (Number(buildStatus) !== 1) {
+        throw lspAdapterError(
+          "invalid_response",
+          "The Java language service returned an unexpected project build status.",
+        );
+      }
+    } catch (reason) {
+      buildFailure = readJavaBuildFailure(reason);
+      if (!buildFailure) throw reason;
     }
     const paths = await execute("Resolve Java Runtime Classpath", "vscode.java.resolveClasspath", [
       selected.mainClass,
@@ -1557,7 +1576,12 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
         "The Java language service returned no runtime paths.",
       );
     }
-    return { mainClass: selected.mainClass, projectName, modulePaths, classPaths } as T;
+    const target = { mainClass: selected.mainClass, projectName, modulePaths, classPaths };
+    return (
+      buildFailure
+        ? { kind: "buildFailed", target, failure: buildFailure }
+        : { kind: "ready", target }
+    ) as T;
   }
   if (command === "java_navigation_markers") {
     const session = sessionForFile(args.sessionFilePath ?? args.filePath);

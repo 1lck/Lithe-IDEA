@@ -17,6 +17,7 @@ plugin_fixture="shared/fixtures/plugins/official-v1.json"
 github_fixture="shared/fixtures/github/pull-request-v1.json"
 workbench_background_fixture="shared/fixtures/settings/workbench-background-v1.json"
 syntax_theme_fixture="shared/fixtures/editor-themes/lithe-v1.json"
+java_build_report_fixture="shared/fixtures/lsp/java-build-report-v1.json"
 maven_platform_fixture="shared/fixtures/maven/platform-contract-v1.json"
 maven_portable_schema="shared/contracts/maven-portable-configuration-v1.schema.json"
 maven_launch_context_schema="shared/contracts/maven-launch-context-v1.schema.json"
@@ -24,6 +25,20 @@ update_schema="shared/contracts/update-v1.schema.json"
 update_fixture="shared/fixtures/updates/update-v1.json"
 macos_syntax_colors="macos/Sources/Lithe/Resources/SyntaxHighlighting/color-mappings.json"
 windows_lithe_theme="windows/tauri/src/extensions/themes/builtin/lithe.json"
+
+/usr/bin/ruby -rjson -e '
+  fixture = JSON.parse(File.read(ARGV.fetch(0)))
+  abort "Java build report fixture version must be 1" unless fixture.fetch("version") == 1
+  failures = fixture.fetch("continuableFailures")
+  abort "Java build report fixture must cover both terminal verdicts" unless failures.map { |item| item.fetch("code") }.sort == %w[javaBuildCompilationErrors javaBuildFailed]
+  reports = failures.map { |item| item.fetch("javaBuildReport") }
+  expected_fields = %w[builderFailedEarlier elapsedMilliseconds markerScope recovery]
+  abort "Java build report fields differ from v1" unless reports.all? { |report| report.keys.sort == expected_fields }
+  abort "Java build report fixture must cover both marker scopes" unless reports.map { |report| report.fetch("markerScope") }.sort == %w[launchTarget workspace]
+  abort "Java build report fixture must cover index recovery" unless reports.any? { |report| report.fetch("recovery") == "rebuildJavaIndex" }
+  non_continuable = fixture.fetch("nonContinuableCodes")
+  abort "Java build report fixture must keep cancellation and timeout non-continuable" unless %w[javaBuildCancelled requestCancelled requestTimeout].all? { |code| non_continuable.include?(code) }
+' "$java_build_report_fixture"
 
 /usr/bin/ruby -rjson -e '
   portable = JSON.parse(File.read(ARGV.fetch(0)))

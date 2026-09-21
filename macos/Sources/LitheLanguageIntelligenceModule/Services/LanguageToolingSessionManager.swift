@@ -349,7 +349,12 @@ package final class LanguageToolingSessionManager: ObservableObject,
         fileURL: URL,
         rootURL: URL
     ) async throws -> JavaDebugLaunchTarget {
-        try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL)
+        switch try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL) {
+        case .ready(let target):
+            return target
+        case .buildFailed(_, let failure):
+            throw LanguageToolingSessionError.toolingUnavailable(failure.message)
+        }
     }
 
     /// Builds the owning Java project and resolves the exact runtime paths used
@@ -357,25 +362,18 @@ package final class LanguageToolingSessionManager: ObservableObject,
     package func prepareJavaRunLaunchTarget(
         fileURL: URL,
         rootURL: URL
-    ) async throws -> JavaDebugLaunchTarget {
+    ) async throws -> JavaLaunchPreparation {
         try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL)
     }
 
     private func prepareJavaLaunchTarget(
         fileURL: URL,
         rootURL: URL
-    ) async throws -> JavaDebugLaunchTarget {
+    ) async throws -> JavaLaunchPreparation {
         let normalizedRoot = rootURL.standardizedFileURL
         let resolvedFile = fileURL.standardizedFileURL.resolvingSymlinksInPath()
         _ = try startLanguageServer(providerID: "java", rootURL: normalizedRoot)
         try await waitUntilLanguageServerReady(providerID: "java", rootURL: normalizedRoot)
-        if projectPreparation?.blocksRun == true {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                projectPreparation?.status == "failed"
-                    ? "Java project preparation failed. Open language service settings to retry."
-                    : "The Java project is still being prepared. View preparation progress and run again when ready."
-            )
-        }
         let value = try await executeJavaCommand(
             "vscode.java.resolveMainClass",
             arguments: [],
@@ -420,22 +418,33 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 "The Java workspace build request could not be encoded."
             )
         }
-        let buildValue = try await executeJavaCommand(
-            "vscode.java.buildWorkspace",
-            arguments: [.string(buildJSON)],
-            rootURL: normalizedRoot
-        )
-        let buildStatus: Int?
-        switch buildValue {
-        case .integer(let value): buildStatus = value
-        case .string(let value): buildStatus = Int(value)
-        default: buildStatus = nil
-        }
-        // Rust Core reports compilation errors, build failures, and
-        // cancellation as structured request errors before this point.
-        guard buildStatus == 1 else {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "The Java language service returned an unexpected project build status."
+        var buildFailure: JavaLaunchBuildFailure?
+        do {
+            let buildValue = try await executeJavaCommand(
+                "vscode.java.buildWorkspace",
+                arguments: [.string(buildJSON)],
+                rootURL: normalizedRoot
+            )
+            let buildStatus: Int?
+            switch buildValue {
+            case .integer(let value): buildStatus = value
+            case .string(let value): buildStatus = Int(value)
+            default: buildStatus = nil
+            }
+            guard buildStatus == 1 else {
+                throw LanguageToolingSessionError.toolingUnavailable(
+                    "The Java language service returned an unexpected project build status."
+                )
+            }
+        } catch let failure as LanguageServerRequestFailure {
+            let error = failure.runtimeError
+            guard error.code == "javaBuildCompilationErrors" || error.code == "javaBuildFailed" else {
+                throw failure
+            }
+            buildFailure = JavaLaunchBuildFailure(
+                code: error.code,
+                message: failure.localizedDescription,
+                report: error.javaBuildReport
             )
         }
         let classpathValue = try await executeJavaCommand(
@@ -460,12 +469,16 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 "The Java language service could not resolve the runtime classpath."
             )
         }
-        return JavaDebugLaunchTarget(
+        let target = JavaDebugLaunchTarget(
             mainClass: selected.mainClass,
             projectName: selected.projectName,
             modulePaths: modulePaths,
             classPaths: classPaths
         )
+        if let buildFailure {
+            return .buildFailed(target: target, failure: buildFailure)
+        }
+        return .ready(target)
     }
 
     /// Resolves one Java source file or discovered test item through the Java
@@ -666,7 +679,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
               case .string(let mainClass)? = object["mainClass"],
               mainClass.isEmpty == false else { return nil }
         let projectName: String?
-        if case .string(let value)? = object["projectName"], value.isEmpty == false {
+        if case .string(let value)? = object["projectName"],
+           value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
             projectName = value
         } else {
             projectName = nil

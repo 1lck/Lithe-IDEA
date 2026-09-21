@@ -1957,6 +1957,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let message: String
         let underlyingMessage: String?
         let processExitCode: Int?
+        let javaBuildReport: JavaBuildReport?
     }
 
     struct LspServerInfoPayload: Decodable, Sendable {

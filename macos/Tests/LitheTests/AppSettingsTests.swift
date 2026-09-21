@@ -23,6 +23,25 @@ struct AppSettingsTests {
     }
 
     @Test
+    func javaBuildFailurePolicyIsWorkspaceScopedAndCanReturnToAsk() {
+        let store = AppSettingsTestStore()
+        let workspace = URL(fileURLWithPath: "/fixture/projects/demo/../demo", isDirectory: true)
+        let sameWorkspace = URL(fileURLWithPath: "/fixture/projects/demo", isDirectory: true)
+        let otherWorkspace = URL(fileURLWithPath: "/fixture/projects/other", isDirectory: true)
+        let settings = AppSettings(store: store)
+
+        #expect(settings.javaBuildFailurePolicy(for: workspace) == .ask)
+        settings.setJavaBuildFailurePolicy(.alwaysContinue, for: workspace)
+
+        let reloaded = AppSettings(store: store)
+        #expect(reloaded.javaBuildFailurePolicy(for: sameWorkspace) == .alwaysContinue)
+        #expect(reloaded.javaBuildFailurePolicy(for: otherWorkspace) == .ask)
+
+        reloaded.setJavaBuildFailurePolicy(.ask, for: sameWorkspace)
+        #expect(AppSettings(store: store).javaBuildFailurePolicy(for: workspace) == .ask)
+    }
+
+    @Test
     func fetchDefaultsPersistAndResetWithoutSavingAnOperationTarget() {
         let store = AppSettingsTestStore()
         let settings = AppSettings(store: store)

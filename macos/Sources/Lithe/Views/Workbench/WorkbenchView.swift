@@ -270,6 +270,12 @@ struct WorkbenchView: View {
                     .frame(minWidth: 640, minHeight: 420)
             }
         }
+        .sheet(item: Binding(
+            get: { model.pendingJavaLaunchDecision },
+            set: { _ in }
+        )) { request in
+            JavaLaunchDecisionDialog(request: request)
+        }
         .onAppear {
             updateWorkbenchBackgroundImage(model.workbenchBackgroundFeature.imageData)
         }

@@ -449,6 +449,72 @@ struct LanguageIntelligenceModuleTests {
     }
 
     @Test
+    func javaLaunchPreservesAUsableTargetAfterOneTerminalBuildFailure() async throws {
+        let root = URL(fileURLWithPath: "/workspace/java-build-failure", isDirectory: true)
+        let source = root.appendingPathComponent("service/src/main/java/example/Main.java")
+        let descriptor = try #require(
+            LanguageProviderCatalog.compatibilityFallback.provider(for: source)
+        )
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(
+                descriptor: descriptor,
+                session: session
+            )]
+        )
+        let task = Task {
+            try await manager.prepareJavaRunLaunchTarget(fileURL: source, rootURL: root)
+        }
+        defer { task.cancel() }
+
+        try await session.waitUntilStarted()
+        session.publish(.ready)
+        _ = try await session.waitForExecuteCommand()
+        session.completeExecuteReturningValue(.success(.array([
+            .object([
+                "mainClass": .string("service/example.Main"),
+                "projectName": .string("service"),
+                "filePath": .string(source.path),
+            ]),
+        ])))
+
+        let buildCommand = try await session.waitForExecuteCommand(number: 2)
+        #expect(buildCommand.command == "vscode.java.buildWorkspace")
+        let report = JavaBuildReport(
+            markerScope: .launchTarget,
+            builderFailedEarlier: true,
+            elapsedMilliseconds: 8,
+            recovery: .rebuildJavaIndex
+        )
+        session.completeExecuteReturningValue(.failure(LanguageServerRequestFailure(
+            runtimeError: LanguageServerRuntimeError(
+                code: "javaBuildCompilationErrors",
+                stage: "javaBuild",
+                message: "The Java project has compilation errors.",
+                underlyingMessage: nil,
+                processExitCode: nil,
+                javaBuildReport: report
+            )
+        )))
+
+        let classpathCommand = try await session.waitForExecuteCommand(number: 3)
+        #expect(classpathCommand.command == "vscode.java.resolveClasspath")
+        session.completeExecuteReturningValue(.success(.array([
+            .array([]),
+            .array([.string("/workspace/classes")]),
+        ])))
+
+        guard case .buildFailed(let target, let failure) = try await task.value else {
+            Issue.record("expected a continuable build failure")
+            return
+        }
+        #expect(session.executedCommands.filter { $0.command == "vscode.java.buildWorkspace" }.count == 1)
+        #expect(target.classPaths == ["/workspace/classes"])
+        #expect(failure.report == report)
+    }
+
+    @Test
     func javaDebugLaunchTargetDoesNotBorrowAnotherFileWhenJdtlsReportsItsPath() async throws {
         let root = URL(fileURLWithPath: "/workspace/java-debug", isDirectory: true)
         let source = root.appendingPathComponent("service/src/main/java/example/UserService.java")
