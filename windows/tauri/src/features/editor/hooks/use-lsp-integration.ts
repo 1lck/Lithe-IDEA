@@ -43,7 +43,6 @@ type DocumentChangeOwnerState =
 interface LspDocumentOwner {
   // One record owns every asynchronous resource for one editor attachment.
   state: LspDocumentOwnerState;
-  version: number;
   changes: DocumentChangeOwnerState;
 }
 
@@ -106,7 +105,6 @@ export const useLspIntegration = ({
         ? existingOwner
         : {
             state: { phase: "scheduled" },
-            version: 1,
             changes: { phase: "idle", completion: Promise.resolve() },
           };
     documentOwnersRef.current.set(filePath, owner);
@@ -210,26 +208,19 @@ export const useLspIntegration = ({
       const completion = previousCompletion.then(async () => {
         if (owner.state.phase !== "open") return;
         const contentChanges = takeLspDocumentChanges(filePath);
-        const newVersion = owner.version + 1;
         try {
           if (preferIncremental && contentChanges.length > 0) {
             // Core validates a multi-change batch and falls back to the full
             // text when ranges overlap or cannot be replayed safely.
-            await lspClient.notifyDocumentChange(
+            await lspClient.synchronizeDocument(
               filePath,
               documentTextForPath(filePath),
-              newVersion,
               contentChanges,
             );
           } else {
-            await lspClient.notifyDocumentChange(
-              filePath,
-              documentTextForPath(filePath),
-              newVersion,
-            );
+            await lspClient.synchronizeDocument(filePath, documentTextForPath(filePath));
           }
           if (owner.state.phase === "open") {
-            owner.version = newVersion;
             lastSyncedRevisionRef.current = contentRevision;
           }
         } catch (error) {

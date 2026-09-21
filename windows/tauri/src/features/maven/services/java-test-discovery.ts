@@ -8,7 +8,7 @@ import {
 import type { JavaTestMethod } from "../types/maven.types";
 
 interface JavaTestDiscoveryClient {
-  ensureDocumentReady(
+  ensureDocumentSynchronized(
     target: { filePath: string },
     scope: WorkspaceLaunchScope,
     content: string,
@@ -68,7 +68,7 @@ export async function discoverJavaTestMethods(
   invokeCommand: JavaTestItemsInvoker = (command, args) =>
     invokeLsp<JavaTestItems>(command, args),
 ): Promise<JavaTestMethod[]> {
-  await client.ensureDocumentReady({ filePath }, scope, content, "executeCommand");
+  await client.ensureDocumentSynchronized({ filePath }, scope, content, "executeCommand");
   const discovered = await invokeCommand("java_test_items", {
     workspacePath: scope.root,
     filePath,

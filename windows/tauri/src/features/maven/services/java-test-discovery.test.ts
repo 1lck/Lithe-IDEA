@@ -61,8 +61,13 @@ describe("Java test discovery", () => {
   });
 
   test("synchronizes the document before asking Core for typed JDT results", async () => {
-    const ensureDocumentReady = mock(async () => ({ phase: "ready" }));
+    const calls: string[] = [];
+    const ensureDocumentSynchronized = mock(async () => {
+      calls.push("synchronize");
+      return { phase: "ready" };
+    });
     const invoke = mock(async (command: string, args: Record<string, unknown>) => {
+      calls.push("discover");
       expect(command).toBe("java_test_items");
       expect(args).toEqual({ workspacePath: "C:/work", filePath: "C:/work/Odd.java" });
       return discovered;
@@ -73,14 +78,15 @@ describe("Java test discovery", () => {
         { workspaceId: "workspace-1", root: "C:/work" },
         "C:/work/Odd.java",
         "class Odd {}",
-        { ensureDocumentReady },
+        { ensureDocumentSynchronized },
         invoke,
       ),
     ).resolves.toEqual([
       { name: "parameterized", line: 7, endLine: 9 },
       { name: "composed", line: 12, endLine: 14 },
     ]);
-    expect(ensureDocumentReady).toHaveBeenCalledWith(
+    expect(calls).toEqual(["synchronize", "discover"]);
+    expect(ensureDocumentSynchronized).toHaveBeenCalledWith(
       { filePath: "C:/work/Odd.java" },
       { workspaceId: "workspace-1", root: "C:/work" },
       "class Odd {}",

@@ -30,6 +30,7 @@ import type {
 } from "@/features/diagnostics/types/diagnostics.types";
 import { hasTextContent, shouldStartLsp } from "@/features/panes/types/pane-content.types";
 import { useBufferStore } from "../stores/buffer.store";
+import type { EditorTextChange } from "../types/editor.types";
 import { logger } from "../utils/logger";
 import { normalizePath, pathStartsWithRoot } from "@/utils/path-helpers";
 import { getLanguageDisplayName } from "../utils/language-id";
@@ -138,6 +139,7 @@ type TrackedLspDocument = {
   filePath: string;
   attachmentId: string;
   version: number;
+  content: string;
   phase: "open" | "closing";
 };
 
@@ -235,6 +237,7 @@ export class LspClient {
   private fileStartTasks = new Map<string, PendingFileStart>();
   private workspaceStartTasks = new Map<string, PendingWorkspaceStart>();
   private documentOpenTasks = new Map<string, PendingDocumentOpen>();
+  private documentChangeTasks = new Map<string, Promise<void>>();
   private documents = new Map<string, TrackedLspDocument>();
   /**
    * Unopened workspace files that currently carry diagnostics, keyed by
@@ -1101,23 +1104,50 @@ export class LspClient {
     feature?: string,
   ): Promise<LspDocumentAvailability> {
     const initial = this.getDocumentAvailability(target, feature);
-    if (isDocumentFeatureAvailable(initial)) return initial;
-
     const document = normalizeLspDocumentTarget(target);
     const sessionFilePath = lspSessionFilePath(document);
     // A virtual JDT document borrows a physical source session. Reconstructing
     // that source document from virtual class text would corrupt synchronization.
     if (sessionFilePath !== document.filePath) return initial;
 
+    const attachmentKey = trackedFileKey(sessionFilePath);
+    const trackedDocument = this.documents.get(attachmentKey);
+    const currentAttachmentId = this.fileAttachmentIds.get(attachmentKey);
+    if (
+      isDocumentFeatureAvailable(initial) &&
+      trackedDocument?.phase === "open" &&
+      trackedDocument.attachmentId === currentAttachmentId
+    ) {
+      return initial;
+    }
+
     const attachment = await this.startForFile(sessionFilePath, scope);
     if (attachment.kind !== "attached") return this.getDocumentAvailability(document, feature);
     const { attachmentId } = attachment;
 
-    const trackedDocument = this.documents.get(trackedFileKey(sessionFilePath));
-    if (trackedDocument?.phase !== "open" || trackedDocument.attachmentId !== attachmentId) {
+    const attachedDocument = this.documents.get(attachmentKey);
+    if (attachedDocument?.phase !== "open" || attachedDocument.attachmentId !== attachmentId) {
       await this.notifyDocumentOpen(sessionFilePath, content, attachmentId);
     }
     return this.getDocumentAvailability(document, feature);
+  }
+
+  /**
+   * Opens the document when necessary and waits until Core has the exact
+   * editor text before a semantic request reads from the language server.
+   */
+  async ensureDocumentSynchronized(
+    target: LspDocumentTargetInput,
+    scope: WorkspaceLaunchScope,
+    content: string,
+    feature?: string,
+  ): Promise<LspDocumentAvailability> {
+    const availability = await this.ensureDocumentReady(target, scope, content, feature);
+    const document = normalizeLspDocumentTarget(target);
+    if (lspSessionFilePath(document) === document.filePath) {
+      await this.synchronizeDocument(document.filePath, content);
+    }
+    return availability;
   }
 
   async stopForFile(filePath: string, requestedAttachmentId?: string): Promise<void> {
@@ -1806,6 +1836,7 @@ export class LspClient {
           filePath,
           attachmentId: ownerAttachmentId,
           version: 1,
+          content,
           phase: "open",
         });
         useLspStore.getState().actions.markDocumentStateChanged();
@@ -1822,19 +1853,11 @@ export class LspClient {
     return task;
   }
 
-  async notifyDocumentChange(
+  private async notifyDocumentChange(
     filePath: string,
     content: string | undefined,
     version: number,
-    contentChanges?: Array<{
-      rangeOffset: number;
-      rangeLength: number;
-      text: string;
-      startLine?: number;
-      startColumn?: number;
-      endLine?: number;
-      endColumn?: number;
-    }>,
+    contentChanges?: EditorTextChange[],
   ): Promise<void> {
     const attachmentKey = trackedFileKey(filePath);
     const attachmentId = this.fileAttachmentIds.get(attachmentKey);
@@ -1853,12 +1876,47 @@ export class LspClient {
       });
       const current = this.documents.get(attachmentKey);
       if (current?.phase === "open" && current.attachmentId === attachmentId) {
-        this.documents.set(attachmentKey, { ...current, version });
+        this.documents.set(attachmentKey, {
+          ...current,
+          version,
+          content: content ?? current.content,
+        });
       }
     } catch (error) {
       logger.error("LSPClient", "LSP document change error:", error);
       throw error;
     }
+  }
+
+  /**
+   * Serializes editor updates per document so semantic consumers can await a
+   * precise text snapshot without competing for LSP document versions.
+   */
+  async synchronizeDocument(
+    filePath: string,
+    content: string,
+    contentChanges?: EditorTextChange[],
+  ): Promise<void> {
+    const attachmentKey = trackedFileKey(filePath);
+    const previous = this.documentChangeTasks.get(attachmentKey) ?? Promise.resolve();
+    const task = previous.catch(() => undefined).then(async () => {
+      const document = this.documents.get(attachmentKey);
+      if (document?.phase !== "open" || document.content === content) return;
+      await this.notifyDocumentChange(
+        filePath,
+        content,
+        document.version + 1,
+        contentChanges,
+      );
+    });
+    this.documentChangeTasks.set(attachmentKey, task);
+    const cleanup = () => {
+      if (this.documentChangeTasks.get(attachmentKey) === task) {
+        this.documentChangeTasks.delete(attachmentKey);
+      }
+    };
+    void task.then(cleanup, cleanup);
+    return task;
   }
 
   async notifyDocumentSave(filePath: string, content: string): Promise<void> {
