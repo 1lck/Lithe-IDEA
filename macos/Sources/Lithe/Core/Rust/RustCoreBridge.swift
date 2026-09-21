@@ -470,26 +470,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         }
     }
 
-    struct JavaRunConfigurationsPayload: Decodable, Sendable {
-        struct MainClass: Decodable, Sendable {
-            let path: String
-            let qualifiedName: String
-            let simpleName: String
-            let isSpringBoot: Bool
-        }
-
-        struct Configuration: Decodable, Sendable {
-            let id: String
-            let name: String
-            let kind: String
-            let modulePath: String?
-            let mainClass: String?
-        }
-
-        let mainClasses: [MainClass]
-        let configurations: [Configuration]
-    }
-
     struct SpringIndexPayload: Decodable, Sendable {
         struct Property: Decodable, Sendable {
             let name: String
@@ -1788,9 +1768,15 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let cacheDirectory: String?
         let workspaceFingerprint: String?
         let mavenContext: MavenLaunchContext?
+        let javaRuntimes: [LspJavaRuntimeRequest]
         let initializeTimeoutMilliseconds: Int
         let requestTimeoutMilliseconds: Int
         let shutdownTimeoutMilliseconds: Int
+    }
+
+    private struct LspJavaRuntimeRequest: Encodable {
+        let homePath: String
+        let version: String
     }
 
     private struct LspJdtlsLaunchResourcesRequest: Encodable {
@@ -1980,17 +1966,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let output: String
     }
 
-    private struct JavaRunConfigurationsRequest: Encodable {
-        let root: String
-        let paths: [String]
-        let modulePaths: [String]
-    }
-
     private struct RunConfigurationInspectRequest: Encodable { let root: String }
     private struct RunConfigurationGenerateRequest: Encodable {
         let root: String
         let paths: [String]
         let modulePaths: [String]
+        /// Omitted while JDT has not answered; Core then keeps the previous
+        /// generation's Java entries.
+        let javaEntrypoints: JavaEntrypoints?
     }
     private struct RunConfigurationResolveRequest: Encodable {
         let root: String
@@ -2795,21 +2778,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
-    func scanJavaRunConfigurations(
-        at rootURL: URL,
-        paths: [String],
-        modulePaths: [String]
-    ) -> JavaRunConfigurationsPayload? {
-        execute(
-            command: "java.runConfigurations",
-            payload: JavaRunConfigurationsRequest(
-                root: rootURL.standardizedFileURL.path,
-                paths: paths,
-                modulePaths: modulePaths
-            )
-        )
-    }
-
     func inspectRunConfiguration(at rootURL: URL) -> Result<RunConfigurationInspectPayload, CoreCallError> {
         executeResult(
             command: "runConfig.inspect",
@@ -2820,14 +2788,16 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     func generateRunConfiguration(
         at rootURL: URL,
         paths: [String],
-        modulePaths: [String]
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints? = nil
     ) -> Result<RunConfigurationGeneratePayload, CoreCallError> {
         executeResult(
             command: "runConfig.generate",
             payload: RunConfigurationGenerateRequest(
                 root: rootURL.standardizedFileURL.path,
                 paths: paths,
-                modulePaths: modulePaths
+                modulePaths: modulePaths,
+                javaEntrypoints: javaEntrypoints
             )
         )
     }
@@ -3654,6 +3624,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 cacheDirectory: cacheDirectoryURL?.standardizedFileURL.path,
                 workspaceFingerprint: workspaceFingerprint,
                 mavenContext: mavenContext,
+                javaRuntimes: (jdtlsLaunchResources?.javaRuntimes ?? []).map {
+                    LspJavaRuntimeRequest(homePath: $0.homePath, version: $0.version)
+                },
                 initializeTimeoutMilliseconds: Self.milliseconds(initializeTimeout),
                 requestTimeoutMilliseconds: Self.milliseconds(requestTimeout),
                 shutdownTimeoutMilliseconds: Self.milliseconds(shutdownTimeout)

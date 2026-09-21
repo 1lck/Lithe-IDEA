@@ -26,11 +26,6 @@ protocol JavaMavenOperations: MavenProjectOperations, RunServerPortParsing, Send
         memberName: String?
     ) -> (line: Int, utf16Column: Int)?
     func serverPort(content: String, fileExtension: String) -> Int?
-    func scanRunConfigurations(
-        at rootURL: URL,
-        files: [URL],
-        mavenProject: MavenProject?
-    ) -> [JavaRunConfiguration]
     func structure(
         source: String,
         declarationSources: [String]
@@ -300,38 +295,6 @@ struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
 
     func serverPort(content: String, fileExtension: String) -> Int? {
         core.javaServerPort(content: content, fileExtension: fileExtension)?.port
-    }
-
-    func scanRunConfigurations(
-        at rootURL: URL,
-        files: [URL],
-        mavenProject: MavenProject?
-    ) -> [JavaRunConfiguration] {
-        let root = rootURL.standardizedFileURL
-        let paths = files.compactMap {
-            workspaceRelativePath(for: $0, root: root)
-        }
-        let workspaceModules = workspaceMavenModules(in: mavenProject, relativeTo: root)
-        let modulePaths = workspaceModules.map(\.0)
-        guard let payload = core.scanJavaRunConfigurations(
-            at: root,
-            paths: paths,
-            modulePaths: modulePaths
-        ) else { return [] }
-
-        return payload.configurations.compactMap { value in
-            guard let kind = JavaRunConfigurationKind(rawValue: value.kind) else { return nil }
-            let module = value.modulePath.flatMap { modulePath in
-                workspaceModules.first(where: { $0.0 == modulePath })?.1
-            }
-            return JavaRunConfiguration(
-                id: value.id,
-                name: kind == .mavenModule ? module?.displayName ?? value.name : value.name,
-                kind: kind,
-                modulePath: module?.relativePath ?? value.modulePath,
-                mainClass: value.mainClass
-            )
-        }
     }
 
     func workspaceMavenModules(

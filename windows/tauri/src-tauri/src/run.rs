@@ -374,9 +374,7 @@ pub fn run_resolve_launch(args: ResolveLaunchArgs) -> Result<ResolvedLaunch, Str
 /// main `java` process starts; the store aborts the run when `exit_code != 0`
 /// and surfaces `output` as the compiler's real diagnostic.
 #[tauri::command]
-pub async fn run_execute_prelaunch(
-    args: ExecutePreLaunchArgs,
-) -> Result<PreLaunchOutcome, String> {
+pub async fn run_execute_prelaunch(args: ExecutePreLaunchArgs) -> Result<PreLaunchOutcome, String> {
     // `.output()` blocks until the compiler exits. Sync Tauri commands run on the
     // main thread, so a long `javac` compile would freeze the workbench; run the
     // blocking wait on a worker thread instead.
@@ -798,22 +796,15 @@ fn pretty_json(value: &Value) -> Result<String, String> {
     serde_json::to_string_pretty(value).map_err(|error| error.to_string())
 }
 
-pub(crate) fn discover_toolchains(project_root: Option<&Path>) -> DiscoveredToolchains {
-    discover_toolchains_with_overrides(project_root, None, None, None)
+/// Installed JDKs for the Java language service, which binds each project to
+/// the JDK matching the release it compiles for.
+pub(crate) fn discover_java_runtimes(project_root: Option<&Path>) -> Vec<JavaRuntime> {
+    probe_java_homes(java_home_candidates(project_root))
 }
 
-fn discover_toolchains_with_overrides(
-    project_root: Option<&Path>,
-    java_home_path: Option<&str>,
-    maven_executable_path: Option<&str>,
-    runtime_executable_paths: Option<&HashMap<String, String>>,
-) -> DiscoveredToolchains {
+fn probe_java_homes(homes: Vec<PathBuf>) -> Vec<JavaRuntime> {
     let mut java = Vec::new();
     let mut seen_homes = std::collections::HashSet::new();
-    let mut homes = java_home_candidates(project_root);
-    if let Some(path) = java_home_path.filter(|value| !value.trim().is_empty()) {
-        homes.insert(0, PathBuf::from(path));
-    }
     for home in homes {
         if !seen_homes.insert(home.clone()) {
             continue;
@@ -828,6 +819,24 @@ fn discover_toolchains_with_overrides(
             .cmp(&left.version)
             .then(left.home_path.cmp(&right.home_path))
     });
+    java
+}
+
+pub(crate) fn discover_toolchains(project_root: Option<&Path>) -> DiscoveredToolchains {
+    discover_toolchains_with_overrides(project_root, None, None, None)
+}
+
+fn discover_toolchains_with_overrides(
+    project_root: Option<&Path>,
+    java_home_path: Option<&str>,
+    maven_executable_path: Option<&str>,
+    runtime_executable_paths: Option<&HashMap<String, String>>,
+) -> DiscoveredToolchains {
+    let mut homes = java_home_candidates(project_root);
+    if let Some(path) = java_home_path.filter(|value| !value.trim().is_empty()) {
+        homes.insert(0, PathBuf::from(path));
+    }
+    let java = probe_java_homes(homes);
 
     let maven = discover_maven_candidates(
         maven_executable_candidates(project_root),
@@ -1562,11 +1571,9 @@ pub(crate) fn incomplete_suffix_len(bytes: &[u8]) -> usize {
 
 #[cfg(windows)]
 fn incomplete_windows_code_page_suffix_len(bytes: &[u8]) -> usize {
-    bytes
-        .last()
-        .is_some_and(|byte| unsafe {
-            winapi::IsDBCSLeadByteEx(windows_ansi_code_page(), *byte) != 0
-        }) as usize
+    bytes.last().is_some_and(|byte| unsafe {
+        winapi::IsDBCSLeadByteEx(windows_ansi_code_page(), *byte) != 0
+    }) as usize
 }
 
 #[cfg(not(windows))]

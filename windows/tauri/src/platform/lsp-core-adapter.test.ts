@@ -682,13 +682,15 @@ describe("Rust Core LSP adapter failures", () => {
     scenario = "semantic-request";
     semanticRequestResults = [
       {
-        value: [
+        schemaVersion: 1,
+        entries: [
           {
+            sourcePath: "service/src/main/java/example/Main.java",
             mainClass: "example.Main",
             projectName: "service",
-            filePath: "C:/work/service/src/main/java/example/Main.java",
           },
         ],
+        diagnostics: [],
       },
       { value: 1 },
       {
@@ -723,25 +725,152 @@ describe("Rust Core LSP adapter failures", () => {
     expect(
       requestPayloads
         .slice(-3)
-        .map((payload) => (payload.command as { command?: string } | undefined)?.command),
-    ).toEqual([
-      "vscode.java.resolveMainClass",
-      "vscode.java.buildWorkspace",
-      "vscode.java.resolveClasspath",
-    ]);
+        .map(
+          (payload) =>
+            (payload.command as { command?: string } | undefined)?.command ?? payload.operation,
+        ),
+    ).toEqual(["javaEntrypoints", "vscode.java.buildWorkspace", "vscode.java.resolveClasspath"]);
+  });
+
+  test("picks the launch target by source path when two modules share a class", async () => {
+    // Maven reactors often repeat `demo.App`; only the source path tells the
+    // modules apart, and Windows paths compare without regard to case.
+    scenario = "semantic-request";
+    semanticRequestResults = [
+      {
+        schemaVersion: 1,
+        entries: [
+          { sourcePath: "app-a/src/main/java/demo/App.java", mainClass: "demo.App", projectName: "app-a" },
+          { sourcePath: "app-b/src/main/java/demo/App.java", mainClass: "demo.App", projectName: "app-b" },
+        ],
+        diagnostics: [],
+      },
+      { value: 1 },
+      { value: [[], ["C:/Work/app-b/target/classes"]] },
+    ];
+    await invokeLsp("lsp_start", {
+      workspacePath: "c:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    const result = await invokeLsp<JavaRunLaunchPreparation>("java_prepare_run_launch", {
+      workspacePath: "c:\\work",
+      sourcePath: "C:\\Work\\app-b\\src\\main\\java\\demo\\App.java",
+      mainClass: "demo.App",
+    });
+
+    expect(result).toEqual({
+      kind: "ready",
+      target: {
+        mainClass: "demo.App",
+        projectName: "app-b",
+        modulePaths: [],
+        classPaths: ["C:/Work/app-b/target/classes"],
+      },
+    });
+  });
+
+  test("matches a modular entry point to its configured class", async () => {
+    scenario = "semantic-request";
+    semanticRequestResults = [
+      {
+        schemaVersion: 1,
+        entries: [
+          { sourcePath: "app/src/main/java/demo/App.java", mainClass: "demo.app/demo.App" },
+          { sourcePath: "app/src/main/java/demo/App.java", mainClass: "demo.app/demo.Other" },
+        ],
+        diagnostics: [],
+      },
+      { value: 1 },
+      { value: [["C:/work/app/target/classes"], []] },
+    ];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    const result = await invokeLsp<JavaRunLaunchPreparation>("java_prepare_run_launch", {
+      workspacePath: "C:/work",
+      sourcePath: "C:/work/app/src/main/java/demo/App.java",
+      mainClass: "demo.App",
+    });
+
+    expect(result.kind).toBe("ready");
+    expect(result.target.mainClass).toBe("demo.app/demo.App");
+  });
+
+  test("reports a malformed entry-point answer instead of an empty list", async () => {
+    scenario = "semantic-request";
+    semanticRequestResults = [{ entries: "not-a-list" }];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    await expect(invokeLsp("java_entrypoints", { workspacePath: "C:/work" })).rejects.toThrow(
+      "invalid entry-point list",
+    );
+    expect(requestPayloads[requestPayloads.length - 1]).toEqual({
+      sessionId: "java-session",
+      operation: "javaEntrypoints",
+    });
+  });
+
+  test("requests typed Java test items for the selected source file", async () => {
+    scenario = "semantic-request";
+    const expected = {
+      schemaVersion: 1,
+      items: [{
+        id: "method",
+        label: "composed()",
+        fullName: "demo.OddlyNamedSpec#composed()",
+        projectName: "app",
+        testKind: 0,
+        testLevel: 6,
+        children: [],
+      }],
+      diagnostics: [],
+    };
+    semanticRequestResults = [expected];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    const result = await invokeLsp("java_test_items", {
+      workspacePath: "C:/work",
+      filePath: "C:/work/src/test/java/demo/OddlyNamedSpec.java",
+    });
+
+    expect(result).toEqual(expected);
+    expect(requestPayloads[requestPayloads.length - 1]).toEqual({
+      sessionId: "java-session",
+      operation: "javaTestItems",
+      uri: "file:///C:/work/src/test/java/demo/OddlyNamedSpec.java",
+    });
   });
 
   test("returns Core's Java build failure with the usable launch target", async () => {
     scenario = "semantic-request";
     semanticRequestResults = [
       {
-        value: [
+        schemaVersion: 1,
+        entries: [
           {
+            sourcePath: "service/src/main/java/example/Main.java",
             mainClass: "example.Main",
             projectName: "service",
-            filePath: "C:/work/service/src/main/java/example/Main.java",
           },
         ],
+        diagnostics: [],
       },
       {
         coreError: {
@@ -783,13 +912,15 @@ describe("Rust Core LSP adapter failures", () => {
     scenario = "semantic-request";
     semanticRequestResults = [
       {
-        value: [
+        schemaVersion: 1,
+        entries: [
           {
+            sourcePath: "service/src/main/java/example/Main.java",
             mainClass: "example.Main",
             projectName: "service",
-            filePath: "C:/work/service/src/main/java/example/Main.java",
           },
         ],
+        diagnostics: [],
       },
       {
         coreError: {
@@ -841,12 +972,11 @@ describe("Rust Core LSP adapter failures", () => {
     expect(
       requestPayloads
         .slice(-3)
-        .map((payload) => (payload.command as { command?: string } | undefined)?.command),
-    ).toEqual([
-      "vscode.java.resolveMainClass",
-      "vscode.java.buildWorkspace",
-      "vscode.java.resolveClasspath",
-    ]);
+        .map(
+          (payload) =>
+            (payload.command as { command?: string } | undefined)?.command ?? payload.operation,
+        ),
+    ).toEqual(["javaEntrypoints", "vscode.java.buildWorkspace", "vscode.java.resolveClasspath"]);
   });
 
   test("still blocks a launch when the build reached no verdict", async () => {
@@ -855,13 +985,15 @@ describe("Rust Core LSP adapter failures", () => {
     scenario = "semantic-request";
     semanticRequestResults = [
       {
-        value: [
+        schemaVersion: 1,
+        entries: [
           {
+            sourcePath: "service/src/main/java/example/Main.java",
             mainClass: "example.Main",
             projectName: "service",
-            filePath: "C:/work/service/src/main/java/example/Main.java",
           },
         ],
+        diagnostics: [],
       },
       {
         coreError: {
@@ -901,13 +1033,15 @@ describe("Rust Core LSP adapter failures", () => {
     scenario = "semantic-request";
     semanticRequestResults = [
       {
-        value: [
+        schemaVersion: 1,
+        entries: [
           {
+            sourcePath: "service/src/main/java/example/Main.java",
             mainClass: "example.Main",
             projectName: "service",
-            filePath: "C:/work/service/src/main/java/example/Main.java",
           },
         ],
+        diagnostics: [],
       },
       {
         coreError: {

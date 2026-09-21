@@ -767,7 +767,7 @@ fn maven_scan_skips_a_malformed_root_descriptor_for_a_valid_nested_project() {
 }
 
 #[test]
-fn java_run_configurations_match_workspace_relative_nested_maven_modules() {
+fn jdt_entrypoints_map_to_workspace_relative_nested_maven_modules() {
     let root = temporary_root("java-nested-maven-module");
     let source = "projects/demo/service/src/main/java/com/example/App.java";
     fs::create_dir_all(root.join("projects/demo/service/src/main/java/com/example"))
@@ -780,23 +780,34 @@ fn java_run_configurations_match_workspace_relative_nested_maven_modules() {
 
     let request = serde_json::json!({
         "id": "java-nested-maven-module",
-        "command": "java.runConfigurations",
+        "command": "runConfig.generate",
         "payload": {
             "root": root,
             "paths": [source],
-            "modulePaths": ["projects/demo/service"]
+            "modulePaths": ["projects/demo/service"],
+            "javaEntrypoints": {
+                "schemaVersion": 1,
+                "entries": [{ "sourcePath": source, "mainClass": "com.example.App", "projectName": "service" }],
+                "diagnostics": []
+            }
         }
     });
     let response: Value = serde_json::from_str(&execute_json(
-        &serde_json::to_string(&request).expect("Java request should encode"),
+        &serde_json::to_string(&request).expect("generate request should encode"),
     ))
-    .expect("Java response should be JSON");
+    .expect("generate response should be JSON");
 
     assert_eq!(response["ok"], true, "{response}");
+    let configuration = response["data"]["generated"]["configurations"]
+        .as_array()
+        .and_then(|values| values.iter().find(|value| value["provider"] == "java.main"))
+        .expect("the JDT entry should become a Java configuration")
+        .clone();
     assert_eq!(
-        response["data"]["configurations"][0]["modulePath"],
+        configuration["extensions"]["maven"]["module"],
         "projects/demo/service"
     );
+    assert_eq!(response["data"]["javaEntrypointsOrigin"], "languageService");
     fs::remove_dir_all(root).expect("Java fixture should be removable");
 }
 
@@ -812,29 +823,45 @@ fn java_core_commands_return_shared_runtime_and_structure_data() {
     .expect("Java source should be writable");
     let configurations = serde_json::json!({
         "id": "java-config",
-        "command": "java.runConfigurations",
+        "command": "runConfig.generate",
         "payload": {
             "root": root,
             "paths": ["src/main/java/com/example/App.java"],
-            "modulePaths": ["src"]
+            "modulePaths": ["src"],
+            "javaEntrypoints": {
+                "schemaVersion": 1,
+                "entries": [{
+                    "sourcePath": "src/main/java/com/example/App.java",
+                    "mainClass": "com.example.App"
+                }],
+                "diagnostics": []
+            }
         }
     });
     let response: Value = serde_json::from_str(&execute_json(
         &serde_json::to_string(&configurations).expect("Java request should encode"),
     ))
     .expect("Java response should be JSON");
-    assert_eq!(response["ok"], true);
+    assert_eq!(response["ok"], true, "{response}");
+    let generated = response["data"]["generated"]["configurations"]
+        .as_array()
+        .expect("generated configurations")
+        .iter()
+        .find(|value| value["provider"] == "java.main")
+        .expect("the JDT entry should become a configuration")
+        .clone();
+    // `@SpringBootApplication` labels the JDT-confirmed entry as a service.
+    assert_eq!(generated["id"], "java-main:com.example.App");
     assert_eq!(
-        response["data"]["mainClasses"][0]["qualifiedName"],
+        generated["extensions"]["maven"]["mainClass"],
         "com.example.App"
     );
-    assert_eq!(response["data"]["configurations"][0]["kind"], "springBoot");
-    assert_eq!(response["data"]["configurations"][0]["modulePath"], "src");
+    assert_eq!(generated["extensions"]["maven"]["module"], "src");
     assert_eq!(
-        response["data"]["configurations"][0]["sourcePath"],
+        generated["extensions"]["java"]["source"],
         "src/main/java/com/example/App.java"
     );
-    assert_eq!(response["data"]["configurations"][0]["sourceSet"], "main");
+    assert_eq!(generated["extensions"]["java"]["sourceSet"], "main");
 
     let structure = serde_json::json!({
         "id": "java-structure",
@@ -852,9 +879,7 @@ fn java_core_commands_return_shared_runtime_and_structure_data() {
         structure_response["data"]["foldRegions"][0]["kind"],
         "imports"
     );
-    assert!(structure_response["data"]["testMethods"]
-        .as_array()
-        .is_some_and(Vec::is_empty));
+    assert!(structure_response["data"].get("testMethods").is_none());
     assert!(structure_response["data"]
         .get("implementationMarkers")
         .is_none());
@@ -952,68 +977,6 @@ fn java_core_commands_return_shared_runtime_and_structure_data() {
     .expect("server port response should be JSON");
     assert_eq!(port_response["data"]["port"], 8080);
     fs::remove_dir_all(root).expect("Java fixture should be removable");
-}
-
-#[test]
-fn java_test_methods_handle_inline_annotations_and_ignore_non_code_text() {
-    // Build the Java block comment at runtime so repository lint does not parse fixture text as Rust.
-    let java_block_comment = ["/", "* @Test void commentMethod() {} *", "/"].concat();
-    let source = r#"class CalculatorTest {
-    String example = "@Test void stringMethod() {}";
-    String textBlock = """
-        @Test void textBlockMethod() {}
-        """;
-    <java-block-comment>
-    @example.Test void customAnnotation() {}
-    @org.junit.Test public void inlineJUnit4() { helper(); }
-
-    @org.junit.jupiter.params.ParameterizedTest(name = "case {0}")
-    @ValueSource(ints = {1, 2})
-    void parameterized(int value) {
-        String braces = "}";
-        helper();
-    }
-
-    @Test
-    int field = 1;
-    void helper() {}
-}"#
-    .replace("<java-block-comment>", &java_block_comment);
-    let response: Value = serde_json::from_str(&execute_json(
-        &serde_json::json!({
-            "id": "java-test-methods",
-            "command": "java.testMethods",
-            "payload": {"source": source}
-        })
-        .to_string(),
-    ))
-    .expect("Java test methods response should be JSON");
-
-    assert_eq!(response["ok"], true, "{response}");
-    assert_eq!(
-        response["data"]["methods"],
-        serde_json::json!([
-            {"name": "inlineJUnit4", "line": 7, "endLine": 7},
-            {"name": "parameterized", "line": 11, "endLine": 14}
-        ])
-    );
-    let structure: Value = serde_json::from_str(&execute_json(
-        &serde_json::json!({
-            "id": "java-structure-test-methods",
-            "command": "java.structure",
-            "payload": {"source": source}
-        })
-        .to_string(),
-    ))
-    .expect("Java structure response should be JSON");
-    assert_eq!(structure["ok"], true, "{structure}");
-    assert_eq!(
-        structure["data"]["testMethods"],
-        serde_json::json!([
-            {"name": "inlineJUnit4", "line": 8, "endLine": 8},
-            {"name": "parameterized", "line": 12, "endLine": 15}
-        ])
-    );
 }
 
 /// Builds a minimal reactor so Maven context validation succeeds, leaving each

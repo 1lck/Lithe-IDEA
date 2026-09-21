@@ -30,6 +30,18 @@ package struct LanguageServerRuntimeStart: Equatable, Sendable {
     }
 }
 
+/// An installed JDK the Java language service may compile projects against.
+package struct JavaLanguageServiceRuntime: Equatable, Sendable {
+    package let homePath: String
+    /// Version reported by `java -version`, such as `25.0.4` or `1.8.0_402`.
+    package let version: String
+
+    package init(homePath: String, version: String) {
+        self.homePath = homePath
+        self.version = version
+    }
+}
+
 package struct JDTLSLaunchResources: Equatable, Sendable {
     package let launcherJarURL: URL
     package let configurationDirectoryURL: URL
@@ -39,6 +51,9 @@ package struct JDTLSLaunchResources: Equatable, Sendable {
     package let javaExtensionBundleURLs: [URL]
     /// Standalone TestNG runner used only when a TestNG debug launch is requested.
     package let javaTestRunnerURL: URL?
+    /// Installed JDKs, most preferred first. Without them JDT LS knows only the
+    /// JDK it runs on and cannot build a project for a newer release.
+    package let javaRuntimes: [JavaLanguageServiceRuntime]
 
     package init(
         launcherJarURL: URL,
@@ -46,8 +61,10 @@ package struct JDTLSLaunchResources: Equatable, Sendable {
         lombokAgentURL: URL,
         javaDebugBundleURL: URL? = nil,
         javaExtensionBundleURLs: [URL] = [],
-        javaTestRunnerURL: URL? = nil
+        javaTestRunnerURL: URL? = nil,
+        javaRuntimes: [JavaLanguageServiceRuntime] = []
     ) {
+        self.javaRuntimes = javaRuntimes
         self.launcherJarURL = launcherJarURL.standardizedFileURL
         self.configurationDirectoryURL = configurationDirectoryURL.standardizedFileURL
         self.lombokAgentURL = lombokAgentURL.standardizedFileURL
