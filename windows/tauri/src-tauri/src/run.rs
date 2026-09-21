@@ -262,6 +262,62 @@ pub fn run_discover_toolchains(
     ))
 }
 
+/// Resolves the Maven this workspace would run without launching any process.
+///
+/// `run_discover_toolchains` runs `mvn -version` and `java -version` on every
+/// candidate, and a project wrapper may download a Maven distribution on its
+/// first run. That cost is acceptable while resolving run configurations, but
+/// not on the editor path that blocks Java language-server startup.
+///
+/// Candidate order matches `resolve_maven_executable`, so project import and
+/// builds agree on one Maven.
+#[tauri::command]
+pub fn maven_resolve_installation(root: PathBuf, override_path: Option<String>) -> Option<String> {
+    let root = existing_directory(&root).ok()?;
+    maven_executable_without_probing(&root, override_path.as_deref())
+}
+
+fn maven_executable_without_probing(root: &Path, override_path: Option<&str>) -> Option<String> {
+    if let Some(configured) = override_path
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let path = if Path::new(configured).is_absolute() {
+            PathBuf::from(configured)
+        } else {
+            root.join(configured)
+        };
+        return custom_maven_executable_candidates(&path)
+            .into_iter()
+            .find(|candidate| candidate.is_file())
+            .map(|candidate| normalize_path(&candidate).to_string_lossy().into_owned());
+    }
+    for name in ["mvnw.cmd", "mvnw.bat", "mvnw"] {
+        let wrapper = root.join(name);
+        if wrapper.is_file() && maven_wrapper_is_usable(&wrapper) {
+            return Some(normalize_path(&wrapper).to_string_lossy().into_owned());
+        }
+    }
+    // Wrappers were already considered above, and an unusable one must not
+    // shadow a machine installation here.
+    maven_executable_candidates(Some(root))
+        .into_iter()
+        .filter(|candidate| !is_maven_wrapper(candidate))
+        .find(|candidate| candidate.is_file())
+        .map(|candidate| normalize_path(&candidate).to_string_lossy().into_owned())
+}
+
+fn is_maven_wrapper(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| {
+            matches!(
+                name.to_ascii_lowercase().as_str(),
+                "mvnw" | "mvnw.cmd" | "mvnw.bat"
+            )
+        })
+}
+
 #[tauri::command]
 pub fn run_resolve_launch(args: ResolveLaunchArgs) -> Result<ResolvedLaunch, String> {
     let root = existing_directory(&args.root)?;
@@ -2117,6 +2173,69 @@ mod tests {
             quote_windows_arg(r"D:\my project\mvnw.cmd"),
             r#""D:\my project\mvnw.cmd""#
         );
+    }
+
+    #[test]
+    fn maven_resolution_without_probing_prefers_a_usable_wrapper() {
+        // The editor path awaits this resolution before starting JDT LS, so it
+        // must reach the same Maven a build would run without launching one.
+        let root = temp_project();
+        let wrapper = root.join("mvnw.cmd");
+        fs::write(&wrapper, "@echo off\n").unwrap();
+        fs::create_dir_all(root.join(".mvn/wrapper")).unwrap();
+        fs::write(
+            root.join(".mvn/wrapper/maven-wrapper.properties"),
+            "distributionUrl=https://example.invalid/apache-maven-3.9.9-bin.zip\n",
+        )
+        .unwrap();
+
+        let resolved =
+            maven_executable_without_probing(&root, None).expect("a usable wrapper should resolve");
+
+        assert!(resolved.ends_with("mvnw.cmd"), "resolved {resolved}");
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn maven_resolution_without_probing_accepts_a_home_or_a_launcher_override() {
+        let root = temp_project();
+        let home = root.join("apache-maven");
+        fs::create_dir_all(home.join("bin")).unwrap();
+        let launcher = home.join("bin").join("mvn.cmd");
+        fs::write(&launcher, "@echo off\n").unwrap();
+        // A wrapper must not shadow an explicit selection.
+        fs::write(root.join("mvnw.cmd"), "@echo off\n").unwrap();
+
+        for override_path in [
+            home.to_string_lossy().into_owned(),
+            launcher.to_string_lossy().into_owned(),
+        ] {
+            let resolved = maven_executable_without_probing(&root, Some(&override_path))
+                .expect("an existing override should resolve");
+            assert!(
+                resolved.ends_with("mvn.cmd"),
+                "override {override_path} resolved to {resolved}"
+            );
+        }
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn maven_resolution_without_probing_ignores_an_incomplete_wrapper() {
+        // Without maven-wrapper.properties the wrapper cannot run, so it must
+        // not be reported as the installation project import should follow.
+        let root = temp_project();
+        fs::write(root.join("mvnw.cmd"), "@echo off\n").unwrap();
+
+        let resolved = maven_executable_without_probing(&root, None);
+
+        assert!(
+            !resolved
+                .as_deref()
+                .is_some_and(|value| value.ends_with("mvnw.cmd")),
+            "resolved {resolved:?}"
+        );
+        fs::remove_dir_all(root).ok();
     }
 
     #[test]

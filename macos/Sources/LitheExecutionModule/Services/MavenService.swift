@@ -72,9 +72,23 @@ package final class MavenService: ObservableObject {
             settingsPath: settingsPath,
             localRepositoryPath: localRepositoryPath,
             skipTests: skipTests,
-            mavenExecutablePath: mavenExecutablePath,
+            mavenExecutablePath: resolvedMavenExecutablePath,
             javaHomePath: javaHomePath
         )
+    }
+
+    /// Maven this workspace runs, falling back to the wrapper or a discovered
+    /// installation when Maven Settings leaves the path empty.
+    ///
+    /// Project import reads the local repository and mirrors from the
+    /// installation's `conf/settings.xml`. Passing an empty path would leave the
+    /// language server on its embedded defaults while builds keep using the
+    /// resolved installation, so the same project would resolve against two
+    /// different local repositories.
+    private var resolvedMavenExecutablePath: String? {
+        if let mavenExecutablePath { return mavenExecutablePath }
+        guard let project else { return nil }
+        return runtimeService.mavenExecutable(for: project, overridePath: nil)?.path
     }
 
     private let process: any StreamingProcess

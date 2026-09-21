@@ -94,6 +94,10 @@ pub(crate) struct JdtStartContext {
 pub(crate) struct JdtMavenConfiguration {
     /// Optional machine-local Maven settings file consumed by JDT LS.
     pub settings_path: Option<String>,
+    /// Optional `conf/settings.xml` of the Maven installation this workspace
+    /// runs. It carries the local repository and mirrors that the command line
+    /// already uses, so JDT LS must resolve artifacts through the same file.
+    pub global_settings_path: Option<String>,
     /// Sorted, de-duplicated Maven profile IDs selected for this workspace.
     pub profiles: Vec<String>,
     /// Deterministically ordered reactor and recursive-module directory URIs.
@@ -134,6 +138,7 @@ pub(crate) fn maven_profile_fingerprint(
     let configuration = configuration?;
     let payload = serde_json::to_vec(&json!({
         "settingsPath": configuration.settings_path,
+        "globalSettingsPath": configuration.global_settings_path,
         "profiles": configuration.profiles,
         "projectUris": configuration.project_uris,
         "sourcePaths": configuration.source_paths,
@@ -271,6 +276,7 @@ pub(crate) fn adapt_initialization_options(
     provider_id: &str,
     initialization_options: Option<Value>,
     java_extension_bundle_paths: &[PathBuf],
+    maven_configuration: Option<&JdtMavenConfiguration>,
 ) -> Option<Value> {
     if !is_java_provider(provider_id) {
         return initialization_options;
@@ -309,7 +315,46 @@ pub(crate) fn adapt_initialization_options(
         }
     }
 
+    // JDT LS configures its Maven embedder from `initializationOptions` while it
+    // handles `initialize`, and the project import starts immediately after.
+    // The same values sent later through `didChangeConfiguration` would arrive
+    // after that import already resolved every artifact against the embedded
+    // defaults, so the repository and mirrors must be present here as well.
+    merge_java_settings(&mut options, java_settings(maven_configuration));
+
     Some(Value::Object(options))
+}
+
+/// Overlays the provider-owned `settings.java` values onto catalog-provided
+/// initialization options.
+///
+/// Catalog keys that the provider does not own are preserved, while the Maven,
+/// build, and code-lens values Lithe depends on stay authoritative.
+fn merge_java_settings(options: &mut Map<String, Value>, provider_settings: Value) {
+    let settings = options.entry("settings").or_insert_with(|| json!({}));
+    if !settings.is_object() {
+        *settings = json!({});
+    }
+    let settings = settings
+        .as_object_mut()
+        .expect("the settings value was normalized to an object");
+    let java = settings.entry("java").or_insert_with(|| json!({}));
+    if !java.is_object() {
+        *java = json!({});
+    }
+    let java = java
+        .as_object_mut()
+        .expect("the java settings were normalized to an object");
+    let Some(provider_java) = provider_settings
+        .get("java")
+        .and_then(Value::as_object)
+        .cloned()
+    else {
+        return;
+    };
+    for (key, value) in provider_java {
+        java.insert(key, value);
+    }
 }
 
 /// Returns JDT LS configuration values in the same order as the requested
@@ -782,16 +827,31 @@ fn java_settings(maven_configuration: Option<&JdtMavenConfiguration>) -> Value {
             }
         }
     });
-    if let Some(settings_path) = maven_configuration.and_then(|value| value.settings_path.as_ref())
-    {
-        settings["java"]["configuration"]["maven"] = json!({
-            "userSettings": settings_path
-        });
+    if let Some(section) = maven_settings_section(maven_configuration) {
+        settings["java"]["configuration"]["maven"] = section;
     }
     if let Some(configuration) = maven_configuration {
         settings["java"]["project"]["sourcePaths"] = json!(configuration.source_paths);
     }
     settings
+}
+
+/// Builds the `java.configuration.maven` section for the resolved context.
+///
+/// `globalSettings` carries the local repository and mirrors of the Maven
+/// installation the workspace runs. Omitting it leaves JDT LS on its embedded
+/// defaults, which resolves artifacts against a different repository than the
+/// Maven command line uses for the same project.
+fn maven_settings_section(maven_configuration: Option<&JdtMavenConfiguration>) -> Option<Value> {
+    let configuration = maven_configuration?;
+    let mut section = Map::new();
+    if let Some(path) = &configuration.settings_path {
+        section.insert("userSettings".to_string(), json!(path));
+    }
+    if let Some(path) = &configuration.global_settings_path {
+        section.insert("globalSettings".to_string(), json!(path));
+    }
+    (!section.is_empty()).then_some(Value::Object(section))
 }
 
 fn java_configuration_for_section(
@@ -815,12 +875,14 @@ fn java_configuration_for_section(
             java_settings(maven_configuration)["java"]["configuration"].clone()
         }
         Some("java.configuration.updateBuildConfiguration") => json!("automatic"),
-        Some("java.configuration.maven") => maven_configuration
-            .and_then(|value| value.settings_path.as_ref())
-            .map(|path| json!({ "userSettings": path }))
-            .unwrap_or(Value::Null),
+        Some("java.configuration.maven") => {
+            maven_settings_section(maven_configuration).unwrap_or(Value::Null)
+        }
         Some("java.configuration.maven.userSettings") => maven_configuration
             .and_then(|value| value.settings_path.as_ref())
+            .map_or(Value::Null, |path| json!(path)),
+        Some("java.configuration.maven.globalSettings") => maven_configuration
+            .and_then(|value| value.global_settings_path.as_ref())
             .map_or(Value::Null, |path| json!(path)),
         Some("java.project") => maven_configuration
             .map(|value| json!({ "sourcePaths": value.source_paths }))
@@ -1248,7 +1310,7 @@ mod tests {
         assert!(initialized_notification("rust", None).is_none());
         assert!(virtual_source_resolve_params("rust", "jdt://contents/A.class").is_none());
         assert_eq!(
-            adapt_initialization_options("rust", Some(json!({ "custom": true })), &[]),
+            adapt_initialization_options("rust", Some(json!({ "custom": true })), &[], None),
             Some(json!({ "custom": true }))
         );
         let location = ProviderLocation {
@@ -1277,6 +1339,7 @@ mod tests {
                     "/jdtls/java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar",
                 ),
             ],
+            None,
         )
         .unwrap();
 
@@ -1297,6 +1360,59 @@ mod tests {
                 "/jdtls/java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar"
             ])
         );
+    }
+
+    #[test]
+    fn java_initialization_options_carry_maven_settings_before_the_first_import() {
+        // JDT LS configures its Maven embedder while handling `initialize`, and
+        // the project import starts right after. A repository or mirror sent
+        // only through `didChangeConfiguration` would arrive once that import
+        // had already resolved every artifact against the embedded defaults.
+        let configuration = JdtMavenConfiguration {
+            settings_path: None,
+            global_settings_path: Some("/opt/maven/conf/settings.xml".to_string()),
+            profiles: Vec::new(),
+            project_uris: Vec::new(),
+            source_paths: vec!["src/main/java".to_string()],
+        };
+
+        let options = adapt_initialization_options(
+            "java",
+            Some(json!({
+                "workspace": { "custom": true },
+                "settings": { "java": { "custom": true } }
+            })),
+            &[],
+            Some(&configuration),
+        )
+        .unwrap();
+
+        assert_eq!(
+            options["settings"]["java"]["configuration"]["maven"]["globalSettings"],
+            "/opt/maven/conf/settings.xml"
+        );
+        assert_eq!(
+            options["settings"]["java"]["project"]["sourcePaths"],
+            json!(["src/main/java"])
+        );
+        // Catalog values outside the provider-owned keys survive the overlay.
+        assert_eq!(options["settings"]["java"]["custom"], true);
+        assert_eq!(options["workspace"]["custom"], true);
+    }
+
+    #[test]
+    fn java_initialization_options_carry_settings_without_a_maven_context() {
+        let options = adapt_initialization_options("java", None, &[], None).unwrap();
+
+        assert_eq!(
+            options["settings"]["java"]["maven"]["downloadSources"],
+            false
+        );
+        // Without a resolved context JDT LS keeps its own Maven defaults rather
+        // than receiving an empty or null settings section.
+        assert!(options["settings"]["java"]["configuration"]
+            .get("maven")
+            .is_none());
     }
 
     #[test]
@@ -1368,6 +1484,7 @@ mod tests {
     fn java_configuration_and_profile_updates_consume_the_maven_context() {
         let configuration = JdtMavenConfiguration {
             settings_path: Some("/local/settings.xml".to_string()),
+            global_settings_path: Some("/opt/maven/conf/settings.xml".to_string()),
             profiles: vec!["dev".to_string(), "enterprise".to_string()],
             project_uris: vec![
                 "file:///workspace/reactor/".to_string(),
@@ -1384,6 +1501,7 @@ mod tests {
             "java.configuration",
             "java.configuration.maven",
             "java.configuration.maven.userSettings",
+            "java.configuration.maven.globalSettings",
         ]
         .map(|section| WorkspaceConfigurationItem {
             scope_uri: Some("file:///workspace/reactor/".to_string()),
@@ -1398,6 +1516,18 @@ mod tests {
         assert_eq!(values[1]["maven"]["userSettings"], "/local/settings.xml");
         assert_eq!(values[2]["userSettings"], "/local/settings.xml");
         assert_eq!(values[3], "/local/settings.xml");
+        // The installation settings carry the local repository and mirrors that
+        // the Maven command line already uses for this workspace.
+        assert_eq!(
+            values[0]["configuration"]["maven"]["globalSettings"],
+            "/opt/maven/conf/settings.xml"
+        );
+        assert_eq!(
+            values[1]["maven"]["globalSettings"],
+            "/opt/maven/conf/settings.xml"
+        );
+        assert_eq!(values[2]["globalSettings"], "/opt/maven/conf/settings.xml");
+        assert_eq!(values[4], "/opt/maven/conf/settings.xml");
         assert_eq!(
             values[0]["project"]["sourcePaths"],
             json!(["src/main/java", "module-a/src/main/java"])
@@ -1429,6 +1559,10 @@ mod tests {
         assert_eq!(
             notification.params["settings"]["java"]["configuration"]["maven"]["userSettings"],
             "/local/settings.xml"
+        );
+        assert_eq!(
+            notification.params["settings"]["java"]["configuration"]["maven"]["globalSettings"],
+            "/opt/maven/conf/settings.xml"
         );
         assert_eq!(
             notification.params["settings"]["java"]["project"]["sourcePaths"],
@@ -1474,13 +1608,22 @@ mod tests {
     fn maven_profile_fingerprint_changes_when_selected_inputs_change() {
         let mut configuration = JdtMavenConfiguration {
             settings_path: Some("/settings.xml".to_string()),
+            global_settings_path: Some("/opt/maven/conf/settings.xml".to_string()),
             profiles: vec!["dev".to_string()],
             project_uris: vec!["file:///workspace".to_string()],
             source_paths: vec!["src/main/java".to_string()],
         };
         let first = maven_profile_fingerprint(Some(&configuration));
         configuration.profiles.push("test".to_string());
-        assert_ne!(first, maven_profile_fingerprint(Some(&configuration)));
+        let after_profiles = maven_profile_fingerprint(Some(&configuration));
+        assert_ne!(first, after_profiles);
+        // Switching Maven installations changes the repository and mirrors the
+        // import resolves through, so a warm session must not skip the update.
+        configuration.global_settings_path = Some("/opt/other-maven/conf/settings.xml".to_string());
+        assert_ne!(
+            after_profiles,
+            maven_profile_fingerprint(Some(&configuration))
+        );
     }
 
     #[test]
