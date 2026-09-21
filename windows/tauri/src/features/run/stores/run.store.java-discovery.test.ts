@@ -20,6 +20,7 @@ function javaConfiguration(): RunConfiguration {
 function harness(options: {
   javaSources?: string[];
   discoveries: JavaEntrypointDiscovery[];
+  discover?: () => Promise<JavaEntrypointDiscovery>;
   resolvedJavaEntries?: boolean;
 }) {
   const generateCalls: Array<JavaEntrypoints | undefined> = [];
@@ -28,7 +29,8 @@ function harness(options: {
   const discoveries = [...options.discoveries];
   const store = createRunStore("workspace-1", {
     listJavaSources: async () => options.javaSources ?? ["src/main/java/demo/StaticNoArgs.java"],
-    discoverJavaEntrypoints: async () => discoveries.shift() ?? { kind: "pending" },
+    discoverJavaEntrypoints:
+      options.discover ?? (async () => discoveries.shift() ?? { kind: "pending" }),
     whenJavaProjectPrepared: (_root, listener) => {
       preparedListeners.push(listener);
       return () => {
@@ -134,5 +136,38 @@ describe("Java entry-point discovery in the Run list", () => {
     await store.getState().actions.generate(ROOT);
     expect(preparedListeners).toHaveLength(2);
     expect(stoppedWaiting()).toBe(1);
+  });
+
+  test("a superseded JDT result cannot overwrite a newer generation", async () => {
+    let discoveryCall = 0;
+    let releaseFirstDiscovery: ((result: JavaEntrypointDiscovery) => void) | undefined;
+    let signalFirstDiscovery: (() => void) | undefined;
+    const firstDiscoveryStarted = new Promise<void>((resolve) => {
+      signalFirstDiscovery = resolve;
+    });
+    const firstDiscovery = new Promise<JavaEntrypointDiscovery>((resolve) => {
+      releaseFirstDiscovery = resolve;
+    });
+    const { store, generateCalls } = harness({
+      discoveries: [],
+      discover: async () => {
+        discoveryCall += 1;
+        if (discoveryCall === 1) {
+          signalFirstDiscovery?.();
+          return firstDiscovery;
+        }
+        return { kind: "discovered", entrypoints: ENTRYPOINTS };
+      },
+    });
+
+    const superseded = store.getState().actions.generate(ROOT);
+    await firstDiscoveryStarted;
+    await store.getState().actions.generate(ROOT);
+    releaseFirstDiscovery?.({ kind: "failed", message: "stale failure" });
+    await superseded;
+
+    expect(generateCalls).toEqual([ENTRYPOINTS]);
+    expect(store.getState().javaDiscovery).toBe("ready");
+    expect(store.getState().javaDiscoveryMessage).toBeNull();
   });
 });

@@ -414,6 +414,7 @@ export const createRunStore = (
         set({
           root,
           isLoading: true,
+          isGenerating: false,
           saveError: null,
           generationNotice: null,
           javaLaunchDecisions: {},
@@ -451,9 +452,18 @@ export const createRunStore = (
 
       generate: async (root) => {
         cancelJavaRefresh();
-        set({ isGenerating: true, isLoading: true, generationNotice: null, saveError: null });
+        const revision = ++projectLoadRevision;
+        const isCurrent = () => revision === projectLoadRevision && get().root === root;
+        set({
+          root,
+          isGenerating: true,
+          isLoading: true,
+          generationNotice: null,
+          saveError: null,
+        });
         try {
           const paths = await (dependencies.listJavaSources ?? listJavaSources)(root);
+          if (!isCurrent()) return;
           // JDT decides which classes are launchable. Until it has prepared
           // the project, Core keeps the previous generation's Java entries.
           const discovery =
@@ -463,19 +473,23 @@ export const createRunStore = (
                   { workspaceId, root },
                   paths,
                 );
+          if (!isCurrent()) return;
           const generated = await (dependencies.generateRunConfiguration ?? generateRunConfiguration)(
             root,
             paths,
             [],
             discovery?.kind === "discovered" ? discovery.entrypoints : undefined,
           );
+          if (!isCurrent()) return;
           await (dependencies.writeGeneratedRunDocuments ?? writeGeneratedRunDocuments)({
             root,
             generated: generated.generated,
             toolchainRequirements: generated.toolchainRequirements,
             defaultRunConfiguration: defaultGeneratedConfigurationId(generated.generated),
           });
+          if (!isCurrent()) return;
           const resolved = await (dependencies.resolveConfigurations ?? resolveConfigurations)(root, workspaceId);
+          if (!isCurrent()) return;
           const notice =
             generated.entryCount === 0 ? "no-entries" : `generated:${generated.entryCount}`;
           const hasJavaEntries = resolved.configurations.some(
@@ -525,6 +539,7 @@ export const createRunStore = (
             isLoading: false,
           });
         } catch (error) {
+          if (!isCurrent()) return;
           const message = error instanceof Error ? error.message : "Project identification failed";
           set({
             status: "invalid",
