@@ -185,7 +185,8 @@ package final class MavenService: ObservableObject {
 
     package func loadProject(at workspaceURL: URL, files: [URL]) async {
         let inventory = MavenProjectInventory(rootURL: workspaceURL, files: files)
-        if let currentRoot = self.workspaceURL, currentRoot != inventory.rootURL {
+        if let currentRoot = self.workspaceURL ?? projectLoadInventory?.rootURL,
+           currentRoot != inventory.rootURL {
             reset()
         }
 
@@ -214,18 +215,33 @@ package final class MavenService: ObservableObject {
 
         invalidateDependencies()
         let loadID = UUID()
-        let revision = reloadRevision
         projectLoadID = loadID
         projectLoadInventory = inventory
         projectState = .loading
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.performProjectLoad(
-                inventory: inventory,
-                files: files,
-                loadID: loadID,
-                revision: revision
-            )
+            defer {
+                if self.projectLoadID == loadID {
+                    self.projectLoadTask = nil
+                    self.projectLoadInventory = nil
+                    if self.projectState == .loading {
+                        self.projectState = self.project == nil ? .idle : .ready
+                    }
+                }
+            }
+            // Before a model is accepted, a POM event invalidates the scan rather
+            // than asking the user to reload a model that does not exist yet.
+            // All matching inventory callers keep awaiting this owned task.
+            while !Task.isCancelled, self.projectLoadID == loadID {
+                let revision = self.reloadRevision
+                await self.performProjectLoad(
+                    inventory: inventory,
+                    files: files,
+                    loadID: loadID,
+                    revision: revision
+                )
+                guard self.project == nil, self.reloadRevision != revision else { return }
+            }
         }
         projectLoadTask = task
         await task.value
@@ -237,15 +253,6 @@ package final class MavenService: ObservableObject {
         loadID: UUID,
         revision: Int
     ) async {
-        defer {
-            if projectLoadID == loadID {
-                projectLoadTask = nil
-                projectLoadInventory = nil
-                if projectState == .loading {
-                    projectState = project == nil ? .idle : .ready
-                }
-            }
-        }
         let rootURL = inventory.rootURL
         let mavenOperations = mavenOperations
         let configurationWriter = configurationWriter
@@ -383,11 +390,12 @@ package final class MavenService: ObservableObject {
 
     /// Marks only descriptors owned by this workspace; deletion is a change too.
     package func markPomChanged(_ fileURL: URL) {
-        guard let workspaceURL else { return }
+        guard let workspaceURL = workspaceURL ?? projectLoadInventory?.rootURL else { return }
         let file = fileURL.standardizedFileURL
         guard file.lastPathComponent.lowercased() == "pom.xml",
               file.path.hasPrefix(workspaceURL.path + "/") else { return }
         reloadRevision += 1
+        guard project != nil else { return }
         isProjectReloadRequired = true
         isReloadRequired = true
     }

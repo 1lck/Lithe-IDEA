@@ -107,6 +107,76 @@ struct ExecutionModuleTests {
         #expect(!graph.maven.isLoadingProject)
     }
 
+    @Test(arguments: ["changed", "coalesced", "unrelated", "reset", "workspace"])
+    func mavenInitialLoadRejectsChangedPomContents(outcome: String) async {
+        let gate = ReloadScanGate()
+        let operations = ReloadMavenOperations(scanGate: gate, scanArtifacts: ["old", "new"])
+        let graph = makeTestGraph(mavenOperations: operations)
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let pom = root.appendingPathComponent("pom.xml")
+        let first = Task { @MainActor in
+            await graph.maven.loadProject(at: root, files: [pom])
+        }
+        defer {
+            first.cancel()
+            gate.entered.continuation.finish()
+            gate.release.signal()
+            gate.release.signal()
+            graph.maven.reset()
+            graph.run.reset()
+        }
+        do {
+            try await awaitSignal(gate.entered.stream)
+        } catch {
+            Issue.record("Initial Maven scan did not reach its gate: \(error)")
+            graph.maven.reset()
+            gate.release.signal()
+            await first.value
+            return
+        }
+
+        #expect(graph.maven.project == nil)
+        if outcome == "unrelated" {
+            graph.maven.markPomChanged(URL(fileURLWithPath: "/workspace-copy/pom.xml"))
+            graph.maven.markPomChanged(root.appendingPathComponent("README.md"))
+        } else {
+            // The first scan has captured old contents. Multiple edits must
+            // invalidate that result without starting parallel replacement scans.
+            graph.maven.markPomChanged(pom)
+            graph.maven.markPomChanged(pom)
+        }
+        #expect(!graph.maven.isProjectReloadRequired)
+        if outcome == "reset" { graph.maven.reset() }
+        gate.release.signal()
+        gate.release.signal()
+        if outcome == "coalesced" {
+            // No MainActor suspension occurs between release and this call, so
+            // the matching request joins the first task before it can commit.
+            await graph.maven.loadProject(at: root, files: [pom])
+        } else if outcome == "workspace" {
+            let other = URL(fileURLWithPath: "/other", isDirectory: true)
+            await graph.maven.loadProject(at: other, files: [other.appendingPathComponent("pom.xml")])
+            #expect(graph.maven.project?.rootURL == other)
+        }
+        await first.value
+
+        if outcome == "reset" {
+            #expect(operations.scanCount == 1)
+            #expect(graph.maven.project == nil)
+            #expect(graph.maven.projectState == .idle)
+        } else {
+            #expect(operations.scanCount == (outcome == "unrelated" ? 1 : 2))
+            #expect(graph.maven.project?.artifactID == (outcome == "unrelated" ? "old" : "new"))
+            #expect(graph.maven.projectState == .ready)
+            #expect(!graph.maven.isReloadRequired)
+            // The fresh result must itself be reusable by later snapshots.
+            if outcome != "workspace" {
+                await graph.maven.loadProject(at: root, files: [pom])
+                #expect(operations.scanCount == (outcome == "unrelated" ? 1 : 2))
+            }
+        }
+    }
+
     @Test(arguments: ["success", "failure", "new-pom", "workspace"])
     func mavenReloadSynchronizesAcceptedRunProfiles(outcome: String) async throws {
         let graph = makeTestGraph(mavenOperations: ReloadMavenOperations())
@@ -1832,10 +1902,12 @@ private func makeReloadService() async -> (MavenService, URL) {
 private final class ReloadMavenOperations: MavenProjectOperations, @unchecked Sendable {
     private let lock = NSLock()
     private let scanGate: ReloadScanGate?
+    private let scanArtifacts: [String]
     private var recordedScanCount = 0
 
-    init(scanGate: ReloadScanGate? = nil) {
+    init(scanGate: ReloadScanGate? = nil, scanArtifacts: [String] = []) {
         self.scanGate = scanGate
+        self.scanArtifacts = scanArtifacts
     }
 
     var scanCount: Int {
@@ -1845,10 +1917,13 @@ private final class ReloadMavenOperations: MavenProjectOperations, @unchecked Se
     }
 
     func scanMavenProject(at rootURL: URL, files: [URL]) throws -> MavenProject? {
-        let name = files.first?.lastPathComponent ?? "old"
         lock.lock()
+        let scanIndex = recordedScanCount
         recordedScanCount += 1
         lock.unlock()
+        let name = scanArtifacts.indices.contains(scanIndex)
+            ? scanArtifacts[scanIndex]
+            : files.first?.lastPathComponent ?? "old"
         if let scanGate {
             scanGate.entered.continuation.yield(())
             // The full test lane can delay the main-actor release while many
