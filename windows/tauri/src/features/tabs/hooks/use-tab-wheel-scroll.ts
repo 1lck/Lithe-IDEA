@@ -6,7 +6,9 @@ export function useTabWheelScroll(ref: RefObject<HTMLDivElement | null>, enabled
     if (!container || !enabled) return;
 
     const handleWheel = (event: WheelEvent) => {
-      if (event.ctrlKey || event.metaKey) return;
+      // Leave consumed gestures alone, and only move manually when the native
+      // scroll can be cancelled; otherwise both paths can apply the movement.
+      if (event.defaultPrevented || !event.cancelable || event.ctrlKey || event.metaKey) return;
       const maxScrollLeft = container.scrollWidth - container.clientWidth;
       if (maxScrollLeft <= 0) return;
 

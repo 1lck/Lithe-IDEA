@@ -104,3 +104,17 @@ test("disabling for settings or dragging removes the listener, and unmount clean
   expect(wheel(strip, { deltaY: 100 }).defaultPrevented).toBe(false);
   expect(strip.scrollLeft).toBe(100);
 });
+
+test("leaves non-cancelable native scrolling and gestures consumed by a child alone", () => {
+  const strip = mount();
+  expect(wheel(strip, { deltaX: 100, cancelable: false }).defaultPrevented).toBe(false);
+  expect(strip.scrollLeft).toBe(0);
+
+  const tab = strip.querySelector("button")!;
+  tab.addEventListener("wheel", (event) => event.preventDefault(), { once: true });
+  expect(wheel(tab, { deltaY: 100 }).defaultPrevented).toBe(true);
+  expect(strip.scrollLeft).toBe(0);
+  // Once the child stops consuming the gesture, the strip handles it normally.
+  expect(wheel(tab, { deltaY: 100 }).defaultPrevented).toBe(true);
+  expect(strip.scrollLeft).toBe(100);
+});
