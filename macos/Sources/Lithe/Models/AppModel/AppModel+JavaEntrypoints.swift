@@ -84,17 +84,31 @@ extension AppModel {
     /// When the Java service cannot answer, the file is treated as not
     /// launchable and Debug keeps using a project entry, as it did when the
     /// editor text was unavailable.
-    func isLaunchableJavaEntrypoint(_ documentURL: URL?, in workspaceURL: URL) async -> Bool {
-        guard let documentURL, documentURL.pathExtension.lowercased() == "java" else {
+    func isLaunchableJavaEntrypoint(_ document: EditorDocument?, in workspaceURL: URL) async -> Bool {
+        guard let document, document.url.pathExtension.lowercased() == "java" else {
             return false
         }
-        guard let sessions = try? await languageSessionsForWorkspaceMaintenance(),
-              let entrypoints = try? await sessions.javaEntrypoints(rootURL: workspaceURL) else {
+        guard let sessions = try? await languageSessionsForWorkspaceMaintenance() else {
+            return false
+        }
+        do {
+            // Debug can be clicked before the editor's ordinary synchronization
+            // task flushes. Make this semantic decision against the exact
+            // buffer text, including unsaved Java 25 entry points.
+            try sessions.synchronizeLanguageServer(
+                for: document.url,
+                text: document.text,
+                rootURL: workspaceURL
+            )
+        } catch {
+            return false
+        }
+        guard let entrypoints = try? await sessions.javaEntrypoints(rootURL: workspaceURL) else {
             return false
         }
         let rootPath = workspaceURL.resolvingSymlinksInPath().standardizedFileURL.path
         let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
-        let filePath = documentURL.resolvingSymlinksInPath().standardizedFileURL.path
+        let filePath = document.url.resolvingSymlinksInPath().standardizedFileURL.path
         guard filePath.hasPrefix(prefix) else { return false }
         let relativePath = String(filePath.dropFirst(prefix.count))
         return entrypoints.entries.contains { $0.sourcePath == relativePath }
