@@ -76,7 +76,7 @@ afterAll(async () => {
 });
 
 describe("keymap input routing", () => {
-  test("routes Ctrl+Alt+L to document formatting in the Monaco editor", async () => {
+  test("routes Ctrl+Alt+L and the existing Shift+Alt+F alias to document formatting", async () => {
     const formatDocument = mock(() => undefined);
     keymapRegistry.registerCommand({
       id: "editor.formatDocument",
@@ -107,6 +107,21 @@ describe("keymap input routing", () => {
 
     expect(event.defaultPrevented).toBe(true);
     expect(formatDocument).toHaveBeenCalledTimes(1);
+
+    const compatibilityEvent = new KeyboardEvent("keydown", {
+      key: "f",
+      code: "KeyF",
+      shiftKey: true,
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      editorInput.dispatchEvent(compatibilityEvent);
+    });
+
+    expect(compatibilityEvent.defaultPrevented).toBe(true);
+    expect(formatDocument).toHaveBeenCalledTimes(2);
   });
 
   test("routes Ctrl+Alt+Left and Ctrl+Alt+Right to history navigation in the Monaco editor", async () => {
