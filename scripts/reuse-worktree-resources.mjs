@@ -5,7 +5,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const REGISTRY_PATH = path.join(SCRIPT_DIRECTORY, "worktree-resources.json");
@@ -184,7 +184,8 @@ async function verifyResource(resource, cachePath, targetRoot) {
   if (result.stdout) process.stdout.write(result.stdout);
   if (result.stderr) process.stderr.write(result.stderr);
   if (result.status !== 0) {
-    throw new Error(`Validation failed for ${resource.id}: ${result.error || `exit ${result.status}`}`);
+    const details = result.error || result.stderr || `exit ${result.status}`;
+    throw new Error(`Validation failed for ${resource.id}: ${details}`);
   }
 }
 
@@ -203,21 +204,33 @@ async function countPayloadFiles(root) {
   return count;
 }
 
-async function publishDirectory(staging, destination, validatePublished) {
+async function publishDirectory(staging, destination, validatePublished, rename = fs.rename) {
   const suffix = `${process.pid}-${randomUUID()}`;
   const backup = `${destination}.backup-${suffix}`;
   const destinationExists = await pathExists(destination);
+  let backedUp = false;
   let committed = false;
   try {
-    if (destinationExists) await fs.rename(destination, backup);
-    await fs.rename(staging, destination);
+    if (destinationExists) {
+      try {
+        await rename(destination, backup);
+        backedUp = true;
+      } catch (error) {
+        throw new Error(`Could not back up existing cache ${destination}: ${error.message}`, { cause: error });
+      }
+    }
+    await rename(staging, destination);
     await validatePublished(destination);
     committed = true;
   } catch (error) {
-    if (await pathExists(destination)) await fs.rm(destination, { force: true, recursive: true });
-    if (await pathExists(backup)) {
+    // If backing up the old cache failed, destination still points to the user's
+    // valid cache. Preserve it instead of treating it as a failed publication.
+    if ((backedUp || !destinationExists) && await pathExists(destination)) {
+      await fs.rm(destination, { force: true, recursive: true });
+    }
+    if (backedUp && await pathExists(backup)) {
       try {
-        await fs.rename(backup, destination);
+        await rename(backup, destination);
       } catch (restoreError) {
         throw new AggregateError([error, restoreError], `Could not publish or restore ${destination}`);
       }
@@ -225,6 +238,17 @@ async function publishDirectory(staging, destination, validatePublished) {
     throw error;
   } finally {
     if (committed) await fs.rm(backup, { force: true, recursive: true });
+  }
+}
+
+async function cleanupOrphanedArtifacts(destination) {
+  const parent = path.dirname(destination);
+  if (!(await pathExists(parent))) return;
+  const prefix = `${path.basename(destination)}.`;
+  for (const entry of await fs.readdir(parent, { withFileTypes: true })) {
+    if (!entry.name.startsWith(prefix)) continue;
+    if (!entry.name.includes(".staging-") && !entry.name.includes(".backup-")) continue;
+    await fs.rm(path.join(parent, entry.name), { force: true, recursive: true });
   }
 }
 
@@ -239,6 +263,7 @@ async function reuseResource(resource, sourceRoot, targetRoot) {
   await assertSafeResourcePath(targetRoot, resource.path, `${resource.id} target`);
   await assertRealDirectory(source, `${resource.id} source`);
   await fs.mkdir(path.dirname(destination), { recursive: true });
+  await cleanupOrphanedArtifacts(destination);
   const staging = `${destination}.staging-${process.pid}-${randomUUID()}`;
   try {
     await fs.cp(source, staging, { recursive: true, force: true, preserveTimestamps: true });
@@ -307,17 +332,56 @@ async function main() {
   try {
     await fs.mkdir(lock);
   } catch (error) {
-    if (error?.code === "EEXIST") throw new Error(`Another resource reuse operation owns ${lock}`);
+    if (error?.code === "EEXIST") {
+      let owner = "unknown owner";
+      try {
+        owner = (await fs.readFile(path.join(lock, "owner.json"), "utf8")).trim();
+      } catch {
+        // The lock may belong to an interrupted process that never wrote metadata.
+      }
+      throw new Error(`Another resource reuse operation owns ${lock} (${owner}); confirm no active process before removing it`);
+    }
     throw error;
   }
   try {
-    for (const resource of selected) await reuseResource(resource, source.root, target.root);
+    await fs.writeFile(
+      path.join(lock, "owner.json"),
+      `${JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })}\n`,
+      "utf8",
+    );
+  } catch (error) {
+    await fs.rm(lock, { force: true, recursive: true });
+    throw new Error(`Could not initialize resource reuse lock ${lock}: ${error.message}`, { cause: error });
+  }
+  try {
+    const failures = [];
+    for (const resource of selected) {
+      try {
+        await reuseResource(resource, source.root, target.root);
+      } catch (error) {
+        const message = error?.message || String(error);
+        if (resource.validator === "bun" && /Could not query Bun version|Bun .* is required/.test(message)) {
+          process.stdout.write(`Skipping ${resource.id}: compatible Bun is unavailable.\n`);
+          continue;
+        }
+        failures.push(`${resource.id}: ${message}`);
+        process.stderr.write(`Failed ${resource.id}: ${message}\n`);
+      }
+    }
+    if (failures.length > 0) {
+      process.stderr.write(`Resource reuse completed with ${failures.length} failure(s).\n`);
+      process.exitCode = 1;
+    }
   } finally {
     await fs.rm(lock, { force: true, recursive: true });
   }
 }
 
-main().catch((error) => {
-  process.stderr.write(`${error.stack || error}\n`);
-  process.exitCode = 1;
-});
+export { publishDirectory, validatorArguments };
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    process.stderr.write(`${error.stack || error}\n`);
+    process.exitCode = 1;
+  });
+}

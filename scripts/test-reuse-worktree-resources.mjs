@@ -5,10 +5,11 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const reuseScript = path.join(scriptDirectory, "reuse-worktree-resources.mjs");
+const { publishDirectory, validatorArguments } = await import(pathToFileURL(reuseScript).href);
 const emptySha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 const testRoot = await fs.mkdtemp(path.join(os.tmpdir(), "lithe-worktree-resources-"));
 const sourceRoot = path.join(testRoot, "source");
@@ -116,6 +117,66 @@ try {
   assertSucceeded(result);
   assert.match(result.stdout, /^cargo\t\.artifacts\/cargo-home\/registry\/cache$/m);
   assert.match(result.stdout, /^jdk\t\.artifacts\/jdk-downloads$/m);
+
+  const rollbackRoot = path.join(testRoot, "rollback");
+  const rollbackDestination = path.join(rollbackRoot, "cache");
+  const rollbackStaging = path.join(rollbackRoot, "cache.staging");
+  await fs.mkdir(rollbackDestination, { recursive: true });
+  await fs.mkdir(rollbackStaging, { recursive: true });
+  await fs.writeFile(path.join(rollbackDestination, "old.txt"), "old");
+  await fs.writeFile(path.join(rollbackStaging, "new.txt"), "new");
+  await assert.rejects(
+    publishDirectory(rollbackStaging, rollbackDestination, async () => {}, async () => {
+      throw new Error("simulated backup rename failure");
+    }),
+    /Could not back up existing cache/,
+  );
+  assert.equal(await fs.readFile(path.join(rollbackDestination, "old.txt"), "utf8"), "old");
+  await fs.access(path.join(rollbackStaging, "new.txt"));
+
+  await fs.mkdir(path.join(targetRoot, "rust"), { recursive: true });
+  await fs.mkdir(path.join(targetRoot, "windows", "tauri", "src-tauri"), { recursive: true });
+  await fs.writeFile(path.join(targetRoot, "rust", "Cargo.lock"), "fixture");
+  await fs.writeFile(path.join(targetRoot, "windows", "tauri", "src-tauri", "Cargo.lock"), "fixture");
+  assert.deepEqual(
+    await validatorArguments({ validator: "cargo" }, path.join(targetRoot, ".artifacts", "cargo-cache"), targetRoot),
+    [
+      "--cargo-cache", path.join(targetRoot, ".artifacts", "cargo-cache"),
+      "--cargo-lock", path.join(targetRoot, "rust", "Cargo.lock"),
+      "--cargo-lock", path.join(targetRoot, "windows", "tauri", "src-tauri", "Cargo.lock"),
+    ],
+  );
+
+  await fs.mkdir(path.join(sourceRoot, ".artifacts", "jdk-downloads"), { recursive: true });
+  await fs.writeFile(path.join(sourceRoot, ".artifacts", "jdk-downloads", "source.bin"), "source");
+  result = run(process.execPath, [
+    reuseScript,
+    "--source", sourceRoot,
+    "--target", targetRoot,
+    "--resource", "jdk",
+    "--resource", "jdtls",
+  ]);
+  assert.notEqual(result.status, 0);
+  assert.match(diagnostics(result), /Failed jdk:/);
+  assert.match(result.stdout, /Keeping jdtls: target already has 8 verified file/);
+
+  const targetArtifacts = path.join(targetRoot, ".artifacts");
+  const lock = path.join(targetArtifacts, ".reuse-worktree-resources.lock");
+  await fs.mkdir(lock, { recursive: true });
+  await fs.writeFile(path.join(lock, "owner.json"), JSON.stringify({ pid: 123, startedAt: "test" }));
+  result = reuse();
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /confirm no active process before removing it/);
+  await fs.rm(lock, { force: true, recursive: true });
+
+  const orphanStaging = path.join(targetArtifacts, "jdtls-downloads.staging-stale");
+  const orphanBackup = path.join(targetArtifacts, "jdtls-downloads.backup-stale");
+  await fs.mkdir(orphanStaging, { recursive: true });
+  await fs.mkdir(orphanBackup, { recursive: true });
+  result = reuse();
+  assertSucceeded(result);
+  await assert.rejects(fs.access(orphanStaging));
+  await assert.rejects(fs.access(orphanBackup));
 
   process.stdout.write("Worktree resource reuse tests passed.\n");
 } finally {

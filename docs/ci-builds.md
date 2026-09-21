@@ -114,7 +114,8 @@ node scripts/reuse-worktree-resources.mjs \
 同一 Git 仓库的 linked worktree 互相复用资源，不修改源工作树。它先把源资源
 复制到目标工作树的临时目录，按照对应的 manifest、lockfile 或完整性清单校验，
 再原子替换目标目录并进行第二次校验。目标已有不少于源缓存的有效文件时会保留
-目标，不重复复制；校验失败的文件不会发布到目标缓存。
+目标，不重复复制；校验器可能会在比较前就地删除目标缓存中不匹配的文件，因此即使最后
+输出 `Keeping`，目标缓存也可能已经被裁剪。校验失败的文件不会发布到目标缓存。
 
 JDTLS 和 JDK 使用
 [`third_party/jdtls/manifest.json`](../third_party/jdtls/manifest.json) 与

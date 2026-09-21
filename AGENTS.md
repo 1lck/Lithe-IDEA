@@ -33,16 +33,7 @@
 
 ## 工作树资源复用与文档维护
 
-- Git worktree 之间不共享各自的 `.artifacts`。单独工作树进行本地编译时，优先
-  通过 `scripts/reuse-worktree-resources.mjs --source <已有工作树>` 复用资源，不要
-  手工搬运或直接共享整个 `.artifacts`。脚本必须保持源目录只读，通过目标临时
-  目录完成校验，并在原子发布后再次校验。
-- 新增或修改任何下载、解压、生成或缓存资源时，必须同步更新
-  `scripts/worktree-resources.json`、`scripts/reuse-worktree-resources.mjs` 的校验路由、
-  对应测试，以及 `docs/ci-builds.md` 的“独立工作树的本地编译”章节。更新内容
-  至少包括资源路径、是否允许跨 worktree 复用、版本/平台/架构/工具链身份约束、
-  校验来源、复制时机，以及不能共享时的隔离原因。
-- PR 中如果增加新的资源目录、下载入口、缓存变量或校验逻辑，必须检查并更新
-  资源复用清单和相关验证脚本；不能只把资源加入构建流程而遗漏 worktree 复用
-  说明。生成资源没有可靠 identity stamp 时不得注册为可复用资源；可变构建状态
-  和 LSP workspace 状态不得跨 worktree 共享。
+工作树资源复用的决策、边界、失败恢复和新增资源维护要求见
+[`.agents/notes/implemented/process/2026-09-21-worktree-resource-reuse.md`](.agents/notes/implemented/process/2026-09-21-worktree-resource-reuse.md)。
+日常操作仍使用 `scripts/reuse-worktree-resources.mjs`，并同步更新注册表、校验器、测试和
+[`docs/ci-builds.md`](docs/ci-builds.md)。
