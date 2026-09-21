@@ -1,6 +1,8 @@
 use super::support::temporary_root;
 use crate::execute_json;
-use crate::project::{jdt_configuration, MavenLaunchContextRequest};
+use crate::project::{
+    jdt_configuration, settings_with_local_repository, MavenLaunchContextRequest,
+};
 use serde_json::Value;
 use std::fs;
 
@@ -1012,4 +1014,180 @@ fn java_test_methods_handle_inline_annotations_and_ignore_non_code_text() {
             {"name": "parameterized", "line": 12, "endLine": 15}
         ])
     );
+}
+
+/// Builds a minimal reactor so Maven context validation succeeds, leaving each
+/// test free to vary only the configured Maven location.
+fn maven_reactor_root(label: &str) -> std::path::PathBuf {
+    let root = temporary_root(label);
+    fs::create_dir_all(&root).expect("reactor root should be creatable");
+    fs::write(
+        root.join("pom.xml"),
+        r#"<project><artifactId>demo</artifactId></project>"#,
+    )
+    .expect("reactor pom should be writable");
+    root
+}
+
+fn maven_jdt_context(maven_executable_path: Option<String>) -> MavenLaunchContextRequest {
+    MavenLaunchContextRequest {
+        version: 1,
+        reactor_path: ".".to_string(),
+        profiles: Vec::new(),
+        settings_path: None,
+        local_repository_path: None,
+        skip_tests: false,
+        maven_executable_path,
+        java_home_path: None,
+    }
+}
+
+#[test]
+fn maven_installation_settings_reach_jdt_for_a_home_or_a_launcher() {
+    // JDT LS otherwise resolves artifacts through its embedded defaults, which
+    // ignores the local repository and mirrors the command line already uses.
+    let root = maven_reactor_root("maven-jdt-global-settings");
+    let maven_home = root.join("apache-maven");
+    fs::create_dir_all(maven_home.join("bin")).expect("Maven bin should be creatable");
+    fs::create_dir_all(maven_home.join("conf")).expect("Maven conf should be creatable");
+    let settings = maven_home.join("conf").join("settings.xml");
+    fs::write(&settings, "<settings/>").expect("global settings should be writable");
+    let launcher = maven_home.join("bin").join("mvn.cmd");
+    fs::write(&launcher, "").expect("Maven launcher should be writable");
+    let expected = settings.to_string_lossy().into_owned();
+
+    for configured in [
+        maven_home.to_string_lossy().into_owned(),
+        launcher.to_string_lossy().into_owned(),
+    ] {
+        let configuration = jdt_configuration(
+            root.to_str().expect("temporary root should be UTF-8"),
+            maven_jdt_context(Some(configured.clone())),
+        )
+        .expect("JDT Maven configuration should parse");
+        assert_eq!(
+            configuration.global_settings_path.as_deref(),
+            Some(expected.as_str()),
+            "the installation settings should resolve from {configured}"
+        );
+    }
+    fs::remove_dir_all(root).expect("Maven fixture should be removable");
+}
+
+#[test]
+fn maven_installation_settings_are_absent_for_wrappers_and_bare_installations() {
+    let root = maven_reactor_root("maven-jdt-global-settings-absent");
+    // A wrapper lives outside an installation, so Maven itself would fall back
+    // to the embedded defaults. JDT LS must make the same choice.
+    let wrapper = root.join("mvnw.cmd");
+    fs::write(&wrapper, "").expect("wrapper should be writable");
+    // An installation that ships no global settings must not point JDT LS at a
+    // file that does not exist.
+    let bare_home = root.join("bare-maven");
+    fs::create_dir_all(bare_home.join("bin")).expect("Maven bin should be creatable");
+    let bare_launcher = bare_home.join("bin").join("mvn");
+    fs::write(&bare_launcher, "").expect("Maven launcher should be writable");
+
+    for configured in [
+        wrapper.to_string_lossy().into_owned(),
+        bare_home.to_string_lossy().into_owned(),
+        bare_launcher.to_string_lossy().into_owned(),
+    ] {
+        let configuration = jdt_configuration(
+            root.to_str().expect("temporary root should be UTF-8"),
+            maven_jdt_context(Some(configured.clone())),
+        )
+        .expect("JDT Maven configuration should parse");
+        assert_eq!(
+            configuration.global_settings_path, None,
+            "no installation settings should resolve from {configured}"
+        );
+    }
+    fs::remove_dir_all(root).expect("Maven fixture should be removable");
+}
+
+/// Mirrors the shape of a real installation settings file: a documented
+/// `<localRepository>` plus the mirror a workspace actually resolves through.
+const SETTINGS_WITH_MIRROR: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0">
+  <!-- keep this comment -->
+  <localRepository>C:\Users\example\.m2\repository</localRepository>
+  <mirrors>
+    <mirror>
+      <id>aliyunmaven</id>
+      <mirrorOf>*</mirrorOf>
+      <url>https://maven.aliyun.com/repository/public</url>
+    </mirror>
+  </mirrors>
+</settings>
+"#;
+
+#[test]
+fn generated_maven_settings_replace_the_repository_and_keep_every_mirror() {
+    // Losing the mirror would send project import to the default remote
+    // repositories while Maven builds keep using the configured one.
+    let generated = settings_with_local_repository(SETTINGS_WITH_MIRROR, r"F:\repository")
+        .expect("settings should be rewritten");
+
+    assert!(generated.contains(r"<localRepository>F:\repository</localRepository>"));
+    assert!(!generated.contains(r"C:\Users\example\.m2\repository"));
+    assert!(generated.contains("<id>aliyunmaven</id>"));
+    assert!(generated.contains("https://maven.aliyun.com/repository/public"));
+    assert!(generated.contains("<!-- keep this comment -->"));
+}
+
+#[test]
+fn generated_maven_settings_insert_a_missing_repository_without_losing_mirrors() {
+    let source = r#"<settings>
+  <mirrors>
+    <mirror><id>aliyunmaven</id><mirrorOf>*</mirrorOf></mirror>
+  </mirrors>
+</settings>"#;
+
+    let generated = settings_with_local_repository(source, "/opt/repository")
+        .expect("settings should be rewritten");
+
+    assert!(generated.contains("<localRepository>/opt/repository</localRepository>"));
+    assert!(generated.contains("<id>aliyunmaven</id>"));
+}
+
+#[test]
+fn generated_maven_settings_expand_an_empty_repository_element() {
+    let generated = settings_with_local_repository(
+        "<settings><localRepository/></settings>",
+        "/opt/repository",
+    )
+    .expect("settings should be rewritten");
+
+    assert_eq!(
+        generated,
+        "<settings><localRepository>/opt/repository</localRepository></settings>"
+    );
+}
+
+#[test]
+fn generated_maven_settings_escape_the_repository_path() {
+    // An unescaped `&` would produce a document Maven cannot parse.
+    let generated = settings_with_local_repository("<settings/>", "/opt/a&b")
+        .expect("settings should be rewritten");
+
+    assert!(generated.contains("<localRepository>/opt/a&amp;b</localRepository>"));
+}
+
+#[test]
+fn generated_maven_settings_leave_profile_scoped_repositories_alone() {
+    // Only the top-level element selects the repository Maven resolves through.
+    let source = r#"<settings>
+  <localRepository>/old</localRepository>
+  <profiles>
+    <profile><properties><localRepository>/profile-scoped</localRepository></properties></profile>
+  </profiles>
+</settings>"#;
+
+    let generated =
+        settings_with_local_repository(source, "/new").expect("settings should be rewritten");
+
+    assert!(generated.contains("<localRepository>/new</localRepository>"));
+    assert!(generated.contains("<localRepository>/profile-scoped</localRepository>"));
+    assert!(!generated.contains("/old"));
 }

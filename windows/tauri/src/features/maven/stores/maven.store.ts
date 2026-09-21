@@ -23,6 +23,7 @@ import {
   mavenPomPaths,
   reconcileMavenPomWatches,
 } from "../services/maven-pom-watcher";
+import { resolveEffectiveMavenExecutable } from "../services/resolve-maven-toolchain";
 import type {
   MavenDependencyLoad,
   MavenDiagnostic,
@@ -65,6 +66,7 @@ export interface MavenStoreDependencies {
   parseMavenDiagnostics: typeof parseMavenDiagnostics;
   parseMavenDependencies: typeof parseMavenDependencies;
   parseMavenTestResults: typeof parseMavenTestResults;
+  resolveEffectiveMavenExecutable: typeof resolveEffectiveMavenExecutable;
   resolveMavenLaunch: typeof resolveMavenLaunch;
   saveWorkspaceBeforeLaunch: typeof saveWorkspaceBeforeLaunch;
   scanMavenProject: typeof scanMavenProject;
@@ -82,6 +84,7 @@ const defaultMavenStoreDependencies: MavenStoreDependencies = {
   parseMavenDiagnostics,
   parseMavenDependencies,
   parseMavenTestResults,
+  resolveEffectiveMavenExecutable,
   resolveMavenLaunch,
   saveWorkspaceBeforeLaunch,
   scanMavenProject,
@@ -116,6 +119,12 @@ export interface MavenState {
   settingsPath: string;
   localRepositoryPath: string;
   mavenExecutablePath: string;
+  /**
+   * Maven resolved for this workspace when `mavenExecutablePath` is empty.
+   * Project import needs the same installation the command line uses, because
+   * its `conf/settings.xml` carries the local repository and mirrors.
+   */
+  resolvedMavenExecutablePath: string;
   javaHomePath: string;
   configurationSaveError: string | null;
   reloadRequired: boolean;
@@ -226,7 +235,8 @@ export function mavenLaunchContext(state: MavenState): MavenLaunchContext | null
     settingsPath: state.settingsPath || null,
     localRepositoryPath: state.localRepositoryPath || null,
     skipTests: state.skipTests,
-    mavenExecutablePath: state.mavenExecutablePath || null,
+    mavenExecutablePath:
+      state.mavenExecutablePath || state.resolvedMavenExecutablePath || null,
     javaHomePath: state.javaHomePath || null,
   };
 }
@@ -494,6 +504,7 @@ export const createMavenStore = (
       settingsPath: "",
       localRepositoryPath: "",
       mavenExecutablePath: "",
+      resolvedMavenExecutablePath: "",
       javaHomePath: "",
       configurationSaveError: null,
       reloadRequired: false,
@@ -575,6 +586,7 @@ export const createMavenStore = (
                 settingsPath: "",
                 localRepositoryPath: "",
                 mavenExecutablePath: "",
+                resolvedMavenExecutablePath: "",
                 javaHomePath: "",
                 reloadRequired: false,
                 testResults: null,
@@ -628,6 +640,13 @@ export const createMavenStore = (
             const selectedProfiles = normalizedProfiles(
               stored.portable?.selectedProfiles ?? defaultProfiles,
             ).filter((profile) => knownProfiles.has(profile));
+            const mavenExecutablePath = normalizedPath(stored.local?.mavenExecutablePath);
+            // Project import must follow the same installation the command line
+            // uses, so JDT LS reads its repository and mirrors instead of the
+            // embedded defaults.
+            const resolvedMavenExecutablePath =
+              await dependencies.resolveEffectiveMavenExecutable(root, mavenExecutablePath);
+            if (projectLoadRevision !== revision || get().root !== root) return;
             set({
               projectStatus: "ready",
               projectError: null,
@@ -637,7 +656,8 @@ export const createMavenStore = (
               skipTests: stored.portable?.skipTests ?? false,
               settingsPath: normalizedPath(stored.local?.settingsPath),
               localRepositoryPath: normalizedPath(stored.local?.localRepositoryPath),
-              mavenExecutablePath: normalizedPath(stored.local?.mavenExecutablePath),
+              mavenExecutablePath,
+              resolvedMavenExecutablePath,
               javaHomePath: normalizedPath(stored.local?.javaHomePath),
             });
           } catch (error) {
@@ -664,6 +684,7 @@ export const createMavenStore = (
               settingsPath: "",
               localRepositoryPath: "",
               mavenExecutablePath: "",
+              resolvedMavenExecutablePath: "",
               javaHomePath: "",
               testResults: null,
               activeTestRun: null,
@@ -755,7 +776,15 @@ export const createMavenStore = (
           ) {
             return;
           }
-          set(next);
+          set({
+            ...next,
+            // The previous resolution belongs to the previous Maven selection.
+            // Clearing it keeps a stale installation out of the launch context
+            // until the reload recomputes the fallback.
+            ...(next.mavenExecutablePath === state.mavenExecutablePath
+              ? {}
+              : { resolvedMavenExecutablePath: "" }),
+          });
           configurationDidChange();
         },
 

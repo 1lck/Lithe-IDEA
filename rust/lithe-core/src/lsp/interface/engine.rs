@@ -802,6 +802,59 @@ fn engine() -> &'static LspEngine {
     ENGINE.get_or_init(LspEngine::new)
 }
 
+/// Bare user-level settings used when Maven Settings overrides the local
+/// repository without naming a settings file of its own.
+const EMPTY_MAVEN_SETTINGS: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
+</settings>
+"#;
+
+/// Writes the user-level Maven settings JDT LS reads when Maven Settings
+/// overrides the local repository, returning `None` when there is no override.
+///
+/// JDT LS exposes no preference for the repository location, so the override
+/// has to travel inside a settings document. Deriving that document from the
+/// configured settings file keeps its mirrors, servers, and proxies, and Maven
+/// still merges the installation's global settings underneath it.
+fn materialized_maven_settings(
+    data_root: &Path,
+    configuration: &crate::project::MavenJdtConfiguration,
+) -> Result<Option<String>, CoreError> {
+    let Some(local_repository) = configuration.local_repository_path.as_deref() else {
+        return Ok(None);
+    };
+    let source = match configuration.settings_path.as_deref() {
+        Some(path) => std::fs::read_to_string(path).map_err(|error| {
+            CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Could not read the configured Maven settings.xml",
+            )
+            .with_details(error.to_string())
+        })?,
+        None => EMPTY_MAVEN_SETTINGS.to_string(),
+    };
+    let document = crate::project::settings_with_local_repository(&source, local_repository)?;
+    let directory = data_root.join("maven");
+    std::fs::create_dir_all(&directory).map_err(|error| {
+        CoreError::new(
+            ErrorCode::ProcessStartFailed,
+            "Could not create the Maven settings directory.",
+        )
+        .with_details(error.to_string())
+    })?;
+    let path = directory.join("settings.xml");
+    std::fs::write(&path, document).map_err(|error| {
+        CoreError::new(
+            ErrorCode::ProcessStartFailed,
+            "Could not write the generated Maven settings.",
+        )
+        .with_details(error.to_string())
+    })?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
 impl LspEngine {
     fn new() -> Self {
         Self::with_launcher(Arc::new(SystemProcessLauncher))
@@ -831,6 +884,13 @@ impl LspEngine {
             self.next_session_id.fetch_add(1, Ordering::Relaxed)
         );
         let workspace_root = PathBuf::from(&request.working_directory);
+        // Resolved before the Maven context because an overridden local
+        // repository is delivered to JDT LS as a settings document written here.
+        let data_root = request
+            .cache_directory
+            .as_deref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::temp_dir().join("lithe-lsp"));
         let jdt_maven_configuration = request
             .maven_context
             .clone()
@@ -856,8 +916,14 @@ impl LspEngine {
                                     })
                             })
                             .collect::<Result<Vec<_>, _>>()?;
+                        let settings_path =
+                            match materialized_maven_settings(&data_root, &configuration)? {
+                                Some(generated) => Some(generated),
+                                None => configuration.settings_path,
+                            };
                         Ok(JdtMavenConfiguration {
-                            settings_path: configuration.settings_path,
+                            settings_path,
+                            global_settings_path: configuration.global_settings_path,
                             profiles: configuration.profiles,
                             project_uris,
                             source_paths: configuration.source_paths,
@@ -866,11 +932,6 @@ impl LspEngine {
                 )
             })
             .transpose()?;
-        let data_root = request
-            .cache_directory
-            .as_deref()
-            .map(PathBuf::from)
-            .unwrap_or_else(|| std::env::temp_dir().join("lithe-lsp"));
         let selected_java_executable = request
             .runtime_executable_path
             .as_deref()
@@ -955,6 +1016,7 @@ impl LspEngine {
                 &request.provider_id,
                 request.initialization_options,
                 &java_extension_bundle_paths,
+                jdt_maven_configuration.as_ref(),
             ),
         })?;
         let request_id = (initialize.state.next_request_id - 1).to_string();
@@ -4446,6 +4508,91 @@ fn workspace_file_changes_notification(
 mod tests {
     use super::super::scripted::ScriptedServer;
     use super::*;
+
+    /// Builds an isolated data root for tests that materialize Maven settings.
+    fn maven_settings_root(label: &str) -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be valid")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "lithe-maven-{label}-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).expect("data root should be creatable");
+        root
+    }
+
+    fn maven_jdt_configuration(
+        settings_path: Option<String>,
+        local_repository_path: Option<String>,
+    ) -> crate::project::MavenJdtConfiguration {
+        crate::project::MavenJdtConfiguration {
+            profiles: Vec::new(),
+            settings_path,
+            global_settings_path: None,
+            local_repository_path,
+            project_paths: Vec::new(),
+            source_paths: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_repository_override_generates_user_settings_that_keep_configured_mirrors() {
+        // JDT LS has no repository preference, so the override travels inside a
+        // settings document. Regenerating that document must not drop the
+        // mirrors the workspace already resolves through.
+        let root = maven_settings_root("repository-override");
+        let configured = root.join("configured-settings.xml");
+        std::fs::write(
+            &configured,
+            r#"<settings><localRepository>/old</localRepository><mirrors><mirror><id>aliyunmaven</id></mirror></mirrors></settings>"#,
+        )
+        .expect("configured settings should be writable");
+        let configuration = maven_jdt_configuration(
+            Some(configured.to_string_lossy().into_owned()),
+            Some("/opt/repository".to_string()),
+        );
+
+        let generated = materialized_maven_settings(&root, &configuration)
+            .expect("settings should be materialized")
+            .expect("an override must produce a settings document");
+
+        let document = std::fs::read_to_string(&generated).expect("generated file should exist");
+        assert!(document.contains("<localRepository>/opt/repository</localRepository>"));
+        assert!(document.contains("<id>aliyunmaven</id>"));
+        assert!(!document.contains("/old"));
+        // The configured file stays untouched; only the generated copy changes.
+        let original = std::fs::read_to_string(&configured).expect("source should still exist");
+        assert!(original.contains("<localRepository>/old</localRepository>"));
+        std::fs::remove_dir_all(&root).expect("data root should be removable");
+    }
+
+    #[test]
+    fn a_repository_override_without_configured_settings_generates_a_minimal_document() {
+        let root = maven_settings_root("repository-only");
+        let configuration = maven_jdt_configuration(None, Some("/opt/repository".to_string()));
+
+        let generated = materialized_maven_settings(&root, &configuration)
+            .expect("settings should be materialized")
+            .expect("an override must produce a settings document");
+
+        let document = std::fs::read_to_string(generated).expect("generated file should exist");
+        assert!(document.contains("<localRepository>/opt/repository</localRepository>"));
+        std::fs::remove_dir_all(&root).expect("data root should be removable");
+    }
+
+    #[test]
+    fn no_repository_override_leaves_the_configured_settings_in_place() {
+        let root = maven_settings_root("no-override");
+        let configuration = maven_jdt_configuration(Some("/local/settings.xml".to_string()), None);
+
+        assert_eq!(
+            materialized_maven_settings(&root, &configuration).expect("settings should resolve"),
+            None
+        );
+        std::fs::remove_dir_all(&root).expect("data root should be removable");
+    }
 
     /// The capabilities every test needs to reach `Ready` with a usable feature
     /// surface. Individual tests narrow or extend this.
