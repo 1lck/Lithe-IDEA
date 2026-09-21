@@ -69,9 +69,19 @@ Maven 设置面板的显式配置
 ```
 
 两个平台都把**解析后**的安装写进 Maven 启动上下文，而不是把空值传下去。
-分层是惰性的：已经显式配置的工程不会触发 `mvn -version` 探测。
 
 这样在任意一处填 `D:\apache-maven-3.9.16`，语言服务和命令行都会用它。
+
+**这条链上不允许启动进程。** 它跑在 Maven 工程加载里，而 Java 编辑器打开文件
+时会先 `await` 这个加载再启动语言服务（`resolve-editor-lsp-launch.ts`）。
+现成的 `run_discover_toolchains` 会对每个候选跑 `mvn -version` / `java -version`，
+首次运行 Wrapper 甚至会去下载一份 Maven 发行版 —— 把它放在这里等于让每次
+首开 Java 文件都赌一次网络。所以 Windows 侧新增了 `maven_resolve_installation`：
+候选顺序与 `resolve_maven_executable` 一致（覆盖 → 可用的 Wrapper → 机器安装），
+但只做 `is_file()` 判断，不起进程。
+
+开发者以后往这条链上加层时，先问“它会不会起进程或等网络”。会的话，放到后台
+解析并在结果回来后刷新，不要放进加载路径。
 
 **4. 本地仓库通过生成的设置文档传递。** JDT LS 没有“本地仓库”这个首选项，
 该值只能写在 `settings.xml` 里。所以当用户填了本地仓库时，Core 以生效的设置
@@ -83,8 +93,17 @@ Maven 会把两者合并。
 绝不凭空合成一份只含 `<localRepository>` 的文档：那会丢掉镜像配置，把下载从
 阿里云打回 Maven Central。这是本次事故里代价最大的一条。
 
+底稿读不到时（路径过期、文件被删、盘没挂载）**降级而不是失败**：跳过改写，
+把原路径原样交给 JDT LS，并往会话日志写一条 warn 说明仓库覆盖未生效。
+理由是失败半径不对称 —— 丢掉的是一个可选设置项，而让 `start_server` 失败会
+让整个工作区没有补全、跳转和诊断。不要为了“配置错误就该响亮失败”把语言服务
+一起拖下水。
+
 ## 考虑过的备选方案
 
+- **配置读不到时让会话启动失败。** 被否。第一版这样做过，复审时发现失败半径
+  （整个 Java 语言服务）和成因（一个可选设置项）严重不匹配，而且只有配了本地
+  仓库的用户才会踩到，行为不一致。改为降级加 warn 日志。
 - **给 JDT LS 传 `-Dmaven.repo.local` JVM 参数。** 被否。m2e 的仓库位置来自
   settings 解析结果，这个系统属性是否被尊重取决于 m2e 版本，我们无法在没有
   Windows 环境的情况下证明它成立。不上无法验证的机制。
@@ -129,9 +148,12 @@ Maven 会把两者合并。
   转义路径中的 `&`、不误伤 profile 内的同名元素。完整校验运行
   `./scripts/verify-rust-core.sh`。
 - Rust Core 注释规范：`./scripts/verify-rust-core-comments.sh`。
-- Windows：`bun test src/features/maven` 覆盖四层优先级、各层失败时的降级、
+- Windows 前端：`bun test src/features/maven` 覆盖优先级链、各层失败时的降级、
   面板留空时把解析结果带进启动上下文、清空路径时丢弃上一次的解析结果。
   边界校验运行 `./scripts/verify-windows-boundaries.sh`。
+- Windows 宿主：`cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml
+  maven_resolution_without_probing` 覆盖 Wrapper 优先、主目录与启动器两种覆盖
+  写法、残缺 Wrapper 不被选中。
 - 共享契约：`./scripts/verify-shared-contracts.sh`。
 - 测试稳定性：`./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`。
 
@@ -140,8 +162,9 @@ Maven 会把两者合并。
 - Rust Core Maven 域：`rust/lithe-core/src/project/maven.rs`
 - Rust Core JDT 适配：`rust/lithe-core/src/lsp/languages/jdt.rs`
 - Rust Core 语言服务引擎：`rust/lithe-core/src/lsp/interface/engine.rs`
-- Windows：`windows/tauri/src/features/maven/services/resolve-maven-toolchain.ts`、
+- Windows 前端：`windows/tauri/src/features/maven/services/resolve-maven-toolchain.ts`、
   `windows/tauri/src/features/maven/stores/maven.store.ts`
+- Windows 宿主：`windows/tauri/src-tauri/src/run.rs`（`maven_resolve_installation`）
 - macOS：`macos/Sources/LitheExecutionModule/Services/MavenService.swift`
 - 相关笔记：
   `.agents/notes/implemented/architecture/2026-09-18-java-project-build-and-launch-boundary.md`

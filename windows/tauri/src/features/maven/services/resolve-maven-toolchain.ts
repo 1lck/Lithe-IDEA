@@ -1,14 +1,14 @@
 import { resolveRunConfiguration } from "@/features/run/api/run-core-api";
-import { discoverRunToolchains } from "@/features/run/api/run-host-api";
+import { resolveMavenInstallation } from "../api/maven-host-api";
 
 export interface MavenToolchainDependencies {
   resolveRunConfiguration: typeof resolveRunConfiguration;
-  discoverRunToolchains: typeof discoverRunToolchains;
+  resolveMavenInstallation: typeof resolveMavenInstallation;
 }
 
 const defaultDependencies: MavenToolchainDependencies = {
   resolveRunConfiguration,
-  discoverRunToolchains,
+  resolveMavenInstallation,
 };
 
 /**
@@ -21,8 +21,10 @@ const defaultDependencies: MavenToolchainDependencies = {
  * installation, and the same project resolves against two different local
  * repositories.
  *
- * Each tier is consulted only when the previous one is empty, so a configured
- * workspace never pays for runtime probing.
+ * Neither tier launches a process. This runs inside the Maven project load that
+ * the Java editor path awaits before starting the language server, so a
+ * `mvn -version` probe here would delay every first Java file open, and a cold
+ * wrapper would block it for as long as the wrapper takes to download Maven.
  */
 export async function resolveEffectiveMavenExecutable(
   root: string,
@@ -32,8 +34,7 @@ export async function resolveEffectiveMavenExecutable(
   const explicit = configured.trim();
   if (explicit) return explicit;
   const fromRunToolchain = await runToolchainMaven(root, dependencies);
-  if (fromRunToolchain) return fromRunToolchain;
-  return await discoveredMaven(root, dependencies);
+  return await installedMaven(root, fromRunToolchain, dependencies);
 }
 
 /** Reads the Maven selected in the Run configuration's machine toolchain. */
@@ -46,24 +47,29 @@ async function runToolchainMaven(
     return resolved.toolchain?.maven?.executablePath?.trim() ?? "";
   } catch {
     // A workspace without run documents still imports through Maven, so fall
-    // through to discovery instead of failing the project load.
+    // through to host resolution instead of failing the project load.
     return "";
   }
 }
 
 /**
- * Falls back to host discovery, which reports the project wrapper before any
- * machine installation. A wrapper resolves to no installation settings, which
- * matches what running the wrapper itself would read.
+ * Applies the host's build-time candidate order to whatever the Run
+ * configuration selected. A project wrapper wins over a machine installation,
+ * matching what a build would run, and resolves to no installation settings
+ * because it sits outside an installation.
  */
-async function discoveredMaven(
+async function installedMaven(
   root: string,
+  overridePath: string,
   dependencies: MavenToolchainDependencies,
 ): Promise<string> {
   try {
-    const discovered = await dependencies.discoverRunToolchains(root);
-    return discovered.maven[0]?.executablePath.trim() ?? "";
+    const resolved = await dependencies.resolveMavenInstallation(
+      root,
+      overridePath || undefined,
+    );
+    return resolved?.trim() ?? "";
   } catch {
-    return "";
+    return overridePath;
   }
 }

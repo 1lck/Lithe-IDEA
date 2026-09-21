@@ -1191,3 +1191,20 @@ fn generated_maven_settings_leave_profile_scoped_repositories_alone() {
     assert!(generated.contains("<localRepository>/profile-scoped</localRepository>"));
     assert!(!generated.contains("/old"));
 }
+
+#[test]
+fn generated_maven_settings_discard_child_elements_of_the_replaced_repository() {
+    // `<localRepository>` is a text-only element, so a nested child is already
+    // invalid. The rewrite must still produce well-formed output rather than
+    // emitting a start tag whose end tag was dropped with the old content.
+    let generated = settings_with_local_repository(
+        "<settings><localRepository><a>x</a>/old</localRepository></settings>",
+        "/new",
+    )
+    .expect("settings should be rewritten");
+
+    assert_eq!(
+        generated,
+        "<settings><localRepository>/new</localRepository></settings>"
+    );
+}

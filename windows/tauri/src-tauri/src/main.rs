@@ -180,6 +180,7 @@ fn main() {
             run::run_write_generated,
             run::run_write_documents,
             run::run_write_stdin,
+            run::maven_resolve_installation,
             run::run_discover_toolchains,
             run::run_resolve_launch,
             run::run_execute_prelaunch,

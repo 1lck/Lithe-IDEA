@@ -9,22 +9,18 @@ function dependencies(overrides: Partial<MavenToolchainDependencies> = {}) {
     configurations: [],
     toolchain: { maven: { executablePath: "" } },
   }));
-  const discoverRunToolchains = mock(async () => ({
-    java: [],
-    maven: [] as Array<{ executablePath: string; version: string }>,
-    runtimes: [],
-  }));
+  const resolveMavenInstallation = mock(async () => null);
   return {
     resolveRunConfiguration,
-    discoverRunToolchains,
+    resolveMavenInstallation,
     ...overrides,
   } as unknown as MavenToolchainDependencies & {
     resolveRunConfiguration: ReturnType<typeof mock>;
-    discoverRunToolchains: ReturnType<typeof mock>;
+    resolveMavenInstallation: ReturnType<typeof mock>;
   };
 }
 
-test("an explicit Maven path wins without probing the host", async () => {
+test("an explicit Maven path wins without consulting the host", async () => {
   const injected = dependencies();
 
   const resolved = await resolveEffectiveMavenExecutable(
@@ -34,53 +30,47 @@ test("an explicit Maven path wins without probing the host", async () => {
   );
 
   expect(resolved).toBe("D:/apache-maven-3.9.16");
-  // A configured workspace must not pay for `mvn -version` probes on every load.
   expect(injected.resolveRunConfiguration).not.toHaveBeenCalled();
-  expect(injected.discoverRunToolchains).not.toHaveBeenCalled();
+  expect(injected.resolveMavenInstallation).not.toHaveBeenCalled();
 });
 
-test("an empty Maven panel falls back to the Run configuration toolchain", async () => {
+test("the Run configuration toolchain is handed to the host as the override", async () => {
   const injected = dependencies({
     resolveRunConfiguration: mock(async () => ({
       configurations: [],
-      toolchain: { maven: { executablePath: "D:/apache-maven-3.9.16/bin/mvn.cmd" } },
+      toolchain: { maven: { executablePath: "D:/apache-maven-3.9.16" } },
     })),
+    resolveMavenInstallation: mock(async () => "D:/apache-maven-3.9.16/bin/mvn.cmd"),
   } as Partial<MavenToolchainDependencies>);
 
   const resolved = await resolveEffectiveMavenExecutable(ROOT, "", injected);
 
+  // The host normalizes a Maven home into the launcher a build would run.
+  expect(injected.resolveMavenInstallation).toHaveBeenCalledWith(
+    ROOT,
+    "D:/apache-maven-3.9.16",
+  );
   expect(resolved).toBe("D:/apache-maven-3.9.16/bin/mvn.cmd");
-  expect(injected.discoverRunToolchains).not.toHaveBeenCalled();
 });
 
-test("host discovery supplies the Maven when neither setting is filled in", async () => {
+test("an unconfigured workspace falls back to the host's own candidate order", async () => {
   const injected = dependencies({
-    discoverRunToolchains: mock(async () => ({
-      java: [],
-      maven: [
-        { executablePath: "D:/workspace/demo/mvnw.cmd", version: "3.9.16" },
-        { executablePath: "C:/tools/maven/bin/mvn.cmd", version: "3.9.16" },
-      ],
-      runtimes: [],
-    })),
+    resolveMavenInstallation: mock(async () => "D:/workspace/demo/mvnw.cmd"),
   } as Partial<MavenToolchainDependencies>);
 
   const resolved = await resolveEffectiveMavenExecutable(ROOT, "", injected);
 
-  // Discovery reports the wrapper first, matching what a build would run.
+  expect(injected.resolveMavenInstallation).toHaveBeenCalledWith(ROOT, undefined);
+  // A wrapper wins over a machine installation, matching what a build runs.
   expect(resolved).toBe("D:/workspace/demo/mvnw.cmd");
 });
 
-test("a failing Run resolution still reaches host discovery", async () => {
+test("a failing Run resolution still reaches host resolution", async () => {
   const injected = dependencies({
     resolveRunConfiguration: mock(async () => {
       throw new Error("run documents are missing");
     }),
-    discoverRunToolchains: mock(async () => ({
-      java: [],
-      maven: [{ executablePath: "C:/tools/maven/bin/mvn.cmd", version: "3.9.16" }],
-      runtimes: [],
-    })),
+    resolveMavenInstallation: mock(async () => "C:/tools/maven/bin/mvn.cmd"),
   } as Partial<MavenToolchainDependencies>);
 
   const resolved = await resolveEffectiveMavenExecutable(ROOT, "", injected);
@@ -88,12 +78,24 @@ test("a failing Run resolution still reaches host discovery", async () => {
   expect(resolved).toBe("C:/tools/maven/bin/mvn.cmd");
 });
 
-test("no Maven anywhere resolves to an empty selection instead of failing", async () => {
+test("a failing host resolution keeps the Run configuration selection", async () => {
   const injected = dependencies({
-    discoverRunToolchains: mock(async () => {
-      throw new Error("discovery is unavailable");
+    resolveRunConfiguration: mock(async () => ({
+      configurations: [],
+      toolchain: { maven: { executablePath: "D:/apache-maven-3.9.16" } },
+    })),
+    resolveMavenInstallation: mock(async () => {
+      throw new Error("host command is unavailable");
     }),
   } as Partial<MavenToolchainDependencies>);
+
+  const resolved = await resolveEffectiveMavenExecutable(ROOT, "", injected);
+
+  expect(resolved).toBe("D:/apache-maven-3.9.16");
+});
+
+test("no Maven anywhere resolves to an empty selection instead of failing", async () => {
+  const injected = dependencies();
 
   const resolved = await resolveEffectiveMavenExecutable(ROOT, "", injected);
 

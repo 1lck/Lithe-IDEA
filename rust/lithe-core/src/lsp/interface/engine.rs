@@ -811,28 +811,47 @@ const EMPTY_MAVEN_SETTINGS: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 </settings>
 "#;
 
+/// Outcome of preparing the user-level Maven settings JDT LS reads.
+#[derive(Debug, Default)]
+struct MaterializedMavenSettings {
+    /// Generated document to send as `userSettings`, when one was produced.
+    path: Option<String>,
+    /// Why the local repository override could not be applied, when it could
+    /// not be. Reported to the session log rather than failing startup.
+    warning: Option<String>,
+}
+
 /// Writes the user-level Maven settings JDT LS reads when Maven Settings
-/// overrides the local repository, returning `None` when there is no override.
+/// overrides the local repository.
 ///
 /// JDT LS exposes no preference for the repository location, so the override
 /// has to travel inside a settings document. Deriving that document from the
 /// configured settings file keeps its mirrors, servers, and proxies, and Maven
 /// still merges the installation's global settings underneath it.
+///
+/// An unreadable configured settings file degrades to no override instead of
+/// failing the session. The repository is one optional field, while failing
+/// here would leave the workspace without completion, navigation, or
+/// diagnostics for every Java file.
 fn materialized_maven_settings(
     data_root: &Path,
     configuration: &crate::project::MavenJdtConfiguration,
-) -> Result<Option<String>, CoreError> {
+) -> Result<MaterializedMavenSettings, CoreError> {
     let Some(local_repository) = configuration.local_repository_path.as_deref() else {
-        return Ok(None);
+        return Ok(MaterializedMavenSettings::default());
     };
     let source = match configuration.settings_path.as_deref() {
-        Some(path) => std::fs::read_to_string(path).map_err(|error| {
-            CoreError::new(
-                ErrorCode::InvalidRequest,
-                "Could not read the configured Maven settings.xml",
-            )
-            .with_details(error.to_string())
-        })?,
+        Some(path) => match std::fs::read_to_string(path) {
+            Ok(source) => source,
+            Err(error) => {
+                return Ok(MaterializedMavenSettings {
+                    path: None,
+                    warning: Some(format!(
+                        "Could not read the configured Maven settings.xml, so the local repository override was not applied: {error}"
+                    )),
+                })
+            }
+        },
         None => EMPTY_MAVEN_SETTINGS.to_string(),
     };
     let document = crate::project::settings_with_local_repository(&source, local_repository)?;
@@ -852,7 +871,10 @@ fn materialized_maven_settings(
         )
         .with_details(error.to_string())
     })?;
-    Ok(Some(path.to_string_lossy().into_owned()))
+    Ok(MaterializedMavenSettings {
+        path: Some(path.to_string_lossy().into_owned()),
+        warning: None,
+    })
 }
 
 impl LspEngine {
@@ -891,6 +913,7 @@ impl LspEngine {
             .as_deref()
             .map(PathBuf::from)
             .unwrap_or_else(|| std::env::temp_dir().join("lithe-lsp"));
+        let mut maven_settings_warning = None;
         let jdt_maven_configuration = request
             .maven_context
             .clone()
@@ -916,11 +939,9 @@ impl LspEngine {
                                     })
                             })
                             .collect::<Result<Vec<_>, _>>()?;
-                        let settings_path =
-                            match materialized_maven_settings(&data_root, &configuration)? {
-                                Some(generated) => Some(generated),
-                                None => configuration.settings_path,
-                            };
+                        let materialized = materialized_maven_settings(&data_root, &configuration)?;
+                        maven_settings_warning = materialized.warning;
+                        let settings_path = materialized.path.or(configuration.settings_path);
                         Ok(JdtMavenConfiguration {
                             settings_path,
                             global_settings_path: configuration.global_settings_path,
@@ -1093,6 +1114,13 @@ impl LspEngine {
             session.log(
                 "info",
                 "Java language service process started",
+                Some(detail),
+            );
+        }
+        if let Some(detail) = maven_settings_warning {
+            session.log(
+                "warn",
+                "Maven local repository override was not applied",
                 Some(detail),
             );
         }
@@ -4554,9 +4582,12 @@ mod tests {
             Some("/opt/repository".to_string()),
         );
 
-        let generated = materialized_maven_settings(&root, &configuration)
-            .expect("settings should be materialized")
+        let materialized = materialized_maven_settings(&root, &configuration)
+            .expect("settings should be materialized");
+        let generated = materialized
+            .path
             .expect("an override must produce a settings document");
+        assert_eq!(materialized.warning, None);
 
         let document = std::fs::read_to_string(&generated).expect("generated file should exist");
         assert!(document.contains("<localRepository>/opt/repository</localRepository>"));
@@ -4575,6 +4606,7 @@ mod tests {
 
         let generated = materialized_maven_settings(&root, &configuration)
             .expect("settings should be materialized")
+            .path
             .expect("an override must produce a settings document");
 
         let document = std::fs::read_to_string(generated).expect("generated file should exist");
@@ -4587,10 +4619,37 @@ mod tests {
         let root = maven_settings_root("no-override");
         let configuration = maven_jdt_configuration(Some("/local/settings.xml".to_string()), None);
 
-        assert_eq!(
-            materialized_maven_settings(&root, &configuration).expect("settings should resolve"),
-            None
+        let materialized =
+            materialized_maven_settings(&root, &configuration).expect("settings should resolve");
+        assert_eq!(materialized.path, None);
+        assert_eq!(materialized.warning, None);
+        std::fs::remove_dir_all(&root).expect("data root should be removable");
+    }
+
+    #[test]
+    fn an_unreadable_settings_file_warns_instead_of_failing_the_java_session() {
+        // Losing the repository override costs one optional setting. Failing
+        // here would leave every Java file without completion, navigation, and
+        // diagnostics because of a stale path in Maven Settings.
+        let root = maven_settings_root("unreadable-settings");
+        let configuration = maven_jdt_configuration(
+            Some(
+                root.join("deleted-settings.xml")
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+            Some("/opt/repository".to_string()),
         );
+
+        let materialized = materialized_maven_settings(&root, &configuration)
+            .expect("an unreadable settings file must not fail startup");
+
+        // The configured path is kept, which is what JDT LS received before the
+        // override existed.
+        assert_eq!(materialized.path, None);
+        assert!(materialized
+            .warning
+            .is_some_and(|warning| warning.contains("local repository override")));
         std::fs::remove_dir_all(&root).expect("data root should be removable");
     }
 

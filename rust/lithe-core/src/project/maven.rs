@@ -312,6 +312,12 @@ pub(crate) fn settings_with_local_repository(
         match event {
             Event::Eof => break,
             Event::Start(start) => {
+                if replacing.is_some() {
+                    // Children of the replaced element belong to the discarded
+                    // content, so their end tags are dropped below as well.
+                    depth += 1;
+                    continue;
+                }
                 let name = local_name(start.name().as_ref());
                 if !done && depth == 1 && name == "localRepository" {
                     write_settings_event(&mut writer, Event::Start(start.borrow()))?;
@@ -329,6 +335,9 @@ pub(crate) fn settings_with_local_repository(
                 }
             }
             Event::Empty(empty) => {
+                if replacing.is_some() {
+                    continue;
+                }
                 let name = local_name(empty.name().as_ref());
                 if !done && depth == 1 && name == "localRepository" {
                     // An empty element carries no text node to rewrite, so it is
