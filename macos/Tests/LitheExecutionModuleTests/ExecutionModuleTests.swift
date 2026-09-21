@@ -1466,7 +1466,12 @@ private struct SelectionRunConfigurationOperations: RunConfigurationOperations {
     func inspect(at _: URL) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
-    func generate(at _: URL, files _: [URL], modulePaths _: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at _: URL,
+        files _: [URL],
+        modulePaths _: [String],
+        javaEntrypoints _: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: configurations.count)
     }
     func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -1494,7 +1499,12 @@ private struct FixedLaunchPlanRunConfigurationOperations: RunConfigurationOperat
     func inspect(at _: URL) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
-    func generate(at _: URL, files _: [URL], modulePaths _: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at _: URL,
+        files _: [URL],
+        modulePaths _: [String],
+        javaEntrypoints _: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
     func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -2067,7 +2077,12 @@ private final class MavenContextRunOperations: RunConfigurationOperations, @unch
         RunConfigurationResolution(configurations: [EffectiveRunConfiguration(configuration: configuration, options: RunOptions())],
                                    diagnostics: [], defaultConfigurationID: configuration.id)
     }
-    func generate(at _: URL, files _: [URL], modulePaths _: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at _: URL,
+        files _: [URL],
+        modulePaths _: [String],
+        javaEntrypoints _: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
     func launchPlan(at _: URL, configurationID _: String, currentFile _: String?, classPath _: String?, debugPort _: Int?) throws -> SharedLaunchPlan {
@@ -2092,7 +2107,12 @@ private struct SingleRunConfigurationOperations: RunConfigurationOperations {
     func inspect(at _: URL) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
-    func generate(at _: URL, files _: [URL], modulePaths _: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at _: URL,
+        files _: [URL],
+        modulePaths _: [String],
+        javaEntrypoints _: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
     func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -2135,7 +2155,12 @@ private struct TestRunConfigurationOperations: RunConfigurationOperations {
         }
         return ProjectRunConfigurationInspection(status: .missing, diagnostics: [])
     }
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 0)
     }
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -2162,7 +2187,12 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
             diagnostics: []
         )
     }
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         generatedInventories.append(files)
         return RunConfigurationGenerationResult(entryCount: 1)
     }
@@ -2192,7 +2222,12 @@ private struct FailingInspectionRunConfigurationOperations: RunConfigurationOper
             recoveryAction: .editConfiguration
         )
     }
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 0)
     }
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -2209,7 +2244,12 @@ private struct TestReadyRunConfigurationOperations: RunConfigurationOperations {
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -2242,7 +2282,12 @@ private struct TestGoProjectRunConfigurationOperations: RunConfigurationOperatio
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {

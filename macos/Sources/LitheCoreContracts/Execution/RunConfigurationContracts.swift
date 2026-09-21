@@ -66,6 +66,39 @@ package enum ProjectLoadState: Equatable, Sendable {
     }
 }
 
+/// Outcome of asking JDT which classes can be launched, taken before a
+/// generation. Whether a class is launchable is JDT's answer; Lithe never
+/// derives entry points from source text.
+///
+/// Note: 入口点归属见 .agents/notes/implemented/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
+package enum JavaEntrypointDiscovery: Equatable, Sendable {
+    /// The workspace has no Java sources, so there is nothing to ask.
+    case notJava
+    case discovered(JavaEntrypoints)
+    /// The Java service is starting or still importing the project.
+    case pending
+    case failed(String)
+
+    /// JDT's answer, or `nil` so Core keeps the previous generation's entries.
+    package var entrypoints: JavaEntrypoints? {
+        if case .discovered(let entrypoints) = self { return entrypoints }
+        return nil
+    }
+}
+
+/// Where the Java entries shown in the Run list come from.
+///
+/// `ready` is JDT's current answer; `stale` shows the previous answer while the
+/// Java service prepares the project; `loading` has no previous answer yet;
+/// `failed` keeps the previous list and says why it could not refresh.
+package enum JavaDiscoveryStatus: Equatable, Sendable {
+    case idle
+    case loading
+    case ready
+    case stale
+    case failed(String)
+}
+
 package enum RunConfigurationGenerationState: Equatable, Sendable {
     case idle
     case projectNotReady
@@ -225,10 +258,13 @@ package struct ProjectToolchainSelection: Codable, Equatable, Sendable {
 
 package protocol RunConfigurationOperations: Sendable {
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection
+    /// `javaEntrypoints` is JDT's current answer; `nil` keeps the previous
+    /// generation's Java entries while the Java service prepares the project.
     func generate(
         at projectURL: URL,
         files: [URL],
-        modulePaths: [String]
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
     ) throws -> RunConfigurationGenerationResult
     func resolve(
         at projectURL: URL,

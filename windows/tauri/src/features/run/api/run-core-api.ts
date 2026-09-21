@@ -1,3 +1,4 @@
+import type { JavaEntrypoints } from "@/platform/lsp-core-adapter";
 import { executeCore } from "@/core/lithe-core-client";
 import type {
   CoreGenerateResult,
@@ -43,12 +44,22 @@ export function inspectRunConfiguration(root: string) {
   return runCore<CoreInspectResult>("runConfig.inspect", { root });
 }
 
+/**
+ * Regenerates `.lithe/run/generated.json`. `javaEntrypoints` is JDT's current
+ * answer; omit it while the Java service is preparing the project and Core
+ * keeps the previous generation's Java entries.
+ */
 export function generateRunConfiguration(
   root: string,
   paths: string[],
   modulePaths: string[] = [],
+  javaEntrypoints?: JavaEntrypoints,
 ) {
-  return runCore<CoreGenerateResult>("runConfig.generate", { root, paths, modulePaths }, 60_000);
+  return runCore<CoreGenerateResult>(
+    "runConfig.generate",
+    javaEntrypoints ? { root, paths, modulePaths, javaEntrypoints } : { root, paths, modulePaths },
+    60_000,
+  );
 }
 
 export function resolveRunConfiguration(

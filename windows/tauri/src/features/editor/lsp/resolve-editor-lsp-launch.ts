@@ -1,6 +1,10 @@
 import type { BackendLanguageToolConfigSet } from "@/extensions/registry/extension-store-runtime";
 import { isJavaSourcePath, JAVA_LANGUAGE_ID, JAVA_PROVIDER_ID } from "./built-in-language-support";
-import { resolveJavaLspLaunch, type JdtlsLaunchResources } from "./java-lsp-host-api";
+import {
+  resolveJavaLspLaunch,
+  type JavaLspRuntime,
+  type JdtlsLaunchResources,
+} from "./java-lsp-host-api";
 import type { MavenLaunchContext } from "@/features/maven/types/maven.types";
 import { mavenLaunchContextForWorkspace } from "@/features/maven/stores/maven.store";
 import type { WorkspaceLaunchScope } from "@/features/workspace/types/workspace-launch-scope";
@@ -21,6 +25,7 @@ export interface EditorLspLaunch {
   /** Workspace structure digest forwarded to the Rust core. */
   workspaceFingerprint?: string | null;
   mavenContext?: MavenLaunchContext | null;
+  javaRuntimes?: JavaLspRuntime[];
 }
 
 export interface EditorLspLaunchDependencies {
@@ -68,6 +73,7 @@ export async function resolveEditorLspLaunch(
       environment,
       workspaceFingerprint: launch.workspaceFingerprint,
       mavenContext,
+      javaRuntimes: launch.javaRuntimes ?? [],
     };
   }
 

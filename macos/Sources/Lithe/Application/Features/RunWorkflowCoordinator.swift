@@ -133,12 +133,12 @@ final class RunWorkflowCoordinator {
 
     func debugConfiguration(
         selected: RunConfiguration,
-        activeDocumentText: String?,
+        activeDocumentIsLaunchable: Bool,
         configurations: [RunConfiguration]
     ) -> RunConfiguration {
         DebugLaunchSourceResolver().configurationForDebug(
             selected: selected,
-            activeDocumentText: activeDocumentText,
+            activeDocumentIsLaunchable: activeDocumentIsLaunchable,
             configurations: configurations
         )
     }

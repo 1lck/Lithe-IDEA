@@ -431,24 +431,6 @@ pub struct JavaSourceDefinitionResponse {
     pub utf16_column: usize,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-/// One JUnit test method and its complete source range.
-pub struct JavaTestMethodResponse {
-    pub name: String,
-    /// Zero-based line containing the method name.
-    pub line: usize,
-    /// Zero-based line containing the method body's closing brace.
-    pub end_line: usize,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-/// JUnit test methods in deterministic source order.
-pub struct JavaTestMethodsResponse {
-    pub methods: Vec<JavaTestMethodResponse>,
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Server port declared by Spring configuration, when one is present.
@@ -489,17 +471,6 @@ pub struct JavaSyntaxHighlightResponse {
     pub role: String,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-/// One JUnit test method discovered from the Java syntax tree.
-pub struct JavaStructureTestMethodResponse {
-    pub name: String,
-    /// One-based line containing the method name.
-    pub line: usize,
-    /// Inclusive one-based line containing the end of the declaration.
-    pub end_line: usize,
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Lightweight structural features derived from one Java source document.
@@ -507,8 +478,6 @@ pub struct JavaStructureResponse {
     pub fold_regions: Vec<JavaFoldRegionResponse>,
     pub inlay_hints: Vec<JavaInlayHintResponse>,
     pub syntax_highlights: Vec<JavaSyntaxHighlightResponse>,
-    /// JUnit 4 and JUnit 5 methods in source order.
-    pub test_methods: Vec<JavaStructureTestMethodResponse>,
 }
 
 #[derive(Debug, Clone, Serialize)]

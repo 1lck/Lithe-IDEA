@@ -1,7 +1,7 @@
 //! Run-configuration schemas, layered overrides, and deterministic generation.
 
 use super::types::{Confidence, Execution, RunCategory};
-use crate::languages::JavaRunConfigurationsRequest;
+use crate::languages::{JavaEntrypointFact, JavaEntrypointFacts};
 use crate::protocol::{invalid_relative_path, CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -14,7 +14,7 @@ const VERSION: u32 = 2;
 const LEGACY_VERSION: u32 = 1;
 // Bumped when generation changes what a workspace should contain: existing
 // workspaces regenerate instead of keeping a stale `generated.json`.
-const GENERATOR_REVISION: &str = "5";
+const GENERATOR_REVISION: &str = "6";
 /// Toolchain requirements and `project.json` are separate documents that happen
 /// to live under `.lithe`. Their schema did not change with run-config v2, so
 /// they keep their own version and must not be validated against `VERSION`.
@@ -39,6 +39,12 @@ pub struct GenerateRequest {
     pub paths: Vec<String>,
     #[serde(default)]
     pub module_paths: Vec<String>,
+    /// Launchable classes from the Java language service (`lsp.request`
+    /// operation `javaEntrypoints`). Absent while that service is not ready:
+    /// the previous generation's Java entries are carried forward instead of
+    /// being dropped, so the Run list does not empty during a cold start.
+    #[serde(default)]
+    pub java_entrypoints: Option<JavaEntrypointFacts>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -476,11 +482,21 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .map(|path| workspace_maven_path(maven_relative_path, &path))
         .collect();
     let module_paths = inferred_maven_module_paths(&root, &paths, configured_module_paths);
-    let scanned = crate::languages::run_configurations(JavaRunConfigurationsRequest {
-        root: request.root.clone(),
-        paths,
-        module_paths,
-    })?;
+    // Note: entry-point ownership is recorded in .agents/notes/implemented/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
+    let (mut java_entrypoints, java_entrypoints_origin) = match request.java_entrypoints {
+        Some(facts) => (facts, "languageService"),
+        None => (previous_java_entrypoints(&root)?, "previousGeneration"),
+    };
+    // JDT imports nested checkouts such as `.worktree/*` as projects of their
+    // own; they are excluded here exactly as their source paths are above.
+    java_entrypoints
+        .entries
+        .retain(|entry| !is_nested_checkout_path(&entry.source_path));
+    let scanned = crate::languages::run_configurations_from_entrypoints(
+        &root,
+        &java_entrypoints,
+        &module_paths,
+    )?;
     let annotated_main_classes = scanned
         .main_classes
         .iter()
@@ -629,9 +645,59 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         }),
         configurations,
     };
-    Ok(
-        json!({ "generated": generated, "toolchainRequirements": requirements, "entryCount": entry_count }),
-    )
+    Ok(json!({
+        "generated": generated,
+        "toolchainRequirements": requirements,
+        "entryCount": entry_count,
+        "javaEntrypointsOrigin": java_entrypoints_origin
+    }))
+}
+
+/// Java entry points recorded by the previous generation.
+///
+/// Used only while the Java language service has not answered yet. The
+/// entries were JDT's answer last time; replaying them keeps ids and user
+/// overrides attached until a fresh answer replaces them. Entries whose source
+/// was deleted since are dropped, and an unreadable previous document simply
+/// contributes nothing because this generation overwrites it.
+fn previous_java_entrypoints(root: &Path) -> Result<JavaEntrypointFacts, CoreError> {
+    let mut facts = JavaEntrypointFacts {
+        schema_version: 1,
+        entries: Vec::new(),
+    };
+    let Ok(Some(document)) = read_document_value(root, "run/generated.json") else {
+        return Ok(facts);
+    };
+    let Ok(document) = serde_json::from_value::<RunConfigurationDocument>(document) else {
+        return Ok(facts);
+    };
+    for configuration in document.configurations {
+        if !matches!(
+            configuration.provider.as_str(),
+            "java.main" | "spring-boot.maven"
+        ) {
+            continue;
+        }
+        let (Some(source_path), Some(main_class)) = (
+            configuration.extension_string("java", "source"),
+            configuration.main_class(),
+        ) else {
+            continue;
+        };
+        if invalid_relative_path(&source_path) || !root.join(&source_path).is_file() {
+            continue;
+        }
+        facts.entries.push(JavaEntrypointFact {
+            source_path,
+            main_class,
+            project_name: None,
+        });
+    }
+    facts.entries.sort_by(|left, right| {
+        (&left.source_path, &left.main_class).cmp(&(&right.source_path, &right.main_class))
+    });
+    facts.entries.dedup();
+    Ok(facts)
 }
 
 /// Qualifies display names that repeat across directories or modules.
@@ -984,13 +1050,20 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
             }));
             continue;
         }
-        if let Some(main_class) = configuration.main_class() {
-            if !main_class_exists(&root, &main_class)? {
+        // Whether the class is launchable is JDT's answer at launch time; here
+        // only the source file the entry was generated from must still exist.
+        // `extensions.java.source` is the Java file the entry came from;
+        // `configuration.source` names a layer or detector manifest instead.
+        let entry_source = configuration
+            .extension_string("java", "source")
+            .filter(|_| configuration.main_class().is_some());
+        if let Some(source) = entry_source {
+            if invalid_relative_path(&source) || !root.join(&source).is_file() {
                 configuration.disabled = true;
                 diagnostics.push(json!({
                     "id": configuration.id,
                     "code": "missingMainClass",
-                    "message": format!("Main class source no longer exists: {main_class}")
+                    "message": format!("Main class source no longer exists: {source}")
                 }));
             }
         }
@@ -1404,13 +1477,6 @@ pub fn create_user_configuration(
                 ErrorCode::InvalidRequest,
                 "Spring Boot main class is required",
             ));
-        }
-        if !main_class_exists(&root, main_class)? {
-            return Err(CoreError::new(
-                ErrorCode::InvalidRequest,
-                "Spring Boot main class source does not exist",
-            )
-            .with_details(main_class));
         }
     }
     let mut existing_ids = std::collections::BTreeSet::new();
@@ -3035,38 +3101,6 @@ fn maven_wrapper_version(root: &Path) -> Option<String> {
         .captures(&text)
         .and_then(|capture| capture.get(1))
         .map(|value| value.as_str().to_string())
-}
-
-fn main_class_exists(root: &Path, main_class: &str) -> Result<bool, CoreError> {
-    let (package_name, simple_name) = main_class
-        .rsplit_once('.')
-        .map_or(("", main_class), |(package, name)| (package, name));
-    let file_name = format!("{simple_name}.java");
-    let package_expression =
-        regex::Regex::new(r"(?m)^\s*package\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*;")
-            .map_err(|error| CoreError::new(ErrorCode::Unknown, error.to_string()))?;
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(directory) = stack.pop() {
-        for entry in fs::read_dir(directory)? {
-            let path = entry?.path();
-            if path.is_dir() {
-                if !ignored_directory(&path) {
-                    stack.push(path);
-                }
-            } else if path.file_name().and_then(|name| name.to_str()) == Some(file_name.as_str()) {
-                let source = fs::read_to_string(&path)?;
-                let declared_package = package_expression
-                    .captures(&source)
-                    .and_then(|capture| capture.get(1))
-                    .map(|value| value.as_str())
-                    .unwrap_or("");
-                if declared_package == package_name {
-                    return Ok(true);
-                }
-            }
-        }
-    }
-    Ok(false)
 }
 
 fn existing_root(value: &str) -> Result<PathBuf, CoreError> {

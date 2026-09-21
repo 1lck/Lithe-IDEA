@@ -127,6 +127,7 @@ export default function RunActionsButton() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const { projectActions, lspActions, isDiscovering, discoveryError, refresh } =
     useRunActionDiscovery(
+      workspaceId,
       workspacePath,
       activeFilePath,
       isMenuOpen,
