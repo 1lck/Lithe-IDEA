@@ -14,16 +14,31 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-#[derive(Debug, Deserialize)]
+/// Launchable classes JDT reported, in the shape `lsp.request` returns for the
+/// `javaEntrypoints` operation.
+///
+/// Note: entry-point ownership is recorded in .agents/notes/proposed/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-/// Workspace inputs used to discover Java main classes and run configurations.
-pub struct JavaRunConfigurationsRequest {
-    pub root: String,
-    #[serde(default)]
-    pub paths: Vec<String>,
-    #[serde(default)]
-    pub module_paths: Vec<String>,
+pub struct JavaEntrypointFacts {
+    pub schema_version: u32,
+    pub entries: Vec<JavaEntrypointFact>,
 }
+
+/// One class JDT confirmed the JVM can launch.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaEntrypointFact {
+    /// Workspace-relative source path with `/` separators.
+    pub source_path: String,
+    /// Class name as JDT reports it, possibly prefixed with `module/`.
+    pub main_class: String,
+    #[serde(default)]
+    pub project_name: Option<String>,
+}
+
+/// Only schema version this Core understands for [`JavaEntrypointFacts`].
+const JAVA_ENTRYPOINT_FACTS_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -77,29 +92,59 @@ pub struct JavaServerPortRequest {
     pub file_extension: String,
 }
 
-/// Discovers stable Java and Spring Boot run entries from selected sources.
-pub fn run_configurations(
-    request: JavaRunConfigurationsRequest,
+/// Builds Java and Spring Boot run entries from the entry points JDT confirmed.
+///
+/// Whether a class is launchable is JDT's answer and is taken as given; this
+/// never inspects a signature. Source is read only to label a confirmed entry
+/// as a Spring Boot service, which is a product classification.
+pub(crate) fn run_configurations_from_entrypoints(
+    root: &Path,
+    facts: &JavaEntrypointFacts,
+    module_paths: &[String],
 ) -> Result<JavaRunConfigurationsResponse, CoreError> {
-    let root = existing_root(&request.root)?;
+    if facts.schema_version != JAVA_ENTRYPOINT_FACTS_SCHEMA_VERSION {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Unsupported Java entry-point schema version",
+        )
+        .with_details(facts.schema_version.to_string()));
+    }
+    // Sorted so the outcome does not depend on the order JDT or a previous
+    // generation listed the entries in.
+    let mut entries = facts.entries.iter().collect::<Vec<_>>();
+    entries.sort_by(|left, right| {
+        (&left.source_path, &left.main_class).cmp(&(&right.source_path, &right.main_class))
+    });
     let mut main_classes = Vec::new();
-    for path in request.paths {
-        if !path.to_lowercase().ends_with(".java") {
-            continue;
-        }
-        let relative = normalize_relative(&path).ok_or_else(|| {
+    for fact in entries {
+        let relative = normalize_relative(&fact.source_path).ok_or_else(|| {
             CoreError::new(
                 ErrorCode::InvalidRequest,
-                "Java source path must be relative",
+                "Java entry-point source path must be workspace-relative",
             )
+            .with_details(fact.source_path.clone())
         })?;
         let source = fs::read_to_string(root.join(&relative)).map_err(|error| {
             CoreError::new(ErrorCode::ParseFailed, "Could not read Java source")
-                .with_details(error.to_string())
+                .with_details(format!("{relative}: {error}"))
         })?;
-        if let Some(value) = main_class(&relative, &source) {
-            main_classes.push(value);
-        }
+        // A modular project reports `module/pkg.Type`; configuration ids and
+        // names use the class itself so they stay stable across that change.
+        let qualified_name = fact
+            .main_class
+            .rsplit_once('/')
+            .map_or(fact.main_class.as_str(), |(_, class)| class)
+            .to_string();
+        let simple_name = qualified_name
+            .rsplit_once('.')
+            .map_or(qualified_name.as_str(), |(_, name)| name)
+            .to_string();
+        main_classes.push(JavaMainClassResponse {
+            path: relative,
+            qualified_name,
+            simple_name,
+            is_spring_boot: super::java_syntax::declares_spring_boot_application(&source),
+        });
     }
 
     let mut configurations = main_classes
@@ -116,7 +161,7 @@ pub fn run_configurations(
             } else {
                 "javaMain".to_string()
             },
-            module_path: module_path(&value.path, &request.module_paths),
+            module_path: module_path(&value.path, module_paths),
             main_class: Some(value.qualified_name.clone()),
             source_path: value.path.clone(),
             source_set: java_source_set(&value.path),
@@ -126,6 +171,7 @@ pub fn run_configurations(
         kind_order(&left.kind)
             .cmp(&kind_order(&right.kind))
             .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+            .then_with(|| left.source_path.cmp(&right.source_path))
     });
 
     Ok(JavaRunConfigurationsResponse {
@@ -332,26 +378,6 @@ pub fn server_port(request: JavaServerPortRequest) -> Result<JavaServerPortRespo
     Ok(JavaServerPortResponse { port: None })
 }
 
-fn main_class(path: &str, source: &str) -> Option<JavaMainClassResponse> {
-    // Entry points are read from the syntax tree: a `static void main` inside a
-    // string literal or comment is sample text, not a runnable class.
-    let evidence = super::java_syntax::entry_evidence(source);
-    if !evidence.has_main_method {
-        return None;
-    }
-    let simple_name = launch_class_name(path, source)?;
-    let package = declared_package(source);
-    let qualified_name = package
-        .map(|value| format!("{}.{}", value, simple_name))
-        .unwrap_or_else(|| simple_name.clone());
-    Some(JavaMainClassResponse {
-        path: path.to_string(),
-        qualified_name,
-        simple_name,
-        is_spring_boot: evidence.is_spring_boot_application,
-    })
-}
-
 /// Returns the fully qualified class name to launch for a standalone Java file.
 ///
 /// Standalone runs compile the file with `javac` and then start it with
@@ -375,10 +401,14 @@ pub(crate) fn standalone_launch_class(path: &str, source: &str) -> String {
 /// stem is the reliable answer whenever the source actually declares that class.
 /// Preferring the stem also rejects a `class` token that only appears in a
 /// comment, and a helper class that happens to be declared before the public
-/// one. When no declared class matches the stem — e.g. a scratch file whose
-/// runnable class is package-private and named differently — the class enclosing
-/// `public static void main` is used, then the first declared class, and finally
-/// `None` when the source declares no class at all.
+/// one. When no declared class matches the stem the first declared class is
+/// used, which is the JDK source launcher's rule (JEP 330), and `None` is
+/// returned when the source declares no class at all — a compact source file,
+/// whose implicit class `javac` names after the file.
+///
+/// This is `javac` naming, not entry-point detection: which classes are
+/// launchable is JDT's answer, and the JVM reports a class without a usable
+/// `main` itself.
 fn launch_class_name(path: &str, source: &str) -> Option<String> {
     let classes = declared_classes(source);
     if classes.is_empty() {
@@ -387,13 +417,6 @@ fn launch_class_name(path: &str, source: &str) -> Option<String> {
     let stem = file_stem(path);
     if classes.iter().any(|(_, name)| name == &stem) {
         return Some(stem);
-    }
-    // No public/file-named class: launch the class that actually declares
-    // `main`, approximated by the last class declared at or before it.
-    if let Some(main_index) = main_declaration_index(source) {
-        if let Some((_, name)) = classes.iter().rfind(|(start, _)| *start <= main_index) {
-            return Some(name.clone());
-        }
     }
     classes.first().map(|(_, name)| name.clone())
 }
@@ -411,14 +434,6 @@ fn declared_classes(source: &str) -> Vec<(usize, String)> {
             Some((captures.get(0)?.start(), name.as_str().to_string()))
         })
         .collect()
-}
-
-/// Returns the byte offset of the first `main` method declaration, or `None`.
-fn main_declaration_index(source: &str) -> Option<usize> {
-    Regex::new(r"\bstatic\s+(?:final\s+)?void\s+main\s*\(")
-        .expect("main method pattern is a valid regex")
-        .find(source)
-        .map(|matched| matched.start())
 }
 
 /// Extracts the declared package, or `None` for the default package.
@@ -886,13 +901,23 @@ mod launch_class_tests {
     }
 
     #[test]
-    fn falls_back_to_the_main_bearing_class_when_none_match_the_file() {
-        // A scratch file whose runnable class is package-private and differently
-        // named launches the class that declares `main`, not the first one.
+    fn falls_back_to_the_first_class_like_the_jdk_source_launcher() {
+        // With no class named after the file, the first top-level class is
+        // launched — the JDK source launcher's own rule (JEP 330). Lithe does
+        // not look for a `main` signature; the JVM reports a class without one.
         let source = "class Utils {}\nclass Runner { public static void main(String[] a) {} }";
         assert_eq!(
             standalone_launch_class("scratch/Scratch.java", source),
-            "Runner"
+            "Utils"
+        );
+    }
+
+    #[test]
+    fn a_compact_source_file_launches_the_class_javac_names_after_it() {
+        let source = "void main() {\n    IO.println(\"compact\");\n}\n";
+        assert_eq!(
+            standalone_launch_class("scratch/Compact.java", source),
+            "Compact"
         );
     }
 

@@ -19,9 +19,9 @@ use crate::git::{
 };
 use crate::github::{NormalizeResponseRequest, ParseRemoteRequest, RequestPlanRequest};
 use crate::languages::{
-    JavaClassNameRequest, JavaCodeVisionRequest, JavaRunConfigurationsRequest,
-    JavaServerPortRequest, JavaSourceDefinitionRequest, JavaStructureRequest,
-    JavaTestMethodsRequest, MybatisIndexRequest, SpringIndexRequest,
+    JavaClassNameRequest, JavaCodeVisionRequest, JavaServerPortRequest,
+    JavaSourceDefinitionRequest, JavaStructureRequest, JavaTestMethodsRequest, MybatisIndexRequest,
+    SpringIndexRequest,
 };
 use crate::project::{
     self, DocumentLifecycleRequest, FileReadRequest, FileWriteRequest, ReplacementPreviewRequest,
@@ -1316,25 +1316,6 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("LSP destroy-server response should encode"),
-                ),
-                Err(error) => CoreResponse::failure(id, error),
-            }
-        }
-        CoreCommand::JavaRunConfigurations => {
-            match serde_json::from_value::<JavaRunConfigurationsRequest>(parsed.payload)
-                .map_err(|error| {
-                    CoreError::new(
-                        ErrorCode::InvalidRequest,
-                        "Invalid Java run configuration request",
-                    )
-                    .with_details(error.to_string())
-                })
-                .and_then(crate::languages::run_configurations)
-            {
-                Ok(data) => CoreResponse::success(
-                    id,
-                    serde_json::to_value(data)
-                        .expect("Java run configuration response should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

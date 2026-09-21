@@ -182,8 +182,6 @@ pub enum CoreCommand {
     LspWaitEvents,
     /// Stops and removes a server session (`lsp.destroyServer`).
     LspDestroyServer,
-    /// Discovers Java main classes and run entries (`java.runConfigurations`).
-    JavaRunConfigurations,
     /// Validates layered run-configuration documents (`runConfig.inspect`).
     RunConfigInspect,
     /// Regenerates detected run configurations (`runConfig.generate`).
@@ -384,7 +382,6 @@ impl CoreCommand {
             "lsp.pollEvents" => Some(Self::LspPollEvents),
             "lsp.waitEvents" => Some(Self::LspWaitEvents),
             "lsp.destroyServer" => Some(Self::LspDestroyServer),
-            "java.runConfigurations" => Some(Self::JavaRunConfigurations),
             "runConfig.inspect" => Some(Self::RunConfigInspect),
             "runConfig.generate" => Some(Self::RunConfigGenerate),
             "runConfig.resolve" => Some(Self::RunConfigResolve),
