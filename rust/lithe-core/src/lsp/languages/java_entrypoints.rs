@@ -7,7 +7,7 @@
 //! entry. It only turns JDT's answer into workspace-relative, deterministic
 //! facts and reports what it could not accept.
 //!
-//! Note: entry-point ownership is recorded in .agents/notes/proposed/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
+//! Note: entry-point ownership is recorded in .agents/notes/implemented/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
 
 use crate::lsp::percent_decode;
 use serde::Serialize;

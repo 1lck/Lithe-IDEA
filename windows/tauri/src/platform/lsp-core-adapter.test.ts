@@ -822,6 +822,42 @@ describe("Rust Core LSP adapter failures", () => {
     });
   });
 
+  test("requests typed Java test items for the selected source file", async () => {
+    scenario = "semantic-request";
+    const expected = {
+      schemaVersion: 1,
+      items: [{
+        id: "method",
+        label: "composed()",
+        fullName: "demo.OddlyNamedSpec#composed()",
+        projectName: "app",
+        testKind: 0,
+        testLevel: 6,
+        children: [],
+      }],
+      diagnostics: [],
+    };
+    semanticRequestResults = [expected];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    const result = await invokeLsp("java_test_items", {
+      workspacePath: "C:/work",
+      filePath: "C:/work/src/test/java/demo/OddlyNamedSpec.java",
+    });
+
+    expect(result).toEqual(expected);
+    expect(requestPayloads[requestPayloads.length - 1]).toEqual({
+      sessionId: "java-session",
+      operation: "javaTestItems",
+      uri: "file:///C:/work/src/test/java/demo/OddlyNamedSpec.java",
+    });
+  });
+
   test("returns Core's Java build failure with the usable launch target", async () => {
     scenario = "semantic-request";
     semanticRequestResults = [

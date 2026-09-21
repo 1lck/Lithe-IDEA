@@ -369,7 +369,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
     /// JDT's launchable classes for the workspace, starting the Java service
     /// when needed. Lithe never derives entry points from source text.
     ///
-    /// Note: 入口点归属见 .agents/notes/proposed/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
+    /// Note: 入口点归属见 .agents/notes/implemented/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
     package func javaEntrypoints(rootURL: URL) async throws -> JavaEntrypoints {
         try await javaEntrypoints(in: rootURL.standardizedFileURL)
     }
@@ -513,7 +513,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             fileURL: normalizedFile,
             rootURL: normalizedRoot
         )
-        let selected: [ResolvedJavaTestItem]
+        let selected: [JavaTestItem]
         if let testIdentifier, !testIdentifier.isEmpty {
             selected = Self.flattenJavaTestItems(discovered).filter {
                 $0.matches(identifier: testIdentifier)
@@ -675,20 +675,21 @@ package final class LanguageToolingSessionManager: ObservableObject,
     private func resolvedJavaTestItems(
         fileURL: URL,
         rootURL: URL
-    ) async throws -> [ResolvedJavaTestItem] {
+    ) async throws -> [JavaTestItem] {
         _ = try startLanguageServer(providerID: "java", rootURL: rootURL)
         try await waitUntilLanguageServerReady(providerID: "java", rootURL: rootURL)
-        let discoveredValue = try await executeJavaTestCommand(
-            "vscode.java.test.findTestTypesAndMethods",
-            arguments: [.string(fileURL.absoluteString)],
-            rootURL: rootURL
-        )
-        guard case .array(let values) = discoveredValue else {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "The Java language service returned invalid test metadata."
-            )
+        guard let session = languageServers["java"], session.isRunning else {
+            throw LanguageToolingSessionError.toolingUnavailable("Java")
         }
-        return values.compactMap(Self.javaTestItem)
+        return try await withCheckedThrowingContinuation { continuation in
+            do {
+                try session.javaTestItems(fileURL: fileURL) { result in
+                    continuation.resume(with: result.map(\.items))
+                }
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
     }
 
     private static func stringValues(_ value: ToolingJSONValue) -> [String] {
@@ -697,45 +698,6 @@ package final class LanguageToolingSessionManager: ObservableObject,
             guard case .string(let value) = value, !value.isEmpty else { return nil }
             return value
         }
-    }
-
-    private static func javaTestItem(_ value: ToolingJSONValue) -> ResolvedJavaTestItem? {
-        guard case .object(let object) = value,
-              case .string(let id)? = object["id"],
-              case .string(let label)? = object["label"],
-              case .string(let fullName)? = object["fullName"],
-              case .string(let projectName)? = object["projectName"],
-              let kind = integerValue(object["testKind"]),
-              let level = integerValue(object["testLevel"]) else { return nil }
-        let jdtHandler: String?
-        if case .string(let value)? = object["jdtHandler"], !value.isEmpty {
-            jdtHandler = value
-        } else {
-            jdtHandler = nil
-        }
-        let children: [ResolvedJavaTestItem]
-        if case .array(let values)? = object["children"] {
-            children = values.compactMap(javaTestItem)
-        } else {
-            children = []
-        }
-        let sortText: String?
-        if case .string(let value)? = object["sortText"], !value.isEmpty {
-            sortText = value
-        } else {
-            sortText = nil
-        }
-        return ResolvedJavaTestItem(
-            id: id,
-            label: label,
-            fullName: fullName,
-            projectName: projectName,
-            kind: kind,
-            level: level,
-            jdtHandler: jdtHandler,
-            sortText: sortText,
-            children: children
-        )
     }
 
     private static func integerValue(_ value: ToolingJSONValue?) -> Int? {
@@ -747,13 +709,13 @@ package final class LanguageToolingSessionManager: ObservableObject,
     }
 
     private static func flattenJavaTestItems(
-        _ items: [ResolvedJavaTestItem]
-    ) -> [ResolvedJavaTestItem] {
+        _ items: [JavaTestItem]
+    ) -> [JavaTestItem] {
         items.flatMap { [$0] + flattenJavaTestItems($0.children) }
     }
 
     private static func projectJavaTestItems(
-        _ items: [ResolvedJavaTestItem],
+        _ items: [JavaTestItem],
         fileURL: URL,
         depth: Int
     ) -> [LanguageTestItem] {
@@ -775,15 +737,15 @@ package final class LanguageToolingSessionManager: ObservableObject,
     }
 
     private static func sortedJavaTestItems(
-        _ items: [ResolvedJavaTestItem]
-    ) -> [ResolvedJavaTestItem] {
+        _ items: [JavaTestItem]
+    ) -> [JavaTestItem] {
         items.sorted {
             ($0.sortText ?? $0.label, $0.label, $0.id)
                 < ($1.sortText ?? $1.label, $1.label, $1.id)
         }
     }
 
-    private static func javaTestNGMethodNames(_ item: ResolvedJavaTestItem) -> [String] {
+    private static func javaTestNGMethodNames(_ item: JavaTestItem) -> [String] {
         if item.level == 6 { return [item.fullName] }
         return item.children.flatMap(javaTestNGMethodNames)
     }
@@ -1890,25 +1852,6 @@ package final class LanguageToolingSessionManager: ObservableObject,
         let projectName: String?
         let filePath: String
         let isFullBuild: Bool
-    }
-
-    private struct ResolvedJavaTestItem {
-        let id: String
-        let label: String
-        let fullName: String
-        let projectName: String
-        let kind: Int
-        let level: Int
-        let jdtHandler: String?
-        let sortText: String?
-        let children: [ResolvedJavaTestItem]
-
-        func matches(identifier: String) -> Bool {
-            id == identifier
-                || label == identifier
-                || fullName == identifier
-                || jdtHandler == identifier
-        }
     }
 
     private struct ResolvedJavaTestLaunchArguments {

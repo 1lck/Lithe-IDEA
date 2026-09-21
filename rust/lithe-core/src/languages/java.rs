@@ -5,8 +5,7 @@ use crate::protocol::{
     JavaClassNameResponse, JavaCodeVisionHintResponse, JavaCodeVisionResponse,
     JavaFoldRegionResponse, JavaInlayHintResponse, JavaMainClassResponse,
     JavaRunConfigurationResponse, JavaRunConfigurationsResponse, JavaServerPortResponse,
-    JavaSourceSetResponse, JavaStructureResponse, JavaStructureTestMethodResponse,
-    JavaTestMethodsResponse,
+    JavaSourceSetResponse, JavaStructureResponse,
 };
 use regex::Regex;
 use serde::Deserialize;
@@ -17,7 +16,7 @@ use std::path::{Component, Path, PathBuf};
 /// Launchable classes JDT reported, in the shape `lsp.request` returns for the
 /// `javaEntrypoints` operation.
 ///
-/// Note: entry-point ownership is recorded in .agents/notes/proposed/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
+/// Note: entry-point ownership is recorded in .agents/notes/implemented/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct JavaEntrypointFacts {
@@ -75,13 +74,6 @@ pub struct JavaSourceDefinitionRequest {
     pub declaration_name: String,
     #[serde(default)]
     pub member_name: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-/// Java source inspected for JUnit test methods and their source ranges.
-pub struct JavaTestMethodsRequest {
-    pub source: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -187,16 +179,6 @@ pub fn structure(request: JavaStructureRequest) -> Result<JavaStructureResponse,
         fold_regions: fold_regions(&source),
         inlay_hints: parameter_hints(&source, &request.declaration_sources),
         syntax_highlights: super::java_syntax::syntax_highlights(&source),
-        // The structure endpoint retains its one-based contract; the dedicated
-        // test-method endpoint uses zero-based editor ranges.
-        test_methods: super::java_syntax::test_methods(&source)?
-            .into_iter()
-            .map(|method| JavaStructureTestMethodResponse {
-                name: method.name,
-                line: method.line.saturating_add(1),
-                end_line: method.end_line.saturating_add(1),
-            })
-            .collect(),
     })
 }
 
@@ -321,14 +303,6 @@ pub fn source_definition(
         }
     }
     Ok(None)
-}
-
-/// Discovers JUnit 4 and JUnit 5 test methods without starting a language server.
-pub fn test_methods(request: JavaTestMethodsRequest) -> Result<JavaTestMethodsResponse, CoreError> {
-    crate::protocol::cancellation::check()?;
-    Ok(JavaTestMethodsResponse {
-        methods: super::java_syntax::test_methods(&request.source)?,
-    })
 }
 
 /// Reads a Spring server port from properties or YAML content.

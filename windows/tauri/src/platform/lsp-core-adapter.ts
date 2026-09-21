@@ -1100,6 +1100,34 @@ export interface JavaEntrypoints {
   diagnostics: Array<{ code: string; mainClass?: string; detail?: string }>;
 }
 
+export interface JavaTestRange {
+  startLine: number;
+  startUtf16Column: number;
+  endLine: number;
+  endUtf16Column: number;
+}
+
+/** One test class or method semantically identified by Java Test/JDT. */
+export interface JavaTestItem {
+  id: string;
+  label: string;
+  fullName: string;
+  projectName: string;
+  testKind: number;
+  testLevel: number;
+  jdtHandler?: string;
+  sortText?: string;
+  range?: JavaTestRange;
+  children: JavaTestItem[];
+}
+
+/** Core's normalized `javaTestItems` answer (schema version 1). */
+export interface JavaTestItems {
+  schemaVersion: 1;
+  items: JavaTestItem[];
+  diagnostics: Array<{ code: string; detail?: string }>;
+}
+
 async function requestJavaEntrypoints(session: Session): Promise<JavaEntrypoints> {
   const value = normalizeCoreValue(
     await requestOperation(session, { sessionId: session.id, operation: "javaEntrypoints" }),
@@ -1113,6 +1141,27 @@ async function requestJavaEntrypoints(session: Session): Promise<JavaEntrypoints
   return {
     schemaVersion: 1,
     entries: value.entries,
+    diagnostics: Array.isArray(value.diagnostics) ? value.diagnostics : [],
+  };
+}
+
+async function requestJavaTestItems(session: Session, filePath: string): Promise<JavaTestItems> {
+  const value = normalizeCoreValue(
+    await requestOperation(session, {
+      sessionId: session.id,
+      operation: "javaTestItems",
+      uri: fileUri(filePath),
+    }),
+  ) as Partial<JavaTestItems> | null;
+  if (value?.schemaVersion !== 1 || !Array.isArray(value.items)) {
+    throw lspAdapterError(
+      "invalid_response",
+      "The Java language service returned an invalid test-item list.",
+    );
+  }
+  return {
+    schemaVersion: 1,
+    items: value.items,
     diagnostics: Array.isArray(value.diagnostics) ? value.diagnostics : [],
   };
 }
@@ -1517,6 +1566,12 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
   if (command === "java_entrypoints") {
     return (await requestJavaEntrypoints(
       sessionForWorkspace(String(args.workspacePath ?? ""), "java"),
+    )) as T;
+  }
+  if (command === "java_test_items") {
+    return (await requestJavaTestItems(
+      sessionForWorkspace(String(args.workspacePath ?? ""), "java"),
+      String(args.filePath ?? ""),
     )) as T;
   }
   if (command === "java_prepare_run_launch") {

@@ -14,6 +14,7 @@ use super::{
 use crate::lsp::languages::java_entrypoints::{
     java_entrypoints_command, normalize_java_entrypoints,
 };
+use crate::lsp::languages::java_tests::{java_test_items_command, normalize_java_test_items};
 use crate::lsp::languages::jdt::{
     adapt_initialization_options, adapt_start, import_progress, initialized_notification,
     is_structured_import_notification, is_virtual_source_uri, jdt_java_runtimes,
@@ -308,6 +309,9 @@ pub enum LspSemanticOperation {
     /// JDT discovery of launchable Java classes in the session workspace,
     /// normalized into workspace-relative entry points.
     JavaEntrypoints,
+    /// Java Test extension discovery for one source file, normalized into
+    /// typed class and method items.
+    JavaTestItems,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -480,6 +484,8 @@ enum PendingKind {
     VirtualDocument,
     /// Java Debug Server main-class discovery normalized as entry points.
     JavaEntrypoints,
+    /// Java Test extension file discovery normalized as typed test items.
+    JavaTestItems,
     /// CodeLens-derived Java gutter marker projection.
     JavaNavigationMarkers,
     /// One JDT LS CodeLens resolve step in a bounded marker batch.
@@ -1451,6 +1457,7 @@ impl RuntimeSession {
         let pending_kind = match request.operation {
             LspSemanticOperation::VirtualDocument => PendingKind::VirtualDocument,
             LspSemanticOperation::JavaEntrypoints => PendingKind::JavaEntrypoints,
+            LspSemanticOperation::JavaTestItems => PendingKind::JavaTestItems,
             _ => PendingKind::Feature,
         };
         self.request_with_kind(request, operation_id, pending_kind, document_version)
@@ -1591,6 +1598,25 @@ impl RuntimeSession {
                         state.client.clone(),
                         method,
                         java_entrypoints_command(&self.root_uri),
+                    )?
+                }
+                LspSemanticOperation::JavaTestItems => {
+                    if self.provider_id != "java" {
+                        return Err(CoreError::new(
+                            ErrorCode::NotSupported,
+                            "Java test discovery requires the Java language service.",
+                        ));
+                    }
+                    let uri = uri.clone().ok_or_else(|| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "Java test discovery requires a document URI.",
+                        )
+                    })?;
+                    allocate_raw_request(
+                        state.client.clone(),
+                        method,
+                        java_test_items_command(&uri),
                     )?
                 }
                 LspSemanticOperation::VirtualDocument => {
@@ -2625,6 +2651,55 @@ impl RuntimeSession {
                         }
                     }
                 }
+                Some(PendingKind::JavaTestItems) => {
+                    if let Some(pending) = pending_before.as_ref() {
+                        if let Some(operation_id) = &pending.operation_id {
+                            let server_error = reduced
+                                .events
+                                .iter()
+                                .find(|event| event.request_id.as_ref() == response_id.as_ref())
+                                .and_then(|event| event.error.as_ref())
+                                .map(|detail| {
+                                    runtime_error(
+                                        self,
+                                        "serverError",
+                                        "request",
+                                        Some(&pending.method),
+                                        pending.document_uri.as_deref(),
+                                        "Java Test extension returned an error.",
+                                        Some(detail),
+                                        None,
+                                    )
+                                });
+                            let items = value.get("result").and_then(normalize_java_test_items);
+                            let invalid_result = if server_error.is_none() && items.is_none() {
+                                Some(runtime_error(
+                                    self,
+                                    "invalidServerResult",
+                                    "request",
+                                    Some(&pending.method),
+                                    pending.document_uri.as_deref(),
+                                    "Java Test extension returned no test-item list.",
+                                    None,
+                                    None,
+                                ))
+                            } else {
+                                None
+                            };
+                            push_request_event(
+                                self,
+                                &mut state,
+                                operation_id,
+                                &pending.method,
+                                items.map(|items| {
+                                    serde_json::to_value(items)
+                                        .expect("Java test items should encode")
+                                }),
+                                server_error.or(invalid_result),
+                            );
+                        }
+                    }
+                }
                 Some(PendingKind::Shutdown) => {
                     // The reducer emits `exit` only after the shutdown response.
                     state.shutdown_deadline = Some(Instant::now() + state.shutdown_timeout);
@@ -3249,6 +3324,7 @@ impl RuntimeSession {
                         PendingKind::Feature
                             | PendingKind::VirtualDocument
                             | PendingKind::JavaEntrypoints
+                            | PendingKind::JavaTestItems
                             | PendingKind::JavaNavigationMarkers
                             | PendingKind::JavaNavigationMarkerResolve
                             | PendingKind::JavaResolveNavigation
@@ -3769,7 +3845,8 @@ fn semantic_method(operation: LspSemanticOperation) -> &'static str {
         LspSemanticOperation::ResolveCodeAction => "codeAction/resolve",
         LspSemanticOperation::ExecuteCommand
         | LspSemanticOperation::VirtualDocument
-        | LspSemanticOperation::JavaEntrypoints => "workspace/executeCommand",
+        | LspSemanticOperation::JavaEntrypoints
+        | LspSemanticOperation::JavaTestItems => "workspace/executeCommand",
         LspSemanticOperation::InlayHints => "textDocument/inlayHint",
         LspSemanticOperation::FoldingRanges => "textDocument/foldingRange",
         LspSemanticOperation::SemanticTokens => "textDocument/semanticTokens/full",
@@ -3794,7 +3871,8 @@ fn semantic_capability(operation: LspSemanticOperation) -> Option<&'static str> 
         LspSemanticOperation::ResolveCodeAction => Some("codeActionResolve"),
         LspSemanticOperation::ExecuteCommand
         | LspSemanticOperation::VirtualDocument
-        | LspSemanticOperation::JavaEntrypoints => Some("executeCommand"),
+        | LspSemanticOperation::JavaEntrypoints
+        | LspSemanticOperation::JavaTestItems => Some("executeCommand"),
         LspSemanticOperation::InlayHints => Some("inlayHints"),
         LspSemanticOperation::FoldingRanges => Some("foldingRanges"),
         LspSemanticOperation::SemanticTokens => Some("semanticTokens"),
@@ -4505,6 +4583,7 @@ fn fail_feature_requests(
                 PendingKind::Feature
                     | PendingKind::VirtualDocument
                     | PendingKind::JavaEntrypoints
+                    | PendingKind::JavaTestItems
                     | PendingKind::JavaNavigationMarkers
                     | PendingKind::JavaNavigationMarkerResolve
                     | PendingKind::JavaResolveNavigation
@@ -7097,6 +7176,134 @@ mod tests {
             )
             .expect_err("only the Java provider can discover Java entry points");
         assert!(matches!(error.code, ErrorCode::NotSupported), "{error:?}");
+    }
+
+    #[test]
+    fn java_test_items_ask_the_extension_for_one_file_and_normalize_the_answer() {
+        let mut harness = java_entrypoints_harness();
+        let operation_id = harness.engine.next_operation_id();
+        let uri = "file:///workspace/src/test/java/demo/OddlyNamedSpec.java";
+        harness
+            .session()
+            .request(
+                SemanticRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    operation: LspSemanticOperation::JavaTestItems,
+                    uri: Some(uri.to_string()),
+                    virtual_uri: None,
+                    position: None,
+                    new_name: None,
+                    range: None,
+                    diagnostics: Vec::new(),
+                    completion_item: None,
+                    code_action: None,
+                    command: None,
+                },
+                operation_id.clone(),
+            )
+            .expect("test discovery should not require the file to be open");
+        let request_id = harness
+            .server
+            .await_request("workspace/executeCommand")
+            .expect("test discovery should reach the Java Test extension");
+        let request = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["id"] == request_id)
+            .expect("the discovery request should be recorded");
+        assert_eq!(
+            request["params"],
+            json!({
+                "command": "vscode.java.test.findTestTypesAndMethods",
+                "arguments": [uri]
+            })
+        );
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": [{
+                "id": "class-id",
+                "label": "OddlyNamedSpec",
+                "fullName": "demo.OddlyNamedSpec",
+                "projectName": "app",
+                "testKind": 0,
+                "testLevel": 5,
+                "children": [{
+                    "id": "method-id",
+                    "label": "customAnnotation()",
+                    "fullName": "demo.OddlyNamedSpec#customAnnotation()",
+                    "projectName": "app",
+                    "testKind": 0,
+                    "testLevel": 6,
+                    "jdtHandler": "method-handler",
+                    "range": {
+                        "start": { "line": 7, "character": 2 },
+                        "end": { "line": 9, "character": 3 }
+                    }
+                }]
+            }]
+        }));
+        let event = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
+            .clone();
+        assert!(event.error.is_none(), "{event:?}");
+        assert_eq!(
+            event
+                .result
+                .as_ref()
+                .and_then(|value| value["schemaVersion"].as_u64()),
+            Some(1)
+        );
+        assert_eq!(
+            event
+                .result
+                .as_ref()
+                .map(|value| &value["items"][0]["children"][0]["jdtHandler"]),
+            Some(&json!("method-handler"))
+        );
+    }
+
+    #[test]
+    fn malformed_java_test_answer_is_an_error_not_an_empty_list() {
+        let mut harness = java_entrypoints_harness();
+        let operation_id = harness.engine.next_operation_id();
+        harness
+            .session()
+            .request(
+                SemanticRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    operation: LspSemanticOperation::JavaTestItems,
+                    uri: Some("file:///workspace/src/test/java/demo/App.java".to_string()),
+                    virtual_uri: None,
+                    position: None,
+                    new_name: None,
+                    range: None,
+                    diagnostics: Vec::new(),
+                    completion_item: None,
+                    code_action: None,
+                    command: None,
+                },
+                operation_id.clone(),
+            )
+            .unwrap();
+        let request_id = harness
+            .server
+            .await_request("workspace/executeCommand")
+            .unwrap();
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "id": request_id, "result": { "unexpected": true }
+        }));
+        let event = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
+            .clone();
+        assert!(event.result.is_none(), "{event:?}");
+        assert_eq!(
+            event.error.as_ref().map(|error| error.code.as_str()),
+            Some("invalidServerResult")
+        );
     }
 
     #[test]

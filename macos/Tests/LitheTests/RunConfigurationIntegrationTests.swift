@@ -933,6 +933,28 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func javaDiscoveryOffersNonConventionalSourceNamesToJDT() throws {
+        let root = URL(fileURLWithPath: "/tmp/java-semantic-tests", isDirectory: true)
+        let inheritedSuite = root.appendingPathComponent("src/checks/InheritedSuite.java")
+        let helper = root.appendingPathComponent("src/main/java/Helper.java")
+        let provider = try #require(LanguageTestProviderRegistry.standard().provider(id: "java"))
+
+        let items = provider.discoverTests(context: LanguageTestContext(
+            workspaceURL: root,
+            projectFiles: [
+                inheritedSuite,
+                helper,
+                root.appendingPathComponent("pom.xml"),
+            ]
+        ))
+
+        #expect(items.compactMap(\.fileURL) == [
+            inheritedSuite.standardizedFileURL,
+            helper.standardizedFileURL,
+        ])
+    }
+
+    @Test
     func testProvidersRejectFilesOutsideTheWorkspace() throws {
         let provider = try #require(LanguageTestProviderRegistry.standard().provider(id: "python"))
         #expect(throws: LanguageTestPlanError.fileOutsideWorkspace(

@@ -476,6 +476,17 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
     }
 
+    package func javaTestItems(
+        fileURL: URL,
+        completion: @escaping (Result<JavaTestItems, Error>) -> Void
+    ) throws {
+        try request(.javaTestItems, fileURL: fileURL) { result in
+            completion(result.flatMap {
+                Self.decodeEventResult($0, as: JavaTestItems.self)
+            })
+        }
+    }
+
     package func resolveVirtualDocument(
         uri: String,
         completion: @escaping (Result<String, Error>) -> Void

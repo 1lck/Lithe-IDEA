@@ -12,6 +12,7 @@ import {
 } from "../utils/run-action-discovery";
 
 export function useRunActionDiscovery(
+  workspaceId: string,
   workspacePath: string | undefined,
   activeFilePath: string | undefined,
   includeCodeLenses: boolean,
@@ -27,7 +28,12 @@ export function useRunActionDiscovery(
     const buffer = getBufferByPath(state.buffers, activeFilePath);
     return buffer?.type === "editor" ? buffer.content ?? "" : "";
   });
+  const javaTestScope = useMemo(
+    () => (workspacePath ? { workspaceId, root: workspacePath } : null),
+    [workspaceId, workspacePath],
+  );
   const javaTestMethods = useJavaTestMethods(
+    javaTestScope,
     activeFilePath ?? "",
     activeFileContent,
     enabled && mavenTestsAvailable,

@@ -3,7 +3,9 @@
 //! They run only when `LITHE_JDTLS_SMOKE_ROOT` names a directory prepared by
 //! `scripts/prepare-jdtls.{sh,ps1}`, `LITHE_JDTLS_SMOKE_JAVA` names the Java
 //! executable that runs JDT LS, and `LITHE_JDTLS_SMOKE_PROJECT_JDK` names a
-//! JDK 25 home for the fixture project. They launch JDT LS exactly as the
+//! JDK 25 home for the fixture project. Optional `LITHE_JDTLS_SMOKE_MAVEN`
+//! names Maven so the discovered composed and inherited tests are also run.
+//! They launch JDT LS exactly as the
 //! product does (direct Java launch with the Debug and Test bundles) so that a
 //! toolchain upgrade that breaks discovery, building, or launching fails here.
 
@@ -15,6 +17,7 @@ struct RealJdtToolchain {
     root: PathBuf,
     java: String,
     project_jdk: PathBuf,
+    maven: Option<String>,
 }
 
 fn real_jdt_toolchain() -> Option<RealJdtToolchain> {
@@ -23,10 +26,12 @@ fn real_jdt_toolchain() -> Option<RealJdtToolchain> {
         .expect("LITHE_JDTLS_SMOKE_JAVA must accompany LITHE_JDTLS_SMOKE_ROOT");
     let project_jdk = std::env::var_os("LITHE_JDTLS_SMOKE_PROJECT_JDK")
         .expect("LITHE_JDTLS_SMOKE_PROJECT_JDK must accompany LITHE_JDTLS_SMOKE_ROOT");
+    let maven = std::env::var("LITHE_JDTLS_SMOKE_MAVEN").ok();
     Some(RealJdtToolchain {
         root: PathBuf::from(root),
         java,
         project_jdk: PathBuf::from(project_jdk),
+        maven,
     })
 }
 
@@ -126,6 +131,28 @@ const JAVA_25_ENTRYPOINT_SOURCES: &[(&str, &str)] = &[
     ),
 ];
 
+/// Test sources whose membership cannot be decided by file names or direct
+/// annotations alone. Java Test/JDT must resolve the composed annotation and
+/// inherited method.
+const JAVA_TEST_SOURCES: &[(&str, &str)] = &[
+    (
+        "src/test/java/demo/FastTest.java",
+        "package demo;\nimport java.lang.annotation.*;\nimport org.junit.jupiter.api.Test;\n@Retention(RetentionPolicy.RUNTIME)\n@Target(ElementType.METHOD)\n@Test\npublic @interface FastTest {}\n",
+    ),
+    (
+        "src/test/java/demo/OddlyNamedSpec.java",
+        "package demo;\nimport java.nio.file.*;\nclass OddlyNamedSpec {\n    @FastTest void composedAnnotation() throws Exception { Files.writeString(Path.of(\"target/composed-ran\"), \"yes\"); }\n}\n",
+    ),
+    (
+        "src/test/java/demo/BaseBehavior.java",
+        "package demo;\nimport java.nio.file.*;\nimport org.junit.jupiter.api.Test;\nclass BaseBehavior {\n    @Test void inheritedBehavior() throws Exception { Files.writeString(Path.of(\"target/inherited-ran\"), \"yes\"); }\n}\n",
+    ),
+    (
+        "src/test/java/demo/InheritedSuite.java",
+        "package demo;\nclass InheritedSuite extends BaseBehavior {}\n",
+    ),
+];
+
 const JAVA_25_POM: &str = r#"<project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
   <groupId>smoke</groupId>
@@ -135,6 +162,23 @@ const JAVA_25_POM: &str = r#"<project xmlns="http://maven.apache.org/POM/4.0.0">
     <maven.compiler.release>25</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
+  <dependencies>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>5.14.0</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.5.4</version>
+      </plugin>
+    </plugins>
+  </build>
 </project>
 "#;
 
@@ -222,6 +266,34 @@ fn request_real_entrypoints(
     await_operation(session, &operation_id, Duration::from_secs(60))
 }
 
+fn request_real_test_items(
+    engine: &LspEngine,
+    session: &Arc<RuntimeSession>,
+    uri: String,
+) -> Result<Value, String> {
+    let operation_id = engine.next_operation_id();
+    session
+        .request(
+            SemanticRequest {
+                session_id: session.id.clone(),
+                operation_id: Some(operation_id.clone()),
+                operation: LspSemanticOperation::JavaTestItems,
+                uri: Some(uri),
+                virtual_uri: None,
+                position: None,
+                new_name: None,
+                range: None,
+                diagnostics: Vec::new(),
+                completion_item: None,
+                code_action: None,
+                command: None,
+            },
+            operation_id.clone(),
+        )
+        .map_err(|error| error.message)?;
+    await_operation(session, &operation_id, Duration::from_secs(60))
+}
+
 #[test]
 fn real_jdtls_discovers_builds_and_launches_java_25_entrypoints() {
     let Some(toolchain) = real_jdt_toolchain() else {
@@ -241,6 +313,12 @@ fn real_jdtls_discovers_builds_and_launches_java_25_entrypoints() {
         std::fs::create_dir_all(path.parent().expect("source parent"))
             .expect("fixture source directory");
         std::fs::write(&path, source).expect("fixture source");
+    }
+    for (relative, source) in JAVA_TEST_SOURCES {
+        let path = workspace.join(relative);
+        std::fs::create_dir_all(path.parent().expect("test source parent"))
+            .expect("fixture test source directory");
+        std::fs::write(&path, source).expect("fixture test source");
     }
     std::fs::write(workspace.join("pom.xml"), JAVA_25_POM).expect("fixture pom");
     let canonical_workspace = workspace.canonicalize().expect("workspace canonicalizes");
@@ -435,5 +513,86 @@ fn real_jdtls_discovers_builds_and_launches_java_25_entrypoints() {
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim(),
         "static-noargs"
+    );
+
+    // No local annotation or file-name rule can produce these answers: JDT
+    // resolves the custom meta-annotation and the inherited JUnit method.
+    for (relative, expected_class, expected_method) in [
+        (
+            "src/test/java/demo/OddlyNamedSpec.java",
+            "demo.OddlyNamedSpec",
+            Some("demo.OddlyNamedSpec#composedAnnotation()"),
+        ),
+        (
+            "src/test/java/demo/InheritedSuite.java",
+            "demo.InheritedSuite",
+            None,
+        ),
+    ] {
+        let uri = url::Url::from_file_path(canonical_workspace.join(relative))
+            .expect("test source converts to a file URI")
+            .to_string();
+        let result = request_real_test_items(&engine, &session, uri)
+            .unwrap_or_else(|error| panic!("test discovery failed for {relative}: {error}"));
+        let classes = result["items"]
+            .as_array()
+            .unwrap_or_else(|| panic!("Java Test returned no item list for {relative}: {result}"));
+        let class = classes
+            .iter()
+            .find(|item| item["fullName"] == expected_class)
+            .unwrap_or_else(|| panic!("Java Test did not find {expected_class}: {result}"));
+        if let Some(expected_method) = expected_method {
+            let method = class["children"]
+                .as_array()
+                .and_then(|children| {
+                    children
+                        .iter()
+                        .find(|item| item["fullName"] == expected_method)
+                })
+                .unwrap_or_else(|| {
+                    panic!("Java Test did not resolve the composed annotation: {result}")
+                });
+            let range = &method["range"];
+            assert!(
+                range["startLine"].as_i64().is_some_and(|line| line >= 0)
+                    && range["startUtf16Column"]
+                        .as_i64()
+                        .is_some_and(|column| column >= 0)
+                    && range["endLine"].as_i64().is_some_and(|line| line >= 0)
+                    && range["endUtf16Column"]
+                        .as_i64()
+                        .is_some_and(|column| column >= 0),
+                "Java Test returned no usable method range: {result}"
+            );
+        }
+    }
+
+    let Some(maven_executable) = toolchain.maven.as_deref() else {
+        return;
+    };
+    let mut maven = std::process::Command::new(maven_executable);
+    maven
+        .current_dir(&canonical_workspace)
+        .env("JAVA_HOME", &toolchain.project_jdk)
+        .args([
+            "--batch-mode",
+            "--no-transfer-progress",
+            "-Dtest=OddlyNamedSpec,InheritedSuite",
+            "test",
+        ]);
+    let test_output = maven.output().expect("Maven should start");
+    assert!(
+        test_output.status.success(),
+        "discovered Java tests failed:\n{}\n{}",
+        String::from_utf8_lossy(&test_output.stdout),
+        String::from_utf8_lossy(&test_output.stderr)
+    );
+    assert!(
+        canonical_workspace.join("target/composed-ran").is_file(),
+        "the custom composed-annotation test did not run"
+    );
+    assert!(
+        canonical_workspace.join("target/inherited-ran").is_file(),
+        "the inherited test did not run"
     );
 }

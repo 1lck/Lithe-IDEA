@@ -3,6 +3,7 @@
 mod catalog;
 pub(crate) mod java_entrypoints;
 pub(crate) mod java_navigation_syntax;
+pub(crate) mod java_tests;
 mod java_workspace;
 pub(crate) mod jdt;
 pub(crate) mod jdt_build;

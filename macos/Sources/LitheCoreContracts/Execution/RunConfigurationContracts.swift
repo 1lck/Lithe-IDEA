@@ -70,7 +70,7 @@ package enum ProjectLoadState: Equatable, Sendable {
 /// generation. Whether a class is launchable is JDT's answer; Lithe never
 /// derives entry points from source text.
 ///
-/// Note: 入口点归属见 .agents/notes/proposed/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
+/// Note: 入口点归属见 .agents/notes/implemented/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
 package enum JavaEntrypointDiscovery: Equatable, Sendable {
     /// The workspace has no Java sources, so there is nothing to ask.
     case notJava

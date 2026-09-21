@@ -7,7 +7,7 @@ import LitheLanguageIntelligenceModule
 /// Java entry points come from JDT: which classes are launchable is its
 /// answer, and the Run list, launch, and Debug all ask it through Core.
 ///
-/// Note: 入口点归属见 .agents/notes/proposed/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
+/// Note: 入口点归属见 .agents/notes/implemented/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
 extension AppModel {
     /// Asks JDT which classes can be launched, then regenerates the Run list
     /// from its answer. While JDT is still preparing the project the previous

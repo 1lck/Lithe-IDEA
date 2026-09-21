@@ -482,7 +482,7 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .map(|path| workspace_maven_path(maven_relative_path, &path))
         .collect();
     let module_paths = inferred_maven_module_paths(&root, &paths, configured_module_paths);
-    // Note: entry-point ownership is recorded in .agents/notes/proposed/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
+    // Note: entry-point ownership is recorded in .agents/notes/implemented/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
     let (mut java_entrypoints, java_entrypoints_origin) = match request.java_entrypoints {
         Some(facts) => (facts, "languageService"),
         None => (previous_java_entrypoints(&root)?, "previousGeneration"),

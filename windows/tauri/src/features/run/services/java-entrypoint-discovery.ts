@@ -8,7 +8,7 @@ import {
   type PreparationEntry,
 } from "../stores/project-preparation.store";
 
-// Note: 入口点归属见 .agents/notes/proposed/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
+// Note: 入口点归属见 .agents/notes/implemented/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
 
 /** Outcome of asking the Java language service which classes can be launched. */
 export type JavaEntrypointDiscovery =

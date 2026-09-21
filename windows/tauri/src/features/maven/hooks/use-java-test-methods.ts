@@ -1,9 +1,19 @@
-import { useEffect, useState } from "react";
+import { useDeferredValue, useEffect, useState } from "react";
 import { frontendTrace } from "@/utils/frontend-trace";
-import { parseJavaTestMethods } from "../api/maven-core-api";
+import type { WorkspaceLaunchScope } from "@/features/workspace/types/workspace-launch-scope";
+import { discoverJavaTestMethods } from "../services/java-test-discovery";
 import type { JavaTestMethod } from "../types/maven.types";
 
-export function useJavaTestMethods(filePath: string, source: string, enabled: boolean) {
+export function useJavaTestMethods(
+  scope: WorkspaceLaunchScope | null,
+  filePath: string,
+  source: string,
+  enabled: boolean,
+) {
+  // JDT discovery is process-backed. Let rapid editor updates coalesce before
+  // starting another semantic request; React owns the scheduling, so no
+  // unbounded timer or polling loop is introduced here.
+  const deferredSource = useDeferredValue(source);
   const [result, setResult] = useState<{
     filePath: string;
     source: string;
@@ -11,19 +21,19 @@ export function useJavaTestMethods(filePath: string, source: string, enabled: bo
   } | null>(null);
 
   useEffect(() => {
-    if (!enabled || !/\.java$/i.test(filePath)) {
+    if (!enabled || !scope || !/\.java$/i.test(filePath)) {
       setResult(null);
       return;
     }
 
     let cancelled = false;
-    void parseJavaTestMethods(source)
+    void discoverJavaTestMethods(scope, filePath, deferredSource)
       .then((methods) => {
-        if (!cancelled) setResult({ filePath, source, methods });
+        if (!cancelled) setResult({ filePath, source: deferredSource, methods });
       })
       .catch((error) => {
         if (cancelled) return;
-        setResult({ filePath, source, methods: [] });
+        setResult({ filePath, source: deferredSource, methods: [] });
         frontendTrace("warn", "maven.testMethods", filePath, {
           error: error instanceof Error ? error.message : String(error),
         });
@@ -32,7 +42,7 @@ export function useJavaTestMethods(filePath: string, source: string, enabled: bo
     return () => {
       cancelled = true;
     };
-  }, [enabled, filePath, source]);
+  }, [deferredSource, enabled, filePath, scope]);
 
   return enabled && result?.filePath === filePath && result.source === source
     ? result.methods

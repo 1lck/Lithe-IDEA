@@ -179,9 +179,11 @@ external-plan compatibility fallback and are not the packaged execution path.
 
 Java test discovery remains a language-service workflow rather than a UI or
 Debug Core parser. When the Tests tool window is opened or refreshed, the
-language facade asks the Java Test extension for each candidate source file's
-class and method tree, then projects stable fully qualified identifiers into
-the native list. Closing the tool window, changing workspace, or reloading the
+language facade offers every Java source to Core's typed `javaTestItems`
+operation; Core asks the Java Test extension for the class and method tree and
+platforms project stable fully qualified identifiers into the native list.
+Neither file names nor locally recognized annotations may prefilter this request,
+so inherited tests and custom composed annotations remain visible. Closing the tool window, changing workspace, or reloading the
 Java runtime cancels the owning discovery operation; late results cannot replace
 the current workspace's tree. Discovery does not create a Debug session, result
 socket, adapter connection, or target JVM.
