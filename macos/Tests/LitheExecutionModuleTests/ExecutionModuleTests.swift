@@ -29,43 +29,82 @@ struct ExecutionModuleTests {
         #expect(graph.run.moduleSessions.first?.exitCode == 1)
     }
 
-    @Test(arguments: ["pom-failure", "reload-failure", "reload-success"])
-    func mavenReloadInvalidatesAlreadyRunningInventory(outcome: String) async throws {
-        let gate = ReloadScanGate()
-        let graph = makeTestGraph(mavenOperations: ReloadMavenOperations(scanGate: gate))
-        let service = graph.maven
+    @Test
+    func mavenInventoryRefreshReusesAcceptedProject() async {
+        let operations = ReloadMavenOperations()
+        let graph = makeTestGraph(mavenOperations: operations)
         let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
-        await service.loadProject(at: root, files: [root.appendingPathComponent("old")])
-        let background = Task {
-            await service.loadProject(at: root, files: [root.appendingPathComponent("inventory")])
-        }
-        let watchdog = Task {
-            // test-stability: allow(swift-real-sleep) reason: watchdog bounds the event wait if the background scan never enters the controlled synchronous port.
-            try? await Task.sleep(for: .seconds(2))
-            guard !Task.isCancelled else { return }
-            Issue.record("Background Maven scan did not reach its gate")
-            gate.entered.continuation.finish()
-            gate.release.signal()
-            background.cancel()
+        defer { graph.maven.reset(); graph.run.reset() }
+
+        await graph.maven.loadProject(at: root, files: [root.appendingPathComponent("old")])
+        await graph.maven.loadProject(at: root, files: [root.appendingPathComponent("inventory")])
+
+        #expect(operations.scanCount == 1)
+        #expect(graph.maven.project?.artifactID == "old")
+        #expect(graph.maven.projectState == .ready)
+        #expect(!graph.maven.isLoadingProject)
+    }
+
+    @Test
+    func mavenInventoryDescriptorChangeWaitsForExplicitReload() async {
+        let operations = ReloadMavenOperations()
+        let graph = makeTestGraph(mavenOperations: operations)
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let pom = root.appendingPathComponent("pom.xml")
+        defer { graph.maven.reset(); graph.run.reset() }
+
+        await graph.maven.loadProject(
+            at: root,
+            files: [root.appendingPathComponent("old"), pom]
+        )
+        await graph.maven.loadProject(
+            at: root,
+            files: [root.appendingPathComponent("new"), pom, root.appendingPathComponent("module/pom.xml")]
+        )
+
+        #expect(operations.scanCount == 1)
+        #expect(graph.maven.project?.artifactID == "old")
+        #expect(graph.maven.isProjectReloadRequired)
+        #expect(graph.maven.isReloadRequired)
+    }
+
+    @Test
+    func mavenInitialLoadCoalescesMatchingInventory() async throws {
+        let gate = ReloadScanGate()
+        let secondStarted = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let operations = ReloadMavenOperations(scanGate: gate)
+        let graph = makeTestGraph(mavenOperations: operations)
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let pom = root.appendingPathComponent("pom.xml")
+        let first = Task { @MainActor in
+            await graph.maven.loadProject(at: root, files: [pom])
         }
         defer {
-            watchdog.cancel()
-            background.cancel()
+            first.cancel()
+            secondStarted.continuation.finish()
             gate.entered.continuation.finish()
             gate.release.signal()
-            service.reset()
+            gate.release.signal()
+            graph.maven.reset()
+            graph.run.reset()
         }
-        for await _ in gate.entered.stream { break }
-        if outcome == "pom-failure" { service.markPomChanged(root.appendingPathComponent("pom.xml")) }
-        await service.reloadProject(files: [root.appendingPathComponent("new")], rescan: true) {
-            if outcome != "reload-success" { throw ReloadTestError.failed }
+
+        try await awaitSignal(gate.entered.stream)
+        let second = Task { @MainActor in
+            secondStarted.continuation.yield(())
+            await graph.maven.loadProject(
+                at: root,
+                files: [root.appendingPathComponent("README.md"), pom]
+            )
         }
+        try await awaitSignal(secondStarted.stream)
         gate.release.signal()
-        await background.value
-        #expect(service.project?.artifactID == (outcome == "reload-success" ? "new" : "old"))
-        #expect(service.projectState == .ready)
-        #expect((service.reloadError != nil) == (outcome != "reload-success"))
-        #expect(!service.isReloading)
+        await first.value
+        await second.value
+
+        #expect(operations.scanCount == 1)
+        #expect(graph.maven.projectState == .ready)
+        #expect(!graph.maven.isLoadingProject)
     }
 
     @Test(arguments: ["success", "failure", "new-pom", "workspace"])
@@ -1780,14 +1819,32 @@ private func makeReloadService() async -> (MavenService, URL) {
     return (service, root)
 }
 
-private struct ReloadMavenOperations: MavenProjectOperations {
-    var scanGate: ReloadScanGate? = nil
+private final class ReloadMavenOperations: MavenProjectOperations, @unchecked Sendable {
+    private let lock = NSLock()
+    private let scanGate: ReloadScanGate?
+    private var recordedScanCount = 0
+
+    init(scanGate: ReloadScanGate? = nil) {
+        self.scanGate = scanGate
+    }
+
+    var scanCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedScanCount
+    }
+
     func scanMavenProject(at rootURL: URL, files: [URL]) throws -> MavenProject? {
         let name = files.first?.lastPathComponent ?? "old"
-        if name == "inventory", let scanGate {
+        lock.lock()
+        recordedScanCount += 1
+        lock.unlock()
+        if let scanGate {
             scanGate.entered.continuation.yield(())
-            guard scanGate.release.wait(timeout: .now() + 2) == .success else {
-                Issue.record("Background Maven scan was not released before its deadline")
+            // The full test lane can delay the main-actor release while many
+            // suites start; keep deadlocks bounded without treating that load as failure.
+            guard scanGate.release.wait(timeout: .now() + 10) == .success else {
+                Issue.record("Maven scan was not released before its deadline")
                 throw ReloadTestError.failed
             }
         }

@@ -9,6 +9,25 @@ private enum MavenReloadError: LocalizedError {
     }
 }
 
+private struct MavenProjectInventory: Equatable {
+    let rootURL: URL
+    let descriptorPaths: [String]
+
+    init(rootURL: URL, files: [URL]) {
+        let root = rootURL.standardizedFileURL
+        let rootComponents = root.pathComponents
+        self.rootURL = root
+        descriptorPaths = Set(files.compactMap { fileURL -> String? in
+            let file = fileURL.standardizedFileURL
+            guard file.lastPathComponent.lowercased() == "pom.xml",
+                  file.pathComponents.starts(with: rootComponents) else { return nil }
+            return file.pathComponents
+                .dropFirst(rootComponents.count)
+                .joined(separator: "/")
+        }).sorted()
+    }
+}
+
 @MainActor
 package final class MavenService: ObservableObject {
     @Published package private(set) var project: MavenProject?
@@ -99,6 +118,9 @@ package final class MavenService: ObservableObject {
     private var workspaceURL: URL?
     private var reactorPath: String?
     private var projectLoadID = UUID()
+    private var acceptedProjectInventory: MavenProjectInventory?
+    private var projectLoadInventory: MavenProjectInventory?
+    private var projectLoadTask: Task<Void, Never>?
     private var launchPlanID = UUID()
     private var activeOperationID: String?
     private var dependencyLoadID = UUID()
@@ -162,23 +184,69 @@ package final class MavenService: ObservableObject {
     }
 
     package func loadProject(at workspaceURL: URL, files: [URL]) async {
-        if let currentRoot = self.workspaceURL, currentRoot != workspaceURL.standardizedFileURL {
+        let inventory = MavenProjectInventory(rootURL: workspaceURL, files: files)
+        if let currentRoot = self.workspaceURL, currentRoot != inventory.rootURL {
             reset()
         }
-        // Inventory refreshes must not accept a changed POM before explicit Reload.
-        if self.workspaceURL == workspaceURL.standardizedFileURL, project != nil,
-           isProjectReloadRequired || isReloading { return }
+
+        // A ready model is the cache for its accepted POM inventory. Snapshot
+        // refreshes must not rescan unchanged descriptors or accept changed
+        // descriptors before the explicit Reload transaction synchronizes Java.
+        if self.workspaceURL == inventory.rootURL, project != nil {
+            if acceptedProjectInventory != inventory, !isProjectReloadRequired {
+                reloadRevision += 1
+                isProjectReloadRequired = true
+                isReloadRequired = true
+            }
+            return
+        }
+
+        if projectLoadInventory == inventory, let projectLoadTask {
+            await projectLoadTask.value
+            return
+        }
+        if projectLoadTask != nil {
+            projectLoadID = UUID()
+            projectLoadTask?.cancel()
+            projectLoadTask = nil
+            projectLoadInventory = nil
+        }
+
         invalidateDependencies()
         let loadID = UUID()
         let revision = reloadRevision
         projectLoadID = loadID
+        projectLoadInventory = inventory
         projectState = .loading
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performProjectLoad(
+                inventory: inventory,
+                files: files,
+                loadID: loadID,
+                revision: revision
+            )
+        }
+        projectLoadTask = task
+        await task.value
+    }
+
+    private func performProjectLoad(
+        inventory: MavenProjectInventory,
+        files: [URL],
+        loadID: UUID,
+        revision: Int
+    ) async {
         defer {
-            if projectLoadID == loadID, projectState == .loading {
-                projectState = project == nil ? .idle : .ready
+            if projectLoadID == loadID {
+                projectLoadTask = nil
+                projectLoadInventory = nil
+                if projectState == .loading {
+                    projectState = project == nil ? .idle : .ready
+                }
             }
         }
-        let rootURL = workspaceURL.standardizedFileURL
+        let rootURL = inventory.rootURL
         let mavenOperations = mavenOperations
         let configurationWriter = configurationWriter
         let result = await Task.detached(priority: .utility) {
@@ -215,6 +283,7 @@ package final class MavenService: ObservableObject {
             self.workspaceURL = rootURL
             reactorPath = result.reactorPath
             project = result.project
+            acceptedProjectInventory = result.project == nil ? nil : inventory
             applyStoredConfiguration(result.stored, project: result.project)
             if let context = launchContext {
                 let fingerprint = await Task.detached(priority: .utility) {
@@ -238,6 +307,7 @@ package final class MavenService: ObservableObject {
         project = nil
         self.workspaceURL = nil
         reactorPath = nil
+        acceptedProjectInventory = nil
         projectState = .failed(errorMessage)
     }
 
@@ -337,6 +407,7 @@ package final class MavenService: ObservableObject {
         let loadID = projectLoadID
         let previousProject = project
         let operations = mavenOperations
+        let inventory = MavenProjectInventory(rootURL: root, files: files)
         isReloading = true
         reloadError = nil
         let task = Task { @MainActor [weak self] in
@@ -366,6 +437,7 @@ package final class MavenService: ObservableObject {
                 try Task.checkCancellation()
                 guard self.projectLoadID == loadID, self.reloadRevision == revision else { return }
                 self.project = candidate.0
+                self.acceptedProjectInventory = inventory
                 self.configurationFingerprint = candidate.1
                 self.fingerprintRevision += 1
                 self.invalidateDependencies()
@@ -475,6 +547,9 @@ package final class MavenService: ObservableObject {
     }
 
     package func reset() {
+        projectLoadTask?.cancel()
+        projectLoadTask = nil
+        projectLoadInventory = nil
         reloadTask?.cancel()
         reloadTask = nil
         isReloading = false
@@ -488,6 +563,7 @@ package final class MavenService: ObservableObject {
         project = nil
         workspaceURL = nil
         reactorPath = nil
+        acceptedProjectInventory = nil
         projectState = .idle
         taskState = .idle
         runningTitle = nil
