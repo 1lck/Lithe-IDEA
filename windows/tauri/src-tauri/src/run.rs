@@ -11,13 +11,20 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{
+    mpsc::{self, Receiver, RecvTimeoutError, SyncSender},
+    Mutex, OnceLock,
+};
 use std::thread;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 mod launch_arguments;
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+const RUN_OUTPUT_FLUSH_INTERVAL: Duration = Duration::from_millis(100);
+const RUN_OUTPUT_HIGH_WATER_BYTES: usize = 1_048_576;
+const RUN_OUTPUT_QUEUE_CAPACITY_CHUNKS: usize = 64;
 const SKIPPED_DIRECTORIES: &[&str] = &[
     "target",
     "node_modules",
@@ -422,6 +429,7 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
     let stdin = child.stdin.take();
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
+    let execution_id = args.execution_id.clone();
     let session_key = run_session_key(&args.window_label, &args.session_id);
     sessions()
         .lock()
@@ -435,18 +443,22 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
             },
         );
 
-    let stdout_reader = spawn_output_reader(
+    // Run and Maven panels rebuild highlighted output when this event crosses
+    // into the webview. Coalesce native pipe reads before that expensive
+    // boundary instead of asking React to render every 4 KiB read separately.
+    // A bounded queue preserves pipe backpressure when the webview cannot keep
+    // up. Each reader sends at most one decoded 4 KiB read per slot.
+    let (output_sender, output_receiver) = mpsc::sync_channel(RUN_OUTPUT_QUEUE_CAPACITY_CHUNKS);
+    let output_dispatcher = spawn_output_dispatcher(
         app.clone(),
         args.window_label.clone(),
         args.session_id.clone(),
-        stdout,
+        pid,
+        execution_id,
+        output_receiver,
     );
-    let stderr_reader = spawn_output_reader(
-        app.clone(),
-        args.window_label.clone(),
-        args.session_id.clone(),
-        stderr,
-    );
+    let stdout_reader = spawn_output_reader(stdout, output_sender.clone());
+    let stderr_reader = spawn_output_reader(stderr, output_sender);
     spawn_exit_waiter(
         app,
         args.window_label,
@@ -455,6 +467,7 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
         pid,
         stdout_reader,
         stderr_reader,
+        output_dispatcher,
         argfile,
     );
     Ok(())
@@ -1536,18 +1549,29 @@ fn looks_like_real_utf8(bytes: &[u8]) -> bool {
     let Ok(text) = std::str::from_utf8(bytes) else {
         return false;
     };
-    text.is_ascii()
-        || text.chars().any(|character| {
-            ('\u{4E00}'..='\u{9FFF}').contains(&character)
-                || ('\u{3400}'..='\u{4DBF}').contains(&character)
-        })
+    text.is_ascii() || text.chars().any(|character| character.len_utf8() >= 3)
 }
 
 pub(crate) fn incomplete_suffix_len(bytes: &[u8]) -> usize {
-    match bytes.last() {
-        Some(&byte) if byte >= 0x81 => 1,
-        _ => 0,
+    match std::str::from_utf8(bytes) {
+        Ok(_) => 0,
+        Err(error) if error.error_len().is_none() => bytes.len() - error.valid_up_to(),
+        Err(_) => incomplete_windows_code_page_suffix_len(bytes),
     }
+}
+
+#[cfg(windows)]
+fn incomplete_windows_code_page_suffix_len(bytes: &[u8]) -> usize {
+    bytes
+        .last()
+        .is_some_and(|byte| unsafe {
+            winapi::IsDBCSLeadByteEx(windows_ansi_code_page(), *byte) != 0
+        }) as usize
+}
+
+#[cfg(not(windows))]
+fn incomplete_windows_code_page_suffix_len(_bytes: &[u8]) -> usize {
+    0
 }
 
 #[cfg(windows)]
@@ -1555,6 +1579,7 @@ mod winapi {
     #[link(name = "kernel32")]
     extern "system" {
         pub fn GetACP() -> u32;
+        pub fn IsDBCSLeadByteEx(code_page: u32, test_char: u8) -> i32;
         pub fn MultiByteToWideChar(
             code_page: u32,
             flags: u32,
@@ -1647,10 +1672,8 @@ fn runtime_version_parts(version: &str) -> Vec<u32> {
 }
 
 fn spawn_output_reader<T: Read + Send + 'static>(
-    app: AppHandle,
-    window_label: String,
-    session_id: String,
     stream: Option<T>,
+    output_sender: SyncSender<String>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let Some(mut stream) = stream else { return };
@@ -1662,11 +1685,7 @@ fn spawn_output_reader<T: Read + Send + 'static>(
                     if !pending.is_empty() {
                         let chunk = decode_process_bytes(&pending);
                         if !chunk.is_empty() {
-                            let _ = app.emit_to(
-                                &window_label,
-                                "run-output",
-                                json!({ "sessionId": session_id, "chunk": chunk }),
-                            );
+                            let _ = output_sender.send(chunk);
                         }
                     }
                     break;
@@ -1683,14 +1702,75 @@ fn spawn_output_reader<T: Read + Send + 'static>(
                     if chunk.is_empty() {
                         continue;
                     }
-                    let _ = app.emit_to(
-                        &window_label,
-                        "run-output",
-                        json!({ "sessionId": session_id, "chunk": chunk }),
-                    );
+                    if output_sender.send(chunk).is_err() {
+                        break;
+                    }
                 }
                 Err(_) => break,
             }
+        }
+    })
+}
+
+fn receive_output_batch(
+    receiver: &Receiver<String>,
+    flush_interval: Duration,
+    high_water_bytes: usize,
+) -> Option<String> {
+    let first = receiver.recv().ok()?;
+    let mut chunks = vec![first];
+    let mut byte_count = chunks[0].len();
+    let deadline = Instant::now() + flush_interval;
+
+    while byte_count < high_water_bytes {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match receiver.recv_timeout(remaining) {
+            Ok(chunk) => {
+                byte_count += chunk.len();
+                chunks.push(chunk);
+            }
+            Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => break,
+        }
+    }
+
+    Some(chunks.concat())
+}
+
+fn spawn_output_dispatcher(
+    app: AppHandle,
+    window_label: String,
+    session_id: String,
+    pid: u32,
+    execution_id: Option<String>,
+    receiver: Receiver<String>,
+) -> thread::JoinHandle<()> {
+    thread::spawn(move || {
+        while let Some(chunk) = receive_output_batch(
+            &receiver,
+            RUN_OUTPUT_FLUSH_INTERVAL,
+            RUN_OUTPUT_HIGH_WATER_BYTES,
+        ) {
+            let session_key = run_session_key(&window_label, &session_id);
+            let is_current = sessions().lock().is_ok_and(|current| {
+                current.get(&session_key).is_some_and(|session| {
+                    session.pid == pid && session.execution_id.as_deref() == execution_id.as_deref()
+                })
+            });
+            if !is_current {
+                // A stopped or replaced process no longer owns the panel, but
+                // its pipe must still be drained until the reader threads
+                // finish. Dropping the receiver could leave the child blocked
+                // on a full stdout pipe while taskkill is still completing.
+                continue;
+            }
+            let _ = app.emit_to(
+                &window_label,
+                "run-output",
+                json!({ "sessionId": session_id, "chunk": chunk }),
+            );
         }
     })
 }
@@ -1704,6 +1784,7 @@ fn spawn_exit_waiter(
     pid: u32,
     stdout_reader: thread::JoinHandle<()>,
     stderr_reader: thread::JoinHandle<()>,
+    output_dispatcher: thread::JoinHandle<()>,
     argfile: Option<launch_arguments::LaunchArgumentFile>,
 ) {
     thread::spawn(move || {
@@ -1717,6 +1798,9 @@ fn spawn_exit_waiter(
         drop(argfile);
         let _ = stdout_reader.join();
         let _ = stderr_reader.join();
+        // Preserve the console contract: the final output batch is observable
+        // before the matching exit event marks the session as complete.
+        let _ = output_dispatcher.join();
         let session_key = run_session_key(&window_label, &session_id);
         let stale = match sessions().lock() {
             Ok(mut current) => match current.get(&session_key) {
@@ -1774,6 +1858,74 @@ fn stop_session(window_label: &str, session_id: &str, execution_id: Option<&str>
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn output_batch_coalesces_queued_chunks_in_order() {
+        let (sender, receiver) = mpsc::sync_channel(2);
+        sender.send("first".to_string()).unwrap();
+        sender.send(" second".to_string()).unwrap();
+        drop(sender);
+
+        assert_eq!(
+            receive_output_batch(&receiver, Duration::from_secs(1), 1024).as_deref(),
+            Some("first second")
+        );
+        assert!(receive_output_batch(&receiver, Duration::from_secs(1), 1024).is_none());
+    }
+
+    #[test]
+    fn output_batch_flushes_at_the_high_water_mark() {
+        let (sender, receiver) = mpsc::sync_channel(3);
+        sender.send("abc".to_string()).unwrap();
+        sender.send("def".to_string()).unwrap();
+        sender.send("ghi".to_string()).unwrap();
+
+        assert_eq!(
+            receive_output_batch(&receiver, Duration::from_secs(1), 6).as_deref(),
+            Some("abcdef")
+        );
+        drop(sender);
+        assert_eq!(
+            receive_output_batch(&receiver, Duration::from_secs(1), 6).as_deref(),
+            Some("ghi")
+        );
+    }
+
+    #[test]
+    fn output_queue_applies_backpressure_at_capacity() {
+        let (output_sender, output_receiver) = mpsc::sync_channel(1);
+        output_sender.send("first".to_string()).unwrap();
+        let (started_sender, started_receiver) = mpsc::channel();
+        let (finished_sender, finished_receiver) = mpsc::channel();
+        let sender_thread = thread::spawn(move || {
+            let _ = started_sender.send(());
+            let result = output_sender.send("second".to_string());
+            let _ = finished_sender.send(result.is_ok());
+        });
+
+        let did_start = started_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .is_ok();
+        let was_blocked = finished_receiver.try_recv().is_err();
+        let first = output_receiver.recv_timeout(Duration::from_secs(1)).ok();
+        let did_finish = finished_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap_or(false);
+        let second = output_receiver.recv_timeout(Duration::from_secs(1)).ok();
+        drop(output_receiver);
+        let joined = if did_finish {
+            sender_thread.join().is_ok()
+        } else {
+            false
+        };
+
+        assert!(did_start);
+        assert!(was_blocked);
+        assert_eq!(first.as_deref(), Some("first"));
+        assert!(did_finish);
+        assert_eq!(second.as_deref(), Some("second"));
+        assert!(joined);
+    }
 
     #[test]
     fn stale_execution_cleanup_preserves_replacement_process() {
@@ -2259,7 +2411,20 @@ mod tests {
         let gbk_xi_tong = [0xCF, 0xB5, 0xCD, 0xB3];
         assert!(!looks_like_real_utf8(&gbk_xi_tong));
         assert!(looks_like_real_utf8("系统".as_bytes()));
+        assert!(looks_like_real_utf8("🙂".as_bytes()));
         assert!(looks_like_real_utf8(b"[INFO] BUILD SUCCESS"));
+    }
+
+    #[test]
+    fn utf8_suffix_detection_only_keeps_an_incomplete_scalar() {
+        assert_eq!(incomplete_suffix_len("日志🙂".as_bytes()), 0);
+        assert_eq!(incomplete_suffix_len(&[0xE6]), 1);
+        assert_eq!(incomplete_suffix_len(&[0xE6, 0x97]), 2);
+        assert_eq!(incomplete_suffix_len(&[0xF0]), 1);
+        assert_eq!(incomplete_suffix_len(&[0xF0, 0x9F]), 2);
+        assert_eq!(incomplete_suffix_len(&[0xF0, 0x9F, 0x99]), 3);
+        #[cfg(not(windows))]
+        assert_eq!(incomplete_suffix_len(&[0x82]), 0);
     }
 
     #[test]
