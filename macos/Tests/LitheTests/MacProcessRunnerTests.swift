@@ -1,10 +1,29 @@
 import Darwin
 import Foundation
+import LitheCoreContracts
 import Testing
 @testable import Lithe
 
 @Suite("macOS process runner")
 struct MacProcessRunnerTests {
+    @Test
+    func streamingUTF8DecoderPreservesSplitScalarsAndFlushesATruncatedTail() {
+        var decoder = StreamingUTF8Decoder()
+        var output = ""
+        for byte in Data("日志🙂\n".utf8) {
+            output += decoder.decode(Data([byte]))
+        }
+        output += decoder.finish()
+
+        #expect(output == "日志🙂\n")
+        #expect(!output.contains("�"))
+
+        output = decoder.decode(Data([0xF0, 0x9F, 0x99]))
+        #expect(output.isEmpty)
+        #expect(decoder.finish() == "�")
+        #expect(decoder.finish().isEmpty)
+    }
+
     @Test
     func timeoutForceTerminatesAProcessThatIgnoresTermination() throws {
         let shellURL = URL(fileURLWithPath: "/bin/sh")
@@ -119,6 +138,30 @@ struct MacProcessRunnerTests {
 
         #expect(await session.stopAndWait())
         #expect(!processIsRunning(descendantPID))
+    }
+
+    @Test
+    func streamingSessionDeliversTheFinalBatchBeforeTermination() async throws {
+        let shellURL = URL(fileURLWithPath: "/bin/sh")
+        guard FileManager.default.isExecutableFile(atPath: shellURL.path) else { return }
+        let session = MacStreamingProcess()
+        let events = ProcessOutputRecorder()
+        let terminated = TestGate()
+        session.onOutput = { events.append($0) }
+        session.onTermination = { _ in
+            events.append("<terminated>")
+            terminated.open()
+        }
+        defer { session.stop() }
+
+        try session.start(ProcessRequest(
+            operationID: "streaming-final-output",
+            executablePath: shellURL.path,
+            arguments: ["-c", "printf 'final output'"]
+        ))
+
+        #expect(await terminated.waitUntilOpen())
+        #expect(events.values == ["final output", "<terminated>"])
     }
 
     @Test
@@ -317,6 +360,69 @@ struct MacProcessRunnerTests {
             throw POSIXError(POSIXErrorCode(rawValue: result) ?? .EIO)
         }
         return processID
+    }
+}
+
+@Suite("macOS process output batching")
+struct MacProcessOutputBatcherTests {
+    @Test
+    func coalescesSmallReadsUntilOneFlush() {
+        let recorder = ProcessOutputRecorder()
+        let batcher = MacProcessOutputBatcher(flushDelay: 60) { recorder.append($0) }
+        defer { batcher.finish() }
+
+        batcher.append("first")
+        batcher.append(" second")
+        batcher.flush()
+
+        #expect(recorder.values == ["first second"])
+    }
+
+    @Test
+    func highWaterMarkBoundsABurstWithoutReorderingIt() {
+        let recorder = ProcessOutputRecorder()
+        let batcher = MacProcessOutputBatcher(
+            flushDelay: 60,
+            highWaterMarkBytes: 6
+        ) { recorder.append($0) }
+        defer { batcher.finish() }
+
+        batcher.append("abc")
+        batcher.append("def")
+        batcher.append("ghi")
+        batcher.flush()
+
+        #expect(recorder.values == ["abcdef", "ghi"])
+    }
+
+    @Test
+    func finishDeliversTheTailBeforeRejectingLateCallbacks() {
+        let recorder = ProcessOutputRecorder()
+        let batcher = MacProcessOutputBatcher(flushDelay: 60) { recorder.append($0) }
+
+        batcher.append("tail")
+        batcher.finish()
+        batcher.append("late")
+        batcher.flush()
+
+        #expect(recorder.values == ["tail"])
+    }
+}
+
+private final class ProcessOutputRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [String] = []
+
+    var values: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func append(_ value: String) {
+        lock.lock()
+        storage.append(value)
+        lock.unlock()
     }
 }
 

@@ -109,6 +109,7 @@ class MacServerDebugAdapterTransport: DebugAdapterTransport, DebugAdapterChildTr
     private var socket: (any DebugAdapterSocketConnection)?
     private var pendingWrites: [Data] = []
     private var announcementBuffer = ""
+    private var announcementDecoder = StreamingUTF8Decoder()
     private var isSocketReady = false
     private var didTerminate = false
     private var activeEndpoint: Endpoint?
@@ -148,6 +149,7 @@ class MacServerDebugAdapterTransport: DebugAdapterTransport, DebugAdapterChildTr
         isSocketReady = false
         pendingWrites = []
         announcementBuffer = ""
+        announcementDecoder.reset()
         activeEndpoint = nil
         let launch = try launchResolver(rootURL.standardizedFileURL)
         try process.start(ProcessRequest(
@@ -175,12 +177,14 @@ class MacServerDebugAdapterTransport: DebugAdapterTransport, DebugAdapterChildTr
         pendingWrites = []
         activeEndpoint = nil
         process.stop()
+        finishAnnouncementOutput()
     }
 
     private func consumeAnnouncement(_ data: Data) {
-        guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return }
+        let text = announcementDecoder.decode(data)
+        guard !text.isEmpty else { return }
         announcementBuffer += text
-        onErrorOutput?(data)
+        onErrorOutput?(Data(text.utf8))
         guard socket == nil, let endpoint = endpointParser(announcementBuffer) else { return }
         activeEndpoint = endpoint
         let socket = socketFactory(endpoint.host, endpoint.port)
@@ -212,11 +216,20 @@ class MacServerDebugAdapterTransport: DebugAdapterTransport, DebugAdapterChildTr
     private func terminate(_ code: Int) {
         guard !didTerminate else { return }
         didTerminate = true
+        finishAnnouncementOutput()
         isSocketReady = false
         socket?.stop()
         socket = nil
         activeEndpoint = nil
         onTermination?(code)
+    }
+
+    private func finishAnnouncementOutput() {
+        let output = announcementDecoder.finish()
+        if !output.isEmpty {
+            announcementBuffer += output
+            onErrorOutput?(Data(output.utf8))
+        }
     }
 
     func makeChildTransport() -> (any DebugAdapterTransport)? {
