@@ -30,10 +30,24 @@ $lombokLicenseHash = $manifest.lombokLicenseSHA256.ToLowerInvariant()
 $javaDebugArchiveHash = $manifest.javaDebugArchiveSHA256.ToLowerInvariant()
 $javaDebugPluginHash = $manifest.javaDebugPluginSHA256.ToLowerInvariant()
 $javaDebugLicenseHash = $manifest.javaDebugLicenseSHA256.ToLowerInvariant()
+$javaTestArchiveHash = $manifest.javaTestArchiveSHA256.ToLowerInvariant()
+$javaTestPluginHash = $manifest.javaTestPluginSHA256.ToLowerInvariant()
+$javaTestRunnerHash = $manifest.javaTestRunnerSHA256.ToLowerInvariant()
+$javaTestLicenseHash = $manifest.javaTestLicenseSHA256.ToLowerInvariant()
 $safeVersion = ([string]$manifest.version) -replace '[^A-Za-z0-9._-]', '_'
 $safeLombokVersion = ([string]$manifest.lombokVersion) -replace '[^A-Za-z0-9._-]', '_'
 $safeJavaDebugExtensionVersion = ([string]$manifest.javaDebugExtensionVersion) -replace '[^A-Za-z0-9._-]', '_'
 $safeJavaDebugServerVersion = ([string]$manifest.javaDebugServerVersion) -replace '[^A-Za-z0-9._-]', '_'
+$safeJavaTestExtensionVersion = ([string]$manifest.javaTestExtensionVersion) -replace '[^A-Za-z0-9._-]', '_'
+$safeJavaTestPluginVersion = ([string]$manifest.javaTestPluginVersion) -replace '[^A-Za-z0-9._-]', '_'
+
+# JDT LS refuses to start on a Java runtime older than it requires, and the
+# bundled JDK is the runtime Lithe launches it with.
+$jdkManifest = Get-Content -Raw -LiteralPath (Join-Path $root "third_party/jdk/manifest.json") | ConvertFrom-Json
+$bundledJdkMajor = [int](([string]$jdkManifest.version).Split(".")[0])
+if ($bundledJdkMajor -lt [int]$manifest.minimumJavaVersion) {
+    throw "Bundled JDK $($jdkManifest.version) is older than the Java $($manifest.minimumJavaVersion) that JDTLS $($manifest.version) requires"
+}
 $archive = if ($archiveUsesOverride) {
     $env:LITHE_JDTLS_ARCHIVE
 } else {
@@ -47,6 +61,13 @@ $lombokLicense = Join-Path $cache "lombok-MIT-$safeLombokVersion-$lombokLicenseH
 $javaDebugArchive = Join-Path $cache "vscode-java-debug-$safeJavaDebugExtensionVersion-$javaDebugArchiveHash.zip"
 $javaDebugLicense = Join-Path $cache "java-debug-EPL-1.0-$safeJavaDebugServerVersion-$javaDebugLicenseHash.txt"
 $javaDebugPluginName = "com.microsoft.java.debug.plugin-$safeJavaDebugServerVersion.jar"
+$javaTestArchive = Join-Path $cache "vscode-java-test-$safeJavaTestExtensionVersion-$javaTestArchiveHash.zip"
+$javaTestLicense = Join-Path $cache "java-test-MIT-$safeJavaTestExtensionVersion-$javaTestLicenseHash.txt"
+$javaTestPluginName = "com.microsoft.java.test.plugin-$safeJavaTestPluginVersion.jar"
+$javaTestRunnerName = "com.microsoft.java.test.runner-jar-with-dependencies.jar"
+# Records the Java Test bundle set declared by the extension so validation
+# checks the exact upstream list instead of a hard-coded count.
+$javaTestBundleList = "java-test/extensions.txt"
 
 function Get-FileSHA256 {
     param([Parameter(Mandatory)][string]$Path)
@@ -106,6 +127,18 @@ function Assert-JdtlsOutput {
     if (-not (Test-Path -LiteralPath (Join-Path $output "lombok/LICENSE-MIT.txt") -PathType Leaf)) { throw "JDTLS Lombok license is missing: $output" }
     if (-not (Test-Path -LiteralPath (Join-Path $output "java-debug/$javaDebugPluginName") -PathType Leaf)) { throw "Java Debug Server plugin is missing: $output" }
     if (-not (Test-Path -LiteralPath (Join-Path $output "java-debug/LICENSE-EPL-1.0.txt") -PathType Leaf)) { throw "Java Debug Server license is missing: $output" }
+    $javaTestExtensions = Join-Path $output "java-test/extensions"
+    if (-not (Test-Path -LiteralPath (Join-Path $javaTestExtensions $javaTestPluginName) -PathType Leaf)) { throw "Java Test extension plugin is missing: $output" }
+    $bundleListPath = Join-Path $output $javaTestBundleList
+    if (-not (Test-Path -LiteralPath $bundleListPath -PathType Leaf)) { throw "Java Test bundle list is missing: $bundleListPath" }
+    $declaredBundles = @(Get-Content -LiteralPath $bundleListPath | Where-Object { $_ -ne "" })
+    foreach ($declaredBundle in $declaredBundles) {
+        if (-not (Test-Path -LiteralPath (Join-Path $javaTestExtensions $declaredBundle) -PathType Leaf)) { throw "Java Test bundle $declaredBundle is missing: $javaTestExtensions" }
+    }
+    $presentBundles = @(Get-ChildItem -LiteralPath $javaTestExtensions -File -Filter "*.jar")
+    if ($presentBundles.Count -ne $declaredBundles.Count) { throw "Java Test extension bundles do not match ${javaTestBundleList}: $javaTestExtensions" }
+    if (-not (Test-Path -LiteralPath (Join-Path $output "java-test/runner/$javaTestRunnerName") -PathType Leaf)) { throw "Java Test runner is missing: $output" }
+    if (-not (Test-Path -LiteralPath (Join-Path $output "java-test/LICENSE-MIT.txt") -PathType Leaf)) { throw "Java Test license is missing: $output" }
     # Wrapper scripts remain for external/legacy launch plans. Packaged JDTLS
     # uses the direct-launch resources validated above.
     $launcher = Get-Content -Raw -LiteralPath (Join-Path $output "bin/jdtls.ps1")
@@ -131,6 +164,8 @@ Get-VerifiedDownload -Uri $manifest.lombokURL -ExpectedSHA256 $lombokHash -Desti
 Get-VerifiedDownload -Uri $manifest.lombokLicenseURL -ExpectedSHA256 $lombokLicenseHash -Destination $lombokLicense -Description "Lombok MIT license"
 Get-VerifiedDownload -Uri $manifest.javaDebugArchiveURL -ExpectedSHA256 $javaDebugArchiveHash -Destination $javaDebugArchive -Description "Java Debug extension"
 Get-VerifiedDownload -Uri $manifest.javaDebugLicenseURL -ExpectedSHA256 $javaDebugLicenseHash -Destination $javaDebugLicense -Description "Java Debug EPL-1.0 license"
+Get-VerifiedDownload -Uri $manifest.javaTestArchiveURL -ExpectedSHA256 $javaTestArchiveHash -Destination $javaTestArchive -Description "Java Test extension"
+Get-VerifiedDownload -Uri $manifest.javaTestLicenseURL -ExpectedSHA256 $javaTestLicenseHash -Destination $javaTestLicense -Description "Java Test MIT license"
 
 if (Test-Path -LiteralPath $output) { Remove-Item -Recurse -Force -LiteralPath $output }
 New-Item -ItemType Directory -Force -Path $output | Out-Null
@@ -158,6 +193,41 @@ try {
     if (Test-Path -LiteralPath $javaDebugExtraction) { Remove-Item -Recurse -Force -LiteralPath $javaDebugExtraction }
 }
 Copy-Item -LiteralPath $javaDebugLicense -Destination (Join-Path $javaDebugOutput "LICENSE-EPL-1.0.txt") -Force
+$javaTestOutput = Join-Path $output "java-test"
+$javaTestExtensionsOutput = Join-Path $javaTestOutput "extensions"
+$javaTestRunnerOutput = Join-Path $javaTestOutput "runner"
+New-Item -ItemType Directory -Force -Path $javaTestExtensionsOutput, $javaTestRunnerOutput | Out-Null
+$javaTestExtraction = Join-Path $cache "java-test-extract-$PID"
+try {
+    if (Test-Path -LiteralPath $javaTestExtraction) { Remove-Item -Recurse -Force -LiteralPath $javaTestExtraction }
+    Expand-Archive -LiteralPath $javaTestArchive -DestinationPath $javaTestExtraction -Force
+    $javaTestPackage = Get-Content -Raw -LiteralPath (Join-Path $javaTestExtraction "extension/package.json") | ConvertFrom-Json
+    # The extension's `contributes.javaExtensions` is the upstream list of
+    # bundles JDT LS must load; copying exactly that list keeps the runner and
+    # coverage agent out of OSGi and follows upstream when the set changes.
+    $declaredBundles = @($javaTestPackage.contributes.javaExtensions)
+    if ($declaredBundles.Count -eq 0) { throw "Java Test extension declares no JDT LS bundles" }
+    $bundleNames = [System.Collections.Generic.List[string]]::new()
+    foreach ($declaredBundle in $declaredBundles) {
+        $bundleSource = Join-Path (Join-Path $javaTestExtraction "extension") ([string]$declaredBundle).TrimStart(".", "/")
+        $bundleName = Split-Path -Leaf $bundleSource
+        Copy-Item -LiteralPath $bundleSource -Destination (Join-Path $javaTestExtensionsOutput $bundleName) -Force
+        $bundleNames.Add($bundleName)
+    }
+    Set-Content -LiteralPath (Join-Path $output $javaTestBundleList) -Value $bundleNames -Encoding ascii
+    Copy-Item -LiteralPath (Join-Path $javaTestExtraction "extension/server/$javaTestRunnerName") -Destination (Join-Path $javaTestRunnerOutput $javaTestRunnerName) -Force
+} finally {
+    if (Test-Path -LiteralPath $javaTestExtraction) { Remove-Item -Recurse -Force -LiteralPath $javaTestExtraction }
+}
+$actualJavaTestPluginHash = Get-FileSHA256 -Path (Join-Path $javaTestExtensionsOutput $javaTestPluginName)
+if ($actualJavaTestPluginHash -ne $javaTestPluginHash) {
+    throw "Java Test plugin checksum mismatch: expected $javaTestPluginHash, got $actualJavaTestPluginHash"
+}
+$actualJavaTestRunnerHash = Get-FileSHA256 -Path (Join-Path $javaTestRunnerOutput $javaTestRunnerName)
+if ($actualJavaTestRunnerHash -ne $javaTestRunnerHash) {
+    throw "Java Test runner checksum mismatch: expected $javaTestRunnerHash, got $actualJavaTestRunnerHash"
+}
+Copy-Item -LiteralPath $javaTestLicense -Destination (Join-Path $javaTestOutput "LICENSE-MIT.txt") -Force
 
 $windowsLauncher = @'
 $ErrorActionPreference = "Stop"

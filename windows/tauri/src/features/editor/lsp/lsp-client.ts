@@ -776,6 +776,7 @@ export class LspClient {
           environment: launch.environment || null,
           workspaceFingerprint: launch.workspaceFingerprint || null,
           mavenContext: launch.mavenContext || null,
+          javaRuntimes: launch.javaRuntimes ?? [],
         });
 
         if (representativeFilePath) {
@@ -1011,6 +1012,7 @@ export class LspClient {
           environment: launch.environment || null,
           workspaceFingerprint: launch.workspaceFingerprint || null,
           mavenContext: launch.mavenContext || null,
+          javaRuntimes: launch.javaRuntimes ?? [],
           attachmentId,
         });
         if (!isCurrentAttachment()) {

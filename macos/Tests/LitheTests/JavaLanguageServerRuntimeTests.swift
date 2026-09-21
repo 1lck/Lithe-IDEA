@@ -257,10 +257,11 @@ struct JavaLanguageServerRuntimeTests {
     }
 
     @Test
-    func jdtlsCompatibilityRequiresJava17OrNewer() {
+    func jdtlsCompatibilityRequiresJava21OrNewer() {
         #expect(!javaRuntime("/jdk-11", "11.0.26").supportsJDTLS)
-        #expect(javaRuntime("/jdk-17", "17.0.18").supportsJDTLS)
+        #expect(!javaRuntime("/jdk-17", "17.0.18").supportsJDTLS)
         #expect(javaRuntime("/jdk-21", "21.0.10").supportsJDTLS)
+        #expect(javaRuntime("/jdk-25", "25.0.4").supportsJDTLS)
     }
 
     @Test
