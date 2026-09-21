@@ -76,6 +76,39 @@ afterAll(async () => {
 });
 
 describe("keymap input routing", () => {
+  test("routes Ctrl+Alt+L to document formatting in the Monaco editor", async () => {
+    const formatDocument = mock(() => undefined);
+    keymapRegistry.registerCommand({
+      id: "editor.formatDocument",
+      title: "Format Document",
+      execute: formatDocument,
+    });
+    registerDefaultKeymaps();
+
+    const monaco = document.createElement("div");
+    monaco.className = "monaco-editor";
+    const editorInput = document.createElement("textarea");
+    editorInput.className = "inputarea";
+    monaco.append(editorInput);
+    document.body.append(monaco);
+    editorInput.focus();
+
+    const event = new KeyboardEvent("keydown", {
+      key: "l",
+      code: "KeyL",
+      ctrlKey: true,
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      editorInput.dispatchEvent(event);
+    });
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(formatDocument).toHaveBeenCalledTimes(1);
+  });
+
   test("routes Ctrl+Alt+Left and Ctrl+Alt+Right to history navigation in the Monaco editor", async () => {
     const goBack = mock(() => undefined);
     const goForward = mock(() => undefined);
