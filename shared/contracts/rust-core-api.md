@@ -146,13 +146,11 @@ stable error code and a user-facing message:
 | `lsp.clearDiagnostics` | Clear every diagnostic owned by a session |
 | `lsp.snapshot` | Return a diagnostic runtime snapshot for testing and control surfaces |
 | `lsp.destroyServer` | Remove a terminal session handle from the registry |
-| `java.runConfigurations` | Scan Java sources for main classes and return Maven/Spring run configurations |
 | `java.codeVision` | Return Java declaration usage counts for editor code vision |
 | `java.className` | Resolve a Java source package and simple name into a runtime class name |
 | `java.sourceDefinition` | Locate a Java type, method, or field declaration in source text |
-| `java.testMethods` | Discover JUnit 4/5 test methods and their source ranges |
 | `java.serverPort` | Parse Spring server port settings from properties or YAML text |
-| `java.structure` | Parse Java editor folds, inlay hints, portable syntax roles, and JUnit test methods |
+| `java.structure` | Parse Java editor folds, inlay hints, and portable syntax roles |
 | `spring.index` | Build a deterministic Spring configuration, bean, injection, and endpoint index |
 | `mybatis.index` | Build a deterministic MyBatis mapper-interface and XML statement index |
 | `runConfig.inspect` | Inspect `.lithe` run documents, versions, and staleness without writing files |
@@ -1288,7 +1286,19 @@ the operation-specific URI, position, range, diagnostics, item, action, or
 command fields, and returns `{ operationId }`. Supported operations include
 completion, hover, definition/declaration/type-definition, references,
 implementation, rename, formatting, code actions and resolve, execute command,
-inlay hints, full-document semantic tokens, folding ranges, code lens, and provider virtual documents.
+inlay hints, full-document semantic tokens, folding ranges, code lens, provider
+virtual documents, `javaEntrypoints`, and `javaTestItems`.
+`javaEntrypoints` invokes Java Debug Server's
+`vscode.java.resolveMainClass` for the session workspace and returns schema
+version 1 with deterministic workspace-relative `{ sourcePath, mainClass,
+projectName? }` entries plus diagnostics for unusable upstream records.
+`javaTestItems` requires a file URI, invokes Java Test's
+`vscode.java.test.findTestTypesAndMethods`, and returns schema version 1 with a
+typed class/method tree. Each item carries the upstream identity, label, fully
+qualified name, project, test kind/level, optional JDT handler and sort text,
+optional zero-based UTF-16 range, and children. A malformed top-level result is
+an `invalidServerResult`, never an empty semantic answer. Core does not infer
+Java entry points or tests from source syntax.
 For the Java provider, an `executeCommand` whose command is
 `vscode.java.buildWorkspace` is coordinated by Core instead of being written
 immediately. Core writes it only when no earlier build is awaiting its JDT
@@ -1448,19 +1458,14 @@ the response preserves the path text, uses one-based line and column values,
 and normalizes severity to `error` or `warning`. Duplicate issue lines are
 removed deterministically.
 
-`java.runConfigurations` accepts `{ "root": string, "paths": string[],
-"modulePaths": string[] }`. Java and module paths are workspace-relative. The response
-contains detected `mainClasses` and deterministic `configurations`. Each
-configuration carries the exact workspace-relative `sourcePath` that produced
-it and a `sourceSet` of `main`, `test`, or `other`; consumers must not recover a
-source by matching the qualified class name. Process launching remains a
-platform adapter responsibility.
-
 The `runConfig.*` commands implement the versioned project protocol described
 by the JSON Schemas in this directory. `runConfig.inspect` accepts `root` and
 never writes files. `runConfig.generate` accepts `root`, relative Java `paths`,
-and relative `modulePaths`; it returns generated configuration and toolchain
-requirement documents for the platform adapter to write atomically. Maven root
+relative `modulePaths`, and optional schema-versioned `javaEntrypoints` from the
+current `lsp.request` result. When Java tooling is still preparing, omission
+retains the previous generated entrypoint facts instead of running a local
+scanner or replacing them with an empty list. It returns generated configuration
+and toolchain requirement documents for the platform adapter to write atomically. Maven root
 discovery checks `pom.xml` along each supplied path's ancestor chain, so a
 reactor nested below the opened workspace does not depend on the platform
 including build descriptors in `paths`. Maven ownership is resolved per Java
@@ -1649,19 +1654,11 @@ name.
 `memberName`, returning zero-based `line` and UTF-16 `utf16Column` or `null`
 when no declaration is found.
 
-`java.testMethods` accepts Java `source` and returns `methods` in source order.
-Each method contains its `name` plus zero-based `line` and `endLine` values for
-the complete method body. The lightweight parser recognizes JUnit 4 and JUnit 5
-test annotations, ignores annotations and braces inside comments, strings,
-characters, and text blocks, and does not start a Java process or contact JDT.
-
 `java.structure` accepts Java `source` and optional `declarationSources`. It
-returns `foldRegions`, `inlayHints`, `syntaxHighlights`, and `testMethods`.
+returns `foldRegions`, `inlayHints`, and `syntaxHighlights`.
 Fold and inlay line numbers are zero-based because these values are editor
 offsets; UTF-16 columns and hidden ranges match the native text editor coordinate
-system. Each JUnit 4/5 test method contains its name plus inclusive one-based
-`line` and `endLine` values and comes from the Java syntax tree, so comments and
-method calls cannot create runnable test entries. Syntax highlights contain document-relative `utf16Start`,
+system. Syntax highlights contain document-relative `utf16Start`,
 `utf16Length`, and a role from the shared editor syntax-theme contract. They
 are sorted and non-overlapping, so native renderers can apply semantic colors
 without maintaining another Java parser. The parser is platform-independent

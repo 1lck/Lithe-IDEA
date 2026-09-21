@@ -55,7 +55,12 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
     }
 
     /// Explicit user action. Opening a project never calls this method implicitly.
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         let root = projectURL.standardizedFileURL
         guard storage.metadata(for: root)?.isDirectory == true else { throw MacRunConfigurationStoreError.invalidProject }
         let paths = files.compactMap { file -> String? in
@@ -66,7 +71,8 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         let result = try core.generateRunConfiguration(
             at: root,
             paths: paths,
-            modulePaths: modulePaths
+            modulePaths: modulePaths,
+            javaEntrypoints: javaEntrypoints
         ).get()
         try writeGenerated(result, at: root)
         return RunConfigurationGenerationResult(entryCount: result.entryCount)

@@ -134,7 +134,7 @@ extension AppModel {
         guard isCurrentWorkspace(identity) else { return }
         switch await ensureRunProjectReady(runFeature, for: identity) {
         case .ready:
-            await runFeature.generateRunConfigurations()
+            await generateFromJavaEntrypoints(runFeature, for: identity)
         case .waitingForSnapshot:
             // Report the pending workspace through the generation state when the
             // snapshot has not arrived, which the run panel surfaces as a notice.

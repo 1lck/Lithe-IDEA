@@ -11,6 +11,5 @@ struct NoProjectJavaOperations: JavaMavenOperations {
     func className(source: String, simpleName: String) -> String? { nil }
     func sourceDefinition(source: String, declarationName: String, memberName: String?) -> (line: Int, utf16Column: Int)? { nil }
     func serverPort(content: String, fileExtension: String) -> Int? { nil }
-    func scanRunConfigurations(at rootURL: URL, files: [URL], mavenProject: MavenProject?) -> [JavaRunConfiguration] { [] }
     func structure(source: String, declarationSources: [String]) -> JavaStructureResult? { nil }
 }

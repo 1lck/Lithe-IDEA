@@ -7,3 +7,4 @@ cd "$ROOT_DIR"
 swift run --quiet LitheCoreVerifier
 "$ROOT_DIR/scripts/verify-service-boundaries.sh"
 "$ROOT_DIR/scripts/verify-shared-contracts.sh"
+node "$ROOT_DIR/scripts/verify-java-semantic-ownership.mjs"
