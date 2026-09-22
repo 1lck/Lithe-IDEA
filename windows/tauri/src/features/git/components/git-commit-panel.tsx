@@ -1,10 +1,10 @@
 import {
   ArrowDownIcon as ArrowDown,
   ArrowUpIcon as ArrowUp,
-  CheckIcon as Check,
   CaretDownIcon as ChevronDown,
   WarningCircleIcon as AlertCircle,
   SparkleIcon as Sparkles,
+  GearSixIcon as SettingsIcon,
 } from "@/ui/icons";
 import type React from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -18,19 +18,21 @@ import { SidebarComposerBody } from "@/ui/sidebar";
 import Textarea from "@/ui/textarea";
 import { cn } from "@/utils/cn";
 import {
-  InlineEditError,
-  requestInlineEdit,
-} from "@/features/editor/services/editor-inline-edit-service";
-import { commitSelectedChanges, getGitLog } from "../api/git-commits-api";
-import { getWorkingTreePathDiff } from "../api/git-diff-api";
+  commitAIError,
+  collectCommitFiles,
+  commitSelectionKey,
+  generateCommitMessage,
+} from "../services/ai-commit-service";
+import { generateCommitDraft } from "../services/ai-commit-workflow";
+import { showConfirmDialog } from "@/ui/dialog";
+import { useUIState } from "@/features/window/stores/ui-state.store";
+import { commitSelectedChanges } from "../api/git-commits-api";
 import { showGitPushDialog } from "../services/git-push-dialog-service";
 import { useGitBlameStore } from "../stores/git-blame.store";
 import { useGitStore } from "../stores/git.store";
-import type { GitDiff, GitFile } from "../types/git.types";
+import type { GitFile } from "../types/git.types";
 import {
-  getGitFileOriginalRepositoryRelativePath,
   getGitFileRepositoryPath,
-  getGitFileRepositoryRelativePath,
   resolveGitFileMutationPaths,
 } from "../utils/git-status-selection";
 
@@ -49,156 +51,8 @@ interface GitCommitPanelProps {
   focusRequest?: number;
 }
 
-const MAX_SELECTED_FILES_FOR_AI_CONTEXT = 120;
-const MAX_RECENT_COMMITS_FOR_AI_CONTEXT = 24;
-const MAX_DIFF_FILES_FOR_AI_CONTEXT = 10;
-const MAX_DIFF_LINES_PER_FILE_FOR_AI_CONTEXT = 80;
-const MAX_COMMIT_AI_CONTEXT_CHARS = 11_000;
 const COMMIT_TEXTAREA_MIN_HEIGHT = 64;
 const COMMIT_TEXTAREA_MAX_HEIGHT = 128;
-
-type CommitMessageMode = "title" | "body";
-
-const getRepoLabel = (repoPath: string): string => {
-  const normalized = repoPath.replace(/\\/g, "/").replace(/\/$/, "");
-  return normalized.split("/").pop() || "repository";
-};
-
-const countDiffLines = (diff: GitDiff | null) => {
-  if (!diff) return { additions: 0, deletions: 0 };
-
-  return diff.lines.reduce(
-    (totals, line) => {
-      if (line.line_type === "added") totals.additions += 1;
-      if (line.line_type === "removed") totals.deletions += 1;
-      return totals;
-    },
-    { additions: 0, deletions: 0 },
-  );
-};
-
-const formatDiffExcerpt = (file: GitFile, diff: GitDiff | null): string => {
-  if (!diff) return `### ${file.path}\n(no text diff available)`;
-  if (diff.is_binary || diff.is_image) return `### ${file.path}\n(binary or image change)`;
-
-  const changedLines: string[] = [];
-  let changedLineCount = 0;
-
-  for (const line of diff.lines) {
-    if (line.line_type !== "added" && line.line_type !== "removed") continue;
-
-    changedLineCount++;
-    if (changedLines.length < MAX_DIFF_LINES_PER_FILE_FOR_AI_CONTEXT) {
-      changedLines.push(`${line.line_type === "added" ? "+" : "-"}${line.content}`);
-    }
-  }
-
-  const omittedCount = Math.max(changedLineCount - MAX_DIFF_LINES_PER_FILE_FOR_AI_CONTEXT, 0);
-
-  return [
-    `### ${file.path}`,
-    changedLines.join("\n") || "(metadata-only change)",
-    omittedCount > 0 ? `... ${omittedCount} more changed lines omitted` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
-};
-
-const truncateContext = (context: string): string => {
-  if (context.length <= MAX_COMMIT_AI_CONTEXT_CHARS) return context;
-  return `${context.slice(0, MAX_COMMIT_AI_CONTEXT_CHARS)}\n\n[context truncated]`;
-};
-
-async function buildCommitMessageContext({
-  repoPath,
-  currentBranch,
-  selectedFiles,
-  existingDraftHint,
-}: {
-  repoPath: string;
-  currentBranch?: string;
-  selectedFiles: GitFile[];
-  existingDraftHint: string;
-}): Promise<string> {
-  const selectedFilesForContext = selectedFiles.slice(0, MAX_SELECTED_FILES_FOR_AI_CONTEXT);
-  const diffFilesForContext = selectedFiles.slice(0, MAX_DIFF_FILES_FOR_AI_CONTEXT);
-  const [recentCommits, selectedDiffs] = await Promise.all([
-    getGitLog(repoPath, MAX_RECENT_COMMITS_FOR_AI_CONTEXT),
-    Promise.all(
-      diffFilesForContext.map((file) =>
-        getWorkingTreePathDiff(
-          getGitFileRepositoryPath(file, repoPath) ?? repoPath,
-          getGitFileRepositoryRelativePath(file),
-          file.status === "untracked",
-          getGitFileOriginalRepositoryRelativePath(file),
-        ),
-      ),
-    ),
-  ]);
-  const overflowCount = Math.max(selectedFiles.length - selectedFilesForContext.length, 0);
-  const diffOverflowCount = Math.max(selectedFiles.length - diffFilesForContext.length, 0);
-  const totals = selectedDiffs.reduce(
-    (sum, diff) => {
-      const counts = countDiffLines(diff);
-      return {
-        additions: sum.additions + counts.additions,
-        deletions: sum.deletions + counts.deletions,
-      };
-    },
-    { additions: 0, deletions: 0 },
-  );
-
-  const recentCommitLines = recentCommits
-    .map((commit) => commit.message.trim())
-    .filter(Boolean)
-    .slice(0, MAX_RECENT_COMMITS_FOR_AI_CONTEXT)
-    .map((message) => `- ${message}`)
-    .join("\n");
-  const selectedLines = selectedFilesForContext
-    .map((file) => `- ${file.status}: ${file.path}`)
-    .join("\n");
-  const diffExcerpt = diffFilesForContext
-    .map((file, index) => formatDiffExcerpt(file, selectedDiffs[index]))
-    .join("\n\n");
-
-  return truncateContext(
-    [
-      `Repository: ${getRepoLabel(repoPath)}`,
-      `Branch: ${currentBranch || "unknown"}`,
-      "",
-      "Recent commit subjects for style:",
-      recentCommitLines || "- none",
-      "",
-      `Selected files (${selectedFiles.length}):`,
-      selectedLines || "- none",
-      overflowCount > 0 ? `- ...and ${overflowCount} more selected files` : "",
-      "",
-      `Selected diff summary for sampled files: +${totals.additions} -${totals.deletions}`,
-      diffOverflowCount > 0
-        ? `Diff excerpts include ${diffFilesForContext.length} of ${selectedFiles.length} selected files.`
-        : "",
-      diffExcerpt ? `\nSelected patch excerpts:\n${diffExcerpt}` : "",
-      existingDraftHint ? `\nCurrent draft:\n${existingDraftHint}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n"),
-  );
-}
-
-function normalizeGeneratedCommitMessage(message: string, mode: CommitMessageMode): string {
-  const trimmed = message
-    .replace(/^```[a-zA-Z0-9_-]*\n?/, "")
-    .replace(/\n?```\s*$/, "")
-    .trim();
-  if (mode === "body") return trimmed;
-
-  return (
-    trimmed
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find(Boolean) || ""
-  );
-}
 
 const GitCommitPanel = ({
   selectedFiles,
@@ -215,20 +69,26 @@ const GitCommitPanel = ({
   focusRequest = 0,
 }: GitCommitPanelProps) => {
   const { t } = useTranslation();
-  const aiChatProvider = useSettingsStore((state) => state.settings.aiProviderId);
-  const aiChatModelId = useSettingsStore((state) =>
-    state.settings.aiProviderId === "custom"
-      ? state.settings.aiCustomModelId
-      : state.settings.aiModelId,
-  );
+  const aiSettings = useSettingsStore((state) => state.settings.aiCommit);
+  const openSettings = useUIState((state) => state.openSettingsDialog);
+  const generationRef = useRef<AbortController | null>(null);
+  const selection = commitSelectionKey(repoPath ?? "", selectedFiles) + (currentBranch ?? "");
+  const currentDraft = useRef({ selection, message: commitMessage, apply: onCommitMessageChange });
+  currentDraft.current = { selection, message: commitMessage, apply: onCommitMessageChange };
+  useEffect(() => {
+    generationRef.current?.abort();
+    generationRef.current = null;
+    setIsGenerating(false);
+    return () => {
+      generationRef.current?.abort();
+      generationRef.current = null;
+    };
+  }, [selection]);
   const [isCommitting, setIsCommitting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [commitMessageMode, setCommitMessageMode] = useState<CommitMessageMode>("title");
-  const [isGenerateModeMenuOpen, setIsGenerateModeMenuOpen] = useState(false);
   const [isCommitActionMenuOpen, setIsCommitActionMenuOpen] = useState(false);
   const [remoteAction, setRemoteAction] = useState<"push" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const generateMenuAnchorRef = useRef<HTMLDivElement>(null);
   const commitMenuAnchorRef = useRef<HTMLDivElement>(null);
   const commitTextareaRef = useRef<HTMLTextAreaElement>(null);
   const selectedFilesCount = selectedFiles.length;
@@ -254,49 +114,33 @@ const GitCommitPanel = ({
   }, [commitMessage]);
 
   const handleGenerateCommitMessage = async () => {
-    if (!repoPath || selectedFilesCount === 0) return;
+    if (!repoPath || selectedFilesCount === 0 || generationRef.current || !aiSettings.enabled)
+      return;
+    if (!aiSettings.providers.some((p) => p.id === aiSettings.activeProviderId)) {
+      setError(t("aiCommit.configure"));
+      openSettings("ai-commit");
+      return;
+    }
+    const controller = new AbortController();
+    generationRef.current = controller;
     setError(null);
-
-    const existingDraftHint = commitMessage.trim();
-
     setIsGenerating(true);
     try {
-      const selectedText = await buildCommitMessageContext({
-        repoPath,
-        currentBranch,
-        selectedFiles,
-        existingDraftHint,
+      await generateCommitDraft({
+        signal: controller.signal,
+        current: () => currentDraft.current,
+        readFiles: () => collectCommitFiles(repoPath, selectedFiles, controller.signal),
+        generate: (files) => generateCommitMessage(aiSettings, files, controller.signal),
+        confirmReplace: () => showConfirmDialog(t("aiCommit.replace")),
+        apply: (message) => currentDraft.current.apply(message),
       });
-      const { editedText } = await requestInlineEdit({
-        provider: aiChatProvider,
-        customProviderScope: "chat",
-        model: aiChatModelId,
-        beforeSelection: "",
-        selectedText,
-        afterSelection: "",
-        instruction:
-          commitMessageMode === "title"
-            ? "Generate a concise Git commit subject from the selected changes. Return exactly one subject line and nothing else. Keep it under 72 characters when possible. Infer and match the repository's style from recent commit subjects. Do not force conventional commit format unless the recent commits clearly use it."
-            : "Generate a Git commit message from the selected changes. Return a subject line and a short body only when the body adds useful context. Keep the subject under 72 characters when possible. Infer and match the repository's style from recent commit subjects. Do not force conventional commit format unless the recent commits clearly use it.",
-        filePath: getRepoLabel(repoPath),
-        languageId: "git-commit",
-      });
-
-      const message = normalizeGeneratedCommitMessage(editedText, commitMessageMode);
-      if (!message) {
-        setError(t("git.aiCommitEmptyMessage"));
-        return;
-      }
-
-      onCommitMessageChange(message);
-    } catch (generationError) {
-      if (generationError instanceof InlineEditError) {
-        setError(generationError.message);
-      } else {
-        setError(t("git.generateCommitMessageFailed"));
-      }
+    } catch (error) {
+      if (!controller.signal.aborted) setError(commitAIError(error, t));
     } finally {
-      setIsGenerating(false);
+      if (generationRef.current === controller) {
+        generationRef.current = null;
+        setIsGenerating(false);
+      }
     }
   };
 
@@ -395,25 +239,12 @@ const GitCommitPanel = ({
     Boolean(operationState) ||
     isCommitting ||
     isGenerating;
-  const isGenerateDisabled = selectedFilesCount === 0 || isGenerating || isCommitting;
+  const isGenerateDisabled =
+    selectedFilesCount === 0 || isGenerating || isCommitting || !aiSettings.enabled;
   const hasRemoteChanges = ahead > 0 || behind > 0;
   const isRemoteActionLoading = remoteAction !== null;
   const composerButtonClassName =
     "h-6 rounded-md border-transparent bg-transparent px-1.5 ui-text-sm leading-none text-subtle-foreground shadow-none hover:bg-accent/80 hover:text-foreground focus-visible:ring-1 focus-visible:ring-border-strong/35 [&_svg]:size-3";
-  const generateModeItems: MenuItem[] = [
-    {
-      id: "title",
-      label: t("git.commitMessageTitleOnly"),
-      icon: commitMessageMode === "title" ? <Check /> : undefined,
-      onClick: () => setCommitMessageMode("title"),
-    },
-    {
-      id: "body",
-      label: t("git.commitMessageTitleAndBody"),
-      icon: commitMessageMode === "body" ? <Check /> : undefined,
-      onClick: () => setCommitMessageMode("body"),
-    },
-  ];
   const commitActionItems: MenuItem[] = [
     {
       id: "commit-and-push",
@@ -505,10 +336,30 @@ const GitCommitPanel = ({
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
-          <ButtonGroup ref={generateMenuAnchorRef}>
+          <Button
+            type="button"
+            size="xs"
+            onClick={() => openSettings("ai-commit")}
+            tooltip={t("aiCommit.settings")}
+            aria-label={t("aiCommit.settings")}
+          >
+            <SettingsIcon />
+          </Button>
+          {isGenerating ? (
             <Button
               type="button"
-              variant="default"
+              size="xs"
+              onClick={() => {
+                generationRef.current?.abort();
+                generationRef.current = null;
+                setIsGenerating(false);
+              }}
+            >
+              {t("aiCommit.cancel")}
+            </Button>
+          ) : (
+            <Button
+              type="button"
               size="xs"
               onClick={() => void handleGenerateCommitMessage()}
               disabled={isGenerateDisabled}
@@ -516,31 +367,9 @@ const GitCommitPanel = ({
               aria-label={t("git.generateCommitMessageWithAI")}
             >
               <Sparkles />
+              <span>AI</span>
             </Button>
-            <ButtonGroupSeparator />
-            <Button
-              type="button"
-              variant="default"
-              size="icon-xs"
-              onClick={() => setIsGenerateModeMenuOpen((open) => !open)}
-              disabled={isGenerating || isCommitting}
-              active={isGenerateModeMenuOpen}
-              tooltip={t("git.commitMessageFormat")}
-              aria-label={t("git.commitMessageFormat")}
-              aria-haspopup="menu"
-              aria-expanded={isGenerateModeMenuOpen}
-            >
-              <ChevronDown />
-            </Button>
-          </ButtonGroup>
-          <Dropdown
-            isOpen={isGenerateModeMenuOpen}
-            anchorRef={generateMenuAnchorRef}
-            anchorAlign="end"
-            onClose={() => setIsGenerateModeMenuOpen(false)}
-            items={generateModeItems}
-            className="min-w-37.5"
-          />
+          )}
 
           <ButtonGroup ref={commitMenuAnchorRef}>
             <Button

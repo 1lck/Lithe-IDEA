@@ -28,6 +28,7 @@ export const SETTINGS_SEARCH_TAB_LABELS: Record<SettingsTab, string> = {
   terminal: "Terminal",
   keyboard: "Keybindings",
   ai: "Agent",
+  "ai-commit": "AI & Commit",
   advanced: "Advanced",
 };
 

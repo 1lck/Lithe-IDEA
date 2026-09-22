@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+pub mod ai;
 mod community;
 mod debug;
 mod diagnostics;

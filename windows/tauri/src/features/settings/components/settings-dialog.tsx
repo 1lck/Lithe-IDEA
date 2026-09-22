@@ -40,7 +40,8 @@ const categories: CategoryItem[] = [
   { id: "keyboard", labelKey: "settings.tabs.keyboard", icon: KeyboardIcon },
   { id: "terminal", labelKey: "settings.tabs.terminal", icon: TerminalWindowIcon },
   { id: "lsp", labelKey: "settings.tabs.lsp", icon: DatabaseIcon },
-  { id: "ai", labelKey: "settings.tabs.aiCommit", icon: MagicWandIcon },
+  { id: "ai", labelKey: "settings.tabs.ai", icon: MagicWandIcon },
+  { id: "ai-commit", labelKey: "settings.tabs.aiCommit", icon: MagicWandIcon },
   { id: "git", labelKey: "settings.tabs.git", icon: CodeBlockIcon },
   { id: "logs", labelKey: "settings.tabs.logs", icon: FileTextIcon },
   { id: "updates", labelKey: "settings.tabs.updates", icon: ArrowClockwiseIcon },
@@ -58,6 +59,7 @@ function categoryFromRequestedTab(tab: SettingsTab | null): MacSettingsCategory 
     case "keyboard":
     case "terminal":
     case "ai":
+    case "ai-commit":
     case "logs":
       return tab;
     case "language":

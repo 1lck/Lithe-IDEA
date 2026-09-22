@@ -1,9 +1,11 @@
+import { aiCommitChinese, aiCommitEnglish } from "./ai-commit";
 export const DISPLAY_LANGUAGES = ["en-US", "zh-CN"] as const;
 
 export type DisplayLanguage = (typeof DISPLAY_LANGUAGES)[number];
 
 const catalogs = {
   "en-US": {
+    ...aiCommitEnglish,
     "git.console.details": "Command details",
     "git.console.historyTruncated": "Earlier Git commands were truncated to limit memory use.",
   "git.console.options": "Git command options",
@@ -4462,6 +4464,7 @@ const catalogs = {
     "welcome.backToProjects": "Back to projects",
   },
   "zh-CN": {
+    ...aiCommitChinese,
     "git.console.details": "命令详情",
     "git.console.historyTruncated": "为限制内存占用，较早的 Git 执行记录已截断，无法展开。",
   "git.console.options": "Git 命令选项",
