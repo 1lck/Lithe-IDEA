@@ -20,6 +20,7 @@ import {
 import { Spinner } from "@/ui/spinner";
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
+import { useFollowOutputEnd } from "../hooks/use-follow-output-end";
 import { ensureRunProcessListeners } from "../hooks/use-run-process-events";
 import { useRunStore } from "../stores/run.store";
 import { PRIMARY_SESSION_ID, type RunConfiguration } from "../types/run.types";
@@ -161,14 +162,7 @@ export default function RunPane() {
     setSelectedServiceIDsLocal(services.slice(0, 1).map((service) => service.id));
   }, [rootFolderPath, selectedServiceIDsByWorkspace, services]);
 
-  // Follow the newest output only while scroll-to-end is pinned and the pane
-  // is laid out: a display:none container reports no usable scroll geometry,
-  // so hidden updates are caught by re-scrolling when the pane reopens.
-  useEffect(() => {
-    if (!scrollOutputToEnd || !isBottomPaneVisible) return;
-    const node = outputScrollRef.current;
-    if (node) node.scrollTop = node.scrollHeight;
-  }, [output, scrollOutputToEnd, isBottomPaneVisible]);
+  useFollowOutputEnd(outputScrollRef, output, scrollOutputToEnd, isBottomPaneVisible);
 
   const updateSelectedServices = (ids: string[]) => {
     setSelectedServiceIDsLocal(ids);
