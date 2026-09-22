@@ -44,11 +44,22 @@ struct EffectiveRuntimeLabel: View {
                 Text(String(format: String(localized: "Cannot use %@; using the project JDK instead."), invalidPath))
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.error)
-                if case .found(let url, _) = replacement {
+                // The project JDK chain yields a JDK, an unusable configured
+                // path, or nothing; each must stay visible after the fallback.
+                switch replacement {
+                case .found(let url, _):
                     Text(resolvedText(url: url, source: .projectJDK, mode: String(localized: "Use Project JDK")))
                         .font(.system(size: 11.5, design: .monospaced))
                         .foregroundStyle(LitheTheme.primaryText)
                         .textSelection(.enabled)
+                case .invalid(let path), .fallback(let path, _):
+                    Text(String(format: String(localized: "Cannot be used: %@"), path))
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.error)
+                case .notFound:
+                    Text("No JDK found. Set JAVA_HOME, install a JDK, or choose a JDK directory.")
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.error)
                 }
             }
         case .invalid(let path)?:
