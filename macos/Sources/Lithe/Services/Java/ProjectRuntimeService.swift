@@ -361,8 +361,10 @@ final class ProjectRuntimeService: ObservableObject {
             return
         }
 
-        let javaHome = javaHomeURL()
-            ?? discoveredJavaRuntimes.first.flatMap { runtimeLocator.validJavaHome(path: $0.homePath) }
+        // Use the runtimes this discovery just found. `javaHomeURL()` would run
+        // the whole discovery again, synchronously on the main actor, whenever
+        // neither a project JDK nor JAVA_HOME is set.
+        let javaHome = chooseJavaHome(overridePath: nil) { discoveredJavaRuntimes }?.url
         guard let javaHome else {
             javaEnvironmentReport = JavaEnvironmentReport(
                 status: .jdkMissing,
