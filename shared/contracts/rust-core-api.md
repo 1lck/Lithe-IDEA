@@ -131,6 +131,7 @@ stable error code and a user-facing message:
 | `lsp.startServer` | Start one Rust-owned process/session and begin initialization |
 | `lsp.jdtWorkspaceKey` | Derive the deterministic JDT LS workspace-state directory key |
 | `java.workspacePolicy` | Decide Java workspace activation and classify changed paths |
+| `java.runMarkers` | Project JDT main/test discovery and Maven test outcomes into editor Run markers |
 | `java.jdtWorkspaceFingerprint` | Reduce platform build-file observations to the portable JDT LS workspace fingerprint |
 | `java.jdtCacheRetention` | Select expired inactive JDT LS workspace-state keys from platform metadata |
 | `lsp.stopServer` | Gracefully shut down a session, with a bounded force-stop fallback |
@@ -241,7 +242,36 @@ All locations use one-based lines with nullable columns. `passed` is derived fro
 negative. A final `Results` summary is preferred; when Maven only prints
 per-class summaries, the counts are aggregated. Failure details retain Maven's output order and are bounded to
 10,000 entries. A parser or size violation returns the standard
-`parse_failed` error. Platform stores must associate the response with the
+`parse_failed` error.
+
+The request may also carry `reports: { module, sourcePath, classes,
+notBeforeMillis }` naming the run's workspace-relative Maven module directory
+(`null` or `.` for the root), the binary names of the selected test classes, and
+the run's start time in Unix milliseconds. When `module` is absent and
+`sourcePath` names a workspace-relative test file, the module is the nearest
+directory above that file holding a `pom.xml`. An empty or absent `classes`
+reads every report in the module written at or after `notBeforeMillis`. Core then reads the Surefire/Failsafe XML reports
+the run wrote and returns `testCases`, otherwise an empty list:
+
+```json
+{ "className": "com.example.CalculatorTest", "method": "additionIsCorrect",
+  "status": "failed", "message": "expected <4> but was <5>", "invocations": 1 }
+```
+
+Reports are searched in the module's configured Surefire/Failsafe
+`reportsDirectory` values plus `<build directory>/surefire-reports` and
+`failsafe-reports`. Only `TEST-<class>.xml` and nested `TEST-<class>$*.xml`
+files modified at or after `notBeforeMillis` are read, so an earlier run's
+reports never produce outcomes. `method` drops parameter lists and invocation
+indexes; invocations that report a display name instead of a method are
+omitted. `status` is `passed`, `failed`, `error`, or `skipped`; when a method
+has several invocations, the most severe wins (error, failed, passed, skipped)
+and `message` comes from the first invocation with that status. Results are
+ordered by `className`, then `method`. Core reads at most 512 reports of up to
+32 MiB each and returns at most 10,000 methods; malformed reports are skipped.
+A module outside the workspace or a class name that is not a Java binary name
+returns `invalid_request`. A class with no case means "no recorded outcome",
+never "passed". Platform stores must associate the response with the
 launch operation and discard it after cancellation, replacement, or workspace
 change.
 
@@ -1225,6 +1255,23 @@ used by `lsp.startServer`. Platform cache-maintenance actions use it to remove
 only the current workspace/fingerprint directory; they do not clear sibling
 workspaces or older structural states.
 
+`java.runMarkers` accepts `{ mainMethods, testItems, testCases }`: the
+`methods` of one file's `javaMainMethods` answer, the `items` of its
+`javaTestItems` answer (empty when the platform cannot run tests for the file),
+and recorded `maven.testResults` `testCases`. It returns `{ markers }` ordered by
+zero-based `line`, then `kind` (`main`, `testClass`, `testMethod`). `endLine`
+is the last line of the declaration as reported upstream: the end of the body for
+test classes and methods, and the name line for `main`. Each marker
+has a `label` for menus (`App.main()`, `OrderTest`, `OrderTest.creates`), the
+launch target (`mainClass`/`projectName`, or `testClass`/`testMethod` and the
+Java Test `testItemId`), and `status`: `none`, `passed`, `failed` (failure or
+error), or `skipped`. Test cases match a method by class and method name, with
+nested-class `$` and `.` treated alike. A class is `failed` when any recorded
+method under it (including nested classes) failed and `passed` when at least
+one passed and none failed. Items without a source range, such as inherited
+test methods, get no marker. The command is pure and never reads the file
+system. `shared/fixtures/java/run-markers-v1.json` is the compatibility fixture.
+
 `java.workspacePolicy` accepts `workspacePaths` and `changedPaths` as
 workspace-relative paths. It starts Java tooling when a non-ignored `.java`
 source exists and the workspace shows evidence of being a Java project: a build
@@ -1287,7 +1334,7 @@ command fields, and returns `{ operationId }`. Supported operations include
 completion, hover, definition/declaration/type-definition, references,
 implementation, rename, formatting, code actions and resolve, execute command,
 inlay hints, full-document semantic tokens, folding ranges, code lens, provider
-virtual documents, `javaEntrypoints`, and `javaTestItems`.
+virtual documents, `javaEntrypoints`, `javaTestItems`, and `javaMainMethods`.
 `javaEntrypoints` invokes Java Debug Server's
 `vscode.java.resolveMainClass` for the session workspace and returns schema
 version 1 with deterministic workspace-relative `{ sourcePath, mainClass,
@@ -1297,8 +1344,16 @@ projectName? }` entries plus diagnostics for unusable upstream records.
 typed class/method tree. Each item carries the upstream identity, label, fully
 qualified name, project, test kind/level, optional JDT handler and sort text,
 optional zero-based UTF-16 range, and children. A malformed top-level result is
-an `invalidServerResult`, never an empty semantic answer. Core does not infer
-Java entry points or tests from source syntax.
+an `invalidServerResult`, never an empty semantic answer.
+`javaMainMethods` requires a file URI, invokes Java Debug Server's
+`vscode.java.resolveMainMethod`, and returns schema version 1 with
+`{ methods: [{ range, mainClass, projectName? }], diagnostics }`. `range` is the
+zero-based UTF-16 range of the method name, and methods are ordered by source
+position. `mainClass` matches the `javaEntrypoints` entry generated for the same
+file, so editors can launch the workspace configuration for that entry. A `null`
+upstream result means no launchable method; any other non-list result is an
+`invalidServerResult`. Core does not infer Java entry points or tests from
+source syntax.
 For the Java provider, an `executeCommand` whose command is
 `vscode.java.buildWorkspace` is coordinated by Core instead of being written
 immediately. Core writes it only when no earlier build is awaiting its JDT

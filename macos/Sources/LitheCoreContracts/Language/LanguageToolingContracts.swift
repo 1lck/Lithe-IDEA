@@ -407,6 +407,9 @@ package enum LanguageServerOperation: String, Equatable, Sendable {
     /// Java Test extension classes and methods in one source file, normalized
     /// by Core into a typed tree.
     case javaTestItems
+    /// JDT's launchable `main` methods in one source file, with the range of
+    /// each method name, normalized by Core.
+    case javaMainMethods
 }
 
 /// A class JDT confirmed the JVM can launch, as normalized by Core.
@@ -501,6 +504,115 @@ package struct JavaTestItem: Codable, Equatable, Sendable {
 
     package func matches(identifier: String) -> Bool {
         id == identifier || label == identifier || fullName == identifier || jdtHandler == identifier
+    }
+}
+
+/// One `main` method JDT confirmed the JVM can launch, as normalized by Core.
+///
+/// Note: 设计见 .agents/notes/implemented/architecture/2026-09-22-editor-run-markers-and-test-outcomes.md
+package struct JavaMainMethod: Codable, Equatable, Sendable {
+    /// Matches the `mainClass` of the workspace entry point for the same file.
+    package let mainClass: String
+    package let projectName: String?
+    /// Zero-based UTF-16 range of the method name.
+    package let range: JavaTestRange
+
+    package init(mainClass: String, projectName: String? = nil, range: JavaTestRange) {
+        self.mainClass = mainClass
+        self.projectName = projectName
+        self.range = range
+    }
+}
+
+/// Core's `javaMainMethods` answer for one source file.
+package struct JavaMainMethods: Codable, Equatable, Sendable {
+    package struct Diagnostic: Codable, Equatable, Sendable {
+        package let code: String
+        package let mainClass: String?
+    }
+
+    package let schemaVersion: Int
+    package let methods: [JavaMainMethod]
+    package let diagnostics: [Diagnostic]
+
+    package init(schemaVersion: Int = 1, methods: [JavaMainMethod], diagnostics: [Diagnostic] = []) {
+        self.schemaVersion = schemaVersion
+        self.methods = methods
+        self.diagnostics = diagnostics
+    }
+}
+
+/// One IDEA-style editor gutter marker projected by Core's `java.runMarkers`.
+package struct JavaRunMarker: Codable, Equatable, Sendable {
+    package enum Kind: String, Codable, Sendable {
+        case main
+        case testClass
+        case testMethod
+    }
+
+    package enum Status: String, Codable, Sendable {
+        case none
+        case passed
+        case failed
+        case skipped
+    }
+
+    /// Zero-based line of the declaration name.
+    package let line: Int
+    /// Last line of the declaration: body end for tests, name line for `main`.
+    package let endLine: Int
+    package let kind: Kind
+    /// Menu target such as `App.main()`, `OrderTest`, or `OrderTest.creates`.
+    package let label: String
+    package let mainClass: String?
+    package let projectName: String?
+    package let testClass: String?
+    package let testMethod: String?
+    package let testItemId: String?
+    package let status: Status
+
+    package init(
+        line: Int,
+        endLine: Int,
+        kind: Kind,
+        label: String,
+        mainClass: String? = nil,
+        projectName: String? = nil,
+        testClass: String? = nil,
+        testMethod: String? = nil,
+        testItemId: String? = nil,
+        status: Status = .none
+    ) {
+        self.line = line
+        self.endLine = endLine
+        self.kind = kind
+        self.label = label
+        self.mainClass = mainClass
+        self.projectName = projectName
+        self.testClass = testClass
+        self.testMethod = testMethod
+        self.testItemId = testItemId
+        self.status = status
+    }
+
+    /// Stable identity within one projection, used by editor bridges.
+    package var id: String { "\(kind.rawValue):\(line):\(label)" }
+
+    /// The marker a caret line refers to, following IDEA: the innermost test
+    /// method or class whose declaration contains the line, otherwise the
+    /// `main` on that line, otherwise the file's first `main`.
+    package static func forLine(_ line: Int, in markers: [JavaRunMarker]) -> JavaRunMarker? {
+        var enclosing: JavaRunMarker?
+        for marker in markers where marker.kind != .main && marker.line <= line && line <= marker.endLine {
+            if let current = enclosing,
+               marker.line < current.line || (marker.line == current.line && marker.kind != .testMethod) {
+                continue
+            }
+            enclosing = marker
+        }
+        if let enclosing { return enclosing }
+        let mains = markers.filter { $0.kind == .main }
+        return mains.first { $0.line == line } ?? mains.first
     }
 }
 
@@ -799,6 +911,11 @@ package protocol LanguageServerSession: AnyObject {
         fileURL: URL,
         completion: @escaping (Result<JavaTestItems, Error>) -> Void
     ) throws
+    /// Launchable `main` methods JDT reports for one source file.
+    func javaMainMethods(
+        fileURL: URL,
+        completion: @escaping (Result<JavaMainMethods, Error>) -> Void
+    ) throws
     func javaNavigationMarkers(
         fileURL: URL,
         completion: @escaping (Result<[JavaNavigationMarker], Error>) -> Void
@@ -882,6 +999,12 @@ package extension LanguageServerSession {
     ) throws {
         completion(.failure(LanguageServerFeatureUnavailable.javaTests))
     }
+    func javaMainMethods(
+        fileURL _: URL,
+        completion: @escaping (Result<JavaMainMethods, Error>) -> Void
+    ) throws {
+        completion(.failure(LanguageServerFeatureUnavailable.javaMainMethods))
+    }
     func javaNavigationMarkers(
         fileURL _: URL,
         completion: @escaping (Result<[JavaNavigationMarker], Error>) -> Void
@@ -900,11 +1023,13 @@ package extension LanguageServerSession {
 private enum LanguageServerFeatureUnavailable: LocalizedError {
     case javaNavigation
     case javaTests
+    case javaMainMethods
 
     var errorDescription: String? {
         switch self {
         case .javaNavigation: "Java navigation is not supported by this language server."
         case .javaTests: "Java test discovery is not supported by this language server."
+        case .javaMainMethods: "Java main-method discovery is not supported by this language server."
         }
     }
 }

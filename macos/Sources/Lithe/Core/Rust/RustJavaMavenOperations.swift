@@ -1,6 +1,13 @@
 import Foundation
 
 protocol JavaMavenOperations: MavenProjectOperations, RunServerPortParsing, Sendable {
+    /// Core's shared projection of JDT answers and test outcomes into editor
+    /// Run markers; `nil` when Core rejected the input.
+    func javaRunMarkers(
+        mainMethods: [JavaMainMethod],
+        testItems: [JavaTestItem],
+        testCases: [MavenTestCaseOutcome]
+    ) -> [JavaRunMarker]?
     func javaWorkspacePolicy(
         at rootURL: URL,
         files: [URL],
@@ -44,6 +51,12 @@ protocol JavaMavenOperations: MavenProjectOperations, RunServerPortParsing, Send
 }
 
 extension JavaMavenOperations {
+    func javaRunMarkers(
+        mainMethods _: [JavaMainMethod],
+        testItems _: [JavaTestItem],
+        testCases _: [MavenTestCaseOutcome]
+    ) -> [JavaRunMarker]? { nil }
+
     func mavenLaunchPlan(
         at _: URL,
         context _: MavenLaunchContext,
@@ -226,7 +239,19 @@ struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
     }
 
     func mavenTestResults(output: String, projectRoot: URL) -> MavenTestResults? {
-        guard let payload = try? core.mavenTestResults(at: projectRoot, output: output).get() else {
+        mavenTestResults(output: output, projectRoot: projectRoot, reports: nil)
+    }
+
+    func mavenTestResults(
+        output: String,
+        projectRoot: URL,
+        reports: MavenTestReportRequest?
+    ) -> MavenTestResults? {
+        guard let payload = try? core.mavenTestResults(
+            at: projectRoot,
+            output: output,
+            reports: reports
+        ).get() else {
             return nil
         }
         let root = projectRoot.standardizedFileURL
@@ -257,8 +282,22 @@ struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
             skipped: payload.skipped,
             passed: payload.passed,
             success: payload.success,
-            failureDetails: details
+            failureDetails: details,
+            testCases: payload.testCases ?? []
         )
+    }
+
+    func javaRunMarkers(
+        mainMethods: [JavaMainMethod],
+        testItems: [JavaTestItem],
+        testCases: [MavenTestCaseOutcome]
+    ) -> [JavaRunMarker]? {
+        if mainMethods.isEmpty && testItems.isEmpty { return [] }
+        return try? core.javaRunMarkers(
+            mainMethods: mainMethods,
+            testItems: testItems,
+            testCases: testCases
+        ).get().markers
     }
 
     func codeVision(

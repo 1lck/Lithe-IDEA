@@ -1006,6 +1006,7 @@ describe("Maven workspace state", () => {
       module: "service",
       selector: "com.example.CalculatorTest",
       title: "com.example.CalculatorTest",
+      className: "com.example.CalculatorTest",
     });
 
     const classSession = store.getState().activeSessionId;
@@ -1144,6 +1145,7 @@ describe("Maven workspace state", () => {
       module: "service",
       selector: "com.example.CalculatorTest",
       title: "com.example.CalculatorTest",
+      className: "com.example.CalculatorTest",
     });
 
     store.getState().actions.clearOutput();
@@ -1294,5 +1296,112 @@ describe("Maven dependency state", () => {
     await finishing;
     expect(store.getState().dependencyLoads.service?.status).toBe("cancelled");
     await store.getState().actions.cancelDependencies("other");
+  });
+});
+
+describe("Maven test outcomes for editor Run markers", () => {
+  const testFile = "D:/work/reactor/service/src/test/java/com/example/CalculatorTest.java";
+  const runStartedAt = 1_700_000_000_000;
+
+  function createOutcomeStore() {
+    const timer = new ManualTimer();
+    const store = createMavenStore("workspace", dependencies, {
+      setTimer: timer.set,
+      clearTimer: timer.clear,
+      now: () => runStartedAt,
+    });
+    return { store, timer };
+  }
+
+  test("reads the selected nested class's reports and replaces only its outcomes", async () => {
+    scanMavenProject.mockResolvedValue(mavenTestProject);
+    const reportRequests: unknown[] = [];
+    parseMavenTestResults.mockImplementationOnce(async (...args: unknown[]) => {
+      reportRequests.push(args[2]);
+      return {
+        testsRun: 1,
+        failures: 1,
+        errors: 0,
+        skipped: 0,
+        passed: 0,
+        success: false,
+        failureDetails: [],
+        testCases: [
+          {
+            className: "com.example.CalculatorTest$Nested",
+            method: "adds",
+            status: "failed",
+            message: "expected 3",
+            invocations: 1,
+          },
+        ],
+      };
+    });
+    const { store } = createOutcomeStore();
+    await store.getState().actions.loadProject("D:/work", ["reactor/service/pom.xml"]);
+    store.setState({
+      testOutcomes: [
+        { className: "com.example.CalculatorTest", method: "subtracts", status: "passed", invocations: 1 },
+        { className: "com.example.CalculatorTest$Nested", method: "adds", status: "passed", invocations: 1 },
+        { className: "com.example.OtherTest", method: "other", status: "passed", invocations: 1 },
+      ],
+    });
+
+    await store
+      .getState()
+      .actions.runTestMethod(testFile, "adds", undefined, "com.example.CalculatorTest$Nested");
+    expect(store.getState().activeTestRun?.selector).toBe("com.example.CalculatorTest$Nested#adds");
+    const sessionId = store.getState().activeSessionId;
+    store.getState().actions.finishProcess(sessionId!, 1);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(reportRequests).toEqual([
+      {
+        module: "reactor/service",
+        classes: ["com.example.CalculatorTest$Nested"],
+        notBeforeMillis: runStartedAt,
+      },
+    ]);
+    expect(store.getState().testOutcomes).toEqual([
+      { className: "com.example.CalculatorTest", method: "subtracts", status: "passed", invocations: 1 },
+      { className: "com.example.OtherTest", method: "other", status: "passed", invocations: 1 },
+      {
+        className: "com.example.CalculatorTest$Nested",
+        method: "adds",
+        status: "failed",
+        message: "expected 3",
+        invocations: 1,
+      },
+    ]);
+  });
+
+  test("ignores a class outside the file and runs the file's own class", async () => {
+    scanMavenProject.mockResolvedValue(mavenTestProject);
+    const { store } = createOutcomeStore();
+    await store.getState().actions.loadProject("D:/work", ["reactor/service/pom.xml"]);
+
+    await store.getState().actions.runTestClass(testFile, undefined, "com.example.Unrelated");
+
+    expect(store.getState().activeTestRun?.selector).toBe("com.example.CalculatorTest");
+    expect(store.getState().activeTestRun?.className).toBe("com.example.CalculatorTest");
+    await store.getState().actions.stop();
+  });
+
+  test("keeps earlier outcomes when a run wrote no readable reports", async () => {
+    scanMavenProject.mockResolvedValue(mavenTestProject);
+    const { store } = createOutcomeStore();
+    await store.getState().actions.loadProject("D:/work", ["reactor/service/pom.xml"]);
+    const previous = [
+      { className: "com.example.OtherTest", method: "other", status: "passed" as const, invocations: 1 },
+    ];
+    store.setState({ testOutcomes: previous });
+
+    await store.getState().actions.runTestClass(testFile);
+    store.getState().actions.finishProcess(store.getState().activeSessionId!, 0);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(store.getState().testOutcomes).toEqual(previous);
   });
 });

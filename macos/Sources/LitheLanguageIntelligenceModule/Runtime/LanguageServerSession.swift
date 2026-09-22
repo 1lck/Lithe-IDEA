@@ -487,6 +487,18 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
     }
 
+    /// Asks JDT, through Core, which `main` methods in one file can be launched.
+    package func javaMainMethods(
+        fileURL: URL,
+        completion: @escaping (Result<JavaMainMethods, Error>) -> Void
+    ) throws {
+        try request(.javaMainMethods, fileURL: fileURL) { result in
+            completion(result.flatMap {
+                Self.decodeEventResult($0, as: JavaMainMethods.self)
+            })
+        }
+    }
+
     package func resolveVirtualDocument(
         uri: String,
         completion: @escaping (Result<String, Error>) -> Void

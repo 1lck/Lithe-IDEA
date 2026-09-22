@@ -110,6 +110,8 @@ interface RunState {
   sessions: RunSession[];
   selectedSessionId: string | null;
   saveError: string | null;
+  /** Configuration whose editor is open, requested from the Run pane or the editor gutter. */
+  editingConfigurationId: string | null;
   generationNotice: string | null;
   javaLaunchDecisions: Record<string, JavaLaunchDecision>;
   discoveredJava: JavaRuntime[];
@@ -122,6 +124,7 @@ interface RunState {
     generate: (root: string) => Promise<void>;
     selectConfiguration: (id: string | null) => void;
     selectSession: (id: string | null) => void;
+    editConfiguration: (id: string | null) => void;
     runConfiguration: (
       id: string,
       currentFile?: string,
@@ -398,6 +401,7 @@ export const createRunStore = (
     sessions: [],
     selectedSessionId: null,
     saveError: null,
+    editingConfigurationId: null,
     generationNotice: null,
     javaLaunchDecisions: {},
     discoveredJava: [],
@@ -416,6 +420,7 @@ export const createRunStore = (
           isLoading: true,
           isGenerating: false,
           saveError: null,
+          editingConfigurationId: root === get().root ? get().editingConfigurationId : null,
           generationNotice: null,
           javaLaunchDecisions: {},
         });
@@ -554,6 +559,7 @@ export const createRunStore = (
 
       selectConfiguration: (id) => set({ selectedConfigurationId: id, selectedSessionId: id }),
       selectSession: (id) => set({ selectedSessionId: id }),
+      editConfiguration: (id) => set({ editingConfigurationId: id }),
 
       runConfiguration: async (id, currentFile, debugPort) => {
         const instance = await get().actions.runConfigurationInstance(id, currentFile, debugPort);

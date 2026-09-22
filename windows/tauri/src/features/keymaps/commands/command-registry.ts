@@ -716,6 +716,20 @@ const viewCommands: Command[] = [
     execute: toggleActiveBreakpoint,
   },
   {
+    id: "run.runContextConfiguration",
+    title: "Run Context Configuration",
+    category: "Java",
+    keybinding: "ctrl+shift+f10",
+    // Loaded on use so the global registry does not pull the Run and Maven
+    // stores into startup; the module keeps the focused editor's registration.
+    execute: async () => {
+      const { runJavaContextConfiguration } = await import(
+        "@/features/run/services/java-run-marker-actions"
+      );
+      runJavaContextConfiguration();
+    },
+  },
+  {
     id: "workbench.showThemeSelector",
     title: "Theme Selector",
     category: "View",

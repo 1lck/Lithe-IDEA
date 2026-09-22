@@ -35,6 +35,8 @@ import type {
   MavenProjectStatus,
   MavenSettings,
   MavenStoredConfiguration,
+  MavenTestCase,
+  MavenTestReportsRequest,
   MavenTestResults,
   MavenTestRun,
   MavenTaskStatus,
@@ -42,6 +44,7 @@ import type {
 import {
   createMavenTestSelector,
   resolveMavenTestTarget,
+  type MavenTestTarget,
 } from "../utils/maven-test-selection";
 
 const MAXIMUM_OUTPUT_CHARACTERS = 500_000;
@@ -100,11 +103,14 @@ export interface MavenDependencyScheduler {
     milliseconds: number,
   ) => ReturnType<typeof setTimeout>;
   clearTimer: (timer: ReturnType<typeof setTimeout>) => void;
+  /** Wall clock in Unix milliseconds; stamps test runs so older reports are ignored. */
+  now?: () => number;
 }
 
 const defaultMavenDependencyScheduler: MavenDependencyScheduler = {
   setTimer: (callback, milliseconds) => setTimeout(() => void callback(), milliseconds),
   clearTimer: (timer) => clearTimeout(timer),
+  now: () => Date.now(),
 };
 
 export interface MavenState {
@@ -140,7 +146,14 @@ export interface MavenState {
   lastExitCode: number | null;
   testResults: MavenTestResults | null;
   activeTestRun: MavenTestRun | null;
+  /** When the active test run started, in Unix milliseconds. */
+  activeTestRunStartedAt: number | null;
   lastTestRun: MavenTestRun | null;
+  /**
+   * Latest recorded outcome of every test method run in this workspace. A new
+   * run replaces the outcomes of the classes it selected and keeps the rest.
+   */
+  testOutcomes: MavenTestCase[];
   dependencyLoads: Record<string, MavenDependencyLoad>;
   activeDependencySessionId: string | null;
   activeDependencyModulePath: string | null;
@@ -166,11 +179,16 @@ export interface MavenState {
       title: string,
       testRun?: MavenTestRun,
     ) => Promise<void>;
-    runTestClass: (filePath: string, module?: string | null) => Promise<void>;
+    /**
+     * Runs the file's test class. `className` may name a nested class of that
+     * class (`Outer$Inner`) to run only the nested tests.
+     */
+    runTestClass: (filePath: string, module?: string | null, className?: string) => Promise<void>;
     runTestMethod: (
       filePath: string,
       method: string,
       module?: string | null,
+      className?: string,
     ) => Promise<void>;
     rerunLastTest: () => Promise<void>;
     stop: () => Promise<void>;
@@ -280,6 +298,52 @@ function cancelledOutput(output: string): string {
   return trimOutput(`${output}${separator}Maven task cancelled.\n`);
 }
 
+/**
+ * Names the reports a finished test run wrote. Module paths in the project
+ * model are reactor-relative, while Core expects a workspace-relative module.
+ */
+export function mavenTestReportsRequest(
+  testRun: MavenTestRun,
+  project: MavenProject | null,
+  startedAt: number | null,
+): MavenTestReportsRequest | undefined {
+  if (!testRun.className || startedAt === null) return undefined;
+  const segments = [project?.relativePath, testRun.module]
+    .map((segment) => segment?.replace(/\\/g, "/").replace(/^(\.\/)+/, "").replace(/\/+$/, "") ?? "")
+    .filter((segment) => segment && segment !== ".");
+  return {
+    module: segments.length > 0 ? segments.join("/") : null,
+    classes: [testRun.className],
+    notBeforeMillis: startedAt,
+  };
+}
+
+/** Replaces the outcomes of the classes a run selected, including nested classes. */
+export function mergeMavenTestOutcomes(
+  previous: readonly MavenTestCase[],
+  ranClasses: readonly string[],
+  cases: readonly MavenTestCase[],
+): MavenTestCase[] {
+  const ran = (className: string) =>
+    ranClasses.some(
+      (selected) => className === selected || className.startsWith(`${selected}$`),
+    );
+  return [...previous.filter((testCase) => !ran(testCase.className)), ...cases];
+}
+
+/**
+ * Narrows a file's test target to a nested class the Java Test extension
+ * reported. Any other class name is ignored so a stale marker cannot select a
+ * class outside the file.
+ */
+function withNestedTestClass(
+  target: MavenTestTarget | null,
+  className: string | undefined,
+): MavenTestTarget | null {
+  if (!target || !className || !className.startsWith(`${target.className}$`)) return target;
+  return { ...target, className };
+}
+
 function mavenTestGoals(selector: string): string[] {
   // Keep the lifecycle goal first so the existing Core launch-plan validator
   // can continue rejecting arbitrary option-only tool-window invocations.
@@ -314,6 +378,7 @@ export const createMavenStore = (
   let configurationWriteTask = Promise.resolve();
   let pomWatchTask = Promise.resolve();
   let watchedPomPaths = new Set<string>();
+  const now = dependencyScheduler.now ?? (() => Date.now());
 
   return createStore<MavenState>()((set, get) => {
     const pomWatchOperations = dependencies.createMavenPomWatchOperations(workspaceId);
@@ -520,7 +585,9 @@ export const createMavenStore = (
       lastExitCode: null,
       testResults: null,
       activeTestRun: null,
+      activeTestRunStartedAt: null,
       lastTestRun: null,
+      testOutcomes: [],
       dependencyLoads: {},
       activeDependencySessionId: null,
       activeDependencyModulePath: null,
@@ -568,6 +635,7 @@ export const createMavenStore = (
                   testResults: null,
                   activeTestRun: null,
                   lastTestRun: null,
+                  testOutcomes: [],
                 }
               : {}),
           });
@@ -592,6 +660,7 @@ export const createMavenStore = (
                 testResults: null,
                 activeTestRun: null,
                 lastTestRun: null,
+                testOutcomes: [],
               });
               return;
             }
@@ -689,6 +758,7 @@ export const createMavenStore = (
               testResults: null,
               activeTestRun: null,
               lastTestRun: null,
+              testOutcomes: [],
             });
           }
         },
@@ -818,6 +888,7 @@ export const createMavenStore = (
             lastExitCode: null,
             testResults: null,
             activeTestRun: testRun ?? null,
+            activeTestRunStartedAt: testRun ? now() : null,
             ...(testRun ? { lastTestRun: testRun } : {}),
           });
           if (testRun) {
@@ -893,13 +964,16 @@ export const createMavenStore = (
           }
         },
 
-        runTestClass: async (filePath, module) => {
+        runTestClass: async (filePath, module, className) => {
           const state = get();
           if (!state.root || !state.project) {
             reportTestLaunchFailure("No Maven project is loaded for this Java test.");
             return;
           }
-          const target = resolveMavenTestTarget(filePath, state.root, state.project, module);
+          const target = withNestedTestClass(
+            resolveMavenTestTarget(filePath, state.root, state.project, module),
+            className,
+          );
           const selector = target && createMavenTestSelector(target.className);
           if (!target || !selector) {
             reportTestLaunchFailure("Could not resolve the Java test class from this file.");
@@ -909,17 +983,21 @@ export const createMavenStore = (
             module: target.module,
             selector,
             title: selector,
+            className: target.className,
           };
           await get().actions.runGoals(mavenTestGoals(selector), target.module, selector, testRun);
         },
 
-        runTestMethod: async (filePath, method, module) => {
+        runTestMethod: async (filePath, method, module, className) => {
           const state = get();
           if (!state.root || !state.project) {
             reportTestLaunchFailure("No Maven project is loaded for this Java test.");
             return;
           }
-          const target = resolveMavenTestTarget(filePath, state.root, state.project, module);
+          const target = withNestedTestClass(
+            resolveMavenTestTarget(filePath, state.root, state.project, module),
+            className,
+          );
           const selector = target && createMavenTestSelector(target.className, method);
           if (!target || !selector) {
             reportTestLaunchFailure("Could not resolve the Java test method from this file.");
@@ -929,6 +1007,7 @@ export const createMavenStore = (
             module: target.module,
             selector,
             title: selector,
+            className: target.className,
           };
           await get().actions.runGoals(mavenTestGoals(selector), target.module, selector, testRun);
         },
@@ -1044,9 +1123,24 @@ export const createMavenStore = (
             });
           const testRun = state.activeTestRun;
           if (testRun) {
-            void dependencies
-              .parseMavenTestResults(root, output)
+            const reports = mavenTestReportsRequest(
+              testRun,
+              state.project,
+              state.activeTestRunStartedAt,
+            );
+            void (reports
+              ? dependencies.parseMavenTestResults(root, output, reports)
+              : dependencies.parseMavenTestResults(root, output))
               .then((testResults) => {
+                if (diagnosticsRevision === revision && get().root === root && reports) {
+                  set({
+                    testOutcomes: mergeMavenTestOutcomes(
+                      get().testOutcomes,
+                      reports.classes,
+                      testResults.testCases ?? [],
+                    ),
+                  });
+                }
                 if (diagnosticsRevision === revision && get().root === root) {
                   const noTestsMatched = exitCode === 0 && testResults.testsRun === 0;
                   if (noTestsMatched && testRun) {

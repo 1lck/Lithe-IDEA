@@ -154,6 +154,8 @@ pub enum CoreCommand {
     LspJdtWorkspaceKey,
     /// Plans Java workspace activation and change handling (`java.workspacePolicy`).
     JavaWorkspacePolicy,
+    /// Projects JDT main/test discovery and test outcomes into editor Run markers (`java.runMarkers`).
+    JavaRunMarkers,
     /// Selects expired inactive JDT LS workspace caches (`java.jdtCacheRetention`).
     JavaJdtCacheRetention,
     /// Derives a JDT LS workspace fingerprint from platform observations (`java.jdtWorkspaceFingerprint`).
@@ -367,6 +369,7 @@ impl CoreCommand {
             "lsp.startServer" => Some(Self::LspStartServer),
             "lsp.jdtWorkspaceKey" => Some(Self::LspJdtWorkspaceKey),
             "java.workspacePolicy" => Some(Self::JavaWorkspacePolicy),
+            "java.runMarkers" => Some(Self::JavaRunMarkers),
             "java.jdtCacheRetention" => Some(Self::JavaJdtCacheRetention),
             "java.jdtWorkspaceFingerprint" => Some(Self::JavaJdtWorkspaceFingerprint),
             "lsp.stopServer" => Some(Self::LspStopServer),

@@ -351,6 +351,27 @@ pub struct MavenTestResultsResponse {
     pub success: bool,
     /// Individual failures and errors in the order Maven reported them.
     pub failure_details: Vec<MavenTestFailureResponse>,
+    /// Per-method outcomes read from the run's XML reports, ordered by class
+    /// and method. Empty when the request did not ask for reports or the run
+    /// wrote none.
+    pub test_cases: Vec<MavenTestCaseResponse>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Aggregated outcome of one test method in a Maven test run.
+pub struct MavenTestCaseResponse {
+    /// Binary class name from the report, such as `demo.OrderTest$Refunds`.
+    pub class_name: String,
+    /// Java method name without parameters or invocation index.
+    pub method: String,
+    /// `passed`, `failed`, `error`, or `skipped`. With several invocations
+    /// (parameterized or repeated tests) the most severe one wins.
+    pub status: String,
+    /// First assertion or exception message of the failing invocation.
+    pub message: Option<String>,
+    /// Number of `<testcase>` entries aggregated into this method.
+    pub invocations: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]

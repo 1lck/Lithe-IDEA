@@ -386,6 +386,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let passed: Int
         let success: Bool
         let failureDetails: [Failure]
+        /// Absent from older Core builds; treated as no recorded outcomes.
+        let testCases: [MavenTestCaseOutcome]?
+    }
+
+    struct JavaRunMarkersPayload: Decodable, Sendable {
+        let markers: [JavaRunMarker]
     }
 
     struct MavenLaunchPlanPayload: Decodable, Sendable {
@@ -1959,6 +1965,13 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     private struct MavenTestResultsRequest: Encodable {
         let root: String
         let output: String
+        let reports: MavenTestReportRequest?
+    }
+
+    private struct JavaRunMarkersRequest: Encodable {
+        let mainMethods: [JavaMainMethod]
+        let testItems: [JavaTestItem]
+        let testCases: [MavenTestCaseOutcome]
     }
 
     private struct MavenDependenciesRequest: Encodable {
@@ -2767,13 +2780,31 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     func mavenTestResults(
         at rootURL: URL,
-        output: String
+        output: String,
+        reports: MavenTestReportRequest? = nil
     ) -> Result<MavenTestResultsPayload, CoreCallError> {
         executeResult(
             command: "maven.testResults",
             payload: MavenTestResultsRequest(
                 root: rootURL.standardizedFileURL.path,
-                output: output
+                output: output,
+                reports: reports
+            )
+        )
+    }
+
+    /// Combines JDT main/test discovery and recorded outcomes into gutter markers.
+    func javaRunMarkers(
+        mainMethods: [JavaMainMethod],
+        testItems: [JavaTestItem],
+        testCases: [MavenTestCaseOutcome]
+    ) -> Result<JavaRunMarkersPayload, CoreCallError> {
+        executeResult(
+            command: "java.runMarkers",
+            payload: JavaRunMarkersRequest(
+                mainMethods: mainMethods,
+                testItems: testItems,
+                testCases: testCases
             )
         )
     }

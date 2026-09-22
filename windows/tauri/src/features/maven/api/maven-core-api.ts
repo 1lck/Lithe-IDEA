@@ -5,6 +5,7 @@ import type {
   MavenLaunchContext,
   MavenLaunchPlan,
   MavenProject,
+  MavenTestReportsRequest,
   MavenTestResults,
 } from "../types/maven.types";
 
@@ -78,6 +79,13 @@ export async function parseMavenDiagnostics(root: string, output: string) {
   return result.issues ?? [];
 }
 
-export function parseMavenTestResults(root: string, output: string) {
-  return mavenCore<MavenTestResults>("maven.testResults", { root, output });
+export function parseMavenTestResults(
+  root: string,
+  output: string,
+  reports?: MavenTestReportsRequest,
+) {
+  return mavenCore<MavenTestResults>(
+    "maven.testResults",
+    reports ? { root, output, reports } : { root, output },
+  );
 }
