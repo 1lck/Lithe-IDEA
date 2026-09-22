@@ -166,6 +166,12 @@ UserDefaults 中的项目运行时设置只是它的镜像，供 Maven 进程和
 做法是「镜像为空才补」：旧版服务编辑器只写本机层，镜像里的旧值会在关闭设置时
 反向覆盖运行实际使用的 JDK。
 
+Core 的服务编辑器保存每次都会重写本机层 `toolchain`，因此编辑器必须传有效默认值：
+本机层已保存的默认值，未保存过时用镜像（`RunService.saveEditorChanges` 以
+`savedProjectToolchain ?? 镜像` 选取）。错误做法是传解析结果 `projectToolchain`：
+本机层没有默认值时它是空值，写入后「从未保存」变成「显式自动」，镜像随之被清空，
+运行改用自动检测的 JDK。
+
 macOS 的项目设置表单必须在运行功能读完当前项目文档后再填入初始值，关闭设置时的
 自动保存也只在 `ProjectLoadState.hasLoadedDocuments(for:)` 成立时写入。运行功能
 加载中持有的是空工具链；此时保存会把用户已保存的项目 JDK 覆盖成空值。
@@ -226,7 +232,7 @@ settings.xml 和仓库路径。Windows 的 Run 本机文档与 Maven 本机文�
 运行配置刷新完成前返回、刷新失败与 Maven 写入失败的报告。macOS 运行 `./scripts/test-macos.sh`，
   `RunConfigurationIntegrationTests` 覆盖未生成配置时保存、Git 忽略规则逐条补齐且
   重复保存不改动文件、不支持版本的识别拦截，只有读完当前项目文档后才允许保存
-项目默认值，以及未生成配置时读取本机默认值；`MavenRuntimeTests` 覆盖镜像以本机层
+项目默认值，未生成配置时读取本机默认值，以及服务编辑器保存写入有效默认值；`MavenRuntimeTests` 覆盖镜像以本机层
 为准且不改动其他 Maven 设置。
 
 ## 适用范围

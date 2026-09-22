@@ -68,9 +68,11 @@ struct RunConfigurationEditorView: View {
                 Button("Save") {
                     options.environment = Self.environment(from: environmentText)
                     guard let scopedOptions = scopedOptionsForSave() else { return }
+                    // The runtime settings mirror the project defaults and are
+                    // their source until `.lithe/run/local.json` saves them.
                     if feature.saveEditorChanges(
                         scopedOptions,
-                        toolchain: feature.projectToolchain,
+                        toolchain: model.runtimeFeature.projectToolchainSelection,
                         for: configuration,
                         scope: saveScope
                     ) {

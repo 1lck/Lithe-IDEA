@@ -4443,6 +4443,42 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func editorSaveKeepsTheEffectiveProjectDefaults() async {
+        // Core rewrites the project defaults with every editor save. Resolving a
+        // layer without saved defaults yields an empty selection; writing it would
+        // turn "never saved" into explicit automatic defaults and drop the JDK the
+        // runtime settings still hold.
+        let configuration = JavaRunConfiguration(
+            id: "spring",
+            name: "Spring",
+            kind: .springBoot,
+            modulePath: ".",
+            mainClass: nil
+        )
+        let mirror = ProjectToolchainSelection(javaHomePath: "/fixture/mirrored-jdk")
+        let unsaved = makeFixture(
+            status: .ready,
+            effective: [EffectiveRunConfiguration(configuration: configuration, options: RunOptions(), source: .generated)]
+        )
+        await unsaved.service.loadProject(at: unsaved.root, files: [], mavenProject: unsaved.mavenProject)
+        #expect(unsaved.service.savedProjectToolchain == nil)
+        #expect(unsaved.service.saveEditorChanges(RunOptions(), toolchain: mirror, for: configuration, scope: .local))
+        #expect(unsaved.operations.savedToolchains == [mirror])
+        #expect(unsaved.service.savedProjectToolchain == mirror)
+
+        // Once the local layer holds defaults, they win over a stale mirror.
+        let saved = ProjectToolchainSelection(javaHomePath: "/fixture/saved-jdk", mavenExecutablePath: "mvnw")
+        let stored = makeFixture(
+            status: .ready,
+            effective: [EffectiveRunConfiguration(configuration: configuration, options: RunOptions(), source: .generated)]
+        )
+        stored.operations.inspectionToolchain = saved
+        await stored.service.loadProject(at: stored.root, files: [], mavenProject: stored.mavenProject)
+        #expect(stored.service.saveEditorChanges(RunOptions(), toolchain: mirror, for: configuration, scope: .local))
+        #expect(stored.operations.savedToolchains == [saved])
+    }
+
+    @Test
     func editorSaveReportsReloadFailureWithoutApplyingTheDraft() async {
         let configuration = JavaRunConfiguration(
             id: "spring",

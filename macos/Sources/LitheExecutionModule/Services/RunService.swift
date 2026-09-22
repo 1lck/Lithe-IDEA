@@ -451,6 +451,12 @@ package final class RunService: ObservableObject {
         }
     }
 
+    /// Saves one configuration's editor changes. The editor no longer edits the
+    /// project defaults, but Core rewrites them with every save, so they must be
+    /// the effective defaults: the ones `.lithe/run/local.json` already holds, or
+    /// `toolchain` (the caller's mirror) when that layer has never saved any.
+    /// Writing the resolved, empty selection instead would turn "no saved
+    /// defaults" into explicit automatic ones and discard the user's JDK.
     @discardableResult
     package func saveEditorChanges(
         _ options: RunOptions,
@@ -463,15 +469,16 @@ package final class RunService: ObservableObject {
             configurationSaveError = "Identify the project before editing its run configuration."
             return false
         }
+        let projectDefaults = savedProjectToolchain ?? toolchain
         do {
             try runConfigurationOperations.saveEditorChanges(
                 options,
-                toolchain: toolchain,
+                toolchain: projectDefaults,
                 configurationID: configuration.id,
                 scope: scope,
                 at: projectURL
             )
-            savedProjectToolchain = toolchain
+            savedProjectToolchain = projectDefaults
         } catch {
             configurationSaveError = editorSaveFailureMessage(error, fallbackStage: .write)
             return false
