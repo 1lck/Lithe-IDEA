@@ -42,6 +42,9 @@ export function defineWorkbenchTheme(input: WorkbenchThemeInput, palette: Syntax
   }
   const colors: Record<string, string> = {
     "editor.foreground": input.colors?.foreground ?? syntaxColors.get("text")!,
+    "editorOverviewRuler.wordHighlightForeground": "#00000000",
+    "editorOverviewRuler.wordHighlightStrongForeground": "#00000000",
+    "editorOverviewRuler.wordHighlightTextForeground": "#00000000",
   };
   const surfaceColors: [keyof NonNullable<WorkbenchThemeInput["colors"]>, string[]][] = [
     ["background", ["editor.background", "editorGutter.background", "editorStickyScroll.background",

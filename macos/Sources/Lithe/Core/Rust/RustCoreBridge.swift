@@ -658,6 +658,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let generated: RunConfigurationPayload?
         let toolchainRequirements: ToolchainRequirementsPayload?
         let diagnostics: [[String: String]]?
+        /// Machine-local project defaults; `nil` when the local layer has never saved any.
+        let toolchain: RunConfigurationPayload.Toolchain?
     }
 
     struct LaunchPlanPayload: Codable, Sendable {
@@ -2879,7 +2881,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         at rootURL: URL,
         configurationID: String,
         scope: RunConfigurationSaveScope,
-        options: RunOptions
+        options: RunOptions,
+        toolchain: ProjectToolchainSelection? = nil
     ) -> Result<RunConfigurationMutationPayload, CoreCallError> {
         executeResult(
             command: "runConfig.updateOptions",
@@ -2896,7 +2899,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 javaHomePath: options.javaHomePath,
                 mavenExecutablePath: options.mavenExecutablePath,
                 mavenJavaHomePath: options.mavenJavaHomePath,
-                toolchain: nil
+                toolchain: toolchain
             )
         )
     }

@@ -231,6 +231,7 @@ jobs:
             "src/features/file-system/controllers/project-file-scan-coordinator.test.ts",
             "src/features/editor/lsp/resolve-editor-lsp-launch.test.ts",
             "src/features/git/utils/monaco-diff-rows.test.ts",
+            "src/features/git/utils/git-diff-parser.test.ts",
             "src/features/git/utils/monaco-diff-hunk-actions.test.ts"
           )
           foreach ($seed in @(1, 3, 7)) {
@@ -242,7 +243,7 @@ jobs:
 
       - name: Test terminal discovery and profile selection
         shell: pwsh
-        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/terminal/stores/shells.store.test.ts,src/features/terminal/utils/terminal-profiles.test.ts
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/terminal/stores/shells.store.test.ts,src/features/terminal/utils/terminal-profiles.test.ts,src/features/terminal/utils/terminal-keyboard.test.ts
 
       - name: Upload Windows frontend test reports
         if: always()
