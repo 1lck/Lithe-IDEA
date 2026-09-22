@@ -107,6 +107,20 @@ fn codex_import_supports_profiles_env_keys_and_never_serializes_secrets() {
 }
 
 #[test]
+fn codex_import_reads_provider_bearer_token_without_exposing_it() {
+    let config = "model = 'example-model'\nmodel_provider = 'custom'\n[model_providers.custom]\nbase_url = 'https://example.com/v1'\nenv_key = 'EXAMPLE_KEY'\nexperimental_bearer_token = 'fixture-inline-token'";
+    let imported = parse_codex(config, "{}", &BTreeMap::new()).unwrap();
+    assert_eq!(imported.credential.as_deref(), Some("fixture-inline-token"));
+    assert!(imported.has_credential);
+    assert!(!serde_json::to_string(&imported)
+        .unwrap()
+        .contains("fixture-inline-token"));
+    let environment = BTreeMap::from([("EXAMPLE_KEY".into(), "fixture-env-token".into())]);
+    let imported = parse_codex(config, "{}", &environment).unwrap();
+    assert_eq!(imported.credential.as_deref(), Some("fixture-env-token"));
+}
+
+#[test]
 fn claude_import_resolves_aliases_and_distinguishes_auth_headers() {
     let settings = json!({"model":"sonnet","env":{"ANTHROPIC_BASE_URL":"https://example.com","ANTHROPIC_DEFAULT_SONNET_MODEL":"example-model","ANTHROPIC_AUTH_TOKEN":"fixture-token"}});
     let imported = parse_claude(&settings.to_string(), "", "", &BTreeMap::new()).unwrap();
@@ -154,4 +168,35 @@ fn empty_responses_are_errors_and_subject_mode_removes_body() {
         decode_message("responses", &json!({"output_text":"Subject\n\nBody"}), true).unwrap(),
         "Subject\n\nBody"
     );
+}
+
+#[test]
+fn subject_only_generation_budgets_reasoning_and_rejects_incomplete_messages() {
+    let (mut provider, options, files, _) = fixture();
+    for (protocol, token_field, response) in [
+        (
+            "responses",
+            "max_output_tokens",
+            json!({"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output_text":"Partial"}),
+        ),
+        (
+            "chatCompletions",
+            "max_tokens",
+            json!({"choices":[{"finish_reason":"length","message":{"content":"Partial"}}]}),
+        ),
+        (
+            "anthropicMessages",
+            "max_tokens",
+            json!({"stop_reason":"max_tokens","content":[{"type":"thinking","thinking":"fixture reasoning"}]}),
+        ),
+    ] {
+        provider.api_protocol = protocol.into();
+        let plan = plan_commit(&provider, &options, &files).unwrap();
+        // A 512-token cap reproduced a thinking-only response during native integration testing.
+        assert!(plan.body[token_field].as_u64().unwrap() >= 4_096);
+        assert_eq!(
+            decode_message(protocol, &response, false),
+            Err("AI_COMMIT_OUTPUT_LIMIT")
+        );
+    }
 }

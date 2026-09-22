@@ -3,6 +3,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+// Providers count internal reasoning against the same output limit as the final message.
+const COMMIT_OUTPUT_TOKEN_BUDGET: usize = 4_096;
+
 /// One provider profile. Credentials remain in the platform adapter.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -169,7 +172,7 @@ pub fn plan_commit(
         ));
     }
     let user = blocks.join("\n");
-    let tokens = if options.include_body { 1_024 } else { 512 };
+    let tokens = COMMIT_OUTPUT_TOKEN_BUDGET;
     let body = match provider.api_protocol.as_str() {
         "responses" => {
             json!({"model": provider.model, "input": [{"role":"system","content":system},{"role":"user","content":user}], "reasoning":{"effort":options.reasoning_effort},"max_output_tokens":tokens,"store":false})
@@ -209,6 +212,27 @@ pub fn decode_message(
     response: &Value,
     include_body: bool,
 ) -> Result<String, &'static str> {
+    let exhausted_output = match protocol {
+        "responses" => {
+            response
+                .pointer("/incomplete_details/reason")
+                .and_then(Value::as_str)
+                == Some("max_output_tokens")
+        }
+        "chatCompletions" => {
+            response
+                .pointer("/choices/0/finish_reason")
+                .and_then(Value::as_str)
+                == Some("length")
+        }
+        "anthropicMessages" => {
+            response.get("stop_reason").and_then(Value::as_str) == Some("max_tokens")
+        }
+        _ => false,
+    };
+    if exhausted_output {
+        return Err("AI_COMMIT_OUTPUT_LIMIT");
+    }
     let raw = match protocol {
         "chatCompletions" => response
             .pointer("/choices/0/message/content")

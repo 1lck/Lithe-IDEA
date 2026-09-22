@@ -69,6 +69,8 @@ export const aiCommitEnglish = {
   "aiCommit.AI_COMMIT_NETWORK_ERROR":
     "Could not reach the AI provider. Check the address and network.",
   "aiCommit.AI_COMMIT_EMPTY_RESPONSE": "The provider returned no commit message.",
+  "aiCommit.AI_COMMIT_OUTPUT_LIMIT":
+    "The provider exhausted its output budget before completing the message. Try lower reasoning effort or a smaller diff budget.",
   "aiCommit.AI_COMMIT_INVALID_RESPONSE": "The response does not match the selected API protocol.",
   "aiCommit.AI_COMMIT_CONFIG_MISSING":
     "The imported configuration no longer exists. Reload or choose another provider.",
@@ -147,6 +149,8 @@ export const aiCommitChinese: Record<keyof typeof aiCommitEnglish, string> = {
   "aiCommit.AI_COMMIT_TIMEOUT": "生成超时，可降低推理强度或减少 Diff 字符限制后重试。",
   "aiCommit.AI_COMMIT_NETWORK_ERROR": "无法连接 AI 服务商，请检查地址和网络。",
   "aiCommit.AI_COMMIT_EMPTY_RESPONSE": "服务商未返回提交信息。",
+  "aiCommit.AI_COMMIT_OUTPUT_LIMIT":
+    "服务商在生成完整提交信息前用尽输出额度，请降低推理强度或减少 Diff 字符限制后重试。",
   "aiCommit.AI_COMMIT_INVALID_RESPONSE": "返回内容与所选 API 协议不匹配。",
   "aiCommit.AI_COMMIT_CONFIG_MISSING": "导入的配置已不存在，请重新识别或选择其他服务商。",
   "aiCommit.AI_COMMIT_INVALID_CONFIG": "本机配置格式无效或暂不支持。",

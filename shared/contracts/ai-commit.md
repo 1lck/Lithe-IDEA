@@ -27,17 +27,22 @@ Generation never stages, commits, or pushes.
 ## Typed operations
 
 - `parse_codex(config, auth, environment)` parses TOML using the existing TOML dependency.
-  It supports the selected profile, provider `base_url`, `wire_api`, `env_key`, and
-  API-key auth JSON. OAuth token bundles are not API keys.
+  It supports the selected profile, provider `base_url`, `wire_api`, `env_key`,
+  `experimental_bearer_token`, and API-key auth JSON. Credential priority is the
+  selected environment key, provider bearer token, auth JSON, then `OPENAI_API_KEY`.
+  OAuth token bundles are not API keys.
 - `parse_claude(settings, credentials, root, environment)` parses supported JSON and
   environment settings, resolves common model aliases and selects bearer/API-key auth.
 - Both return `DetectedConfiguration`; its `credential` is host-only and skipped by
   Serde serialization. Only metadata and `hasCredential` cross the UI boundary.
 - `plan_commit(provider, options, files)` returns a credential-free URL and JSON body.
   It validates protocol, URL and limits; distributes diff space across file boundaries;
-  and includes language, format, custom and subject/body instructions.
+  and includes language, format, custom and subject/body instructions. Requests allow
+  4,096 output tokens, including provider-internal reasoning, even for subject-only output.
 - `decode_message(protocol, response, include_body)` extracts text from the three
   supported response envelopes, strips Markdown fences and rejects empty responses.
+  Provider output-limit termination returns `AI_COMMIT_OUTPUT_LIMIT`; partial text
+  from such a response is never applied to the draft.
 
 ## Windows adapter surface
 
@@ -59,7 +64,7 @@ Configuration reads have a 1 MiB per-file cap. At most four requests may be regi
 
 Errors are stable strings prefixed `AI_COMMIT_`, including `INVALID_PROVIDER`,
 `INVALID_OPTIONS`, `INSECURE_ENDPOINT`, `MISSING_KEY`, `EMPTY_DIFF`, `SENSITIVE_FILE`,
-`EMPTY_RESPONSE`, `INVALID_RESPONSE`, `TIMEOUT`, `NETWORK_ERROR`, `CONFIG_MISSING`,
+`EMPTY_RESPONSE`, `OUTPUT_LIMIT`, `INVALID_RESPONSE`, `TIMEOUT`, `NETWORK_ERROR`, `CONFIG_MISSING`,
 `INVALID_CONFIG`, `CONFIG_READ_FAILED`, `CONFIG_TOO_LARGE`, `KEY_FAILED`,
 `RESPONSE_TOO_LARGE`, `BUSY`, `CANCELLED`, `INTERNAL_ERROR`, and `HTTP_<status>`.
 The frontend maps them to actionable localized messages and discards stale results.

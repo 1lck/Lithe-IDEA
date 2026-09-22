@@ -53,6 +53,7 @@ pub fn parse_codex(
     let auth: Value = serde_json::from_str(auth).unwrap_or(Value::Null);
     let credential = [
         option("env_key").and_then(|key| environment.get(key).map(String::as_str)),
+        option("experimental_bearer_token"),
         auth["OPENAI_API_KEY"].as_str(),
         auth["api_key"].as_str(),
         environment.get("OPENAI_API_KEY").map(String::as_str),
