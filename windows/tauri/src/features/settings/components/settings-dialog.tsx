@@ -70,13 +70,14 @@ function categoryFromRequestedTab(tab: SettingsTab | null): MacSettingsCategory 
 const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
   const { t } = useTranslation();
   const settingsInitialTab = useUIState((state) => state.settingsInitialTab);
+  const settingsTabRequest = useUIState((state) => state.settingsTabRequest);
   const [activeCategory, setActiveCategory] = useState<MacSettingsCategory>("general");
   const resetToDefaults = useSettingsStore((state) => state.actions.resetToDefaults);
 
   useEffect(() => {
     if (!isOpen) return;
     setActiveCategory(categoryFromRequestedTab(settingsInitialTab));
-  }, [isOpen, settingsInitialTab]);
+  }, [isOpen, settingsInitialTab, settingsTabRequest]);
 
   if (!isOpen) return null;
 
