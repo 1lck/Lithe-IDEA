@@ -313,8 +313,9 @@ async function readRunProjectSnapshot(
   root: string,
   workspaceId: string,
   dependencies: RunStoreDependencies,
+  checkFingerprint = true,
 ): Promise<RunProjectSnapshot> {
-  const inspection = await (dependencies.inspectRunConfiguration ?? inspectRunConfiguration)(root);
+  const inspection = await (dependencies.inspectRunConfiguration ?? inspectRunConfiguration)(root, checkFingerprint);
   const inspectionDiagnostics = mapDiagnostics(inspection.diagnostics);
   if (inspection.status !== "ready") {
     return { status: "missing", diagnostics: inspectionDiagnostics };
@@ -445,7 +446,9 @@ export const createRunStore = (
           ...(sameProject ? {} : { javaLaunchDecisions: {} }),
         });
         try {
-          const snapshot = await readRunProjectSnapshot(root, workspaceId, dependencies);
+          // Show validated documents before the potentially expensive content scan.
+          // Fingerprint checking still runs below and never trusts file timestamps.
+          const snapshot = await readRunProjectSnapshot(root, workspaceId, dependencies, false);
           if (revision !== projectLoadRevision || get().root !== root) return;
           if (snapshot.status === "missing") {
             set({
@@ -458,6 +461,29 @@ export const createRunStore = (
             return;
           }
           set(readyRunState(snapshot, get().selectedConfigurationId));
+          const ownsSnapshot = () => revision === projectLoadRevision &&
+            get().root === root && get().configurations === snapshot.configurations;
+          try {
+            const checked = await (dependencies.inspectRunConfiguration ?? inspectRunConfiguration)(root, true);
+            if (!ownsSnapshot()) return;
+            if (checked.status !== "ready") {
+              throw new Error("Run configuration documents changed during inspection. Reload the project.");
+            }
+            const additionalDiagnostics = mapDiagnostics(checked.diagnostics).filter((diagnostic) =>
+              !snapshot.diagnostics.some((existing) => existing.code === diagnostic.code &&
+                existing.message === diagnostic.message && existing.id === diagnostic.id &&
+                existing.toolchain === diagnostic.toolchain));
+            set({ diagnostics: [...snapshot.diagnostics, ...additionalDiagnostics] });
+          } catch (error) {
+            if (!ownsSnapshot()) return;
+            // A freshness-check timeout must not discard usable configurations.
+            // Keep the failure visible instead of implying the fingerprint matched.
+            const detail = error instanceof Error ? error.message : "Unknown inspection failure";
+            set({ diagnostics: [...snapshot.diagnostics, {
+              code: "fingerprintCheckFailed",
+              message: `Could not check run configuration freshness: ${detail}`,
+            }] });
+          }
         } catch (error) {
           if (revision !== projectLoadRevision || get().root !== root) return;
           const message =

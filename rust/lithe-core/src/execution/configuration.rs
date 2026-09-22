@@ -273,17 +273,6 @@ pub struct GeneratorMetadata {
     pub fingerprint: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub inputs: BTreeMap<String, String>,
-    /// File signatures allow inspection to reuse hashes when project files are unchanged.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub input_signatures: BTreeMap<String, InputSignature>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-/// Filesystem metadata used as a safe hash reuse hint for generated inputs.
-pub struct InputSignature {
-    pub size: u64,
-    pub modified_ns: u128,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -441,11 +430,7 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
         .and_then(|document| document.generator.as_ref())
         .filter(|_| request.check_fingerprint != Some(false))
     {
-        let (current_inputs, _) = project_inputs(
-            &root,
-            Some(&metadata.inputs),
-            Some(&metadata.input_signatures),
-        )?;
+        let current_inputs = project_inputs(&root)?;
         if metadata.fingerprint != fingerprint_from_inputs(&current_inputs) {
             let message = if metadata.inputs.is_empty() {
                 "Project inputs changed after run configuration generation".to_string()
@@ -632,7 +617,7 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
             source: None,
         });
     }
-    let (inputs, input_signatures) = project_inputs(&root, None, None)?;
+    let inputs = project_inputs(&root)?;
     // Detectors run after the Java scan so a Java configuration always keeps its
     // id: `detected_configurations` skips ids the Java pass already claimed
     // rather than overwriting them, which would detach team and local overrides.
@@ -663,7 +648,6 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         generator: Some(GeneratorMetadata {
             fingerprint: fingerprint_from_inputs(&inputs),
             inputs,
-            input_signatures,
         }),
         configurations,
     };
@@ -2880,11 +2864,7 @@ fn version_parts(value: &str) -> Vec<u32> {
         .collect()
 }
 
-fn project_inputs(
-    root: &Path,
-    previous_inputs: Option<&BTreeMap<String, String>>,
-    previous_signatures: Option<&BTreeMap<String, InputSignature>>,
-) -> Result<(BTreeMap<String, String>, BTreeMap<String, InputSignature>), CoreError> {
+fn project_inputs(root: &Path) -> Result<BTreeMap<String, String>, CoreError> {
     let mut files = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -2904,36 +2884,12 @@ fn project_inputs(
     }
     files.sort();
     let mut result = BTreeMap::new();
-    let mut signatures = BTreeMap::new();
     for relative in files {
-        let path = root.join(&relative);
-        let Ok(metadata) = fs::metadata(&path) else {
-            continue;
-        };
-        let signature = InputSignature {
-            size: metadata.len(),
-            modified_ns: metadata
-                .modified()
-                .ok()
-                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-                .map_or(0, |duration| duration.as_nanos()),
-        };
-        if previous_signatures.and_then(|items| items.get(&relative)) == Some(&signature) {
-            if let Some(hash) = previous_inputs.and_then(|items| items.get(&relative)) {
-                result.insert(relative.clone(), hash.clone());
-                signatures.insert(relative, signature);
-                continue;
-            }
-        }
-        if let Ok(bytes) = fs::read(path) {
-            result.insert(
-                relative.clone(),
-                format!("sha256:{:x}", Sha256::digest(bytes)),
-            );
-            signatures.insert(relative, signature);
+        if let Ok(bytes) = fs::read(root.join(&relative)) {
+            result.insert(relative, format!("sha256:{:x}", Sha256::digest(bytes)));
         }
     }
-    Ok((result, signatures))
+    Ok(result)
 }
 
 fn fingerprint_from_inputs(inputs: &BTreeMap<String, String>) -> String {
