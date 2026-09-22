@@ -24,6 +24,7 @@ fn protocols_match_shared_fixture_without_duplicate_url_suffixes() {
         provider.api_protocol = response["protocol"].as_str().unwrap().into();
         provider.endpoint = "https://api.example.com/v1".into();
         let first = plan_commit(&provider, &options, &files).unwrap();
+        assert_eq!(first.body[response["tokenField"].as_str().unwrap()], 4_096);
         provider.endpoint = first.url.clone();
         assert_eq!(
             plan_commit(&provider, &options, &files).unwrap().url,
@@ -108,7 +109,7 @@ fn codex_import_supports_profiles_env_keys_and_never_serializes_secrets() {
 
 #[test]
 fn codex_import_reads_provider_bearer_token_without_exposing_it() {
-    let config = "model = 'example-model'\nmodel_provider = 'custom'\n[model_providers.custom]\nbase_url = 'https://example.com/v1'\nenv_key = 'EXAMPLE_KEY'\nexperimental_bearer_token = 'fixture-inline-token'";
+    let config = "model = 'example-model'\nmodel_provider = 'custom'\n[model_providers.custom]\nbase_url = 'https://example.com/v1'\nexperimental_bearer_token = 'fixture-inline-token'";
     let imported = parse_codex(config, "{}", &BTreeMap::new()).unwrap();
     assert_eq!(imported.credential.as_deref(), Some("fixture-inline-token"));
     assert!(imported.has_credential);
@@ -116,7 +117,12 @@ fn codex_import_reads_provider_bearer_token_without_exposing_it() {
         .unwrap()
         .contains("fixture-inline-token"));
     let environment = BTreeMap::from([("EXAMPLE_KEY".into(), "fixture-env-token".into())]);
-    let imported = parse_codex(config, "{}", &environment).unwrap();
+    let imported = parse_codex(
+        &format!("{config}\nenv_key='EXAMPLE_KEY'"),
+        "{}",
+        &environment,
+    )
+    .unwrap();
     assert_eq!(imported.credential.as_deref(), Some("fixture-env-token"));
 }
 
@@ -181,7 +187,7 @@ fn subject_only_generation_budgets_reasoning_and_rejects_incomplete_messages() {
         ),
         (
             "chatCompletions",
-            "max_tokens",
+            "max_completion_tokens",
             json!({"choices":[{"finish_reason":"length","message":{"content":"Partial"}}]}),
         ),
         (
@@ -197,6 +203,125 @@ fn subject_only_generation_budgets_reasoning_and_rejects_incomplete_messages() {
         assert_eq!(
             decode_message(protocol, &response, false),
             Err("AI_COMMIT_OUTPUT_LIMIT")
+        );
+    }
+}
+
+#[test]
+fn codex_missing_provider_key_never_uses_another_credential_source() {
+    let config = "model='example'\nmodel_provider='company'\n[model_providers.company]\nbase_url='https://gateway.example.test/v1'\nenv_key='COMPANY_KEY'\nexperimental_bearer_token='fixture-inline-key'";
+    let environment = BTreeMap::from([("OPENAI_API_KEY".into(), "fixture-other-key".into())]);
+    for auth_mode in [
+        "",
+        "\nrequires_openai_auth=false",
+        "\nrequires_openai_auth=true",
+    ] {
+        for key in [None, Some(" ")] {
+            let mut environment = environment.clone();
+            if let Some(key) = key {
+                environment.insert("COMPANY_KEY".into(), key.into());
+            }
+            let imported = parse_codex(
+                &format!("{config}{auth_mode}"),
+                r#"{"OPENAI_API_KEY":"fixture-auth-key"}"#,
+                &environment,
+            )
+            .unwrap();
+            assert!(imported.provider.requires_api_key);
+            assert!(!imported.has_credential);
+            assert!(imported.credential.is_none());
+        }
+    }
+}
+
+#[test]
+fn codex_keyless_custom_provider_ignores_global_openai_credentials() {
+    let config = "model='local-model'\nmodel_provider='local'\n[model_providers.local]\nbase_url='http://localhost:1234/v1'";
+    let environment = BTreeMap::from([("OPENAI_API_KEY".into(), "fixture-other-key".into())]);
+    for suffix in ["", "\nrequires_openai_auth=false"] {
+        let imported = parse_codex(
+            &format!("{config}{suffix}"),
+            r#"{"OPENAI_API_KEY":"fixture-auth-key"}"#,
+            &environment,
+        )
+        .unwrap();
+        assert!(!imported.provider.requires_api_key);
+        assert!(!imported.has_credential);
+        assert!(imported.credential.is_none());
+    }
+    for config in [
+        "model='example'".to_string(),
+        format!("{config}\nrequires_openai_auth=true"),
+    ] {
+        let imported = parse_codex(&config, "{}", &environment).unwrap();
+        assert!(imported.provider.requires_api_key);
+        assert_eq!(imported.credential.as_deref(), Some("fixture-other-key"));
+    }
+}
+
+#[test]
+fn codex_blank_declared_credentials_do_not_fall_back_to_openai() {
+    let config = "model='example'\nmodel_provider='company'\n[model_providers.company]\nbase_url='https://gateway.example.test/v1'\nrequires_openai_auth=true";
+    let environment = BTreeMap::from([("OPENAI_API_KEY".into(), "fixture-other-key".into())]);
+    let imported = parse_codex(
+        &format!("{config}\nexperimental_bearer_token=' '"),
+        "{}",
+        &environment,
+    )
+    .unwrap();
+    assert!(imported.provider.requires_api_key);
+    assert!(imported.credential.is_none());
+    assert!(parse_codex(&format!("{config}\nenv_key=' '"), "{}", &environment).is_err());
+}
+
+#[test]
+fn chat_completion_budgets_support_reasoning_models_and_legacy_gateways() {
+    let (_, mut options, files, mut value) = fixture();
+    // Persisted profiles from before the protocol option must use the modern default.
+    value["provider"]
+        .as_object_mut()
+        .unwrap()
+        .remove("chatTokenLimitField");
+    let mut provider: Provider = serde_json::from_value(value["provider"].clone()).unwrap();
+    provider.api_protocol = "chatCompletions".into();
+    provider.model = "o3".into();
+    let plan = plan_commit(&provider, &options, &files).unwrap();
+    assert_eq!(plan.body["max_completion_tokens"], 4_096);
+    assert!(plan.body.get("max_tokens").is_none());
+    assert_eq!(plan.body["reasoning_effort"], "low");
+
+    provider.model = "custom-gateway-model".into();
+    provider.chat_token_limit_field = ChatTokenLimitField::MaxTokens;
+    options.reasoning_effort = "default".into();
+    let plan = plan_commit(&provider, &options, &files).unwrap();
+    assert_eq!(plan.body["max_tokens"], 4_096);
+    assert!(plan.body.get("max_completion_tokens").is_none());
+    assert!(plan.body.get("reasoning_effort").is_none());
+}
+
+#[test]
+fn default_effort_omits_reasoning_but_explicit_none_is_preserved() {
+    let (mut provider, mut options, files, _) = fixture();
+    for (protocol, field) in [
+        ("responses", "reasoning"),
+        ("chatCompletions", "reasoning_effort"),
+    ] {
+        provider.api_protocol = protocol.into();
+        options.reasoning_effort = "default".into();
+        assert!(plan_commit(&provider, &options, &files)
+            .unwrap()
+            .body
+            .get(field)
+            .is_none());
+        options.reasoning_effort = "none".into();
+        let body = plan_commit(&provider, &options, &files).unwrap().body;
+        assert_eq!(
+            if protocol == "responses" {
+                &body[field]["effort"]
+            } else {
+                &body[field]
+            },
+            "none"
         );
     }
 }

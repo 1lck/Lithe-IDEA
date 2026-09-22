@@ -118,7 +118,7 @@ const GitCommitPanel = ({
       return;
     if (!aiSettings.providers.some((p) => p.id === aiSettings.activeProviderId)) {
       setError(t("aiCommit.configure"));
-      openSettings("ai");
+      openSettings("ai-commit");
       return;
     }
     const controller = new AbortController();
@@ -339,7 +339,7 @@ const GitCommitPanel = ({
           <Button
             type="button"
             size="xs"
-            onClick={() => openSettings("ai")}
+            onClick={() => openSettings("ai-commit")}
             tooltip={t("aiCommit.settings")}
             aria-label={t("aiCommit.settings")}
           >

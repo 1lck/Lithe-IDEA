@@ -251,6 +251,23 @@ export function AiCommitSettingsPanel() {
                 ))}
               </select>
             </Field>
+            {provider.apiProtocol === "chatCompletions" && (
+              <Field label={t("aiCommit.tokenLimitField")}>
+                <select
+                  className={control}
+                  disabled={managed}
+                  value={provider.chatTokenLimitField}
+                  onChange={(e) =>
+                    edit({
+                      chatTokenLimitField: e.target.value as CommitProvider["chatTokenLimitField"],
+                    })
+                  }
+                >
+                  <option value="max_completion_tokens">max_completion_tokens</option>
+                  <option value="max_tokens">max_tokens ({t("aiCommit.legacyGateway")})</option>
+                </select>
+              </Field>
+            )}
             <Field label={t("aiCommit.endpoint")}>
               <input
                 type="url"
@@ -398,7 +415,9 @@ export function AiCommitSettingsPanel() {
             }
           >
             {COMMIT_EFFORTS.map((e) => (
-              <option key={e}>{e}</option>
+              <option key={e} value={e}>
+                {e === "default" ? t("aiCommit.defaultEffort") : e}
+              </option>
             ))}
           </select>
         </Field>

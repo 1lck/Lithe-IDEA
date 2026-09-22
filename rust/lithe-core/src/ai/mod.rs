@@ -5,7 +5,8 @@ mod generation;
 
 pub use configuration::{parse_claude, parse_codex, DetectedConfiguration};
 pub use generation::{
-    decode_message, plan_commit, CommitFile, CommitOptions, CommitRequestPlan, Provider,
+    decode_message, plan_commit, ChatTokenLimitField, CommitFile, CommitOptions, CommitRequestPlan,
+    Provider,
 };
 
 #[cfg(test)]

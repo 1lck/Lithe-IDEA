@@ -10,14 +10,19 @@ HTTP, operating-system credential, or UI dependencies.
 ## Portable inputs
 
 `Provider`: `id`, `name`, `endpoint`, `model`, `apiProtocol`, `authentication`,
-`source`, `requiresApiKey`, `allowsInsecureHttp`. Sources are `local`, `codex`,
+`source`, `requiresApiKey`, `allowsInsecureHttp`, `chatTokenLimitField`. Sources are `local`, `codex`,
 `claude`; authentication is `bearer` or `apiKey`.
+`chatTokenLimitField` defaults to `max_completion_tokens` when absent. Manual Chat
+Completions profiles may select `max_tokens` for legacy gateways; no model-name
+heuristic or silent request retry changes the selected protocol.
 
 `CommitOptions`: `language` (`english`, `simplifiedChinese`), `format`
 (`conventional`, `concise`, `imperative`, `descriptive`, `releaseNote`, `custom`),
 `customInstructions`, `includeBody`, `subjectMaximumLength` (20–200),
 `maximumDiffCharacters` (8,000–120,000 Unicode characters), `reasoningEffort`
-(`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`).
+(`default`, `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`). `default`
+omits the reasoning parameter and is the default for new settings. `none` is an
+explicit provider value, not an instruction to omit the parameter.
 
 `CommitFile`: repository-relative `path`, `changeKind`, and `diff`.
 The caller must provide evidence matching its actual commit operation:
@@ -28,8 +33,14 @@ Generation never stages, commits, or pushes.
 
 - `parse_codex(config, auth, environment)` parses TOML using the existing TOML dependency.
   It supports the selected profile, provider `base_url`, `wire_api`, `env_key`,
-  `experimental_bearer_token`, and API-key auth JSON. Credential priority is the
-  selected environment key, provider bearer token, auth JSON, then `OPENAI_API_KEY`.
+  `experimental_bearer_token`, and API-key auth JSON. An explicit `env_key` binds
+  credentials to that variable, with no fallback when it is missing or blank.
+  Otherwise a provider bearer token is used. Auth JSON and `OPENAI_API_KEY` are
+  considered only for OpenAI-auth providers (`requires_openai_auth=true`, or the
+  built-in `openai` provider by default). Custom providers default to no OpenAI
+  authentication. Credential presence is required only when the selected provider
+  declares OpenAI auth, an environment key, or a bearer token; keyless providers
+  never receive unrelated global OpenAI credentials.
   OAuth token bundles are not API keys.
 - `parse_claude(settings, credentials, root, environment)` parses supported JSON and
   environment settings, resolves common model aliases and selects bearer/API-key auth.
@@ -39,6 +50,8 @@ Generation never stages, commits, or pushes.
   It validates protocol, URL and limits; distributes diff space across file boundaries;
   and includes language, format, custom and subject/body instructions. Requests allow
   4,096 output tokens, including provider-internal reasoning, even for subject-only output.
+  Chat Completions uses the provider's selected token-limit field; Responses and
+  Anthropic retain their respective `max_output_tokens` and `max_tokens` fields.
 - `decode_message(protocol, response, include_body)` extracts text from the three
   supported response envelopes, strips Markdown fences and rejects empty responses.
   Provider output-limit termination returns `AI_COMMIT_OUTPUT_LIMIT`; partial text

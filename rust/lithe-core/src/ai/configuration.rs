@@ -1,6 +1,6 @@
 //! Parses externally supplied configuration text without reading files or process environment.
 
-use super::Provider;
+use super::{ChatTokenLimitField, Provider};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -51,17 +51,30 @@ pub fn parse_codex(
         .filter(|s| !s.is_empty())
         .ok_or("AI_COMMIT_INVALID_CONFIG")?;
     let auth: Value = serde_json::from_str(auth).unwrap_or(Value::Null);
-    let credential = [
-        option("env_key").and_then(|key| environment.get(key).map(String::as_str)),
-        option("experimental_bearer_token"),
-        auth["OPENAI_API_KEY"].as_str(),
-        auth["api_key"].as_str(),
-        environment.get("OPENAI_API_KEY").map(String::as_str),
-    ]
-    .into_iter()
-    .flatten()
-    .find(|s| !s.trim().is_empty())
-    .map(|s| s.trim().to_owned());
+    let uses_openai_auth = provider
+        .and_then(|v| v.get("requires_openai_auth"))
+        .and_then(toml::Value::as_bool)
+        .unwrap_or(provider_name == "openai");
+    let env_key = option("env_key").map(str::trim);
+    if env_key.is_some_and(str::is_empty) {
+        return Err("AI_COMMIT_INVALID_CONFIG");
+    }
+    let bearer_token = option("experimental_bearer_token");
+    // An explicit provider credential source must never fall back to another account.
+    let credential = if let Some(key) = env_key {
+        first_nonempty([environment.get(key).map(String::as_str)])
+    } else if bearer_token.is_some() {
+        first_nonempty([bearer_token])
+    } else if uses_openai_auth {
+        first_nonempty([
+            auth["OPENAI_API_KEY"].as_str(),
+            auth["api_key"].as_str(),
+            environment.get("OPENAI_API_KEY").map(String::as_str),
+        ])
+    } else {
+        None
+    }
+    .map(str::to_owned);
     let protocol = match option("wire_api").unwrap_or("responses") {
         "responses" => "responses",
         "chat" | "chat_completions" => "chatCompletions",
@@ -76,10 +89,8 @@ pub fn parse_codex(
         "bearer",
         credential,
     );
-    configuration.provider.requires_api_key = provider
-        .and_then(|v| v.get("requires_openai_auth"))
-        .and_then(toml::Value::as_bool)
-        .unwrap_or(true);
+    configuration.provider.requires_api_key =
+        uses_openai_auth || env_key.is_some() || bearer_token.is_some();
     Ok(configuration)
 }
 
@@ -186,6 +197,7 @@ fn detected(
             source: source.into(),
             requires_api_key: true,
             allows_insecure_http: false,
+            chat_token_limit_field: ChatTokenLimitField::default(),
         },
         has_credential: credential.is_some(),
         credential,

@@ -1,4 +1,5 @@
 import { AiCommitSettingsPanel } from "./ai-commit-settings-panel";
+import { AISettings } from "./tabs/ai-settings";
 import { getVersion } from "@tauri-apps/api/app";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { themeRegistry } from "@/extensions/themes/theme-registry";
@@ -24,6 +25,7 @@ export type MacSettingsCategory =
   | "terminal"
   | "lsp"
   | "ai"
+  | "ai-commit"
   | "logs"
   | "updates";
 
@@ -430,10 +432,6 @@ function LspPanel() {
   );
 }
 
-function AiPanel() {
-  return <AiCommitSettingsPanel />;
-}
-
 function UpdatesPanel() {
   const { t } = useTranslation();
   const [appVersion, setAppVersion] = useState("");
@@ -500,7 +498,9 @@ export function MacSettingsPanel({
     case "lsp":
       return <LspPanel />;
     case "ai":
-      return <AiPanel />;
+      return <AISettings />;
+    case "ai-commit":
+      return <AiCommitSettingsPanel />;
     case "logs":
       return <LogSettingsPanel onClose={onClose} />;
     case "updates":

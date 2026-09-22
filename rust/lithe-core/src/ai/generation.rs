@@ -6,6 +6,18 @@ use serde_json::{json, Value};
 // Providers count internal reasoning against the same output limit as the final message.
 const COMMIT_OUTPUT_TOKEN_BUDGET: usize = 4_096;
 
+/// Output-budget field accepted by the selected Chat Completions server.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub enum ChatTokenLimitField {
+    /// Modern OpenAI field, including the reasoning-token budget.
+    #[default]
+    #[serde(rename = "max_completion_tokens")]
+    MaxCompletionTokens,
+    /// Explicit compatibility mode for gateways that only accept the legacy field.
+    #[serde(rename = "max_tokens")]
+    MaxTokens,
+}
+
 /// One provider profile. Credentials remain in the platform adapter.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,6 +40,9 @@ pub struct Provider {
     pub requires_api_key: bool,
     /// Explicit opt-in for a local or otherwise trusted HTTP endpoint.
     pub allows_insecure_http: bool,
+    /// Defaults to the modern field; legacy gateways can explicitly opt into `max_tokens`.
+    #[serde(default)]
+    pub chat_token_limit_field: ChatTokenLimitField,
 }
 
 /// User preferences for one generated commit message.
@@ -46,7 +61,8 @@ pub struct CommitOptions {
     pub subject_maximum_length: usize,
     /// Total Unicode character budget for diff bodies.
     pub maximum_diff_characters: usize,
-    /// none, minimal, low, medium, high, xhigh, or max; omitted for Anthropic.
+    /// default omits the field; otherwise none, minimal, low, medium, high, xhigh, or max.
+    /// Always omitted for Anthropic.
     pub reasoning_effort: String,
 }
 
@@ -117,7 +133,7 @@ pub fn plan_commit(
         || options.custom_instructions.len() > 16_000
         || !matches!(
             options.reasoning_effort.as_str(),
-            "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+            "default" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
         )
     {
         return Err("AI_COMMIT_INVALID_OPTIONS");
@@ -175,10 +191,23 @@ pub fn plan_commit(
     let tokens = COMMIT_OUTPUT_TOKEN_BUDGET;
     let body = match provider.api_protocol.as_str() {
         "responses" => {
-            json!({"model": provider.model, "input": [{"role":"system","content":system},{"role":"user","content":user}], "reasoning":{"effort":options.reasoning_effort},"max_output_tokens":tokens,"store":false})
+            let mut body = json!({"model": provider.model, "input": [{"role":"system","content":system},{"role":"user","content":user}],"max_output_tokens":tokens,"store":false});
+            if options.reasoning_effort != "default" {
+                body["reasoning"] = json!({"effort":options.reasoning_effort});
+            }
+            body
         }
         "chatCompletions" => {
-            json!({"model": provider.model,"messages":[{"role":"system","content":system},{"role":"user","content":user}],"reasoning_effort":options.reasoning_effort,"max_tokens":tokens})
+            let mut body = json!({"model": provider.model,"messages":[{"role":"system","content":system},{"role":"user","content":user}]});
+            let token_field = match provider.chat_token_limit_field {
+                ChatTokenLimitField::MaxCompletionTokens => "max_completion_tokens",
+                ChatTokenLimitField::MaxTokens => "max_tokens",
+            };
+            body[token_field] = json!(tokens);
+            if options.reasoning_effort != "default" {
+                body["reasoning_effort"] = json!(options.reasoning_effort);
+            }
+            body
         }
         _ => {
             json!({"model":provider.model,"system":system,"messages":[{"role":"user","content":user}],"max_tokens":tokens})

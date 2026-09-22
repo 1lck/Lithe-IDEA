@@ -1,4 +1,8 @@
 export const aiCommitEnglish = {
+  "settings.tabs.ai": "AI Chat & Editing",
+  "aiCommit.tokenLimitField": "Output token parameter",
+  "aiCommit.legacyGateway": "legacy gateway",
+  "aiCommit.defaultEffort": "Provider default (omit parameter)",
   "aiCommit.AI_COMMIT_STALE": "The selected changes changed. Generate again.",
   "aiCommit.AI_COMMIT_DRAFT_CHANGED":
     "The draft changed while confirming. Your text has been kept.",
@@ -89,6 +93,10 @@ export const aiCommitEnglish = {
 };
 
 export const aiCommitChinese: Record<keyof typeof aiCommitEnglish, string> = {
+  "settings.tabs.ai": "AI 聊天与编辑",
+  "aiCommit.tokenLimitField": "输出 Token 参数",
+  "aiCommit.legacyGateway": "旧网关兼容",
+  "aiCommit.defaultEffort": "服务商默认（不发送参数）",
   "aiCommit.AI_COMMIT_STALE": "勾选的更改已变化，请重新生成。",
   "aiCommit.AI_COMMIT_DRAFT_CHANGED": "确认期间草稿发生变化，已保留你的输入。",
   "aiCommit.profiles": "AI 服务商",

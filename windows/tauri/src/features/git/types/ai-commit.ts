@@ -7,7 +7,17 @@ export const COMMIT_FORMATS = [
   "custom",
 ] as const;
 export const COMMIT_PROTOCOLS = ["responses", "chatCompletions", "anthropicMessages"] as const;
-export const COMMIT_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export const COMMIT_EFFORTS = [
+  "default",
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
+export const CHAT_TOKEN_LIMIT_FIELDS = ["max_completion_tokens", "max_tokens"] as const;
 
 export interface CommitProvider {
   id: string;
@@ -19,6 +29,7 @@ export interface CommitProvider {
   source: "local" | "codex" | "claude";
   requiresApiKey: boolean;
   allowsInsecureHttp: boolean;
+  chatTokenLimitField: (typeof CHAT_TOKEN_LIMIT_FIELDS)[number];
 }
 
 export interface CommitOptions {
@@ -62,7 +73,7 @@ export const DEFAULT_COMMIT_AI: CommitAISettings = {
   includeBody: false,
   subjectMaximumLength: 72,
   maximumDiffCharacters: 32_000,
-  reasoningEffort: "low",
+  reasoningEffort: "default",
 };
 
 export function newCommitProvider(id: string): CommitProvider {
@@ -76,6 +87,7 @@ export function newCommitProvider(id: string): CommitProvider {
     source: "local",
     requiresApiKey: true,
     allowsInsecureHttp: false,
+    chatTokenLimitField: "max_completion_tokens",
   };
 }
 
@@ -114,6 +126,11 @@ export function normalizeCommitAI(value: unknown): CommitAISettings {
           authentication: choice(item.authentication, ["bearer", "apiKey"], "bearer"),
           requiresApiKey: item.requiresApiKey !== false,
           allowsInsecureHttp: item.allowsInsecureHttp === true,
+          chatTokenLimitField: choice(
+            item.chatTokenLimitField,
+            CHAT_TOKEN_LIMIT_FIELDS,
+            "max_completion_tokens",
+          ),
         },
       ];
     });
@@ -127,7 +144,7 @@ export function normalizeCommitAI(value: unknown): CommitAISettings {
     format: choice(v.format, COMMIT_FORMATS, "conventional"),
     customInstructions: text(v.customInstructions, 4_000),
     includeBody: v.includeBody === true,
-    reasoningEffort: choice(v.reasoningEffort, COMMIT_EFFORTS, "low"),
+    reasoningEffort: choice(v.reasoningEffort, COMMIT_EFFORTS, "default"),
     subjectMaximumLength: number(v.subjectMaximumLength, 20, 200, 72),
     maximumDiffCharacters: number(v.maximumDiffCharacters, 8_000, 120_000, 32_000),
   };
