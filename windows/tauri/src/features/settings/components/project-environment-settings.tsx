@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useRunStore } from "@/features/run/stores/run.store";
+import { EffectiveToolchain } from "@/features/run/components/effective-toolchain";
+import { useResolvedToolchains } from "@/features/run/hooks/use-resolved-toolchains";
+import { toolchainRequirementMessages } from "@/features/run/utils/effective-toolchain";
+import type { RunDiagnostic } from "@/features/run/types/run.types";
 import { mavenLaunchContextForWorkspace, useMavenStore } from "@/features/maven/stores/maven.store";
 import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import type { MavenSettings } from "@/features/maven/types/maven.types";
@@ -16,6 +20,8 @@ import {
 } from "../services/project-environment";
 
 type Environment = Awaited<ReturnType<typeof loadProjectEnvironment>>;
+
+const NO_DIAGNOSTICS: RunDiagnostic[] = [];
 
 export function ProjectEnvironmentSettings() {
   const root = useFileSystemStore((state) => state.rootFolderPath);
@@ -120,12 +126,32 @@ function ProjectEnvironmentForm({ root, workspaceId }: { root: string; workspace
     );
   };
 
+  // Resolve the draft, so the line under each field shows what saving it would launch.
+  const resolved = useResolvedToolchains(
+    environment ? root : null,
+    environment?.toolchain.javaHomePath ?? "",
+    environment?.toolchain.mavenExecutablePath ?? "",
+    environment?.toolchain.mavenJavaHomePath ?? "",
+  );
+  // Core checks the saved defaults against the project's requirements.
+  const diagnostics = useRunStore((state) =>
+    state.root === root ? state.diagnostics : NO_DIAGNOSTICS,
+  );
+
   const fields = environment
     ? [
         {
           key: "javaHomePath" as const,
           label: t("run.jdkHome"),
           automatic: t("run.toolchainAuto"),
+          effective: {
+            state: resolved.java,
+            kind: "java" as const,
+            mode: environment.toolchain.javaHomePath
+              ? ("configured" as const)
+              : ("automatic" as const),
+            requirements: toolchainRequirementMessages(diagnostics, "project-jdk"),
+          },
           candidates: environment.discovered.java.map((runtime) => ({
             path: runtime.homePath,
             version: runtime.version,
@@ -135,6 +161,14 @@ function ProjectEnvironmentForm({ root, workspaceId }: { root: string; workspace
           key: "mavenExecutablePath" as const,
           label: t("run.mavenExecutable"),
           automatic: t("settings.project.mavenAutomatic"),
+          effective: {
+            state: resolved.maven,
+            kind: "maven" as const,
+            mode: environment.toolchain.mavenExecutablePath
+              ? ("configured" as const)
+              : ("automatic" as const),
+            requirements: toolchainRequirementMessages(diagnostics, "project-maven"),
+          },
           candidates: environment.discovered.maven.map((runtime) => ({
             path: runtime.executablePath,
             version: runtime.version,
@@ -144,6 +178,14 @@ function ProjectEnvironmentForm({ root, workspaceId }: { root: string; workspace
           key: "mavenJavaHomePath" as const,
           label: t("run.mavenJdkHome"),
           automatic: t("settings.project.useProjectJdk"),
+          effective: {
+            state: resolved.mavenJava,
+            kind: "java" as const,
+            mode: environment.toolchain.mavenJavaHomePath
+              ? ("configured" as const)
+              : ("projectJdk" as const),
+            requirements: [],
+          },
           candidates: environment.discovered.java.map((runtime) => ({
             path: runtime.homePath,
             version: runtime.version,
@@ -175,7 +217,7 @@ function ProjectEnvironmentForm({ root, workspaceId }: { root: string; workspace
       )}
       <fieldset disabled={busy} className="space-y-4 disabled:opacity-60">
         {environment &&
-          fields.map(({ key, label, automatic, candidates }) => (
+          fields.map(({ key, label, automatic, candidates, effective }) => (
             <label key={key} className="block space-y-1.5">
               <span className="font-medium ui-text-sm">{label}</span>
               <div className="flex gap-2">
@@ -231,6 +273,7 @@ function ProjectEnvironmentForm({ root, workspaceId }: { root: string; workspace
                 </Button>
               </div>
               <p className="text-subtle-foreground ui-text-caption">{automatic}</p>
+              <EffectiveToolchain {...effective} />
               {candidates.length > 0 && (
                 <p className="break-all text-subtle-foreground ui-text-caption">
                   {t("settings.project.detected")}:{" "}

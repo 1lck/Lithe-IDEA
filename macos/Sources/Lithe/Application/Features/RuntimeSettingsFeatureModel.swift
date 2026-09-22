@@ -52,6 +52,34 @@ final class RuntimeSettingsFeatureModel: ObservableObject {
         service.toolGuidance(command)
     }
 
+    // Settings shows what a launch would use through the launch's own selection
+    // chains. Detection uses the runtimes already discovered in the background;
+    // `nil` means that discovery has not finished yet.
+
+    func javaChoice(overridePath: String?) -> RuntimeChoice? {
+        service.chooseJavaHome(overridePath: overridePath, detected: detectedJavaRuntimes)
+    }
+
+    func mavenJavaChoice(overridePath: String?) -> RuntimeChoice? {
+        service.chooseMavenJavaHome(overridePath: overridePath, detected: detectedJavaRuntimes)
+    }
+
+    func mavenChoice(at rootURL: URL, overridePath: String?) -> RuntimeChoice {
+        service.chooseMavenExecutable(at: rootURL, overridePath: overridePath)
+    }
+
+    func javaRuntimeName(at url: URL) -> String? {
+        javaRuntimes.first { $0.homePath == url.path }?.displayName
+    }
+
+    func mavenRuntimeName(at url: URL) -> String? {
+        mavenRuntimes.first { $0.executablePath == url.path }?.displayName
+    }
+
+    private func detectedJavaRuntimes() -> [JavaRuntimeCandidate]? {
+        service.hasDiscoveredRuntimes ? service.javaRuntimes : nil
+    }
+
     func adoptProjectToolchain(_ toolchain: ProjectToolchainSelection) {
         service.adoptProjectToolchain(toolchain)
         settings = service.settings

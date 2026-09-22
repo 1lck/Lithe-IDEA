@@ -18,14 +18,34 @@ package struct RunConfigurationDiagnostic: Equatable, Identifiable, Sendable {
     package let configurationID: String?
     package let code: String
     package let message: String
+    /// Toolchain requirement ID the diagnostic is about, such as `project-jdk`.
+    package let toolchain: String?
 
-    package init(configurationID: String?, code: String, message: String) {
+    package init(configurationID: String?, code: String, message: String, toolchain: String? = nil) {
         self.configurationID = configurationID
         self.code = code
         self.message = message
+        self.toolchain = toolchain
     }
 
     package var id: String { [configurationID, code, message].compactMap { $0 }.joined(separator: ":") }
+}
+
+package extension Array where Element == RunConfigurationDiagnostic {
+    /// Core's requirement checks for one toolchain, such as a JDK older than the
+    /// project requires. Without `configurationID`, every configuration's result
+    /// counts, because project defaults apply to all of them.
+    func toolchainRequirementMessages(for toolchain: String, configurationID: String? = nil) -> [String] {
+        let codes: Set<String> = ["missingToolchain", "toolchainVersionMismatch", "toolchainVendorMismatch"]
+        var seen = Set<String>()
+        return filter { diagnostic in
+            codes.contains(diagnostic.code)
+                && diagnostic.toolchain == toolchain
+                && (configurationID == nil || diagnostic.configurationID == configurationID)
+        }
+        .map(\.message)
+        .filter { seen.insert($0).inserted }
+    }
 }
 
 package struct ProjectRunConfigurationInspection: Equatable, Sendable {

@@ -183,7 +183,13 @@ struct ProjectRuntimeSettingsView: View {
                     title: "Choose a JDK directory",
                     help: "Choose JDK directory"
                 )
-                effectiveJDKRow(path: feature.settings.javaHomePath)
+                EffectiveRuntimeLabel(
+                    feature: feature,
+                    choice: { feature.javaChoice(overridePath: nil) },
+                    kind: .java,
+                    mode: feature.settings.javaHomePath.isEmpty ? .automatic : .configured,
+                    requirements: requirementMessages(for: "project-jdk")
+                )
                 Text("Maven, Run, and Debug use this JDK unless a subproject or run configuration overrides it.")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
@@ -211,8 +217,19 @@ struct ProjectRuntimeSettingsView: View {
                 Text("Automatic uses a project mvnw first, then the system Maven on PATH.")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
-                if let detected = feature.mavenRuntimes.first {
-                    labeledValue("Detected Maven", detected.displayName + " — " + detected.homePath)
+                if let workspaceURL = model.workspaceURL {
+                    EffectiveRuntimeLabel(
+                        feature: feature,
+                        choice: {
+                            feature.mavenChoice(
+                                at: workspaceURL,
+                                overridePath: feature.settings.mavenExecutableOverride
+                            )
+                        },
+                        kind: .maven,
+                        mode: feature.settings.mavenHomeSelection == .automatic ? .automatic : .configured,
+                        requirements: requirementMessages(for: "project-maven")
+                    )
                 }
                 row("Maven JDK") {
                     runtimePicker(
@@ -226,6 +243,12 @@ struct ProjectRuntimeSettingsView: View {
                     value: mavenJavaHomeBinding,
                     title: "Choose a JDK directory",
                     help: "Choose Maven JDK"
+                )
+                EffectiveRuntimeLabel(
+                    feature: feature,
+                    choice: { feature.mavenJavaChoice(overridePath: nil) },
+                    kind: .java,
+                    mode: feature.settings.mavenJavaHomePath.isEmpty ? .projectJDK : .configured
                 )
                 pathField(
                     title: "settings.xml",
@@ -257,6 +280,7 @@ struct ProjectRuntimeSettingsView: View {
 
     private func javaSubprojectDetail(_ subproject: ProjectRuntimeSubproject) -> some View {
         let override = feature.settings.exactOverride(for: subproject.relativePath)
+        let effectiveJavaHome = feature.effectiveJavaHome(for: subproject)
         return VStack(alignment: .leading, spacing: 18) {
             group("Java SDK") {
                 row("Project JDK") {
@@ -272,7 +296,12 @@ struct ProjectRuntimeSettingsView: View {
                     title: "Choose a JDK directory",
                     help: "Choose JDK directory"
                 )
-                effectiveJDKRow(path: feature.effectiveJavaHome(for: subproject))
+                EffectiveRuntimeLabel(
+                    feature: feature,
+                    choice: { feature.javaChoice(overridePath: effectiveJavaHome.isEmpty ? nil : effectiveJavaHome) },
+                    kind: .java,
+                    mode: (override?.javaHomePath ?? "").isEmpty ? .inherited : .configured
+                )
                 Text("This subproject can use a different JDK from other backends in the same workspace.")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
@@ -314,16 +343,8 @@ struct ProjectRuntimeSettingsView: View {
         }
     }
 
-    private func effectiveJDKRow(path: String) -> some View {
-        let resolved = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        let runtime = resolved.isEmpty
-            ? feature.activeJavaRuntime()
-            : feature.javaRuntimes.first { $0.homePath == resolved }
-        return labeledValue(
-            "Effective JDK",
-            runtime.map { "\($0.displayName) — \($0.homePath)" }
-                ?? (resolved.isEmpty ? "Detected system JDK" : resolved)
-        )
+    private func requirementMessages(for toolchain: String) -> [String] {
+        model.runFeatureIfActive?.configurationDiagnostics.toolchainRequirementMessages(for: toolchain) ?? []
     }
 
     private func labeledValue(_ title: String, _ value: String) -> some View {

@@ -408,7 +408,8 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             return RunConfigurationDiagnostic(
                 configurationID: value["id"],
                 code: code,
-                message: message
+                message: message,
+                toolchain: value["toolchain"]
             )
         }
     }

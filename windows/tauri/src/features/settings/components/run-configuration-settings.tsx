@@ -21,6 +21,7 @@ export function RunConfigurationSettings() {
       saveError: state.saveError,
       invalidMessage: state.invalidMessage,
       generationNotice: state.generationNotice,
+      diagnostics: state.diagnostics,
       discoveredJava: state.discoveredJava,
       discoveredMaven: state.discoveredMaven,
       discoveredRuntimes: state.discoveredRuntimes,
@@ -45,7 +46,9 @@ export function RunConfigurationSettings() {
         <h3 className="font-medium">{configuration.name}</h3>
         <RunConfigurationEditor
           key={`${root}:${configuration.id}`}
+          root={root}
           configuration={configuration}
+          diagnostics={state.diagnostics}
           options={runOptionsFor(configuration)}
           saveError={state.saveError}
           discoveredJava={state.discoveredJava}
