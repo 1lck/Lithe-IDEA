@@ -23,6 +23,9 @@ package final class RunService: ObservableObject {
     @Published package private(set) var lastExitCode: Int32?
     @Published package private(set) var optionsByConfigurationID: [String: RunOptions] = [:]
     @Published package private(set) var projectToolchain = ProjectToolchainSelection()
+    /// Defaults saved in `.lithe/run/local.json`, read even before generation.
+    /// `nil` until that layer saves defaults or while it cannot be read.
+    @Published package private(set) var savedProjectToolchain: ProjectToolchainSelection?
     @Published package private(set) var effectiveSourcesByConfigurationID: [String: RunConfigurationSource] = [:]
     @Published package private(set) var mavenProfiles: [MavenProfile] = []
     @Published package private(set) var moduleSessions: [RunSession] = []
@@ -430,6 +433,7 @@ package final class RunService: ObservableObject {
         configurationDiagnostics = inspection.diagnostics
         recoveryAction = inspection.recoveryAction
         recoveryPath = inspection.recoveryPath
+        savedProjectToolchain = inspection.projectToolchain
         generationState = .idle
         if inspection.status == .ready {
             do {
@@ -486,6 +490,10 @@ package final class RunService: ObservableObject {
     package func generateRunConfigurations(
         javaDiscovery: JavaEntrypointDiscovery = .notJava
     ) async {
+        guard recoveryAction != .upgradeApplication else {
+            generationState = .failed(String(localized: "Upgrade Lithe to use this run configuration version."))
+            return
+        }
         // Generation scans the file inventory this service holds, so a
         // provisional inventory would write a configuration that omits entry
         // points the workspace contains. Dropping the request silently is also
@@ -611,6 +619,43 @@ package final class RunService: ObservableObject {
     }
 
     @discardableResult
+    package func saveProjectToolchain(_ toolchain: ProjectToolchainSelection) -> Bool {
+        configurationSaveError = nil
+        guard let projectURL else { return false }
+        do {
+            try runConfigurationOperations.saveProjectToolchain(toolchain, at: projectURL)
+            projectToolchain = toolchain
+            savedProjectToolchain = toolchain
+        } catch {
+            configurationSaveError = editorSaveFailureMessage(error, fallbackStage: .write)
+            return false
+        }
+        do {
+            if configurationStatus == .ready {
+                let resolution = try resolveWithServiceToolchains(
+                    operations: runConfigurationOperations,
+                    projectURL: projectURL,
+                    mavenProject: mavenProject,
+                    preferredConfigurationID: selectedConfiguration?.id
+                )
+                configurationDiagnostics = resolution.diagnostics
+                apply(resolution.configurations, projectToolchain: resolution.projectToolchain,
+                      preferredConfigurationID: selectedConfiguration?.id)
+            }
+            return true
+        } catch {
+            configurationSaveError = editorSaveFailureMessage(error, fallbackStage: .reload)
+            return false
+        }
+    }
+
+    /// Saves one configuration's editor changes. The editor no longer edits the
+    /// project defaults, but Core rewrites them with every save, so they must be
+    /// the effective defaults: the ones `.lithe/run/local.json` already holds, or
+    /// `toolchain` (the caller's mirror) when that layer has never saved any.
+    /// Writing the resolved, empty selection instead would turn "no saved
+    /// defaults" into explicit automatic ones and discard the user's JDK.
+    @discardableResult
     package func saveEditorChanges(
         _ options: RunOptions,
         toolchain: ProjectToolchainSelection,
@@ -622,14 +667,16 @@ package final class RunService: ObservableObject {
             configurationSaveError = "Identify the project before editing its run configuration."
             return false
         }
+        let projectDefaults = savedProjectToolchain ?? toolchain
         do {
             try runConfigurationOperations.saveEditorChanges(
                 options,
-                toolchain: toolchain,
+                toolchain: projectDefaults,
                 configurationID: configuration.id,
                 scope: scope,
                 at: projectURL
             )
+            savedProjectToolchain = projectDefaults
         } catch {
             configurationSaveError = editorSaveFailureMessage(error, fallbackStage: .write)
             return false
@@ -968,6 +1015,7 @@ package final class RunService: ObservableObject {
         selectedConfigurationID = RunConfiguration.currentFileID
         optionsByConfigurationID = [:]
         projectToolchain = ProjectToolchainSelection()
+        savedProjectToolchain = nil
         effectiveSourcesByConfigurationID = [:]
         mavenProfiles = []
         moduleSessions = []

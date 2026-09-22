@@ -132,6 +132,7 @@ extension AppModel {
         guard let identity = currentWorkspaceIdentity else { return }
         guard let runFeature = await activateExecutionModule()?.runFeature else { return }
         guard isCurrentWorkspace(identity) else { return }
+        guard runFeature.recoveryAction != .upgradeApplication else { return }
         switch await ensureRunProjectReady(runFeature, for: identity) {
         case .ready:
             await generateFromJavaEntrypoints(runFeature, for: identity)
@@ -223,6 +224,7 @@ extension AppModel {
             snapshotID: snapshotID
         )
         guard isCurrentWorkspace(identity) else { return }
+        adoptSavedProjectToolchain(from: execution.runFeature, workspace: target)
         guard resumesDeferredRunAction else { return }
         runWorkflowCoordinator.resumeDeferredAction(
             runFeature: execution.runFeature,

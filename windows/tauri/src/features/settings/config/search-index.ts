@@ -2,6 +2,22 @@ import type { SettingSearchRecord } from "../types/search.types";
 import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/utils/platform";
 
 export const settingsSearchIndex: SettingSearchRecord[] = [
+  {
+    id: "run-configurations",
+    tab: "run",
+    section: "Run configurations",
+    label: "Service run configurations",
+    description: "Edit arguments, environment, working directory and service toolchain overrides",
+    keywords: ["run", "service", "arguments", "environment", "运行", "服务", "启动参数", "环境变量"],
+  },
+  {
+    id: "project-environment",
+    tab: "project",
+    section: "Project environment",
+    label: "Project JDK and Maven",
+    description: "Configure project Java SDK, Maven home, Maven JDK and local repository",
+    keywords: ["java", "jdk", "sdk", "maven", "settings.xml", "项目", "环境", "仓库"],
+  },
   // Editor Settings
   {
     id: "editor-auto-save",

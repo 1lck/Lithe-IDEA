@@ -2687,6 +2687,7 @@ dependencies = [
  "tauri-plugin-store",
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
+ "tokio",
  "url",
  "windows-sys 0.61.2",
  "zip 2.4.2",

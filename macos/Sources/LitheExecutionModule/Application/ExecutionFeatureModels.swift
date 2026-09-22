@@ -190,8 +190,8 @@ package final class RunFeatureModel: ObservableObject {
     private var observation: AnyCancellable?
     @Published package var isGenerationConfirmationPresented = false
     package private(set) var generationIntent: RunConfigurationGenerationIntent = .identifyOnly
-    /// Configuration whose editor is open, requested from the Run tool window
-    /// or an editor gutter marker. Separate from the list selection so opening
+    /// Configuration being edited in Settings, requested there or from an
+    /// editor gutter marker. Separate from the Run selection so opening
     /// an editor does not switch which log is shown.
     @Published package var editingConfigurationID: String?
 
@@ -243,6 +243,7 @@ package final class RunFeatureModel: ObservableObject {
     package var recoveryPath: String? { service.recoveryPath }
     package var configurationSaveError: String? { service.configurationSaveError }
     package var projectToolchain: ProjectToolchainSelection { service.projectToolchain }
+    package var savedProjectToolchain: ProjectToolchainSelection? { service.savedProjectToolchain }
     package var blockingToolchainDiagnostic: RunConfigurationDiagnostic? {
         service.blockingToolchainDiagnostic(for: service.selectedConfiguration)
     }
@@ -305,6 +306,11 @@ package final class RunFeatureModel: ObservableObject {
 
     package func serviceURL(for configuration: RunConfiguration) -> URL? {
         service.serviceURL(for: configuration)
+    }
+
+    @discardableResult
+    package func saveProjectToolchain(_ toolchain: ProjectToolchainSelection) -> Bool {
+        service.saveProjectToolchain(toolchain)
     }
 
     @discardableResult

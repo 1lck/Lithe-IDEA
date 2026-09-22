@@ -1,4 +1,5 @@
 import { getProviderById } from "@/features/ai/types/providers.types";
+import { normalizeCommitAI } from "@/features/git/types/ai-commit";
 import { normalizeOllamaBaseUrl } from "@/features/ai/lib/ollama-endpoint";
 import { normalizeV0DesignSystems } from "@/extensions/v0/lib/v0-design-systems";
 import { isKeybindingPreset } from "@/features/keymaps/defaults/keybinding-presets";
@@ -438,6 +439,7 @@ function normalizeAISettings(settings: Settings): Settings {
 
 export function normalizeSettings(settings: Settings): Settings {
   const normalizedSettings = normalizeAISettings(settings);
+  normalizedSettings.aiCommit = normalizeCommitAI(settings.aiCommit);
   normalizedSettings.gitExecutable = typeof settings.gitExecutable === "string" ? settings.gitExecutable : "";
   normalizedSettings.gitUseCredentialHelper = settings.gitUseCredentialHelper !== false;
   normalizedSettings.gitFetchPrune = typeof settings.gitFetchPrune === "boolean" ? settings.gitFetchPrune : true;
@@ -579,6 +581,7 @@ export function normalizeSettingValue<K extends keyof Settings>(
   key: K,
   value: Settings[K],
 ): Settings[K] {
+  if (key === "aiCommit") return normalizeCommitAI(value) as Settings[K];
   if (key === "gitFetchSubmodules") return (["inherit", "no", "onDemand", "yes"].includes(String(value)) ? value : "inherit") as Settings[K];
   if (key === "gitFetchTags") return (["inherit", "all", "none", "prune"].includes(String(value)) ? value : "inherit") as Settings[K];
   if (key === "uiFontSize") {
