@@ -24,3 +24,14 @@ test("Ask Again replaces an earlier Always Continue choice", () => {
 
   expect(javaBuildFailurePolicyForWorkspace("C:/work/project")).toBe("ask");
 });
+
+test("scroll-to-end defaults on and the run pane toggle flips it", () => {
+  expect(useRunPreferencesStore.getState().scrollOutputToEnd).toBe(true);
+
+  const { setScrollOutputToEnd } = useRunPreferencesStore.getState().actions;
+  setScrollOutputToEnd(false);
+  expect(useRunPreferencesStore.getState().scrollOutputToEnd).toBe(false);
+
+  setScrollOutputToEnd(true);
+  expect(useRunPreferencesStore.getState().scrollOutputToEnd).toBe(true);
+});

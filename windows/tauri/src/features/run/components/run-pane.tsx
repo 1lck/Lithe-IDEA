@@ -1,5 +1,5 @@
 import { ProjectPreparationStatus } from "./project-preparation-status";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { isBackendCapabilityAvailable } from "@/config/backend-capabilities";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
@@ -9,6 +9,7 @@ import { useUIState } from "@/features/window/stores/ui-state.store";
 import { Button } from "@/ui/button";
 import {
   ArrowClockwiseIcon,
+  ArrowFatLineDownIcon,
   GearIcon,
   MinusIcon,
   PlayIcon,
@@ -67,6 +68,7 @@ function JavaDiscoveryNotice() {
 export default function RunPane() {
   const { t } = useTranslation();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
+  const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible);
   const setIsBottomPaneVisible = useUIState((state) => state.setIsBottomPaneVisible);
   const openSettings = useUIState((state) => state.openSettingsDialog);
   const activeFilePath = useBufferStore((state) => {
@@ -100,11 +102,14 @@ export default function RunPane() {
   const actions = useRunStore((state) => state.actions);
   const selectedServiceIDsByWorkspace = useRunPreferencesStore((state) => state.selectedServiceIDsByWorkspace);
   const setSelectedServiceIDs = useRunPreferencesStore((state) => state.actions.setSelectedServiceIDs);
+  const scrollOutputToEnd = useRunPreferencesStore((state) => state.scrollOutputToEnd);
+  const setScrollOutputToEnd = useRunPreferencesStore((state) => state.actions.setScrollOutputToEnd);
   const editingId = useRunStore((state) => state.editingConfigurationId);
   const setEditingId = actions.editConfiguration;
   const [selectedServiceIDs, setSelectedServiceIDsLocal] = useState<string[]>([]);
   const [otherConfigurationsCollapsed, setOtherConfigurationsCollapsed] = useState(true);
   const [infrastructureCollapsed, setInfrastructureCollapsed] = useState(true);
+  const outputScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     void ensureRunProcessListeners();
@@ -158,6 +163,15 @@ export default function RunPane() {
     }
     setSelectedServiceIDsLocal(services.slice(0, 1).map((service) => service.id));
   }, [rootFolderPath, selectedServiceIDsByWorkspace, services]);
+
+  // Follow the newest output only while scroll-to-end is pinned and the pane
+  // is laid out: a display:none container reports no usable scroll geometry,
+  // so hidden updates are caught by re-scrolling when the pane reopens.
+  useEffect(() => {
+    if (!scrollOutputToEnd || !isBottomPaneVisible) return;
+    const node = outputScrollRef.current;
+    if (node) node.scrollTop = node.scrollHeight;
+  }, [output, scrollOutputToEnd, isBottomPaneVisible]);
 
   const updateSelectedServices = (ids: string[]) => {
     setSelectedServiceIDsLocal(ids);
@@ -222,6 +236,18 @@ export default function RunPane() {
             aria-label={t("run.rescan")}
           >
             <ArrowClockwiseIcon />
+          </Button>
+        </Tooltip>
+        <Tooltip content={t("run.scrollToEnd")} side="bottom">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            active={scrollOutputToEnd}
+            onClick={() => setScrollOutputToEnd(!scrollOutputToEnd)}
+            aria-label={t("run.scrollToEnd")}
+            aria-pressed={scrollOutputToEnd}
+          >
+            <ArrowFatLineDownIcon />
           </Button>
         </Tooltip>
         <Tooltip content={t("run.clearOutput")} side="bottom">
@@ -384,7 +410,7 @@ export default function RunPane() {
                   <div className="mt-1 text-subtle-foreground ui-text-sm">{t("run.selectConfiguration")}</div>
                 )}
               </div>
-              <div className="min-h-0 flex-1 overflow-auto px-3 py-2">
+              <div ref={outputScrollRef} className="min-h-0 flex-1 overflow-auto px-3 py-2">
                 <RunOutputText
                   title={t("run.processOutput")}
                   source={output}
