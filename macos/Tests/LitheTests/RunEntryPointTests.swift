@@ -877,7 +877,12 @@ private final class ReadyRunConfigurationOperations: RunConfigurationOperations,
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
 
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
 
@@ -1015,7 +1020,12 @@ private final class InspectionGatedRunConfigurationOperations: RunConfigurationO
         return ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
 
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
 
@@ -1140,7 +1150,12 @@ private final class InventoryRecordingGatedRunConfigurationOperations: RunConfig
         return ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
 
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         lock.lock()
         inventories.append(files)
         lock.unlock()

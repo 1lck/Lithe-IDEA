@@ -13,6 +13,18 @@ export function loadMavenConfiguration(root: string, reactorPath: string) {
   });
 }
 
+/**
+ * Resolves the Maven this workspace runs without launching any process.
+ *
+ * The host applies the same candidate order as a build: the override first,
+ * then a usable project wrapper, then a machine installation. It performs no
+ * `mvn -version` probe, because this runs on the editor path that blocks Java
+ * language-server startup.
+ */
+export function resolveMavenInstallation(root: string, overridePath?: string) {
+  return invoke<string | null>("maven_resolve_installation", { root, overridePath });
+}
+
 export function writeMavenConfiguration(
   root: string,
   reactorPath: string,

@@ -351,6 +351,27 @@ pub struct MavenTestResultsResponse {
     pub success: bool,
     /// Individual failures and errors in the order Maven reported them.
     pub failure_details: Vec<MavenTestFailureResponse>,
+    /// Per-method outcomes read from the run's XML reports, ordered by class
+    /// and method. Empty when the request did not ask for reports or the run
+    /// wrote none.
+    pub test_cases: Vec<MavenTestCaseResponse>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Aggregated outcome of one test method in a Maven test run.
+pub struct MavenTestCaseResponse {
+    /// Binary class name from the report, such as `demo.OrderTest$Refunds`.
+    pub class_name: String,
+    /// Java method name without parameters or invocation index.
+    pub method: String,
+    /// `passed`, `failed`, `error`, or `skipped`. With several invocations
+    /// (parameterized or repeated tests) the most severe one wins.
+    pub status: String,
+    /// First assertion or exception message of the failing invocation.
+    pub message: Option<String>,
+    /// Number of `<testcase>` entries aggregated into this method.
+    pub invocations: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -431,24 +452,6 @@ pub struct JavaSourceDefinitionResponse {
     pub utf16_column: usize,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-/// One JUnit test method and its complete source range.
-pub struct JavaTestMethodResponse {
-    pub name: String,
-    /// Zero-based line containing the method name.
-    pub line: usize,
-    /// Zero-based line containing the method body's closing brace.
-    pub end_line: usize,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-/// JUnit test methods in deterministic source order.
-pub struct JavaTestMethodsResponse {
-    pub methods: Vec<JavaTestMethodResponse>,
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Server port declared by Spring configuration, when one is present.
@@ -489,17 +492,6 @@ pub struct JavaSyntaxHighlightResponse {
     pub role: String,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-/// One JUnit test method discovered from the Java syntax tree.
-pub struct JavaStructureTestMethodResponse {
-    pub name: String,
-    /// One-based line containing the method name.
-    pub line: usize,
-    /// Inclusive one-based line containing the end of the declaration.
-    pub end_line: usize,
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Lightweight structural features derived from one Java source document.
@@ -507,8 +499,6 @@ pub struct JavaStructureResponse {
     pub fold_regions: Vec<JavaFoldRegionResponse>,
     pub inlay_hints: Vec<JavaInlayHintResponse>,
     pub syntax_highlights: Vec<JavaSyntaxHighlightResponse>,
-    /// JUnit 4 and JUnit 5 methods in source order.
-    pub test_methods: Vec<JavaStructureTestMethodResponse>,
 }
 
 #[derive(Debug, Clone, Serialize)]

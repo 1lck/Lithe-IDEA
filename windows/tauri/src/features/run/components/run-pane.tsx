@@ -37,6 +37,33 @@ import { JavaLaunchDecisionBanner } from "./java-launch-decision";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { useRunPreferencesStore } from "../stores/run-preferences.store";
 
+/** Explains when the Java entries shown are not JDT's current answer. */
+function JavaDiscoveryNotice() {
+  const status = useRunStore((state) => state.javaDiscovery);
+  const message = useRunStore((state) => state.javaDiscoveryMessage);
+  const { t } = useTranslation();
+  if (status === "idle" || status === "ready") return null;
+  return (
+    <div
+      className="flex items-center gap-1 border-border/70 border-b px-3 py-1.5 ui-text-sm"
+      aria-live="polite"
+    >
+      {status === "failed" ? (
+        <span className="text-destructive">
+          {t("run.javaDiscoveryFailed", { message: message ?? "" })}
+        </span>
+      ) : (
+        <>
+          <Spinner compact />
+          <span className="text-subtle-foreground">
+            {t(status === "stale" ? "run.javaDiscoveryStale" : "run.javaDiscoveryLoading")}
+          </span>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function RunPane() {
   const { t } = useTranslation();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
@@ -73,7 +100,8 @@ export default function RunPane() {
   const actions = useRunStore((state) => state.actions);
   const selectedServiceIDsByWorkspace = useRunPreferencesStore((state) => state.selectedServiceIDsByWorkspace);
   const setSelectedServiceIDs = useRunPreferencesStore((state) => state.actions.setSelectedServiceIDs);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const editingId = useRunStore((state) => state.editingConfigurationId);
+  const setEditingId = actions.editConfiguration;
   const [selectedServiceIDs, setSelectedServiceIDsLocal] = useState<string[]>([]);
   const [otherConfigurationsCollapsed, setOtherConfigurationsCollapsed] = useState(true);
   const [infrastructureCollapsed, setInfrastructureCollapsed] = useState(true);
@@ -158,6 +186,7 @@ export default function RunPane() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <ProjectPreparationStatus />
+      <JavaDiscoveryNotice />
       <div className="flex h-(--lithe-pane-header-height) shrink-0 items-center gap-2 border-border/70 border-b px-3">
         <RunIcon className="size-4 text-subtle-foreground" />
         <div className="min-w-0 flex-1 truncate font-medium ui-text-sm">

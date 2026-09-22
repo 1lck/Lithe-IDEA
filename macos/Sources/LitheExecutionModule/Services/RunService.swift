@@ -30,6 +30,7 @@ package final class RunService: ObservableObject {
     @Published package private(set) var configurationStatus: ProjectRunConfigurationStatus = .missing
     @Published package private(set) var configurationDiagnostics: [RunConfigurationDiagnostic] = []
     @Published package private(set) var generationState: RunConfigurationGenerationState = .idle
+    @Published package private(set) var javaDiscoveryStatus: JavaDiscoveryStatus = .idle
     @Published package private(set) var recoveryAction: RunConfigurationRecoveryAction = .regenerate
     @Published package private(set) var recoveryPath: String?
     @Published package private(set) var configurationSaveError: String?
@@ -465,7 +466,26 @@ package final class RunService: ObservableObject {
         }
     }
 
-    package func generateRunConfigurations() async {
+    private static func javaDiscoveryStatus(
+        _ discovery: JavaEntrypointDiscovery,
+        showsJavaEntries: Bool
+    ) -> JavaDiscoveryStatus {
+        switch discovery {
+        case .notJava: return .idle
+        case .discovered: return .ready
+        case .failed(let message): return .failed(message)
+        case .pending: return showsJavaEntries ? .stale : .loading
+        }
+    }
+
+    /// Regenerates `.lithe/run/generated.json`.
+    ///
+    /// `javaDiscovery` is what JDT answered just before; while it is pending,
+    /// Core keeps the previous generation's Java entries so the list does not
+    /// empty during a cold start.
+    package func generateRunConfigurations(
+        javaDiscovery: JavaEntrypointDiscovery = .notJava
+    ) async {
         // Generation scans the file inventory this service holds, so a
         // provisional inventory would write a configuration that omits entry
         // points the workspace contains. Dropping the request silently is also
@@ -490,7 +510,8 @@ package final class RunService: ObservableObject {
                     try operations.generate(
                         at: projectURL,
                         files: files,
-                        modulePaths: modulePaths
+                        modulePaths: modulePaths,
+                        javaEntrypoints: javaDiscovery.entrypoints
                     )
                 })
             }
@@ -524,6 +545,13 @@ package final class RunService: ObservableObject {
                 recoveryPath = nil
                 configurationDiagnostics = operations.inspect(at: projectURL).diagnostics + resolution.diagnostics
                 generationState = result.entryCount == 0 ? .noEntries : .succeeded(entryCount: result.entryCount)
+                javaDiscoveryStatus = Self.javaDiscoveryStatus(
+                    javaDiscovery,
+                    // JDT's entries all generate as `java.main` configurations.
+                    showsJavaEntries: resolution.configurations.contains {
+                        $0.configuration.kind == .javaMain
+                    }
+                )
                 apply(
                     resolution.configurations,
                     projectToolchain: resolution.projectToolchain,

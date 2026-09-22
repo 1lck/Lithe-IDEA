@@ -48,6 +48,20 @@ enum MacRuntimeDiscovery {
     }
 
     private static func discoverJavaHomes(environment: [String: String]) -> [URL] {
+        discoverJavaHomes(
+            environment: environment,
+            homeDirectory: NSHomeDirectory(),
+            javaHomePaths: javaHomeOutput(),
+            directoryEntries: directoryNames(at:)
+        )
+    }
+
+    static func discoverJavaHomes(
+        environment: [String: String],
+        homeDirectory: String,
+        javaHomePaths: [String],
+        directoryEntries: (String) -> [String]
+    ) -> [URL] {
         var paths: [String: URL] = [:]
         func add(_ path: String?) {
             guard let path,
@@ -59,23 +73,33 @@ enum MacRuntimeDiscovery {
         }
 
         add(environment["JAVA_HOME"])
-        for path in javaHomeOutput() {
+        for path in javaHomePaths {
             add(path)
         }
 
         for root in [
             "/Library/Java/JavaVirtualMachines",
-            NSHomeDirectory() + "/Library/Java/JavaVirtualMachines"
+            homeDirectory + "/Library/Java/JavaVirtualMachines"
         ] {
-            for entry in directoryNames(at: root) {
+            for entry in directoryEntries(root).sorted() {
                 add(root + "/" + entry + "/Contents/Home")
             }
         }
 
         for root in ["/opt/homebrew/opt", "/usr/local/opt"] {
-            for entry in directoryNames(at: root) where entry.hasPrefix("openjdk") {
+            for entry in directoryEntries(root).sorted() where entry.hasPrefix("openjdk") {
                 add(root + "/" + entry + "/libexec/openjdk.jdk/Contents/Home")
             }
+        }
+
+        let sdkmanRoot = environment["SDKMAN_DIR"]
+            .flatMap { $0.isEmpty ? nil : $0 }
+            ?? homeDirectory + "/.sdkman"
+        let sdkmanJavaRoot = URL(fileURLWithPath: sdkmanRoot, isDirectory: true)
+            .appendingPathComponent("candidates/java", isDirectory: true)
+            .standardizedFileURL.path
+        for entry in directoryEntries(sdkmanJavaRoot).sorted() {
+            add(sdkmanJavaRoot + "/" + entry)
         }
 
         return paths.values.sorted { $0.path < $1.path }

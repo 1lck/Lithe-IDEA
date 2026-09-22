@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheCoreContracts
 
 @MainActor
 public final class TerminalSession: ObservableObject, Identifiable {
@@ -22,16 +23,21 @@ public final class TerminalSession: ObservableObject, Identifiable {
     private let transport: any TerminalTransport
     private var workspaceURL: URL?
     private var selectedShellPath: String?
+    private var outputDecoder = StreamingUTF8Decoder()
 
     public init(transport: any TerminalTransport) {
         self.transport = transport
         transport.onTermination = { [weak self] exitCode in
             guard let self else { return }
+            finishDecodedOutput()
             isRunning = false; isReady = false; lastExitCode = exitCode; endedAt = Date()
         }
         transport.onOutput = { [weak self] data in
             guard let self, !data.isEmpty else { return }
-            self.onOutput?(String(decoding: data, as: UTF8.self))
+            let output = outputDecoder.decode(data)
+            if !output.isEmpty {
+                onOutput?(output)
+            }
         }
         transport.onTitle = { [weak self] title in
             let value = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -128,8 +134,17 @@ public final class TerminalSession: ObservableObject, Identifiable {
     public func clear() { transport.clear() }
     public func focus() { transport.focus() }
     public func stop() {
-        transport.stop(); isRunning = false; isReady = false
+        transport.stop()
+        finishDecodedOutput()
+        isRunning = false; isReady = false
         if startedAt != nil { endedAt = Date() }
+    }
+
+    private func finishDecodedOutput() {
+        let output = outputDecoder.finish()
+        if !output.isEmpty {
+            onOutput?(output)
+        }
     }
 
     private func updateCurrentDirectory(_ rawValue: String?) {

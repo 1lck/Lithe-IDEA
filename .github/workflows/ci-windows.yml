@@ -22,6 +22,7 @@ jobs:
       windows: ${{ steps.classify.outputs.windows }}
       rust_core: ${{ steps.classify.outputs.rust_core }}
       windows_rust: ${{ steps.classify.outputs.windows_rust }}
+      java_jdt: ${{ steps.classify.outputs.java_jdt }}
 
     steps:
       - name: Check out source
@@ -67,6 +68,7 @@ jobs:
               echo "rust_core=true"
               echo "windows=true"
               echo "windows_rust=true"
+              echo "java_jdt=true"
             } >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -86,6 +88,7 @@ jobs:
           WINDOWS: ${{ steps.classify.outputs.windows }}
           RUST_CORE: ${{ steps.classify.outputs.rust_core }}
           WINDOWS_RUST: ${{ steps.classify.outputs.windows_rust }}
+          JAVA_JDT: ${{ steps.classify.outputs.java_jdt }}
         run: |
           {
             echo "### Windows CI lanes"
@@ -94,6 +97,7 @@ jobs:
             echo "| Windows frontend tests | $WINDOWS |"
             echo "| Shared Rust Core tests | $RUST_CORE |"
             echo "| Windows Rust tests | $WINDOWS_RUST |"
+            echo "| Real JDT on Windows | $JAVA_JDT |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   frontend:
@@ -177,15 +181,22 @@ jobs:
           bun test src/platform
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 120000 --report .artifacts/test-stability/windows-documents.json -- src/features/editor/stores/editor-app.store.test.ts src/features/editor/services/document-external-change-workflow.test.ts src/features/editor/services/document-save-lifecycle.test.ts src/features/editor/services/document-watch-controller.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          bun test src/features/editor/lsp/language-server-navigation.test.ts src/features/editor/lsp/java-navigation-marker-loader.test.ts src/features/editor/engines/monaco/definition-link-scheduler.test.ts src/features/editor/engines/monaco/java-implementation-markers.test.ts
+          bun test src/features/editor/lsp/language-server-navigation.test.ts src/features/editor/lsp/java-navigation-marker-loader.test.ts src/features/editor/engines/monaco/definition-link-scheduler.test.ts src/features/editor/engines/monaco/java-implementation-markers.test.ts src/features/editor/engines/monaco/java-run-markers.test.ts
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-editor-ownership.json -- src/features/editor/extensions/api.owner-navigation.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-java-workspace.json -- src/features/editor/lsp/java-workspace-language-server.test.ts src/features/editor/lsp/java-workspace-change-scheduler.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           bun test src/features/debugger/services/debug-adapter-events.test.ts
-          bun test src/features/run
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 120000 --report .artifacts/test-stability/windows-maven-run-markers.json -- --preload ./src/test-utils/vite-assets.ts src/features/maven/stores/maven.store.test.ts src/features/maven/services/java-test-discovery.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 120000 --report .artifacts/test-stability/windows-run.json -- --preload ./src/test-utils/vite-assets.ts src/features/run
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           bun test src/features/file-explorer/lib/java-clipboard-class.test.ts src/features/file-explorer/lib/paste-java-class-from-clipboard.test.ts
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-file-watcher.json -- src/features/file-system/services/file-watcher-listener.test.ts src/features/file-system/stores/file-watcher.store.test.ts
+
+      - name: Test editor tab scrolling and lifecycle
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-tabs.json -- src/features/tabs
 
       - name: Test SVG editor preview modes and live updates
         shell: pwsh
@@ -338,12 +349,95 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  real-jdt:
+    name: Test real JDT on Windows
+    needs: changes
+    if: needs.changes.outputs.java_jdt == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up JDT runtime JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Remember JDT runtime
+        id: jdt-runtime
+        shell: pwsh
+        run: |
+          "java_home=$env:JAVA_HOME" >> $env:GITHUB_OUTPUT
+
+      - name: Set up Java 25 project JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Resolve project tools
+        id: project-tools
+        shell: pwsh
+        run: |
+          "java_home=$env:JAVA_HOME" >> $env:GITHUB_OUTPUT
+          $maven = (Get-Command mvn.cmd -ErrorAction Stop).Source
+          "maven=$maven" >> $env:GITHUB_OUTPUT
+
+      - name: Restore JDT downloads
+        uses: actions/cache@v6
+        with:
+          path: .artifacts/jdtls-downloads
+          key: lithe-${{ runner.os }}-${{ runner.arch }}-jdtls-${{ hashFiles('third_party/jdtls/manifest.json', 'third_party/jdk/manifest.json') }}
+
+      - name: Prepare packaged JDT and extensions
+        shell: pwsh
+        run: ./scripts/prepare-jdtls.ps1 -OutputDirectory .artifacts/jdtls
+
+      - name: Run bounded real-JDT integration suite
+        shell: pwsh
+        timeout-minutes: 25
+        env:
+          LITHE_JDTLS_SMOKE_ROOT: ${{ github.workspace }}\.artifacts\jdtls
+          LITHE_JDTLS_SMOKE_JAVA: ${{ steps.jdt-runtime.outputs.java_home }}\bin\java.exe
+          LITHE_JDTLS_SMOKE_PROJECT_JDK: ${{ steps.project-tools.outputs.java_home }}
+          LITHE_JDTLS_SMOKE_MAVEN: ${{ steps.project-tools.outputs.maven }}
+        run: |
+          node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs `
+            --manifest rust/Cargo.toml `
+            --package lithe-core `
+            --warn-ms 1000 `
+            --max-ms 15000 `
+            --test-budget lsp::interface::engine::real_jdt_tests::real_jdtls_discovers_builds_and_launches_java_25_entrypoints=600000 `
+            --test-budget tests::git_history_rewrite::=30000 `
+            --test-budget tests::git::git_write_squashes_=30000 `
+            --test-budget tests::git::git_write_deletes_a_local_commit_=30000 `
+            --test-budget tests::git::git_write_edits_a_local_commit_message_=30000 `
+            --build-timeout-ms 600000 `
+            --suite-timeout-ms 1200000 `
+            --report .artifacts/test-stability/windows-real-jdt.json
+
+      - name: Upload real JDT test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-stability-windows-real-jdt
+          path: .artifacts/test-stability/
+          if-no-files-found: ignore
+          retention-days: 14
+
   gate:
     name: Windows CI gate
     needs:
       - changes
       - frontend
       - rust-tests
+      - real-jdt
     if: always()
     runs-on: ubuntu-latest
 
@@ -356,6 +450,8 @@ jobs:
           WINDOWS_RUST_SELECTED: ${{ needs.changes.outputs.windows_rust }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
           RUST_TESTS_RESULT: ${{ needs.rust-tests.result }}
+          JAVA_JDT_SELECTED: ${{ needs.changes.outputs.java_jdt }}
+          REAL_JDT_RESULT: ${{ needs.real-jdt.result }}
         shell: bash
         run: |
           [[ "$CHANGES_RESULT" == "success" ]]
@@ -363,6 +459,11 @@ jobs:
             [[ "$FRONTEND_RESULT" == "success" ]]
           else
             [[ "$FRONTEND_RESULT" == "skipped" ]]
+          fi
+          if [[ "$JAVA_JDT_SELECTED" == "true" ]]; then
+            [[ "$REAL_JDT_RESULT" == "success" ]]
+          else
+            [[ "$REAL_JDT_RESULT" == "skipped" ]]
           fi
           if [[ "$RUST_CORE_SELECTED" == "true" || "$WINDOWS_RUST_SELECTED" == "true" ]]; then
             [[ "$RUST_TESTS_RESULT" == "success" ]]

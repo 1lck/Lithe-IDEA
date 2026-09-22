@@ -202,9 +202,9 @@ extension AppModel {
             ) {
                 return false
             }
-            guard maven?.project != nil,
-                  change.fileURL.lastPathComponent.lowercased() == "pom.xml" else { return true }
+            guard change.fileURL.lastPathComponent.lowercased() == "pom.xml" else { return true }
             maven?.markPomChanged(change.fileURL)
+            // JDT LS also needs the change to refresh its resolved classpath snapshot.
             return true
         }
         javaLanguageServerPreparationCoordinator.notifyWorkspaceFileChanges(

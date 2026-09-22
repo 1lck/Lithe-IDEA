@@ -152,6 +152,40 @@ struct OutputTextUpdateTests {
     }
 
     @Test
+    func trimsOnlyTheExpiredPrefixOfALargeSlidingWindow() {
+        let removed = "expired 🙂\n"
+        let retained = String(repeating: "retained line\n", count: 400)
+
+        #expect(
+            OutputTextUpdate.plan(
+                previous: removed + retained,
+                next: retained + "new tail\n",
+                previousHadANSI: false
+            ) == .trimPrefix(length: removed.utf16.count, append: "new tail\n")
+        )
+    }
+
+    @Test
+    func rerendersAnIncompleteTailWhileTrimmingASlidingWindow() {
+        let removed = "expired\n"
+        let completeLines = String(repeating: "retained line\n", count: 400)
+        let incompleteTail = "at example.Main.main(Main."
+        let retained = completeLines + incompleteTail
+
+        #expect(
+            OutputTextUpdate.plan(
+                previous: removed + retained,
+                next: retained + "java:42)\n",
+                previousHadANSI: false
+            ) == .trimPrefixAndReplaceTail(
+                prefixLength: removed.utf16.count,
+                tailLength: incompleteTail.utf16.count,
+                with: "at example.Main.main(Main.java:42)\n"
+            )
+        )
+    }
+
+    @Test
     func redrawsOnlyTheIncompleteTrailingLine() {
         #expect(
             OutputTextUpdate.plan(

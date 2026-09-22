@@ -17,9 +17,12 @@ struct RunView: View {
     @AppStorage("lithe.run.pinnedConfigurationIDs") private var pinnedConfigurationTokens = ""
     @AppStorage("lithe.run.configurationListCollapsed") private var isConfigurationListCollapsed = false
     @State private var pinnedConfigurationCache = RunConfigurationTokenCache()
-    /// The configuration whose editor popover is open. Held separately from the list
-    /// selection so opening an editor does not switch which log is shown.
-    @State private var editingConfigurationID: String?
+    /// The configuration whose editor popover is open; owned by the feature so
+    /// editor gutter markers can open it too.
+    private var editingConfigurationID: String? {
+        get { feature.editingConfigurationID }
+        nonmutating set { feature.editingConfigurationID = newValue }
+    }
 
     var body: some View {
         let _ = LitheSignpost.bodyEvaluated("RunView")
@@ -157,6 +160,24 @@ struct RunView: View {
                 diagnostic.message,
                 "info.circle.fill"
             )
+        }
+        switch feature.javaDiscoveryStatus {
+        case .loading:
+            return (
+                String(localized: "Waiting for the Java language service"),
+                String(localized: "Java entries appear after the Java language service lists runnable classes."),
+                "clock.fill"
+            )
+        case .stale:
+            return (
+                String(localized: "Refreshing Java entries"),
+                String(localized: "Showing the previous Java entries while the Java language service prepares the project."),
+                "clock.fill"
+            )
+        case .failed(let message):
+            return (String(localized: "Java entries could not be refreshed"), message, "exclamationmark.triangle.fill")
+        case .idle, .ready:
+            break
         }
         switch feature.generationState {
         case .projectNotReady:

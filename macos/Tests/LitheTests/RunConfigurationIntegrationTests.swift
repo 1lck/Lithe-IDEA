@@ -505,7 +505,7 @@ struct RunConfigurationIntegrationTests {
 
         let selected = DebugLaunchSourceResolver().configurationForDebug(
             selected: current,
-            activeDocumentText: "@Repository class UserRepository { }",
+            activeDocumentIsLaunchable: false,
             configurations: [current, springBoot]
         )
 
@@ -513,7 +513,7 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func debugFallsBackWhenCurrentEditorTextIsUnavailable() {
+    func debugFallsBackWhenJdtCannotConfirmTheCurrentFile() {
         let current = RunConfiguration(
             id: "current-file",
             name: "Current File",
@@ -533,7 +533,7 @@ struct RunConfigurationIntegrationTests {
 
         let selected = DebugLaunchSourceResolver().configurationForDebug(
             selected: current,
-            activeDocumentText: nil,
+            activeDocumentIsLaunchable: false,
             configurations: [current, springBoot]
         )
 
@@ -541,7 +541,7 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func debugKeepsCurrentJavaFileWhenItHasAMainMethod() {
+    func debugKeepsCurrentJavaFileWhenJdtListsItAsLaunchable() {
         let current = RunConfiguration(
             id: "current-file",
             name: "Current File",
@@ -561,7 +561,7 @@ struct RunConfigurationIntegrationTests {
 
         let selected = DebugLaunchSourceResolver().configurationForDebug(
             selected: current,
-            activeDocumentText: "public static void main(String[] args) { }",
+            activeDocumentIsLaunchable: true,
             configurations: [current, springBoot]
         )
 
@@ -933,6 +933,28 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func javaDiscoveryOffersNonConventionalSourceNamesToJDT() throws {
+        let root = URL(fileURLWithPath: "/tmp/java-semantic-tests", isDirectory: true)
+        let inheritedSuite = root.appendingPathComponent("src/checks/InheritedSuite.java")
+        let helper = root.appendingPathComponent("src/main/java/Helper.java")
+        let provider = try #require(LanguageTestProviderRegistry.standard().provider(id: "java"))
+
+        let items = provider.discoverTests(context: LanguageTestContext(
+            workspaceURL: root,
+            projectFiles: [
+                inheritedSuite,
+                helper,
+                root.appendingPathComponent("pom.xml"),
+            ]
+        ))
+
+        #expect(items.compactMap(\.fileURL) == [
+            inheritedSuite.standardizedFileURL,
+            helper.standardizedFileURL,
+        ])
+    }
+
+    @Test
     func testProvidersRejectFilesOutsideTheWorkspace() throws {
         let provider = try #require(LanguageTestProviderRegistry.standard().provider(id: "python"))
         #expect(throws: LanguageTestPlanError.fileOutsideWorkspace(
@@ -1159,7 +1181,9 @@ struct RunConfigurationIntegrationTests {
             }
         )
         var received: [Data] = []
+        var errorOutput: [Data] = []
         transport.onData = { received.append($0) }
+        transport.onErrorOutput = { errorOutput.append($0) }
         let initializeFrame = Data("Content-Length: 2\r\n\r\n{}".utf8)
 
         try transport.start(rootURL: URL(fileURLWithPath: "/tmp/go-dap"))
@@ -1170,10 +1194,15 @@ struct RunConfigurationIntegrationTests {
         #expect(request.arguments == ["dap", "--listen=127.0.0.1:0"])
         #expect(request.keepsStandardInputOpen == false)
 
-        process.onError?(Data("DAP server listening at: 127.0.0.1:43127\n".utf8))
+        let announcement = Data("日志🙂\nDAP server listening at: 127.0.0.1:43127\n".utf8)
+        process.onError?(Data(announcement.prefix(1)))
+        await Self.drainMainActorTasks()
+        process.onError?(Data(announcement.dropFirst()))
         await Self.drainMainActorTasks()
         #expect(endpoint?.0 == "127.0.0.1")
         #expect(endpoint?.1 == 43127)
+        let decodedErrorOutput = errorOutput.reduce(into: Data()) { $0.append($1) }
+        #expect(String(decoding: decodedErrorOutput, as: UTF8.self) == "日志🙂\nDAP server listening at: 127.0.0.1:43127\n")
         #expect(socket.startCount == 1)
         #expect(socket.sent.isEmpty)
 
@@ -3885,7 +3914,7 @@ struct RunConfigurationIntegrationTests {
         )
 
         #expect(throws: (any Error).self) {
-            try store.generate(at: root, files: [source], modulePaths: [])
+            try store.generate(at: root, files: [source], modulePaths: [], javaEntrypoints: nil)
         }
         #expect(try storage.readData(from: generatedURL, options: []) == original)
     }
@@ -4615,7 +4644,12 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: status, diagnostics: [])
     }
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: generationEntryCount ?? effective.count)
     }
     func resolve(
@@ -4726,7 +4760,12 @@ private final class BlockingInspectionOperations: RunConfigurationOperations, @u
         return ProjectRunConfigurationInspection(status: .missing, diagnostics: [])
     }
 
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 0)
     }
 
@@ -4769,7 +4808,12 @@ private final class BlockingGenerationOperations: RunConfigurationOperations, @u
         ProjectRunConfigurationInspection(status: .missing, diagnostics: [])
     }
 
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         didBlock.open()
         _ = release.waitSynchronously()
         return RunConfigurationGenerationResult(entryCount: 0)
@@ -5752,7 +5796,6 @@ private struct RunTestJavaMavenOperations: JavaMavenOperations {
     func className(source: String, simpleName: String) -> String? { nil }
     func sourceDefinition(source: String, declarationName: String, memberName: String?) -> (line: Int, utf16Column: Int)? { nil }
     func serverPort(content: String, fileExtension: String) -> Int? { nil }
-    func scanRunConfigurations(at rootURL: URL, files: [URL], mavenProject: MavenProject?) -> [JavaRunConfiguration] { [] }
     func structure(source: String, declarationSources: [String]) -> JavaStructureResult? { nil }
 }
 

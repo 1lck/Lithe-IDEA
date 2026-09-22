@@ -465,6 +465,40 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
     }
 
+    /// Asks JDT, through Core, which classes in the workspace can be launched.
+    package func javaEntrypoints(
+        completion: @escaping (Result<JavaEntrypoints, Error>) -> Void
+    ) throws {
+        try request(.javaEntrypoints, fileURL: nil) { result in
+            completion(result.flatMap {
+                Self.decodeEventResult($0, as: JavaEntrypoints.self)
+            })
+        }
+    }
+
+    package func javaTestItems(
+        fileURL: URL,
+        completion: @escaping (Result<JavaTestItems, Error>) -> Void
+    ) throws {
+        try request(.javaTestItems, fileURL: fileURL) { result in
+            completion(result.flatMap {
+                Self.decodeEventResult($0, as: JavaTestItems.self)
+            })
+        }
+    }
+
+    /// Asks JDT, through Core, which `main` methods in one file can be launched.
+    package func javaMainMethods(
+        fileURL: URL,
+        completion: @escaping (Result<JavaMainMethods, Error>) -> Void
+    ) throws {
+        try request(.javaMainMethods, fileURL: fileURL) { result in
+            completion(result.flatMap {
+                Self.decodeEventResult($0, as: JavaMainMethods.self)
+            })
+        }
+    }
+
     package func resolveVirtualDocument(
         uri: String,
         completion: @escaping (Result<String, Error>) -> Void

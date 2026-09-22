@@ -48,6 +48,10 @@ import {
 } from "../utils/run-configuration";
 import { editorSaveFailureMessage, runEditorSaveWorkflow } from "../services/run-editor-save";
 import { prepareJavaRunLaunch, usesJavaProjectPreparation } from "../services/java-run-launch";
+import {
+  discoverJavaEntrypoints,
+  whenJavaProjectPrepared,
+} from "../services/java-entrypoint-discovery";
 import { rebuildJavaIndexForWorkspace } from "@/features/editor/lsp/java-index-recovery";
 import type { JavaBuildFailure } from "@/platform/java-launch-readiness";
 import {
@@ -76,8 +80,19 @@ export interface JavaLaunchDecision {
   failure: JavaBuildFailure;
 }
 
+/**
+ * Where the Java entries in the Run list come from.
+ *
+ * `ready` is JDT's current answer; `stale` shows the previous answer while the
+ * Java service prepares the project; `loading` has no previous answer yet;
+ * `failed` keeps the previous list and reports why it could not refresh.
+ */
+export type JavaDiscoveryStatus = "idle" | "loading" | "ready" | "stale" | "failed";
+
 interface RunState {
   root: string | null;
+  javaDiscovery: JavaDiscoveryStatus;
+  javaDiscoveryMessage: string | null;
   status: RunConfigurationStatus;
   isLoading: boolean;
   isGenerating: boolean;
@@ -95,6 +110,8 @@ interface RunState {
   sessions: RunSession[];
   selectedSessionId: string | null;
   saveError: string | null;
+  /** Configuration whose editor is open, requested from the Run pane or the editor gutter. */
+  editingConfigurationId: string | null;
   generationNotice: string | null;
   javaLaunchDecisions: Record<string, JavaLaunchDecision>;
   discoveredJava: JavaRuntime[];
@@ -107,6 +124,7 @@ interface RunState {
     generate: (root: string) => Promise<void>;
     selectConfiguration: (id: string | null) => void;
     selectSession: (id: string | null) => void;
+    editConfiguration: (id: string | null) => void;
     runConfiguration: (
       id: string,
       currentFile?: string,
@@ -149,6 +167,11 @@ export interface RunStoreDependencies {
   javaBuildFailurePolicyForWorkspace?: typeof javaBuildFailurePolicyForWorkspace;
   setJavaBuildFailurePolicy?: (workspace: string, policy: "ask" | "alwaysProceed") => void;
   presentJavaLaunchDecision?: (workspaceId: string) => void;
+  discoverJavaEntrypoints?: typeof discoverJavaEntrypoints;
+  whenJavaProjectPrepared?: typeof whenJavaProjectPrepared;
+  listJavaSources?: typeof listJavaSources;
+  generateRunConfiguration?: typeof generateRunConfiguration;
+  writeGeneratedRunDocuments?: typeof writeGeneratedRunDocuments;
 }
 
 const defaultRunStoreDependencies: RunStoreDependencies = {
@@ -353,8 +376,16 @@ export const createRunStore = (
     { decisionId: string; executionId: string; resolve: (proceed: boolean) => void }
   >();
   let projectLoadRevision = 0;
+  // At most one pending refresh: a newer generation or project load replaces it.
+  let stopWaitingForJavaProject: (() => void) | null = null;
+  const cancelJavaRefresh = () => {
+    stopWaitingForJavaProject?.();
+    stopWaitingForJavaProject = null;
+  };
   return createStore<RunState>()((set, get) => ({
     root: null,
+    javaDiscovery: "idle",
+    javaDiscoveryMessage: null,
     status: "missing",
     isLoading: false,
     isGenerating: false,
@@ -370,6 +401,7 @@ export const createRunStore = (
     sessions: [],
     selectedSessionId: null,
     saveError: null,
+    editingConfigurationId: null,
     generationNotice: null,
     javaLaunchDecisions: {},
     discoveredJava: [],
@@ -379,13 +411,16 @@ export const createRunStore = (
     effectiveRuntimeExecutablePaths: {},
     actions: {
       loadProject: async (root) => {
+        cancelJavaRefresh();
         for (const pending of pendingJavaLaunchDecisions.values()) pending.resolve(false);
         pendingJavaLaunchDecisions.clear();
         const revision = ++projectLoadRevision;
         set({
           root,
           isLoading: true,
+          isGenerating: false,
           saveError: null,
+          editingConfigurationId: root === get().root ? get().editingConfigurationId : null,
           generationNotice: null,
           javaLaunchDecisions: {},
         });
@@ -421,21 +456,72 @@ export const createRunStore = (
       },
 
       generate: async (root) => {
-        set({ isGenerating: true, isLoading: true, generationNotice: null, saveError: null });
+        cancelJavaRefresh();
+        const revision = ++projectLoadRevision;
+        const isCurrent = () => revision === projectLoadRevision && get().root === root;
+        set({
+          root,
+          isGenerating: true,
+          isLoading: true,
+          generationNotice: null,
+          saveError: null,
+        });
         try {
-          const paths = await listJavaSources(root);
-          const generated = await generateRunConfiguration(root, paths);
-          await writeGeneratedRunDocuments({
+          const paths = await (dependencies.listJavaSources ?? listJavaSources)(root);
+          if (!isCurrent()) return;
+          // JDT decides which classes are launchable. Until it has prepared
+          // the project, Core keeps the previous generation's Java entries.
+          const discovery =
+            paths.length === 0
+              ? null
+              : await (dependencies.discoverJavaEntrypoints ?? discoverJavaEntrypoints)(
+                  { workspaceId, root },
+                  paths,
+                );
+          if (!isCurrent()) return;
+          const generated = await (dependencies.generateRunConfiguration ?? generateRunConfiguration)(
+            root,
+            paths,
+            [],
+            discovery?.kind === "discovered" ? discovery.entrypoints : undefined,
+          );
+          if (!isCurrent()) return;
+          await (dependencies.writeGeneratedRunDocuments ?? writeGeneratedRunDocuments)({
             root,
             generated: generated.generated,
             toolchainRequirements: generated.toolchainRequirements,
             defaultRunConfiguration: defaultGeneratedConfigurationId(generated.generated),
           });
+          if (!isCurrent()) return;
           const resolved = await (dependencies.resolveConfigurations ?? resolveConfigurations)(root, workspaceId);
+          if (!isCurrent()) return;
           const notice =
             generated.entryCount === 0 ? "no-entries" : `generated:${generated.entryCount}`;
+          const hasJavaEntries = resolved.configurations.some(
+            (configuration) => configuration.provider === "java.main",
+          );
+          const javaDiscovery: JavaDiscoveryStatus =
+            discovery === null
+              ? "idle"
+              : discovery.kind === "discovered"
+                ? "ready"
+                : discovery.kind === "failed"
+                  ? "failed"
+                  : hasJavaEntries
+                    ? "stale"
+                    : "loading";
+          if (discovery?.kind === "pending") {
+            stopWaitingForJavaProject = (
+              dependencies.whenJavaProjectPrepared ?? whenJavaProjectPrepared
+            )(root, () => {
+              stopWaitingForJavaProject = null;
+              if (get().root === root) void get().actions.generate(root);
+            });
+          }
           set({
             root,
+            javaDiscovery,
+            javaDiscoveryMessage: discovery?.kind === "failed" ? discovery.message : null,
             status: "ready",
             recoveryAction: "none",
             recoveryPath: undefined,
@@ -458,6 +544,7 @@ export const createRunStore = (
             isLoading: false,
           });
         } catch (error) {
+          if (!isCurrent()) return;
           const message = error instanceof Error ? error.message : "Project identification failed";
           set({
             status: "invalid",
@@ -472,6 +559,7 @@ export const createRunStore = (
 
       selectConfiguration: (id) => set({ selectedConfigurationId: id, selectedSessionId: id }),
       selectSession: (id) => set({ selectedSessionId: id }),
+      editConfiguration: (id) => set({ editingConfigurationId: id }),
 
       runConfiguration: async (id, currentFile, debugPort) => {
         const instance = await get().actions.runConfigurationInstance(id, currentFile, debugPort);

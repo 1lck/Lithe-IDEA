@@ -2,6 +2,9 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
+node scripts/verify-java-semantic-ownership.mjs
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 $cppFiles = Get-ChildItem windows -Recurse -File -Include *.cpp,*.h |
     Where-Object {
         $_.FullName -notmatch '[\\/](node_modules|target|dist)[\\/]'

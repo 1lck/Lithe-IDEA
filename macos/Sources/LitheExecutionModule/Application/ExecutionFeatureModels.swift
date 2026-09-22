@@ -190,6 +190,10 @@ package final class RunFeatureModel: ObservableObject {
     private var observation: AnyCancellable?
     @Published package var isGenerationConfirmationPresented = false
     package private(set) var generationIntent: RunConfigurationGenerationIntent = .identifyOnly
+    /// Configuration whose editor is open, requested from the Run tool window
+    /// or an editor gutter marker. Separate from the list selection so opening
+    /// an editor does not switch which log is shown.
+    @Published package var editingConfigurationID: String?
 
     package init(service: RunService) {
         self.service = service
@@ -232,6 +236,7 @@ package final class RunFeatureModel: ObservableObject {
     package var configurationStatus: ProjectRunConfigurationStatus { service.configurationStatus }
     package var configurationDiagnostics: [RunConfigurationDiagnostic] { service.configurationDiagnostics }
     package var generationState: RunConfigurationGenerationState { service.generationState }
+    package var javaDiscoveryStatus: JavaDiscoveryStatus { service.javaDiscoveryStatus }
     package var projectLoadState: ProjectLoadState { service.projectLoadState }
     package func reportGenerationProjectNotReady() { service.reportGenerationProjectNotReady() }
     package var recoveryAction: RunConfigurationRecoveryAction { service.recoveryAction }
@@ -361,9 +366,11 @@ package final class RunFeatureModel: ObservableObject {
         await service.loadProject(at: workspaceURL, files: files, mavenProject: mavenProject, snapshotID: snapshotID)
     }
 
-    package func generateRunConfigurations() async {
+    package func generateRunConfigurations(
+        javaDiscovery: JavaEntrypointDiscovery = .notJava
+    ) async {
         isGenerationConfirmationPresented = false
-        await service.generateRunConfigurations()
+        await service.generateRunConfigurations(javaDiscovery: javaDiscovery)
     }
 
     package func requestRunConfigurationGeneration(intent: RunConfigurationGenerationIntent = .identifyOnly) {

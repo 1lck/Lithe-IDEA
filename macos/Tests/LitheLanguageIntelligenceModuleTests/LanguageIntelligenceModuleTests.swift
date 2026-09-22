@@ -516,19 +516,20 @@ struct LanguageIntelligenceModuleTests {
         try await session.waitUntilStarted()
         session.publish(.ready)
         let command = try await session.waitForExecuteCommand()
-        #expect(command.command == "vscode.java.resolveMainClass")
-        #expect(command.arguments.isEmpty)
-        session.completeExecuteReturningValue(.success(.array([
-            .object([
-                "mainClass": .string("other/example.Main"),
-                "projectName": .string("other"),
-                "filePath": .string(root.appendingPathComponent("other/Main.java").path),
-            ]),
-            .object([
-                "mainClass": .string("service/example.Main"),
-                "projectName": .string("service"),
-                "filePath": .string(source.path),
-            ]),
+        // Core asks JDT and normalizes the answer; the launch picks the entry
+        // generated from this exact source file.
+        #expect(command.command == "javaEntrypoints")
+        session.completeJavaEntrypoints(.success(JavaEntrypoints(entries: [
+            JavaEntrypoint(
+                sourcePath: "other/Main.java",
+                mainClass: "other/example.Main",
+                projectName: "other"
+            ),
+            JavaEntrypoint(
+                sourcePath: "service/src/main/java/example/Main.java",
+                mainClass: "service/example.Main",
+                projectName: "service"
+            ),
         ])))
 
         let buildCommand = try await session.waitForExecuteCommand(number: 2)
@@ -579,12 +580,12 @@ struct LanguageIntelligenceModuleTests {
         try await session.waitUntilStarted()
         session.publish(.ready)
         _ = try await session.waitForExecuteCommand()
-        session.completeExecuteReturningValue(.success(.array([
-            .object([
-                "mainClass": .string("service/example.Main"),
-                "projectName": .string("service"),
-                "filePath": .string(source.path),
-            ]),
+        session.completeJavaEntrypoints(.success(JavaEntrypoints(entries: [
+            JavaEntrypoint(
+                sourcePath: "service/src/main/java/example/Main.java",
+                mainClass: "service/example.Main",
+                projectName: "service"
+            ),
         ])))
 
         let buildCommand = try await session.waitForExecuteCommand(number: 2)
@@ -626,7 +627,6 @@ struct LanguageIntelligenceModuleTests {
     func javaDebugLaunchTargetDoesNotBorrowAnotherFileWhenJdtlsReportsItsPath() async throws {
         let root = URL(fileURLWithPath: "/workspace/java-debug", isDirectory: true)
         let source = root.appendingPathComponent("service/src/main/java/example/UserService.java")
-        let otherMain = root.appendingPathComponent("service/src/main/java/example/Main.java")
         let descriptor = try #require(
             LanguageProviderCatalog.compatibilityFallback.provider(for: source)
         )
@@ -646,12 +646,12 @@ struct LanguageIntelligenceModuleTests {
         try await session.waitUntilStarted()
         session.publish(.ready)
         _ = try await session.waitForExecuteCommand()
-        session.completeExecuteReturningValue(.success(.array([
-            .object([
-                "mainClass": .string("service/example.Main"),
-                "projectName": .string("service"),
-                "filePath": .string(otherMain.path),
-            ])
+        session.completeJavaEntrypoints(.success(JavaEntrypoints(entries: [
+            JavaEntrypoint(
+                sourcePath: "service/src/main/java/example/Main.java",
+                mainClass: "service/example.Main",
+                projectName: "service"
+            ),
         ])))
 
         await #expect(throws: LanguageToolingSessionError.toolingUnavailable(
@@ -686,54 +686,51 @@ struct LanguageIntelligenceModuleTests {
         try await session.waitUntilStarted()
         session.publish(.ready)
         let discovery = try await session.waitForExecuteCommand()
-        #expect(discovery.command == "vscode.java.test.findTestTypesAndMethods")
+        #expect(discovery.command == "javaTestItems")
         #expect(discovery.arguments == [.string(source.standardizedFileURL.absoluteString)])
-        session.completeExecuteReturningValue(.success(.array([
-            .object([
-                "id": .string("service@example.UserServiceTest"),
-                "label": .string("UserServiceTest"),
-                "fullName": .string("example.UserServiceTest"),
-                "projectName": .string("service"),
-                "testKind": .integer(0),
-                "testLevel": .integer(5),
-                "jdtHandler": .string("class-handler"),
-                "sortText": .string("002"),
-                "children": .array([
-                    .object([
-                        "id": .string("service@example.UserServiceTest#logsOut"),
-                        "label": .string("logsOut()"),
-                        "fullName": .string("example.UserServiceTest#logsOut"),
-                        "projectName": .string("service"),
-                        "testKind": .integer(0),
-                        "testLevel": .integer(6),
-                        "jdtHandler": .string("logout-handler"),
-                        "sortText": .string("002"),
-                        "children": .array([]),
-                    ]),
-                    .object([
-                        "id": .string("service@example.UserServiceTest#logsIn"),
-                        "label": .string("logsIn()"),
-                        "fullName": .string("example.UserServiceTest#logsIn"),
-                        "projectName": .string("service"),
-                        "testKind": .integer(0),
-                        "testLevel": .integer(6),
-                        "jdtHandler": .string("login-handler"),
-                        "sortText": .string("001"),
-                        "children": .array([]),
-                    ]),
-                ]),
-            ]),
-            .object([
-                "id": .string("service@example.AccountTest"),
-                "label": .string("AccountTest"),
-                "fullName": .string("example.AccountTest"),
-                "projectName": .string("service"),
-                "testKind": .integer(0),
-                "testLevel": .integer(5),
-                "jdtHandler": .string("account-handler"),
-                "sortText": .string("001"),
-                "children": .array([]),
-            ]),
+        session.completeJavaTestItems(.success(JavaTestItems(items: [
+            JavaTestItem(
+                id: "service@example.UserServiceTest",
+                label: "UserServiceTest",
+                fullName: "example.UserServiceTest",
+                projectName: "service",
+                kind: 0,
+                level: 5,
+                jdtHandler: "class-handler",
+                sortText: "002",
+                children: [
+                    JavaTestItem(
+                        id: "service@example.UserServiceTest#logsOut",
+                        label: "logsOut()",
+                        fullName: "example.UserServiceTest#logsOut",
+                        projectName: "service",
+                        kind: 0,
+                        level: 6,
+                        jdtHandler: "logout-handler",
+                        sortText: "002"
+                    ),
+                    JavaTestItem(
+                        id: "service@example.UserServiceTest#logsIn",
+                        label: "logsIn()",
+                        fullName: "example.UserServiceTest#logsIn",
+                        projectName: "service",
+                        kind: 0,
+                        level: 6,
+                        jdtHandler: "login-handler",
+                        sortText: "001"
+                    ),
+                ]
+            ),
+            JavaTestItem(
+                id: "service@example.AccountTest",
+                label: "AccountTest",
+                fullName: "example.AccountTest",
+                projectName: "service",
+                kind: 0,
+                level: 5,
+                jdtHandler: "account-handler",
+                sortText: "001"
+            ),
         ])))
 
         let items = try await task.value
@@ -779,30 +776,29 @@ struct LanguageIntelligenceModuleTests {
         try await session.waitUntilStarted()
         session.publish(.ready)
         let discovery = try await session.waitForExecuteCommand()
-        #expect(discovery.command == "vscode.java.test.findTestTypesAndMethods")
+        #expect(discovery.command == "javaTestItems")
         #expect(discovery.arguments == [.string(source.standardizedFileURL.absoluteString)])
-        session.completeExecuteReturningValue(.success(.array([
-            .object([
-                "id": .string("service@example.UserServiceTest"),
-                "label": .string("UserServiceTest"),
-                "fullName": .string("example.UserServiceTest"),
-                "projectName": .string("service"),
-                "testKind": .integer(0),
-                "testLevel": .integer(5),
-                "jdtHandler": .string("=service/src<example{UserServiceTest.java[UserServiceTest"),
-                "children": .array([
-                    .object([
-                        "id": .string("service@example.UserServiceTest#logsIn"),
-                        "label": .string("logsIn()"),
-                        "fullName": .string("example.UserServiceTest#logsIn"),
-                        "projectName": .string("service"),
-                        "testKind": .integer(0),
-                        "testLevel": .integer(6),
-                        "jdtHandler": .string("=service/src<example{UserServiceTest.java[UserServiceTest~logsIn"),
-                        "children": .array([]),
-                    ]),
-                ]),
-            ]),
+        session.completeJavaTestItems(.success(JavaTestItems(items: [
+            JavaTestItem(
+                id: "service@example.UserServiceTest",
+                label: "UserServiceTest",
+                fullName: "example.UserServiceTest",
+                projectName: "service",
+                kind: 0,
+                level: 5,
+                jdtHandler: "=service/src<example{UserServiceTest.java[UserServiceTest",
+                children: [
+                    JavaTestItem(
+                        id: "service@example.UserServiceTest#logsIn",
+                        label: "logsIn()",
+                        fullName: "example.UserServiceTest#logsIn",
+                        projectName: "service",
+                        kind: 0,
+                        level: 6,
+                        jdtHandler: "=service/src<example{UserServiceTest.java[UserServiceTest~logsIn"
+                    ),
+                ]
+            ),
         ])))
 
         let launchCommand = try await session.waitForExecuteCommand(number: 2)
@@ -873,28 +869,27 @@ struct LanguageIntelligenceModuleTests {
         try await session.waitUntilStarted()
         session.publish(.ready)
         _ = try await session.waitForExecuteCommand()
-        session.completeExecuteReturningValue(.success(.array([
-            .object([
-                "id": .string("service@example.UserServiceTest"),
-                "label": .string("UserServiceTest"),
-                "fullName": .string("example.UserServiceTest"),
-                "projectName": .string("service"),
-                "testKind": .integer(2),
-                "testLevel": .integer(5),
-                "jdtHandler": .string("class-handler"),
-                "children": .array([
-                    .object([
-                        "id": .string(methodID),
-                        "label": .string("logsIn()"),
-                        "fullName": .string("example.UserServiceTest#logsIn"),
-                        "projectName": .string("service"),
-                        "testKind": .integer(2),
-                        "testLevel": .integer(6),
-                        "jdtHandler": .string("method-handler"),
-                        "children": .array([]),
-                    ]),
-                ]),
-            ]),
+        session.completeJavaTestItems(.success(JavaTestItems(items: [
+            JavaTestItem(
+                id: "service@example.UserServiceTest",
+                label: "UserServiceTest",
+                fullName: "example.UserServiceTest",
+                projectName: "service",
+                kind: 2,
+                level: 5,
+                jdtHandler: "class-handler",
+                children: [
+                    JavaTestItem(
+                        id: methodID,
+                        label: "logsIn()",
+                        fullName: "example.UserServiceTest#logsIn",
+                        projectName: "service",
+                        kind: 2,
+                        level: 6,
+                        jdtHandler: "method-handler"
+                    ),
+                ]
+            ),
         ])))
 
         let launchCommand = try await session.waitForExecuteCommand(number: 2)
@@ -1266,6 +1261,8 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
     )] = [:]
     private var executeTimeoutTasks: [UUID: Task<Void, Never>] = [:]
     private var executeValueCompletion: ((Result<ToolingJSONValue, Error>) -> Void)?
+    private var javaEntrypointsCompletion: ((Result<JavaEntrypoints, Error>) -> Void)?
+    private var javaTestItemsCompletion: ((Result<JavaTestItems, Error>) -> Void)?
 
     func start(rootURL: URL, workspaceFingerprint: String?) throws {
         try start(
@@ -1377,6 +1374,18 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
         completion?(result)
     }
 
+    func completeJavaEntrypoints(_ result: Result<JavaEntrypoints, Error>) {
+        let completion = javaEntrypointsCompletion
+        javaEntrypointsCompletion = nil
+        completion?(result)
+    }
+
+    func completeJavaTestItems(_ result: Result<JavaTestItems, Error>) {
+        let completion = javaTestItemsCompletion
+        javaTestItemsCompletion = nil
+        completion?(result)
+    }
+
     func synchronize(fileURL _: URL, text _: String, languageID _: String) throws {}
     func closeDocument(_: URL) {}
 
@@ -1454,13 +1463,39 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
         throw WorkspaceStateSessionError.unexpectedOperation
     }
 
+    func javaEntrypoints(
+        completion: @escaping (Result<JavaEntrypoints, Error>) -> Void
+    ) throws {
+        // Recorded in the command sequence so tests observe it in request order.
+        javaEntrypointsCompletion = completion
+        recordExecutedCommand(
+            LanguageServerCommand(title: "javaEntrypoints", command: "javaEntrypoints", arguments: [])
+        )
+    }
+
+    func javaTestItems(
+        fileURL: URL,
+        completion: @escaping (Result<JavaTestItems, Error>) -> Void
+    ) throws {
+        javaTestItemsCompletion = completion
+        recordExecutedCommand(LanguageServerCommand(
+            title: "javaTestItems",
+            command: "javaTestItems",
+            arguments: [.string(fileURL.standardizedFileURL.absoluteString)]
+        ))
+    }
+
     func executeReturningValue(
         _ command: LanguageServerCommand,
         fileURL _: URL,
         completion: @escaping (Result<ToolingJSONValue, Error>) -> Void
     ) throws {
-        executedCommands.append(command)
         executeValueCompletion = completion
+        recordExecutedCommand(command)
+    }
+
+    private func recordExecutedCommand(_ command: LanguageServerCommand) {
+        executedCommands.append(command)
         let readyWaiterIDs = executeWaiters.compactMap { waiterID, waiter in
             waiter.number <= executedCommands.count ? waiterID : nil
         }
@@ -1492,6 +1527,9 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
         let completion = executeValueCompletion
         executeValueCompletion = nil
         completion?(.failure(CancellationError()))
+        let testCompletion = javaTestItemsCompletion
+        javaTestItemsCompletion = nil
+        testCompletion?(.failure(CancellationError()))
     }
 
     private func finishStartWaiter(_ waiterID: UUID, result: Result<Void, Error>) {

@@ -19,9 +19,8 @@ use crate::git::{
 };
 use crate::github::{NormalizeResponseRequest, ParseRemoteRequest, RequestPlanRequest};
 use crate::languages::{
-    JavaClassNameRequest, JavaCodeVisionRequest, JavaRunConfigurationsRequest,
-    JavaServerPortRequest, JavaSourceDefinitionRequest, JavaStructureRequest,
-    JavaTestMethodsRequest, MybatisIndexRequest, SpringIndexRequest,
+    JavaClassNameRequest, JavaCodeVisionRequest, JavaServerPortRequest,
+    JavaSourceDefinitionRequest, JavaStructureRequest, MybatisIndexRequest, SpringIndexRequest,
 };
 use crate::project::{
     self, DocumentLifecycleRequest, FileReadRequest, FileWriteRequest, ReplacementPreviewRequest,
@@ -1057,6 +1056,21 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::JavaRunMarkers => {
+            match serde_json::from_value::<crate::lsp::JavaRunMarkersRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid Java Run-marker request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::java_run_markers)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Java Run markers should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::JavaWorkspacePolicy => {
             match serde_json::from_value::<crate::lsp::JavaWorkspacePolicyRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1320,25 +1334,6 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
-        CoreCommand::JavaRunConfigurations => {
-            match serde_json::from_value::<JavaRunConfigurationsRequest>(parsed.payload)
-                .map_err(|error| {
-                    CoreError::new(
-                        ErrorCode::InvalidRequest,
-                        "Invalid Java run configuration request",
-                    )
-                    .with_details(error.to_string())
-                })
-                .and_then(crate::languages::run_configurations)
-            {
-                Ok(data) => CoreResponse::success(
-                    id,
-                    serde_json::to_value(data)
-                        .expect("Java run configuration response should encode"),
-                ),
-                Err(error) => CoreResponse::failure(id, error),
-            }
-        }
         CoreCommand::RunConfigInspect => {
             match serde_json::from_value::<crate::execution::InspectRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1487,24 +1482,6 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Java source definition should encode"),
-                ),
-                Err(error) => CoreResponse::failure(id, error),
-            }
-        }
-        CoreCommand::JavaTestMethods => {
-            match serde_json::from_value::<JavaTestMethodsRequest>(parsed.payload)
-                .map_err(|error| {
-                    CoreError::new(
-                        ErrorCode::InvalidRequest,
-                        "Invalid Java test methods request",
-                    )
-                    .with_details(error.to_string())
-                })
-                .and_then(crate::languages::test_methods)
-            {
-                Ok(data) => CoreResponse::success(
-                    id,
-                    serde_json::to_value(data).expect("Java test methods should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

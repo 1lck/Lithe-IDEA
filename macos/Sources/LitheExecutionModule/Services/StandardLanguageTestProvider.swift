@@ -178,7 +178,10 @@ package struct StandardLanguageTestProvider: LanguageTestProvider {
         let relative = relativePath(url, root: root).lowercased()
         switch descriptor.id {
         case "java":
-            return relative.contains("/src/test/") || name.hasSuffix("test.java") || name.hasSuffix("tests.java")
+            // JDT/Java Test owns semantic test discovery. Every Java source is
+            // offered to it so inherited tests, custom composed annotations,
+            // and non-conventional file names are not filtered out locally.
+            return true
         case "go":
             return name.hasSuffix("_test.go")
         case "python":

@@ -214,7 +214,8 @@ struct ProjectRuntimeSettings: Codable, Hashable, Sendable {
 }
 
 struct JavaRuntimeCandidate: Identifiable, Hashable, Sendable {
-    static let minimumJDTLSMajorVersion = 17
+    /// JDT LS 1.44 and later refuse to start on an older Java runtime.
+    static let minimumJDTLSMajorVersion = 21
 
     let homePath: String
     let version: String

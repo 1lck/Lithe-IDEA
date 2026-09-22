@@ -807,6 +807,7 @@ async function createSession(args: JsonRecord, key: string): Promise<Session> {
         cacheDirectory: args.cacheDirectory ?? null,
         workspaceFingerprint: args.workspaceFingerprint ?? null,
         mavenContext: args.mavenContext ?? null,
+        javaRuntimes: args.javaRuntimes ?? [],
         initializeTimeoutMilliseconds: INITIALIZE_TIMEOUT_MS,
         requestTimeoutMilliseconds: LSP_REQUEST_TIMEOUT_MS,
         javaBuildTimeoutMilliseconds: JAVA_BUILD_TIMEOUT_MS,
@@ -1083,6 +1084,146 @@ async function requestOperation(
       void dispatchSessionEvent(session, completed);
     }
   });
+}
+
+/** A class JDT confirmed the JVM can launch, as normalized by Core. */
+export interface JavaEntrypoint {
+  sourcePath: string;
+  mainClass: string;
+  projectName?: string;
+}
+
+/** Core's `javaEntrypoints` answer (schema version 1). */
+export interface JavaEntrypoints {
+  schemaVersion: 1;
+  entries: JavaEntrypoint[];
+  diagnostics: Array<{ code: string; mainClass?: string; detail?: string }>;
+}
+
+export interface JavaTestRange {
+  startLine: number;
+  startUtf16Column: number;
+  endLine: number;
+  endUtf16Column: number;
+}
+
+/** One launchable `main` method JDT reported for a source file. */
+export interface JavaMainMethod {
+  mainClass: string;
+  projectName?: string;
+  /** Zero-based UTF-16 range of the method name. */
+  range: JavaTestRange;
+}
+
+/** Core's normalized `javaMainMethods` answer (schema version 1). */
+export interface JavaMainMethods {
+  schemaVersion: 1;
+  methods: JavaMainMethod[];
+  diagnostics: Array<{ code: string; mainClass?: string }>;
+}
+
+/** One test class or method semantically identified by Java Test/JDT. */
+export interface JavaTestItem {
+  id: string;
+  label: string;
+  fullName: string;
+  projectName: string;
+  testKind: number;
+  testLevel: number;
+  jdtHandler?: string;
+  sortText?: string;
+  range?: JavaTestRange;
+  children: JavaTestItem[];
+}
+
+/** Core's normalized `javaTestItems` answer (schema version 1). */
+export interface JavaTestItems {
+  schemaVersion: 1;
+  items: JavaTestItem[];
+  diagnostics: Array<{ code: string; detail?: string }>;
+}
+
+async function requestJavaEntrypoints(session: Session): Promise<JavaEntrypoints> {
+  const value = normalizeCoreValue(
+    await requestOperation(session, { sessionId: session.id, operation: "javaEntrypoints" }),
+  ) as Partial<JavaEntrypoints> | null;
+  if (value?.schemaVersion !== 1 || !Array.isArray(value.entries)) {
+    throw lspAdapterError(
+      "invalid_response",
+      "The Java language service returned an invalid entry-point list.",
+    );
+  }
+  return {
+    schemaVersion: 1,
+    entries: value.entries,
+    diagnostics: Array.isArray(value.diagnostics) ? value.diagnostics : [],
+  };
+}
+
+async function requestJavaTestItems(session: Session, filePath: string): Promise<JavaTestItems> {
+  const value = normalizeCoreValue(
+    await requestOperation(session, {
+      sessionId: session.id,
+      operation: "javaTestItems",
+      uri: fileUri(filePath),
+    }),
+  ) as Partial<JavaTestItems> | null;
+  if (value?.schemaVersion !== 1 || !Array.isArray(value.items)) {
+    throw lspAdapterError(
+      "invalid_response",
+      "The Java language service returned an invalid test-item list.",
+    );
+  }
+  return {
+    schemaVersion: 1,
+    items: value.items,
+    diagnostics: Array.isArray(value.diagnostics) ? value.diagnostics : [],
+  };
+}
+
+async function requestJavaMainMethods(
+  session: Session,
+  filePath: string,
+): Promise<JavaMainMethods> {
+  const value = normalizeCoreValue(
+    await requestOperation(session, {
+      sessionId: session.id,
+      operation: "javaMainMethods",
+      uri: fileUri(filePath),
+    }),
+  ) as Partial<JavaMainMethods> | null;
+  if (value?.schemaVersion !== 1 || !Array.isArray(value.methods)) {
+    throw lspAdapterError(
+      "invalid_response",
+      "The Java language service returned an invalid main-method list.",
+    );
+  }
+  return {
+    schemaVersion: 1,
+    methods: value.methods,
+    diagnostics: Array.isArray(value.diagnostics) ? value.diagnostics : [],
+  };
+}
+
+/** Workspace-relative comparison key for an absolute path, or null outside it. */
+function workspaceRelativeKey(workspacePath: string, filePath: string): string | null {
+  const root = normalizedPathKey(workspacePath).replace(/\/+$/, "");
+  const file = normalizedPathKey(filePath);
+  return file.startsWith(`${root}/`) ? file.slice(root.length + 1) : null;
+}
+
+/** Comparison key for a workspace-relative path, folded like its workspace. */
+function relativePathKey(workspacePath: string, relativePath: string): string {
+  const normalized = relativePath.replace(/\\/g, "/");
+  // Same rule as `normalizedPathKey`: drive and UNC workspaces fold case.
+  return /^(?:[A-Za-z]:\/|\/\/)/.test(workspacePath.replace(/\\/g, "/"))
+    ? normalized.toLowerCase()
+    : normalized;
+}
+
+/** JDT reports modular classes as `module/pkg.Type`; configurations keep `pkg.Type`. */
+function mainClassMatches(reported: string, configured: string): boolean {
+  return reported === configured || reported.endsWith(`/${configured}`);
 }
 
 export const LSP_OPERATION_BY_COMMAND = {
@@ -1461,6 +1602,23 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     ) as JsonRecord;
     return parseDebugServerPort(result?.value) as T;
   }
+  if (command === "java_entrypoints") {
+    return (await requestJavaEntrypoints(
+      sessionForWorkspace(String(args.workspacePath ?? ""), "java"),
+    )) as T;
+  }
+  if (command === "java_test_items") {
+    return (await requestJavaTestItems(
+      sessionForWorkspace(String(args.workspacePath ?? ""), "java"),
+      String(args.filePath ?? ""),
+    )) as T;
+  }
+  if (command === "java_main_methods") {
+    return (await requestJavaMainMethods(
+      sessionForWorkspace(String(args.workspacePath ?? ""), "java"),
+      String(args.filePath ?? ""),
+    )) as T;
+  }
   if (command === "java_prepare_run_launch") {
     const workspacePath = String(args.workspacePath ?? "");
     const sourcePath = String(args.sourcePath ?? "");
@@ -1486,41 +1644,29 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
       ) as JsonRecord;
       return result?.value;
     };
-    const candidates = await execute("Resolve Java Main Class", "vscode.java.resolveMainClass", []);
-    if (!Array.isArray(candidates)) {
-      throw lspAdapterError(
-        "invalid_response",
-        "The Java language service returned an invalid main-class list.",
-      );
-    }
-    const exact = candidates.filter((candidate): candidate is JsonRecord => {
-      if (!candidate || typeof candidate !== "object") return false;
-      const filePath = typeof candidate.filePath === "string" ? candidate.filePath : "";
-      return filePath.length > 0 && normalizedPathKey(filePath) === normalizedPathKey(sourcePath);
-    });
-    const pathlessMatches = candidates.filter((candidate): candidate is JsonRecord =>
-      Boolean(
-        candidate &&
-        typeof candidate === "object" &&
-        candidate.mainClass === configuredMainClass &&
-        typeof candidate.filePath !== "string",
-      ),
+    // Core asks JDT for launchable classes and normalizes the answer; the
+    // target is the entry generated from this exact source file.
+    const entrypoints = await requestJavaEntrypoints(session);
+    const relativeSource = workspaceRelativeKey(workspacePath, sourcePath);
+    const exact = entrypoints.entries.filter(
+      (entry) =>
+        relativeSource !== null &&
+        relativePathKey(workspacePath, entry.sourcePath) === relativeSource,
     );
     const selected =
-      exact.length === 1 ? exact[0] : pathlessMatches.length === 1 ? pathlessMatches[0] : null;
-    if (!selected || typeof selected.mainClass !== "string") {
+      exact.length === 1
+        ? exact[0]
+        : exact.find((entry) => mainClassMatches(entry.mainClass, configuredMainClass)) ?? null;
+    if (!selected) {
       throw lspAdapterError(
         "invalid_response",
         "The Java language service could not identify one launch target for this source file.",
       );
     }
-    // A blank project name reaches Java Debug Server exactly as a missing one
-    // does, because it applies `isNotBlank`; Core reports the resulting marker
-    // scope back in the build report.
-    const projectName =
-      typeof selected.projectName === "string" && selected.projectName.trim().length > 0
-        ? selected.projectName
-        : undefined;
+    // Core drops blank project names; a missing one reaches Java Debug Server
+    // as "any project", and Core reports the resulting marker scope back in
+    // the build report.
+    const projectName = selected.projectName;
     // Core serializes this build behind JDT project configuration and earlier
     // builds, and reports compilation errors, build failures, and cancellation
     // as distinct structured errors carrying the evidence behind the verdict.

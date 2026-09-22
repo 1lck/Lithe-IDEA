@@ -352,11 +352,18 @@ enum OutputTextUpdate: Equatable {
     case unchanged
     case append(String)
     case replaceTail(length: Int, with: String)
+    case trimPrefix(length: Int, append: String)
+    case trimPrefixAndReplaceTail(prefixLength: Int, tailLength: Int, with: String)
     case replace
+
+    private static let minimumSlidingOverlapBytes = 4_096
 
     static func plan(previous: String, next: String, previousHadANSI: Bool) -> Self {
         guard previous != next else { return .unchanged }
-        guard !previous.isEmpty, !previousHadANSI, next.hasPrefix(previous) else { return .replace }
+        guard !previous.isEmpty, !previousHadANSI else { return .replace }
+        guard next.hasPrefix(previous) else {
+            return slidingWindowUpdate(previous: previous, next: next) ?? .replace
+        }
         guard !previous.hasSuffix("\n") else {
             return .append(String(next.dropFirst(previous.count)))
         }
@@ -365,6 +372,86 @@ enum OutputTextUpdate: Equatable {
         let nextTail = String(next[tailStart...])
         let cleanTailLength = ANSIOutputRenderer.parse(previousTail).cleanText.utf16.count
         return .replaceTail(length: cleanTailLength, with: nextTail)
+    }
+
+    /// Recognizes a bounded console moving forward: `next` begins with a long
+    /// suffix of `previous`, followed by newly appended output. KMP keeps the
+    /// overlap search linear even when a log contains highly repetitive text.
+    private static func slidingWindowUpdate(previous: String, next: String) -> Self? {
+        let previousByteCount = previous.utf8.count
+        let nextBytes = Array(next.utf8)
+        guard previousByteCount >= minimumSlidingOverlapBytes,
+              nextBytes.count >= minimumSlidingOverlapBytes else { return nil }
+
+        var prefixLengths = Array(repeating: 0, count: nextBytes.count)
+        for index in 1..<nextBytes.count {
+            var candidate = prefixLengths[index - 1]
+            while candidate > 0, nextBytes[index] != nextBytes[candidate] {
+                candidate = prefixLengths[candidate - 1]
+            }
+            if nextBytes[index] == nextBytes[candidate] {
+                candidate += 1
+            }
+            prefixLengths[index] = candidate
+        }
+
+        var overlapByteCount = 0
+        for byte in previous.utf8 {
+            while overlapByteCount > 0,
+                  overlapByteCount == nextBytes.count || byte != nextBytes[overlapByteCount] {
+                overlapByteCount = prefixLengths[overlapByteCount - 1]
+            }
+            if byte == nextBytes[overlapByteCount] {
+                overlapByteCount += 1
+            }
+        }
+        guard overlapByteCount >= minimumSlidingOverlapBytes,
+              overlapByteCount < previousByteCount else { return nil }
+
+        let removedByteCount = previousByteCount - overlapByteCount
+        let removedUTF8End = previous.utf8.index(
+            previous.utf8.startIndex,
+            offsetBy: removedByteCount
+        )
+        let appendedUTF8Start = next.utf8.index(
+            next.utf8.startIndex,
+            offsetBy: overlapByteCount
+        )
+        guard let removedEnd = String.Index(removedUTF8End, within: previous),
+              let appendedStart = String.Index(appendedUTF8Start, within: next) else { return nil }
+        let removedLength = ANSIOutputRenderer.parse(String(previous[..<removedEnd]))
+            .cleanText.utf16.count
+        if !previous.hasSuffix("\n") {
+            let previousTailStart = previous.lastIndex(of: "\n")
+                .map { previous.index(after: $0) }
+                ?? previous.startIndex
+            let rerenderStart = previousTailStart > removedEnd ? previousTailStart : removedEnd
+            guard let rerenderUTF8Start = rerenderStart.samePosition(in: previous.utf8) else {
+                return nil
+            }
+            let retainedTailOffset = previous.utf8.distance(
+                from: removedUTF8End,
+                to: rerenderUTF8Start
+            )
+            let nextTailUTF8Start = next.utf8.index(
+                next.utf8.startIndex,
+                offsetBy: retainedTailOffset
+            )
+            guard let nextTailStart = String.Index(nextTailUTF8Start, within: next) else {
+                return nil
+            }
+            let retainedTailLength = ANSIOutputRenderer.parse(String(previous[rerenderStart...]))
+                .cleanText.utf16.count
+            return .trimPrefixAndReplaceTail(
+                prefixLength: removedLength,
+                tailLength: retainedTailLength,
+                with: String(next[nextTailStart...])
+            )
+        }
+        return .trimPrefix(
+            length: removedLength,
+            append: String(next[appendedStart...])
+        )
     }
 }
 
@@ -512,6 +599,33 @@ private struct OutputTextStorageView: NSViewRepresentable {
                         length: min(length, storage.length)
                     )
                     storage.replaceCharacters(in: replacementRange, with: rendered)
+                    sourceHadANSI = suffix.unicodeScalars.contains { $0.value == 27 }
+                case let .trimPrefix(length, suffix):
+                    let rendered = render(suffix, searchRoots, fileExists, isDark, theme)
+                    storage.beginEditing()
+                    storage.deleteCharacters(in: NSRange(
+                        location: 0,
+                        length: min(length, storage.length)
+                    ))
+                    storage.append(rendered)
+                    storage.endEditing()
+                    sourceHadANSI = suffix.unicodeScalars.contains { $0.value == 27 }
+                case let .trimPrefixAndReplaceTail(prefixLength, tailLength, suffix):
+                    let rendered = render(suffix, searchRoots, fileExists, isDark, theme)
+                    storage.beginEditing()
+                    storage.deleteCharacters(in: NSRange(
+                        location: 0,
+                        length: min(prefixLength, storage.length)
+                    ))
+                    let replacementLength = min(tailLength, storage.length)
+                    storage.replaceCharacters(
+                        in: NSRange(
+                            location: storage.length - replacementLength,
+                            length: replacementLength
+                        ),
+                        with: rendered
+                    )
+                    storage.endEditing()
                     sourceHadANSI = suffix.unicodeScalars.contains { $0.value == 27 }
                 case .replace:
                     let rendered = render(output, searchRoots, fileExists, isDark, theme)
