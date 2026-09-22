@@ -294,11 +294,15 @@ function EditorPanel() {
         </SettingsRow>
       </SettingsGroup>
       <SettingsGroup title={t("settings.mac.editorTabs")}>
-        <SettingsRow label={t("settings.mac.layout")}>
-          <select className={`${controlClassName} w-40`} defaultValue="single">
-            <option value="single">{t("settings.mac.singleRow")}</option>
-            <option value="wrap">{t("settings.mac.wrapRows")}</option>
-          </select>
+        <SettingsRow
+          label={t("settings.editor.bufferCarousel")}
+          description={t("settings.editor.bufferCarouselDescription")}
+        >
+          <Switch
+            checked={settings.horizontalTabScroll}
+            onChange={(checked) => void updateSetting("horizontalTabScroll", checked)}
+            size="sm"
+          />
         </SettingsRow>
       </SettingsGroup>
       <SettingsGroup title={t("settings.mac.indentation")}>

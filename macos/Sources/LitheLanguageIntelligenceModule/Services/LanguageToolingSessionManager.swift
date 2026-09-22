@@ -1175,6 +1175,29 @@ package final class LanguageToolingSessionManager: ObservableObject,
         try session.javaNavigationMarkers(fileURL: fileURL, completion: completion)
     }
 
+    /// Launchable `main` methods in one file, from an already running Java session.
+    package func javaMainMethods(
+        fileURL: URL,
+        completion: @escaping (Result<JavaMainMethods, Error>) -> Void
+    ) throws {
+        guard let session = readyLanguageServerSession(for: fileURL) else {
+            throw unavailableLanguageServerError(for: fileURL)
+        }
+        try session.javaMainMethods(fileURL: fileURL, completion: completion)
+    }
+
+    /// Test classes and methods in one file, from an already running Java
+    /// session. Unlike test-tool-window discovery, it never starts the server.
+    package func javaTestItems(
+        fileURL: URL,
+        completion: @escaping (Result<JavaTestItems, Error>) -> Void
+    ) throws {
+        guard let session = readyLanguageServerSession(for: fileURL) else {
+            throw unavailableLanguageServerError(for: fileURL)
+        }
+        try session.javaTestItems(fileURL: fileURL, completion: completion)
+    }
+
     package func resolveJavaNavigation(
         fileURL: URL,
         marker: JavaNavigationMarker,
