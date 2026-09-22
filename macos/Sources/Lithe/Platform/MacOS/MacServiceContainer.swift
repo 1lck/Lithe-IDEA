@@ -272,7 +272,24 @@ final class MacServiceContainer {
                             guard descriptor.id == "java" else { return .notRequired }
                             switch jdtlsLaunchResourceResolver.resolve(for: executableURL) {
                             case .direct(let resources):
-                                return .available(resources)
+                                // JDT LS binds each project to the installed JDK that
+                                // matches its release; the bundled JDK 21 it runs on
+                                // cannot build a Java 25 project.
+                                let discovered = runtimeService.javaRuntimes.isEmpty
+                                    ? MacRuntimeDiscovery.discover(
+                                        environment: ProcessInfo.processInfo.environment
+                                    ).javaRuntimes
+                                    : runtimeService.javaRuntimes
+                                return .available(JDTLSLaunchResources(
+                                    launcherJarURL: resources.launcherJarURL,
+                                    configurationDirectoryURL: resources.configurationDirectoryURL,
+                                    lombokAgentURL: resources.lombokAgentURL,
+                                    javaExtensionBundleURLs: resources.javaExtensionBundleURLs,
+                                    javaTestRunnerURL: resources.javaTestRunnerURL,
+                                    javaRuntimes: discovered.map {
+                                        JavaLanguageServiceRuntime(homePath: $0.homePath, version: $0.version)
+                                    }
+                                ))
                             case .wrapperFallback:
                                 return .notRequired
                             case .unavailable(let message):
@@ -371,10 +388,11 @@ final class MacServiceContainer {
                             executableResolver: executableResolver,
                             processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution) },
                             extensionRequiredLanguageIDs: pluginLanguageIDs,
-                            resultParser: { output, rootURL in
+                            resultParser: { output, rootURL, reports in
                                 javaMavenOperations.mavenTestResults(
                                     output: output,
-                                    projectRoot: rootURL
+                                    projectRoot: rootURL,
+                                    reports: reports
                                 )
                             }
                         )

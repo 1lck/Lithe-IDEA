@@ -38,6 +38,7 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
     private let transport: any DebugAdapterTransport
     private var rootURL: URL?
     private var readBuffer = Data()
+    private var errorOutputDecoder = StreamingUTF8Decoder()
     private var nextSequence = 1
     private var responseHandlers: [Int: ResponseHandler] = [:]
     private var breakpointsBySource: [URL: [DebugSourceBreakpoint]] = [:]
@@ -65,10 +66,7 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
         self.adapterID = adapterID
         self.transport = transport
         transport.onData = { [weak self] data in self?.receive(data) }
-        transport.onErrorOutput = { [weak self] data in
-            guard let output = String(data: data, encoding: .utf8), !output.isEmpty else { return }
-            self?.onEvent?(.output(category: "stderr", output: output))
-        }
+        transport.onErrorOutput = { [weak self] data in self?.receiveErrorOutput(data) }
         transport.onTermination = { [weak self] exitCode in
             self?.terminated(exitCode: exitCode)
         }
@@ -559,6 +557,7 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
             ]) { _ in }
         }
         transport.stop()
+        finishErrorOutput()
         failPendingRequests(DebugAdapterProtocolError.stopped)
         state = .idle
         resetProtocolState(keepingState: true)
@@ -837,6 +836,7 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
     }
 
     private func terminated(exitCode: Int) {
+        finishErrorOutput()
         failPendingRequests(DebugAdapterProtocolError.stopped)
         if state != .idle {
             state = exitCode == 0 ? .terminated : .failed
@@ -950,6 +950,20 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
         ))
     }
 
+    private func receiveErrorOutput(_ data: Data) {
+        let output = errorOutputDecoder.decode(data)
+        if !output.isEmpty {
+            onEvent?(.output(category: "stderr", output: output))
+        }
+    }
+
+    private func finishErrorOutput() {
+        let output = errorOutputDecoder.finish()
+        if !output.isEmpty {
+            onEvent?(.output(category: "stderr", output: output))
+        }
+    }
+
     private func failPendingRequests(_ error: Error) {
         let handlers = responseHandlers.values
         responseHandlers = [:]
@@ -958,6 +972,7 @@ public final class DebugAdapterProtocolSession: DebugAdapterControllingSession {
 
     private func resetProtocolState(keepingState: Bool = false) {
         readBuffer = Data()
+        errorOutputDecoder.reset()
         nextSequence = 1
         responseHandlers = [:]
         didReceiveInitializedEvent = false

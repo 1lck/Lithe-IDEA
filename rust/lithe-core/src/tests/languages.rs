@@ -1,6 +1,8 @@
 use super::support::temporary_root;
 use crate::execute_json;
-use crate::project::{jdt_configuration, MavenLaunchContextRequest};
+use crate::project::{
+    jdt_configuration, settings_with_local_repository, MavenLaunchContextRequest,
+};
 use serde_json::Value;
 use std::fs;
 
@@ -542,6 +544,30 @@ fn maven_dependencies_reject_bounded_output_node_and_depth_overflow() {
 }
 
 #[test]
+fn java_run_markers_match_the_shared_compatibility_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/java/run-markers-v1.json"
+    ))
+    .expect("Java Run-marker fixture should be valid JSON");
+    for case in fixture["cases"]
+        .as_array()
+        .expect("Java Run-marker fixture should contain cases")
+    {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": case["name"],
+                "command": "java.runMarkers",
+                "payload": case["request"]
+            })
+            .to_string(),
+        ))
+        .expect("Java Run-marker response should be JSON");
+        assert_eq!(response["ok"], true, "case {}: {response}", case["name"]);
+        assert_eq!(response["data"], case["expected"], "case {}", case["name"]);
+    }
+}
+
+#[test]
 fn maven_test_results_match_the_shared_compatibility_fixture() {
     let fixture: Value = serde_json::from_str(include_str!(
         "../../../../shared/fixtures/maven/test-results-v1.json"
@@ -575,6 +601,232 @@ fn maven_test_results_match_the_shared_compatibility_fixture() {
         assert_eq!(response["data"], case["expected"], "case {}", case["name"]);
         fs::remove_dir_all(root).expect("Maven test fixture should be removable");
     }
+}
+
+// Editors mark each test method with its outcome, which only the XML reports
+// record for passing and skipped methods. Reports from an earlier run and
+// reports of classes the run did not select must not leak into the result.
+#[test]
+fn maven_test_results_read_current_reports_of_the_selected_classes() {
+    let root = temporary_root("maven-test-reports");
+    let module = root.join("service");
+    fs::create_dir_all(module.join("build/custom-reports")).expect("report directory");
+    fs::create_dir_all(module.join("build/failsafe-reports")).expect("failsafe directory");
+    fs::write(
+        module.join("pom.xml"),
+        r#"<project><build><directory>build</directory><plugins><plugin>
+<artifactId>maven-surefire-plugin</artifactId>
+<configuration><reportsDirectory>${project.build.directory}/custom-reports</reportsDirectory></configuration>
+</plugin></plugins></build></project>"#,
+    )
+    .expect("module pom");
+    let stale = module.join("build/custom-reports/TEST-demo.StaleTest.xml");
+    fs::write(
+        &stale,
+        r#"<testsuite name="demo.StaleTest"><testcase name="old" classname="demo.StaleTest"><failure message="old"/></testcase></testsuite>"#,
+    )
+    .expect("stale report");
+    // Fixed timestamps keep the freshness check independent of the wall clock.
+    let run_started_seconds = 1_700_000_000_u64;
+    let not_before_millis = run_started_seconds * 1_000;
+    let set_modified = |path: &std::path::Path, seconds: u64| {
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .and_then(|file| {
+                file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds))
+            })
+            .expect("report timestamp");
+    };
+    set_modified(&stale, run_started_seconds - 600);
+    fs::write(
+        module.join("build/custom-reports/TEST-demo.OrderTest.xml"),
+        r#"<testsuite name="demo.OrderTest">
+<testcase name="creates" classname="demo.OrderTest"/>
+<testcase name="priced(int)[1]" classname="demo.OrderTest"/>
+<testcase name="priced(int)[2]" classname="demo.OrderTest"><failure message="expected 3"/></testcase>
+<testcase name="later" classname="demo.OrderTest"><skipped/></testcase>
+</testsuite>"#,
+    )
+    .expect("current report");
+    fs::write(
+        module.join("build/failsafe-reports/TEST-demo.OrderTest$Refunds.xml"),
+        r#"<testsuite name="demo.OrderTest$Refunds"><testcase name="refunds" classname="demo.OrderTest$Refunds"/></testsuite>"#,
+    )
+    .expect("nested report");
+    fs::write(
+        module.join("build/custom-reports/TEST-demo.OtherTest.xml"),
+        r#"<testsuite name="demo.OtherTest"><testcase name="other" classname="demo.OtherTest"/></testsuite>"#,
+    )
+    .expect("unselected report");
+    for report in [
+        "build/custom-reports/TEST-demo.OrderTest.xml",
+        "build/failsafe-reports/TEST-demo.OrderTest$Refunds.xml",
+        "build/custom-reports/TEST-demo.OtherTest.xml",
+    ] {
+        set_modified(&module.join(report), run_started_seconds + 5);
+    }
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "maven-test-reports",
+            "command": "maven.testResults",
+            "payload": {
+                "root": root,
+                "output": "[ERROR] Tests run: 5, Failures: 1, Errors: 0, Skipped: 1\n",
+                "reports": {
+                    "module": "service",
+                    "classes": ["demo.OrderTest", "demo.StaleTest"],
+                    "notBeforeMillis": not_before_millis
+                }
+            }
+        })
+        .to_string(),
+    ))
+    .expect("report response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["data"]["testCases"],
+        serde_json::json!([
+            { "className": "demo.OrderTest", "method": "creates", "status": "passed", "message": null, "invocations": 1 },
+            { "className": "demo.OrderTest", "method": "later", "status": "skipped", "message": null, "invocations": 1 },
+            { "className": "demo.OrderTest", "method": "priced", "status": "failed", "message": "expected 3", "invocations": 2 },
+            { "className": "demo.OrderTest$Refunds", "method": "refunds", "status": "passed", "message": null, "invocations": 1 }
+        ])
+    );
+    fs::remove_dir_all(root).expect("report fixture should be removable");
+}
+
+// A run started from the reactor root does not name a module or class; the
+// test file locates the module and the run's start time selects its reports.
+#[test]
+fn maven_test_results_find_the_module_from_the_test_source() {
+    let root = temporary_root("maven-test-reports-source");
+    let module = root.join("service");
+    let source = module.join("src/test/java/demo/OrderTest.java");
+    fs::create_dir_all(source.parent().expect("source parent")).expect("source directory");
+    fs::create_dir_all(module.join("target/surefire-reports")).expect("report directory");
+    fs::write(root.join("pom.xml"), "<project/>").expect("root pom");
+    fs::write(module.join("pom.xml"), "<project/>").expect("module pom");
+    fs::write(&source, "class OrderTest {}").expect("source");
+    let report = module.join("target/surefire-reports/TEST-demo.OrderTest.xml");
+    fs::write(
+        &report,
+        r#"<testsuite name="demo.OrderTest"><testcase name="creates" classname="demo.OrderTest"/></testsuite>"#,
+    )
+    .expect("report");
+    fs::File::options()
+        .write(true)
+        .open(&report)
+        .and_then(|file| {
+            file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_010))
+        })
+        .expect("report timestamp");
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "maven-test-reports-source",
+            "command": "maven.testResults",
+            "payload": {
+                "root": root,
+                "output": "",
+                "reports": {
+                    "sourcePath": "service/src/test/java/demo/OrderTest.java",
+                    "notBeforeMillis": 1_700_000_000_000_u64
+                }
+            }
+        })
+        .to_string(),
+    ))
+    .expect("report response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["data"]["testCases"],
+        serde_json::json!([
+            { "className": "demo.OrderTest", "method": "creates", "status": "passed", "message": null, "invocations": 1 }
+        ])
+    );
+    fs::remove_dir_all(root).expect("report fixture should be removable");
+}
+
+// Many stale reports sorting ahead of the run's own report must not push it
+// past the report-file bound when the request names no classes.
+#[test]
+fn maven_test_results_keep_current_reports_beyond_many_stale_ones() {
+    let root = temporary_root("maven-test-reports-bound");
+    let reports = root.join("target/surefire-reports");
+    fs::create_dir_all(&reports).expect("report directory");
+    let set_modified = |path: &std::path::Path, seconds: u64| {
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .and_then(|file| {
+                file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds))
+            })
+            .expect("report timestamp");
+    };
+    for index in 0..600 {
+        let path = reports.join(format!("TEST-a.Stale{index:03}Test.xml"));
+        fs::write(&path, "<testsuite/>").expect("stale report");
+        set_modified(&path, 1_600_000_000);
+    }
+    let current = reports.join("TEST-z.CurrentTest.xml");
+    fs::write(
+        &current,
+        r#"<testsuite name="z.CurrentTest"><testcase name="runs" classname="z.CurrentTest"/></testsuite>"#,
+    )
+    .expect("current report");
+    set_modified(&current, 1_700_000_010);
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "maven-test-reports-bound",
+            "command": "maven.testResults",
+            "payload": {
+                "root": root,
+                "output": "",
+                "reports": { "notBeforeMillis": 1_700_000_000_000_u64 }
+            }
+        })
+        .to_string(),
+    ))
+    .expect("report response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["data"]["testCases"][0]["className"],
+        "z.CurrentTest"
+    );
+    fs::remove_dir_all(root).expect("report fixture should be removable");
+}
+
+#[test]
+fn maven_test_results_reject_report_requests_outside_the_workspace() {
+    let root = temporary_root("maven-test-reports-bounds");
+    fs::create_dir_all(&root).expect("workspace");
+    for (module, classes) in [
+        ("..", serde_json::json!(["demo.OrderTest"])),
+        (".", serde_json::json!(["../demo.OrderTest"])),
+    ] {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "maven-test-reports-bounds",
+                "command": "maven.testResults",
+                "payload": {
+                    "root": root,
+                    "output": "",
+                    "reports": { "module": module, "classes": classes, "notBeforeMillis": 0 }
+                }
+            })
+            .to_string(),
+        ))
+        .expect("bounds response should be JSON");
+        assert_eq!(response["ok"], false, "{module}: {response}");
+        assert_eq!(response["error"]["code"], "invalid_request", "{module}");
+    }
+    fs::remove_dir_all(root).expect("bounds fixture should be removable");
 }
 
 #[test]
@@ -765,7 +1017,7 @@ fn maven_scan_skips_a_malformed_root_descriptor_for_a_valid_nested_project() {
 }
 
 #[test]
-fn java_run_configurations_match_workspace_relative_nested_maven_modules() {
+fn jdt_entrypoints_map_to_workspace_relative_nested_maven_modules() {
     let root = temporary_root("java-nested-maven-module");
     let source = "projects/demo/service/src/main/java/com/example/App.java";
     fs::create_dir_all(root.join("projects/demo/service/src/main/java/com/example"))
@@ -778,23 +1030,34 @@ fn java_run_configurations_match_workspace_relative_nested_maven_modules() {
 
     let request = serde_json::json!({
         "id": "java-nested-maven-module",
-        "command": "java.runConfigurations",
+        "command": "runConfig.generate",
         "payload": {
             "root": root,
             "paths": [source],
-            "modulePaths": ["projects/demo/service"]
+            "modulePaths": ["projects/demo/service"],
+            "javaEntrypoints": {
+                "schemaVersion": 1,
+                "entries": [{ "sourcePath": source, "mainClass": "com.example.App", "projectName": "service" }],
+                "diagnostics": []
+            }
         }
     });
     let response: Value = serde_json::from_str(&execute_json(
-        &serde_json::to_string(&request).expect("Java request should encode"),
+        &serde_json::to_string(&request).expect("generate request should encode"),
     ))
-    .expect("Java response should be JSON");
+    .expect("generate response should be JSON");
 
     assert_eq!(response["ok"], true, "{response}");
+    let configuration = response["data"]["generated"]["configurations"]
+        .as_array()
+        .and_then(|values| values.iter().find(|value| value["provider"] == "java.main"))
+        .expect("the JDT entry should become a Java configuration")
+        .clone();
     assert_eq!(
-        response["data"]["configurations"][0]["modulePath"],
+        configuration["extensions"]["maven"]["module"],
         "projects/demo/service"
     );
+    assert_eq!(response["data"]["javaEntrypointsOrigin"], "languageService");
     fs::remove_dir_all(root).expect("Java fixture should be removable");
 }
 
@@ -810,29 +1073,45 @@ fn java_core_commands_return_shared_runtime_and_structure_data() {
     .expect("Java source should be writable");
     let configurations = serde_json::json!({
         "id": "java-config",
-        "command": "java.runConfigurations",
+        "command": "runConfig.generate",
         "payload": {
             "root": root,
             "paths": ["src/main/java/com/example/App.java"],
-            "modulePaths": ["src"]
+            "modulePaths": ["src"],
+            "javaEntrypoints": {
+                "schemaVersion": 1,
+                "entries": [{
+                    "sourcePath": "src/main/java/com/example/App.java",
+                    "mainClass": "com.example.App"
+                }],
+                "diagnostics": []
+            }
         }
     });
     let response: Value = serde_json::from_str(&execute_json(
         &serde_json::to_string(&configurations).expect("Java request should encode"),
     ))
     .expect("Java response should be JSON");
-    assert_eq!(response["ok"], true);
+    assert_eq!(response["ok"], true, "{response}");
+    let generated = response["data"]["generated"]["configurations"]
+        .as_array()
+        .expect("generated configurations")
+        .iter()
+        .find(|value| value["provider"] == "java.main")
+        .expect("the JDT entry should become a configuration")
+        .clone();
+    // `@SpringBootApplication` labels the JDT-confirmed entry as a service.
+    assert_eq!(generated["id"], "java-main:com.example.App");
     assert_eq!(
-        response["data"]["mainClasses"][0]["qualifiedName"],
+        generated["extensions"]["maven"]["mainClass"],
         "com.example.App"
     );
-    assert_eq!(response["data"]["configurations"][0]["kind"], "springBoot");
-    assert_eq!(response["data"]["configurations"][0]["modulePath"], "src");
+    assert_eq!(generated["extensions"]["maven"]["module"], "src");
     assert_eq!(
-        response["data"]["configurations"][0]["sourcePath"],
+        generated["extensions"]["java"]["source"],
         "src/main/java/com/example/App.java"
     );
-    assert_eq!(response["data"]["configurations"][0]["sourceSet"], "main");
+    assert_eq!(generated["extensions"]["java"]["sourceSet"], "main");
 
     let structure = serde_json::json!({
         "id": "java-structure",
@@ -850,9 +1129,7 @@ fn java_core_commands_return_shared_runtime_and_structure_data() {
         structure_response["data"]["foldRegions"][0]["kind"],
         "imports"
     );
-    assert!(structure_response["data"]["testMethods"]
-        .as_array()
-        .is_some_and(Vec::is_empty));
+    assert!(structure_response["data"].get("testMethods").is_none());
     assert!(structure_response["data"]
         .get("implementationMarkers")
         .is_none());
@@ -952,64 +1229,195 @@ fn java_core_commands_return_shared_runtime_and_structure_data() {
     fs::remove_dir_all(root).expect("Java fixture should be removable");
 }
 
-#[test]
-fn java_test_methods_handle_inline_annotations_and_ignore_non_code_text() {
-    // Build the Java block comment at runtime so repository lint does not parse fixture text as Rust.
-    let java_block_comment = ["/", "* @Test void commentMethod() {} *", "/"].concat();
-    let source = r#"class CalculatorTest {
-    String example = "@Test void stringMethod() {}";
-    String textBlock = """
-        @Test void textBlockMethod() {}
-        """;
-    <java-block-comment>
-    @example.Test void customAnnotation() {}
-    @org.junit.Test public void inlineJUnit4() { helper(); }
+/// Builds a minimal reactor so Maven context validation succeeds, leaving each
+/// test free to vary only the configured Maven location.
+fn maven_reactor_root(label: &str) -> std::path::PathBuf {
+    let root = temporary_root(label);
+    fs::create_dir_all(&root).expect("reactor root should be creatable");
+    fs::write(
+        root.join("pom.xml"),
+        r#"<project><artifactId>demo</artifactId></project>"#,
+    )
+    .expect("reactor pom should be writable");
+    root
+}
 
-    @org.junit.jupiter.params.ParameterizedTest(name = "case {0}")
-    @ValueSource(ints = {1, 2})
-    void parameterized(int value) {
-        String braces = "}";
-        helper();
+fn maven_jdt_context(maven_executable_path: Option<String>) -> MavenLaunchContextRequest {
+    MavenLaunchContextRequest {
+        version: 1,
+        reactor_path: ".".to_string(),
+        profiles: Vec::new(),
+        settings_path: None,
+        local_repository_path: None,
+        skip_tests: false,
+        maven_executable_path,
+        java_home_path: None,
     }
+}
 
-    @Test
-    int field = 1;
-    void helper() {}
-}"#
-    .replace("<java-block-comment>", &java_block_comment);
-    let response: Value = serde_json::from_str(&execute_json(
-        &serde_json::json!({
-            "id": "java-test-methods",
-            "command": "java.testMethods",
-            "payload": {"source": source}
-        })
-        .to_string(),
-    ))
-    .expect("Java test methods response should be JSON");
+#[test]
+fn maven_installation_settings_reach_jdt_for_a_home_or_a_launcher() {
+    // JDT LS otherwise resolves artifacts through its embedded defaults, which
+    // ignores the local repository and mirrors the command line already uses.
+    let root = maven_reactor_root("maven-jdt-global-settings");
+    let maven_home = root.join("apache-maven");
+    fs::create_dir_all(maven_home.join("bin")).expect("Maven bin should be creatable");
+    fs::create_dir_all(maven_home.join("conf")).expect("Maven conf should be creatable");
+    let settings = maven_home.join("conf").join("settings.xml");
+    fs::write(&settings, "<settings/>").expect("global settings should be writable");
+    let launcher = maven_home.join("bin").join("mvn.cmd");
+    fs::write(&launcher, "").expect("Maven launcher should be writable");
+    let expected = settings.to_string_lossy().into_owned();
 
-    assert_eq!(response["ok"], true, "{response}");
+    for configured in [
+        maven_home.to_string_lossy().into_owned(),
+        launcher.to_string_lossy().into_owned(),
+    ] {
+        let configuration = jdt_configuration(
+            root.to_str().expect("temporary root should be UTF-8"),
+            maven_jdt_context(Some(configured.clone())),
+        )
+        .expect("JDT Maven configuration should parse");
+        assert_eq!(
+            configuration.global_settings_path.as_deref(),
+            Some(expected.as_str()),
+            "the installation settings should resolve from {configured}"
+        );
+    }
+    fs::remove_dir_all(root).expect("Maven fixture should be removable");
+}
+
+#[test]
+fn maven_installation_settings_are_absent_for_wrappers_and_bare_installations() {
+    let root = maven_reactor_root("maven-jdt-global-settings-absent");
+    // A wrapper lives outside an installation, so Maven itself would fall back
+    // to the embedded defaults. JDT LS must make the same choice.
+    let wrapper = root.join("mvnw.cmd");
+    fs::write(&wrapper, "").expect("wrapper should be writable");
+    // An installation that ships no global settings must not point JDT LS at a
+    // file that does not exist.
+    let bare_home = root.join("bare-maven");
+    fs::create_dir_all(bare_home.join("bin")).expect("Maven bin should be creatable");
+    let bare_launcher = bare_home.join("bin").join("mvn");
+    fs::write(&bare_launcher, "").expect("Maven launcher should be writable");
+
+    for configured in [
+        wrapper.to_string_lossy().into_owned(),
+        bare_home.to_string_lossy().into_owned(),
+        bare_launcher.to_string_lossy().into_owned(),
+    ] {
+        let configuration = jdt_configuration(
+            root.to_str().expect("temporary root should be UTF-8"),
+            maven_jdt_context(Some(configured.clone())),
+        )
+        .expect("JDT Maven configuration should parse");
+        assert_eq!(
+            configuration.global_settings_path, None,
+            "no installation settings should resolve from {configured}"
+        );
+    }
+    fs::remove_dir_all(root).expect("Maven fixture should be removable");
+}
+
+/// Mirrors the shape of a real installation settings file: a documented
+/// `<localRepository>` plus the mirror a workspace actually resolves through.
+const SETTINGS_WITH_MIRROR: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0">
+  <!-- keep this comment -->
+  <localRepository>C:\Users\example\.m2\repository</localRepository>
+  <mirrors>
+    <mirror>
+      <id>aliyunmaven</id>
+      <mirrorOf>*</mirrorOf>
+      <url>https://maven.aliyun.com/repository/public</url>
+    </mirror>
+  </mirrors>
+</settings>
+"#;
+
+#[test]
+fn generated_maven_settings_replace_the_repository_and_keep_every_mirror() {
+    // Losing the mirror would send project import to the default remote
+    // repositories while Maven builds keep using the configured one.
+    let generated = settings_with_local_repository(SETTINGS_WITH_MIRROR, r"F:\repository")
+        .expect("settings should be rewritten");
+
+    assert!(generated.contains(r"<localRepository>F:\repository</localRepository>"));
+    assert!(!generated.contains(r"C:\Users\example\.m2\repository"));
+    assert!(generated.contains("<id>aliyunmaven</id>"));
+    assert!(generated.contains("https://maven.aliyun.com/repository/public"));
+    assert!(generated.contains("<!-- keep this comment -->"));
+}
+
+#[test]
+fn generated_maven_settings_insert_a_missing_repository_without_losing_mirrors() {
+    let source = r#"<settings>
+  <mirrors>
+    <mirror><id>aliyunmaven</id><mirrorOf>*</mirrorOf></mirror>
+  </mirrors>
+</settings>"#;
+
+    let generated = settings_with_local_repository(source, "/opt/repository")
+        .expect("settings should be rewritten");
+
+    assert!(generated.contains("<localRepository>/opt/repository</localRepository>"));
+    assert!(generated.contains("<id>aliyunmaven</id>"));
+}
+
+#[test]
+fn generated_maven_settings_expand_an_empty_repository_element() {
+    let generated = settings_with_local_repository(
+        "<settings><localRepository/></settings>",
+        "/opt/repository",
+    )
+    .expect("settings should be rewritten");
+
     assert_eq!(
-        response["data"]["methods"],
-        serde_json::json!([
-            {"name": "inlineJUnit4", "line": 7, "endLine": 7},
-            {"name": "parameterized", "line": 11, "endLine": 14}
-        ])
+        generated,
+        "<settings><localRepository>/opt/repository</localRepository></settings>"
     );
-    let structure: Value = serde_json::from_str(&execute_json(
-        &serde_json::json!({
-            "id": "java-structure-test-methods",
-            "command": "java.structure",
-            "payload": {"source": source}
-        })
-        .to_string(),
-    ))
-    .expect("Java structure response should be JSON");
-    assert_eq!(structure["ok"], true, "{structure}");
+}
+
+#[test]
+fn generated_maven_settings_escape_the_repository_path() {
+    // An unescaped `&` would produce a document Maven cannot parse.
+    let generated = settings_with_local_repository("<settings/>", "/opt/a&b")
+        .expect("settings should be rewritten");
+
+    assert!(generated.contains("<localRepository>/opt/a&amp;b</localRepository>"));
+}
+
+#[test]
+fn generated_maven_settings_leave_profile_scoped_repositories_alone() {
+    // Only the top-level element selects the repository Maven resolves through.
+    let source = r#"<settings>
+  <localRepository>/old</localRepository>
+  <profiles>
+    <profile><properties><localRepository>/profile-scoped</localRepository></properties></profile>
+  </profiles>
+</settings>"#;
+
+    let generated =
+        settings_with_local_repository(source, "/new").expect("settings should be rewritten");
+
+    assert!(generated.contains("<localRepository>/new</localRepository>"));
+    assert!(generated.contains("<localRepository>/profile-scoped</localRepository>"));
+    assert!(!generated.contains("/old"));
+}
+
+#[test]
+fn generated_maven_settings_discard_child_elements_of_the_replaced_repository() {
+    // `<localRepository>` is a text-only element, so a nested child is already
+    // invalid. The rewrite must still produce well-formed output rather than
+    // emitting a start tag whose end tag was dropped with the old content.
+    let generated = settings_with_local_repository(
+        "<settings><localRepository><a>x</a>/old</localRepository></settings>",
+        "/new",
+    )
+    .expect("settings should be rewritten");
+
     assert_eq!(
-        structure["data"]["testMethods"],
-        serde_json::json!([
-            {"name": "inlineJUnit4", "line": 8, "endLine": 8},
-            {"name": "parameterized", "line": 12, "endLine": 15}
-        ])
+        generated,
+        "<settings><localRepository>/new</localRepository></settings>"
     );
 }

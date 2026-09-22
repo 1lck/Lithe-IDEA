@@ -1,4 +1,14 @@
+import AppKit
 import SwiftUI
+
+private enum SettingsSelectMetrics {
+    static let fontSize: CGFloat = 12.5
+    static let checkmarkWidth: CGFloat = 14
+    static let itemSpacing: CGFloat = 8
+    static let itemHorizontalPadding: CGFloat = 8
+    static let popupPadding: CGFloat = 5
+    static let screenMargin: CGFloat = 24
+}
 
 struct LitheSettingsSearchField: View {
     private let placeholder: LocalizedStringKey
@@ -53,14 +63,17 @@ struct LitheSettingsSearchField: View {
 }
 
 struct LitheSettingsSelect<Value: Hashable>: View {
+    @Environment(\.locale) private var locale
     @Binding private var selection: Value
     private let options: [Value]
     private let width: CGFloat
     private let accessibilityLabel: String
     private let title: (Value) -> String
+    private let expandsToFitOptions: Bool
     private let isAvailable: (Value) -> Bool
     private let onUnavailableSelection: ((Value) -> Void)?
     @State private var isPresented = false
+    @State private var availablePopupWidth: CGFloat?
 
     init(
         selection: Binding<Value>,
@@ -68,6 +81,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         width: CGFloat,
         accessibilityLabel: String,
         title: @escaping (Value) -> String,
+        expandsToFitOptions: Bool = false,
         isAvailable: @escaping (Value) -> Bool = { _ in true },
         onUnavailableSelection: ((Value) -> Void)? = nil
     ) {
@@ -76,12 +90,20 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         self.width = width
         self.accessibilityLabel = accessibilityLabel
         self.title = title
+        self.expandsToFitOptions = expandsToFitOptions
         self.isAvailable = isAvailable
         self.onUnavailableSelection = onUnavailableSelection
     }
 
     var body: some View {
         Button {
+            if !isPresented {
+                // Capture the presenting screen before the popover can become the key window.
+                let screen = NSApp.keyWindow?.screen ?? NSScreen.main
+                availablePopupWidth = screen.map {
+                    max(1, $0.visibleFrame.width - 2 * SettingsSelectMetrics.screenMargin)
+                }
+            }
             isPresented.toggle()
         } label: {
             HStack(spacing: 8) {
@@ -123,21 +145,24 @@ struct LitheSettingsSelect<Value: Hashable>: View {
                         }
                         isPresented = false
                     } label: {
-                        HStack(spacing: 8) {
+                        HStack(spacing: SettingsSelectMetrics.itemSpacing) {
                             Image(systemName: "checkmark")
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(LitheTheme.accent)
-                                .frame(width: 14)
+                                .frame(width: SettingsSelectMetrics.checkmarkWidth)
                                 .opacity(selection == option ? 1 : 0)
 
                             Text(LocalizedStringKey(title(option)))
-                                .font(.system(size: 12.5))
+                                .font(.system(size: SettingsSelectMetrics.fontSize))
                                 .foregroundStyle(isAvailable(option) ? LitheTheme.primaryText : LitheTheme.tertiaryText)
-                                .lineLimit(1)
+                                .lineLimit(expandsToFitOptions ? nil : 1)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .multilineTextAlignment(.leading)
 
-                            Spacer(minLength: 8)
+                            Spacer(minLength: SettingsSelectMetrics.itemSpacing)
                         }
-                        .padding(.horizontal, 8)
+                        .padding(.horizontal, SettingsSelectMetrics.itemHorizontalPadding)
+                        .padding(.vertical, expandsToFitOptions ? 4 : 0)
                         .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
                         .litheRowHover(
                             isActive: selection == option,
@@ -150,10 +175,27 @@ struct LitheSettingsSelect<Value: Hashable>: View {
                     .help(isAvailable(option) ? "" : "Shell is not available at this path")
                 }
             }
-            .padding(5)
-            .frame(width: width)
+            .padding(SettingsSelectMetrics.popupPadding)
+            .frame(width: preferredPopupWidth)
             .lithePopupChrome(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
         }
+    }
+
+    private var preferredPopupWidth: CGFloat {
+        guard expandsToFitOptions else { return width }
+        let font = NSFont.systemFont(ofSize: SettingsSelectMetrics.fontSize)
+        let titleWidth = options.reduce(CGFloat.zero) { widest, option in
+            let text = String(localized: String.LocalizationValue(title(option)), locale: locale)
+            return max(widest, (text as NSString).size(withAttributes: [.font: font]).width)
+        }
+        // Include the checkmark, both HStack gaps, trailing spacer, and both layers of padding.
+        let chromeWidth = SettingsSelectMetrics.checkmarkWidth
+            + 3 * SettingsSelectMetrics.itemSpacing
+            + 2 * SettingsSelectMetrics.itemHorizontalPadding
+            + 2 * SettingsSelectMetrics.popupPadding
+        let contentWidth = max(width, ceil(titleWidth) + chromeWidth)
+        // Derive the width from current titles so discovery updates also resize an open popover.
+        return min(contentWidth, availablePopupWidth ?? width)
     }
 }
 

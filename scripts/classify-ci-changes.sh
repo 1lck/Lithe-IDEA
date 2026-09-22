@@ -46,6 +46,7 @@ rust_database=false
 macos_release=false
 windows=false
 windows_rust=false
+java_jdt=false
 rust_comments=false
 metadata=false
 git_validation=false
@@ -59,6 +60,7 @@ enable_all_validation() {
     macos_release=true
     windows=true
     windows_rust=true
+    java_jdt=true
     git_validation=true
 }
 
@@ -72,6 +74,12 @@ while IFS=$'\t' read -r status first_path _; do
 
     path="$first_path"
     lowercase_path="${path,,}"
+
+    case "$lowercase_path" in
+        .github/workflows/ci-windows.yml|third_party/jdtls/*|third_party/jdk/*|scripts/prepare-jdtls.*|scripts/prepare-jdk.*|rust/lithe-core/src/lsp/interface/engine.rs|rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs|rust/lithe-core/src/lsp/languages/java*|rust/lithe-core/src/lsp/languages/jdt*|macos/*java*|windows/*java*)
+            java_jdt=true
+            ;;
+    esac
 
     case "$lowercase_path" in
         *.md|*.mdx)
@@ -399,6 +407,7 @@ printf 'rust_database=%s\n' "$rust_database"
 printf 'macos_release=%s\n' "$macos_release"
 printf 'windows=%s\n' "$windows"
 printf 'windows_rust=%s\n' "$windows_rust"
+printf 'java_jdt=%s\n' "$java_jdt"
 printf 'rust_comments=%s\n' "$rust_comments"
 printf 'metadata=%s\n' "$metadata"
 printf 'git_validation=%s\n' "$git_validation"

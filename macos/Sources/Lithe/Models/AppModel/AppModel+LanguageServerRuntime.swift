@@ -125,6 +125,7 @@ extension AppModel {
     }
 
     func cancelJavaLanguageServerPreparation() {
+        cancelPendingJavaLaunchDecision()
         if case .preparing(let owner) = javaFeature.languageServerWorkspaceState {
             languageToolingSessionsIfActive?.recordLanguageServerLog(
                 providerID: "java",
@@ -180,10 +181,11 @@ extension AppModel {
         guard let workspaceURL else { return }
         let maven = mavenFeatureIfActive
         let forwarded = changes.filter { change in
-            guard maven?.project != nil,
-                  change.fileURL.lastPathComponent.lowercased() == "pom.xml" else { return true }
+            guard change.fileURL.lastPathComponent.lowercased() == "pom.xml" else { return true }
+            // Initial scans must see edits too. Until Maven accepts a model,
+            // Java still owns its ordinary workspace-change handling.
             maven?.markPomChanged(change.fileURL)
-            return false
+            return maven?.project == nil
         }
         javaLanguageServerPreparationCoordinator.notifyWorkspaceFileChanges(
             forwarded,

@@ -1,5 +1,3 @@
-import { useProjectPreparation } from "../stores/project-preparation.store";
-import { usesJavaProjectPreparation } from "../services/java-run-launch";
 import { ProjectPreparationStatus } from "./project-preparation-status";
 import { useEffect, useMemo, useState } from "react";
 import { isBackendCapabilityAvailable } from "@/config/backend-capabilities";
@@ -35,14 +33,42 @@ import { RunConfigurationEditor } from "./run-configuration-editor";
 import { RunConfigurationListSplit } from "./run-configuration-list-split";
 import { JavaCupIcon, RunIcon } from "./run-icon";
 import { RunOutputText } from "./run-output-text";
+import { JavaLaunchDecisionBanner } from "./java-launch-decision";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { useRunPreferencesStore } from "../stores/run-preferences.store";
+
+/** Explains when the Java entries shown are not JDT's current answer. */
+function JavaDiscoveryNotice() {
+  const status = useRunStore((state) => state.javaDiscovery);
+  const message = useRunStore((state) => state.javaDiscoveryMessage);
+  const { t } = useTranslation();
+  if (status === "idle" || status === "ready") return null;
+  return (
+    <div
+      className="flex items-center gap-1 border-border/70 border-b px-3 py-1.5 ui-text-sm"
+      aria-live="polite"
+    >
+      {status === "failed" ? (
+        <span className="text-destructive">
+          {t("run.javaDiscoveryFailed", { message: message ?? "" })}
+        </span>
+      ) : (
+        <>
+          <Spinner compact />
+          <span className="text-subtle-foreground">
+            {t(status === "stale" ? "run.javaDiscoveryStale" : "run.javaDiscoveryLoading")}
+          </span>
+        </>
+      )}
+    </div>
+  );
+}
 
 export default function RunPane() {
   const { t } = useTranslation();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
-  const preparation = useProjectPreparation(rootFolderPath);
   const setIsBottomPaneVisible = useUIState((state) => state.setIsBottomPaneVisible);
+  const openSettings = useUIState((state) => state.openSettingsDialog);
   const activeFilePath = useBufferStore((state) => {
     const activeBuffer = getBufferById(state.buffers, state.activeBufferId);
     return activeBuffer?.type === "editor" && !activeBuffer.isVirtual ? activeBuffer.path : undefined;
@@ -66,6 +92,7 @@ export default function RunPane() {
   const invalidMessage = useRunStore((state) => state.invalidMessage);
   const saveError = useRunStore((state) => state.saveError);
   const generationNotice = useRunStore((state) => state.generationNotice);
+  const javaLaunchDecisions = useRunStore((state) => state.javaLaunchDecisions);
   const discoveredJava = useRunStore((state) => state.discoveredJava);
   const discoveredMaven = useRunStore((state) => state.discoveredMaven);
   const discoveredRuntimes = useRunStore((state) => state.discoveredRuntimes);
@@ -73,7 +100,8 @@ export default function RunPane() {
   const actions = useRunStore((state) => state.actions);
   const selectedServiceIDsByWorkspace = useRunPreferencesStore((state) => state.selectedServiceIDsByWorkspace);
   const setSelectedServiceIDs = useRunPreferencesStore((state) => state.actions.setSelectedServiceIDs);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const editingId = useRunStore((state) => state.editingConfigurationId);
+  const setEditingId = actions.editConfiguration;
   const [selectedServiceIDs, setSelectedServiceIDsLocal] = useState<string[]>([]);
   const [otherConfigurationsCollapsed, setOtherConfigurationsCollapsed] = useState(true);
   const [infrastructureCollapsed, setInfrastructureCollapsed] = useState(true);
@@ -109,6 +137,9 @@ export default function RunPane() {
   const isSelectedRunning = selectedSession ? selectedSession.isRunning : primaryRunning;
   const output = selectedSession ? selectedSession.output : primaryOutput;
   const exitCode = selectedSession ? selectedSession.exitCode : primaryExitCode;
+  const decisionSessionId = selectedSession?.id ?? PRIMARY_SESSION_ID;
+  const javaLaunchDecision =
+    javaLaunchDecisions[decisionSessionId] ?? Object.values(javaLaunchDecisions)[0];
   const projectName =
     rootFolderPath?.split(/[\\/]/).filter(Boolean).pop() ?? t("run.title");
   const editingConfiguration = configurations.find((configuration) => configuration.id === editingId);
@@ -140,12 +171,6 @@ export default function RunPane() {
     services.forEach((service) => void actions.runConfiguration(service.id, currentFile));
   };
 
-  const launchConfiguration = selectedConfiguration?.execution === "group"
-    ? applications[0] ?? services[0]
-    : selectedConfiguration ?? applications[0] ?? services[0];
-  const preparationBlocksRun = !isSelectedRunning && Boolean(preparation?.blocksRun &&
-    launchConfiguration && usesJavaProjectPreparation(launchConfiguration));
-
   const runSelected = () => {
     if (isSelectedRunning) {
       void actions.stop(selectedSession?.id);
@@ -161,6 +186,7 @@ export default function RunPane() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <ProjectPreparationStatus />
+      <JavaDiscoveryNotice />
       <div className="flex h-(--lithe-pane-header-height) shrink-0 items-center gap-2 border-border/70 border-b px-3">
         <RunIcon className="size-4 text-subtle-foreground" />
         <div className="min-w-0 flex-1 truncate font-medium ui-text-sm">
@@ -175,7 +201,7 @@ export default function RunPane() {
           </span>
         ) : null}
         <Tooltip content={isSelectedRunning ? t("run.stop") : t("run.run")} side="bottom">
-          <Button variant="ghost" size="icon-xs" onClick={runSelected} disabled={isLoading || preparationBlocksRun} aria-label={t("run.run")}>
+          <Button variant="ghost" size="icon-xs" onClick={runSelected} disabled={isLoading || Boolean(javaLaunchDecision)} aria-label={t("run.run")}>
             {isSelectedRunning ? <StopIcon className="text-warning" /> : <PlayIcon className="text-success" />}
           </Button>
         </Tooltip>
@@ -236,6 +262,20 @@ export default function RunPane() {
             </Button>
           )}
         </div>
+      ) : null}
+
+      {javaLaunchDecision ? (
+        <JavaLaunchDecisionBanner
+          decision={javaLaunchDecision}
+          onContinue={() => actions.continueJavaLaunch(javaLaunchDecision.sessionId, javaLaunchDecision.decisionId, false)}
+          onAlwaysContinue={() => actions.continueJavaLaunch(javaLaunchDecision.sessionId, javaLaunchDecision.decisionId, true)}
+          onRebuildIndex={() => void actions.rebuildJavaIndex(javaLaunchDecision.sessionId, javaLaunchDecision.decisionId)}
+          onOpenLogs={() => {
+            setIsBottomPaneVisible(true);
+            openSettings("logs");
+          }}
+          onCancel={() => actions.cancelJavaLaunch(javaLaunchDecision.sessionId, javaLaunchDecision.decisionId)}
+        />
       ) : null}
 
       {status !== "ready" ? (

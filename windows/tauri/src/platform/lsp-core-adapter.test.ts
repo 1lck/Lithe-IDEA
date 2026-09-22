@@ -1,4 +1,5 @@
 import { getProjectPreparation } from "@/features/run/stores/project-preparation.store";
+import type { JavaRunLaunchPreparation } from "@/features/run/services/java-run-launch";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
@@ -53,7 +54,12 @@ let releaseInitialization: (() => void) | undefined;
 
 /** A queued semantic outcome that Core reports as a structured request error. */
 interface CoreRequestFailure {
-  coreError: { code: string; message: string; stage?: string };
+  coreError: {
+    code: string;
+    message: string;
+    stage?: string;
+    javaBuildReport?: Record<string, unknown>;
+  };
 }
 
 function isCoreRequestFailure(value: unknown): value is CoreRequestFailure {
@@ -146,10 +152,17 @@ const executeCore = mock(
         return { id: request.id, ok: true as const, data: { events: [] } };
       }
       if (scenario === "preparation-snapshot") {
-        return { id: request.id, ok: true as const, data: {
-          events: sessionPollCount === 1 ? readyEvents(sessionId).filter((event) => event.type !== "projectPreparation") : [],
-          projectPreparation: { phase: "configuring", status: "loading", blocksRun: true },
-        } };
+        return {
+          id: request.id,
+          ok: true as const,
+          data: {
+            events:
+              sessionPollCount === 1
+                ? readyEvents(sessionId).filter((event) => event.type !== "projectPreparation")
+                : [],
+            projectPreparation: { phase: "configuring", status: "loading", blocksRun: true },
+          },
+        };
       }
       if (scenario === "capabilities" || scenario === "multi-session") {
         return {
@@ -252,9 +265,10 @@ const executeCore = mock(
         }
         if (semanticRequestPending) {
           semanticRequestPending = false;
-          const outcome = semanticRequestResults.length > 0
-            ? semanticRequestResults.shift()
-            : semanticRequestResult;
+          const outcome =
+            semanticRequestResults.length > 0
+              ? semanticRequestResults.shift()
+              : semanticRequestResult;
           return {
             id: request.id,
             ok: true as const,
@@ -472,8 +486,7 @@ describe("Rust Core LSP adapter failures", () => {
       launcherJarPath: "C:/Lithe/jdtls/plugins/equinox.jar",
       configurationDirectory: "C:/Lithe/jdtls/config_win",
       lombokAgentPath: "C:/Lithe/jdtls/lombok/lombok.jar",
-      javaDebugBundlePath:
-        "C:/Lithe/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar",
+      javaDebugBundlePath: "C:/Lithe/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar",
     });
     expect(frontendTrace).toHaveBeenCalledWith(
       "warn",
@@ -525,9 +538,7 @@ describe("Rust Core LSP adapter failures", () => {
           ],
         },
       });
-      const persisted = JSON.parse(
-        testStorage.values.get("lithe:lsp-core-sessions:v1") ?? "[]",
-      );
+      const persisted = JSON.parse(testStorage.values.get("lithe:lsp-core-sessions:v1") ?? "[]");
       expect(persisted).toEqual([
         expect.objectContaining({
           features: expect.arrayContaining(["definition", "references", "executeCommand"]),
@@ -607,11 +618,18 @@ describe("Rust Core LSP adapter failures", () => {
 
   test("startup poll failure retires preparation and explicit stop clears the failed snapshot", async () => {
     scenario = "poll-failure";
-    await expect(invokeLsp("lsp_start", {
-      workspacePath: "C:/work", languageId: "java", providerId: "java", serverPath: "C:/Lithe/jdtls.bat",
-    })).rejects.toThrow("Core event transport unavailable");
+    await expect(
+      invokeLsp("lsp_start", {
+        workspacePath: "C:/work",
+        languageId: "java",
+        providerId: "java",
+        serverPath: "C:/Lithe/jdtls.bat",
+      }),
+    ).rejects.toThrow("Core event transport unavailable");
     expect(getProjectPreparation("C:/work")?.status).toBe("failed");
-    expect(getLspWorkspaceSessionSnapshot({ workspacePath: "C:/work", languageId: "java" })).toBeNull();
+    expect(
+      getLspWorkspaceSessionSnapshot({ workspacePath: "C:/work", languageId: "java" }),
+    ).toBeNull();
     await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
     expect(getProjectPreparation("C:/work")).toBeUndefined();
   });
@@ -619,15 +637,17 @@ describe("Rust Core LSP adapter failures", () => {
   test("restores preparation from the current snapshot without a preparation event", async () => {
     scenario = "preparation-snapshot";
     await invokeLsp("lsp_start", {
-      workspacePath: "C:/work", languageId: "java", providerId: "java", serverPath: "C:/Lithe/jdtls.bat",
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
     });
     expect(getProjectPreparation("C:/work")).toEqual({
-      sessionId: "java-session", phase: "configuring", status: "loading", blocksRun: true,
+      sessionId: "java-session",
+      phase: "configuring",
+      status: "loading",
+      blocksRun: true,
     });
-    await expect(invokeLsp("java_prepare_run_launch", {
-      workspacePath: "C:/work", sourcePath: "C:/work/Main.java", mainClass: "Main",
-    })).rejects.toThrow("preparation is incomplete");
-    expect(commands).not.toContain("lsp.request");
     await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
     expect(getProjectPreparation("C:/work")).toBeUndefined();
   });
@@ -662,13 +682,15 @@ describe("Rust Core LSP adapter failures", () => {
     scenario = "semantic-request";
     semanticRequestResults = [
       {
-        value: [
+        schemaVersion: 1,
+        entries: [
           {
+            sourcePath: "service/src/main/java/example/Main.java",
             mainClass: "example.Main",
             projectName: "service",
-            filePath: "C:/work/service/src/main/java/example/Main.java",
           },
         ],
+        diagnostics: [],
       },
       { value: 1 },
       {
@@ -692,32 +714,213 @@ describe("Rust Core LSP adapter failures", () => {
     });
 
     expect(target).toEqual({
-      mainClass: "example.Main",
-      projectName: "service",
-      modulePaths: ["C:/work/service/target/modules"],
-      classPaths: ["C:/work/service/target/classes", "C:/repo/library.jar"],
+      kind: "ready",
+      target: {
+        mainClass: "example.Main",
+        projectName: "service",
+        modulePaths: ["C:/work/service/target/modules"],
+        classPaths: ["C:/work/service/target/classes", "C:/repo/library.jar"],
+      },
     });
     expect(
-      requestPayloads.slice(-3).map((payload) =>
-        (payload.command as { command?: string } | undefined)?.command),
-    ).toEqual([
-      "vscode.java.resolveMainClass",
-      "vscode.java.buildWorkspace",
-      "vscode.java.resolveClasspath",
-    ]);
+      requestPayloads
+        .slice(-3)
+        .map(
+          (payload) =>
+            (payload.command as { command?: string } | undefined)?.command ?? payload.operation,
+        ),
+    ).toEqual(["javaEntrypoints", "vscode.java.buildWorkspace", "vscode.java.resolveClasspath"]);
   });
 
-  test("reports Core's Java build failure instead of a generic source-error hint", async () => {
+  test("picks the launch target by source path when two modules share a class", async () => {
+    // Maven reactors often repeat `demo.App`; only the source path tells the
+    // modules apart, and Windows paths compare without regard to case.
     scenario = "semantic-request";
     semanticRequestResults = [
       {
-        value: [
+        schemaVersion: 1,
+        entries: [
+          { sourcePath: "app-a/src/main/java/demo/App.java", mainClass: "demo.App", projectName: "app-a" },
+          { sourcePath: "app-b/src/main/java/demo/App.java", mainClass: "demo.App", projectName: "app-b" },
+        ],
+        diagnostics: [],
+      },
+      { value: 1 },
+      { value: [[], ["C:/Work/app-b/target/classes"]] },
+    ];
+    await invokeLsp("lsp_start", {
+      workspacePath: "c:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    const result = await invokeLsp<JavaRunLaunchPreparation>("java_prepare_run_launch", {
+      workspacePath: "c:\\work",
+      sourcePath: "C:\\Work\\app-b\\src\\main\\java\\demo\\App.java",
+      mainClass: "demo.App",
+    });
+
+    expect(result).toEqual({
+      kind: "ready",
+      target: {
+        mainClass: "demo.App",
+        projectName: "app-b",
+        modulePaths: [],
+        classPaths: ["C:/Work/app-b/target/classes"],
+      },
+    });
+  });
+
+  test("matches a modular entry point to its configured class", async () => {
+    scenario = "semantic-request";
+    semanticRequestResults = [
+      {
+        schemaVersion: 1,
+        entries: [
+          { sourcePath: "app/src/main/java/demo/App.java", mainClass: "demo.app/demo.App" },
+          { sourcePath: "app/src/main/java/demo/App.java", mainClass: "demo.app/demo.Other" },
+        ],
+        diagnostics: [],
+      },
+      { value: 1 },
+      { value: [["C:/work/app/target/classes"], []] },
+    ];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    const result = await invokeLsp<JavaRunLaunchPreparation>("java_prepare_run_launch", {
+      workspacePath: "C:/work",
+      sourcePath: "C:/work/app/src/main/java/demo/App.java",
+      mainClass: "demo.App",
+    });
+
+    expect(result.kind).toBe("ready");
+    expect(result.target.mainClass).toBe("demo.app/demo.App");
+  });
+
+  test("reports a malformed entry-point answer instead of an empty list", async () => {
+    scenario = "semantic-request";
+    semanticRequestResults = [{ entries: "not-a-list" }];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    await expect(invokeLsp("java_entrypoints", { workspacePath: "C:/work" })).rejects.toThrow(
+      "invalid entry-point list",
+    );
+    expect(requestPayloads[requestPayloads.length - 1]).toEqual({
+      sessionId: "java-session",
+      operation: "javaEntrypoints",
+    });
+  });
+
+  test("requests typed Java test items for the selected source file", async () => {
+    scenario = "semantic-request";
+    const expected = {
+      schemaVersion: 1,
+      items: [{
+        id: "method",
+        label: "composed()",
+        fullName: "demo.OddlyNamedSpec#composed()",
+        projectName: "app",
+        testKind: 0,
+        testLevel: 6,
+        children: [],
+      }],
+      diagnostics: [],
+    };
+    semanticRequestResults = [expected];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    const result = await invokeLsp("java_test_items", {
+      workspacePath: "C:/work",
+      filePath: "C:/work/src/test/java/demo/OddlyNamedSpec.java",
+    });
+
+    expect(result).toEqual(expected);
+    expect(requestPayloads[requestPayloads.length - 1]).toEqual({
+      sessionId: "java-session",
+      operation: "javaTestItems",
+      uri: "file:///C:/work/src/test/java/demo/OddlyNamedSpec.java",
+    });
+  });
+
+  test("requests JDT main methods for the selected source file", async () => {
+    scenario = "semantic-request";
+    const expected = {
+      schemaVersion: 1,
+      methods: [{
+        mainClass: "demo.App",
+        projectName: "app",
+        range: { startLine: 3, startUtf16Column: 23, endLine: 3, endUtf16Column: 27 },
+      }],
+      diagnostics: [],
+    };
+    semanticRequestResults = [expected];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    const result = await invokeLsp("java_main_methods", {
+      workspacePath: "C:/work",
+      filePath: "C:/work/src/main/java/demo/App.java",
+    });
+
+    expect(result).toEqual(expected);
+    expect(requestPayloads[requestPayloads.length - 1]).toEqual({
+      sessionId: "java-session",
+      operation: "javaMainMethods",
+      uri: "file:///C:/work/src/main/java/demo/App.java",
+    });
+  });
+
+  test("reports a malformed main-method answer instead of an empty list", async () => {
+    scenario = "semantic-request";
+    semanticRequestResults = [{ schemaVersion: 1, methods: "not-a-list" }];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    await expect(
+      invokeLsp("java_main_methods", {
+        workspacePath: "C:/work",
+        filePath: "C:/work/src/main/java/demo/App.java",
+      }),
+    ).rejects.toThrow("invalid main-method list");
+  });
+
+  test("returns Core's Java build failure with the usable launch target", async () => {
+    scenario = "semantic-request";
+    semanticRequestResults = [
+      {
+        schemaVersion: 1,
+        entries: [
           {
+            sourcePath: "service/src/main/java/example/Main.java",
             mainClass: "example.Main",
             projectName: "service",
-            filePath: "C:/work/service/src/main/java/example/Main.java",
           },
         ],
+        diagnostics: [],
       },
       {
         coreError: {
@@ -726,6 +929,127 @@ describe("Rust Core LSP adapter failures", () => {
           message:
             "The Java language service could not complete the project build. " +
             "Check the Java language server log for the build error.",
+        },
+      },
+      { value: [[], ["C:/work/service/target/classes"]] },
+    ];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    const result = await invokeLsp<JavaRunLaunchPreparation>("java_prepare_run_launch", {
+      workspacePath: "C:/work",
+      sourcePath: "C:/work/service/src/main/java/example/Main.java",
+      mainClass: "example.Main",
+    });
+
+    expect(result.kind).toBe("buildFailed");
+    if (result.kind !== "buildFailed") throw new Error("expected a continuable build failure");
+    expect(result.failure.code).toBe("javaBuildFailed");
+    expect(result.failure.message).toContain("could not complete the project build");
+    expect(result.target.classPaths).toEqual(["C:/work/service/target/classes"]);
+    expect(
+      requestPayloads
+        .slice(-2)
+        .map((payload) => (payload.command as { command?: string } | undefined)?.command),
+    ).toEqual(["vscode.java.buildWorkspace", "vscode.java.resolveClasspath"]);
+  });
+
+  test("returns one continuable result without rebuilding after a build verdict", async () => {
+    scenario = "semantic-request";
+    semanticRequestResults = [
+      {
+        schemaVersion: 1,
+        entries: [
+          {
+            sourcePath: "service/src/main/java/example/Main.java",
+            mainClass: "example.Main",
+            projectName: "service",
+          },
+        ],
+        diagnostics: [],
+      },
+      {
+        coreError: {
+          code: "javaBuildCompilationErrors",
+          stage: "javaBuild",
+          message: "The Java project has compilation errors.",
+          javaBuildReport: {
+            markerScope: "launchTarget",
+            builderFailedEarlier: true,
+            elapsedMilliseconds: 7,
+            recovery: "rebuildJavaIndex",
+          },
+        },
+      },
+      { value: [["C:/work/service/target/modules"], ["C:/work/service/target/classes"]] },
+    ];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    const target = await invokeLsp("java_prepare_run_launch", {
+      workspacePath: "C:/work",
+      sourcePath: "C:/work/service/src/main/java/example/Main.java",
+      mainClass: "example.Main",
+    });
+
+    expect(target).toEqual({
+      kind: "buildFailed",
+      failure: {
+        code: "javaBuildCompilationErrors",
+        message: "The Java project has compilation errors.",
+        report: {
+          markerScope: "launchTarget",
+          builderFailedEarlier: true,
+          elapsedMilliseconds: 7,
+          recovery: "rebuildJavaIndex",
+        },
+      },
+      target: {
+        mainClass: "example.Main",
+        projectName: "service",
+        modulePaths: ["C:/work/service/target/modules"],
+        classPaths: ["C:/work/service/target/classes"],
+      },
+    });
+    expect(
+      requestPayloads
+        .slice(-3)
+        .map(
+          (payload) =>
+            (payload.command as { command?: string } | undefined)?.command ?? payload.operation,
+        ),
+    ).toEqual(["javaEntrypoints", "vscode.java.buildWorkspace", "vscode.java.resolveClasspath"]);
+  });
+
+  test("still blocks a launch when the build reached no verdict", async () => {
+    // A cancelled build says nothing about the code, so there is nothing to
+    // override; retrying is the useful action.
+    scenario = "semantic-request";
+    semanticRequestResults = [
+      {
+        schemaVersion: 1,
+        entries: [
+          {
+            sourcePath: "service/src/main/java/example/Main.java",
+            mainClass: "example.Main",
+            projectName: "service",
+          },
+        ],
+        diagnostics: [],
+      },
+      {
+        coreError: {
+          code: "javaBuildCancelled",
+          stage: "javaBuild",
+          message: "The Java project build was cancelled before it finished.",
         },
       },
     ];
@@ -747,13 +1071,63 @@ describe("Rust Core LSP adapter failures", () => {
       failure = error as Error & { code?: string };
     }
 
-    expect(failure?.code).toBe("javaBuildFailed");
-    expect(failure?.message).toContain("could not complete the project build");
-    expect(failure?.message).not.toContain("Fix the reported Java errors");
+    expect(failure?.code).toBe("javaBuildCancelled");
     expect(
-      requestPayloads.slice(-1).map((payload) =>
-        (payload.command as { command?: string } | undefined)?.command),
+      requestPayloads
+        .slice(-1)
+        .map((payload) => (payload.command as { command?: string } | undefined)?.command),
     ).toEqual(["vscode.java.buildWorkspace"]);
+  });
+
+  test("carries the build report in the continuable result", async () => {
+    scenario = "semantic-request";
+    semanticRequestResults = [
+      {
+        schemaVersion: 1,
+        entries: [
+          {
+            sourcePath: "service/src/main/java/example/Main.java",
+            mainClass: "example.Main",
+            projectName: "service",
+          },
+        ],
+        diagnostics: [],
+      },
+      {
+        coreError: {
+          code: "javaBuildCompilationErrors",
+          stage: "javaBuild",
+          message: "The Java project has compilation errors.",
+          javaBuildReport: {
+            markerScope: "workspace",
+            builderFailedEarlier: false,
+            elapsedMilliseconds: 8,
+            recovery: "none",
+          },
+        },
+      },
+      { value: [[], ["C:/work/service/target/classes"]] },
+    ];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    const result = await invokeLsp<JavaRunLaunchPreparation>("java_prepare_run_launch", {
+      workspacePath: "C:/work",
+      sourcePath: "C:/work/service/src/main/java/example/Main.java",
+      mainClass: "example.Main",
+    });
+
+    if (result.kind !== "buildFailed") throw new Error("expected a continuable build failure");
+    expect(result.failure.report).toEqual({
+      markerScope: "workspace",
+      builderFailedEarlier: false,
+      elapsedMilliseconds: 8,
+      recovery: "none",
+    });
   });
 
   test("rejects an invalid Java Debug Server port", async () => {
@@ -1148,12 +1522,8 @@ describe("Rust Core LSP adapter failures", () => {
       }
 
       expect(releaseInitialization).toBeDefined();
-      const persistedWhileStarting = JSON.parse(
-        values.get("lithe:lsp-core-sessions:v1") ?? "[]",
-      );
-      expect(persistedWhileStarting).toEqual([
-        expect.objectContaining({ id: "java-session" }),
-      ]);
+      const persistedWhileStarting = JSON.parse(values.get("lithe:lsp-core-sessions:v1") ?? "[]");
+      expect(persistedWhileStarting).toEqual([expect.objectContaining({ id: "java-session" })]);
       expect(persistedWhileStarting[0]).not.toHaveProperty("ready");
 
       const secondStart = invokeLsp("lsp_start_for_file", {
@@ -1171,9 +1541,7 @@ describe("Rust Core LSP adapter failures", () => {
       expect(commands.filter((command) => command === "lsp.startServer")).toHaveLength(1);
       expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(0);
       const persistedReady = JSON.parse(values.get("lithe:lsp-core-sessions:v1") ?? "[]");
-      expect(persistedReady).toEqual([
-        expect.objectContaining({ files: ["C:\\work\\Main.java"] }),
-      ]);
+      expect(persistedReady).toEqual([expect.objectContaining({ files: ["C:\\work\\Main.java"] })]);
       expect(persistedReady[0]).not.toHaveProperty("ready");
 
       await invokeLsp("lsp_stop_for_file", { filePath: "C:/work/Main.java" });

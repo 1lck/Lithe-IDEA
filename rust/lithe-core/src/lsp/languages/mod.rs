@@ -1,7 +1,11 @@
 //! Dynamic provider metadata and host-model adapters for individual languages.
 
 mod catalog;
+pub(crate) mod java_entrypoints;
+pub(crate) mod java_main_methods;
 pub(crate) mod java_navigation_syntax;
+mod java_run_markers;
+pub(crate) mod java_tests;
 mod java_workspace;
 pub(crate) mod jdt;
 pub(crate) mod jdt_build;
@@ -12,6 +16,7 @@ pub(crate) mod project_preparation;
 pub(crate) mod swift;
 
 pub(crate) use catalog::*;
+pub(crate) use java_run_markers::{java_run_markers, JavaRunMarkersRequest};
 pub(crate) use java_workspace::{
     java_workspace_policy, jdt_cache_retention, jdt_workspace_fingerprint,
     JavaWorkspacePolicyRequest, JdtCacheRetentionRequest, JdtWorkspaceFingerprintRequest,

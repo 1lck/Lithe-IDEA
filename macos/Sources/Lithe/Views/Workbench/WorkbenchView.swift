@@ -270,6 +270,12 @@ struct WorkbenchView: View {
                     .frame(minWidth: 640, minHeight: 420)
             }
         }
+        .sheet(item: Binding(
+            get: { model.pendingJavaLaunchDecision },
+            set: { _ in }
+        )) { request in
+            JavaLaunchDecisionDialog(request: request)
+        }
         .onAppear {
             updateWorkbenchBackgroundImage(model.workbenchBackgroundFeature.imageData)
         }
@@ -1450,7 +1456,8 @@ struct WorkbenchView: View {
         guard let runFeature = model.runFeatureIfActive else { return }
         let intent = runFeature.generationIntent
         Task {
-            await runFeature.generateRunConfigurations()
+            // Through the app model so JDT is asked which classes can be launched.
+            await model.generateRunConfigurations()
             guard runFeature.configurationStatus == .ready else { return }
             switch intent {
             case .identifyOnly:

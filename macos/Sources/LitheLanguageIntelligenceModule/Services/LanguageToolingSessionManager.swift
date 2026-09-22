@@ -349,7 +349,12 @@ package final class LanguageToolingSessionManager: ObservableObject,
         fileURL: URL,
         rootURL: URL
     ) async throws -> JavaDebugLaunchTarget {
-        try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL)
+        switch try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL) {
+        case .ready(let target):
+            return target
+        case .buildFailed(_, let failure):
+            throw LanguageToolingSessionError.toolingUnavailable(failure.message)
+        }
     }
 
     /// Builds the owning Java project and resolves the exact runtime paths used
@@ -357,57 +362,69 @@ package final class LanguageToolingSessionManager: ObservableObject,
     package func prepareJavaRunLaunchTarget(
         fileURL: URL,
         rootURL: URL
-    ) async throws -> JavaDebugLaunchTarget {
+    ) async throws -> JavaLaunchPreparation {
         try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL)
+    }
+
+    /// JDT's launchable classes for the workspace, starting the Java service
+    /// when needed. Lithe never derives entry points from source text.
+    ///
+    /// Note: 入口点归属见 .agents/notes/implemented/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
+    package func javaEntrypoints(rootURL: URL) async throws -> JavaEntrypoints {
+        try await javaEntrypoints(in: rootURL.standardizedFileURL)
+    }
+
+    private func javaEntrypoints(in normalizedRoot: URL) async throws -> JavaEntrypoints {
+        _ = try startLanguageServer(providerID: "java", rootURL: normalizedRoot)
+        try await waitUntilLanguageServerReady(providerID: "java", rootURL: normalizedRoot)
+        guard let session = languageServers["java"], session.isRunning else {
+            throw LanguageToolingSessionError.toolingUnavailable("Java")
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            do {
+                try session.javaEntrypoints { result in
+                    continuation.resume(with: result)
+                }
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+
+    /// `file` relative to `root` with `/` separators, comparing the paths
+    /// with symbolic links resolved so `/var` and `/private/var` agree.
+    private static func workspaceRelativePath(of file: URL, in root: URL) -> String? {
+        let rootPath = root.resolvingSymlinksInPath().standardizedFileURL.path
+        let filePath = file.resolvingSymlinksInPath().standardizedFileURL.path
+        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        guard filePath.hasPrefix(prefix) else { return nil }
+        return String(filePath.dropFirst(prefix.count))
     }
 
     private func prepareJavaLaunchTarget(
         fileURL: URL,
         rootURL: URL
-    ) async throws -> JavaDebugLaunchTarget {
+    ) async throws -> JavaLaunchPreparation {
         let normalizedRoot = rootURL.standardizedFileURL
         let resolvedFile = fileURL.standardizedFileURL.resolvingSymlinksInPath()
         _ = try startLanguageServer(providerID: "java", rootURL: normalizedRoot)
         try await waitUntilLanguageServerReady(providerID: "java", rootURL: normalizedRoot)
-        if projectPreparation?.blocksRun == true {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                projectPreparation?.status == "failed"
-                    ? "Java project preparation failed. Open language service settings to retry."
-                    : "The Java project is still being prepared. View preparation progress and run again when ready."
-            )
-        }
-        let value = try await executeJavaCommand(
-            "vscode.java.resolveMainClass",
-            arguments: [],
-            rootURL: normalizedRoot
-        )
-        guard case .array(let values) = value else {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "The Java language service returned an invalid main-class list."
-            )
-        }
-        let targets = values.compactMap(Self.javaDebugLaunchTarget)
-        let exactMatches = targets.filter { target in
-            guard let filePath = target.filePath else { return false }
-            return URL(fileURLWithPath: filePath)
-                .standardizedFileURL
-                .resolvingSymlinksInPath() == resolvedFile
-        }
-        let selected: JavaDebugLaunchTarget
-        if exactMatches.count == 1 {
-            selected = exactMatches[0].target
-        } else if targets.count == 1, targets[0].filePath == nil {
-            // Older JDT LS builds may omit filePath when the workspace has a
-            // single launch target. If a path is present, do not silently use
-            // another class for the current editor file: that turns a
-            // Spring-dependent source into an invalid bare-java launch.
-            selected = targets[0].target
-        } else {
+        // JDT decides which classes are launchable; Core normalizes its answer
+        // into workspace-relative entries, so the target is the entry generated
+        // from this exact source file.
+        let entrypoints = try await javaEntrypoints(in: normalizedRoot)
+        let relativeSource = Self.workspaceRelativePath(of: resolvedFile, in: normalizedRoot)
+        let exactMatches = entrypoints.entries.filter { $0.sourcePath == relativeSource }
+        guard exactMatches.count == 1 else {
             let message = exactMatches.isEmpty
                 ? "No Java main method was found in \(resolvedFile.lastPathComponent)."
                 : "More than one Java main method was found in \(resolvedFile.lastPathComponent)."
             throw LanguageToolingSessionError.toolingUnavailable(message)
         }
+        let selected = JavaDebugLaunchTarget(
+            mainClass: exactMatches[0].mainClass,
+            projectName: exactMatches[0].projectName
+        )
         let buildPayload = JavaWorkspaceBuildRequest(
             mainClass: selected.mainClass,
             projectName: selected.projectName,
@@ -420,22 +437,33 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 "The Java workspace build request could not be encoded."
             )
         }
-        let buildValue = try await executeJavaCommand(
-            "vscode.java.buildWorkspace",
-            arguments: [.string(buildJSON)],
-            rootURL: normalizedRoot
-        )
-        let buildStatus: Int?
-        switch buildValue {
-        case .integer(let value): buildStatus = value
-        case .string(let value): buildStatus = Int(value)
-        default: buildStatus = nil
-        }
-        // Rust Core reports compilation errors, build failures, and
-        // cancellation as structured request errors before this point.
-        guard buildStatus == 1 else {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "The Java language service returned an unexpected project build status."
+        var buildFailure: JavaLaunchBuildFailure?
+        do {
+            let buildValue = try await executeJavaCommand(
+                "vscode.java.buildWorkspace",
+                arguments: [.string(buildJSON)],
+                rootURL: normalizedRoot
+            )
+            let buildStatus: Int?
+            switch buildValue {
+            case .integer(let value): buildStatus = value
+            case .string(let value): buildStatus = Int(value)
+            default: buildStatus = nil
+            }
+            guard buildStatus == 1 else {
+                throw LanguageToolingSessionError.toolingUnavailable(
+                    "The Java language service returned an unexpected project build status."
+                )
+            }
+        } catch let failure as LanguageServerRequestFailure {
+            let error = failure.runtimeError
+            guard error.code == "javaBuildCompilationErrors" || error.code == "javaBuildFailed" else {
+                throw failure
+            }
+            buildFailure = JavaLaunchBuildFailure(
+                code: error.code,
+                message: failure.localizedDescription,
+                report: error.javaBuildReport
             )
         }
         let classpathValue = try await executeJavaCommand(
@@ -460,12 +488,16 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 "The Java language service could not resolve the runtime classpath."
             )
         }
-        return JavaDebugLaunchTarget(
+        let target = JavaDebugLaunchTarget(
             mainClass: selected.mainClass,
             projectName: selected.projectName,
             modulePaths: modulePaths,
             classPaths: classPaths
         )
+        if let buildFailure {
+            return .buildFailed(target: target, failure: buildFailure)
+        }
+        return .ready(target)
     }
 
     /// Resolves one Java source file or discovered test item through the Java
@@ -481,7 +513,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             fileURL: normalizedFile,
             rootURL: normalizedRoot
         )
-        let selected: [ResolvedJavaTestItem]
+        let selected: [JavaTestItem]
         if let testIdentifier, !testIdentifier.isEmpty {
             selected = Self.flattenJavaTestItems(discovered).filter {
                 $0.matches(identifier: testIdentifier)
@@ -643,44 +675,21 @@ package final class LanguageToolingSessionManager: ObservableObject,
     private func resolvedJavaTestItems(
         fileURL: URL,
         rootURL: URL
-    ) async throws -> [ResolvedJavaTestItem] {
+    ) async throws -> [JavaTestItem] {
         _ = try startLanguageServer(providerID: "java", rootURL: rootURL)
         try await waitUntilLanguageServerReady(providerID: "java", rootURL: rootURL)
-        let discoveredValue = try await executeJavaTestCommand(
-            "vscode.java.test.findTestTypesAndMethods",
-            arguments: [.string(fileURL.absoluteString)],
-            rootURL: rootURL
-        )
-        guard case .array(let values) = discoveredValue else {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "The Java language service returned invalid test metadata."
-            )
+        guard let session = languageServers["java"], session.isRunning else {
+            throw LanguageToolingSessionError.toolingUnavailable("Java")
         }
-        return values.compactMap(Self.javaTestItem)
-    }
-
-    private static func javaDebugLaunchTarget(
-        _ value: ToolingJSONValue
-    ) -> ResolvedJavaDebugLaunchTarget? {
-        guard case .object(let object) = value,
-              case .string(let mainClass)? = object["mainClass"],
-              mainClass.isEmpty == false else { return nil }
-        let projectName: String?
-        if case .string(let value)? = object["projectName"], value.isEmpty == false {
-            projectName = value
-        } else {
-            projectName = nil
+        return try await withCheckedThrowingContinuation { continuation in
+            do {
+                try session.javaTestItems(fileURL: fileURL) { result in
+                    continuation.resume(with: result.map(\.items))
+                }
+            } catch {
+                continuation.resume(throwing: error)
+            }
         }
-        let filePath: String?
-        if case .string(let value)? = object["filePath"], value.isEmpty == false {
-            filePath = value
-        } else {
-            filePath = nil
-        }
-        return ResolvedJavaDebugLaunchTarget(
-            target: JavaDebugLaunchTarget(mainClass: mainClass, projectName: projectName),
-            filePath: filePath
-        )
     }
 
     private static func stringValues(_ value: ToolingJSONValue) -> [String] {
@@ -689,45 +698,6 @@ package final class LanguageToolingSessionManager: ObservableObject,
             guard case .string(let value) = value, !value.isEmpty else { return nil }
             return value
         }
-    }
-
-    private static func javaTestItem(_ value: ToolingJSONValue) -> ResolvedJavaTestItem? {
-        guard case .object(let object) = value,
-              case .string(let id)? = object["id"],
-              case .string(let label)? = object["label"],
-              case .string(let fullName)? = object["fullName"],
-              case .string(let projectName)? = object["projectName"],
-              let kind = integerValue(object["testKind"]),
-              let level = integerValue(object["testLevel"]) else { return nil }
-        let jdtHandler: String?
-        if case .string(let value)? = object["jdtHandler"], !value.isEmpty {
-            jdtHandler = value
-        } else {
-            jdtHandler = nil
-        }
-        let children: [ResolvedJavaTestItem]
-        if case .array(let values)? = object["children"] {
-            children = values.compactMap(javaTestItem)
-        } else {
-            children = []
-        }
-        let sortText: String?
-        if case .string(let value)? = object["sortText"], !value.isEmpty {
-            sortText = value
-        } else {
-            sortText = nil
-        }
-        return ResolvedJavaTestItem(
-            id: id,
-            label: label,
-            fullName: fullName,
-            projectName: projectName,
-            kind: kind,
-            level: level,
-            jdtHandler: jdtHandler,
-            sortText: sortText,
-            children: children
-        )
     }
 
     private static func integerValue(_ value: ToolingJSONValue?) -> Int? {
@@ -739,13 +709,13 @@ package final class LanguageToolingSessionManager: ObservableObject,
     }
 
     private static func flattenJavaTestItems(
-        _ items: [ResolvedJavaTestItem]
-    ) -> [ResolvedJavaTestItem] {
+        _ items: [JavaTestItem]
+    ) -> [JavaTestItem] {
         items.flatMap { [$0] + flattenJavaTestItems($0.children) }
     }
 
     private static func projectJavaTestItems(
-        _ items: [ResolvedJavaTestItem],
+        _ items: [JavaTestItem],
         fileURL: URL,
         depth: Int
     ) -> [LanguageTestItem] {
@@ -767,15 +737,15 @@ package final class LanguageToolingSessionManager: ObservableObject,
     }
 
     private static func sortedJavaTestItems(
-        _ items: [ResolvedJavaTestItem]
-    ) -> [ResolvedJavaTestItem] {
+        _ items: [JavaTestItem]
+    ) -> [JavaTestItem] {
         items.sorted {
             ($0.sortText ?? $0.label, $0.label, $0.id)
                 < ($1.sortText ?? $1.label, $1.label, $1.id)
         }
     }
 
-    private static func javaTestNGMethodNames(_ item: ResolvedJavaTestItem) -> [String] {
+    private static func javaTestNGMethodNames(_ item: JavaTestItem) -> [String] {
         if item.level == 6 { return [item.fullName] }
         return item.children.flatMap(javaTestNGMethodNames)
     }
@@ -1203,6 +1173,29 @@ package final class LanguageToolingSessionManager: ObservableObject,
             throw unavailableLanguageServerError(for: fileURL)
         }
         try session.javaNavigationMarkers(fileURL: fileURL, completion: completion)
+    }
+
+    /// Launchable `main` methods in one file, from an already running Java session.
+    package func javaMainMethods(
+        fileURL: URL,
+        completion: @escaping (Result<JavaMainMethods, Error>) -> Void
+    ) throws {
+        guard let session = readyLanguageServerSession(for: fileURL) else {
+            throw unavailableLanguageServerError(for: fileURL)
+        }
+        try session.javaMainMethods(fileURL: fileURL, completion: completion)
+    }
+
+    /// Test classes and methods in one file, from an already running Java
+    /// session. Unlike test-tool-window discovery, it never starts the server.
+    package func javaTestItems(
+        fileURL: URL,
+        completion: @escaping (Result<JavaTestItems, Error>) -> Void
+    ) throws {
+        guard let session = readyLanguageServerSession(for: fileURL) else {
+            throw unavailableLanguageServerError(for: fileURL)
+        }
+        try session.javaTestItems(fileURL: fileURL, completion: completion)
     }
 
     package func resolveJavaNavigation(
@@ -1877,35 +1870,11 @@ package final class LanguageToolingSessionManager: ObservableObject,
         let continuation: CheckedContinuation<Void, Error>
     }
 
-    private struct ResolvedJavaDebugLaunchTarget {
-        let target: JavaDebugLaunchTarget
-        let filePath: String?
-    }
-
     private struct JavaWorkspaceBuildRequest: Encodable {
         let mainClass: String
         let projectName: String?
         let filePath: String
         let isFullBuild: Bool
-    }
-
-    private struct ResolvedJavaTestItem {
-        let id: String
-        let label: String
-        let fullName: String
-        let projectName: String
-        let kind: Int
-        let level: Int
-        let jdtHandler: String?
-        let sortText: String?
-        let children: [ResolvedJavaTestItem]
-
-        func matches(identifier: String) -> Bool {
-            id == identifier
-                || label == identifier
-                || fullName == identifier
-                || jdtHandler == identifier
-        }
     }
 
     private struct ResolvedJavaTestLaunchArguments {

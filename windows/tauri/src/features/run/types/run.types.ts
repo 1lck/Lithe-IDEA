@@ -141,6 +141,8 @@ export interface CoreGenerateResult {
   generated: unknown;
   toolchainRequirements: unknown;
   entryCount: number;
+  /** Whether the Java entries are JDT's current answer or the previous one. */
+  javaEntrypointsOrigin?: "languageService" | "previousGeneration";
 }
 
 export interface CoreResolveResult {

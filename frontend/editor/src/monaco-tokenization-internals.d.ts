@@ -87,3 +87,37 @@ declare module "monaco-editor/esm/vs/editor/contrib/find/browser/findModel.js" {
     dispose(): void;
   }
 }
+
+declare module "monaco-editor/esm/vs/base/common/actions.js" {
+  export interface IAction {
+    readonly id: string;
+    label: string;
+    enabled: boolean;
+    run(): unknown;
+  }
+  export class Action implements IAction {
+    constructor(id: string, label?: string, cssClass?: string, enabled?: boolean, actionCallback?: () => unknown);
+    readonly id: string;
+    label: string;
+    enabled: boolean;
+    run(): unknown;
+    dispose(): void;
+  }
+  export class Separator implements IAction {
+    readonly id: string;
+    label: string;
+    enabled: boolean;
+    run(): unknown;
+  }
+}
+
+declare module "monaco-editor/esm/vs/platform/contextview/browser/contextView.js" {
+  import type { ServiceIdentifier } from "monaco-editor/esm/vs/editor/standalone/browser/standaloneServices.js";
+  import type { IAction } from "monaco-editor/esm/vs/base/common/actions.js";
+  export const IContextMenuService: ServiceIdentifier<{
+    showContextMenu(delegate: {
+      getAnchor(): { x: number; y: number };
+      getActions(): readonly IAction[];
+    }): void;
+  }>;
+}

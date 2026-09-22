@@ -174,7 +174,7 @@ export const defaultSettings: Settings = {
   lastSettingsTab: "general",
   extensionsActiveTab: "all",
   maxOpenTabs: 100,
-  horizontalTabScroll: false,
+  horizontalTabScroll: true,
   //// File tree
   fileTreeSortOrder: "folders-first",
   fileTreeIndentSize: 16,

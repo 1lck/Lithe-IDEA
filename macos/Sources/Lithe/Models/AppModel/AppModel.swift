@@ -92,6 +92,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     var pendingGeneratedCommitMessage: String? { commitDraftFeature.pendingGeneratedMessage }
     @Published var pendingTerminalCloseSessionID: UUID?
     var pendingRunAction: PendingRunAction? { runWorkflowCoordinator.pendingAction }
+    @Published var pendingJavaLaunchDecision: PendingJavaLaunchDecision?
+    var pendingJavaLaunchDecisionContinuation: CheckedContinuation<JavaLaunchDecisionResolution, Never>?
     @Published var debugBreakpointPresentation = DebugBreakpointPresentationState()
     @Published var isDiscourseCommunityVisible = false
     @Published var isImplementationChooserVisible = false
@@ -344,6 +346,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     private var mybatisFeatureObservation: AnyCancellable?
     private var isObjectWillChangeRelayScheduled = false
     private var languageToolingObservation: AnyCancellable?
+    /// Regenerates the Run list once JDT has prepared the project, after a
+    /// generation that could only show the previous Java entries.
+    var javaEntrypointRefreshObservation: AnyCancellable?
 
     func cachedModuleCapability<Capability: AnyObject>(
         _ id: ModuleCapabilityID,
