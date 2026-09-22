@@ -73,7 +73,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
     private let isAvailable: (Value) -> Bool
     private let onUnavailableSelection: ((Value) -> Void)?
     @State private var isPresented = false
-    @State private var popupWidth: CGFloat?
+    @State private var availablePopupWidth: CGFloat?
 
     init(
         selection: Binding<Value>,
@@ -98,7 +98,11 @@ struct LitheSettingsSelect<Value: Hashable>: View {
     var body: some View {
         Button {
             if !isPresented {
-                popupWidth = preferredPopupWidth
+                // Capture the presenting screen before the popover can become the key window.
+                let screen = NSApp.keyWindow?.screen ?? NSScreen.main
+                availablePopupWidth = screen.map {
+                    max(1, $0.visibleFrame.width - 2 * SettingsSelectMetrics.screenMargin)
+                }
             }
             isPresented.toggle()
         } label: {
@@ -172,7 +176,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
                 }
             }
             .padding(SettingsSelectMetrics.popupPadding)
-            .frame(width: popupWidth ?? width)
+            .frame(width: preferredPopupWidth)
             .lithePopupChrome(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
         }
     }
@@ -190,11 +194,8 @@ struct LitheSettingsSelect<Value: Hashable>: View {
             + 2 * SettingsSelectMetrics.itemHorizontalPadding
             + 2 * SettingsSelectMetrics.popupPadding
         let contentWidth = max(width, ceil(titleWidth) + chromeWidth)
-        // Resolve the presenting screen before opening the popover, which can become the key window.
-        let screen = NSApp.keyWindow?.screen ?? NSScreen.main
-        let availableWidth = screen.map { max(1, $0.visibleFrame.width - 2 * SettingsSelectMetrics.screenMargin) }
-            ?? width
-        return min(contentWidth, availableWidth)
+        // Derive the width from current titles so discovery updates also resize an open popover.
+        return min(contentWidth, availablePopupWidth ?? width)
     }
 }
 
