@@ -117,6 +117,49 @@ test("missing documents keep regeneration recovery and skip the content scan", a
   expect(store.getState().recoveryAction).toBe("regenerate");
 });
 
+test.each(["success", "failure", "superseded"])("identification waits for native fingerprint work: %s", async (outcome) => {
+  const pending = deferredInspection();
+  let markStarted!: () => void;
+  const started = new Promise<void>((resolve) => { markStarted = resolve; });
+  const root = "D:/fixture/project";
+  const listJavaSources = mock(async () => [] as string[]);
+  const generateRunConfiguration = mock(async () => ({ generated: {}, toolchainRequirements: {}, entryCount: 0 }));
+  const store = createRunStore("workspace-A", {
+    inspectRunConfiguration: async (_root, full = true) => {
+      if (_root !== root || !full) return { status: "ready" };
+      markStarted();
+      return pending.promise;
+    },
+    resolveConfigurations: async () => project(""),
+    listJavaSources,
+    generateRunConfiguration,
+    writeGeneratedRunDocuments: async () => {},
+  });
+  const loading = store.getState().actions.loadProject(root);
+  let generation: Promise<void> | undefined;
+  try {
+    await started;
+    expect(store.getState().isLoading).toBe(false);
+    generation = store.getState().actions.generate(root);
+    expect(store.getState().isGenerating).toBe(true);
+    expect(store.getState().configurations).toHaveLength(1);
+    expect(listJavaSources).not.toHaveBeenCalled();
+    if (outcome === "superseded") {
+      await store.getState().actions.loadProject("D:/fixture/other");
+    }
+    if (outcome === "failure") pending.reject(new Error("Operation timed out"));
+    else pending.resolve({ status: "ready" });
+    await Promise.all([loading, generation]);
+    expect(generateRunConfiguration).toHaveBeenCalledTimes(outcome === "superseded" ? 0 : 1);
+    expect(listJavaSources).toHaveBeenCalledTimes(outcome === "superseded" ? 0 : 1);
+    expect(store.getState().status).toBe("ready");
+    expect(store.getState().diagnostics).toEqual([]);
+  } finally {
+    pending.resolve({ status: "ready" });
+    await Promise.all([loading, generation]);
+  }
+});
+
 test("a slow load cannot restore the missing-Maven warning after settings refresh", async () => {
   let finishOld!: (result: ResolvedRunProject) => void;
   let markStarted!: () => void;

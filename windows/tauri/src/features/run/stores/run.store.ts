@@ -382,6 +382,21 @@ export const createRunStore = (
   let stopWaitingForJavaProject: (() => void) | null = null;
   // The identification currently allowed to publish; a same-project reload waits for it.
   let activeGeneration: { root: string; task: Promise<void> } | null = null;
+  // Stale-result guards do not stop native file reads. Keep their actual promises
+  // until settlement so identification cannot overlap an earlier content scan.
+  const fingerprintChecks = new Map<string, Set<Promise<unknown>>>();
+  const checkFingerprint = async (root: string) => {
+    const checks = fingerprintChecks.get(root) ?? new Set<Promise<unknown>>();
+    fingerprintChecks.set(root, checks);
+    const task = (dependencies.inspectRunConfiguration ?? inspectRunConfiguration)(root, true);
+    checks.add(task);
+    try {
+      return await task;
+    } finally {
+      checks.delete(task);
+      if (checks.size === 0) fingerprintChecks.delete(root);
+    }
+  };
   const cancelJavaRefresh = () => {
     stopWaitingForJavaProject?.();
     stopWaitingForJavaProject = null;
@@ -464,7 +479,7 @@ export const createRunStore = (
           const ownsSnapshot = () => revision === projectLoadRevision &&
             get().root === root && get().configurations === snapshot.configurations;
           try {
-            const checked = await (dependencies.inspectRunConfiguration ?? inspectRunConfiguration)(root, true);
+            const checked = await checkFingerprint(root);
             if (!ownsSnapshot()) return;
             if (checked.status !== "ready") {
               throw new Error("Run configuration documents changed during inspection. Reload the project.");
@@ -514,6 +529,12 @@ export const createRunStore = (
             saveError: null,
           });
           try {
+            // A failed freshness check must not prevent explicit regeneration.
+            // Same-project loads wait for activeGeneration, so no new scan can
+            // enter while this generation waits for the already-running checks.
+            const checks = fingerprintChecks.get(root);
+            if (checks?.size) await Promise.allSettled([...checks]);
+            if (!isCurrent()) return;
             const paths = await (dependencies.listJavaSources ?? listJavaSources)(root);
             if (!isCurrent()) return;
             // JDT decides which classes are launchable. Until it has prepared
