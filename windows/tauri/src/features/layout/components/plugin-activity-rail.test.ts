@@ -29,11 +29,11 @@ test("right activity rail places Maven in the upper right tool group", async () 
   );
   expect(railSource).toContain('<PuzzlePieceIcon className="size-4.5" />');
   expect(railSource).toContain("<NotificationsTrigger />");
-  expect(railSource).toContain('<PackageIcon className="size-4.5" />');
+  expect(railSource).toContain('<MavenIcon className="size-4.5" />');
   expect(railSource).toContain("active={isMavenActive}");
   expect(railSource).toContain("aria-pressed={isMavenActive}");
   expect(railSource).toContain("onClick={toggleMavenPane}");
-  expect(railSource.indexOf('<PackageIcon className="size-4.5" />')).toBeGreaterThan(
+  expect(railSource.indexOf('<MavenIcon className="size-4.5" />')).toBeGreaterThan(
     railSource.indexOf("<NotificationsTrigger />"),
   );
   expect(sidebarSource).toContain('id: "maven"');

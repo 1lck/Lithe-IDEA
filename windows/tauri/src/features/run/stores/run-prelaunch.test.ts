@@ -400,6 +400,42 @@ describe("Java project launch preparation feedback", () => {
     expect(store.getState().javaLaunchDecisions).toEqual({});
   });
 
+  test("a same-project reload keeps the launch waiting for its build decision", async () => {
+    const store = storeWith(projectConfiguration, {
+      prepareJavaRunLaunch: mock(async () => failedPreparation),
+      inspectRunConfiguration: mock(async () => ({ status: "missing" })),
+    });
+    let reloaded = false;
+    let decisionAfterReload: string | undefined;
+    const unsubscribe = store.subscribe((state) => {
+      const decision = state.javaLaunchDecisions[projectConfiguration.id];
+      if (!decision || reloaded) return;
+      reloaded = true;
+      // Saving project defaults reloads the project while the decision is open.
+      // Continuing afterwards is a no-op if the reload already cancelled the
+      // launch, so a regression fails the assertions instead of hanging.
+      void state.actions.loadProject("D:/work").then(() => {
+        decisionAfterReload =
+          store.getState().javaLaunchDecisions[projectConfiguration.id]?.decisionId;
+        store
+          .getState()
+          .actions.continueJavaLaunch(projectConfiguration.id, decision.decisionId, false);
+      });
+    });
+
+    try {
+      expect(await store.getState().actions.runConfiguration(projectConfiguration.id)).toBe(
+        projectConfiguration.id,
+      );
+    } finally {
+      unsubscribe();
+    }
+
+    expect(reloaded).toBe(true);
+    expect(decisionAfterReload).toBeDefined();
+    expect(store.getState().sessions[0].isRunning).toBe(true);
+  });
+
   test("remembers Always Continue for the workspace", async () => {
     const setPolicy = mock(() => undefined);
     const store = storeWith(projectConfiguration, {

@@ -61,6 +61,8 @@ interface SettingsActionsParams {
 }
 
 const settingsTabLabels: Record<SettingsTab, string> = {
+  project: "Project JDK & Maven",
+  run: "Run configurations",
   general: "General",
   editor: "Editor",
   git: "Git",

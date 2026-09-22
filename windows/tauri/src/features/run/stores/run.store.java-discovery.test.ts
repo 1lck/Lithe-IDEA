@@ -24,6 +24,7 @@ function harness(options: {
   resolvedJavaEntries?: boolean;
 }) {
   const generateCalls: Array<JavaEntrypoints | undefined> = [];
+  const events: string[] = [];
   const preparedListeners: Array<() => void> = [];
   let stoppedWaiting = 0;
   const discoveries = [...options.discoveries];
@@ -45,7 +46,13 @@ function harness(options: {
         entryCount: javaEntrypoints ? javaEntrypoints.entries.length : 0,
       } satisfies CoreGenerateResult;
     },
-    writeGeneratedRunDocuments: async () => {},
+    writeGeneratedRunDocuments: async () => {
+      events.push("write generated");
+    },
+    inspectRunConfiguration: async (_root, checkFingerprint = true) => {
+      events.push(checkFingerprint ? "check fingerprint" : "read documents");
+      return { status: "ready" };
+    },
     resolveConfigurations: async () =>
       ({
         configurations: options.resolvedJavaEntries === false ? [] : [javaConfiguration()],
@@ -61,6 +68,7 @@ function harness(options: {
   return {
     store,
     generateCalls,
+    events,
     preparedListeners,
     stoppedWaiting: () => stoppedWaiting,
   };
@@ -169,5 +177,63 @@ describe("Java entry-point discovery in the Run list", () => {
     expect(generateCalls).toEqual([ENTRYPOINTS]);
     expect(store.getState().javaDiscovery).toBe("ready");
     expect(store.getState().javaDiscoveryMessage).toBeNull();
+  });
+});
+
+describe("Reloading the project during Java discovery", () => {
+  test("a same-project reload keeps the refresh waiting for JDT", async () => {
+    const { store, generateCalls, preparedListeners, stoppedWaiting } = harness({
+      discoveries: [{ kind: "pending" }, { kind: "discovered", entrypoints: ENTRYPOINTS }],
+    });
+    await store.getState().actions.generate(ROOT);
+    expect(store.getState().javaDiscovery).toBe("stale");
+
+    // Saving project defaults reloads the same project while JDT still imports.
+    await store.getState().actions.loadProject(ROOT);
+    expect(stoppedWaiting()).toBe(0);
+    expect(store.getState().javaDiscovery).toBe("stale");
+
+    const refreshed = new Promise<void>((resolve) => {
+      const unsubscribe = store.subscribe((state) => {
+        if (state.javaDiscovery !== "ready" || state.isGenerating) return;
+        unsubscribe();
+        resolve();
+      });
+    });
+    preparedListeners[0]();
+    await refreshed;
+    expect(generateCalls).toEqual([undefined, ENTRYPOINTS]);
+  });
+
+  test("a same-project reload lets an in-flight identification publish first", async () => {
+    let releaseDiscovery: (discovery: JavaEntrypointDiscovery) => void = () => {};
+    const { store, generateCalls, events } = harness({
+      discoveries: [],
+      discover: () =>
+        new Promise((resolve) => {
+          releaseDiscovery = resolve;
+        }),
+    });
+    // Event order: identification starts, a reload is requested, JDT answers.
+    const generation = store.getState().actions.generate(ROOT);
+    const reload = store.getState().actions.loadProject(ROOT);
+    await Promise.resolve();
+    releaseDiscovery({ kind: "discovered", entrypoints: ENTRYPOINTS });
+    await Promise.all([generation, reload]);
+
+    expect(generateCalls).toEqual([ENTRYPOINTS]);
+    expect(events).toEqual(["write generated", "read documents", "check fingerprint"]);
+    expect(store.getState().status).toBe("ready");
+    expect(store.getState().configurations).toHaveLength(1);
+    expect(store.getState().javaDiscovery).toBe("ready");
+    expect(store.getState().isGenerating).toBe(false);
+  });
+
+  test("loading another project still cancels the refresh for the previous one", async () => {
+    const { store, stoppedWaiting } = harness({ discoveries: [{ kind: "pending" }] });
+    await store.getState().actions.generate(ROOT);
+    await store.getState().actions.loadProject("C:/other");
+    expect(stoppedWaiting()).toBe(1);
+    expect(store.getState().root).toBe("C:/other");
   });
 });

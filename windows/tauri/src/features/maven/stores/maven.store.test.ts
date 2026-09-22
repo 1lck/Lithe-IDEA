@@ -427,6 +427,24 @@ describe("Maven workspace state", () => {
     );
   });
 
+  test("explicit settings save reports write failure and retries unchanged values", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    const settings = {
+      settingsPath: "",
+      localRepositoryPath: "",
+      mavenExecutablePath: "D:/fixture/maven",
+      javaHomePath: "D:/fixture/jdk",
+    };
+    writeMavenConfiguration.mockImplementationOnce(async () => {
+      throw new Error("fixture write failed");
+    });
+    await expect(store.getState().actions.saveLocalConfiguration(settings)).rejects.toThrow("fixture write failed");
+    await store.getState().actions.saveLocalConfiguration(settings);
+    expect(writeMavenConfiguration).toHaveBeenCalledTimes(2);
+    expect(store.getState().configurationSaveError).toBeNull();
+  });
+
   test("persists portable and local values in separate documents", async () => {
     const store = createMavenStore("workspace", dependencies);
     await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
