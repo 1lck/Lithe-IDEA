@@ -2566,6 +2566,25 @@ struct MavenTestOutcomeTests {
     }
 
     @Test
+    func methodRerunPreservesFailuresOfOtherMethodsAndNestedClasses() {
+        let className = "demo.OrderTest"
+        let previous = [
+            MavenTestCaseOutcome(className: className, method: "creates", status: "failed"),
+            MavenTestCaseOutcome(className: className, method: "deletes", status: "failed"),
+            MavenTestCaseOutcome(className: className + "$Nested", method: "creates", status: "failed"),
+        ]
+        let passed = MavenTestCaseOutcome(className: className, method: "creates", status: "passed")
+        let scope = LanguageTestScope.testCase(identifier: className + "#creates()", fileURL: root.appendingPathComponent("OrderTest.java"))
+        let method = LanguageTestService.mavenTestMethod(in: scope)
+        #expect(method == "creates")
+        #expect(LanguageTestService.mergedOutcomes(
+            previous, requestedClasses: [className], requestedMethod: method, recorded: [passed]
+        ) == [previous[1], previous[2], passed])
+        #expect(LanguageTestService.mavenTestMethod(in: .workspace) == nil)
+        #expect(LanguageTestService.mavenTestMethod(in: .testCase(identifier: className, fileURL: nil)) == nil)
+    }
+
+    @Test
     func runReplacesOnlyTheOutcomesOfClassesItCovered() {
         let previous = [
             MavenTestCaseOutcome(className: "demo.OrderTest", method: "creates", status: "passed"),

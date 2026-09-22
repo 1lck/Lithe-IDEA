@@ -134,6 +134,8 @@ const resolveEffectiveMavenExecutable = mock(
   async (_root: string, configured: string) => configured,
 );
 
+const resolveJavaTestClass = mock(async (_root: string, _file: string, className: string): Promise<string | null> => className);
+
 const dependencies = {
   createMavenPomWatchOperations,
   createMavenDependencyPlan,
@@ -144,6 +146,7 @@ const dependencies = {
   parseMavenDependencies,
   resolveEffectiveMavenExecutable,
   resolveMavenLaunch,
+  resolveJavaTestClass,
   saveWorkspaceBeforeLaunch,
   scanMavenProject,
   startMavenProcess,
@@ -153,6 +156,8 @@ const dependencies = {
 } satisfies MavenStoreDependencies;
 
 beforeEach(() => {
+  resolveJavaTestClass.mockReset();
+  resolveJavaTestClass.mockImplementation(async (_root, _file, className) => className);
   scanMavenProject.mockReset();
   scanMavenProject.mockResolvedValue(project);
   loadMavenConfiguration.mockReset();
@@ -1376,16 +1381,55 @@ describe("Maven test outcomes for editor Run markers", () => {
     ]);
   });
 
-  test("ignores a class outside the file and runs the file's own class", async () => {
+  test("rejects a class JDT no longer finds in the file without launching a different class", async () => {
+    resolveJavaTestClass.mockResolvedValue(null);
     scanMavenProject.mockResolvedValue(mavenTestProject);
     const { store } = createOutcomeStore();
     await store.getState().actions.loadProject("D:/work", ["reactor/service/pom.xml"]);
 
     await store.getState().actions.runTestClass(testFile, undefined, "com.example.Unrelated");
 
-    expect(store.getState().activeTestRun?.selector).toBe("com.example.CalculatorTest");
-    expect(store.getState().activeTestRun?.className).toBe("com.example.CalculatorTest");
-    await store.getState().actions.stop();
+    expect(store.getState().activeTestRun).toBeNull();
+    expect(startMavenProcess).not.toHaveBeenCalled();
+    expect(store.getState().taskError).toBeTruthy();
+  });
+
+  test("runs a sibling top-level class confirmed by JDT instead of the filename class", async () => {
+    scanMavenProject.mockResolvedValue(mavenTestProject);
+    const { store } = createOutcomeStore();
+    await store.getState().actions.loadProject("D:/work", ["reactor/service/pom.xml"]);
+    try {
+      await store.getState().actions.runTestMethod(testFile, "adds", undefined, "com.example.OtherTest");
+      expect(resolveJavaTestClass).toHaveBeenCalledWith("D:/work", testFile, "com.example.OtherTest");
+      expect(store.getState().activeTestRun?.selector).toBe("com.example.OtherTest#adds");
+    } finally {
+      await store.getState().actions.stop();
+    }
+  });
+
+  test("a passing method rerun preserves another method's failure and nested outcomes", async () => {
+    scanMavenProject.mockResolvedValue(mavenTestProject);
+    const { store } = createOutcomeStore();
+    await store.getState().actions.loadProject("D:/work", ["reactor/service/pom.xml"]);
+    const className = "com.example.CalculatorTest";
+    const otherFailure = { className, method: "subtracts", status: "failed" as const, invocations: 1 };
+    const nestedFailure = { ...otherFailure, className: className + "$Nested", method: "adds" };
+    const passed = { className, method: "adds", status: "passed" as const, invocations: 1 };
+    store.setState({ testOutcomes: [otherFailure, nestedFailure, { ...passed, status: "failed" }] });
+    parseMavenTestResults.mockResolvedValueOnce({
+      testsRun: 1, failures: 0, errors: 0, skipped: 0, passed: 1,
+      success: true, failureDetails: [], testCases: [passed],
+    });
+    try {
+      await store.getState().actions.runTestMethod(testFile, "adds");
+      store.getState().actions.finishProcess(store.getState().activeSessionId!, 0);
+      // The parser mock resolves immediately; flush its registered completion.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(store.getState().testOutcomes).toEqual([otherFailure, nestedFailure, passed]);
+    } finally {
+      await store.getState().actions.stop();
+    }
   });
 
   test("keeps earlier outcomes when a run wrote no readable reports", async () => {

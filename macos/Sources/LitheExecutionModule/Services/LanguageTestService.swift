@@ -433,6 +433,7 @@ package final class LanguageTestService: ObservableObject {
         let parsedResults: MavenTestResults?
         let parsingWorkspaceURL = activeWorkspaceURL
         let reportRequest = activeReportRequest
+        let requestedMethod = lastRun.flatMap { Self.mavenTestMethod(in: $0.scope) }
         if activePlan?.frameworkID == "maven",
            let resultParser,
            let parsingWorkspaceURL {
@@ -451,6 +452,7 @@ package final class LanguageTestService: ObservableObject {
             testOutcomes = Self.mergedOutcomes(
                 testOutcomes,
                 requestedClasses: reportRequest.classes,
+                requestedMethod: requestedMethod,
                 recorded: testCases
             )
         }
@@ -509,11 +511,23 @@ package final class LanguageTestService: ObservableObject {
         )
     }
 
-    /// Replaces the outcomes of the classes a run covered, including nested
-    /// classes; without a requested class list, the classes it reported.
+    /// A method selector narrows the outcome replacement to that method;
+    /// a class or file run may replace the complete class report.
+    nonisolated static func mavenTestMethod(in scope: LanguageTestScope) -> String? {
+        guard case .testCase(let identifier, _) = scope,
+              let separator = identifier.firstIndex(of: "#") else { return nil }
+        let method = identifier[identifier.index(after: separator)...]
+            .split(separator: "(", maxSplits: 1).first.map(String.init)
+        return method?.isEmpty == false ? method : nil
+    }
+
+    /// Replaces only the selected method for a method run, or the classes
+    /// a class/file run covered, including nested classes. Without a requested
+    /// class list, only the classes present in the report are covered.
     nonisolated static func mergedOutcomes(
         _ previous: [MavenTestCaseOutcome],
         requestedClasses: [String],
+        requestedMethod: String? = nil,
         recorded: [MavenTestCaseOutcome]
     ) -> [MavenTestCaseOutcome] {
         let covered = requestedClasses.isEmpty
@@ -522,7 +536,17 @@ package final class LanguageTestService: ObservableObject {
         let isCovered: (String) -> Bool = { className in
             covered.contains { className == $0 || className.hasPrefix($0 + "$") }
         }
-        return previous.filter { !isCovered($0.className) } + recorded
+        let retained = previous.filter { outcome in
+            if let requestedMethod {
+                return !covered.contains(outcome.className) || outcome.method != requestedMethod
+            }
+            return !isCovered(outcome.className)
+        }
+        let selected = recorded.filter { outcome in
+            guard let requestedMethod else { return true }
+            return covered.contains(outcome.className) && outcome.method == requestedMethod
+        }
+        return retained + selected
     }
 
     private func relativeProjectPaths(_ files: [URL], workspaceURL: URL) -> [String] {

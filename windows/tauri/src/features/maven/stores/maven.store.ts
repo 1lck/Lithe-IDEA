@@ -23,6 +23,7 @@ import {
   mavenPomPaths,
   reconcileMavenPomWatches,
 } from "../services/maven-pom-watcher";
+import { resolveJavaTestClass } from "../services/java-test-launch-target";
 import { resolveEffectiveMavenExecutable } from "../services/resolve-maven-toolchain";
 import type {
   MavenDependencyLoad,
@@ -44,7 +45,6 @@ import type {
 import {
   createMavenTestSelector,
   resolveMavenTestTarget,
-  type MavenTestTarget,
 } from "../utils/maven-test-selection";
 
 const MAXIMUM_OUTPUT_CHARACTERS = 500_000;
@@ -71,6 +71,7 @@ export interface MavenStoreDependencies {
   parseMavenTestResults: typeof parseMavenTestResults;
   resolveEffectiveMavenExecutable: typeof resolveEffectiveMavenExecutable;
   resolveMavenLaunch: typeof resolveMavenLaunch;
+  resolveJavaTestClass: typeof resolveJavaTestClass;
   saveWorkspaceBeforeLaunch: typeof saveWorkspaceBeforeLaunch;
   scanMavenProject: typeof scanMavenProject;
   startMavenProcess: typeof startMavenProcess;
@@ -89,6 +90,7 @@ const defaultMavenStoreDependencies: MavenStoreDependencies = {
   parseMavenTestResults,
   resolveEffectiveMavenExecutable,
   resolveMavenLaunch,
+  resolveJavaTestClass,
   saveWorkspaceBeforeLaunch,
   scanMavenProject,
   startMavenProcess,
@@ -179,10 +181,7 @@ export interface MavenState {
       title: string,
       testRun?: MavenTestRun,
     ) => Promise<void>;
-    /**
-     * Runs the file's test class. `className` may name a nested class of that
-     * class (`Outer$Inner`) to run only the nested tests.
-     */
+    /** Runs a file class, or a specific class confirmed by JDT for that file. */
     runTestClass: (filePath: string, module?: string | null, className?: string) => Promise<void>;
     runTestMethod: (
       filePath: string,
@@ -318,30 +317,24 @@ export function mavenTestReportsRequest(
   };
 }
 
-/** Replaces the outcomes of the classes a run selected, including nested classes. */
+/** A method run replaces only that method; class runs replace the class and nested classes. */
 export function mergeMavenTestOutcomes(
   previous: readonly MavenTestCase[],
   ranClasses: readonly string[],
   cases: readonly MavenTestCase[],
+  requestedMethod?: string,
 ): MavenTestCase[] {
   const ran = (className: string) =>
     ranClasses.some(
       (selected) => className === selected || className.startsWith(`${selected}$`),
     );
-  return [...previous.filter((testCase) => !ran(testCase.className)), ...cases];
-}
-
-/**
- * Narrows a file's test target to a nested class the Java Test extension
- * reported. Any other class name is ignored so a stale marker cannot select a
- * class outside the file.
- */
-function withNestedTestClass(
-  target: MavenTestTarget | null,
-  className: string | undefined,
-): MavenTestTarget | null {
-  if (!target || !className || !className.startsWith(`${target.className}$`)) return target;
-  return { ...target, className };
+  return [
+    ...previous.filter((testCase) => requestedMethod
+      ? !ranClasses.includes(testCase.className) || testCase.method !== requestedMethod
+      : !ran(testCase.className)),
+    ...cases.filter((testCase) => !requestedMethod ||
+      (ranClasses.includes(testCase.className) && testCase.method === requestedMethod)),
+  ];
 }
 
 function mavenTestGoals(selector: string): string[] {
@@ -970,10 +963,15 @@ export const createMavenStore = (
             reportTestLaunchFailure("No Maven project is loaded for this Java test.");
             return;
           }
-          const target = withNestedTestClass(
-            resolveMavenTestTarget(filePath, state.root, state.project, module),
-            className,
-          );
+          const discoveredClass = className === undefined ? undefined
+            : await dependencies.resolveJavaTestClass(state.root, filePath, className);
+          // Discovery may outlive a workspace switch or a project reload.
+          if (get().root !== state.root || get().project !== state.project) return;
+          const fileTarget = resolveMavenTestTarget(filePath, state.root, state.project, module);
+          const target = discoveredClass === null ? null : fileTarget && {
+            ...fileTarget,
+            className: discoveredClass ?? fileTarget.className,
+          };
           const selector = target && createMavenTestSelector(target.className);
           if (!target || !selector) {
             reportTestLaunchFailure("Could not resolve the Java test class from this file.");
@@ -994,10 +992,15 @@ export const createMavenStore = (
             reportTestLaunchFailure("No Maven project is loaded for this Java test.");
             return;
           }
-          const target = withNestedTestClass(
-            resolveMavenTestTarget(filePath, state.root, state.project, module),
-            className,
-          );
+          const discoveredClass = className === undefined ? undefined
+            : await dependencies.resolveJavaTestClass(state.root, filePath, className);
+          // Discovery may outlive a workspace switch or a project reload.
+          if (get().root !== state.root || get().project !== state.project) return;
+          const fileTarget = resolveMavenTestTarget(filePath, state.root, state.project, module);
+          const target = discoveredClass === null ? null : fileTarget && {
+            ...fileTarget,
+            className: discoveredClass ?? fileTarget.className,
+          };
           const selector = target && createMavenTestSelector(target.className, method);
           if (!target || !selector) {
             reportTestLaunchFailure("Could not resolve the Java test method from this file.");
@@ -1138,6 +1141,7 @@ export const createMavenStore = (
                       get().testOutcomes,
                       reports.classes,
                       testResults.testCases ?? [],
+                      testRun.selector.split("#")[1],
                     ),
                   });
                 }

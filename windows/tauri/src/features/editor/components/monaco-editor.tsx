@@ -745,7 +745,7 @@ export function MonacoEditor({
 
   const runMarkerFromEditor = useCallback(
     (marker: JavaRunMarker) => {
-      if (!filePath) return;
+      if (!filePath || !javaRunMarkersRef.current.includes(marker)) return;
       setContextMenuPosition(null);
       setContextMenuRunMarker(null);
       setRunMarkerMenu(null);
@@ -772,7 +772,7 @@ export function MonacoEditor({
 
   const editRunMarkerConfiguration = useCallback(
     (marker: JavaRunMarker) => {
-      if (!filePath) return;
+      if (!filePath || !javaRunMarkersRef.current.includes(marker)) return;
       setRunMarkerMenu(null);
       void editJavaRunMarkerConfiguration(marker, filePath, workspaceId).catch((error) => {
         toast.error(
@@ -1175,6 +1175,12 @@ export function MonacoEditor({
         selectEntireModel();
       }),
       editor.onDidChangeModelContent(() => {
+        // Monaco moves decorations before React publishes the new document.
+        // Invalidate click/context targets synchronously, not just on rerender.
+        javaRunMarkersRef.current = [];
+        runMarkerDecorationCollection.clear();
+        setRunMarkerMenu(null);
+        setContextMenuRunMarker(null);
         if (applyingExternalChangeRef.current) return;
         const change = source.lastChange;
         if (!change || change.external) return;

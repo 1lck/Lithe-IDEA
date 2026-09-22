@@ -1,5 +1,6 @@
 import Foundation
 import LitheCoreContracts
+import LitheLanguageIntelligenceModule
 
 /// IDEA-style Run markers in the Java editor gutter: JDT decides which `main`
 /// methods and tests exist, Core projects them with recorded test outcomes,
@@ -120,10 +121,11 @@ extension AppModel {
         let matches = configurations.filter {
             !$0.disabled && $0.mainClass == mainClass && $0.sourcePath == sourcePath
         }
-        let rank: (RunConfiguration) -> Int = { configuration in
-            (configuration.id == selectedID ? 0 : 2) + (source(configuration) == .generated ? 1 : 0)
+        return matches.min { left, right in
+            let leftRank = (left.id == selectedID ? 0 : 2) + (source(left) == .generated ? 1 : 0)
+            let rightRank = (right.id == selectedID ? 0 : 2) + (source(right) == .generated ? 1 : 0)
+            return leftRank < rightRank
         }
-        return matches.min { rank($0) < rank($1) }
     }
 
     private func javaRunMarkerSource<Value>(
