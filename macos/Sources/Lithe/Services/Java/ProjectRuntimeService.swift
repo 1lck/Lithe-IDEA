@@ -96,6 +96,14 @@ final class ProjectRuntimeService: ObservableObject {
         activeServiceJavaHomePath = path.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Starts discovery for the open project unless it already ran or is running.
+    /// Every view that shows an automatic runtime calls this; without it the
+    /// value stays "Detecting…" when Settings is entered past the project page.
+    func ensureRuntimesDiscovered() async {
+        guard projectURL != nil, !hasDiscoveredRuntimes, !isDiscovering else { return }
+        await refreshAvailableRuntimes()
+    }
+
     func refreshAvailableRuntimes() async {
         discoveryTask?.cancel()
         discoveryTask = nil

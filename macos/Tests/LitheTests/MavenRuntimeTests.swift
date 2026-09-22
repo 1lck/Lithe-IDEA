@@ -263,6 +263,24 @@ struct MavenRuntimeTests {
 
     @Test
     @MainActor
+    func viewsShowingAutomaticRuntimesStartDiscoveryOnce() async {
+        // The Run configuration editor can be opened without visiting the project
+        // page, which used to be the only place that started discovery.
+        let locator = ChoiceRuntimeLocator(environmentValues: [:], validJavaHomes: [])
+        let service = ProjectRuntimeService(runtimeLocator: locator, store: EmptyKeyValueStore())
+        await service.ensureRuntimesDiscovered()
+        #expect(locator.discoverCalls == 0)
+
+        service.openProject(at: URL(fileURLWithPath: "/workspace", isDirectory: true))
+        #expect(!service.hasDiscoveredRuntimes)
+        await service.ensureRuntimesDiscovered()
+        #expect(service.hasDiscoveredRuntimes)
+        await service.ensureRuntimesDiscovered()
+        #expect(locator.discoverCalls == 1)
+    }
+
+    @Test
+    @MainActor
     func mavenJavaChoiceReportsAFallbackInsteadOfHidingIt() {
         let locator = ChoiceRuntimeLocator(
             environmentValues: ["JAVA_HOME": "/jdk/env"],

@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 import { createTranslator } from "@/i18n/locale";
-import { describeEffectiveToolchain, toolchainRequirementMessages } from "./effective-toolchain";
+import {
+  describeEffectiveToolchain,
+  launchToolchainSelection,
+  toolchainRequirementMessages,
+} from "./effective-toolchain";
 
 const en = createTranslator("en-US");
 const zh = createTranslator("zh-CN");
@@ -96,4 +100,26 @@ test("requirement messages are scoped to the toolchain and configuration", () =>
   expect(toolchainRequirementMessages(diagnostics, "project-maven", "api")).toEqual([
     "No local maven toolchain is selected",
   ]);
+});
+
+test("a configuration resolves with its launch order, including Maven's explicit choice", () => {
+  const empty = { javaHomePath: "", mavenExecutablePath: "", mavenJavaHomePath: "" };
+  const project = { javaHomePath: "C:/jdk-21", mavenExecutablePath: "", mavenJavaHomePath: "" };
+  const maven = { mavenExecutablePath: "C:/maven/bin/mvn.cmd", javaHomePath: "C:/jdk-17" };
+  // Nothing set on the configuration or the project: the launch uses Maven's selection.
+  expect(launchToolchainSelection(empty, project, maven)).toEqual({
+    javaHomePath: "C:/jdk-21",
+    mavenExecutablePath: "C:/maven/bin/mvn.cmd",
+    mavenJavaHomePath: "C:/jdk-17",
+  });
+  // A configuration override wins over both defaults.
+  expect(
+    launchToolchainSelection(
+      { ...empty, mavenJavaHomePath: "C:/jdk-11" },
+      { ...project, mavenJavaHomePath: "C:/jdk-21" },
+      maven,
+    ).mavenJavaHomePath,
+  ).toBe("C:/jdk-11");
+  // Without Maven's selection an empty value stays automatic.
+  expect(launchToolchainSelection(empty, project, null).mavenExecutablePath).toBe("");
 });

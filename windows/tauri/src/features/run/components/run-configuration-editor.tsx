@@ -20,6 +20,7 @@ import type {
 import { EffectiveToolchain } from "./effective-toolchain";
 import { useResolvedToolchains } from "../hooks/use-resolved-toolchains";
 import {
+  launchToolchainSelection,
   toolchainRequirementMessages,
   type EffectiveToolchainMode,
 } from "../utils/effective-toolchain";
@@ -38,6 +39,8 @@ interface RunConfigurationEditorProps {
   configuration: RunConfiguration;
   /** Core diagnostics, including unmet toolchain requirements. */
   diagnostics: RunDiagnostic[];
+  /** Explicit Maven tool window choices, which a launch falls back to. */
+  mavenSelection: { mavenExecutablePath: string; javaHomePath: string } | null;
   options: RunOptions;
   saveError: string | null;
   discoveredJava: JavaRuntime[];
@@ -113,6 +116,7 @@ export function RunConfigurationEditor({
   root,
   configuration,
   diagnostics,
+  mavenSelection,
   options,
   saveError,
   discoveredJava,
@@ -132,13 +136,14 @@ export function RunConfigurationEditor({
   const projectUsesMaven = configurationUsesMaven(configuration);
   const projectUsesJava = configurationUsesJava(configuration);
   const projectUsesNode = configurationUsesNode(configuration);
-  // An empty override inherits the project default, as Core merges them for a
-  // launch; an empty Maven JDK then inherits this configuration's JDK.
+  // Resolve what this draft would launch with; an empty Maven JDK then
+  // inherits this configuration's JDK in the host.
+  const selection = launchToolchainSelection(draft, globalToolchain, mavenSelection);
   const resolved = useResolvedToolchains(
     projectUsesJava || projectUsesMaven ? root : null,
-    draft.javaHomePath || globalToolchain.javaHomePath,
-    draft.mavenExecutablePath || globalToolchain.mavenExecutablePath,
-    draft.mavenJavaHomePath || globalToolchain.mavenJavaHomePath,
+    selection.javaHomePath,
+    selection.mavenExecutablePath,
+    selection.mavenJavaHomePath,
   );
   const overrideMode = (value: string): EffectiveToolchainMode =>
     value ? "configured" : "inherit";

@@ -57,6 +57,36 @@ export function describeEffectiveToolchain(
   }
 }
 
+interface ToolchainPaths {
+  javaHomePath: string;
+  mavenExecutablePath: string;
+  mavenJavaHomePath: string;
+}
+
+/**
+ * The selection one configuration launches with, in the launch's order: its
+ * override, then the project default, then the Maven tool window's explicit
+ * choice (see `runConfigurationInstance`). Only explicit Maven values count;
+ * Maven's resolved installation is what the host picks automatically anyway,
+ * and passing it would present an automatic choice as a selected one.
+ */
+export function launchToolchainSelection(
+  override: ToolchainPaths,
+  project: ToolchainPaths,
+  maven: { mavenExecutablePath: string; javaHomePath: string } | null,
+): ToolchainPaths {
+  return {
+    javaHomePath: override.javaHomePath || project.javaHomePath,
+    mavenExecutablePath:
+      override.mavenExecutablePath ||
+      project.mavenExecutablePath ||
+      maven?.mavenExecutablePath ||
+      "",
+    mavenJavaHomePath:
+      override.mavenJavaHomePath || project.mavenJavaHomePath || maven?.javaHomePath || "",
+  };
+}
+
 const REQUIREMENT_CODES = new Set([
   "missingToolchain",
   "toolchainVersionMismatch",

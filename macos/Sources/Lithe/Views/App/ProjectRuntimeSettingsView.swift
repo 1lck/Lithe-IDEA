@@ -227,7 +227,8 @@ struct ProjectRuntimeSettingsView: View {
                             )
                         },
                         kind: .maven,
-                        mode: feature.settings.mavenHomeSelection == .automatic ? .automatic : .configured,
+                        // A custom source without a path still resolves automatically.
+                        mode: feature.settings.mavenExecutableOverride.isEmpty ? .automatic : .configured,
                         requirements: requirementMessages(for: "project-maven")
                     )
                 }

@@ -38,6 +38,7 @@ final class RuntimeSettingsFeatureModel: ObservableObject {
         subprojects = []
     }
     func refreshAvailableRuntimes() async { await service.refreshAvailableRuntimes() }
+    func ensureRuntimesDiscovered() async { await service.ensureRuntimesDiscovered() }
     func activeJavaRuntime() -> JavaRuntimeCandidate? { service.activeJavaRuntime() }
     func activeMavenRuntime(for project: MavenProject) -> MavenRuntimeCandidate? {
         service.activeMavenRuntime(for: project)
