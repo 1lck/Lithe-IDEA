@@ -41,6 +41,7 @@ import {
   defaultGeneratedConfigurationId,
   blockingToolchainDiagnosticForConfiguration,
   mapDiagnostics,
+  mapCoreToolchain,
   mergeLaunchEnvironment,
   recoveryActionForError,
   recoveryPathFromMessage,
@@ -1011,8 +1012,16 @@ export const createRunStore = (
           return false;
         }
         const result = await runEditorSaveWorkflow({
-          prepare: () =>
-            saveRunConfigurationEditorChanges(root, configuration.id, scope, options, toolchain),
+          prepare: async () => {
+            // This editor no longer edits Java/Maven project defaults. Read them
+            // at save time so an older service dialog cannot undo settings edits.
+            const inspected = await inspectRunConfiguration(root, false);
+            const current = mapCoreToolchain(inspected.toolchain, inspected.localToolchains);
+            return saveRunConfigurationEditorChanges(root, configuration.id, scope, options, {
+              ...current,
+              runtimeExecutablePaths: toolchain.runtimeExecutablePaths,
+            });
+          },
           write: (mutation) => {
             const documents = [
               { relativePath: "run/local.json", contents: mutation.localDocument },

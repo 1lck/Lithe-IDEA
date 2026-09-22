@@ -10,6 +10,32 @@ import Testing
 @MainActor
 struct RunConfigurationIntegrationTests {
     @Test
+    func projectEnvironmentSavesWithoutGeneratedConfigurationsAndPreservesOverrides() throws {
+        let core = RustCoreBridge()
+        try #require(core.isAvailable)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-project-environment-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(".lithe/run"),
+                                               withIntermediateDirectories: true)
+        let localURL = root.appendingPathComponent(".lithe/run/local.json")
+        let original = #"{"version":2,"configurations":[{"id":"user:service","extensions":{"java":{"homePath":"/fixture/service-jdk"}}}]}"#
+        try Data(original.utf8).write(to: localURL)
+        let store = MacRunConfigurationStore(core: core, storage: MacFileStorage(),
+                                            preferences: RunTestKeyValueStore())
+        try store.saveProjectToolchain(ProjectToolchainSelection(javaHomePath: "/fixture/project-jdk"), at: root)
+        let saved = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: localURL)) as? [String: Any])
+        let configurations = try #require(saved["configurations"] as? [[String: Any]])
+        let extensions = try #require(configurations.first?["extensions"] as? [String: Any])
+        let java = try #require(extensions["java"] as? [String: String])
+        #expect(java["homePath"] == "/fixture/service-jdk")
+        let toolchain = try #require(saved["toolchain"] as? [String: [String: String]])
+        #expect(toolchain["java"]?["homePath"] == "/fixture/project-jdk")
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/run/generated.json").path))
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/run/configurations.json").path))
+    }
+
+    @Test
     func projectPreparationDoesNotBlockStandaloneOrMavenGoalLaunchers() {
         func configuration(_ kind: RunConfigurationKind, reactor: String? = nil) -> RunConfiguration {
             RunConfiguration(id: "sample", name: "Sample", kind: kind, modulePath: nil,

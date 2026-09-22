@@ -1220,6 +1220,9 @@
 "Collapsed" = "已折叠";
 "Expanded" = "已展开";
 "Run configurations" = "运行配置";
+"Open a project to configure its run configurations." = "打开项目后即可编辑运行配置。";
+"Run configurations are unavailable. Enable the execution module and try again." = "运行配置暂不可用，请启用执行模块后重试。";
+"Select a service or task to configure its arguments, environment and project-environment overrides. Changes apply after Save." = "选择服务或任务，配置启动参数、环境变量和项目环境覆盖项；点击保存后生效。";
 "Other run configurations" = "其他运行配置";
 "Run selected services" = "运行选中的服务";
 "Choose services to run" = "选择要运行的服务";
@@ -2131,3 +2134,8 @@
 "Running Git; waiting for output." = "正在执行 Git，等待输出。";
 "Git completed successfully with no output." = "执行成功，没有输出。";
 "Fetch completed with no reference changes." = "获取完成，没有引用变化。";
+"Project · JDK & Maven" = "项目 · JDK 与 Maven";
+"Project environment" = "项目环境";
+"Configure project JDK and Maven…" = "配置项目 JDK 和 Maven…";
+"Run configurations inherit the project JDK and Maven unless overridden below." = "运行配置默认继承项目 JDK 和 Maven，可在下方为当前配置单独覆盖。";
+"These overrides affect only this run configuration. Clear a path to inherit the project environment." = "以下覆盖值仅影响当前运行配置。清空路径可恢复继承项目环境。";

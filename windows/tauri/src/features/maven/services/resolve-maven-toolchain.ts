@@ -1,13 +1,13 @@
-import { resolveRunConfiguration } from "@/features/run/api/run-core-api";
+import { inspectRunConfiguration } from "@/features/run/api/run-core-api";
 import { resolveMavenInstallation } from "../api/maven-host-api";
 
 export interface MavenToolchainDependencies {
-  resolveRunConfiguration: typeof resolveRunConfiguration;
+  inspectRunConfiguration: typeof inspectRunConfiguration;
   resolveMavenInstallation: typeof resolveMavenInstallation;
 }
 
 const defaultDependencies: MavenToolchainDependencies = {
-  resolveRunConfiguration,
+  inspectRunConfiguration,
   resolveMavenInstallation,
 };
 
@@ -43,7 +43,7 @@ async function runToolchainMaven(
   dependencies: MavenToolchainDependencies,
 ): Promise<string> {
   try {
-    const resolved = await dependencies.resolveRunConfiguration(root, []);
+    const resolved = await dependencies.inspectRunConfiguration(root, false);
     return resolved.toolchain?.maven?.executablePath?.trim() ?? "";
   } catch {
     // A workspace without run documents still imports through Maven, so fall

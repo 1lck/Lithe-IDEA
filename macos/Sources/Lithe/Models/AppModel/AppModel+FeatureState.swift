@@ -373,36 +373,13 @@ extension AppModel {
     func persistProjectRuntimeSettings() {
         let settings = runtimeFeature.settings
         if let maven = mavenFeatureIfActive {
-            let mavenJDK = settings.mavenJavaHomePath.isEmpty
-                ? settings.javaHomePath
-                : settings.mavenJavaHomePath
             maven.updateLocalConfiguration(
                 settingsPath: settings.mavenSettingsPath,
                 localRepositoryPath: settings.mavenLocalRepositoryPath,
                 mavenExecutablePath: settings.mavenExecutableOverride,
-                javaHomePath: mavenJDK
+                javaHomePath: settings.mavenJavaHomePath
             )
         }
-        guard let run = runFeatureIfActive,
-              run.configurationStatus == .ready else { return }
-        let configuration = run.selectedConfiguration
-            ?? run.configurations.first { $0.kind.capabilities.contains(.javaRuntime) }
-            ?? run.configurations.first
-        guard let configuration else { return }
-        var options = run.options(for: configuration)
-        let previousToolchain = run.projectToolchain
-        if options.javaHomePath == previousToolchain.javaHomePath { options.javaHomePath = "" }
-        if options.mavenExecutablePath == previousToolchain.mavenExecutablePath {
-            options.mavenExecutablePath = ""
-        }
-        if options.mavenJavaHomePath == previousToolchain.mavenJavaHomePath {
-            options.mavenJavaHomePath = ""
-        }
-        _ = run.saveEditorChanges(
-            options,
-            toolchain: runtimeFeature.projectToolchainSelection,
-            for: configuration,
-            scope: .local
-        )
+        _ = runFeatureIfActive?.saveProjectToolchain(runtimeFeature.projectToolchainSelection)
     }
 }

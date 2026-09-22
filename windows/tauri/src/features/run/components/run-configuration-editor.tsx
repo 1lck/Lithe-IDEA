@@ -1,11 +1,11 @@
 import { useState } from "react";
+import { useUIState } from "@/features/window/stores/ui-state.store";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/ui/button";
-import Dialog from "@/ui/dialog";
 import { Field, FieldDescription, FieldLabel } from "@/ui/field";
 import Input from "@/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/ui/native-select";
-import { FolderIcon, PlayIcon } from "@/ui/icons";
+import { FolderIcon } from "@/ui/icons";
 import { useTranslation } from "@/i18n/locale-provider";
 import type {
   GlobalToolchain,
@@ -142,22 +142,10 @@ export function RunConfigurationEditor({
     });
   };
 
-  const pickToolchainDirectory = (field: "javaHomePath" | "mavenJavaHomePath") => {
+  const pickMavenHome = () => {
     void open({ directory: true, multiple: false }).then((selected) => {
       if (typeof selected === "string" && selected) {
-        setToolchainDraft((current) => ({ ...current, [field]: selected }));
-      }
-    });
-  };
-
-  const pickMavenHome = (target: "configuration" | "project") => {
-    void open({ directory: true, multiple: false }).then((selected) => {
-      if (typeof selected === "string" && selected) {
-        if (target === "project") {
-          setToolchainDraft((current) => ({ ...current, mavenExecutablePath: selected }));
-        } else {
-          setDraft((current) => ({ ...current, mavenExecutablePath: selected }));
-        }
+        setDraft((current) => ({ ...current, mavenExecutablePath: selected }));
       }
     });
   };
@@ -188,69 +176,19 @@ export function RunConfigurationEditor({
   };
 
   return (
-    <Dialog
-      title={t("run.editorTitle")}
-      icon={PlayIcon}
-      onClose={onClose}
-      size="lg"
-      classNames={{ modal: "h-[min(82vh,40rem)]" }}
-      footer={
-        <>
-          {saveError ? <span className="min-w-0 flex-1 truncate text-destructive ui-text-sm">{saveError}</span> : <span />}
-          <Button variant="ghost" onClick={onClose}>
-            {t("run.cancel")}
-          </Button>
-          <Button disabled={saving} onClick={() => void save()}>
-            {t("run.done")}
-          </Button>
-        </>
-      }
-    >
+    <div className="space-y-4">
       <div className="space-y-6">
         <div className="space-y-2">
           <div className="font-medium text-subtle-foreground ui-text-sm">
             {t("run.projectDefaultsSection")} · {t("run.saveScopeLocal")}
           </div>
           <p className="text-subtle-foreground ui-text-sm">{t("run.saveScopeLocalHint")}</p>
-          {projectUsesJava ? (
-            <ToolchainField
-              id="run-jdk-home"
-              label={t("run.jdkHome")}
-              hint={t("run.jdkHomeHint")}
-              value={toolchainDraft.javaHomePath}
-              autoLabel={t("run.toolchainAuto")}
-              customLabel={t("run.toolchainCurrent")}
-              candidates={javaCandidates}
-              onSelect={(value) => setToolchainDraft((current) => ({ ...current, javaHomePath: value }))}
-              onPick={() => pickToolchainDirectory("javaHomePath")}
-            />
-          ) : null}
-          {projectUsesMaven ? (
-            <>
-              <ToolchainField
-                id="run-maven"
-                label={t("run.mavenExecutable")}
-                hint={t("run.mavenExecutableHint")}
-                value={toolchainDraft.mavenExecutablePath}
-                autoLabel={t("run.toolchainAuto")}
-                customLabel={t("run.toolchainCurrent")}
-                candidates={mavenCandidates}
-                onSelect={(value) => setToolchainDraft((current) => ({ ...current, mavenExecutablePath: value }))}
-                onPick={() => pickMavenHome("project")}
-              />
-              <ToolchainField
-                id="run-maven-jdk"
-                label={t("run.mavenJdkHome")}
-                hint={t("run.mavenJdkHomeHint")}
-                value={toolchainDraft.mavenJavaHomePath}
-                autoLabel={t("run.toolchainAuto")}
-                customLabel={t("run.toolchainCurrent")}
-                candidates={javaCandidates}
-                onSelect={(value) => setToolchainDraft((current) => ({ ...current, mavenJavaHomePath: value }))}
-                onPick={() => pickToolchainDirectory("mavenJavaHomePath")}
-              />
-            </>
-          ) : null}
+          {(projectUsesJava || projectUsesMaven) && (
+            <Button variant="ghost" onClick={() => {
+              onClose();
+              useUIState.getState().openSettingsDialog("project");
+            }}>{t("settings.project.openSettings")}</Button>
+          )}
           {projectUsesNode ? (
             <ToolchainField
               id="run-node-executable"
@@ -316,6 +254,7 @@ export function RunConfigurationEditor({
             <div className="font-medium text-subtle-foreground ui-text-sm">
               {t("run.configurationOverridesSection")}
             </div>
+            <p className="text-subtle-foreground ui-text-sm">{t("settings.project.overrides")}</p>
             {projectUsesJava ? (
               <ToolchainField
                 id="run-configuration-jdk-home"
@@ -340,7 +279,7 @@ export function RunConfigurationEditor({
                   customLabel={t("run.toolchainCurrent")}
                   candidates={mavenCandidates}
                   onSelect={(value) => setDraft((current) => ({ ...current, mavenExecutablePath: value }))}
-                  onPick={() => pickMavenHome("configuration")}
+                  onPick={pickMavenHome}
                 />
                 <ToolchainField
                   id="run-configuration-maven-jdk"
@@ -423,6 +362,11 @@ export function RunConfigurationEditor({
           </div>
         </div>
       </div>
-    </Dialog>
+      <div className="flex items-center justify-end gap-2 border-t border-border pt-3">
+        {saveError && <span role="alert" className="text-destructive ui-text-sm">{saveError}</span>}
+        <Button variant="ghost" disabled={saving} onClick={onClose}>{t("run.cancel")}</Button>
+        <Button disabled={saving} onClick={() => void save()}>{t("ui.save")}</Button>
+      </div>
+    </div>
   );
 }

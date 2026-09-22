@@ -1,4 +1,5 @@
 import { invoke } from "@/platform/tauri-core";
+import { inspectRunConfiguration } from "@/features/run/api/run-core-api";
 import { resolveRunLaunch, startRunProcess, stopRunProcess } from "@/features/run/api/run-host-api";
 import type {
   MavenLaunchContext,
@@ -39,14 +40,18 @@ export async function resolveMavenLaunch(
   root: string,
   context: MavenLaunchContext,
   plan: MavenLaunchPlan,
+  dependencies = { inspectRunConfiguration, resolveRunLaunch },
 ) {
-  return resolveRunLaunch({
+  const defaults = context.javaHomePath
+    ? null
+    : (await dependencies.inspectRunConfiguration(root, false)).toolchain;
+  return dependencies.resolveRunLaunch({
     root,
     executable: plan.executable,
     workingDirectory: plan.workingDirectory,
     javaHomePath: "",
     mavenExecutablePath: context.mavenExecutablePath ?? "",
-    mavenJavaHomePath: context.javaHomePath ?? "",
+    mavenJavaHomePath: context.javaHomePath || defaults?.maven?.javaHomePath || defaults?.java?.homePath || "",
     environment: {},
   });
 }

@@ -257,6 +257,8 @@ package struct ProjectToolchainSelection: Codable, Equatable, Sendable {
 }
 
 package protocol RunConfigurationOperations: Sendable {
+    /// Saves project defaults without modifying any service or requiring generated configurations.
+    func saveProjectToolchain(_ toolchain: ProjectToolchainSelection, at projectURL: URL) throws
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection
     /// `javaEntrypoints` is JDT's current answer; `nil` keeps the previous
     /// generation's Java entries while the Java service prepares the project.
@@ -306,6 +308,9 @@ package protocol RunConfigurationOperations: Sendable {
 }
 
 package extension RunConfigurationOperations {
+    func saveProjectToolchain(_: ProjectToolchainSelection, at _: URL) throws {
+        throw RunConfigurationEditorSaveFailure(stage: .prepare, message: "Project environment saving is unavailable.")
+    }
     func launchPlan(
         at projectURL: URL,
         configurationID: String,

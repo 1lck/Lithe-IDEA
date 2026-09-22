@@ -226,6 +226,25 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         try writeMutation(mutation, to: url, root: root)
     }
 
+    func saveProjectToolchain(_ toolchain: ProjectToolchainSelection, at projectURL: URL) throws {
+        let root = projectURL.standardizedFileURL
+        let payload = try core.updateRunConfigurationOptions(
+            at: root,
+            configurationID: "",
+            scope: .local,
+            options: RunOptions(),
+            toolchain: toolchain
+        ).get()
+        guard let data = payload.document.data(using: .utf8) else {
+            throw MacRunConfigurationStoreError.writeFailed("Invalid UTF-8 project environment data.")
+        }
+        try writeMutation(
+            RunConfigurationDocumentMutation(configurationID: nil, document: data),
+            to: root.appendingPathComponent(".lithe/run/local.json"),
+            root: root
+        )
+    }
+
     func saveEditorChanges(
         _ options: RunOptions,
         toolchain: ProjectToolchainSelection,

@@ -413,6 +413,36 @@ package final class RunService: ObservableObject {
     }
 
     @discardableResult
+    package func saveProjectToolchain(_ toolchain: ProjectToolchainSelection) -> Bool {
+        configurationSaveError = nil
+        guard let projectURL else { return false }
+        do {
+            try runConfigurationOperations.saveProjectToolchain(toolchain, at: projectURL)
+            projectToolchain = toolchain
+        } catch {
+            configurationSaveError = editorSaveFailureMessage(error, fallbackStage: .write)
+            return false
+        }
+        do {
+            if configurationStatus == .ready {
+                let resolution = try resolveWithServiceToolchains(
+                    operations: runConfigurationOperations,
+                    projectURL: projectURL,
+                    mavenProject: mavenProject,
+                    preferredConfigurationID: selectedConfiguration?.id
+                )
+                configurationDiagnostics = resolution.diagnostics
+                apply(resolution.configurations, projectToolchain: resolution.projectToolchain,
+                      preferredConfigurationID: selectedConfiguration?.id)
+            }
+            return true
+        } catch {
+            configurationSaveError = editorSaveFailureMessage(error, fallbackStage: .reload)
+            return false
+        }
+    }
+
+    @discardableResult
     package func saveEditorChanges(
         _ options: RunOptions,
         toolchain: ProjectToolchainSelection,

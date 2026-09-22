@@ -14,6 +14,7 @@ import {
   KeyboardIcon,
   MagicWandIcon,
   FileTextIcon,
+  FolderIcon,
   TerminalWindowIcon,
   type Icon,
 } from "@/ui/icons";
@@ -33,6 +34,8 @@ interface CategoryItem {
 
 const categories: CategoryItem[] = [
   { id: "general", labelKey: "settings.tabs.general", icon: GearSixIcon },
+  { id: "project", labelKey: "settings.project.title", icon: FolderIcon },
+  { id: "run", labelKey: "settings.run.title", icon: GearIcon },
   { id: "editor", labelKey: "settings.tabs.editor", icon: CodeBlockIcon },
   { id: "keyboard", labelKey: "settings.tabs.keyboard", icon: KeyboardIcon },
   { id: "terminal", labelKey: "settings.tabs.terminal", icon: TerminalWindowIcon },
@@ -45,6 +48,10 @@ const categories: CategoryItem[] = [
 
 function categoryFromRequestedTab(tab: SettingsTab | null): MacSettingsCategory {
   switch (tab) {
+    case "run":
+      return "run";
+    case "project":
+      return "project";
     case "git":
       return "git";
     case "editor":
