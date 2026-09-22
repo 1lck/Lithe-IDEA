@@ -49,8 +49,8 @@ function harness(options: {
     writeGeneratedRunDocuments: async () => {
       events.push("write generated");
     },
-    inspectRunConfiguration: async () => {
-      events.push("inspect");
+    inspectRunConfiguration: async (_root, checkFingerprint = true) => {
+      events.push(checkFingerprint ? "check fingerprint" : "read documents");
       return { status: "ready" };
     },
     resolveConfigurations: async () =>
@@ -222,7 +222,7 @@ describe("Reloading the project during Java discovery", () => {
     await Promise.all([generation, reload]);
 
     expect(generateCalls).toEqual([ENTRYPOINTS]);
-    expect(events).toEqual(["write generated", "inspect"]);
+    expect(events).toEqual(["write generated", "read documents", "check fingerprint"]);
     expect(store.getState().status).toBe("ready");
     expect(store.getState().configurations).toHaveLength(1);
     expect(store.getState().javaDiscovery).toBe("ready");
