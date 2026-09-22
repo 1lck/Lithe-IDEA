@@ -21,7 +21,10 @@ struct MacRuntimeDiscoveryTests {
             environment: [:],
             homeDirectory: testRoot.path,
             javaHomePaths: [],
-            directoryEntries: directoryEntries
+            // Keep host-installed JDKs out of this SDKMAN fixture while exercising symlink deduplication.
+            directoryEntries: { path in
+                path == javaRoot.standardizedFileURL.path ? [javaHome.lastPathComponent, "current"] : []
+            }
         )
 
         #expect(homes.count == 1)
@@ -46,7 +49,10 @@ struct MacRuntimeDiscoveryTests {
             environment: ["SDKMAN_DIR": sdkmanRoot.path],
             homeDirectory: testRoot.appendingPathComponent("home").path,
             javaHomePaths: [],
-            directoryEntries: directoryEntries
+            // Enumerate only the fixture; executable validation must still reject the incomplete candidate.
+            directoryEntries: { path in
+                path == javaRoot.standardizedFileURL.path ? [javaHome.lastPathComponent, "incomplete"] : []
+            }
         )
 
         #expect(homes == [javaHome.standardizedFileURL])
@@ -63,9 +69,5 @@ struct MacRuntimeDiscoveryTests {
             [.posixPermissions: 0o755],
             ofItemAtPath: executable.path
         )
-    }
-
-    private func directoryEntries(at path: String) -> [String] {
-        (try? FileManager.default.contentsOfDirectory(atPath: path)) ?? []
     }
 }
