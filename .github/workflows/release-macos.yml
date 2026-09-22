@@ -357,3 +357,12 @@ jobs:
             --head "$branch" \
             --title "lithe ${LITHE_VERSION}" \
             --body "Automated Homebrew Cask metadata update for Lithe ${LITHE_VERSION}."
+
+  sync-atomgit:
+    name: Sync macOS release to AtomGit
+    needs: publish
+    uses: ./.github/workflows/sync-atomgit-release.yml
+    with:
+      tag: ${{ needs.publish.outputs.tag }}
+    secrets:
+      ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}

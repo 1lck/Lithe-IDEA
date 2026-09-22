@@ -328,7 +328,8 @@ struct ProjectRuntimeSettingsView: View {
             options: options,
             width: 280,
             accessibilityLabel: accessibilityLabel,
-            title: title
+            title: title,
+            expandsToFitOptions: true
         )
     }
 
