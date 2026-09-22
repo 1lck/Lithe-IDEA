@@ -382,6 +382,12 @@ export const defaultKeymaps: Keybinding[] = [
   { key: "shift+F5", command: "debug.stop", source: "default" },
   { key: "F9", command: "debug.toggleBreakpoint", source: "default" },
   {
+    key: "ctrl+shift+f10",
+    command: "run.runContextConfiguration",
+    source: "default",
+    when: "editorFocus",
+  },
+  {
     key: "cmd+shift+space",
     command: "workbench.agentLauncher",
     source: "default",

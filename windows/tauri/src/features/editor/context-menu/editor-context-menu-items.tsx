@@ -48,15 +48,17 @@ export interface EditorContextMenuHandlers {
   onMoveLineUp?: () => void;
   onMoveLineDown?: () => void;
   onToggleBookmark?: () => void;
-  onRunTestClass?: () => void;
-  onRunTestMethod?: () => void;
+  /** Runs the Java main method, test class, or test method under the caret. */
+  onRunContext?: () => void;
+  /** Menu target of `onRunContext`, such as `OrderTest.creates`. */
+  runContextLabel?: string;
 }
 
 export interface EditorContextMenuItemOptions extends EditorContextMenuHandlers {
   hasSelection: boolean;
   modifierKey: string;
   altKey: string;
-  t: (key: string) => string;
+  t: (key: string, values?: Record<string, string | number>) => string;
 }
 
 const noop = () => {};
@@ -100,8 +102,8 @@ export function buildEditorContextMenuItems({
   onMoveLineUp,
   onMoveLineDown,
   onToggleBookmark,
-  onRunTestClass,
-  onRunTestMethod,
+  onRunContext,
+  runContextLabel,
 }: EditorContextMenuItemOptions): MenuItem[] {
   return [
     {
@@ -128,25 +130,16 @@ export function buildEditorContextMenuItems({
       disabled: isDisabled(onPaste),
       onClick: onPaste ?? noop,
     },
-    ...(onRunTestClass
+    ...(onRunContext && runContextLabel
       ? [
-          separator("sep-tests"),
+          separator("sep-run"),
           {
-            id: "run-test-class",
-            label: t("maven.runTestClass"),
+            id: "run-context",
+            label: t("run.runTarget", { target: runContextLabel }),
             icon: <Play />,
-            onClick: onRunTestClass,
+            keybinding: <Keybinding keys={["Ctrl", "Shift", "F10"]} className="opacity-60" />,
+            onClick: onRunContext,
           },
-          ...(onRunTestMethod
-            ? [
-                {
-                  id: "run-test-method",
-                  label: t("maven.runTestMethod"),
-                  icon: <Play />,
-                  onClick: onRunTestMethod,
-                },
-              ]
-            : []),
         ]
       : []),
     {

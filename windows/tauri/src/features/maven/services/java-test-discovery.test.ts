@@ -1,3 +1,4 @@
+import { resolveJavaTestClass } from "./java-test-launch-target";
 import { describe, expect, mock, test } from "bun:test";
 import type { JavaTestItems } from "@/platform/lsp-core-adapter";
 import {
@@ -92,5 +93,28 @@ describe("Java test discovery", () => {
       "class Odd {}",
       "executeCommand",
     );
+  });
+});
+
+describe("Java test launch ownership", () => {
+  test("uses JDT's sibling and nested classes rather than the source filename", async () => {
+    const sibling = { ...discovered.items[0]!, fullName: "demo.SecondTest", children: [
+      { ...discovered.items[0]!, fullName: "demo.SecondTest$Nested", children: [] },
+    ] };
+    const invoke = mock(async () => ({ ...discovered, items: [discovered.items[0]!, sibling] }));
+    for (const className of ["demo.SecondTest", "demo.SecondTest$Nested"]) {
+      expect(await resolveJavaTestClass("C:/work", "C:/work/FirstTest.java", className, invoke))
+        .toBe(className);
+    }
+    expect(invoke).toHaveBeenCalledWith("java_test_items", {
+      workspacePath: "C:/work", filePath: "C:/work/FirstTest.java",
+    });
+    expect(await resolveJavaTestClass("C:/work", "C:/work/FirstTest.java", "demo.GoneTest", invoke)).toBeNull();
+  });
+
+  test("does not substitute a filename class when discovery fails", async () => {
+    await expect(resolveJavaTestClass("C:/work", "C:/work/FirstTest.java", "demo.SecondTest", async () => {
+      throw new Error("Java service unavailable");
+    })).rejects.toThrow("Java service unavailable");
   });
 });

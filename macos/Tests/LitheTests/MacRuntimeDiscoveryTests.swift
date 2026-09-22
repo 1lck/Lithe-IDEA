@@ -21,7 +21,7 @@ struct MacRuntimeDiscoveryTests {
             environment: [:],
             homeDirectory: testRoot.path,
             javaHomePaths: [],
-            directoryEntries: directoryEntries
+            directoryEntries: try directoryEntries(in: javaRoot)
         )
 
         #expect(homes.count == 1)
@@ -46,7 +46,7 @@ struct MacRuntimeDiscoveryTests {
             environment: ["SDKMAN_DIR": sdkmanRoot.path],
             homeDirectory: testRoot.appendingPathComponent("home").path,
             javaHomePaths: [],
-            directoryEntries: directoryEntries
+            directoryEntries: try directoryEntries(in: javaRoot)
         )
 
         #expect(homes == [javaHome.standardizedFileURL])
@@ -65,7 +65,11 @@ struct MacRuntimeDiscoveryTests {
         )
     }
 
-    private func directoryEntries(at path: String) -> [String] {
-        (try? FileManager.default.contentsOfDirectory(atPath: path)) ?? []
+    private func directoryEntries(in fixtureRoot: URL) throws -> (String) -> [String] {
+        let fixturePath = fixtureRoot.standardizedFileURL.path
+        let entries = try FileManager.default.contentsOfDirectory(atPath: fixturePath)
+        // Discovery also asks for system and Homebrew directories. Only expose
+        // this fixture so installed JDKs cannot affect either test's assertions.
+        return { path in path == fixturePath ? entries : [] }
     }
 }

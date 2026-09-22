@@ -4,6 +4,7 @@ import SwiftUI
 import WebKit
 import LitheCoreContracts
 import LitheDebugModule
+import LitheExecutionModule
 import LitheGitModule
 
 /// Local editor assets included by ordinary preview and release packaging.
@@ -233,6 +234,11 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
     private var codeActionLists: [String: (context: MonacoDocumentContext, workspace: MonacoWorkspaceContext, revision: Int?, key: String, items: [LanguageServerCodeAction])] = [:]
     private var javaNavigationLists: [String: (context: MonacoDocumentContext, revision: Int, url: URL, markers: [JavaImplementationMarker])] = [:]
     private var javaNavigationRequests: [String: UUID] = [:]
+    private var javaRunMarkerLists: [String: (context: MonacoDocumentContext, revision: Int, url: URL, markers: [JavaRunMarker])] = [:]
+    private var javaRunMarkerRequests: [String: UUID] = [:]
+    private var javaRunMarkerRefreshSubscription: AnyCancellable?
+    private var testOutcomeSubscription: AnyCancellable?
+    private var testServiceIdentity: ObjectIdentifier?
     private var codeActionCommands: [String: (context: MonacoDocumentContext, key: String, root: URL?, command: LanguageServerCommand)] = [:]
     private var subscriptions: [String: AnyCancellable] = [:]
     private var readOnlySubscriptions: [String: AnyCancellable] = [:]
@@ -531,6 +537,27 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         refreshDebugState(model: model)
     }
 
+    /// Run markers depend on JDT finishing project preparation and on recorded
+    /// test outcomes; either change asks the editor to request them again.
+    private func observeJavaRunMarkerInputs(model: AppModel) {
+        if javaRunMarkerRefreshSubscription == nil {
+            javaRunMarkerRefreshSubscription = model.languageToolingFeature.$projectPreparation
+                .removeDuplicates()
+                .dropFirst()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] _ in self?.call("window.lithe.refreshJavaRunMarkers()") }
+        }
+        let service = model.languageTestServiceIfActive
+        let identity = service.map(ObjectIdentifier.init)
+        guard identity != testServiceIdentity else { return }
+        testServiceIdentity = identity
+        testOutcomeSubscription = service?.$testOutcomes
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.call("window.lithe.refreshJavaRunMarkers()") }
+    }
+
     private func observeCodeVision(model: AppModel) {
         if codeVisionSubscription == nil {
             codeVisionSubscription = model.javaFeature.$javaCodeVisionHints
@@ -656,6 +683,8 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             lastDebugStates[oldID] = nil
             javaNavigationLists[oldID] = nil
             javaNavigationRequests[oldID] = nil
+            javaRunMarkerLists[oldID] = nil
+            javaRunMarkerRequests[oldID] = nil
             lastGitStates[oldID] = nil
             gitLoads.removeValue(forKey: oldID)?.cancel()
             blameLoads.removeValue(forKey: oldID)?.cancel()
@@ -698,6 +727,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         }
         observeDebugState(model: model)
         observeCodeVision(model: model)
+        observeJavaRunMarkerInputs(model: model)
         refreshGitState(model: model)
         refreshDebugState(model: model)
         let semanticState = model.semanticHighlightingSessionState
@@ -908,6 +938,38 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
                 self.javaNavigationLists[id] = (context, revision, url, markers)
                 reply(["markers": markers.map { ["id": $0.id, "line": $0.line + 1, "direction": $0.direction.rawValue, "relation": $0.relation.rawValue] as [String: Any] }], nil)
             }
+        case "javaRunMarkers":
+            guard let model, !failed, document.url.pathExtension.lowercased() == "java",
+                  let revision = body["revision"] as? Int, revision == revisions[id] else {
+                reply(["markers": []], nil); return
+            }
+            let url = document.url
+            let requestID = UUID()
+            javaRunMarkerRequests[id] = requestID
+            Task { @MainActor [weak self, weak document, weak model] in
+                guard let self, let document, let model, self.isCurrent(context) else { reply(["cancelled": true], nil); return }
+                let markers = await model.javaRunMarkers(for: document)
+                guard self.isCurrent(context), self.revisions[id] == revision, document.url == url,
+                      self.javaRunMarkerRequests[id] == requestID else {
+                    reply(["cancelled": true], nil); return
+                }
+                self.javaRunMarkerLists[id] = (context, revision, url, markers)
+                reply(["canDebug": true, "markers": markers.map { marker in
+                    ["id": marker.id, "line": marker.line + 1, "endLine": marker.endLine + 1,
+                     "kind": marker.kind.rawValue, "label": marker.label, "status": marker.status.rawValue] as [String: Any]
+                }], nil)
+            }
+        case "javaRunMarkerAction":
+            guard let model, !failed, let revision = body["revision"] as? Int, revision == revisions[id],
+                  let list = javaRunMarkerLists[id], isCurrent(list.context), list.revision == revision, list.url == document.url,
+                  let markerID = body["marker"] as? String,
+                  let marker = list.markers.first(where: { $0.id == markerID }),
+                  let action = (body["action"] as? String).flatMap(AppModel.JavaRunMarkerAction.init(rawValue:)) else {
+                reply(["cancelled": true], nil); return
+            }
+            model.editorDidFocus(document)
+            model.performJavaRunMarker(marker, action: action, in: document.url)
+            reply(["ok": true], nil)
         case "javaNavigationAction":
             guard let model, !failed, let revision = body["revision"] as? Int, revision == revisions[id],
                   let list = javaNavigationLists[id], isCurrent(list.context), list.revision == revision, list.url == document.url,

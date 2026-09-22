@@ -1056,6 +1056,21 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::JavaRunMarkers => {
+            match serde_json::from_value::<crate::lsp::JavaRunMarkersRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid Java Run-marker request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::java_run_markers)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Java Run markers should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::JavaWorkspacePolicy => {
             match serde_json::from_value::<crate::lsp::JavaWorkspacePolicyRequest>(parsed.payload)
                 .map_err(|error| {
