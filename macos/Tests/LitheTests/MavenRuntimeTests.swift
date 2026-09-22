@@ -276,6 +276,8 @@ struct MavenRuntimeTests {
         await service.ensureRuntimesDiscovered()
         #expect(service.hasDiscoveredRuntimes)
         await service.ensureRuntimesDiscovered()
+        // One discovery in total: the environment report must reuse its result
+        // instead of probing every JDK again on the main actor.
         #expect(locator.discoverCalls == 1)
     }
 

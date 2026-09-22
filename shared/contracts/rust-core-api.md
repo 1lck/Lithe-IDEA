@@ -1514,9 +1514,12 @@ and normalizes severity to `error` or `warning`. Duplicate issue lines are
 removed deterministically.
 
 `runConfig.inspect` also returns the local document-level `toolchain`, including
-when no generated configuration exists (`status: "missing"`). Settings and
-toolchain-only callers may send `checkFingerprint: false` to validate documents
-without traversing or hashing project sources. Omission preserves full inspection.
+when no generated configuration exists (`status: "missing"`). Settings,
+toolchain-only callers, and initial run-panel presentation may send
+`checkFingerprint: false` to validate documents without traversing or hashing
+project sources. Omission preserves full inspection. The Windows run panel
+publishes readable configurations first, then performs full inspection and
+reports freshness failures without discarding those configurations.
 Project environment saves use the existing local `runConfig.updateOptions`
 toolchain payload with an empty `configurationId`; service overrides are untouched.
 
