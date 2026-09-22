@@ -241,6 +241,7 @@ struct MavenRuntimeTests {
     }
 
     @Test
+    @MainActor
     func macRuntimeDiscoveryDistinguishesMavenHomeFromExecutable() throws {
         let testRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-maven-runtime-\(UUID().uuidString)", isDirectory: true)
@@ -268,6 +269,30 @@ struct MavenRuntimeTests {
         #expect(MacRuntimeDiscovery.mavenExecutable(forHomePath: home.path) == homeExecutable)
         #expect(MacRuntimeDiscovery.mavenExecutable(forHomePath: directExecutable.path) == directExecutable)
         #expect(MacRuntimeDiscovery.mavenExecutable(forHomePath: invalidHome.path) == nil)
+
+        // Exercise the real adapter through the service: POSIX execute permission
+        // on a directory means traversal, not that it can be launched as Maven.
+        let locator = MacRuntimeLocator()
+        let service = ProjectRuntimeService(runtimeLocator: locator, store: EmptyKeyValueStore())
+        #expect(!locator.isExecutable(at: home))
+        #expect(locator.isExecutable(at: homeExecutable))
+        #expect(service.mavenExecutable(at: testRoot, overridePath: home.path) == homeExecutable)
+        #expect(service.mavenExecutable(at: testRoot, overridePath: "apache-maven") == homeExecutable)
+        #expect(service.mavenExecutable(at: testRoot, overridePath: directExecutable.path) == directExecutable)
+        #expect(service.mavenExecutable(at: testRoot, overridePath: invalidHome.path) == nil)
+
+        let homeLink = testRoot.appendingPathComponent("maven-link", isDirectory: true)
+        let executableLink = testRoot.appendingPathComponent("mvn-link")
+        try FileManager.default.createSymbolicLink(at: homeLink, withDestinationURL: home)
+        try FileManager.default.createSymbolicLink(at: executableLink, withDestinationURL: homeExecutable)
+        #expect(!locator.isExecutable(at: homeLink))
+        #expect(service.mavenExecutable(at: testRoot, overridePath: homeLink.path) == homeLink.appendingPathComponent("bin/mvn"))
+        #expect(service.mavenExecutable(at: testRoot, overridePath: executableLink.path) == executableLink)
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: homeExecutable.path)
+        #expect(!locator.isExecutable(at: homeExecutable))
+        #expect(service.mavenExecutable(at: testRoot, overridePath: home.path) == nil)
+        #expect(service.mavenExecutable(at: testRoot, overridePath: homeExecutable.path) == nil)
     }
 
     @Test
