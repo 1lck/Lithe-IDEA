@@ -145,6 +145,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         get { workbenchFeature.isSettingsPresented }
         set { workbenchFeature.isSettingsPresented = newValue }
     }
+    var settingsCategoryRequest: Int { workbenchFeature.settingsCategoryRequest }
+
     var requestedSettingsCategory: SettingsCategory {
         workbenchFeature.requestedSettingsCategory
     }

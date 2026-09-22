@@ -174,6 +174,7 @@ export interface MavenState {
     restoreDefaultProfiles: () => void;
     setSkipTests: (enabled: boolean) => void;
     updateLocalConfiguration: (settings: MavenSettings) => void;
+    saveLocalConfiguration: (settings: MavenSettings) => Promise<void>;
     acknowledgeReload: (revision?: number) => void;
     runGoals: (
       goals: string[],
@@ -849,6 +850,18 @@ export const createMavenStore = (
               : { resolvedMavenExecutablePath: "" }),
           });
           configurationDidChange();
+        },
+
+        saveLocalConfiguration: async (settings) => {
+          if (!get().root || !get().project) {
+            throw new Error("Open a Maven project before saving Maven settings.");
+          }
+          const previousRevision = configurationRevision;
+          get().actions.updateLocalConfiguration(settings);
+          // An explicit save must also retry a previous failed write when the
+          // form still matches the in-memory settings.
+          if (configurationRevision === previousRevision) persistConfiguration();
+          await configurationWriteTask;
         },
 
         acknowledgeReload: (revision) => {

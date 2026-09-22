@@ -17,8 +17,13 @@ import { Button } from "@/ui/button";
 import Switch from "@/ui/switch";
 import { LogSettingsPanel } from "./log-settings-panel";
 import { GitSettings } from "./tabs/git-settings";
+import { ProjectEnvironmentSettings } from "./project-environment-settings";
+
+import { RunConfigurationSettings } from "./run-configuration-settings";
 
 export type MacSettingsCategory =
+  | "run"
+  | "project"
   | "git"
   | "general"
   | "editor"
@@ -588,6 +593,10 @@ export function MacSettingsPanel({
   onClose: () => void;
 }) {
   switch (category) {
+    case "run":
+      return <RunConfigurationSettings />;
+    case "project":
+      return <ProjectEnvironmentSettings />;
     case "git":
       return <GitSettings />;
     case "general":

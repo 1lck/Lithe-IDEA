@@ -104,8 +104,8 @@ extension AppModel {
         case .debug:
             await startDebuggingAfterActivation(configuration: configuration)
         case .editConfiguration:
-            showToolWindow(.run)
             runFeature.editingConfigurationID = configuration.id
+            showSettings(category: .run)
         }
     }
 

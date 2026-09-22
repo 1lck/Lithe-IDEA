@@ -133,6 +133,7 @@ export interface JavaLaunchTarget {
 
 export interface CoreInspectResult {
   status: string;
+  toolchain?: CoreGlobalToolchain | null;
   diagnostics?: Array<Record<string, string>>;
   localToolchains?: CoreLocalToolchains | null;
 }

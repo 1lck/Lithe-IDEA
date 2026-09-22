@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "local": {
+    "version": 2,
+    "configurations": [
+      { "id": "user:service", "extensions": { "java": { "homePath": "/fixture/service-jdk" } } }
+    ]
+  },
+  "toolchain": {
+    "javaHomePath": "/fixture/project-jdk",
+    "mavenExecutablePath": "/fixture/maven",
+    "mavenJavaHomePath": ""
+  },
+  "expected": {
+    "toolchain": {
+      "java": { "homePath": "/fixture/project-jdk" },
+      "maven": { "executablePath": "/fixture/maven", "javaHomePath": "" }
+    }
+  }
+}
