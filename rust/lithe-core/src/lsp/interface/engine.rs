@@ -14,6 +14,9 @@ use super::{
 use crate::lsp::languages::java_entrypoints::{
     java_entrypoints_command, normalize_java_entrypoints,
 };
+use crate::lsp::languages::java_main_methods::{
+    java_main_methods_command, normalize_java_main_methods,
+};
 use crate::lsp::languages::java_tests::{java_test_items_command, normalize_java_test_items};
 use crate::lsp::languages::jdt::{
     adapt_initialization_options, adapt_start, import_progress, initialized_notification,
@@ -312,6 +315,9 @@ pub enum LspSemanticOperation {
     /// Java Test extension discovery for one source file, normalized into
     /// typed class and method items.
     JavaTestItems,
+    /// JDT discovery of launchable `main` methods in one source file,
+    /// normalized with the source range of each method name.
+    JavaMainMethods,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -486,6 +492,8 @@ enum PendingKind {
     JavaEntrypoints,
     /// Java Test extension file discovery normalized as typed test items.
     JavaTestItems,
+    /// Java Debug Server per-file `main` discovery normalized as main methods.
+    JavaMainMethods,
     /// CodeLens-derived Java gutter marker projection.
     JavaNavigationMarkers,
     /// One JDT LS CodeLens resolve step in a bounded marker batch.
@@ -1458,6 +1466,7 @@ impl RuntimeSession {
             LspSemanticOperation::VirtualDocument => PendingKind::VirtualDocument,
             LspSemanticOperation::JavaEntrypoints => PendingKind::JavaEntrypoints,
             LspSemanticOperation::JavaTestItems => PendingKind::JavaTestItems,
+            LspSemanticOperation::JavaMainMethods => PendingKind::JavaMainMethods,
             _ => PendingKind::Feature,
         };
         self.request_with_kind(request, operation_id, pending_kind, document_version)
@@ -1617,6 +1626,25 @@ impl RuntimeSession {
                         state.client.clone(),
                         method,
                         java_test_items_command(&uri),
+                    )?
+                }
+                LspSemanticOperation::JavaMainMethods => {
+                    if self.provider_id != "java" {
+                        return Err(CoreError::new(
+                            ErrorCode::NotSupported,
+                            "Java main-method discovery requires the Java language service.",
+                        ));
+                    }
+                    let uri = uri.clone().ok_or_else(|| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "Java main-method discovery requires a document URI.",
+                        )
+                    })?;
+                    allocate_raw_request(
+                        state.client.clone(),
+                        method,
+                        java_main_methods_command(&uri),
                     )?
                 }
                 LspSemanticOperation::VirtualDocument => {
@@ -2700,6 +2728,57 @@ impl RuntimeSession {
                         }
                     }
                 }
+                Some(PendingKind::JavaMainMethods) => {
+                    if let Some(pending) = pending_before.as_ref() {
+                        if let Some(operation_id) = &pending.operation_id {
+                            let server_error = reduced
+                                .events
+                                .iter()
+                                .find(|event| event.request_id.as_ref() == response_id.as_ref())
+                                .and_then(|event| event.error.as_ref())
+                                .map(|detail| {
+                                    runtime_error(
+                                        self,
+                                        "serverError",
+                                        "request",
+                                        Some(&pending.method),
+                                        pending.document_uri.as_deref(),
+                                        "Language server returned an error.",
+                                        Some(detail),
+                                        None,
+                                    )
+                                });
+                            let methods = value.get("result").and_then(normalize_java_main_methods);
+                            // A malformed answer must not look like "no main
+                            // methods": callers keep their last good markers.
+                            let invalid_result = if server_error.is_none() && methods.is_none() {
+                                Some(runtime_error(
+                                    self,
+                                    "invalidServerResult",
+                                    "request",
+                                    Some(&pending.method),
+                                    pending.document_uri.as_deref(),
+                                    "Language server returned no Java main-method list.",
+                                    None,
+                                    None,
+                                ))
+                            } else {
+                                None
+                            };
+                            push_request_event(
+                                self,
+                                &mut state,
+                                operation_id,
+                                &pending.method,
+                                methods.map(|methods| {
+                                    serde_json::to_value(methods)
+                                        .expect("Java main methods should encode")
+                                }),
+                                server_error.or(invalid_result),
+                            );
+                        }
+                    }
+                }
                 Some(PendingKind::Shutdown) => {
                     // The reducer emits `exit` only after the shutdown response.
                     state.shutdown_deadline = Some(Instant::now() + state.shutdown_timeout);
@@ -3325,6 +3404,7 @@ impl RuntimeSession {
                             | PendingKind::VirtualDocument
                             | PendingKind::JavaEntrypoints
                             | PendingKind::JavaTestItems
+                            | PendingKind::JavaMainMethods
                             | PendingKind::JavaNavigationMarkers
                             | PendingKind::JavaNavigationMarkerResolve
                             | PendingKind::JavaResolveNavigation
@@ -3846,7 +3926,8 @@ fn semantic_method(operation: LspSemanticOperation) -> &'static str {
         LspSemanticOperation::ExecuteCommand
         | LspSemanticOperation::VirtualDocument
         | LspSemanticOperation::JavaEntrypoints
-        | LspSemanticOperation::JavaTestItems => "workspace/executeCommand",
+        | LspSemanticOperation::JavaTestItems
+        | LspSemanticOperation::JavaMainMethods => "workspace/executeCommand",
         LspSemanticOperation::InlayHints => "textDocument/inlayHint",
         LspSemanticOperation::FoldingRanges => "textDocument/foldingRange",
         LspSemanticOperation::SemanticTokens => "textDocument/semanticTokens/full",
@@ -3872,7 +3953,8 @@ fn semantic_capability(operation: LspSemanticOperation) -> Option<&'static str> 
         LspSemanticOperation::ExecuteCommand
         | LspSemanticOperation::VirtualDocument
         | LspSemanticOperation::JavaEntrypoints
-        | LspSemanticOperation::JavaTestItems => Some("executeCommand"),
+        | LspSemanticOperation::JavaTestItems
+        | LspSemanticOperation::JavaMainMethods => Some("executeCommand"),
         LspSemanticOperation::InlayHints => Some("inlayHints"),
         LspSemanticOperation::FoldingRanges => Some("foldingRanges"),
         LspSemanticOperation::SemanticTokens => Some("semanticTokens"),
@@ -4584,6 +4666,7 @@ fn fail_feature_requests(
                     | PendingKind::VirtualDocument
                     | PendingKind::JavaEntrypoints
                     | PendingKind::JavaTestItems
+                    | PendingKind::JavaMainMethods
                     | PendingKind::JavaNavigationMarkers
                     | PendingKind::JavaNavigationMarkerResolve
                     | PendingKind::JavaResolveNavigation
@@ -7262,6 +7345,94 @@ mod tests {
                 .as_ref()
                 .map(|value| &value["items"][0]["children"][0]["jdtHandler"]),
             Some(&json!("method-handler"))
+        );
+    }
+
+    fn request_java_main_methods(harness: &mut Harness, uri: &str) -> (String, String) {
+        let operation_id = harness.engine.next_operation_id();
+        harness
+            .session()
+            .request(
+                SemanticRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    operation: LspSemanticOperation::JavaMainMethods,
+                    uri: Some(uri.to_string()),
+                    virtual_uri: None,
+                    position: None,
+                    new_name: None,
+                    range: None,
+                    diagnostics: Vec::new(),
+                    completion_item: None,
+                    code_action: None,
+                    command: None,
+                },
+                operation_id.clone(),
+            )
+            .expect("main-method discovery should not require the file to be open");
+        let request_id = harness
+            .server
+            .await_request("workspace/executeCommand")
+            .expect("main-method discovery should reach the Java Debug Server");
+        (operation_id, request_id)
+    }
+
+    #[test]
+    fn java_main_methods_ask_java_debug_for_one_file_and_normalize_the_answer() {
+        let mut harness = java_entrypoints_harness();
+        let uri = "file:///workspace/src/main/java/demo/App.java";
+        let (operation_id, request_id) = request_java_main_methods(&mut harness, uri);
+        let request = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["id"] == request_id)
+            .expect("the discovery request should be recorded");
+        assert_eq!(
+            request["params"],
+            json!({ "command": "vscode.java.resolveMainMethod", "arguments": [uri] })
+        );
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": [{
+                "range": {
+                    "start": { "line": 4, "character": 23 },
+                    "end": { "line": 4, "character": 27 }
+                },
+                "mainClass": "demo.App",
+                "projectName": "app"
+            }]
+        }));
+        let event = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
+            .clone();
+        assert!(event.error.is_none(), "{event:?}");
+        let result = event.result.expect("main methods");
+        assert_eq!(result["schemaVersion"], json!(1));
+        assert_eq!(result["methods"][0]["mainClass"], json!("demo.App"));
+        assert_eq!(result["methods"][0]["range"]["startLine"], json!(4));
+    }
+
+    #[test]
+    fn malformed_java_main_method_answer_is_an_error_not_an_empty_list() {
+        let mut harness = java_entrypoints_harness();
+        let (operation_id, request_id) = request_java_main_methods(
+            &mut harness,
+            "file:///workspace/src/main/java/demo/App.java",
+        );
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": { "unexpected": true }
+        }));
+        let event = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
+            .clone();
+        assert!(event.result.is_none());
+        assert_eq!(
+            event.error.as_ref().map(|error| error.code.as_str()),
+            Some("invalidServerResult")
         );
     }
 

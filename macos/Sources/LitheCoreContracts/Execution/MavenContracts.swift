@@ -214,6 +214,9 @@ package struct MavenTestResults: Equatable, Sendable {
     package let passed: Int
     package let success: Bool
     package let failureDetails: [MavenTestFailureDetail]
+    /// Per-method outcomes read from the run's XML reports; empty when the
+    /// run was not identified or wrote no readable reports.
+    package let testCases: [MavenTestCaseOutcome]
 
     package init(
         testsRun: Int,
@@ -222,7 +225,8 @@ package struct MavenTestResults: Equatable, Sendable {
         skipped: Int,
         passed: Int,
         success: Bool,
-        failureDetails: [MavenTestFailureDetail]
+        failureDetails: [MavenTestFailureDetail],
+        testCases: [MavenTestCaseOutcome] = []
     ) {
         self.testsRun = testsRun
         self.failures = failures
@@ -231,6 +235,47 @@ package struct MavenTestResults: Equatable, Sendable {
         self.passed = passed
         self.success = success
         self.failureDetails = failureDetails
+        self.testCases = testCases
+    }
+}
+
+/// One test method's outcome from Core's `maven.testResults` reports.
+///
+/// Note: 设计见 .agents/notes/implemented/architecture/2026-09-22-editor-run-markers-and-test-outcomes.md
+package struct MavenTestCaseOutcome: Codable, Equatable, Sendable {
+    /// Binary class name, such as `demo.OrderTest$Refunds`.
+    package let className: String
+    package let method: String
+    /// `passed`, `failed`, `error`, or `skipped`.
+    package let status: String
+    package let message: String?
+    package let invocations: Int
+
+    package init(className: String, method: String, status: String, message: String? = nil, invocations: Int = 1) {
+        self.className = className
+        self.method = method
+        self.status = status
+        self.message = message
+        self.invocations = invocations
+    }
+}
+
+/// Identifies the XML reports a finished Maven test run wrote.
+package struct MavenTestReportRequest: Codable, Equatable, Sendable {
+    /// Workspace-relative module directory, when the run selected one.
+    package let module: String?
+    /// Workspace-relative test file; Core finds its module when `module` is nil.
+    package let sourcePath: String?
+    /// Binary class names; empty reads every report the run wrote.
+    package let classes: [String]
+    /// Run start in Unix milliseconds; older reports belong to earlier runs.
+    package let notBeforeMillis: UInt64
+
+    package init(module: String? = nil, sourcePath: String? = nil, classes: [String], notBeforeMillis: UInt64) {
+        self.module = module
+        self.sourcePath = sourcePath
+        self.classes = classes
+        self.notBeforeMillis = notBeforeMillis
     }
 }
 
@@ -483,6 +528,11 @@ package protocol MavenProjectOperations: Sendable {
     func mavenDependencies(modulePath: String, output: String) throws -> MavenDependencyTree
     func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue]
     func mavenTestResults(output: String, projectRoot: URL) -> MavenTestResults?
+    func mavenTestResults(
+        output: String,
+        projectRoot: URL,
+        reports: MavenTestReportRequest?
+    ) -> MavenTestResults?
 }
 
 extension MavenProjectOperations {
@@ -508,6 +558,15 @@ extension MavenProjectOperations {
     }
 
     package func mavenTestResults(output _: String, projectRoot _: URL) -> MavenTestResults? { nil }
+
+    /// Operations without report support fall back to the text summary.
+    package func mavenTestResults(
+        output: String,
+        projectRoot: URL,
+        reports _: MavenTestReportRequest?
+    ) -> MavenTestResults? {
+        mavenTestResults(output: output, projectRoot: projectRoot)
+    }
 }
 
 package protocol MavenConfigurationStoring: Sendable {

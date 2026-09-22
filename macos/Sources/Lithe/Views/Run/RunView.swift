@@ -17,9 +17,12 @@ struct RunView: View {
     @AppStorage("lithe.run.pinnedConfigurationIDs") private var pinnedConfigurationTokens = ""
     @AppStorage("lithe.run.configurationListCollapsed") private var isConfigurationListCollapsed = false
     @State private var pinnedConfigurationCache = RunConfigurationTokenCache()
-    /// The configuration whose editor popover is open. Held separately from the list
-    /// selection so opening an editor does not switch which log is shown.
-    @State private var editingConfigurationID: String?
+    /// The configuration whose editor popover is open; owned by the feature so
+    /// editor gutter markers can open it too.
+    private var editingConfigurationID: String? {
+        get { feature.editingConfigurationID }
+        nonmutating set { feature.editingConfigurationID = newValue }
+    }
 
     var body: some View {
         let _ = LitheSignpost.bodyEvaluated("RunView")
