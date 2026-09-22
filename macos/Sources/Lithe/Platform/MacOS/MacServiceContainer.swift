@@ -388,10 +388,11 @@ final class MacServiceContainer {
                             executableResolver: executableResolver,
                             processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution) },
                             extensionRequiredLanguageIDs: pluginLanguageIDs,
-                            resultParser: { output, rootURL in
+                            resultParser: { output, rootURL, reports in
                                 javaMavenOperations.mavenTestResults(
                                     output: output,
-                                    projectRoot: rootURL
+                                    projectRoot: rootURL,
+                                    reports: reports
                                 )
                             }
                         )

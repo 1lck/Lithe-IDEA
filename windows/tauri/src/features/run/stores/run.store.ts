@@ -41,6 +41,7 @@ import {
   defaultGeneratedConfigurationId,
   blockingToolchainDiagnosticForConfiguration,
   mapDiagnostics,
+  mapCoreToolchain,
   mergeLaunchEnvironment,
   recoveryActionForError,
   recoveryPathFromMessage,
@@ -110,6 +111,8 @@ interface RunState {
   sessions: RunSession[];
   selectedSessionId: string | null;
   saveError: string | null;
+  /** Configuration whose editor is open, requested from the Run pane or the editor gutter. */
+  editingConfigurationId: string | null;
   generationNotice: string | null;
   javaLaunchDecisions: Record<string, JavaLaunchDecision>;
   discoveredJava: JavaRuntime[];
@@ -122,6 +125,7 @@ interface RunState {
     generate: (root: string) => Promise<void>;
     selectConfiguration: (id: string | null) => void;
     selectSession: (id: string | null) => void;
+    editConfiguration: (id: string | null) => void;
     runConfiguration: (
       id: string,
       currentFile?: string,
@@ -309,8 +313,9 @@ async function readRunProjectSnapshot(
   root: string,
   workspaceId: string,
   dependencies: RunStoreDependencies,
+  checkFingerprint = true,
 ): Promise<RunProjectSnapshot> {
-  const inspection = await (dependencies.inspectRunConfiguration ?? inspectRunConfiguration)(root);
+  const inspection = await (dependencies.inspectRunConfiguration ?? inspectRunConfiguration)(root, checkFingerprint);
   const inspectionDiagnostics = mapDiagnostics(inspection.diagnostics);
   if (inspection.status !== "ready") {
     return { status: "missing", diagnostics: inspectionDiagnostics };
@@ -375,6 +380,23 @@ export const createRunStore = (
   let projectLoadRevision = 0;
   // At most one pending refresh: a newer generation or project load replaces it.
   let stopWaitingForJavaProject: (() => void) | null = null;
+  // The identification currently allowed to publish; a same-project reload waits for it.
+  let activeGeneration: { root: string; task: Promise<void> } | null = null;
+  // Stale-result guards do not stop native file reads. Keep their actual promises
+  // until settlement so identification cannot overlap an earlier content scan.
+  const fingerprintChecks = new Map<string, Set<Promise<unknown>>>();
+  const checkFingerprint = async (root: string) => {
+    const checks = fingerprintChecks.get(root) ?? new Set<Promise<unknown>>();
+    fingerprintChecks.set(root, checks);
+    const task = (dependencies.inspectRunConfiguration ?? inspectRunConfiguration)(root, true);
+    checks.add(task);
+    try {
+      return await task;
+    } finally {
+      checks.delete(task);
+      if (checks.size === 0) fingerprintChecks.delete(root);
+    }
+  };
   const cancelJavaRefresh = () => {
     stopWaitingForJavaProject?.();
     stopWaitingForJavaProject = null;
@@ -398,6 +420,7 @@ export const createRunStore = (
     sessions: [],
     selectedSessionId: null,
     saveError: null,
+    editingConfigurationId: null,
     generationNotice: null,
     javaLaunchDecisions: {},
     discoveredJava: [],
@@ -407,20 +430,40 @@ export const createRunStore = (
     effectiveRuntimeExecutablePaths: {},
     actions: {
       loadProject: async (root) => {
-        cancelJavaRefresh();
-        for (const pending of pendingJavaLaunchDecisions.values()) pending.resolve(false);
-        pendingJavaLaunchDecisions.clear();
+        const sameProject = get().root === root;
+        if (sameProject) {
+          // Reloading the same project only refreshes its documents and toolchains.
+          // Keep the refresh waiting for JDT and any launch awaiting a build-failure
+          // decision, and let an in-flight identification publish instead of
+          // discarding its result.
+          for (
+            let generation = activeGeneration;
+            generation?.root === root;
+            generation = activeGeneration
+          ) {
+            await generation.task;
+          }
+          // A load or identification of another project superseded this request.
+          if (get().root !== root) return;
+        } else {
+          cancelJavaRefresh();
+          for (const pending of pendingJavaLaunchDecisions.values()) pending.resolve(false);
+          pendingJavaLaunchDecisions.clear();
+        }
         const revision = ++projectLoadRevision;
         set({
           root,
           isLoading: true,
           isGenerating: false,
           saveError: null,
+          editingConfigurationId: sameProject ? get().editingConfigurationId : null,
           generationNotice: null,
-          javaLaunchDecisions: {},
+          ...(sameProject ? {} : { javaLaunchDecisions: {} }),
         });
         try {
-          const snapshot = await readRunProjectSnapshot(root, workspaceId, dependencies);
+          // Show validated documents before the potentially expensive content scan.
+          // Fingerprint checking still runs below and never trusts file timestamps.
+          const snapshot = await readRunProjectSnapshot(root, workspaceId, dependencies, false);
           if (revision !== projectLoadRevision || get().root !== root) return;
           if (snapshot.status === "missing") {
             set({
@@ -433,6 +476,29 @@ export const createRunStore = (
             return;
           }
           set(readyRunState(snapshot, get().selectedConfigurationId));
+          const ownsSnapshot = () => revision === projectLoadRevision &&
+            get().root === root && get().configurations === snapshot.configurations;
+          try {
+            const checked = await checkFingerprint(root);
+            if (!ownsSnapshot()) return;
+            if (checked.status !== "ready") {
+              throw new Error("Run configuration documents changed during inspection. Reload the project.");
+            }
+            const additionalDiagnostics = mapDiagnostics(checked.diagnostics).filter((diagnostic) =>
+              !snapshot.diagnostics.some((existing) => existing.code === diagnostic.code &&
+                existing.message === diagnostic.message && existing.id === diagnostic.id &&
+                existing.toolchain === diagnostic.toolchain));
+            set({ diagnostics: [...snapshot.diagnostics, ...additionalDiagnostics] });
+          } catch (error) {
+            if (!ownsSnapshot()) return;
+            // A freshness-check timeout must not discard usable configurations.
+            // Keep the failure visible instead of implying the fingerprint matched.
+            const detail = error instanceof Error ? error.message : "Unknown inspection failure";
+            set({ diagnostics: [...snapshot.diagnostics, {
+              code: "fingerprintCheckFailed",
+              message: `Could not check run configuration freshness: ${detail}`,
+            }] });
+          }
         } catch (error) {
           if (revision !== projectLoadRevision || get().root !== root) return;
           const message =
@@ -450,110 +516,127 @@ export const createRunStore = (
         }
       },
 
-      generate: async (root) => {
-        cancelJavaRefresh();
-        const revision = ++projectLoadRevision;
-        const isCurrent = () => revision === projectLoadRevision && get().root === root;
-        set({
-          root,
-          isGenerating: true,
-          isLoading: true,
-          generationNotice: null,
-          saveError: null,
-        });
-        try {
-          const paths = await (dependencies.listJavaSources ?? listJavaSources)(root);
-          if (!isCurrent()) return;
-          // JDT decides which classes are launchable. Until it has prepared
-          // the project, Core keeps the previous generation's Java entries.
-          const discovery =
-            paths.length === 0
-              ? null
-              : await (dependencies.discoverJavaEntrypoints ?? discoverJavaEntrypoints)(
-                  { workspaceId, root },
-                  paths,
-                );
-          if (!isCurrent()) return;
-          const generated = await (dependencies.generateRunConfiguration ?? generateRunConfiguration)(
+      generate: (root) => {
+        const task = (async () => {
+          cancelJavaRefresh();
+          const revision = ++projectLoadRevision;
+          const isCurrent = () => revision === projectLoadRevision && get().root === root;
+          set({
             root,
-            paths,
-            [],
-            discovery?.kind === "discovered" ? discovery.entrypoints : undefined,
-          );
-          if (!isCurrent()) return;
-          await (dependencies.writeGeneratedRunDocuments ?? writeGeneratedRunDocuments)({
-            root,
-            generated: generated.generated,
-            toolchainRequirements: generated.toolchainRequirements,
-            defaultRunConfiguration: defaultGeneratedConfigurationId(generated.generated),
+            isGenerating: true,
+            isLoading: true,
+            generationNotice: null,
+            saveError: null,
           });
-          if (!isCurrent()) return;
-          const resolved = await (dependencies.resolveConfigurations ?? resolveConfigurations)(root, workspaceId);
-          if (!isCurrent()) return;
-          const notice =
-            generated.entryCount === 0 ? "no-entries" : `generated:${generated.entryCount}`;
-          const hasJavaEntries = resolved.configurations.some(
-            (configuration) => configuration.provider === "java.main",
-          );
-          const javaDiscovery: JavaDiscoveryStatus =
-            discovery === null
-              ? "idle"
-              : discovery.kind === "discovered"
-                ? "ready"
-                : discovery.kind === "failed"
-                  ? "failed"
-                  : hasJavaEntries
-                    ? "stale"
-                    : "loading";
-          if (discovery?.kind === "pending") {
-            stopWaitingForJavaProject = (
-              dependencies.whenJavaProjectPrepared ?? whenJavaProjectPrepared
-            )(root, () => {
-              stopWaitingForJavaProject = null;
-              if (get().root === root) void get().actions.generate(root);
+          try {
+            // A failed freshness check must not prevent explicit regeneration.
+            // Same-project loads wait for activeGeneration, so no new scan can
+            // enter while this generation waits for the already-running checks.
+            const checks = fingerprintChecks.get(root);
+            if (checks?.size) await Promise.allSettled([...checks]);
+            if (!isCurrent()) return;
+            const paths = await (dependencies.listJavaSources ?? listJavaSources)(root);
+            if (!isCurrent()) return;
+            // JDT decides which classes are launchable. Until it has prepared
+            // the project, Core keeps the previous generation's Java entries.
+            const discovery =
+              paths.length === 0
+                ? null
+                : await (dependencies.discoverJavaEntrypoints ?? discoverJavaEntrypoints)(
+                    { workspaceId, root },
+                    paths,
+                  );
+            if (!isCurrent()) return;
+            const generated = await (dependencies.generateRunConfiguration ?? generateRunConfiguration)(
+              root,
+              paths,
+              [],
+              discovery?.kind === "discovered" ? discovery.entrypoints : undefined,
+            );
+            if (!isCurrent()) return;
+            await (dependencies.writeGeneratedRunDocuments ?? writeGeneratedRunDocuments)({
+              root,
+              generated: generated.generated,
+              toolchainRequirements: generated.toolchainRequirements,
+              defaultRunConfiguration: defaultGeneratedConfigurationId(generated.generated),
+            });
+            if (!isCurrent()) return;
+            const resolved = await (dependencies.resolveConfigurations ?? resolveConfigurations)(root, workspaceId);
+            if (!isCurrent()) return;
+            const notice =
+              generated.entryCount === 0 ? "no-entries" : `generated:${generated.entryCount}`;
+            const hasJavaEntries = resolved.configurations.some(
+              (configuration) => configuration.provider === "java.main",
+            );
+            const javaDiscovery: JavaDiscoveryStatus =
+              discovery === null
+                ? "idle"
+                : discovery.kind === "discovered"
+                  ? "ready"
+                  : discovery.kind === "failed"
+                    ? "failed"
+                    : hasJavaEntries
+                      ? "stale"
+                      : "loading";
+            if (discovery?.kind === "pending") {
+              stopWaitingForJavaProject = (
+                dependencies.whenJavaProjectPrepared ?? whenJavaProjectPrepared
+              )(root, () => {
+                stopWaitingForJavaProject = null;
+                if (get().root === root) void get().actions.generate(root);
+              });
+            }
+            set({
+              root,
+              javaDiscovery,
+              javaDiscoveryMessage: discovery?.kind === "failed" ? discovery.message : null,
+              status: "ready",
+              recoveryAction: "none",
+              recoveryPath: undefined,
+              invalidMessage: undefined,
+              diagnostics: resolved.diagnostics,
+              configurations: resolved.configurations,
+              selectedConfigurationId:
+                resolved.defaultConfigurationId ??
+                resolved.configurations.find((configuration) => configuration.id !== CURRENT_FILE_ID)
+                  ?.id ??
+                null,
+              defaultConfigurationId: resolved.defaultConfigurationId,
+              discoveredJava: resolved.discoveredJava,
+              discoveredMaven: resolved.discoveredMaven,
+              discoveredRuntimes: resolved.discoveredRuntimes,
+              globalToolchain: resolved.globalToolchain,
+              effectiveRuntimeExecutablePaths: resolved.effectiveRuntimeExecutablePaths,
+              generationNotice: notice,
+              isGenerating: false,
+              isLoading: false,
+            });
+          } catch (error) {
+            if (!isCurrent()) return;
+            const message = error instanceof Error ? error.message : "Project identification failed";
+            set({
+              status: "invalid",
+              invalidMessage: message,
+              recoveryAction: "fixPermissions",
+              generationNotice: `failed:${message}`,
+              isGenerating: false,
+              isLoading: false,
             });
           }
-          set({
-            root,
-            javaDiscovery,
-            javaDiscoveryMessage: discovery?.kind === "failed" ? discovery.message : null,
-            status: "ready",
-            recoveryAction: "none",
-            recoveryPath: undefined,
-            invalidMessage: undefined,
-            diagnostics: resolved.diagnostics,
-            configurations: resolved.configurations,
-            selectedConfigurationId:
-              resolved.defaultConfigurationId ??
-              resolved.configurations.find((configuration) => configuration.id !== CURRENT_FILE_ID)
-                ?.id ??
-              null,
-            defaultConfigurationId: resolved.defaultConfigurationId,
-            discoveredJava: resolved.discoveredJava,
-            discoveredMaven: resolved.discoveredMaven,
-            discoveredRuntimes: resolved.discoveredRuntimes,
-            globalToolchain: resolved.globalToolchain,
-            effectiveRuntimeExecutablePaths: resolved.effectiveRuntimeExecutablePaths,
-            generationNotice: notice,
-            isGenerating: false,
-            isLoading: false,
-          });
-        } catch (error) {
-          if (!isCurrent()) return;
-          const message = error instanceof Error ? error.message : "Project identification failed";
-          set({
-            status: "invalid",
-            invalidMessage: message,
-            recoveryAction: "fixPermissions",
-            generationNotice: `failed:${message}`,
-            isGenerating: false,
-            isLoading: false,
-          });
-        }
+        })();
+        const generation = {
+          root,
+          task: task.finally(() => {
+            if (activeGeneration === generation) activeGeneration = null;
+          }),
+        };
+        activeGeneration = generation;
+        return generation.task;
       },
 
       selectConfiguration: (id) => set({ selectedConfigurationId: id, selectedSessionId: id }),
       selectSession: (id) => set({ selectedSessionId: id }),
+      editConfiguration: (id) => set({ editingConfigurationId: id }),
 
       runConfiguration: async (id, currentFile, debugPort) => {
         const instance = await get().actions.runConfigurationInstance(id, currentFile, debugPort);
@@ -1005,8 +1088,16 @@ export const createRunStore = (
           return false;
         }
         const result = await runEditorSaveWorkflow({
-          prepare: () =>
-            saveRunConfigurationEditorChanges(root, configuration.id, scope, options, toolchain),
+          prepare: async () => {
+            // This editor no longer edits Java/Maven project defaults. Read them
+            // at save time so an older service dialog cannot undo settings edits.
+            const inspected = await inspectRunConfiguration(root, false);
+            const current = mapCoreToolchain(inspected.toolchain, inspected.localToolchains);
+            return saveRunConfigurationEditorChanges(root, configuration.id, scope, options, {
+              ...current,
+              runtimeExecutablePaths: toolchain.runtimeExecutablePaths,
+            });
+          },
           write: (mutation) => {
             const documents = [
               { relativePath: "run/local.json", contents: mutation.localDocument },

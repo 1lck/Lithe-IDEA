@@ -369,6 +369,189 @@ pub fn run_resolve_launch(args: ResolveLaunchArgs) -> Result<ResolvedLaunch, Str
     })
 }
 
+/// Project toolchain selections to resolve for display, exactly as a launch would.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveToolchainsArgs {
+    pub root: PathBuf,
+    /// Empty selects the automatic JDK.
+    #[serde(default)]
+    pub java_home_path: String,
+    /// Empty selects the project wrapper, then a detected Maven.
+    #[serde(default)]
+    pub maven_executable_path: String,
+    /// Empty inherits the resolved project JDK.
+    #[serde(default)]
+    pub maven_java_home_path: String,
+}
+
+/// Outcome of resolving one toolchain for Settings.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum ToolchainResolution {
+    /// `source` names where the value came from: `configured`, `javaHome`,
+    /// `path`, `project`, `detected`, `mavenWrapper`, or `projectJdk`.
+    /// `version` and `vendor` are empty when the tool was not probed.
+    Resolved {
+        path: String,
+        version: String,
+        vendor: String,
+        source: &'static str,
+    },
+    /// Nothing was configured and nothing usable was detected.
+    NotFound { message: Option<String> },
+    /// The configured path cannot be used; a launch fails with `message`.
+    Invalid { message: String },
+}
+
+/// Resolved project JDK, Maven, and Maven JDK.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedToolchains {
+    pub java: ToolchainResolution,
+    pub maven: ToolchainResolution,
+    pub maven_java: ToolchainResolution,
+}
+
+/// Resolves the project toolchains without launching the project.
+///
+/// Settings shows these values in place of "automatic" or "inherited", so the
+/// command reuses the resolvers `run_resolve_launch` uses: the displayed JDK
+/// and Maven are the ones a launch starts. Probing runs `java -version`, so the
+/// work stays off the main thread.
+#[tauri::command]
+pub async fn run_resolve_toolchains(
+    args: ResolveToolchainsArgs,
+) -> Result<ResolvedToolchains, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = existing_directory(&args.root)?;
+        Ok(resolve_toolchains_for_display(
+            &root,
+            &args.java_home_path,
+            &args.maven_executable_path,
+            &args.maven_java_home_path,
+        ))
+    })
+    .await
+    .map_err(|error| format!("Toolchain resolution failed: {error}"))?
+}
+
+fn resolve_toolchains_for_display(
+    root: &Path,
+    java_home_path: &str,
+    maven_executable_path: &str,
+    maven_java_home_path: &str,
+) -> ResolvedToolchains {
+    let java = java_resolution(root, java_home_path);
+    // Mirrors `run_resolve_launch`: an empty Maven JDK inherits the project JDK.
+    let maven_java = if maven_java_home_path.trim().is_empty() {
+        match &java {
+            ToolchainResolution::Resolved {
+                path,
+                version,
+                vendor,
+                ..
+            } => ToolchainResolution::Resolved {
+                path: path.clone(),
+                version: version.clone(),
+                vendor: vendor.clone(),
+                source: "projectJdk",
+            },
+            other => other.clone(),
+        }
+    } else {
+        java_resolution(root, maven_java_home_path)
+    };
+    ResolvedToolchains {
+        java,
+        maven: maven_resolution(root, maven_executable_path),
+        maven_java,
+    }
+}
+
+fn java_resolution(root: &Path, override_path: &str) -> ToolchainResolution {
+    match resolve_java_home(root, override_path) {
+        Ok(Some(home)) => {
+            let home_path = Path::new(&home);
+            let source = if override_path.trim().is_empty() {
+                automatic_java_source(root, home_path)
+            } else {
+                "configured"
+            };
+            let runtime = probe_java_home(home_path);
+            ToolchainResolution::Resolved {
+                version: runtime
+                    .as_ref()
+                    .map(|runtime| runtime.version.clone())
+                    .unwrap_or_default(),
+                vendor: runtime.map(|runtime| runtime.vendor).unwrap_or_default(),
+                path: home,
+                source,
+            }
+        }
+        Ok(None) => ToolchainResolution::NotFound { message: None },
+        Err(message) => ToolchainResolution::Invalid { message },
+    }
+}
+
+/// Names the candidate list entry an automatic JDK came from. Display only:
+/// the choice itself is `resolve_java_home`'s.
+fn automatic_java_source(root: &Path, home: &Path) -> &'static str {
+    let key = |path: &Path| normalize_path(path).to_string_lossy().to_lowercase();
+    let selected = key(home);
+    if std::env::var_os("JAVA_HOME").is_some_and(|value| key(Path::new(&value)) == selected) {
+        return "javaHome";
+    }
+    let on_path = lookup_on_path("java.exe")
+        .or_else(|| lookup_on_path("java"))
+        .and_then(|executable| java_home_from_executable(&executable));
+    if on_path.is_some_and(|path| key(&path) == selected) {
+        return "path";
+    }
+    if key(&root.join(".lithe").join("toolchains").join("jdk")) == selected {
+        return "project";
+    }
+    "detected"
+}
+
+fn maven_resolution(root: &Path, override_path: &str) -> ToolchainResolution {
+    match resolve_maven_executable(root, root, override_path) {
+        Ok(executable) => {
+            let path = Path::new(&executable);
+            let is_wrapper = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.to_ascii_lowercase().starts_with("mvnw"));
+            let source = if !override_path.trim().is_empty() {
+                "configured"
+            } else if is_wrapper {
+                "mavenWrapper"
+            } else {
+                "detected"
+            };
+            // Running a wrapper may download a Maven distribution, so only a
+            // plain Maven installation is probed for its version.
+            let version = if is_wrapper {
+                String::new()
+            } else {
+                probe_maven(path)
+                    .map(|runtime| runtime.version)
+                    .unwrap_or_default()
+            };
+            ToolchainResolution::Resolved {
+                path: executable,
+                version,
+                vendor: String::new(),
+                source,
+            }
+        }
+        Err(message) if override_path.trim().is_empty() => ToolchainResolution::NotFound {
+            message: Some(message),
+        },
+        Err(message) => ToolchainResolution::Invalid { message },
+    }
+}
+
 /// Runs one pre-launch step (e.g. `javac`) to completion and reports its exit
 /// code plus combined stdout/stderr. Standalone Java compiles here before the
 /// main `java` process starts; the store aborts the run when `exit_code != 0`
@@ -2332,6 +2515,52 @@ mod tests {
             quote_windows_arg(r"D:\my project\mvnw.cmd"),
             r#""D:\my project\mvnw.cmd""#
         );
+    }
+
+    #[test]
+    fn displayed_maven_is_the_wrapper_a_launch_would_run() {
+        // Settings shows the resolved Maven in place of "automatic"; it must be
+        // the one `run_resolve_launch` picks, and a wrapper is never executed.
+        let root = temp_project();
+        fs::write(root.join("mvnw.cmd"), "@echo off\n").unwrap();
+        fs::create_dir_all(root.join(".mvn/wrapper")).unwrap();
+        fs::write(
+            root.join(".mvn/wrapper/maven-wrapper.properties"),
+            "distributionUrl=https://example.invalid/apache-maven-3.9.9-bin.zip\n",
+        )
+        .unwrap();
+
+        match maven_resolution(&root, "") {
+            ToolchainResolution::Resolved {
+                path,
+                version,
+                source,
+                ..
+            } => {
+                assert!(path.ends_with("mvnw.cmd"), "resolved {path}");
+                assert_eq!(source, "mavenWrapper");
+                assert!(version.is_empty());
+            }
+            other => panic!("expected the wrapper, got {other:?}"),
+        }
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn displayed_toolchains_report_invalid_selections_as_a_launch_would() {
+        let root = temp_project();
+        let missing = root.join("missing").to_string_lossy().into_owned();
+
+        let resolved = resolve_toolchains_for_display(&root, &missing, &missing, "");
+
+        assert!(matches!(resolved.java, ToolchainResolution::Invalid { .. }));
+        assert!(matches!(
+            resolved.maven,
+            ToolchainResolution::Invalid { .. }
+        ));
+        // An empty Maven JDK inherits the project JDK, including its failure.
+        assert_eq!(resolved.maven_java, resolved.java);
+        fs::remove_dir_all(root).ok();
     }
 
     #[test]

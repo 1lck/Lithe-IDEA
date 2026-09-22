@@ -109,6 +109,38 @@
   background-image: url("../engines/monaco/gutter-icons/overridingMethod.svg");
 }
 
+/* Java Run markers — IDEA test-state icons (runConfigurations/testState/ in
+   intellij-community, Apache 2.0): run, run_run, green2 (passed), red2 (failed). */
+
+.monaco-editor-shell .lithe-java-run-glyph {
+  cursor: pointer;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 12px 12px;
+  opacity: 0.9;
+  transition: opacity 0.1s ease;
+}
+
+.monaco-editor-shell .lithe-java-run-glyph:hover {
+  opacity: 1;
+}
+
+.monaco-editor-shell .lithe-java-run-glyph-run {
+  background-image: url("../engines/monaco/gutter-icons/run.svg");
+}
+
+.monaco-editor-shell .lithe-java-run-glyph-run-all {
+  background-image: url("../engines/monaco/gutter-icons/run_run.svg");
+}
+
+.monaco-editor-shell .lithe-java-run-glyph-passed {
+  background-image: url("../engines/monaco/gutter-icons/green2.svg");
+}
+
+.monaco-editor-shell .lithe-java-run-glyph-failed {
+  background-image: url("../engines/monaco/gutter-icons/red2.svg");
+}
+
 .monaco-editor-shell .monaco-resizable-hover,
 .monaco-editor-shell .monaco-hover,
 .monaco-editor-shell .monaco-hover .monaco-scrollable-element,

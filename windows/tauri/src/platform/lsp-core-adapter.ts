@@ -1107,6 +1107,21 @@ export interface JavaTestRange {
   endUtf16Column: number;
 }
 
+/** One launchable `main` method JDT reported for a source file. */
+export interface JavaMainMethod {
+  mainClass: string;
+  projectName?: string;
+  /** Zero-based UTF-16 range of the method name. */
+  range: JavaTestRange;
+}
+
+/** Core's normalized `javaMainMethods` answer (schema version 1). */
+export interface JavaMainMethods {
+  schemaVersion: 1;
+  methods: JavaMainMethod[];
+  diagnostics: Array<{ code: string; mainClass?: string }>;
+}
+
 /** One test class or method semantically identified by Java Test/JDT. */
 export interface JavaTestItem {
   id: string;
@@ -1162,6 +1177,30 @@ async function requestJavaTestItems(session: Session, filePath: string): Promise
   return {
     schemaVersion: 1,
     items: value.items,
+    diagnostics: Array.isArray(value.diagnostics) ? value.diagnostics : [],
+  };
+}
+
+async function requestJavaMainMethods(
+  session: Session,
+  filePath: string,
+): Promise<JavaMainMethods> {
+  const value = normalizeCoreValue(
+    await requestOperation(session, {
+      sessionId: session.id,
+      operation: "javaMainMethods",
+      uri: fileUri(filePath),
+    }),
+  ) as Partial<JavaMainMethods> | null;
+  if (value?.schemaVersion !== 1 || !Array.isArray(value.methods)) {
+    throw lspAdapterError(
+      "invalid_response",
+      "The Java language service returned an invalid main-method list.",
+    );
+  }
+  return {
+    schemaVersion: 1,
+    methods: value.methods,
     diagnostics: Array.isArray(value.diagnostics) ? value.diagnostics : [],
   };
 }
@@ -1570,6 +1609,12 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
   }
   if (command === "java_test_items") {
     return (await requestJavaTestItems(
+      sessionForWorkspace(String(args.workspacePath ?? ""), "java"),
+      String(args.filePath ?? ""),
+    )) as T;
+  }
+  if (command === "java_main_methods") {
+    return (await requestJavaMainMethods(
       sessionForWorkspace(String(args.workspacePath ?? ""), "java"),
       String(args.filePath ?? ""),
     )) as T;

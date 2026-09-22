@@ -860,7 +860,8 @@ struct ExecutionModuleTests {
                 factoryCall += 1
                 return factoryCall == 1 ? firstProcess : secondProcess
             },
-            resultParser: parser.parse
+            resultParser: parser.parse,
+            now: { Date(timeIntervalSince1970: 1_700_000_000) }
         )
 
         #expect(service.run(
@@ -880,6 +881,11 @@ struct ExecutionModuleTests {
         #expect(service.results == parsedResults)
         #expect(parser.calls == 1)
         #expect(parser.output.contains("Tests run: 3"))
+        #expect(parser.reports == MavenTestReportRequest(
+            sourcePath: "src/test/java/com/example/CalculatorTest.java",
+            classes: [],
+            notBeforeMillis: 1_700_000_000_000
+        ))
         #expect(!parser.ranOnMainThread)
         #expect(service.canRerun)
 
@@ -1111,7 +1117,7 @@ struct ExecutionModuleTests {
         let service = LanguageTestService(
             executableResolver: TestExecutableResolver(),
             processFactory: { process },
-            resultParser: { _, _ in nil }
+            resultParser: { _, _, _ in nil }
         )
 
         #expect(service.run(
@@ -1189,7 +1195,7 @@ struct ExecutionModuleTests {
         let service = LanguageTestService(
             executableResolver: TestExecutableResolver(),
             processFactory: { process },
-            resultParser: { _, _ in
+            resultParser: { _, _, _ in
                 MavenTestResults(
                     testsRun: 1,
                     failures: 0,
@@ -1812,18 +1818,26 @@ private final class TestResultParserRecorder: @unchecked Sendable {
     private var recordedCalls = 0
     private var recordedOutput = ""
     private var recordedMainThread = false
+    private var recordedReports: MavenTestReportRequest?
 
     init(result: MavenTestResults?) {
         self.result = result
     }
 
-    func parse(output: String, rootURL: URL) -> MavenTestResults? {
+    func parse(output: String, rootURL: URL, reports: MavenTestReportRequest?) -> MavenTestResults? {
         lock.lock()
         recordedCalls += 1
         recordedOutput = output
+        recordedReports = reports
         recordedMainThread = Thread.isMainThread
         lock.unlock()
         return result
+    }
+
+    var reports: MavenTestReportRequest? {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedReports
     }
 
     var calls: Int {
@@ -2526,4 +2540,70 @@ private final class TestLanguageExecutionSession: LanguageExecutionSession {
     func sleep() async {}
     func shutdown() async {}
     func exportedCapabilities() -> [ModuleCapabilityID: AnyObject] { [:] }
+}
+
+/// Editor Run markers read per-method outcomes from the reports a Maven test
+/// run wrote; these pure helpers decide which reports and which outcomes.
+struct MavenTestOutcomeTests {
+    private let root = URL(fileURLWithPath: "/work/app")
+
+    @Test
+    func testCaseRunNamesItsClassAndSourceFile() {
+        let request = LanguageTestService.mavenReportRequest(
+            scope: .testCase(
+                identifier: "demo.OrderTest$Refunds#refunds()",
+                fileURL: root.appendingPathComponent("service/src/test/java/demo/OrderTest.java")
+            ),
+            workspaceURL: root,
+            startedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        #expect(request == MavenTestReportRequest(
+            sourcePath: "service/src/test/java/demo/OrderTest.java",
+            classes: ["demo.OrderTest$Refunds"],
+            notBeforeMillis: 1_700_000_000_000
+        ))
+    }
+
+    @Test
+    func methodRerunPreservesFailuresOfOtherMethodsAndNestedClasses() {
+        let className = "demo.OrderTest"
+        let previous = [
+            MavenTestCaseOutcome(className: className, method: "creates", status: "failed"),
+            MavenTestCaseOutcome(className: className, method: "deletes", status: "failed"),
+            MavenTestCaseOutcome(className: className + "$Nested", method: "creates", status: "failed"),
+        ]
+        let passed = MavenTestCaseOutcome(className: className, method: "creates", status: "passed")
+        let scope = LanguageTestScope.testCase(identifier: className + "#creates()", fileURL: root.appendingPathComponent("OrderTest.java"))
+        let method = LanguageTestService.mavenTestMethod(in: scope)
+        #expect(method == "creates")
+        #expect(LanguageTestService.mergedOutcomes(
+            previous, requestedClasses: [className], requestedMethod: method, recorded: [passed]
+        ) == [previous[1], previous[2], passed])
+        #expect(LanguageTestService.mavenTestMethod(in: .workspace) == nil)
+        #expect(LanguageTestService.mavenTestMethod(in: .testCase(identifier: className, fileURL: nil)) == nil)
+    }
+
+    @Test
+    func runReplacesOnlyTheOutcomesOfClassesItCovered() {
+        let previous = [
+            MavenTestCaseOutcome(className: "demo.OrderTest", method: "creates", status: "passed"),
+            MavenTestCaseOutcome(className: "demo.OrderTest$Refunds", method: "refunds", status: "passed"),
+            MavenTestCaseOutcome(className: "demo.OtherTest", method: "other", status: "failed"),
+        ]
+        let recorded = [
+            MavenTestCaseOutcome(className: "demo.OrderTest", method: "creates", status: "failed", message: "boom"),
+        ]
+
+        #expect(LanguageTestService.mergedOutcomes(
+            previous,
+            requestedClasses: ["demo.OrderTest"],
+            recorded: recorded
+        ) == [previous[2], recorded[0]])
+        #expect(LanguageTestService.mergedOutcomes(
+            previous,
+            requestedClasses: [],
+            recorded: recorded
+        ) == [previous[2], recorded[0]])
+    }
 }

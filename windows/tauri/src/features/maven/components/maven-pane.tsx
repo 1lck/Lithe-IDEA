@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
+import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useDebuggerStore } from "@/features/debugger/stores/debugger.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { ensureRunProcessListeners } from "@/features/run/hooks/use-run-process-events";
@@ -48,7 +48,6 @@ import {
   type MavenDependency,
   type MavenLifecyclePhase,
   type MavenModule,
-  type MavenSettings,
 } from "../types/maven.types";
 import { MavenSourceRootRows } from "./maven-source-root-rows";
 import { MavenIcon } from "./maven-icon";
@@ -137,127 +136,6 @@ function TreeNode({
   );
 }
 
-function MavenSettingsDialog({
-  initial,
-  error,
-  onClose,
-  onSave,
-}: {
-  initial: MavenSettings;
-  error: string | null;
-  onClose: () => void;
-  onSave: (settings: MavenSettings) => void;
-}) {
-  const { t } = useTranslation();
-  const [draft, setDraft] = useState(initial);
-
-  const choosePath = async (field: keyof MavenSettings, directory: boolean) => {
-    const selected = await open({
-      directory,
-      multiple: false,
-      ...(field === "settingsPath"
-        ? { filters: [{ name: "Maven settings", extensions: ["xml"] }] }
-        : {}),
-    });
-    if (typeof selected === "string") setDraft((current) => ({ ...current, [field]: selected }));
-  };
-
-  const fields: Array<{
-    id: string;
-    field: keyof MavenSettings;
-    label: string;
-    directory: boolean;
-  }> = [
-    { id: "maven-settings-xml", field: "settingsPath", label: "settings.xml", directory: false },
-    {
-      id: "maven-local-repository",
-      field: "localRepositoryPath",
-      label: t("maven.localRepository"),
-      directory: true,
-    },
-    {
-      id: "maven-executable",
-      field: "mavenExecutablePath",
-      label: t("maven.mavenExecutable"),
-      directory: true,
-    },
-    {
-      id: "maven-jdk-home",
-      field: "javaHomePath",
-      label: t("maven.javaHome"),
-      directory: true,
-    },
-  ];
-
-  return (
-    <Dialog
-      title={t("maven.settings")}
-      icon={SlidersHorizontalIcon}
-      onClose={onClose}
-      size="lg"
-      footer={
-        <>
-          {error ? (
-            <span className="min-w-0 flex-1 truncate text-destructive ui-text-sm">{error}</span>
-          ) : (
-            <span />
-          )}
-          <Button variant="ghost" onClick={onClose}>
-            {t("ui.cancel")}
-          </Button>
-          <Button
-            onClick={() => {
-              onSave(draft);
-              onClose();
-            }}
-          >
-            {t("ui.save")}
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        {fields.map(({ id, field, label, directory }) => (
-          <label key={field} htmlFor={id} className="block space-y-1.5">
-            <span className="font-medium ui-text-sm">{label}</span>
-            <div className="flex gap-2">
-              <Input
-                id={id}
-                value={draft[field]}
-                placeholder={t("maven.automatic")}
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, [field]: event.target.value }))
-                }
-              />
-              <Tooltip content={t("ui.clear")}>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => setDraft((current) => ({ ...current, [field]: "" }))}
-                  aria-label={t("ui.clear")}
-                >
-                  <TrashIcon />
-                </Button>
-              </Tooltip>
-              <Tooltip content={t("ui.browse")}>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => void choosePath(field, directory)}
-                  aria-label={t("ui.browse")}
-                >
-                  <FolderIcon />
-                </Button>
-              </Tooltip>
-            </div>
-          </label>
-        ))}
-      </div>
-    </Dialog>
-  );
-}
 
 export default function MavenPane({ onClose }: MavenPaneProps) {
   const { t } = useTranslation();
@@ -271,10 +149,6 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
   const selectedProfiles = useMavenStore((state) => state.selectedProfiles);
   const customProfiles = useMavenStore((state) => state.customProfiles);
   const skipTests = useMavenStore((state) => state.skipTests);
-  const settingsPath = useMavenStore((state) => state.settingsPath);
-  const localRepositoryPath = useMavenStore((state) => state.localRepositoryPath);
-  const mavenExecutablePath = useMavenStore((state) => state.mavenExecutablePath);
-  const javaHomePath = useMavenStore((state) => state.javaHomePath);
   const configurationSaveError = useMavenStore((state) => state.configurationSaveError);
   const reloadRequired = useMavenStore((state) => state.reloadRequired);
   const projectReloadRequired = useMavenStore((state) => state.projectReloadRequired);
@@ -293,7 +167,6 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
   const [selectedPhase, setSelectedPhase] = useState<MavenLifecyclePhase>("compile");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
-  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [customGoal, setCustomGoal] = useState("");
   const [customProfile, setCustomProfile] = useState("");
@@ -808,7 +681,7 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
                 variant="ghost"
                 size="icon-xs"
                 disabled={!project}
-                onClick={() => setSettingsDialogOpen(true)}
+                onClick={() => useUIState.getState().openSettingsDialog("project")}
                 aria-label={t("maven.settings")}
               >
                 <SlidersHorizontalIcon />
@@ -992,14 +865,6 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
             onChange={(event) => setCustomProfile(event.target.value)}
           />
         </Dialog>
-      ) : null}
-      {settingsDialogOpen ? (
-        <MavenSettingsDialog
-          initial={{ settingsPath, localRepositoryPath, mavenExecutablePath, javaHomePath }}
-          error={configurationSaveError}
-          onClose={() => setSettingsDialogOpen(false)}
-          onSave={actions.updateLocalConfiguration}
-        />
       ) : null}
     </section>
   );

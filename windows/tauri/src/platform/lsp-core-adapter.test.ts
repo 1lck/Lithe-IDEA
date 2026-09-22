@@ -858,6 +858,56 @@ describe("Rust Core LSP adapter failures", () => {
     });
   });
 
+  test("requests JDT main methods for the selected source file", async () => {
+    scenario = "semantic-request";
+    const expected = {
+      schemaVersion: 1,
+      methods: [{
+        mainClass: "demo.App",
+        projectName: "app",
+        range: { startLine: 3, startUtf16Column: 23, endLine: 3, endUtf16Column: 27 },
+      }],
+      diagnostics: [],
+    };
+    semanticRequestResults = [expected];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    const result = await invokeLsp("java_main_methods", {
+      workspacePath: "C:/work",
+      filePath: "C:/work/src/main/java/demo/App.java",
+    });
+
+    expect(result).toEqual(expected);
+    expect(requestPayloads[requestPayloads.length - 1]).toEqual({
+      sessionId: "java-session",
+      operation: "javaMainMethods",
+      uri: "file:///C:/work/src/main/java/demo/App.java",
+    });
+  });
+
+  test("reports a malformed main-method answer instead of an empty list", async () => {
+    scenario = "semantic-request";
+    semanticRequestResults = [{ schemaVersion: 1, methods: "not-a-list" }];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+
+    await expect(
+      invokeLsp("java_main_methods", {
+        workspacePath: "C:/work",
+        filePath: "C:/work/src/main/java/demo/App.java",
+      }),
+    ).rejects.toThrow("invalid main-method list");
+  });
+
   test("returns Core's Java build failure with the usable launch target", async () => {
     scenario = "semantic-request";
     semanticRequestResults = [
