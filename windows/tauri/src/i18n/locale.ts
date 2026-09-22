@@ -1528,6 +1528,7 @@ const catalogs = {
     "run.identifyAgain": "Identify Again",
     "run.toolchainNeedsAttention": "Project toolchain needs attention",
     "run.staleConfigurations": "Run configurations may be out of date",
+    "run.freshnessCheckFailed": "Could not check whether run configurations are up to date",
     "run.javaBuildFailedTitle": "The Java build for {name} did not finish successfully",
     "run.javaBuildMarkersMayRemain":
       "The language-service builder failed in this session, so some reported errors may be left over from that failure.",
@@ -5951,6 +5952,7 @@ const catalogs = {
     "run.identifyAgain": "重新识别",
     "run.toolchainNeedsAttention": "项目工具链需要处理",
     "run.staleConfigurations": "运行配置可能已过期",
+    "run.freshnessCheckFailed": "未能确认运行配置是否为最新",
     "run.javaBuildFailedTitle": "{name} 的 Java 构建未成功完成",
     "run.javaBuildMarkersMayRemain":
       "语言服务的构建器在本次会话中发生过失败，因此当前报告的部分错误可能是那次失败留下的。",

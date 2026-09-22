@@ -130,7 +130,8 @@ export default function RunPane() {
     diagnostics,
     selectedConfiguration?.id,
   );
-  const staleDiagnostic = diagnostics.find((diagnostic) => diagnostic.code === "staleFingerprint");
+  const freshnessDiagnostic = diagnostics.find((diagnostic) =>
+    diagnostic.code === "staleFingerprint" || diagnostic.code === "fingerprintCheckFailed");
   const isSelectedRunning = selectedSession ? selectedSession.isRunning : primaryRunning;
   const output = selectedSession ? selectedSession.output : primaryOutput;
   const exitCode = selectedSession ? selectedSession.exitCode : primaryExitCode;
@@ -237,15 +238,17 @@ export default function RunPane() {
         </Tooltip>
       </div>
 
-      {blockingDiagnostic || staleDiagnostic ? (
+      {blockingDiagnostic || freshnessDiagnostic ? (
         <div className="flex items-start gap-2 border-warning/30 border-b bg-warning/10 px-3 py-2">
           <WarningIcon className="mt-0.5 size-3.5 text-warning" />
           <div className="min-w-0 flex-1">
             <div className="font-medium ui-text-sm">
-              {blockingDiagnostic ? t("run.toolchainNeedsAttention") : t("run.staleConfigurations")}
+              {blockingDiagnostic ? t("run.toolchainNeedsAttention") :
+                freshnessDiagnostic?.code === "fingerprintCheckFailed" ? t("run.freshnessCheckFailed") :
+                  t("run.staleConfigurations")}
             </div>
             <div className="text-subtle-foreground ui-text-sm">
-              {blockingDiagnostic?.message ?? staleDiagnostic?.message}
+              {blockingDiagnostic?.message ?? freshnessDiagnostic?.message}
             </div>
           </div>
           {blockingDiagnostic ? (
