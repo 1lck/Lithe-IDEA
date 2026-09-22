@@ -35,6 +35,7 @@ import {
   toggleDiagnosticsPane,
 } from "@/features/layout/actions/workbench-tool-window-actions";
 import { toggleMavenRunPane } from "@/features/maven/actions/maven-tool-window-actions";
+import { MavenIcon } from "@/features/maven/components/maven-icon";
 import { RunIcon } from "@/features/run/components/run-icon";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
@@ -75,7 +76,6 @@ import {
   GitBranchIcon,
   GitGraphIcon,
   MagnifyingGlassIcon,
-  PackageIcon,
   TerminalWindowIcon,
   WarningIcon,
 } from "@/ui/icons";
@@ -198,7 +198,7 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
         {
           id: "maven",
           label: `${t("run.title")} - ${t("maven.title")}`,
-          icon: <PackageIcon />,
+          icon: <MavenIcon />,
         },
       ],
       ["run", { id: "run", label: t("workbench.run"), icon: <RunIcon /> }],

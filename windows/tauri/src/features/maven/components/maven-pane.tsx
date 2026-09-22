@@ -51,6 +51,7 @@ import {
   type MavenSettings,
 } from "../types/maven.types";
 import { MavenSourceRootRows } from "./maven-source-root-rows";
+import { MavenIcon } from "./maven-icon";
 import {
   MavenLifecycleContextMenu,
   MavenModuleContextMenu,
@@ -723,7 +724,7 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
     <section aria-label={t("maven.title")} className="flex h-full min-h-0 flex-col bg-background">
       <div className="shrink-0 border-border/70 border-b">
         <div className="flex h-8 min-w-0 items-center gap-2 overflow-hidden px-3">
-          <PackageIcon className="size-4 shrink-0 text-primary" />
+          <MavenIcon className="size-4 shrink-0 text-primary" />
           <div className="min-w-0 flex-1 truncate font-medium ui-text-sm">
             {t("maven.title")}
             {project ? ` · ${project.artifactId}` : ""}

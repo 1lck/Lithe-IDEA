@@ -1,11 +1,12 @@
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { toggleMavenPane } from "@/features/keymaps/commands/view-command-actions";
+import { MavenIcon } from "@/features/maven/components/maven-icon";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { NotificationsTrigger } from "@/features/notifications/components/notifications-trigger";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
-import { PackageIcon, PuzzlePieceIcon } from "@/ui/icons";
+import { PuzzlePieceIcon } from "@/ui/icons";
 
 export function PluginActivityRail() {
   const { t } = useTranslation();
@@ -60,7 +61,7 @@ export function PluginActivityRail() {
           className="rounded-sm"
           onClick={toggleMavenPane}
         >
-          <PackageIcon className="size-4.5" />
+          <MavenIcon className="size-4.5" />
         </Button>
       ) : null}
     </aside>

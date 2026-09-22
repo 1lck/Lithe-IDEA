@@ -6,7 +6,6 @@ import {
   CheckCircleIcon,
   MinusCircleIcon,
   MinusIcon,
-  PackageIcon,
   RefreshIcon,
   StopIcon,
   TrashIcon,
@@ -19,6 +18,7 @@ import { cn } from "@/utils/cn";
 import { joinPath } from "@/utils/path-helpers";
 import { RunOutputText } from "@/features/run/components/run-output-text";
 import { useMavenStore } from "../stores/maven.store";
+import { MavenIcon } from "./maven-icon";
 
 export default function MavenRunPane() {
   const { t } = useTranslation();
@@ -55,7 +55,7 @@ export default function MavenRunPane() {
       className="flex h-full min-h-0 flex-col bg-background"
     >
       <div className="flex h-(--lithe-pane-header-height) shrink-0 items-center gap-2 border-border/70 border-b px-3">
-        <PackageIcon className="size-4 shrink-0 text-primary" />
+        <MavenIcon className="size-4 shrink-0 text-primary" />
         <div className="min-w-0 flex-1 truncate font-medium ui-text-sm">
           {t("run.title")} - {t("maven.title")}
           {taskTitle ? ` - ${taskTitle}` : ""}
