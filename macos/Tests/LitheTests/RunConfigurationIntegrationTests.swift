@@ -33,6 +33,33 @@ struct RunConfigurationIntegrationTests {
         #expect(toolchain["java"]?["homePath"] == "/fixture/project-jdk")
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/run/generated.json").path))
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/run/configurations.json").path))
+        let ignoreURL = root.appendingPathComponent(".lithe/.gitignore")
+        let requiredIgnore = "/run/local.json\n/run/classes/\n**/*.tmp\n"
+        #expect(try String(contentsOf: ignoreURL, encoding: .utf8) == requiredIgnore)
+        let existingIgnore = "# user rule\ncache/\n!run/local.json"
+        try Data(existingIgnore.utf8).write(to: ignoreURL)
+        try store.saveProjectToolchain(ProjectToolchainSelection(javaHomePath: "/fixture/project-jdk"), at: root)
+        let expectedIgnore = existingIgnore + "\n" + requiredIgnore
+        #expect(try String(contentsOf: ignoreURL, encoding: .utf8) == expectedIgnore)
+        try store.saveProjectToolchain(ProjectToolchainSelection(), at: root)
+        #expect(try String(contentsOf: ignoreURL, encoding: .utf8) == expectedIgnore)
+    }
+
+    @Test
+    func generationRefusesUnsupportedVersionsEvenWithoutTheConfirmationEntry() async {
+        let fixture = makeFixture(status: .invalid("Unsupported configuration version"))
+        fixture.operations.inspectionRecoveryAction = .upgradeApplication
+        await fixture.service.loadProject(at: fixture.root, files: [], mavenProject: nil, snapshotID: UUID())
+        let feature = RunFeatureModel(service: fixture.service)
+        feature.requestRunConfigurationGeneration()
+        #expect(!feature.isGenerationConfirmationPresented)
+        await fixture.service.generateRunConfigurations()
+        #expect(fixture.operations.generateCalls == 0)
+        #expect(fixture.service.recoveryAction == .upgradeApplication)
+        guard case .failed = fixture.service.generationState else {
+            Issue.record("Direct generation must report an unsupported version without writing")
+            return
+        }
     }
 
     @Test
@@ -4632,6 +4659,8 @@ private struct RunServiceFixture {
 }
 
 private final class RecordingRunConfigurationOperations: RunConfigurationOperations, @unchecked Sendable {
+    var inspectionRecoveryAction: RunConfigurationRecoveryAction = .none
+    private(set) var generateCalls = 0
     let status: ProjectRunConfigurationStatus
     private var effective: [EffectiveRunConfiguration]
     let plans: [String: SharedLaunchPlan]
@@ -4668,7 +4697,7 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
     }
 
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
-        ProjectRunConfigurationInspection(status: status, diagnostics: [])
+        ProjectRunConfigurationInspection(status: status, diagnostics: [], recoveryAction: inspectionRecoveryAction)
     }
     func generate(
         at projectURL: URL,
@@ -4676,7 +4705,8 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
         modulePaths: [String],
         javaEntrypoints: JavaEntrypoints?
     ) throws -> RunConfigurationGenerationResult {
-        RunConfigurationGenerationResult(entryCount: generationEntryCount ?? effective.count)
+        generateCalls += 1
+        return RunConfigurationGenerationResult(entryCount: generationEntryCount ?? effective.count)
     }
     func resolve(
         at projectURL: URL,

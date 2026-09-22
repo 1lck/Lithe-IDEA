@@ -42,6 +42,7 @@ private struct RunConfigurationSettingsContent: View {
                         ProgressView("Identifying project…")
                     } else {
                         Button("Identify Again") { confirmGeneration = true }
+                            .disabled(feature.recoveryAction == .upgradeApplication)
                     }
                     if let error = feature.configurationSaveError {
                         Text(error).foregroundStyle(LitheTheme.error)

@@ -143,6 +143,12 @@ Windows 设置使用 `runConfig.inspect` 的 `checkFingerprint: false` 读取默
 展示，不能把检测结果当作用户已经保存的选择。Maven JDK 留空时，Windows 的
 Maven 启动适配器读取项目默认 JDK；该解析不把继承结果写回配置。
 
+Maven 目标执行不依赖运行配置文档有效：Windows 读取项目 JDK 默认值失败时，
+记录不含原始错误或机器路径的警告，回退到宿主 JDK 选择，不能让损坏的
+generated.json 阻止独立 Maven 任务。macOS 首次保存项目默认值必须先补齐
+本机运行配置的 Git 忽略规则，保留用户已有内容；设置中的重新识别也必须遵守
+不支持版本的升级保护，并在运行服务入口再次拦截，不能只依赖按钮禁用。
+
 现有 Maven 的本机配置仍由 Maven 存储管理，设置页同步其显式选择，保留 profiles、
 settings.xml 和仓库路径。Windows 的 Run 本机文档与 Maven 本机文档是两次独立
 写入；若后一步失败，界面明确提示默认值已保存，不伪装成整次回滚。原生 UI 和

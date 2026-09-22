@@ -288,6 +288,10 @@ package final class RunService: ObservableObject {
     package func generateRunConfigurations(
         javaDiscovery: JavaEntrypointDiscovery = .notJava
     ) async {
+        guard recoveryAction != .upgradeApplication else {
+            generationState = .failed(String(localized: "Upgrade Lithe to use this run configuration version."))
+            return
+        }
         // Generation scans the file inventory this service holds, so a
         // provisional inventory would write a configuration that omits entry
         // points the workspace contains. Dropping the request silently is also

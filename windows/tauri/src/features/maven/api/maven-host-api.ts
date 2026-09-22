@@ -42,16 +42,26 @@ export async function resolveMavenLaunch(
   plan: MavenLaunchPlan,
   dependencies = { inspectRunConfiguration, resolveRunLaunch },
 ) {
-  const defaults = context.javaHomePath
-    ? null
-    : (await dependencies.inspectRunConfiguration(root, false)).toolchain;
+  let defaults: Awaited<ReturnType<typeof inspectRunConfiguration>>["toolchain"];
+  if (!context.javaHomePath) {
+    try {
+      defaults = (await dependencies.inspectRunConfiguration(root, false)).toolchain;
+    } catch {
+      // Run documents are optional for Maven goals. Never log their contents or
+      // host paths, and retain the host's normal JDK selection on read failure.
+      console.warn(
+        "[maven] Project JDK defaults unavailable; using host JDK selection. Repair Run configuration documents in Settings.",
+      );
+    }
+  }
   return dependencies.resolveRunLaunch({
     root,
     executable: plan.executable,
     workingDirectory: plan.workingDirectory,
     javaHomePath: "",
     mavenExecutablePath: context.mavenExecutablePath ?? "",
-    mavenJavaHomePath: context.javaHomePath || defaults?.maven?.javaHomePath || defaults?.java?.homePath || "",
+    mavenJavaHomePath:
+      context.javaHomePath || defaults?.maven?.javaHomePath || defaults?.java?.homePath || "",
     environment: {},
   });
 }

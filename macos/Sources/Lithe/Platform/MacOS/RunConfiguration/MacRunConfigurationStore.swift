@@ -238,6 +238,9 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         guard let data = payload.document.data(using: .utf8) else {
             throw MacRunConfigurationStoreError.writeFailed("Invalid UTF-8 project environment data.")
         }
+        // Settings can be saved before generation creates the normal ignore file.
+        // Protect machine paths before making the local document visible to Git.
+        try ensureLocalRunIgnored(at: root)
         try writeMutation(
             RunConfigurationDocumentMutation(configurationID: nil, document: data),
             to: root.appendingPathComponent(".lithe/run/local.json"),
@@ -477,6 +480,27 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         try storage.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let data = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .prettyPrinted])
         try atomicWrite(data, to: url, root: root)
+    }
+
+    private func ensureLocalRunIgnored(at root: URL) throws {
+        let url = root.appendingPathComponent(".lithe/.gitignore")
+        try validateWriteTarget(url, root: root)
+        var contents = ""
+        if storage.fileExists(at: url) {
+            let data = try storage.readData(from: url, options: [])
+            guard let text = String(data: data, encoding: .utf8) else {
+                throw MacRunConfigurationStoreError.writeFailed("The Lithe ignore file must be UTF-8.")
+            }
+            contents = text
+        }
+        let rules = "/run/local.json\n/run/classes/\n**/*.tmp\n"
+        // Append after user negations; preserve every existing line and avoid
+        // growing the file on repeated saves.
+        if contents.hasSuffix(rules) { return }
+        if !contents.isEmpty && !contents.hasSuffix("\n") { contents += "\n" }
+        contents += rules
+        try storage.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try atomicWrite(Data(contents.utf8), to: url, root: root)
     }
 
     private func writeMutation(
