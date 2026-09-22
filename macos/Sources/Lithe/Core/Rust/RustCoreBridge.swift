@@ -658,6 +658,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let generated: RunConfigurationPayload?
         let toolchainRequirements: ToolchainRequirementsPayload?
         let diagnostics: [[String: String]]?
+        /// Machine-local project defaults; `nil` when the local layer has never saved any.
+        let toolchain: RunConfigurationPayload.Toolchain?
     }
 
     struct LaunchPlanPayload: Codable, Sendable {

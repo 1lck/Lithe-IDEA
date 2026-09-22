@@ -33,17 +33,22 @@ package struct ProjectRunConfigurationInspection: Equatable, Sendable {
     package let diagnostics: [RunConfigurationDiagnostic]
     package var recoveryAction: RunConfigurationRecoveryAction = .none
     package var recoveryPath: String? = nil
+    /// Project defaults saved in the machine-local run layer. `nil` means that
+    /// layer holds no defaults yet, which differs from explicitly automatic ones.
+    package var projectToolchain: ProjectToolchainSelection? = nil
 
     package init(
         status: ProjectRunConfigurationStatus,
         diagnostics: [RunConfigurationDiagnostic],
         recoveryAction: RunConfigurationRecoveryAction = .none,
-        recoveryPath: String? = nil
+        recoveryPath: String? = nil,
+        projectToolchain: ProjectToolchainSelection? = nil
     ) {
         self.status = status
         self.diagnostics = diagnostics
         self.recoveryAction = recoveryAction
         self.recoveryPath = recoveryPath
+        self.projectToolchain = projectToolchain
     }
 }
 

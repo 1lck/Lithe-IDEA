@@ -154,6 +154,18 @@ Windows 运行存储区分「重载同一项目」和「切换项目」。保存
 自动补齐、待确认的启动被静默取消。「设置 → 运行配置」另外只在存储尚未绑定当前
 项目时加载，避免打开设置本身触发无意义的重读。
 
+Windows 保存项目环境在默认值和 Maven 本机配置写入后即视为完成，按钮立即恢复；
+随后的运行配置刷新可能要等进行中的识别，因此单独返回并在结束后报告失败，不能让
+保存本身等待识别。
+
+macOS 的项目 JDK、Maven 与 Maven JDK 以 `.lithe/run/local.json` 为唯一真源，
+UserDefaults 中的项目运行时设置只是它的镜像，供 Maven 进程和环境检查使用。
+`runConfig.inspect` 返回的本机 `toolchain` 在未生成配置时也会读取；运行功能读完
+项目文档后，镜像以它为准覆盖这三个字段。本机层尚未保存过默认值（`toolchain`
+为空）时保留现有镜像，下一次保存再写入本机层；文档无法解析时两边都不改。错误
+做法是「镜像为空才补」：旧版服务编辑器只写本机层，镜像里的旧值会在关闭设置时
+反向覆盖运行实际使用的 JDK。
+
 macOS 的项目设置表单必须在运行功能读完当前项目文档后再填入初始值，关闭设置时的
 自动保存也只在 `ProjectLoadState.hasLoadedDocuments(for:)` 成立时写入。运行功能
 加载中持有的是空工具链；此时保存会把用户已保存的项目 JDK 覆盖成空值。
@@ -210,10 +222,12 @@ settings.xml 和仓库路径。Windows 的 Run 本机文档与 Maven 本机文�
   `bun test src/features/settings src/features/maven src/features/run/services/java-main-launch.test.ts`，
   覆盖默认值读写、Maven 保存重试、编辑器跳转、中文搜索，以及打开「设置 → 运行配置」
   不重载同一项目；`run.store` 测试覆盖同一项目重载保留 JDT 刷新与待确认启动、
-等待进行中的识别发布，以及切换项目仍会取消。macOS 运行 `./scripts/test-macos.sh`，
+等待进行中的识别发布，以及切换项目仍会取消；`project-environment` 测试覆盖保存在
+运行配置刷新完成前返回、刷新失败与 Maven 写入失败的报告。macOS 运行 `./scripts/test-macos.sh`，
   `RunConfigurationIntegrationTests` 覆盖未生成配置时保存、Git 忽略规则逐条补齐且
-  重复保存不改动文件、不支持版本的识别拦截，以及只有读完当前项目文档后才允许保存
-项目默认值。
+  重复保存不改动文件、不支持版本的识别拦截，只有读完当前项目文档后才允许保存
+项目默认值，以及未生成配置时读取本机默认值；`MavenRuntimeTests` 覆盖镜像以本机层
+为准且不改动其他 Maven 设置。
 
 ## 适用范围
 
@@ -233,7 +247,8 @@ settings.xml 和仓库路径。Windows 的 Run 本机文档与 Maven 本机文�
     `macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift`、
     `macos/Sources/LitheExecutionModule/Services/RunService.swift`（`saveProjectToolchain`）、
     `macos/Sources/Lithe/Platform/MacOS/RunConfiguration/MacRunConfigurationStore.swift`、
-    `macos/Sources/Lithe/Models/AppModel/AppModel+FeatureState.swift`（项目设置填充与保存）
+    `macos/Sources/Lithe/Models/AppModel/AppModel+FeatureState.swift`（项目设置填充与保存）、
+    `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`（`adoptProjectToolchain`）
   - Windows：`windows/tauri/src/features/settings/components/project-environment-settings.tsx`、
     `windows/tauri/src/features/settings/components/run-configuration-settings.tsx`、
     `windows/tauri/src/features/settings/services/`、

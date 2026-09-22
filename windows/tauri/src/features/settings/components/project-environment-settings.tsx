@@ -9,7 +9,11 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Input from "@/ui/input";
 import { FolderIcon } from "@/ui/icons";
-import { loadProjectEnvironment, saveProjectEnvironment } from "../services/project-environment";
+import {
+  loadProjectEnvironment,
+  ProjectEnvironmentSaveError,
+  saveProjectEnvironmentSettings,
+} from "../services/project-environment";
 
 type Environment = Awaited<ReturnType<typeof loadProjectEnvironment>>;
 
@@ -32,6 +36,7 @@ function ProjectEnvironmentForm({ root, workspaceId }: { root: string; workspace
   const [saved, setSaved] = useState(false);
   const mounted = useRef(true);
   const revision = useRef(0);
+  const saveRevision = useRef(0);
 
   const load = async () => {
     const current = ++revision.current;
@@ -81,37 +86,38 @@ function ProjectEnvironmentForm({ root, workspaceId }: { root: string; workspace
 
   const save = async () => {
     if (!environment || busy) return;
+    const current = ++saveRevision.current;
     setBusy(true);
     setSaved(false);
     setError(null);
-    let defaultsWritten = false;
+    let runRefresh: Promise<string | null>;
     try {
-      await saveProjectEnvironment(root, environment.toolchain);
-      defaultsWritten = true;
-      const mavenStore = useMavenStore.getStore(workspaceId);
-      if (maven && mavenStore.getState().root === root) {
-        await mavenStore.getState().actions.saveLocalConfiguration({
-          ...maven,
-          mavenExecutablePath: environment.toolchain.mavenExecutablePath,
-          javaHomePath: environment.toolchain.mavenJavaHomePath,
-        });
-      }
-      const runStore = useRunStore.getStore(workspaceId);
-      if (runStore.getState().root === root) {
-        await runStore.getState().actions.loadProject(root);
-        if (runStore.getState().root === root && runStore.getState().status === "invalid") {
-          throw new Error(runStore.getState().invalidMessage ?? t("settings.project.reloadFailed"));
-        }
-      }
-      if (mounted.current) setSaved(true);
+      ({ runRefresh } = await saveProjectEnvironmentSettings(root, environment.toolchain, {
+        maven: maven ? { settings: maven, store: useMavenStore.getStore(workspaceId) } : null,
+        run: useRunStore.getStore(workspaceId),
+      }));
     } catch (cause) {
-      if (mounted.current)
+      if (mounted.current) {
+        const written = cause instanceof ProjectEnvironmentSaveError && cause.defaultsWritten;
         setError(
-          `${defaultsWritten ? t("settings.project.savedReloadFailed") : ""}${String(cause)}`,
+          `${written ? t("settings.project.savedReloadFailed") : ""}${String(cause instanceof ProjectEnvironmentSaveError ? cause.message : cause)}`,
         );
-    } finally {
-      if (mounted.current) setBusy(false);
+        setBusy(false);
+      }
+      return;
     }
+    if (mounted.current) {
+      setSaved(true);
+      setBusy(false);
+    }
+    // Run may still be identifying the project; report its refresh when it ends
+    // unless a newer save has replaced this one.
+    const failure = await runRefresh;
+    if (failure === null || !mounted.current || current !== saveRevision.current) return;
+    setSaved(false);
+    setError(
+      `${t("settings.project.savedReloadFailed")}${failure || t("settings.project.reloadFailed")}`,
+    );
   };
 
   const fields = environment

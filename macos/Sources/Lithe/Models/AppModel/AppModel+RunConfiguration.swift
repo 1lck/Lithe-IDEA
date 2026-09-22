@@ -224,6 +224,7 @@ extension AppModel {
             snapshotID: snapshotID
         )
         guard isCurrentWorkspace(identity) else { return }
+        adoptSavedProjectToolchain(from: execution.runFeature, workspace: target)
         guard resumesDeferredRunAction else { return }
         runWorkflowCoordinator.resumeDeferredAction(
             runFeature: execution.runFeature,

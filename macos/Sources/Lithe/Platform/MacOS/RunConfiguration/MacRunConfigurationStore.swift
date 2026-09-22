@@ -42,7 +42,14 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             return ProjectRunConfigurationInspection(
                 status: payload.status == "ready" ? .ready : .missing,
                 diagnostics: diagnostics(from: payload.diagnostics),
-                recoveryAction: payload.status == "ready" ? .none : .regenerate
+                recoveryAction: payload.status == "ready" ? .none : .regenerate,
+                projectToolchain: payload.toolchain.map { toolchain in
+                    ProjectToolchainSelection(
+                        javaHomePath: toolchain.java?.homePath ?? "",
+                        mavenExecutablePath: toolchain.maven?.executablePath ?? "",
+                        mavenJavaHomePath: toolchain.maven?.javaHomePath ?? ""
+                    )
+                }
             )
         case .failure(let error):
             return ProjectRunConfigurationInspection(

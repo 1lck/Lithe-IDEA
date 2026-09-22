@@ -23,7 +23,10 @@ struct RunConfigurationIntegrationTests {
         try Data(original.utf8).write(to: localURL)
         let store = MacRunConfigurationStore(core: core, storage: MacFileStorage(),
                                             preferences: RunTestKeyValueStore())
+        // A layer that never saved defaults reports none, not automatic ones.
+        #expect(store.inspect(at: root).projectToolchain == nil)
         try store.saveProjectToolchain(ProjectToolchainSelection(javaHomePath: "/fixture/project-jdk"), at: root)
+        #expect(store.inspect(at: root).projectToolchain == ProjectToolchainSelection(javaHomePath: "/fixture/project-jdk"))
         let saved = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: localURL)) as? [String: Any])
         let configurations = try #require(saved["configurations"] as? [[String: Any]])
         let extensions = try #require(configurations.first?["extensions"] as? [String: Any])
@@ -76,8 +79,12 @@ struct RunConfigurationIntegrationTests {
     @Test
     func missingConfigurationsStillBindTheWorkspaceDocuments() async {
         let fixture = makeFixture(status: .missing)
+        let saved = ProjectToolchainSelection(javaHomePath: "/fixture/project-jdk")
+        fixture.operations.inspectionToolchain = saved
         await fixture.service.loadProject(at: fixture.root, files: [], mavenProject: nil)
         #expect(fixture.service.projectLoadState.hasLoadedDocuments(for: fixture.root))
+        // Settings mirror these defaults before any configuration is generated.
+        #expect(fixture.service.savedProjectToolchain == saved)
     }
 
     @Test
@@ -4711,6 +4718,7 @@ private struct RunServiceFixture {
 
 private final class RecordingRunConfigurationOperations: RunConfigurationOperations, @unchecked Sendable {
     var inspectionRecoveryAction: RunConfigurationRecoveryAction = .none
+    var inspectionToolchain: ProjectToolchainSelection?
     private(set) var generateCalls = 0
     let status: ProjectRunConfigurationStatus
     private var effective: [EffectiveRunConfiguration]
@@ -4748,7 +4756,12 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
     }
 
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
-        ProjectRunConfigurationInspection(status: status, diagnostics: [], recoveryAction: inspectionRecoveryAction)
+        ProjectRunConfigurationInspection(
+            status: status,
+            diagnostics: [],
+            recoveryAction: inspectionRecoveryAction,
+            projectToolchain: inspectionToolchain
+        )
     }
     func generate(
         at projectURL: URL,

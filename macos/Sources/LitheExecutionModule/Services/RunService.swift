@@ -22,6 +22,9 @@ package final class RunService: ObservableObject {
     @Published package private(set) var lastExitCode: Int32?
     @Published package private(set) var optionsByConfigurationID: [String: RunOptions] = [:]
     @Published package private(set) var projectToolchain = ProjectToolchainSelection()
+    /// Defaults saved in `.lithe/run/local.json`, read even before generation.
+    /// `nil` until that layer saves defaults or while it cannot be read.
+    @Published package private(set) var savedProjectToolchain: ProjectToolchainSelection?
     @Published package private(set) var effectiveSourcesByConfigurationID: [String: RunConfigurationSource] = [:]
     @Published package private(set) var mavenProfiles: [MavenProfile] = []
     @Published package private(set) var moduleSessions: [RunSession] = []
@@ -232,6 +235,7 @@ package final class RunService: ObservableObject {
         configurationDiagnostics = inspection.diagnostics
         recoveryAction = inspection.recoveryAction
         recoveryPath = inspection.recoveryPath
+        savedProjectToolchain = inspection.projectToolchain
         generationState = .idle
         if inspection.status == .ready {
             do {
@@ -423,6 +427,7 @@ package final class RunService: ObservableObject {
         do {
             try runConfigurationOperations.saveProjectToolchain(toolchain, at: projectURL)
             projectToolchain = toolchain
+            savedProjectToolchain = toolchain
         } catch {
             configurationSaveError = editorSaveFailureMessage(error, fallbackStage: .write)
             return false
@@ -466,6 +471,7 @@ package final class RunService: ObservableObject {
                 scope: scope,
                 at: projectURL
             )
+            savedProjectToolchain = toolchain
         } catch {
             configurationSaveError = editorSaveFailureMessage(error, fallbackStage: .write)
             return false
@@ -797,6 +803,7 @@ package final class RunService: ObservableObject {
         selectedConfigurationID = RunConfiguration.currentFileID
         optionsByConfigurationID = [:]
         projectToolchain = ProjectToolchainSelection()
+        savedProjectToolchain = nil
         effectiveSourcesByConfigurationID = [:]
         mavenProfiles = []
         moduleSessions = []

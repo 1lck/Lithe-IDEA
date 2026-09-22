@@ -464,6 +464,35 @@ final class ProjectRuntimeService: ObservableObject {
         }
     }
 
+    /// Mirrors the project defaults saved in `.lithe/run/local.json`, which owns
+    /// them, so the language server and Maven processes use the JDK and Maven
+    /// that Run launches with. Other settings are left unchanged.
+    func adoptProjectToolchain(_ toolchain: ProjectToolchainSelection) {
+        var next = settings
+        next.javaHomePath = toolchain.javaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        next.mavenJavaHomePath = toolchain.mavenJavaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let maven = toolchain.mavenExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Compare the effective executable so an equivalent spelling, or a custom
+        // path remembered behind the automatic choice, is not rewritten.
+        if next.mavenExecutableOverride != maven {
+            if maven.isEmpty {
+                next.mavenHomeSelection = .automatic
+            } else if Self.isMavenWrapper(maven) {
+                next.mavenHomeSelection = .wrapper
+            } else {
+                next.mavenHomeSelection = .custom
+                next.mavenHomePath = maven
+            }
+        }
+        if next != settings {
+            updateSettings(next)
+        }
+    }
+
+    private static func isMavenWrapper(_ path: String) -> Bool {
+        path == "mvnw" || path == "./mvnw" || path.hasSuffix("/mvnw")
+    }
+
     func mergeImportedSettings(
         toolchain: ProjectToolchainSelection?,
         mavenSettingsPath: String?,
@@ -478,7 +507,7 @@ final class ProjectRuntimeService: ObservableObject {
         if next.mavenHomeSelection == .automatic, next.mavenHomePath.isEmpty,
            let mavenExecutablePath, !mavenExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let trimmed = mavenExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed == "mvnw" || trimmed.hasSuffix("/mvnw") || trimmed == "./mvnw" {
+            if Self.isMavenWrapper(trimmed) {
                 next.mavenHomeSelection = .wrapper
             } else {
                 next.mavenHomeSelection = .custom

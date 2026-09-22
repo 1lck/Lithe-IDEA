@@ -186,6 +186,7 @@ package final class RunFeatureModel: ObservableObject {
     package var recoveryPath: String? { service.recoveryPath }
     package var configurationSaveError: String? { service.configurationSaveError }
     package var projectToolchain: ProjectToolchainSelection { service.projectToolchain }
+    package var savedProjectToolchain: ProjectToolchainSelection? { service.savedProjectToolchain }
     package var blockingToolchainDiagnostic: RunConfigurationDiagnostic? {
         service.blockingToolchainDiagnostic(for: service.selectedConfiguration)
     }
