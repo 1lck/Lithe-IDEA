@@ -190,7 +190,10 @@ function parseDiffSection(lines: string[], fallbackFilePath: string): GitDiff {
 }
 
 export function parseRawDiffContent(content: string, filePath: string): GitDiff | MultiFileDiff {
-  const lines = content.split("\n");
+  // Git preserves the repository's configured line ending on Windows. Strip
+  // CRLF separators before parsing so carriage returns never become part of
+  // Monaco diff line content or path metadata.
+  const lines = content.split(/\r?\n/);
   const fallbackFilePath = getFilenameFromPath(filePath).replace(/\.(diff|patch)$/i, "");
   const sections: string[][] = [];
   let currentSection: string[] = [];
