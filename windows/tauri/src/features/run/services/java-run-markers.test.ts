@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { MavenTestCase } from "@/features/maven/types/maven.types";
 import {
+  contextMenuRunTarget,
   discoverJavaRunSources,
   javaRunMarkerForLine,
   projectJavaRunMarkers,
@@ -132,5 +133,29 @@ describe("Run marker under the caret", () => {
     expect(javaRunMarkerForLine(mains, 6)?.label).toBe("Inner.main()");
     expect(javaRunMarkerForLine(mains, 9)?.label).toBe("App.main()");
     expect(javaRunMarkerForLine([], 1)).toBeNull();
+  });
+});
+
+describe("context menu run target", () => {
+  const file = "C:/work/src/test/java/demo/OrderTest.java";
+
+  test("uses the caret's marker once JDT answered", () => {
+    const method = marker({ kind: "testMethod", label: "OrderTest.creates" });
+    expect(contextMenuRunTarget(method, true, file)).toEqual({
+      kind: "marker",
+      marker: method,
+      label: "OrderTest.creates",
+    });
+  });
+
+  // A large project can spend minutes importing before Java Test answers;
+  // the Maven file-class entry must stay available meanwhile.
+  test("keeps the Maven file-class entry before JDT answers", () => {
+    expect(contextMenuRunTarget(null, true, file)).toEqual({
+      kind: "fileTestClass",
+      label: "OrderTest",
+    });
+    expect(contextMenuRunTarget(null, false, file)).toBeNull();
+    expect(contextMenuRunTarget(null, true, "C:/work/README.md")).toBeNull();
   });
 });

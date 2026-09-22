@@ -129,3 +129,24 @@ export function javaRunMarkerForLine(
   const mains = markers.filter((marker) => marker.kind === "main");
   return mains.find((marker) => marker.line === line) ?? mains[0] ?? null;
 }
+
+/** What the editor context menu offers to run for a caret line. */
+export type ContextMenuRunTarget =
+  | { kind: "marker"; marker: JavaRunMarker; label: string }
+  | { kind: "fileTestClass"; label: string };
+
+/**
+ * The caret's marker when JDT has answered. Otherwise a Maven test file keeps
+ * the file-class entry it had before Run markers, because JDT may still be
+ * importing a large project or the Java Test extension may have failed.
+ */
+export function contextMenuRunTarget(
+  marker: JavaRunMarker | null,
+  fileTestsRunnable: boolean,
+  filePath: string,
+): ContextMenuRunTarget | null {
+  if (marker) return { kind: "marker", marker, label: marker.label };
+  if (!fileTestsRunnable || !/\.java$/i.test(filePath)) return null;
+  const fileName = filePath.split(/[\\/]/).pop() ?? filePath;
+  return { kind: "fileTestClass", label: fileName.replace(/\.java$/i, "") };
+}

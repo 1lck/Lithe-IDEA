@@ -53,15 +53,13 @@ extension AppModel {
                 await self?.performJavaMain(mainClass, action: action, in: fileURL)
             }
         case .testClass, .testMethod:
-            guard let testClass = marker.testClass else { return }
-            let identifier = marker.kind == .testMethod
-                ? marker.testMethod.map { "\(testClass)#\($0)" } ?? testClass
-                : testClass
+            guard action != .editConfiguration,
+                  let identifier = marker.testIdentifier(forDebugging: action == .debug) else { return }
             let scope = LanguageTestScope.testCase(identifier: identifier, fileURL: fileURL)
-            switch action {
-            case .run: runTest(providerID: "java", scope: scope)
-            case .debug: debugTest(providerID: "java", scope: scope)
-            case .editConfiguration: return
+            if action == .debug {
+                debugTest(providerID: "java", scope: scope)
+            } else {
+                runTest(providerID: "java", scope: scope)
             }
         }
     }

@@ -751,6 +751,57 @@ fn maven_test_results_find_the_module_from_the_test_source() {
     fs::remove_dir_all(root).expect("report fixture should be removable");
 }
 
+// Many stale reports sorting ahead of the run's own report must not push it
+// past the report-file bound when the request names no classes.
+#[test]
+fn maven_test_results_keep_current_reports_beyond_many_stale_ones() {
+    let root = temporary_root("maven-test-reports-bound");
+    let reports = root.join("target/surefire-reports");
+    fs::create_dir_all(&reports).expect("report directory");
+    let set_modified = |path: &std::path::Path, seconds: u64| {
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .and_then(|file| {
+                file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds))
+            })
+            .expect("report timestamp");
+    };
+    for index in 0..600 {
+        let path = reports.join(format!("TEST-a.Stale{index:03}Test.xml"));
+        fs::write(&path, "<testsuite/>").expect("stale report");
+        set_modified(&path, 1_600_000_000);
+    }
+    let current = reports.join("TEST-z.CurrentTest.xml");
+    fs::write(
+        &current,
+        r#"<testsuite name="z.CurrentTest"><testcase name="runs" classname="z.CurrentTest"/></testsuite>"#,
+    )
+    .expect("current report");
+    set_modified(&current, 1_700_000_010);
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "maven-test-reports-bound",
+            "command": "maven.testResults",
+            "payload": {
+                "root": root,
+                "output": "",
+                "reports": { "notBeforeMillis": 1_700_000_000_000_u64 }
+            }
+        })
+        .to_string(),
+    ))
+    .expect("report response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["data"]["testCases"][0]["className"],
+        "z.CurrentTest"
+    );
+    fs::remove_dir_all(root).expect("report fixture should be removable");
+}
+
 #[test]
 fn maven_test_results_reject_report_requests_outside_the_workspace() {
     let root = temporary_root("maven-test-reports-bounds");

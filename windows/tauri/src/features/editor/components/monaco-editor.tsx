@@ -37,7 +37,8 @@ import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspa
 import { useGitBlame } from "@/features/git/hooks/use-git-blame";
 import { keymapRegistry } from "@/features/keymaps/utils/registry";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
-import { canRunMavenTest } from "@/features/maven/services/maven-test-actions";
+import { openMavenRunPane } from "@/features/maven/actions/maven-tool-window-actions";
+import { canRunMavenTest, runMavenTestAction } from "@/features/maven/services/maven-test-actions";
 import { useJavaRunMarkers } from "@/features/run/hooks/use-java-run-markers";
 import {
   canEditJavaRunMarkerConfiguration,
@@ -46,6 +47,7 @@ import {
   runJavaRunMarker,
 } from "@/features/run/services/java-run-marker-actions";
 import {
+  contextMenuRunTarget,
   javaRunMarkerForLine,
   type JavaRunMarker,
 } from "@/features/run/services/java-run-markers";
@@ -757,6 +759,16 @@ export function MonacoEditor({
     },
     [filePath, t, workspaceId],
   );
+
+  const contextRunTarget = contextMenuRunTarget(contextMenuRunMarker, mavenTestsAvailable, filePath);
+  const runFileTestClassFromEditor = useCallback(() => {
+    if (!filePath) return;
+    setContextMenuPosition(null);
+    openMavenRunPane();
+    void runMavenTestAction(filePath, undefined, workspaceId).catch((error) => {
+      toast.error(error instanceof Error ? error.message : t("maven.testRunFailed"));
+    });
+  }, [filePath, t, workspaceId]);
 
   const editRunMarkerConfiguration = useCallback(
     (marker: JavaRunMarker) => {
@@ -2419,11 +2431,13 @@ export function MonacoEditor({
               canEdit ? () => executeEditorCommand("editor.triggerSuggest") : undefined
             }
             onRunContext={
-              contextMenuRunMarker
-                ? () => runMarkerFromEditor(contextMenuRunMarker)
-                : undefined
+              contextRunTarget?.kind === "marker"
+                ? () => runMarkerFromEditor(contextRunTarget.marker)
+                : contextRunTarget
+                  ? runFileTestClassFromEditor
+                  : undefined
             }
-            runContextLabel={contextMenuRunMarker?.label}
+            runContextLabel={contextRunTarget?.label}
           />,
           document.body,
         )}

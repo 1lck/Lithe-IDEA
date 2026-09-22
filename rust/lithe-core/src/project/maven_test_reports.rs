@@ -123,10 +123,13 @@ pub(crate) fn read_test_cases(
         let Ok(entries) = fs::read_dir(&directory) else {
             continue;
         };
+        // Freshness is checked before the file bound so reports left by
+        // earlier runs cannot crowd out the ones this run wrote.
         let mut names = entries
             .filter_map(Result::ok)
             .filter_map(|entry| entry.file_name().into_string().ok())
             .filter(|name| is_requested_report(name, &classes))
+            .filter(|name| is_current_report(&directory.join(name), request.not_before_millis))
             .collect::<Vec<_>>();
         // Directory order is file-system specific; sorting keeps the bound
         // and the aggregation deterministic.
@@ -139,9 +142,6 @@ pub(crate) fn read_test_cases(
     let mut aggregated: BTreeMap<(String, String), AggregatedCase> = BTreeMap::new();
     for path in report_files {
         crate::protocol::cancellation::check()?;
-        if !is_current_report(&path, request.not_before_millis) {
-            continue;
-        }
         let Ok(data) = fs::read(&path) else {
             continue;
         };

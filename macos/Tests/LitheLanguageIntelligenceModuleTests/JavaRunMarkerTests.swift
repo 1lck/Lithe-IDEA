@@ -26,6 +26,24 @@ struct JavaRunMarkerTests {
         #expect(JavaRunMarker.forLine(1, in: []) == nil)
     }
 
+    // Debugging re-resolves the Java Test item, whose names carry parameter
+    // lists (`OrderTest#creates()`); only its JDT id matches reliably.
+    @Test
+    func testMethodsRunByMavenSelectorAndDebugByJavaTestItem() {
+        let method = JavaRunMarker(
+            line: 7, endLine: 7, kind: .testMethod, label: "OrderTest.creates",
+            testClass: "demo.OrderTest", testMethod: "creates", testItemId: "app@demo.OrderTest#creates()"
+        )
+        #expect(method.testIdentifier(forDebugging: false) == "demo.OrderTest#creates")
+        #expect(method.testIdentifier(forDebugging: true) == "app@demo.OrderTest#creates()")
+        let nested = JavaRunMarker(
+            line: 10, endLine: 13, kind: .testClass, label: "Refunds", testClass: "demo.OrderTest$Refunds"
+        )
+        #expect(nested.testIdentifier(forDebugging: false) == "demo.OrderTest$Refunds")
+        #expect(nested.testIdentifier(forDebugging: true) == "demo.OrderTest$Refunds")
+        #expect(markers[0].testIdentifier(forDebugging: false) == nil)
+    }
+
     @Test
     func coreMarkerPayloadDecodes() throws {
         let data = Data(#"{"line":3,"endLine":3,"kind":"main","label":"App.main()","mainClass":"demo.App","status":"none"}"#.utf8)

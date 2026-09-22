@@ -598,6 +598,17 @@ package struct JavaRunMarker: Codable, Equatable, Sendable {
     /// Stable identity within one projection, used by editor bridges.
     package var id: String { "\(kind.rawValue):\(line):\(label)" }
 
+    /// The test identifier the Test workflow expects. Runs build a Maven
+    /// `-Dtest` selector (`Class#method`); debugging resolves the Java Test
+    /// item again, which matches its JDT `id` but not a parameterless name,
+    /// because JDT names methods `Class#method()` or `Class#method(Type)`.
+    package func testIdentifier(forDebugging: Bool) -> String? {
+        guard kind != .main, let testClass else { return nil }
+        if forDebugging, let testItemId { return testItemId }
+        if kind == .testMethod, let testMethod { return "\(testClass)#\(testMethod)" }
+        return testClass
+    }
+
     /// The marker a caret line refers to, following IDEA: the innermost test
     /// method or class whose declaration contains the line, otherwise the
     /// `main` on that line, otherwise the file's first `main`.
