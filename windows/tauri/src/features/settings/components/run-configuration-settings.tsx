@@ -5,6 +5,7 @@ import { runOptionsFor, useRunStore } from "@/features/run/stores/run.store";
 import { RunConfigurationEditor } from "@/features/run/components/run-configuration-editor";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
+import { ensureRunSettingsProject } from "../services/run-settings-project";
 
 export function RunConfigurationSettings() {
   const { t } = useTranslation();
@@ -29,7 +30,8 @@ export function RunConfigurationSettings() {
   );
   const { actions } = state;
   useEffect(() => {
-    if (root) void actions.loadProject(root);
+    // `actions` changes with the active workspace's Run store.
+    if (root) void ensureRunSettingsProject(useRunStore, root);
   }, [root, actions]);
 
   if (!root) return <p>{t("settings.project.openProject")}</p>;

@@ -43,6 +43,36 @@ struct RunConfigurationIntegrationTests {
         #expect(try String(contentsOf: ignoreURL, encoding: .utf8) == expectedIgnore)
         try store.saveProjectToolchain(ProjectToolchainSelection(), at: root)
         #expect(try String(contentsOf: ignoreURL, encoding: .utf8) == expectedIgnore)
+
+        // Rules written by generation already protect local paths; saving must
+        // not dirty the committed ignore file with equivalent anchored copies.
+        let generatedIgnore = "run/local.json\nrun/classes/\n**/*.tmp\n"
+        try Data(generatedIgnore.utf8).write(to: ignoreURL)
+        try store.saveProjectToolchain(ProjectToolchainSelection(javaHomePath: "/fixture/project-jdk"), at: root)
+        #expect(try String(contentsOf: ignoreURL, encoding: .utf8) == generatedIgnore)
+
+        // A user rule after Lithe's rules must not make every save append them again.
+        let userExtendedIgnore = expectedIgnore + "build/\n"
+        try Data(userExtendedIgnore.utf8).write(to: ignoreURL)
+        try store.saveProjectToolchain(ProjectToolchainSelection(javaHomePath: "/fixture/project-jdk"), at: root)
+        try store.saveProjectToolchain(ProjectToolchainSelection(), at: root)
+        #expect(try String(contentsOf: ignoreURL, encoding: .utf8) == userExtendedIgnore)
+    }
+
+    @Test
+    func localRunIgnoreRulesRespectOrderOfUserNegations() {
+        let all = ["/run/local.json", "/run/classes/", "**/*.tmp"]
+        #expect(MacRunConfigurationStore.missingLocalRunIgnoreRules(in: "") == all)
+        #expect(MacRunConfigurationStore.missingLocalRunIgnoreRules(
+            in: "run/local.json\r\n/run/classes/\n  **/*.tmp  \n"
+        ).isEmpty)
+        // A later negation re-exposes the local document, so the rule is appended after it.
+        #expect(MacRunConfigurationStore.missingLocalRunIgnoreRules(
+            in: "run/local.json\nrun/classes/\n**/*.tmp\n!run/local.json\n"
+        ) == ["/run/local.json"])
+        #expect(MacRunConfigurationStore.missingLocalRunIgnoreRules(
+            in: "!/run/local.json\n/run/local.json\nrun/classes/\n**/*.tmp\n"
+        ).isEmpty)
     }
 
     @Test

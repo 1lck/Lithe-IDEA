@@ -121,39 +121,6 @@ Maven 会把两者合并。
 
 ## 后果
 
-### 项目环境设置入口（2026-09-22）
-
-两个平台都从「设置 → 项目 · JDK 与 Maven」管理项目默认环境。Windows 的 Maven
-工具窗口齿轮也跳到这里。各服务的启动参数、环境变量、工作目录与工具链覆盖
-统一在「设置 → 运行配置」编辑，复用原有保存链路，不改变本机／项目作用域。
-运行窗口移除逐服务齿轮和编辑弹窗，保留选择、启动、停止及只读详情；编辑器
-行号旁的编辑命令直接打开设置并选中对应配置。Node 配置也使用同一设置入口。
-
-不要在设置中复制一套运行参数解析或另存一份配置。正确做法是设置页复用运行
-功能模型及原有编辑表单；错误做法是在运行面板和设置各保留一个独立草稿入口。
-代价是编辑前需要进入设置，但所有配置的位置一致，运行界面也不再堆积齿轮。
-
-项目设置保存必须调用 `runConfig.updateOptions` 的本机工具链分支，不得选择一个
-服务、把它当前解析后的参数重新保存一遍。正确做法是只更新本机 `toolchain`，
-保留原有 `configurations`；错误做法是把继承结果写成服务覆盖，导致项目默认值
-下次变化时服务不再跟随。macOS 的运行配置端口为此增加独立保存操作。
-
-Windows 设置使用 `runConfig.inspect` 的 `checkFingerprint: false` 读取默认值，
-不要求先生成运行配置，也不为打开设置遍历全部源文件。自动检测的安装仅供候选
-展示，不能把检测结果当作用户已经保存的选择。Maven JDK 留空时，Windows 的
-Maven 启动适配器读取项目默认 JDK；该解析不把继承结果写回配置。
-
-Maven 目标执行不依赖运行配置文档有效：Windows 读取项目 JDK 默认值失败时，
-记录不含原始错误或机器路径的警告，回退到宿主 JDK 选择，不能让损坏的
-generated.json 阻止独立 Maven 任务。macOS 首次保存项目默认值必须先补齐
-本机运行配置的 Git 忽略规则，保留用户已有内容；设置中的重新识别也必须遵守
-不支持版本的升级保护，并在运行服务入口再次拦截，不能只依赖按钮禁用。
-
-现有 Maven 的本机配置仍由 Maven 存储管理，设置页同步其显式选择，保留 profiles、
-settings.xml 和仓库路径。Windows 的 Run 本机文档与 Maven 本机文档是两次独立
-写入；若后一步失败，界面明确提示默认值已保存，不伪装成整次回滚。原生 UI 和
-进程行为仍需分别在 macOS、Windows 验证。
-
 收益：
 
 - 命令行与语言服务解析同一个本地仓库，不再重复下载整套依赖。
@@ -172,6 +139,46 @@ settings.xml 和仓库路径。Windows 的 Run 本机文档与 Maven 本机文�
 - Maven 上下文仍然不进日志。这次定位只能靠翻启动命令行里的 `-cp`，下次遇到
   类似问题依然会很慢。补日志是独立的后续工作。
 
+### 项目环境设置入口（2026-09-22）
+
+两个平台都从「设置 → 项目 · JDK 与 Maven」管理项目默认环境。Windows 的 Maven
+工具窗口齿轮也跳到这里。各服务的启动参数、环境变量、工作目录与工具链覆盖
+统一在「设置 → 运行配置」编辑，复用原有保存链路，不改变本机／项目作用域。
+运行窗口移除逐服务齿轮和编辑弹窗，保留选择、启动、停止及只读详情；编辑器
+行号旁的编辑命令直接打开设置并选中对应配置。Node 配置也使用同一设置入口。
+
+Windows「设置 → 运行配置」只在运行存储尚未绑定当前项目时加载。对同一项目重新
+`loadProject` 会取消进行中的识别、等待 JDT 准备完成后的刷新和编译失败后待确认的
+启动；设置页是编辑的唯一入口，不能因为打开它就丢掉这些进行中的工作。
+
+不要在设置中复制一套运行参数解析或另存一份配置。正确做法是设置页复用运行
+功能模型及原有编辑表单；错误做法是在运行面板和设置各保留一个独立草稿入口。
+代价是编辑前需要进入设置，但所有配置的位置一致，运行界面也不再堆积齿轮。
+
+项目设置保存必须调用 `runConfig.updateOptions` 的本机工具链分支，不得选择一个
+服务、把它当前解析后的参数重新保存一遍。正确做法是只更新本机 `toolchain`，
+保留原有 `configurations`；错误做法是把继承结果写成服务覆盖，导致项目默认值
+下次变化时服务不再跟随。macOS 的运行配置端口为此增加独立保存操作。
+
+Windows 设置使用 `runConfig.inspect` 的 `checkFingerprint: false` 读取默认值，
+不要求先生成运行配置，也不为打开设置遍历全部源文件。自动检测的安装仅供候选
+展示，不能把检测结果当作用户已经保存的选择。Maven JDK 留空时，Windows 的
+Maven 启动适配器读取项目默认 JDK；该解析不把继承结果写回配置。
+
+Maven 目标执行不依赖运行配置文档有效：Windows 读取项目 JDK 默认值失败时，
+记录不含原始错误或机器路径的警告，回退到宿主 JDK 选择，不能让损坏的
+generated.json 阻止独立 Maven 任务。macOS 首次保存项目默认值必须先补齐
+本机运行配置的 Git 忽略规则，保留用户已有内容。补齐按规则逐条判断：生成时写入的
+不带前导 `/` 的写法同样算已存在，只有缺失或被其后的用户否定规则覆盖时才追加，
+避免保存项目默认值时改动团队共享的 `.lithe/.gitignore`，这与 Windows 宿主的
+`ensure_lithe_gitignore` 一致；设置中的重新识别也必须遵守
+不支持版本的升级保护，并在运行服务入口再次拦截，不能只依赖按钮禁用。
+
+现有 Maven 的本机配置仍由 Maven 存储管理，设置页同步其显式选择，保留 profiles、
+settings.xml 和仓库路径。Windows 的 Run 本机文档与 Maven 本机文档是两次独立
+写入；若后一步失败，界面明确提示默认值已保存，不伪装成整次回滚。原生 UI 和
+进程行为仍需分别在 macOS、Windows 验证。
+
 ## 验证
 
 - Rust Core：`cargo test --manifest-path rust/lithe-core/Cargo.toml`
@@ -189,6 +196,15 @@ settings.xml 和仓库路径。Windows 的 Run 本机文档与 Maven 本机文�
   写法、残缺 Wrapper 不被选中。
 - 共享契约：`./scripts/verify-shared-contracts.sh`。
 - 测试稳定性：`./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`。
+- 项目环境设置入口：`cargo test --manifest-path rust/lithe-core/Cargo.toml
+  project_environment_saves_before_generation` 用共享 fixture
+  `shared/fixtures/run-configuration/project-environment.json` 覆盖未生成配置时保存
+  默认值、保留服务覆盖以及 `checkFingerprint` 的两种行为。Windows 运行
+  `bun test src/features/settings src/features/maven src/features/run/services/java-main-launch.test.ts`，
+  覆盖默认值读写、Maven 保存重试、编辑器跳转、中文搜索，以及打开「设置 → 运行配置」
+  不重载同一项目、不取消等待 JDT 的刷新。macOS 运行 `./scripts/test-macos.sh`，
+  `RunConfigurationIntegrationTests` 覆盖未生成配置时保存、Git 忽略规则逐条补齐且
+  重复保存不改动文件、不支持版本的识别拦截。
 
 ## 适用范围
 
@@ -199,5 +215,18 @@ settings.xml 和仓库路径。Windows 的 Run 本机文档与 Maven 本机文�
   `windows/tauri/src/features/maven/stores/maven.store.ts`
 - Windows 宿主：`windows/tauri/src-tauri/src/run.rs`（`maven_resolve_installation`）
 - macOS：`macos/Sources/LitheExecutionModule/Services/MavenService.swift`
+- 项目环境与运行配置设置入口：
+  - Rust Core：`rust/lithe-core/src/execution/configuration.rs`（`runConfig.inspect`、
+    `runConfig.updateOptions` 工具链分支）
+  - 共享契约：`shared/contracts/rust-core-api.md`、
+    `shared/fixtures/run-configuration/project-environment.json`
+  - macOS：`macos/Sources/Lithe/Views/App/RunConfigurationSettingsView.swift`、
+    `macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift`、
+    `macos/Sources/LitheExecutionModule/Services/RunService.swift`（`saveProjectToolchain`）、
+    `macos/Sources/Lithe/Platform/MacOS/RunConfiguration/MacRunConfigurationStore.swift`
+  - Windows：`windows/tauri/src/features/settings/components/project-environment-settings.tsx`、
+    `windows/tauri/src/features/settings/components/run-configuration-settings.tsx`、
+    `windows/tauri/src/features/settings/services/`、
+    `windows/tauri/src/features/maven/api/maven-host-api.ts`（`resolveMavenLaunch`）
 - 相关笔记：
   `.agents/notes/implemented/architecture/2026-09-18-java-project-build-and-launch-boundary.md`

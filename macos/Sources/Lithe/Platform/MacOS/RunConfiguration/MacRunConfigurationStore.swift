@@ -493,14 +493,37 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             }
             contents = text
         }
-        let rules = "/run/local.json\n/run/classes/\n**/*.tmp\n"
-        // Append after user negations; preserve every existing line and avoid
-        // growing the file on repeated saves.
-        if contents.hasSuffix(rules) { return }
+        // Preserve every existing line. Append only rules that are absent or
+        // overridden by a later user negation, so a file written by generation
+        // or already repaired stays byte-for-byte unchanged on repeated saves.
+        let missing = Self.missingLocalRunIgnoreRules(in: contents)
+        if missing.isEmpty { return }
         if !contents.isEmpty && !contents.hasSuffix("\n") { contents += "\n" }
-        contents += rules
+        contents += missing.map { $0 + "\n" }.joined()
         try storage.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try atomicWrite(Data(contents.utf8), to: url, root: root)
+    }
+
+    /// Rules keeping machine-local run documents and build output out of Git.
+    /// Each entry lists the spellings that satisfy it; the first one is appended.
+    /// Generation writes the unanchored spellings, so both must count as present.
+    private static let localRunIgnoreRules: [[String]] = [
+        ["/run/local.json", "run/local.json"],
+        ["/run/classes/", "run/classes/"],
+        ["**/*.tmp"]
+    ]
+
+    static func missingLocalRunIgnoreRules(in contents: String) -> [String] {
+        let lines = contents.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        return localRunIgnoreRules.compactMap { spellings in
+            let ignored = lines.lastIndex { spellings.contains($0) }
+            let negated = lines.lastIndex { line in
+                line.hasPrefix("!") && spellings.contains(String(line.dropFirst()))
+            }
+            if let ignored, negated.map({ $0 < ignored }) ?? true { return nil }
+            return spellings[0]
+        }
     }
 
     private func writeMutation(
