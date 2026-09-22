@@ -354,8 +354,12 @@ extension AppModel {
 
     func prepareProjectRuntimeSettings() async {
         await runtimeFeature.refreshAvailableRuntimes()
-        if workspaceURL != nil {
-            _ = await activateExecutionModule()
+        if let identity = currentWorkspaceIdentity,
+           let run = await activateExecutionModule()?.runFeature,
+           isCurrentWorkspace(identity) {
+            // Seed the form from the saved project toolchain, not the empty value a
+            // Run feature holds while it is still reading this project's documents.
+            _ = await ensureRunProjectReady(run, for: identity)
         }
         runtimeFeature.prepare(
             workspaceName: projectName,
@@ -380,6 +384,13 @@ extension AppModel {
                 javaHomePath: settings.mavenJavaHomePath
             )
         }
-        _ = runFeatureIfActive?.saveProjectToolchain(runtimeFeature.projectToolchainSelection)
+        // Closing Settings persists without an edit. Until the Run feature has read
+        // this project's documents, its toolchain is unknown, and saving would
+        // overwrite the project defaults with whatever the form was seeded from.
+        guard let workspaceURL,
+              let run = runFeatureIfActive,
+              !run.isLoadingProject,
+              run.projectLoadState.hasLoadedDocuments(for: workspaceURL) else { return }
+        _ = run.saveProjectToolchain(runtimeFeature.projectToolchainSelection)
     }
 }

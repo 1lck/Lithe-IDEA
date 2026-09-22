@@ -147,9 +147,16 @@ Maven 会把两者合并。
 运行窗口移除逐服务齿轮和编辑弹窗，保留选择、启动、停止及只读详情；编辑器
 行号旁的编辑命令直接打开设置并选中对应配置。Node 配置也使用同一设置入口。
 
-Windows「设置 → 运行配置」只在运行存储尚未绑定当前项目时加载。对同一项目重新
-`loadProject` 会取消进行中的识别、等待 JDT 准备完成后的刷新和编译失败后待确认的
-启动；设置页是编辑的唯一入口，不能因为打开它就丢掉这些进行中的工作。
+Windows 运行存储区分「重载同一项目」和「切换项目」。保存项目默认值、运行面板
+挂载等同一项目的 `loadProject` 只重新读取文档与工具链：先等进行中的识别发布结果，
+保留等待 JDT 准备完成后的刷新和编译失败后待确认的启动；只有切换到其他项目才取消
+这些工作。错误做法是每次重载都递增版本并取消，导致刚保存完 JDK 时 Java 入口不再
+自动补齐、待确认的启动被静默取消。「设置 → 运行配置」另外只在存储尚未绑定当前
+项目时加载，避免打开设置本身触发无意义的重读。
+
+macOS 的项目设置表单必须在运行功能读完当前项目文档后再填入初始值，关闭设置时的
+自动保存也只在 `ProjectLoadState.hasLoadedDocuments(for:)` 成立时写入。运行功能
+加载中持有的是空工具链；此时保存会把用户已保存的项目 JDK 覆盖成空值。
 
 不要在设置中复制一套运行参数解析或另存一份配置。正确做法是设置页复用运行
 功能模型及原有编辑表单；错误做法是在运行面板和设置各保留一个独立草稿入口。
@@ -202,9 +209,11 @@ settings.xml 和仓库路径。Windows 的 Run 本机文档与 Maven 本机文�
   默认值、保留服务覆盖以及 `checkFingerprint` 的两种行为。Windows 运行
   `bun test src/features/settings src/features/maven src/features/run/services/java-main-launch.test.ts`，
   覆盖默认值读写、Maven 保存重试、编辑器跳转、中文搜索，以及打开「设置 → 运行配置」
-  不重载同一项目、不取消等待 JDT 的刷新。macOS 运行 `./scripts/test-macos.sh`，
+  不重载同一项目；`run.store` 测试覆盖同一项目重载保留 JDT 刷新与待确认启动、
+等待进行中的识别发布，以及切换项目仍会取消。macOS 运行 `./scripts/test-macos.sh`，
   `RunConfigurationIntegrationTests` 覆盖未生成配置时保存、Git 忽略规则逐条补齐且
-  重复保存不改动文件、不支持版本的识别拦截。
+  重复保存不改动文件、不支持版本的识别拦截，以及只有读完当前项目文档后才允许保存
+项目默认值。
 
 ## 适用范围
 
@@ -223,10 +232,12 @@ settings.xml 和仓库路径。Windows 的 Run 本机文档与 Maven 本机文�
   - macOS：`macos/Sources/Lithe/Views/App/RunConfigurationSettingsView.swift`、
     `macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift`、
     `macos/Sources/LitheExecutionModule/Services/RunService.swift`（`saveProjectToolchain`）、
-    `macos/Sources/Lithe/Platform/MacOS/RunConfiguration/MacRunConfigurationStore.swift`
+    `macos/Sources/Lithe/Platform/MacOS/RunConfiguration/MacRunConfigurationStore.swift`、
+    `macos/Sources/Lithe/Models/AppModel/AppModel+FeatureState.swift`（项目设置填充与保存）
   - Windows：`windows/tauri/src/features/settings/components/project-environment-settings.tsx`、
     `windows/tauri/src/features/settings/components/run-configuration-settings.tsx`、
     `windows/tauri/src/features/settings/services/`、
+    `windows/tauri/src/features/run/stores/run.store.ts`（`loadProject` 同项目重载）、
     `windows/tauri/src/features/maven/api/maven-host-api.ts`（`resolveMavenLaunch`）
 - 相关笔记：
   `.agents/notes/implemented/architecture/2026-09-18-java-project-build-and-launch-boundary.md`

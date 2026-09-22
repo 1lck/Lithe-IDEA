@@ -60,6 +60,27 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func projectDefaultsPersistOnlyAfterTheWorkspaceDocumentsWereRead() {
+        // Settings persists the project toolchain when it closes. Loading, failed or
+        // foreign states hold no toolchain for this workspace and must not be saved over it.
+        let workspace = URL(fileURLWithPath: "/fixture/project")
+        let other = URL(fileURLWithPath: "/fixture/other")
+        #expect(ProjectLoadState.bound(workspace: workspace).hasLoadedDocuments(for: workspace))
+        #expect(ProjectLoadState.ready(workspace: workspace, snapshotID: UUID()).hasLoadedDocuments(for: workspace))
+        #expect(!ProjectLoadState.idle.hasLoadedDocuments(for: workspace))
+        #expect(!ProjectLoadState.loading(workspace: workspace).hasLoadedDocuments(for: workspace))
+        #expect(!ProjectLoadState.failed(workspace: workspace, message: "fixture").hasLoadedDocuments(for: workspace))
+        #expect(!ProjectLoadState.bound(workspace: other).hasLoadedDocuments(for: workspace))
+    }
+
+    @Test
+    func missingConfigurationsStillBindTheWorkspaceDocuments() async {
+        let fixture = makeFixture(status: .missing)
+        await fixture.service.loadProject(at: fixture.root, files: [], mavenProject: nil)
+        #expect(fixture.service.projectLoadState.hasLoadedDocuments(for: fixture.root))
+    }
+
+    @Test
     func localRunIgnoreRulesRespectOrderOfUserNegations() {
         let all = ["/run/local.json", "/run/classes/", "**/*.tmp"]
         #expect(MacRunConfigurationStore.missingLocalRunIgnoreRules(in: "") == all)

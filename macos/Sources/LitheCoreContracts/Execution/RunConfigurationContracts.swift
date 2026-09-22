@@ -64,6 +64,18 @@ package enum ProjectLoadState: Equatable, Sendable {
         guard case .ready(let boundWorkspace, _) = self else { return false }
         return boundWorkspace == workspace.standardizedFileURL
     }
+
+    /// Whether the run documents of `workspace`, including its project toolchain,
+    /// have been read. Unlike `hasReadyInventory`, a project without generated
+    /// configurations counts once inspection bound it.
+    package func hasLoadedDocuments(for workspace: URL) -> Bool {
+        switch self {
+        case .bound(let boundWorkspace), .ready(let boundWorkspace, _):
+            boundWorkspace == workspace.standardizedFileURL
+        case .idle, .loading, .failed:
+            false
+        }
+    }
 }
 
 /// Outcome of asking JDT which classes can be launched, taken before a
