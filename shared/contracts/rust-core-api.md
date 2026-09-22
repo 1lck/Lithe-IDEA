@@ -38,6 +38,11 @@ release response strings with `lithe_core_free_string`.
 
 ## Envelope
 
+The typed `lithe_core::ai` API provides credential-free commit request planning,
+configuration parsing, and response decoding. Its [AI commit contract](ai-commit.md)
+documents the Windows adapter and current macOS migration boundary. It does not
+add a JSON command or change the C ABI.
+
 Every request has this shape:
 
 ```json

@@ -44,6 +44,7 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-store = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-window-state = "2"
+tokio = { version = "1", features = ["sync", "macros", "time"] }
 url = "2"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
