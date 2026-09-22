@@ -38,6 +38,20 @@ export function getTerminalKeyAction(
     if (key === "v") return { type: "paste" };
   }
 
+  // Windows terminals conventionally use Ctrl+V for clipboard paste. Handle
+  // it before the PTY sees the control character, which would otherwise be
+  // rendered as the literal `^V` by cmd and similar shells.
+  if (
+    platform !== "macos" &&
+    event.ctrlKey &&
+    !event.shiftKey &&
+    !event.altKey &&
+    !event.metaKey &&
+    event.key.toLowerCase() === "v"
+  ) {
+    return { type: "paste" };
+  }
+
   if (
     event.ctrlKey &&
     !event.metaKey &&
