@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "provider": {
+    "id": "fixture-provider", "name": "Example", "endpoint": "https://api.example.com/v1",
+    "model": "example-model", "apiProtocol": "responses", "authentication": "bearer", "source": "local",
+    "requiresApiKey": true, "allowsInsecureHttp": false
+  },
+  "options": {
+    "language": "simplifiedChinese", "format": "conventional", "customInstructions": "",
+    "includeBody": false, "subjectMaximumLength": 72, "maximumDiffCharacters": 32000, "reasoningEffort": "low"
+  },
+  "files": [
+    { "path": "src/editor.ts", "changeKind": "modified", "diff": "-const indicator = false;\n+const indicator = true;" },
+    { "path": "src/editor.css", "changeKind": "modified", "diff": "+.indicator { display: block; }" }
+  ],
+  "responses": [
+    { "protocol": "responses", "body": { "output": [{ "type": "message", "content": [{ "type": "output_text", "text": "feat(editor): 添加指示器" }] }] } },
+    { "protocol": "chatCompletions", "body": { "choices": [{ "message": { "content": "feat(editor): 添加指示器" } }] } },
+    { "protocol": "anthropicMessages", "body": { "content": [{ "type": "text", "text": "feat(editor): 添加指示器" }] } }
+  ],
+  "expectedMessage": "feat(editor): 添加指示器"
+}
