@@ -1,4 +1,6 @@
 export type SettingsTab =
+  | "run"
+  | "project"
   | "general"
   | "editor"
   | "git"

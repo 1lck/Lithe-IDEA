@@ -354,8 +354,13 @@ extension AppModel {
 
     func prepareProjectRuntimeSettings() async {
         await runtimeFeature.refreshAvailableRuntimes()
-        if workspaceURL != nil {
-            _ = await activateExecutionModule()
+        if let identity = currentWorkspaceIdentity,
+           let run = await activateExecutionModule()?.runFeature,
+           isCurrentWorkspace(identity) {
+            // Seed the form from the saved project toolchain, not the empty value a
+            // Run feature holds while it is still reading this project's documents.
+            _ = await ensureRunProjectReady(run, for: identity)
+            if isCurrentWorkspace(identity) { adoptSavedProjectToolchain(from: run, workspace: identity.url) }
         }
         runtimeFeature.prepare(
             workspaceName: projectName,
@@ -370,39 +375,33 @@ extension AppModel {
         )
     }
 
+    /// `.lithe/run/local.json` owns the project JDK and Maven defaults; the runtime
+    /// settings only mirror them. A layer without saved defaults keeps the current
+    /// settings, which the next save writes into the layer.
+    func adoptSavedProjectToolchain(from run: RunFeatureModel, workspace: URL) {
+        guard !run.isLoadingProject,
+              run.projectLoadState.hasLoadedDocuments(for: workspace),
+              let saved = run.savedProjectToolchain else { return }
+        runtimeFeature.adoptProjectToolchain(saved)
+    }
+
     func persistProjectRuntimeSettings() {
         let settings = runtimeFeature.settings
         if let maven = mavenFeatureIfActive {
-            let mavenJDK = settings.mavenJavaHomePath.isEmpty
-                ? settings.javaHomePath
-                : settings.mavenJavaHomePath
             maven.updateLocalConfiguration(
                 settingsPath: settings.mavenSettingsPath,
                 localRepositoryPath: settings.mavenLocalRepositoryPath,
                 mavenExecutablePath: settings.mavenExecutableOverride,
-                javaHomePath: mavenJDK
+                javaHomePath: settings.mavenJavaHomePath
             )
         }
-        guard let run = runFeatureIfActive,
-              run.configurationStatus == .ready else { return }
-        let configuration = run.selectedConfiguration
-            ?? run.configurations.first { $0.kind.capabilities.contains(.javaRuntime) }
-            ?? run.configurations.first
-        guard let configuration else { return }
-        var options = run.options(for: configuration)
-        let previousToolchain = run.projectToolchain
-        if options.javaHomePath == previousToolchain.javaHomePath { options.javaHomePath = "" }
-        if options.mavenExecutablePath == previousToolchain.mavenExecutablePath {
-            options.mavenExecutablePath = ""
-        }
-        if options.mavenJavaHomePath == previousToolchain.mavenJavaHomePath {
-            options.mavenJavaHomePath = ""
-        }
-        _ = run.saveEditorChanges(
-            options,
-            toolchain: runtimeFeature.projectToolchainSelection,
-            for: configuration,
-            scope: .local
-        )
+        // Closing Settings persists without an edit. Until the Run feature has read
+        // this project's documents, its toolchain is unknown, and saving would
+        // overwrite the project defaults with whatever the form was seeded from.
+        guard let workspaceURL,
+              let run = runFeatureIfActive,
+              !run.isLoadingProject,
+              run.projectLoadState.hasLoadedDocuments(for: workspaceURL) else { return }
+        _ = run.saveProjectToolchain(runtimeFeature.projectToolchainSelection)
     }
 }

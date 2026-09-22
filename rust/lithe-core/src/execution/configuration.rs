@@ -25,6 +25,9 @@ const SIDECAR_VERSION: u32 = 1;
 /// Request to validate the layered configuration documents for a workspace.
 pub struct InspectRequest {
     pub root: String,
+    /// Settings-only reads may skip source hashing; omitted preserves full inspection.
+    #[serde(default)]
+    pub check_fingerprint: Option<bool>,
     /// Host-owned local layer. When present, Core validates it instead of `.lithe/run/local.json`.
     #[serde(default)]
     pub local_document: Option<Value>,
@@ -421,9 +424,11 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
         validate_sidecar_version(document.version)?;
     }
     let mut diagnostics = Vec::new();
+    let local = local_layer_document(&root, request.local_document.clone())?;
     if let Some(metadata) = generated
         .as_ref()
         .and_then(|document| document.generator.as_ref())
+        .filter(|_| request.check_fingerprint != Some(false))
     {
         let current_inputs = project_inputs(&root)?;
         if metadata.fingerprint != fingerprint_from_inputs(&current_inputs) {
@@ -445,6 +450,7 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
         "generated": generated,
         "toolchainRequirements": requirements,
         "localToolchains": local_toolchains,
+        "toolchain": local.get("toolchain"),
         "diagnostics": diagnostics,
         "paths": { "generated": ".lithe/run/generated.json", "configurations": ".lithe/run/configurations.json", "local": ".lithe/run/local.json" }
     }))

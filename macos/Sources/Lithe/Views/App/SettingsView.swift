@@ -139,7 +139,7 @@ struct SettingsView: View {
                 Image(systemName: category.icon)
                     .font(.system(size: 12.5, weight: .medium))
                     .frame(width: 18)
-                Text(LocalizedStringKey(category.rawValue))
+                Text(LocalizedStringKey(category.title))
                     .font(.system(size: 12.5, weight: .regular))
                 Spacer(minLength: 8)
             }
@@ -176,6 +176,8 @@ struct SettingsView: View {
             ["Keymap", "Keyboard shortcuts", "Shortcuts", "Actions"]
         case .project:
             ["Project", "Java SDK", "JDK", "Project JDK", "Maven", "Maven Home", "Maven Wrapper", "Maven JDK"]
+        case .run:
+            ["Run configurations", "Program arguments", "VM options", "Environment variables", "Working directory", "Services"]
         case .terminal:
             ["Terminal", "Shell", "Default shell"]
         case .lsp:
@@ -215,6 +217,9 @@ struct SettingsView: View {
         } else if viewState.selection == .lsp {
             LSPControlCenterView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if viewState.selection == .run {
+            RunConfigurationSettingsView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if viewState.selection == .project {
             ProjectRuntimeSettingsView(feature: model.runtimeFeature)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -227,7 +232,7 @@ struct SettingsView: View {
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(LocalizedStringKey(viewState.selection.rawValue))
+                    Text(LocalizedStringKey(viewState.selection.title))
                         .font(.system(size: 22, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
                         .padding(.bottom, 8)
@@ -239,6 +244,7 @@ struct SettingsView: View {
                     case .terminal: terminalSettings
                     case .lsp: EmptyView()
                     case .project: EmptyView()
+                    case .run: EmptyView()
                     case .ai: aiSettings
                     case .git:
                         VStack(alignment: .leading, spacing: 14) {

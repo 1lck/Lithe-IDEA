@@ -15,6 +15,12 @@ interface ModalState {
   projectPickerMode: ProjectPickerMode;
   isDatabaseConnectionVisible: boolean;
   settingsInitialTab: SettingsTab | null;
+  /**
+   * Increments with every request for a specific tab, so an open dialog moves
+   * there again even when the same tab was requested before and the user has
+   * since navigated away.
+   */
+  settingsTabRequest: number;
   isReferencesPopoverVisible: boolean;
 }
 
@@ -50,6 +56,7 @@ export const createModalSlice: StateCreator<ModalSlice, [], [], ModalSlice> = (s
   projectPickerMode: "picker",
   isDatabaseConnectionVisible: false,
   settingsInitialTab: null,
+  settingsTabRequest: 0,
   isReferencesPopoverVisible: false,
 
   // Actions
@@ -260,7 +267,8 @@ export const createModalSlice: StateCreator<ModalSlice, [], [], ModalSlice> = (s
     }
   },
 
-  setSettingsInitialTab: (tab: SettingsTab) => set({ settingsInitialTab: tab }),
+  setSettingsInitialTab: (tab: SettingsTab) =>
+    set({ settingsInitialTab: tab, settingsTabRequest: get().settingsTabRequest + 1 }),
 
   openSettingsDialog: (tab?: SettingsTab) =>
     set({
@@ -272,6 +280,7 @@ export const createModalSlice: StateCreator<ModalSlice, [], [], ModalSlice> = (s
       isProjectPickerVisible: false,
       isDatabaseConnectionVisible: false,
       settingsInitialTab: tab ?? null,
+      settingsTabRequest: tab ? get().settingsTabRequest + 1 : get().settingsTabRequest,
     }),
 
   setIsReferencesPopoverVisible: (v: boolean) => set({ isReferencesPopoverVisible: v }),

@@ -42,7 +42,14 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             return ProjectRunConfigurationInspection(
                 status: payload.status == "ready" ? .ready : .missing,
                 diagnostics: diagnostics(from: payload.diagnostics),
-                recoveryAction: payload.status == "ready" ? .none : .regenerate
+                recoveryAction: payload.status == "ready" ? .none : .regenerate,
+                projectToolchain: payload.toolchain.map { toolchain in
+                    ProjectToolchainSelection(
+                        javaHomePath: toolchain.java?.homePath ?? "",
+                        mavenExecutablePath: toolchain.maven?.executablePath ?? "",
+                        mavenJavaHomePath: toolchain.maven?.javaHomePath ?? ""
+                    )
+                }
             )
         case .failure(let error):
             return ProjectRunConfigurationInspection(
@@ -224,6 +231,28 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             options: options
         )
         try writeMutation(mutation, to: url, root: root)
+    }
+
+    func saveProjectToolchain(_ toolchain: ProjectToolchainSelection, at projectURL: URL) throws {
+        let root = projectURL.standardizedFileURL
+        let payload = try core.updateRunConfigurationOptions(
+            at: root,
+            configurationID: "",
+            scope: .local,
+            options: RunOptions(),
+            toolchain: toolchain
+        ).get()
+        guard let data = payload.document.data(using: .utf8) else {
+            throw MacRunConfigurationStoreError.writeFailed("Invalid UTF-8 project environment data.")
+        }
+        // Settings can be saved before generation creates the normal ignore file.
+        // Protect machine paths before making the local document visible to Git.
+        try ensureLocalRunIgnored(at: root)
+        try writeMutation(
+            RunConfigurationDocumentMutation(configurationID: nil, document: data),
+            to: root.appendingPathComponent(".lithe/run/local.json"),
+            root: root
+        )
     }
 
     func saveEditorChanges(
@@ -458,6 +487,50 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         try storage.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let data = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .prettyPrinted])
         try atomicWrite(data, to: url, root: root)
+    }
+
+    private func ensureLocalRunIgnored(at root: URL) throws {
+        let url = root.appendingPathComponent(".lithe/.gitignore")
+        try validateWriteTarget(url, root: root)
+        var contents = ""
+        if storage.fileExists(at: url) {
+            let data = try storage.readData(from: url, options: [])
+            guard let text = String(data: data, encoding: .utf8) else {
+                throw MacRunConfigurationStoreError.writeFailed("The Lithe ignore file must be UTF-8.")
+            }
+            contents = text
+        }
+        // Preserve every existing line. Append only rules that are absent or
+        // overridden by a later user negation, so a file written by generation
+        // or already repaired stays byte-for-byte unchanged on repeated saves.
+        let missing = Self.missingLocalRunIgnoreRules(in: contents)
+        if missing.isEmpty { return }
+        if !contents.isEmpty && !contents.hasSuffix("\n") { contents += "\n" }
+        contents += missing.map { $0 + "\n" }.joined()
+        try storage.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try atomicWrite(Data(contents.utf8), to: url, root: root)
+    }
+
+    /// Rules keeping machine-local run documents and build output out of Git.
+    /// Each entry lists the spellings that satisfy it; the first one is appended.
+    /// Generation writes the unanchored spellings, so both must count as present.
+    private static let localRunIgnoreRules: [[String]] = [
+        ["/run/local.json", "run/local.json"],
+        ["/run/classes/", "run/classes/"],
+        ["**/*.tmp"]
+    ]
+
+    static func missingLocalRunIgnoreRules(in contents: String) -> [String] {
+        let lines = contents.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        return localRunIgnoreRules.compactMap { spellings in
+            let ignored = lines.lastIndex { spellings.contains($0) }
+            let negated = lines.lastIndex { line in
+                line.hasPrefix("!") && spellings.contains(String(line.dropFirst()))
+            }
+            if let ignored, negated.map({ $0 < ignored }) ?? true { return nil }
+            return spellings[0]
+        }
     }
 
     private func writeMutation(

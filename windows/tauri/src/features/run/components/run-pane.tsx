@@ -9,7 +9,6 @@ import { useUIState } from "@/features/window/stores/ui-state.store";
 import { Button } from "@/ui/button";
 import {
   ArrowClockwiseIcon,
-  GearIcon,
   MinusIcon,
   PlayIcon,
   StopIcon,
@@ -20,7 +19,7 @@ import { Spinner } from "@/ui/spinner";
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
 import { ensureRunProcessListeners } from "../hooks/use-run-process-events";
-import { runOptionsFor, useRunStore } from "../stores/run.store";
+import { useRunStore } from "../stores/run.store";
 import { PRIMARY_SESSION_ID, type RunConfiguration } from "../types/run.types";
 import {
   configurationsForExecution,
@@ -29,7 +28,6 @@ import {
   workspaceRelativePath,
 } from "../utils/run-configuration";
 import { RunServicesMenu } from "./run-services-menu";
-import { RunConfigurationEditor } from "./run-configuration-editor";
 import { RunConfigurationListSplit } from "./run-configuration-list-split";
 import { JavaCupIcon, RunIcon } from "./run-icon";
 import { RunOutputText } from "./run-output-text";
@@ -90,18 +88,11 @@ export default function RunPane() {
   const primaryExitCode = useRunStore((state) => state.primaryExitCode);
   const recoveryAction = useRunStore((state) => state.recoveryAction);
   const invalidMessage = useRunStore((state) => state.invalidMessage);
-  const saveError = useRunStore((state) => state.saveError);
   const generationNotice = useRunStore((state) => state.generationNotice);
   const javaLaunchDecisions = useRunStore((state) => state.javaLaunchDecisions);
-  const discoveredJava = useRunStore((state) => state.discoveredJava);
-  const discoveredMaven = useRunStore((state) => state.discoveredMaven);
-  const discoveredRuntimes = useRunStore((state) => state.discoveredRuntimes);
-  const globalToolchain = useRunStore((state) => state.globalToolchain);
   const actions = useRunStore((state) => state.actions);
   const selectedServiceIDsByWorkspace = useRunPreferencesStore((state) => state.selectedServiceIDsByWorkspace);
   const setSelectedServiceIDs = useRunPreferencesStore((state) => state.actions.setSelectedServiceIDs);
-  const editingId = useRunStore((state) => state.editingConfigurationId);
-  const setEditingId = actions.editConfiguration;
   const [selectedServiceIDs, setSelectedServiceIDsLocal] = useState<string[]>([]);
   const [otherConfigurationsCollapsed, setOtherConfigurationsCollapsed] = useState(true);
   const [infrastructureCollapsed, setInfrastructureCollapsed] = useState(true);
@@ -142,7 +133,6 @@ export default function RunPane() {
     javaLaunchDecisions[decisionSessionId] ?? Object.values(javaLaunchDecisions)[0];
   const projectName =
     rootFolderPath?.split(/[\\/]/).filter(Boolean).pop() ?? t("run.title");
-  const editingConfiguration = configurations.find((configuration) => configuration.id === editingId);
   const currentFile = activeFilePath && rootFolderPath
     ? workspaceRelativePath(rootFolderPath, activeFilePath)
     : undefined;
@@ -253,8 +243,8 @@ export default function RunPane() {
             </div>
           </div>
           {blockingDiagnostic ? (
-            <Button size="xs" onClick={() => selectedConfiguration && setEditingId(selectedConfiguration.id)}>
-              {t("run.editService")}
+            <Button size="xs" onClick={() => openSettings("run")}>
+              {t("settings.run.title")}
             </Button>
           ) : (
             <Button size="xs" onClick={() => rootFolderPath && void actions.generate(rootFolderPath)}>
@@ -309,7 +299,6 @@ export default function RunPane() {
                   sessions={sessions}
                   onSelect={actions.selectConfiguration}
                   onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
-                  onEdit={setEditingId}
                 />
                 {infrastructure.length > 0 ? <button
                   type="button"
@@ -328,7 +317,6 @@ export default function RunPane() {
                     sessions={sessions}
                     onSelect={actions.selectConfiguration}
                     onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
-                    onEdit={setEditingId}
                   />
                 ) : null}
                 {otherConfigurations.length > 0 ? <button
@@ -349,7 +337,6 @@ export default function RunPane() {
                       sessions={sessions}
                       onSelect={actions.selectConfiguration}
                       onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
-                      onEdit={setEditingId}
                     />
                     <ConfigurationSection
                       title={t("run.tasks")}
@@ -358,7 +345,6 @@ export default function RunPane() {
                       sessions={sessions}
                       onSelect={actions.selectConfiguration}
                       onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
-                      onEdit={setEditingId}
                     />
                   </>
                 ) : null}
@@ -407,20 +393,6 @@ export default function RunPane() {
         />
       )}
 
-      {editingConfiguration ? (
-        <RunConfigurationEditor
-          configuration={editingConfiguration}
-          options={runOptionsFor(editingConfiguration)}
-          saveError={saveError}
-          discoveredJava={discoveredJava}
-          discoveredMaven={discoveredMaven}
-          discoveredRuntimes={discoveredRuntimes}
-          globalToolchain={globalToolchain}
-          onClose={() => setEditingId(null)}
-          onSave={(options, toolchain, scope) =>
-            actions.saveEditorChanges(editingConfiguration, options, toolchain, scope)}
-        />
-      ) : null}
     </div>
   );
 }
@@ -466,7 +438,6 @@ function ConfigurationSection({
   sessions,
   onSelect,
   onRun,
-  onEdit,
 }: {
   title: string;
   configurations: RunConfiguration[];
@@ -474,7 +445,6 @@ function ConfigurationSection({
   sessions: Array<{ id: string; isRunning: boolean }>;
   onSelect: (id: string) => void;
   onRun: (configuration: RunConfiguration) => void;
-  onEdit: (id: string) => void;
 }) {
   const { t } = useTranslation();
   if (configurations.length === 0) return null;
@@ -499,15 +469,6 @@ function ConfigurationSection({
               <JavaCupIcon className="shrink-0 text-subtle-foreground" />
               <span className="min-w-0 truncate">{configuration.name}</span>
             </button>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="opacity-0 group-hover:opacity-100"
-              onClick={() => onEdit(configuration.id)}
-              aria-label={t("ui.edit")}
-            >
-              <GearIcon />
-            </Button>
             <Button
               variant="ghost"
               size="icon-xs"

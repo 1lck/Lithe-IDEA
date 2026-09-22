@@ -52,6 +52,11 @@ final class RuntimeSettingsFeatureModel: ObservableObject {
         service.toolGuidance(command)
     }
 
+    func adoptProjectToolchain(_ toolchain: ProjectToolchainSelection) {
+        service.adoptProjectToolchain(toolchain)
+        settings = service.settings
+    }
+
     func prepare(
         workspaceName: String,
         workspaceURL: URL?,

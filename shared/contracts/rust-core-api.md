@@ -1513,6 +1513,13 @@ the response preserves the path text, uses one-based line and column values,
 and normalizes severity to `error` or `warning`. Duplicate issue lines are
 removed deterministically.
 
+`runConfig.inspect` also returns the local document-level `toolchain`, including
+when no generated configuration exists (`status: "missing"`). Settings and
+toolchain-only callers may send `checkFingerprint: false` to validate documents
+without traversing or hashing project sources. Omission preserves full inspection.
+Project environment saves use the existing local `runConfig.updateOptions`
+toolchain payload with an empty `configurationId`; service overrides are untouched.
+
 The `runConfig.*` commands implement the versioned project protocol described
 by the JSON Schemas in this directory. `runConfig.inspect` accepts `root` and
 never writes files. `runConfig.generate` accepts `root`, relative Java `paths`,

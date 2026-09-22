@@ -54,3 +54,25 @@ describe("project picker modal", () => {
     });
   });
 });
+
+describe("settings dialog tab requests", () => {
+  test("repeating a tab request while the dialog is open is observable", () => {
+    // Settings links such as "Configure project JDK and Maven" may request the
+    // same tab again after the user navigated away inside the open dialog.
+    const store = createStore<ModalSlice>()(createModalSlice);
+    store.getState().openSettingsDialog("project");
+    const first = store.getState().settingsTabRequest;
+    store.getState().openSettingsDialog("project");
+    expect(store.getState().settingsInitialTab).toBe("project");
+    expect(store.getState().settingsTabRequest).toBe(first + 1);
+  });
+
+  test("opening Settings without a tab keeps the current request", () => {
+    const store = createStore<ModalSlice>()(createModalSlice);
+    store.getState().openSettingsDialog("run");
+    const request = store.getState().settingsTabRequest;
+    store.getState().openSettingsDialog();
+    expect(store.getState().settingsInitialTab).toBeNull();
+    expect(store.getState().settingsTabRequest).toBe(request);
+  });
+});

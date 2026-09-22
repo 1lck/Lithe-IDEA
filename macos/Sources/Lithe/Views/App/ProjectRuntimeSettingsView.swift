@@ -5,6 +5,10 @@ struct ProjectRuntimeSettingsView: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: RuntimeSettingsFeatureModel
     @State private var selectedSubprojectID = ProjectRuntimeInventory.projectDefaultsID
+    /// Editing waits until the form is seeded from this project's saved defaults.
+    /// An earlier edit could not reach `.lithe/run/local.json`, and adopting the
+    /// saved defaults afterwards would silently revert it.
+    @State private var isPrepared = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,6 +22,7 @@ struct ProjectRuntimeSettingsView: View {
                     Rectangle().fill(LitheTheme.divider).frame(width: 1)
                     detail
                 }
+                .disabled(!isPrepared)
             }
         }
         .background(LitheTheme.settingsSurface)
@@ -26,15 +31,19 @@ struct ProjectRuntimeSettingsView: View {
             if feature.subprojects.contains(where: { $0.id == selectedSubprojectID }) == false {
                 selectedSubprojectID = ProjectRuntimeInventory.projectDefaultsID
             }
+            isPrepared = true
         }
         .onDisappear {
+            // Before preparation the form holds unmerged values; persisting them
+            // would overwrite the saved project and Maven settings.
+            guard isPrepared else { return }
             model.persistProjectRuntimeSettings()
         }
     }
 
     private var header: some View {
         HStack {
-            Text("Project")
+            Text("Project · JDK & Maven")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
             Spacer()
@@ -42,6 +51,12 @@ struct ProjectRuntimeSettingsView: View {
                 ProgressView()
                     .controlSize(.small)
                 Text("Discovering…")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            } else if !isPrepared && model.workspaceURL != nil {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Loading project environment…")
                     .font(.system(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
@@ -232,6 +247,11 @@ struct ProjectRuntimeSettingsView: View {
             Text("Project runtime settings are saved locally for this project.")
                 .font(LitheTheme.smallFont)
                 .foregroundStyle(LitheTheme.secondaryText)
+            if let error = model.runFeatureIfActive?.configurationSaveError {
+                Text(error)
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.error)
+            }
         }
     }
 
@@ -296,7 +316,9 @@ struct ProjectRuntimeSettingsView: View {
 
     private func effectiveJDKRow(path: String) -> some View {
         let resolved = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        let runtime = feature.javaRuntimes.first { $0.homePath == resolved } ?? feature.activeJavaRuntime()
+        let runtime = resolved.isEmpty
+            ? feature.activeJavaRuntime()
+            : feature.javaRuntimes.first { $0.homePath == resolved }
         return labeledValue(
             "Effective JDK",
             runtime.map { "\($0.displayName) — \($0.homePath)" }

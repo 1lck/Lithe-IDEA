@@ -3,25 +3,24 @@ import UniformTypeIdentifiers
 import SwiftUI
 
 struct RunConfigurationEditorView: View {
-    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: RunFeatureModel
     let configuration: RunConfiguration
+    let onClose: () -> Void
     @State private var options: RunOptions
-    @State private var projectToolchain: ProjectToolchainSelection
     @State private var environmentText: String
     @State private var saveScope: RunConfigurationSaveScope = .local
     @State private var saveError: String?
     @State private var activePathPicker: PathPicker?
     @State private var isPathPickerPresented = false
 
-    init(feature: RunFeatureModel, configuration: RunConfiguration) {
+    init(feature: RunFeatureModel, configuration: RunConfiguration, onClose: @escaping () -> Void) {
         self.feature = feature
         self.configuration = configuration
+        self.onClose = onClose
         let initialOptions = feature.options(for: configuration)
         let projectToolchain = feature.projectToolchain
         _options = State(initialValue: Self.configurationOverrides(initialOptions, defaults: projectToolchain))
-        _projectToolchain = State(initialValue: projectToolchain)
         _environmentText = State(initialValue: Self.environmentText(from: initialOptions.environment))
     }
 
@@ -52,13 +51,13 @@ struct RunConfigurationEditorView: View {
             HStack {
                 Button("Reset") {
                     options = RunOptions()
-                    projectToolchain = ProjectToolchainSelection()
                     environmentText = ""
                 }
                 .buttonStyle(.borderless)
                 .lithePointer()
                 .foregroundStyle(LitheTheme.secondaryText)
                 Spacer()
+                Button("Cancel", action: onClose)
                 if let saveError {
                     Text(saveError)
                         .font(.system(size: 10.5))
@@ -66,28 +65,30 @@ struct RunConfigurationEditorView: View {
                         .lineLimit(2)
                         .frame(maxWidth: 250, alignment: .trailing)
                 }
-                Button("Done") {
+                Button("Save") {
                     options.environment = Self.environment(from: environmentText)
                     guard let scopedOptions = scopedOptionsForSave() else { return }
+                    // The runtime settings mirror the project defaults and are
+                    // their source until `.lithe/run/local.json` saves them.
                     if feature.saveEditorChanges(
                         scopedOptions,
-                        toolchain: projectToolchain,
+                        toolchain: model.runtimeFeature.projectToolchainSelection,
                         for: configuration,
                         scope: saveScope
                     ) {
-                        dismiss()
+                        onClose()
                     } else {
                         saveError = feature.configurationSaveError
                     }
                 }
-                    .keyboardShortcut(.defaultAction)
+                    .keyboardShortcut("s", modifiers: .command)
                     .lithePointer()
             }
             .padding(.horizontal, 14)
             .frame(height: 48)
             .background(LitheTheme.toolHeader)
         }
-        .frame(width: 520, height: 470)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(LitheTheme.window)
         .fileImporter(
             isPresented: $isPathPickerPresented,
@@ -135,7 +136,7 @@ struct RunConfigurationEditorView: View {
                     .lineLimit(1)
             }
             Spacer()
-            Button { dismiss() } label: {
+            Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(.system(size: 11, weight: .semibold))
             }
@@ -174,6 +175,9 @@ struct RunConfigurationEditorView: View {
 
     private var runtimeSection: some View {
         section(title: "Configuration overrides") {
+            Text("These overrides affect only this run configuration. Clear a path to inherit the project environment.")
+                .font(.system(size: 11))
+                .foregroundStyle(LitheTheme.secondaryText)
             if effectiveCapabilities.contains(.javaRuntime) {
                 pathRow(
                     title: "JDK Home",
@@ -207,30 +211,16 @@ struct RunConfigurationEditorView: View {
     }
 
     private var projectToolchainSection: some View {
-        section(title: "Project defaults (This Mac)") {
-            if effectiveCapabilities.contains(.javaRuntime) {
-                pathRow(
-                    title: "JDK Home",
-                    placeholder: "Use detected JDK",
-                    text: projectToolchainBinding(\.javaHomePath),
-                    chooseDirectory: { chooseProjectToolchainDirectory(for: \.javaHomePath) }
-                )
+        section(title: "Project environment") {
+            Text("Run configurations inherit the project JDK and Maven unless overridden below.")
+                .font(.system(size: 11))
+                .foregroundStyle(LitheTheme.secondaryText)
+            Button("Configure project JDK and Maven…") {
+                onClose()
+                model.showSettings(category: .project)
             }
-            if configuration.kind.isMavenBacked {
-                pathRow(
-                    title: "Maven home or executable",
-                    placeholder: "Use mvnw or detected Maven",
-                    text: projectToolchainBinding(\.mavenExecutablePath),
-                    chooseDirectory: { chooseProjectToolchainFileOrDirectory(for: \.mavenExecutablePath) },
-                    chooseHelp: "Choose Maven executable or home"
-                )
-                pathRow(
-                    title: "Maven JDK Home",
-                    placeholder: "Use project JDK",
-                    text: projectToolchainBinding(\.mavenJavaHomePath),
-                    chooseDirectory: { chooseProjectToolchainDirectory(for: \.mavenJavaHomePath) }
-                )
-            }
+            .buttonStyle(.borderless)
+            .lithePointer()
         }
     }
 
@@ -372,14 +362,6 @@ struct RunConfigurationEditorView: View {
         )
     }
 
-    private func projectToolchainBinding(
-        _ keyPath: WritableKeyPath<ProjectToolchainSelection, String>
-    ) -> Binding<String> {
-        Binding(
-            get: { projectToolchain[keyPath: keyPath] },
-            set: { projectToolchain[keyPath: keyPath] = $0 }
-        )
-    }
 
     private func profileBinding(for profile: MavenProfile) -> Binding<Bool> {
         Binding(
@@ -402,17 +384,6 @@ struct RunConfigurationEditorView: View {
         presentPathPicker(.fileOrDirectory(keyPath))
     }
 
-    private func chooseProjectToolchainDirectory(
-        for keyPath: WritableKeyPath<ProjectToolchainSelection, String>
-    ) {
-        presentPathPicker(.projectToolchainDirectory(keyPath))
-    }
-
-    private func chooseProjectToolchainFileOrDirectory(
-        for keyPath: WritableKeyPath<ProjectToolchainSelection, String>
-    ) {
-        presentPathPicker(.projectToolchainFileOrDirectory(keyPath))
-    }
 
     private func presentPathPicker(_ picker: PathPicker) {
         activePathPicker = picker
@@ -424,15 +395,15 @@ struct RunConfigurationEditorView: View {
         switch result {
         case .success(let url):
             guard let activePathPicker else { return }
-            if saveScope == .project && !activePathPicker.isProjectToolchain {
+            if saveScope == .project {
                 guard let projectURL = model.workspaceURL,
                       let path = projectRelativePath(url.path, root: projectURL) else {
                     saveError = String(localized: "Project paths must stay inside the current project.")
                     return
                 }
-                activePathPicker.assign(path, options: &options, projectToolchain: &projectToolchain)
+                activePathPicker.assign(path, options: &options)
             } else {
-                activePathPicker.assign(url.path, options: &options, projectToolchain: &projectToolchain)
+                activePathPicker.assign(url.path, options: &options)
             }
             saveError = nil
         case .failure(let error):
@@ -480,33 +451,21 @@ struct RunConfigurationEditorView: View {
     private enum PathPicker {
         case directory(WritableKeyPath<RunOptions, String>)
         case fileOrDirectory(WritableKeyPath<RunOptions, String>)
-        case projectToolchainDirectory(WritableKeyPath<ProjectToolchainSelection, String>)
-        case projectToolchainFileOrDirectory(WritableKeyPath<ProjectToolchainSelection, String>)
 
         var allowedContentTypes: [UTType] {
             switch self {
-            case .directory, .projectToolchainDirectory: [.folder]
-            case .fileOrDirectory, .projectToolchainFileOrDirectory: [.item]
-            }
-        }
-
-        var isProjectToolchain: Bool {
-            switch self {
-            case .directory, .fileOrDirectory: false
-            case .projectToolchainDirectory, .projectToolchainFileOrDirectory: true
+            case .directory: [.folder]
+            case .fileOrDirectory: [.item]
             }
         }
 
         func assign(
             _ path: String,
-            options: inout RunOptions,
-            projectToolchain: inout ProjectToolchainSelection
+            options: inout RunOptions
         ) {
             switch self {
             case .directory(let keyPath), .fileOrDirectory(let keyPath):
                 options[keyPath: keyPath] = path
-            case .projectToolchainDirectory(let keyPath), .projectToolchainFileOrDirectory(let keyPath):
-                projectToolchain[keyPath: keyPath] = path
             }
         }
     }
