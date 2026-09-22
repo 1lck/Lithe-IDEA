@@ -52,16 +52,25 @@ package final class MavenFeatureModel: ObservableObject {
     /// Projects artifacts from Maven's already-resolved dependency tree into
     /// paths that the generic dependency Provider can display. It never starts
     /// Maven or scans the local repository.
-    package func resolvedDependencyArtifactPaths(modulePath: String) -> [URL] {
-        guard let repository = service.localRepositoryPath,
-              case .ready(let dependencies) = service.dependencyState(for: modulePath) else {
+    package func resolvedDependencyArtifactPaths(
+        modulePath: String,
+        defaultRepositoryURL: URL? = nil
+    ) -> [URL] {
+        guard case .ready(let dependencies) = service.dependencyState(for: modulePath) else {
             return []
         }
-        let expanded = (repository as NSString).expandingTildeInPath
-        let repositoryURL = URL(
-            fileURLWithPath: expanded,
-            relativeTo: service.project?.rootURL
-        ).standardizedFileURL
+        let repositoryURL: URL
+        if let repository = service.localRepositoryPath {
+            let expanded = (repository as NSString).expandingTildeInPath
+            repositoryURL = URL(
+                fileURLWithPath: expanded,
+                relativeTo: service.project?.rootURL
+            ).standardizedFileURL
+        } else if let defaultRepositoryURL {
+            repositoryURL = defaultRepositoryURL.standardizedFileURL
+        } else {
+            return []
+        }
         var paths: Set<String> = []
         for dependency in dependencies {
             Self.collectResolvedArtifacts(
@@ -234,6 +243,12 @@ package final class RunFeatureModel: ObservableObject {
     }
     package var sourceSearchRoots: [URL] { service.sourceSearchRoots }
     package var dependencyServices: [DependencyServiceDescriptor] { service.dependencyServices }
+    package func registerDependencySource(languageID: String, displayName: String) {
+        service.registerDependencySource(languageID: languageID, displayName: displayName)
+    }
+    package func unregisterDependencySource(languageID: String) {
+        service.unregisterDependencySource(languageID: languageID)
+    }
     package var dependencyRevision: Int { service.dependencyRevision }
     package var dependencyConfigurationSaveError: String? {
         service.dependencyConfigurationSaveError
@@ -256,8 +271,11 @@ package final class RunFeatureModel: ObservableObject {
     package func restoreDependencyPath(_ path: String, serviceID: String) {
         service.restoreDependencyPath(path, serviceID: serviceID)
     }
-    package func markDependencyFilesChanged(_ urls: [URL]) {
-        service.markDependencyFilesChanged(urls)
+    package func markDependencyFilesChanged(_ changes: [WorkspaceFileChange]) {
+        service.markDependencyFilesChanged(changes)
+    }
+    package func syncLanguageDependencyPaths(languageID: String) {
+        service.syncLanguageDependencyPaths(languageID: languageID)
     }
     package func isProjectReady(for workspace: URL, snapshotID: UUID?) -> Bool { service.isProjectReady(for: workspace, snapshotID: snapshotID) }
     package func hasReadyInventory(for workspace: URL) -> Bool { service.hasReadyInventory(for: workspace) }

@@ -99,4 +99,19 @@ struct DependencyProviderTests {
 
         #expect(decoded == index)
     }
+
+    @Test
+    func virtualDependencyNodeSurvivesIndexRoundTrip() async throws {
+        let uri = try #require(URL(string: "plugin-source://package/entry"))
+        let context = DependencyResolutionContext(
+            serviceID: "plugin:api",
+            providerID: "plugin",
+            workspaceURL: URL(fileURLWithPath: "/workspace"),
+            virtualDocuments: [.init(title: "entry", uri: uri)]
+        )
+        let graph = try await RunServiceDependencyProvider().resolve(context: context)
+        let index = DependencyIndex(inputSignature: "inputs", graph: graph)
+        let decoded = try JSONDecoder().decode(DependencyIndex.self, from: JSONEncoder().encode(index))
+        #expect(decoded.graph.roots.first?.children[2].children.first?.source == .virtualDocument(uri))
+    }
 }

@@ -29,6 +29,12 @@ extension AppModel {
             cancelJavaLanguageServerPreparation()
         }
         languageToolingFeature.setEnabled(enabled, providerID: providerID)
+        if !enabled {
+            runFeatureIfActive?.unregisterDependencySource(languageID: providerID)
+        } else if let support = services.pluginCatalog.languageSupports[providerID]?.declaration {
+            registerLanguageDependencySourceIfAvailable(support: support)
+        }
+        if providerID == "java", enabled { registerJavaDependencySourceIfAvailable() }
         if providerID == "java", enabled, let workspaceURL {
             prepareJavaLanguageServerForWorkspaceIfNeeded(at: workspaceURL, files: projectFiles)
         }
@@ -144,6 +150,14 @@ extension AppModel {
         _ state: LanguageServerSessionState,
         operationID: UUID?
     ) {
+        switch state {
+        case .ready:
+            registerJavaDependencySourceIfAvailable()
+        case .stopped, .failed:
+            runFeatureIfActive?.unregisterDependencySource(languageID: "java")
+        case .startingProcess, .initializing, .stopping:
+            break
+        }
         let currentWorkspaceURL = workspaceURL
         javaLanguageServerPreparationCoordinator.handleSessionState(
             state,
@@ -179,7 +193,7 @@ extension AppModel {
 
     func handleWorkspaceFileChanges(_ changes: [WorkspaceFileChange]) {
         guard let workspaceURL else { return }
-        runFeatureIfActive?.markDependencyFilesChanged(changes.map(\.fileURL))
+        runFeatureIfActive?.markDependencyFilesChanged(changes)
         let maven = mavenFeatureIfActive
         let forwarded = changes.filter { change in
             if Self.isWorkspaceDependencyMetadata(
@@ -191,7 +205,7 @@ extension AppModel {
             guard maven?.project != nil,
                   change.fileURL.lastPathComponent.lowercased() == "pom.xml" else { return true }
             maven?.markPomChanged(change.fileURL)
-            return false
+            return true
         }
         javaLanguageServerPreparationCoordinator.notifyWorkspaceFileChanges(
             forwarded,

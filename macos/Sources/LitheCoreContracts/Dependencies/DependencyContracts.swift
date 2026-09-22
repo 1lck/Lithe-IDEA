@@ -1,6 +1,6 @@
 import Foundation
 
-/// Project-owned paths that should be visible for one configured run service.
+/// User-owned paths that should be visible for one registered dependency source.
 /// Paths may be workspace-relative or absolute local paths supplied by the user.
 package struct DependencyPathConfiguration: Codable, Equatable, Sendable {
     package static let currentVersion = 1
@@ -63,8 +63,7 @@ package struct DependencyPathConfiguration: Codable, Equatable, Sendable {
     }
 }
 
-/// Workspace JSON keyed by run-configuration ID. Keeping service paths apart
-/// prevents two services that use the same language from sharing exclusions.
+/// Workspace JSON keyed by registered dependency-source ID.
 package struct WorkspaceDependencyConfiguration: Codable, Equatable, Sendable {
     package static let currentVersion = 1
 
@@ -80,8 +79,7 @@ package struct WorkspaceDependencyConfiguration: Codable, Equatable, Sendable {
     }
 }
 
-/// A run service exposed in the dependency sidebar. Provider metadata controls
-/// how paths are supplemented; the sidebar never branches on a language name.
+/// A language source explicitly registered in the dependency sidebar.
 package struct DependencyServiceDescriptor: Identifiable, Equatable, Sendable {
     package let id: String
     package let displayName: String
@@ -116,6 +114,9 @@ package struct DependencyResolutionContext: Equatable, Sendable {
     package let sourceRoots: [URL]
     package let resourceRoots: [URL]
     package let classpath: [URL]
+    package let dependencyRoots: [URL]
+    package let binaryRoots: [URL]
+    package let virtualDocuments: [LanguageDependencyVirtualDocument]
     package let dependencyPaths: DependencyPathConfiguration
 
     package init(
@@ -127,6 +128,9 @@ package struct DependencyResolutionContext: Equatable, Sendable {
         sourceRoots: [URL] = [],
         resourceRoots: [URL] = [],
         classpath: [URL] = [],
+        dependencyRoots: [URL] = [],
+        binaryRoots: [URL] = [],
+        virtualDocuments: [LanguageDependencyVirtualDocument] = [],
         dependencyPaths: DependencyPathConfiguration = .init()
     ) {
         self.serviceID = serviceID
@@ -137,8 +141,54 @@ package struct DependencyResolutionContext: Equatable, Sendable {
         self.sourceRoots = sourceRoots.map { $0.standardizedFileURL }
         self.resourceRoots = resourceRoots.map { $0.standardizedFileURL }
         self.classpath = classpath.map { $0.standardizedFileURL }
+        self.dependencyRoots = dependencyRoots.map { $0.standardizedFileURL }
+        self.binaryRoots = binaryRoots.map { $0.standardizedFileURL }
+        self.virtualDocuments = virtualDocuments
         self.dependencyPaths = dependencyPaths
     }
+}
+
+/// Paths already resolved by a language plugin or its upstream project model.
+/// Producing this snapshot must not start a discovery scan from the sidebar.
+public struct LanguageDependencySnapshot: Codable, Equatable, Sendable {
+    public let sourceRoots: [URL]
+    public let binaryRoots: [URL]
+    public let dependencyRoots: [URL]
+    public let virtualDocuments: [LanguageDependencyVirtualDocument]
+
+    public init(
+        sourceRoots: [URL] = [],
+        binaryRoots: [URL] = [],
+        dependencyRoots: [URL] = [],
+        virtualDocuments: [LanguageDependencyVirtualDocument] = []
+    ) {
+        self.sourceRoots = sourceRoots
+        self.binaryRoots = binaryRoots
+        self.dependencyRoots = dependencyRoots
+        self.virtualDocuments = virtualDocuments
+    }
+}
+
+public struct LanguageDependencyVirtualDocument: Codable, Equatable, Sendable {
+    public let title: String
+    public let uri: URL
+
+    public init(title: String, uri: URL) {
+        self.title = title
+        self.uri = uri
+    }
+}
+
+/// Optional capability of an active language plugin. The host asks for its
+/// current snapshot only; plugin activation and discovery are separate work.
+@MainActor
+public protocol LanguageDependencyProviding: AnyObject {
+    func dependencySnapshot(workspaceURL: URL, serviceID: String) -> LanguageDependencySnapshot?
+    func setDependencySnapshotChangeHandler(_ handler: (@MainActor () -> Void)?)
+}
+
+public extension LanguageDependencyProviding {
+    func setDependencySnapshotChangeHandler(_ handler: (@MainActor () -> Void)?) {}
 }
 
 package enum DependencyNodeKind: String, Codable, Equatable, Sendable {
@@ -152,6 +202,7 @@ package enum DependencyNodeKind: String, Codable, Equatable, Sendable {
 package enum DependencySource: Codable, Equatable, Sendable {
     case directory(URL)
     case archive(URL)
+    case virtualDocument(URL)
     case generated
     case unavailable
 
@@ -163,6 +214,7 @@ package enum DependencySource: Codable, Equatable, Sendable {
     private enum Kind: String, Codable {
         case directory
         case archive
+        case virtualDocument
         case generated
         case unavailable
     }
@@ -175,6 +227,9 @@ package enum DependencySource: Codable, Equatable, Sendable {
             try container.encode(url, forKey: .url)
         case .archive(let url):
             try container.encode(Kind.archive, forKey: .kind)
+            try container.encode(url, forKey: .url)
+        case .virtualDocument(let url):
+            try container.encode(Kind.virtualDocument, forKey: .kind)
             try container.encode(url, forKey: .url)
         case .generated:
             try container.encode(Kind.generated, forKey: .kind)
@@ -190,6 +245,8 @@ package enum DependencySource: Codable, Equatable, Sendable {
             self = .directory(try container.decode(URL.self, forKey: .url))
         case .archive:
             self = .archive(try container.decode(URL.self, forKey: .url))
+        case .virtualDocument:
+            self = .virtualDocument(try container.decode(URL.self, forKey: .url))
         case .generated:
             self = .generated
         case .unavailable:
@@ -247,6 +304,7 @@ package struct DependencyGraph: Codable, Equatable, Sendable {
     private static func identity(for node: DependencyNode) -> String {
         switch node.source {
         case .directory(let url), .archive(let url): return url.standardizedFileURL.path
+        case .virtualDocument(let url): return url.absoluteString
         case .generated: return "generated:\(node.id)"
         case .unavailable: return "unavailable:\(node.id)"
         }
@@ -258,20 +316,23 @@ package struct DependencyGraph: Codable, Equatable, Sendable {
 /// changes. Providers can therefore reuse this graph without rediscovering the
 /// workspace on every IDE launch.
 package struct DependencyIndex: Codable, Equatable, Sendable {
-    package static let currentVersion = 1
+    package static let currentVersion = 2
 
     package let version: Int
     package let inputSignature: String
     package let graph: DependencyGraph
+    package let languageSnapshot: LanguageDependencySnapshot?
 
     package init(
         version: Int = currentVersion,
         inputSignature: String,
-        graph: DependencyGraph
+        graph: DependencyGraph,
+        languageSnapshot: LanguageDependencySnapshot? = nil
     ) {
         self.version = version
         self.inputSignature = inputSignature
         self.graph = graph
+        self.languageSnapshot = languageSnapshot
     }
 }
 

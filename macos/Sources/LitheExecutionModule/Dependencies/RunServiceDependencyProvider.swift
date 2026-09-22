@@ -1,9 +1,8 @@
 import Foundation
 import LitheCoreContracts
 
-/// Projects paths already owned by a run service into the dependency browser.
-/// Language and build-system extensions can enrich the context before it gets
-/// here; this fallback remains useful for every provider, including unknown ones.
+/// Projects registered language sources and explicit JSON paths into the tree.
+/// Discovery and LSP activation stay with the owning language plugin.
 package struct RunServiceDependencyProvider: WorkspaceDependencyProvider {
     package let providerID = "run-service"
 
@@ -11,14 +10,28 @@ package struct RunServiceDependencyProvider: WorkspaceDependencyProvider {
 
     /// Returns only dependency-management files already present in the workspace
     /// inventory. Watching these paths never performs a directory walk.
-    package func managementFiles(providerID: String, files: [URL]) -> [URL] {
+    package func managementFiles(
+        providerID: String,
+        files: [URL],
+        declaredFileNames: [String]? = nil
+    ) -> [URL] {
         files
             .map(\.standardizedFileURL)
-            .filter { manages($0, providerID: providerID) }
+            .filter { manages($0, providerID: providerID, declaredFileNames: declaredFileNames) }
             .sorted { $0.path < $1.path }
     }
 
-    package func manages(_ fileURL: URL, providerID: String) -> Bool {
+    package func manages(
+        _ fileURL: URL,
+        providerID: String,
+        declaredFileNames: [String]? = nil
+    ) -> Bool {
+        if let declaredFileNames {
+            let path = fileURL.standardizedFileURL.path.lowercased()
+            return declaredFileNames.contains {
+                $0.contains("/") ? path.hasSuffix("/" + $0) : fileURL.lastPathComponent.lowercased() == $0
+            }
+        }
         let provider = providerID.split(separator: ".").first.map(String.init) ?? providerID
         return Self.managementFileNames[provider, default: []]
             .contains(fileURL.lastPathComponent.lowercased())
@@ -35,17 +48,29 @@ package struct RunServiceDependencyProvider: WorkspaceDependencyProvider {
             excluding: excluded
         )
         let binaryRoots = Self.nodes(
-            context.classpath.filter(Self.isDirectoryLike)
+            context.binaryRoots + context.classpath.filter(Self.isDirectoryLike)
                 + Self.urls(configured.binaryPaths, relativeTo: context.workspaceURL),
             preferDirectory: true,
             excluding: excluded
         )
         let dependencyRoots = Self.nodes(
-            context.classpath.filter { !Self.isDirectoryLike($0) }
+            context.dependencyRoots + context.classpath.filter { !Self.isDirectoryLike($0) }
                 + Self.urls(configured.dependencyPaths, relativeTo: context.workspaceURL),
             preferDirectory: false,
             excluding: excluded
         )
+        let virtualRoots = context.virtualDocuments
+            .filter { !$0.uri.isFileURL }
+            .sorted { $0.uri.absoluteString < $1.uri.absoluteString }
+            .map { document in
+                DependencyNode(
+                    id: document.uri.absoluteString,
+                    title: document.title,
+                    subtitle: document.uri.absoluteString,
+                    kind: .file,
+                    source: .virtualDocument(document.uri)
+                )
+            }
         let additionalRoots = Self.nodes(
             Self.urls(configured.additionalSearchPaths, relativeTo: context.workspaceURL),
             preferDirectory: false,
@@ -61,7 +86,7 @@ package struct RunServiceDependencyProvider: WorkspaceDependencyProvider {
             children: [
                 Self.group("sources", title: "Source Code", serviceID: context.serviceID, children: sourceRoots),
                 Self.group("outputs", title: "Build Outputs", serviceID: context.serviceID, children: binaryRoots),
-                Self.group("dependencies", title: "Dependencies", serviceID: context.serviceID, children: dependencyRoots),
+                Self.group("dependencies", title: "Dependencies", serviceID: context.serviceID, children: dependencyRoots + virtualRoots),
                 Self.group(
                     "additional",
                     title: "Additional Search Paths",
@@ -141,9 +166,8 @@ package struct RunServiceDependencyProvider: WorkspaceDependencyProvider {
         }
     }
 
-    /// Built-in metadata is kept with the dependency Provider rather than the
-    /// run service. Plugin Providers can replace this table when dependency
-    /// contribution metadata becomes part of the plugin manifest contract.
+    /// Compatibility fallback for providers without a language plugin manifest.
+    /// A declared file list always takes precedence, including an empty list.
     private static let managementFileNames: [String: Set<String>] = [
         "java": [
             "pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle",

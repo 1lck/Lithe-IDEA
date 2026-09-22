@@ -672,7 +672,7 @@ struct ExecutionModuleTests {
     }
 
     @Test
-    func dependencyBrowserUsesNonJavaRunServiceConfiguration() async throws {
+    func dependencyBrowserRequiresExplicitLanguageRegistration() async throws {
         let service = RunService(
             runtime: TestRuntime(),
             process: TestStreamingProcess(),
@@ -694,9 +694,15 @@ struct ExecutionModuleTests {
 
         await service.loadProject(at: root, files: [goModule, main], mavenProject: nil)
 
+        #expect(service.configurations.contains { $0.id == "go:api" })
+        #expect(service.dependencyServices.isEmpty)
+        #expect(try await service.resolveDependencies(serviceID: "go:api") == nil)
+        service.registerDependencySource(languageID: "go", displayName: "Go")
+        service.registerDependencySource(languageID: "go", displayName: "Go")
         let dependencyService = try #require(service.dependencyServices.first)
-        #expect(dependencyService.id == "go:api")
-        #expect(dependencyService.displayName == "Go API")
+        #expect(service.dependencyServices.count == 1)
+        #expect(dependencyService.id == "language:go")
+        #expect(dependencyService.displayName == "Go")
         #expect(dependencyService.providerID == "go")
 
         service.updateDependencyPaths(
@@ -707,14 +713,131 @@ struct ExecutionModuleTests {
             try await service.resolveDependencies(serviceID: dependencyService.id)
         )
         let rootNode = try #require(graph.roots.first)
-        #expect(rootNode.title == "Go API")
+        #expect(rootNode.title == "Go")
         #expect(rootNode.subtitle == "Go")
-        #expect(rootNode.children[0].children.map(\.id) == ["/workspace/cmd/api"])
+        #expect(rootNode.children[0].children.isEmpty)
         #expect(rootNode.children[2].children.map(\.id) == ["/workspace/vendor/modules"])
 
         let revision = service.dependencyRevision
-        service.markDependencyFilesChanged([goModule])
+        service.markDependencyFilesChanged([WorkspaceFileChange(fileURL: goModule, kind: .changed)])
         #expect(service.dependencyRevision == revision + 1)
+        service.unregisterDependencySource(languageID: "go")
+        #expect(service.dependencyServices.isEmpty)
+        #expect(try await service.resolveDependencies(serviceID: dependencyService.id) == nil)
+    }
+
+    @Test(arguments: ["docker.compose", "node.script", "java.main"])
+    func runConfigurationsDoNotInjectDependencySources(provider: String) async {
+        let configuration = RunConfiguration(
+            id: "run:\(provider)", name: provider,
+            kind: .process(provider: provider), modulePath: ".", mainClass: nil
+        )
+        let service = makeRunService(
+            configuration: configuration,
+            options: RunOptions(),
+            fileAccess: TestRunFileAccess(),
+            serverPortParser: FixedServerPortParser(port: nil)
+        )
+        defer { service.reset() }
+        await service.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [], mavenProject: nil)
+
+        #expect(service.configurations.contains { $0.id == configuration.id })
+        #expect(service.dependencyServices.isEmpty)
+    }
+
+    @Test
+    func languagePluginContributesResolvedRootsAndVirtualDocuments() async throws {
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let moduleFile = root.appendingPathComponent("go.mod")
+        let support = LanguageSupportDeclaration(
+            id: "go",
+            displayName: "Go",
+            fileExtensions: ["go"],
+            dependencies: LanguageDependencyDeclaration(
+                managementFileNames: ["go.mod", "go.sum", "vendor/modules.txt"],
+                projectDependencyPaths: ["vendor"]
+            ),
+            virtualDocumentSchemes: ["gopls"],
+            languageServerModuleID: .languageServerExtension("go")
+        )
+        let service = RunService(
+            runtime: TestRuntime(),
+            process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(
+                contents: [moduleFile: "module example.dev/api"],
+                directories: [root.appendingPathComponent("vendor", isDirectory: true)]
+            ),
+            preferences: TestRunPreferences(),
+            serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: TestGoProjectRunConfigurationOperations(),
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback),
+            languageSupports: [support]
+        )
+        defer { service.reset() }
+        let virtualURI = try #require(URL(string: "gopls://example.dev/api/external.go"))
+        var resolvedRoot = URL(fileURLWithPath: "/modules/example.dev/api", isDirectory: true)
+        service.configureLanguageDependencyProvider { languageID, workspace, serviceID in
+            guard languageID == "go", workspace == root, serviceID == "language:go" else { return nil }
+            return LanguageDependencySnapshot(
+                binaryRoots: [root.appendingPathComponent("bin", isDirectory: true)],
+                dependencyRoots: [resolvedRoot, root.appendingPathComponent("vendor", isDirectory: true),
+                                  URL(fileURLWithPath: "/workspace-other/valid", isDirectory: true), resolvedRoot],
+                virtualDocuments: [.init(title: "external.go", uri: virtualURI)]
+            )
+        }
+        await service.loadProject(at: root, files: [moduleFile], mavenProject: nil)
+        #expect(service.dependencyServices.isEmpty)
+        service.registerDependencySource(languageID: "go", displayName: "Go")
+        let graph = try #require(try await service.resolveDependencies(serviceID: "language:go"))
+        let groups = try #require(graph.roots.first?.children)
+        #expect(groups[1].children.isEmpty)
+        #expect(groups[2].children.map(\.id) == [
+            "/modules/example.dev/api", "/workspace-other/valid", virtualURI.absoluteString
+        ])
+        #expect(groups[2].children.last?.source == .virtualDocument(virtualURI))
+
+        service.updateDependencyPaths(
+            DependencyPathConfiguration(dependencyPaths: ["vendor"]), serviceID: "language:go"
+        )
+        let configured = try #require(try await service.resolveDependencies(serviceID: "language:go"))
+        #expect(configured.roots.first?.children[2].children.map(\.id) == [
+            "/modules/example.dev/api", "/workspace-other/valid", "/workspace/vendor", virtualURI.absoluteString
+        ])
+
+        let revision = service.dependencyRevision
+        service.syncLanguageDependencyPaths(languageID: "go")
+        #expect(service.dependencyRevision == revision)
+        resolvedRoot = URL(fileURLWithPath: "/modules/example.dev/new-api", isDirectory: true)
+        service.syncLanguageDependencyPaths(languageID: "go")
+        #expect(service.dependencyRevision == revision + 1)
+        let refreshed = try #require(try await service.resolveDependencies(serviceID: "language:go"))
+        #expect(refreshed.roots.first?.children[2].children.first?.id == resolvedRoot.path)
+        let repeatGraph = try #require(try await service.resolveDependencies(serviceID: "language:go"))
+        #expect(repeatGraph == refreshed)
+        service.configureLanguageDependencyProvider { _, _, _ in nil }
+        service.syncLanguageDependencyPaths(languageID: "go")
+        #expect(service.dependencyRevision == revision + 1)
+        let cached = try #require(try await service.resolveDependencies(serviceID: "language:go"))
+        #expect(cached == refreshed)
+
+        let refreshedRevision = service.dependencyRevision
+        service.markDependencyFilesChanged([WorkspaceFileChange(
+            fileURL: root.appendingPathComponent("package-lock.json"), kind: .created
+        )])
+        #expect(service.dependencyRevision == refreshedRevision)
+        service.markDependencyFilesChanged([WorkspaceFileChange(
+            fileURL: root.appendingPathComponent("go.sum"), kind: .created
+        )])
+        #expect(service.dependencyRevision == refreshedRevision + 1)
+        service.markDependencyFilesChanged([WorkspaceFileChange(
+            fileURL: root.appendingPathComponent("vendor/modules.txt"), kind: .created
+        )])
+        #expect(service.dependencyRevision == refreshedRevision + 2)
+        service.markDependencyFilesChanged([WorkspaceFileChange(fileURL: moduleFile, kind: .deleted)])
+        #expect(service.dependencyRevision == refreshedRevision + 3)
     }
 
     @Test
@@ -1315,8 +1438,8 @@ struct ExecutionModuleTests {
         #expect(!service.isReloadRequired)
     }
 
-    @Test
-    func mavenServiceResolvesDependenciesOnTheSecondBoundedProcess() async throws {
+    @Test(arguments: [String?.none, "/custom/repository"])
+    func mavenServiceResolvesDependenciesOnTheSecondBoundedProcess(configuredRepository: String?) async throws {
         let workspace = URL(fileURLWithPath: "/workspace", isDirectory: true)
         let module = MavenModule(
             relativePath: "service",
@@ -1355,7 +1478,18 @@ struct ExecutionModuleTests {
             scope: "compile",
             resolution: .resolved,
             selectedVersion: nil,
-            children: []
+            children: [MavenDependency(
+                modulePath: "service",
+                groupID: "org.example",
+                artifactID: "transitive",
+                version: "2.0",
+                type: "jar",
+                classifier: nil,
+                scope: "compile",
+                resolution: .resolved,
+                selectedVersion: nil,
+                children: []
+            )]
         )
         let operations = RecordingMavenOperations(
             project: project,
@@ -1372,6 +1506,14 @@ struct ExecutionModuleTests {
         )
 
         await service.loadProject(at: workspace, files: [project.pomURL, module.url])
+        if let configuredRepository {
+            service.updateLocalConfiguration(
+                settingsPath: nil,
+                localRepositoryPath: configuredRepository,
+                mavenExecutablePath: nil,
+                javaHomePath: nil
+            )
+        }
         service.loadDependencies(for: "service")
         let request = try #require(await dependencyProcess.nextStart(timeout: .seconds(1)))
 
@@ -1389,6 +1531,80 @@ struct ExecutionModuleTests {
 
         #expect(state == .ready([dependency]))
         #expect(operations.lastDependencyOutput == "[INFO] dependency tree\n")
+        let projection = MavenFeatureModel(service: service)
+        #expect(projection.resolvedDependencyArtifactPaths(modulePath: "service").isEmpty
+            == (configuredRepository == nil))
+        let selectedRepository = configuredRepository ?? "/repository"
+        #expect(projection.resolvedDependencyArtifactPaths(
+            modulePath: "service",
+            defaultRepositoryURL: URL(fileURLWithPath: "/repository", isDirectory: true)
+        ).map(\.path) == [
+            "\(selectedRepository)/org/example/library/1.0/library-1.0.jar",
+            "\(selectedRepository)/org/example/transitive/2.0/transitive-2.0.jar"
+        ])
+        #expect(projection.resolvedDependencyArtifactPaths(
+            modulePath: ".",
+            defaultRepositoryURL: URL(fileURLWithPath: "/repository", isDirectory: true)
+        ).isEmpty)
+    }
+
+    @Test
+    func resolvedMavenTreeUpdatesAnAlreadyRegisteredJavaDependencySource() async throws {
+        let workspace = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let project = MavenProject(
+            rootURL: workspace, pomURL: workspace.appendingPathComponent("pom.xml"),
+            groupID: "org.example", artifactID: "example", version: "1.0",
+            packaging: "jar", modules: [], profiles: [], hasWrapper: false
+        )
+        let dependency = MavenDependency(
+            modulePath: ".", groupID: "junit", artifactID: "junit", version: "4.12",
+            type: "jar", classifier: nil, scope: "compile", resolution: .resolved,
+            selectedVersion: nil, children: []
+        )
+        let operations = RecordingMavenOperations(
+            project: project,
+            plan: MavenLaunchPlan(
+                version: 1, toolchain: "project-maven", arguments: ["dependency:tree"],
+                workingDirectory: ".", configurationFingerprint: "sha256:dependency"
+            ),
+            dependencyTree: MavenDependencyTree(modulePath: ".", dependencies: [dependency])
+        )
+        let dependencyProcess = MavenRecordingProcess()
+        let maven = MavenService(
+            runtimeService: MavenRecordingRuntime(), process: MavenRecordingProcess(),
+            dependencyProcess: dependencyProcess, mavenOperations: operations
+        )
+        let graph = makeTestGraph(mavenService: maven)
+        defer { graph.run.reset(); graph.maven.reset() }
+        let mavenFeature = graph.mavenFeature
+        graph.run.configureLanguageDependencyProvider { [weak mavenFeature] languageID, root, _ in
+            guard languageID == "java", root == workspace else { return nil }
+            let roots = mavenFeature?.resolvedDependencyArtifactPaths(
+                modulePath: ".",
+                defaultRepositoryURL: URL(fileURLWithPath: "/repository", isDirectory: true)
+            ) ?? []
+            return roots.isEmpty ? nil : LanguageDependencySnapshot(dependencyRoots: roots)
+        }
+        await graph.projectDevelopment.loadProject(
+            at: workspace, files: [project.pomURL], snapshotID: UUID()
+        )
+        graph.run.registerDependencySource(languageID: "java", displayName: "Java")
+        let initial = try #require(try await graph.run.resolveDependencies(serviceID: "language:java"))
+        #expect(initial.roots.first?.children[2].children.isEmpty == true)
+        let revision = graph.run.dependencyRevision
+
+        maven.loadDependencies(for: ".")
+        _ = try #require(await dependencyProcess.nextStart(timeout: .seconds(1)))
+        dependencyProcess.onTermination?(0)
+        _ = await dependencyState(
+            maven, modulePath: ".",
+            matching: { if case .ready = $0 { true } else { false } }
+        )
+        try await awaitTestValue(graph.run.$dependencyRevision, matching: { $0 > revision })
+        let updated = try #require(try await graph.run.resolveDependencies(serviceID: "language:java"))
+        #expect(updated.roots.first?.children[2].children.map(\.id) == [
+            "/repository/junit/junit/4.12/junit-4.12.jar"
+        ])
     }
 
     @Test
@@ -1623,11 +1839,12 @@ private func makeRunService(
 @MainActor
 private func makeTestGraph(
     mavenOperations: any MavenProjectOperations = TestMavenOperations(),
+    mavenService: MavenService? = nil,
     runOperations: any RunConfigurationOperations = TestRunConfigurationOperations()
 ) -> ExecutionFeatureGraph {
     let runtime = TestRuntime()
     let resolver = TestExecutableResolver()
-    let maven = MavenService(
+    let maven = mavenService ?? MavenService(
         runtimeService: runtime,
         process: TestStreamingProcess(),
         dependencyProcess: TestStreamingProcess(),
@@ -2070,12 +2287,14 @@ private final class MavenRecordingProcess: StreamingProcess, @unchecked Sendable
 
 private struct TestRunFileAccess: RunFileAccess {
     let contents: [URL: String]
+    let directories: Set<URL>
 
-    init(contents: [URL: String] = [:]) {
+    init(contents: [URL: String] = [:], directories: Set<URL> = []) {
         self.contents = contents
+        self.directories = directories
     }
 
-    func isDirectory(at url: URL) -> Bool { false }
+    func isDirectory(at url: URL) -> Bool { directories.contains(url.standardizedFileURL) }
     func readData(from url: URL) throws -> Data {
         Data((contents[url.standardizedFileURL] ?? "").utf8)
     }

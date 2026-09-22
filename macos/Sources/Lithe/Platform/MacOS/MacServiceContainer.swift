@@ -364,6 +364,7 @@ final class MacServiceContainer {
                             languageProviderCatalog: languagePackRegistry.catalog,
                             languageRunProviders: languagePackRegistry.runProviders,
                             extensionRequiredLanguageIDs: pluginLanguageIDs,
+                            languageSupports: installedLanguageSupports,
                             dependencyStore: MacWorkspaceDependencyStore(storage: fileStorage)
                         ),
                         tests: LanguageTestService(
@@ -380,6 +381,33 @@ final class MacServiceContainer {
                             }
                         )
                     )
+                    let mavenFeature = graph.mavenFeature
+                    graph.run.configureLanguageDependencyProvider { [weak mavenFeature] languageID, workspace, serviceID in
+                        let capabilityID: ModuleCapabilityID = languageID == "java"
+                            ? .languageIntelligence : .languageServerExtension(languageID)
+                        guard let provider = moduleRuntime.capability(capabilityID)
+                            as? any LanguageDependencyProviding else { return nil }
+                        let snapshot = provider.dependencySnapshot(workspaceURL: workspace, serviceID: serviceID)
+                        guard languageID == "java", snapshot?.dependencyRoots.isEmpty != false,
+                              let mavenFeature,
+                              let project = mavenFeature.project,
+                              project.rootURL.standardizedFileURL == workspace.standardizedFileURL,
+                              !mavenFeature.isProjectReloadRequired else { return snapshot }
+                        let modules = ["."] + project.allModules.map(\.relativePath)
+                        let roots = modules.flatMap {
+                            mavenFeature.resolvedDependencyArtifactPaths(
+                                modulePath: $0,
+                                defaultRepositoryURL: mavenRepositoryURL
+                            )
+                        }.filter { fileStorage.fileExists(at: $0) }
+                        guard !roots.isEmpty else { return snapshot }
+                        return LanguageDependencySnapshot(
+                            sourceRoots: snapshot?.sourceRoots ?? [],
+                            binaryRoots: snapshot?.binaryRoots ?? [],
+                            dependencyRoots: Array(Set(roots)).sorted { $0.path < $1.path },
+                            virtualDocuments: snapshot?.virtualDocuments ?? []
+                        )
+                    }
                     return graph
                 })
             })
