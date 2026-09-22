@@ -1,8 +1,9 @@
-import { afterAll, afterEach, beforeAll, beforeEach, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { create } from "zustand";
 import { installHappyDom } from "@/test-utils/happy-dom";
+import { LocaleProvider } from "@/i18n/locale-provider";
 import { useRunPreferencesStore } from "../stores/run-preferences.store";
 
 const restoreDom = installHappyDom();
@@ -69,14 +70,10 @@ const useFileSystemStore = create(() => ({ rootFolderPath: "" }));
 const useBufferStore = create(() => ({ buffers: [] as unknown[], activeBufferId: null }));
 const useMavenStore = create(() => ({ root: "", mavenExecutablePath: "" }));
 
-// Narrow stand-ins only: importing the real store modules here would link
-// their heavy dependency chains, and other test files in the same bun test
-// process replace some of those shared modules with partial mocks, which
-// makes late linkers crash on missing exports. Every mock below is a plain
-// object, so this file links nothing real beyond the preference store.
-// Run this file in a scoped `bun test <path>` (as the timing harness does
-// with -FrontendTestPath): in the monolithic full-suite process, residual
-// mock registrations from earlier files can still starve the link.
+// Only the stores RunPane reads are replaced: importing the real store modules
+// would link their Tauri-bound dependency chains. Bun keeps module mocks for
+// the whole process, and CI runs every file under src/features/run together,
+// so component modules shared with sibling tests stay real here.
 mock.module("../stores/run.store", () => ({ useRunStore, runOptionsFor: () => [] }));
 mock.module("@/features/window/stores/ui-state.store", () => ({ useUIState }));
 mock.module("@/features/file-system/stores/file-system.store", () => ({ useFileSystemStore }));
@@ -90,20 +87,6 @@ mock.module("@/features/maven/stores/maven.store", () => ({ useMavenStore }));
 mock.module("../hooks/use-run-process-events", () => ({
   ensureRunProcessListeners: async () => undefined,
 }));
-mock.module("@/i18n/locale-provider", () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
-  LocaleProvider: ({ children }: { children: React.ReactNode }) => children,
-}));
-mock.module("@/ui/tooltip", () => ({
-  default: ({ children }: { children: React.ReactNode }) => children,
-}));
-// Heavy child dialogs and menus are irrelevant to scroll behavior; mocking
-// them keeps this file from linking their large import trees, which other
-// test files in the same process may have partially mocked already.
-mock.module("./run-configuration-editor", () => ({ RunConfigurationEditor: () => null }));
-mock.module("./run-services-menu", () => ({ RunServicesMenu: () => null }));
-mock.module("./project-preparation-status", () => ({ ProjectPreparationStatus: () => null }));
-mock.module("./java-launch-decision", () => ({ JavaLaunchDecisionBanner: () => null }));
 
 const { default: RunPane } = await import("./run-pane");
 
@@ -115,7 +98,11 @@ const mountPane = () => {
   document.body.appendChild(container);
   root = createRoot(container);
   act(() => {
-    root!.render(<RunPane />);
+    root!.render(
+      <LocaleProvider language="en-US">
+        <RunPane />
+      </LocaleProvider>,
+    );
   });
 };
 
@@ -147,35 +134,30 @@ const setPaneVisible = (visible: boolean) => {
 };
 
 const clickToggle = () => {
-  const button = document.querySelector('button[aria-label="run.scrollToEnd"]');
+  const button = document.querySelector('button[aria-label="Always scroll output to the end"]');
   if (!button) throw new Error("scroll-to-end toggle was not rendered");
   act(() => {
     button.dispatchEvent(new window.Event("click", { bubbles: true }));
   });
 };
 
-beforeAll(() => {
+beforeEach(() => {
+  useRunPreferencesStore.setState({ scrollOutputToEnd: true });
+  useUIState.setState({ isBottomPaneVisible: true });
+  useRunStore.setState({ primaryOutput: "first line\n" });
   mountPane();
   stubScrollGeometry(scrollContainer());
 });
 
-beforeEach(() => {
-  useRunPreferencesStore.setState({ scrollOutputToEnd: true });
-});
-
 afterEach(() => {
-  useRunPreferencesStore.setState({ scrollOutputToEnd: true });
-  useUIState.setState({ isBottomPaneVisible: true });
-});
-
-afterAll(async () => {
   act(() => {
     root?.unmount();
   });
+  root = undefined;
   container?.remove();
-  // Let React's scheduler drain its pending macrotask before the DOM globals
-  // go away, so a late callback does not crash against a closed window.
-  await new Promise((resolve) => setTimeout(resolve, 50));
+});
+
+afterAll(() => {
   actGlobal.IS_REACT_ACT_ENVIRONMENT = previousActFlag;
   restoreDom();
 });
@@ -188,8 +170,8 @@ test("pinned on: growing output keeps the view at the end", () => {
 });
 
 test("the toggle renders beside Clear output with localized tooltips", async () => {
-  const toggle = document.querySelector('button[aria-label="run.scrollToEnd"]');
-  const clear = document.querySelector('button[aria-label="run.clearOutput"]');
+  const toggle = document.querySelector('button[aria-label="Always scroll output to the end"]');
+  const clear = document.querySelector('button[aria-label="Clear run output"]');
   expect(toggle).not.toBeNull();
   expect(clear).not.toBeNull();
   // The pin sits immediately to the left of Clear run output in the header.
