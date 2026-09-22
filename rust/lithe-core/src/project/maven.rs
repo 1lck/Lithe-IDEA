@@ -1,5 +1,6 @@
 //! Maven reactor inspection, profile discovery, and source diagnostics.
 
+use super::maven_test_reports::{self, MavenTestReportsRequest};
 use crate::protocol::{CoreError, ErrorCode};
 use crate::protocol::{
     MavenDependenciesResponse, MavenDependencyResolutionResponse, MavenDependencyResponse,
@@ -40,6 +41,10 @@ pub struct MavenDiagnosticsRequest {
 pub struct MavenTestResultsRequest {
     pub root: String,
     pub output: String,
+    /// When present, per-method outcomes are also read from the XML reports
+    /// the run wrote; see [`MavenTestReportsRequest`].
+    #[serde(default)]
+    pub reports: Option<MavenTestReportsRequest>,
 }
 
 const MAVEN_CONTEXT_VERSION: u32 = 1;
@@ -668,6 +673,8 @@ struct Descriptor {
     version: Option<String>,
     packaging: String,
     build_directory: Option<String>,
+    /// `<reportsDirectory>` values configured for Surefire or Failsafe, raw.
+    test_report_directories: Vec<String>,
     module_paths: Vec<String>,
     profiles: Vec<MavenProfileResponse>,
     plugins: Vec<String>,
@@ -687,6 +694,7 @@ struct PendingBuildPlugin {
     compiler_generated_test_source_directories: Vec<String>,
     build_helper_source_directories: Vec<String>,
     build_helper_test_source_directories: Vec<String>,
+    reports_directories: Vec<String>,
 }
 
 /// One module of the declared build graph, flattened with the root first.
@@ -940,9 +948,10 @@ impl MavenTestFailureKind {
 
 /// Parses the common text reporter used by Maven Surefire and Failsafe.
 ///
-/// The parser deliberately consumes only bounded process output. XML report
-/// files remain platform-owned, while this command provides enough structure
-/// for both products to show counts and navigate the first useful stack frame.
+/// The summary and failure details come from bounded process output. When the
+/// request names the run's module and classes, per-method outcomes are also
+/// read from the XML reports that run wrote, because the text reporter names
+/// only failing tests.
 pub fn test_results(
     request: MavenTestResultsRequest,
 ) -> Result<MavenTestResultsResponse, CoreError> {
@@ -1167,6 +1176,17 @@ pub fn test_results(
         (failures + errors, failures, errors, 0)
     };
     let passed = tests_run.saturating_sub(failures + errors + skipped);
+    let test_cases = match request.reports.as_ref() {
+        Some(reports) => {
+            let module_root = maven_test_reports::module_root(&workspace_root, reports)?;
+            maven_test_reports::read_test_cases(
+                &module_root,
+                &test_report_directories(&module_root)?,
+                reports,
+            )?
+        }
+        None => Vec::new(),
+    };
     Ok(MavenTestResultsResponse {
         tests_run,
         failures,
@@ -1175,7 +1195,39 @@ pub fn test_results(
         passed,
         success: failures == 0 && errors == 0,
         failure_details,
+        test_cases,
     })
+}
+
+/// Module-relative directories that may hold this module's test reports.
+///
+/// Configured `<reportsDirectory>` values come first; the Surefire and
+/// Failsafe defaults under the build directory are always searched too,
+/// because configuring one plugin leaves the other on its default. Values
+/// that use properties Core cannot resolve are skipped rather than guessed.
+fn test_report_directories(module_root: &Path) -> Result<Vec<String>, CoreError> {
+    let descriptor = descriptor(&module_root.join("pom.xml"))?;
+    let build_directory = descriptor
+        .as_ref()
+        .and_then(|descriptor| descriptor.build_directory.as_deref());
+    let mut directories = descriptor
+        .as_ref()
+        .map(|descriptor| {
+            descriptor
+                .test_report_directories
+                .iter()
+                .filter_map(|directory| normalize_maven_source_path(directory, build_directory))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if let Some(build_directory) = normalize_build_directory(build_directory) {
+        directories.extend(maven_test_reports::default_report_directories(
+            &build_directory,
+        ));
+    }
+    let mut seen = std::collections::HashSet::new();
+    directories.retain(|directory| seen.insert(directory.clone()));
+    Ok(directories)
 }
 
 fn strip_maven_log_prefix(raw_line: &str) -> &str {
@@ -2156,6 +2208,14 @@ fn descriptor(path: &Path) -> Result<Option<Descriptor>, CoreError> {
                             }
                         }
                     }
+                    "project/build/plugins/plugin/configuration/reportsDirectory"
+                    | "project/build/plugins/plugin/executions/execution/configuration/reportsDirectory" => {
+                        if let Some(directory) = non_empty(text.clone()) {
+                            if let Some(plugin) = pending_build_plugin.as_mut() {
+                                plugin.reports_directories.push(directory);
+                            }
+                        }
+                    }
                     "project/modules/module" => {
                         if let Some(module) = non_empty(text.clone()) {
                             value.module_paths.push(module);
@@ -2186,6 +2246,11 @@ fn descriptor(path: &Path) -> Result<Option<Descriptor>, CoreError> {
                                             .extend(plugin.build_helper_source_directories);
                                         value.generated_test_source_directories
                                             .extend(plugin.build_helper_test_source_directories);
+                                    }
+                                    "maven-surefire-plugin" | "maven-failsafe-plugin" => {
+                                        value
+                                            .test_report_directories
+                                            .extend(plugin.reports_directories);
                                     }
                                     _ => {}
                                 }

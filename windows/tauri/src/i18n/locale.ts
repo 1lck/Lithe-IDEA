@@ -1543,6 +1543,9 @@ const catalogs = {
     "run.javaBuildAskAgain": "Ask Again on Build Failure",
     "run.editService": "Edit Service",
     "run.generatedEntries": "Generated {count} runnable project entries.",
+    "run.runTarget": "Run '{target}'",
+    "run.modifyRunConfiguration": "Modify Run Configuration…",
+    "run.runMarkerFailed": "Unable to run {target}",
     "run.javaDiscoveryLoading":
       "Waiting for the Java language service to list runnable classes...",
     "run.javaDiscoveryStale":
@@ -5931,6 +5934,9 @@ const catalogs = {
     "run.javaBuildAskAgain": "构建失败时重新询问",
     "run.editService": "编辑服务",
     "run.generatedEntries": "已生成 {count} 个可运行项目入口。",
+    "run.runTarget": "运行 '{target}'",
+    "run.modifyRunConfiguration": "修改运行配置…",
+    "run.runMarkerFailed": "无法运行 {target}",
     "run.javaDiscoveryLoading": "正在等待 Java 语言服务列出可运行的类...",
     "run.javaDiscoveryStale": "Java 语言服务正在准备项目，暂时显示上次的 Java 入口。",
     "run.javaDiscoveryFailed": "无法刷新 Java 入口：{message}",

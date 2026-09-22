@@ -53,7 +53,12 @@ struct MacRuntimeLocator: RuntimeLocator {
     }
 
     func isExecutable(at url: URL) -> Bool {
-        FileManager.default.isExecutableFile(atPath: url.path)
+        // Directory execute permission allows traversal, not process launch.
+        // Follow symlinks so linked toolchain homes are rejected as well.
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else { return false }
+        return FileManager.default.isExecutableFile(atPath: url.path)
     }
 
     func systemMavenExecutable() -> URL? {

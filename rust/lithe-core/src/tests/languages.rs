@@ -544,6 +544,30 @@ fn maven_dependencies_reject_bounded_output_node_and_depth_overflow() {
 }
 
 #[test]
+fn java_run_markers_match_the_shared_compatibility_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/java/run-markers-v1.json"
+    ))
+    .expect("Java Run-marker fixture should be valid JSON");
+    for case in fixture["cases"]
+        .as_array()
+        .expect("Java Run-marker fixture should contain cases")
+    {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": case["name"],
+                "command": "java.runMarkers",
+                "payload": case["request"]
+            })
+            .to_string(),
+        ))
+        .expect("Java Run-marker response should be JSON");
+        assert_eq!(response["ok"], true, "case {}: {response}", case["name"]);
+        assert_eq!(response["data"], case["expected"], "case {}", case["name"]);
+    }
+}
+
+#[test]
 fn maven_test_results_match_the_shared_compatibility_fixture() {
     let fixture: Value = serde_json::from_str(include_str!(
         "../../../../shared/fixtures/maven/test-results-v1.json"
@@ -577,6 +601,232 @@ fn maven_test_results_match_the_shared_compatibility_fixture() {
         assert_eq!(response["data"], case["expected"], "case {}", case["name"]);
         fs::remove_dir_all(root).expect("Maven test fixture should be removable");
     }
+}
+
+// Editors mark each test method with its outcome, which only the XML reports
+// record for passing and skipped methods. Reports from an earlier run and
+// reports of classes the run did not select must not leak into the result.
+#[test]
+fn maven_test_results_read_current_reports_of_the_selected_classes() {
+    let root = temporary_root("maven-test-reports");
+    let module = root.join("service");
+    fs::create_dir_all(module.join("build/custom-reports")).expect("report directory");
+    fs::create_dir_all(module.join("build/failsafe-reports")).expect("failsafe directory");
+    fs::write(
+        module.join("pom.xml"),
+        r#"<project><build><directory>build</directory><plugins><plugin>
+<artifactId>maven-surefire-plugin</artifactId>
+<configuration><reportsDirectory>${project.build.directory}/custom-reports</reportsDirectory></configuration>
+</plugin></plugins></build></project>"#,
+    )
+    .expect("module pom");
+    let stale = module.join("build/custom-reports/TEST-demo.StaleTest.xml");
+    fs::write(
+        &stale,
+        r#"<testsuite name="demo.StaleTest"><testcase name="old" classname="demo.StaleTest"><failure message="old"/></testcase></testsuite>"#,
+    )
+    .expect("stale report");
+    // Fixed timestamps keep the freshness check independent of the wall clock.
+    let run_started_seconds = 1_700_000_000_u64;
+    let not_before_millis = run_started_seconds * 1_000;
+    let set_modified = |path: &std::path::Path, seconds: u64| {
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .and_then(|file| {
+                file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds))
+            })
+            .expect("report timestamp");
+    };
+    set_modified(&stale, run_started_seconds - 600);
+    fs::write(
+        module.join("build/custom-reports/TEST-demo.OrderTest.xml"),
+        r#"<testsuite name="demo.OrderTest">
+<testcase name="creates" classname="demo.OrderTest"/>
+<testcase name="priced(int)[1]" classname="demo.OrderTest"/>
+<testcase name="priced(int)[2]" classname="demo.OrderTest"><failure message="expected 3"/></testcase>
+<testcase name="later" classname="demo.OrderTest"><skipped/></testcase>
+</testsuite>"#,
+    )
+    .expect("current report");
+    fs::write(
+        module.join("build/failsafe-reports/TEST-demo.OrderTest$Refunds.xml"),
+        r#"<testsuite name="demo.OrderTest$Refunds"><testcase name="refunds" classname="demo.OrderTest$Refunds"/></testsuite>"#,
+    )
+    .expect("nested report");
+    fs::write(
+        module.join("build/custom-reports/TEST-demo.OtherTest.xml"),
+        r#"<testsuite name="demo.OtherTest"><testcase name="other" classname="demo.OtherTest"/></testsuite>"#,
+    )
+    .expect("unselected report");
+    for report in [
+        "build/custom-reports/TEST-demo.OrderTest.xml",
+        "build/failsafe-reports/TEST-demo.OrderTest$Refunds.xml",
+        "build/custom-reports/TEST-demo.OtherTest.xml",
+    ] {
+        set_modified(&module.join(report), run_started_seconds + 5);
+    }
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "maven-test-reports",
+            "command": "maven.testResults",
+            "payload": {
+                "root": root,
+                "output": "[ERROR] Tests run: 5, Failures: 1, Errors: 0, Skipped: 1\n",
+                "reports": {
+                    "module": "service",
+                    "classes": ["demo.OrderTest", "demo.StaleTest"],
+                    "notBeforeMillis": not_before_millis
+                }
+            }
+        })
+        .to_string(),
+    ))
+    .expect("report response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["data"]["testCases"],
+        serde_json::json!([
+            { "className": "demo.OrderTest", "method": "creates", "status": "passed", "message": null, "invocations": 1 },
+            { "className": "demo.OrderTest", "method": "later", "status": "skipped", "message": null, "invocations": 1 },
+            { "className": "demo.OrderTest", "method": "priced", "status": "failed", "message": "expected 3", "invocations": 2 },
+            { "className": "demo.OrderTest$Refunds", "method": "refunds", "status": "passed", "message": null, "invocations": 1 }
+        ])
+    );
+    fs::remove_dir_all(root).expect("report fixture should be removable");
+}
+
+// A run started from the reactor root does not name a module or class; the
+// test file locates the module and the run's start time selects its reports.
+#[test]
+fn maven_test_results_find_the_module_from_the_test_source() {
+    let root = temporary_root("maven-test-reports-source");
+    let module = root.join("service");
+    let source = module.join("src/test/java/demo/OrderTest.java");
+    fs::create_dir_all(source.parent().expect("source parent")).expect("source directory");
+    fs::create_dir_all(module.join("target/surefire-reports")).expect("report directory");
+    fs::write(root.join("pom.xml"), "<project/>").expect("root pom");
+    fs::write(module.join("pom.xml"), "<project/>").expect("module pom");
+    fs::write(&source, "class OrderTest {}").expect("source");
+    let report = module.join("target/surefire-reports/TEST-demo.OrderTest.xml");
+    fs::write(
+        &report,
+        r#"<testsuite name="demo.OrderTest"><testcase name="creates" classname="demo.OrderTest"/></testsuite>"#,
+    )
+    .expect("report");
+    fs::File::options()
+        .write(true)
+        .open(&report)
+        .and_then(|file| {
+            file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_010))
+        })
+        .expect("report timestamp");
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "maven-test-reports-source",
+            "command": "maven.testResults",
+            "payload": {
+                "root": root,
+                "output": "",
+                "reports": {
+                    "sourcePath": "service/src/test/java/demo/OrderTest.java",
+                    "notBeforeMillis": 1_700_000_000_000_u64
+                }
+            }
+        })
+        .to_string(),
+    ))
+    .expect("report response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["data"]["testCases"],
+        serde_json::json!([
+            { "className": "demo.OrderTest", "method": "creates", "status": "passed", "message": null, "invocations": 1 }
+        ])
+    );
+    fs::remove_dir_all(root).expect("report fixture should be removable");
+}
+
+// Many stale reports sorting ahead of the run's own report must not push it
+// past the report-file bound when the request names no classes.
+#[test]
+fn maven_test_results_keep_current_reports_beyond_many_stale_ones() {
+    let root = temporary_root("maven-test-reports-bound");
+    let reports = root.join("target/surefire-reports");
+    fs::create_dir_all(&reports).expect("report directory");
+    let set_modified = |path: &std::path::Path, seconds: u64| {
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .and_then(|file| {
+                file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds))
+            })
+            .expect("report timestamp");
+    };
+    for index in 0..600 {
+        let path = reports.join(format!("TEST-a.Stale{index:03}Test.xml"));
+        fs::write(&path, "<testsuite/>").expect("stale report");
+        set_modified(&path, 1_600_000_000);
+    }
+    let current = reports.join("TEST-z.CurrentTest.xml");
+    fs::write(
+        &current,
+        r#"<testsuite name="z.CurrentTest"><testcase name="runs" classname="z.CurrentTest"/></testsuite>"#,
+    )
+    .expect("current report");
+    set_modified(&current, 1_700_000_010);
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "maven-test-reports-bound",
+            "command": "maven.testResults",
+            "payload": {
+                "root": root,
+                "output": "",
+                "reports": { "notBeforeMillis": 1_700_000_000_000_u64 }
+            }
+        })
+        .to_string(),
+    ))
+    .expect("report response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["data"]["testCases"][0]["className"],
+        "z.CurrentTest"
+    );
+    fs::remove_dir_all(root).expect("report fixture should be removable");
+}
+
+#[test]
+fn maven_test_results_reject_report_requests_outside_the_workspace() {
+    let root = temporary_root("maven-test-reports-bounds");
+    fs::create_dir_all(&root).expect("workspace");
+    for (module, classes) in [
+        ("..", serde_json::json!(["demo.OrderTest"])),
+        (".", serde_json::json!(["../demo.OrderTest"])),
+    ] {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "maven-test-reports-bounds",
+                "command": "maven.testResults",
+                "payload": {
+                    "root": root,
+                    "output": "",
+                    "reports": { "module": module, "classes": classes, "notBeforeMillis": 0 }
+                }
+            })
+            .to_string(),
+        ))
+        .expect("bounds response should be JSON");
+        assert_eq!(response["ok"], false, "{module}: {response}");
+        assert_eq!(response["error"]["code"], "invalid_request", "{module}");
+    }
+    fs::remove_dir_all(root).expect("bounds fixture should be removable");
 }
 
 #[test]

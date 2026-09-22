@@ -442,6 +442,50 @@ fn real_jdtls_discovers_builds_and_launches_java_25_entrypoints() {
         "JDT should list exactly the launchable forms: {entrypoints}"
     );
 
+    // Editor Run markers ask the same JDT service per file. The Java 25
+    // instance form must carry a marker on its `main` line, while a private
+    // `main` the JVM cannot launch must not.
+    let main_methods_for = |relative: &str| {
+        let uri = url::Url::from_file_path(canonical_workspace.join(relative))
+            .expect("fixture file converts to a URI")
+            .to_string();
+        let operation_id = engine.next_operation_id();
+        session
+            .request(
+                SemanticRequest {
+                    session_id: session.id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    operation: LspSemanticOperation::JavaMainMethods,
+                    uri: Some(uri),
+                    virtual_uri: None,
+                    position: None,
+                    new_name: None,
+                    range: None,
+                    diagnostics: Vec::new(),
+                    completion_item: None,
+                    code_action: None,
+                    command: None,
+                },
+                operation_id.clone(),
+            )
+            .expect("main-method request is accepted");
+        await_operation(&session, &operation_id, Duration::from_secs(60))
+            .expect("JDT answers main-method discovery")
+    };
+    let instance = main_methods_for("src/main/java/demo/InstanceArgs.java");
+    assert_eq!(
+        instance["methods"][0]["mainClass"],
+        json!("demo.InstanceArgs"),
+        "{instance}"
+    );
+    assert_eq!(
+        instance["methods"][0]["range"]["startLine"],
+        json!(1),
+        "{instance}"
+    );
+    let private = main_methods_for("src/main/java/demo/PrivateMain.java");
+    assert_eq!(private["methods"], json!([]), "{private}");
+
     // Issue #769's form must also build and run, which requires JDT LS to
     // compile against the project's JDK 25 rather than its own runtime.
     let project_name = entrypoints["entries"]
