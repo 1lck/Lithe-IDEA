@@ -84,6 +84,7 @@ struct WorkbenchRightToolSplitView<Workspace: View, Tool: View>: View {
                 },
                 flexible: { workspace }
             )
+            .background(hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar)
         }
     }
 }
