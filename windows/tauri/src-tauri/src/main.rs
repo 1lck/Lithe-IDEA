@@ -183,6 +183,7 @@ fn main() {
             run::maven_resolve_installation,
             run::run_discover_toolchains,
             run::run_resolve_launch,
+            run::run_resolve_toolchains,
             run::run_execute_prelaunch,
             run::run_start_process,
             run::run_stop_process,

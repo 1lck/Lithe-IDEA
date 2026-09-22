@@ -209,6 +209,36 @@ settings.xml 和仓库路径。Windows 的 Run 本机文档与 Maven 本机文�
 写入；若后一步失败，界面明确提示默认值已保存，不伪装成整次回滚。原生 UI 和
 进程行为仍需分别在 macOS、Windows 验证。
 
+### 自动与继承值必须显示实际生效的工具链（#814）
+
+设置里所有「自动」「使用项目 JDK」「继承项目」的位置，都显示启动时实际使用的 JDK 或
+Maven、版本、路径和来源，例如「自动 → JDK 21.0.4 · 路径 · 来自 JAVA_HOME」。只显示
+「自动识别」时，用户无法判断运行的是哪个 JDK，版本问题只能靠翻启动命令排查。
+
+显示值必须来自启动所用的同一个解析器，不能在界面另行推算。Windows 宿主的
+`run_resolve_toolchains` 直接调用 `run_resolve_launch` 使用的 `resolve_java_home` 与
+`resolve_maven_executable`，并在工作线程探测版本；Maven Wrapper 只识别不执行，因为
+首次运行可能下载发行版。macOS 把 `javaHomeURL`、`mavenJavaHomeURL`、`mavenExecutable`
+改为调用返回值与来源的 `chooseJavaHome`、`chooseMavenJavaHome`、`chooseMavenExecutable`，
+启动与设置共用一条链；设置只使用后台已检测的运行时，检测未完成时显示「正在检测」，
+不在主线程同步探测。错误做法是取候选列表第一项当作「自动」结果：Windows 候选列表会
+重新排序，与启动选择并不一致。
+
+解析的输入也必须与启动一致。凡是显示自动值的页面都要确保已开始后台检测
+（macOS `ensureRuntimesDiscovered`），不能只依赖项目页触发，否则从运行面板或编辑器
+直接进入服务表单会一直停在「正在检测」。Windows 服务表单按启动顺序组合选择
+（`launchToolchainSelection`：覆盖 → 项目默认 → Maven 工具窗口的显式值），只取 Maven
+的显式值而不取其解析结果，否则自动选择会被显示成「已选择」。
+
+检测中、未找到、配置路径无效都要明确显示；macOS 配置的 Maven JDK 无效时启动会回退到
+项目 JDK，设置显示这次回退而不是隐藏它。版本低于项目要求沿用 Core 的
+`toolchainVersionMismatch` 等诊断，按诊断中的 `toolchain` 挂到对应字段，平台端不重写
+版本比较。运行面板保留一步进入「设置 → 运行配置」并定位当前服务的入口；两端设置窗口
+每次分类请求都会重新定位，重复请求同一分类同样生效。
+
+「自动」本身的选择规则（是否按项目要求版本挑选、Windows 候选排序）属于 #815，不在此处
+改变。
+
 ## 验证
 
 - Rust Core：`cargo test --manifest-path rust/lithe-core/Cargo.toml`
@@ -226,6 +256,13 @@ settings.xml 和仓库路径。Windows 的 Run 本机文档与 Maven 本机文�
   写法、残缺 Wrapper 不被选中。
 - 共享契约：`./scripts/verify-shared-contracts.sh`。
 - 测试稳定性：`./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`。
+- 生效值显示：Windows 宿主 `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml
+  displayed_` 覆盖显示的 Maven 即启动会运行的 Wrapper、无效选择与启动一致地报错；
+  前端 `bun test src/features/run/utils/effective-toolchain.test.ts
+  src/features/run/hooks/use-resolved-toolchains.test.tsx` 覆盖文案、需求诊断筛选、
+  过期结果不覆盖新结果与输入防抖。macOS `MavenRuntimeTests` 覆盖来源判断、检测未完成
+  不同步探测、Maven JDK 回退与 Maven 选择链，`WorkbenchFeatureModelTests` 覆盖重复
+  分类请求。
 - 项目环境设置入口：`cargo test --manifest-path rust/lithe-core/Cargo.toml
   project_environment_saves_before_generation` 用共享 fixture
   `shared/fixtures/run-configuration/project-environment.json` 覆盖未生成配置时保存
@@ -259,11 +296,16 @@ settings.xml 和仓库路径。Windows 的 Run 本机文档与 Maven 本机文�
     `macos/Sources/LitheExecutionModule/Services/RunService.swift`（`saveProjectToolchain`）、
     `macos/Sources/Lithe/Platform/MacOS/RunConfiguration/MacRunConfigurationStore.swift`、
     `macos/Sources/Lithe/Models/AppModel/AppModel+FeatureState.swift`（项目设置填充与保存）、
-    `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`（`adoptProjectToolchain`）
+    `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`（`adoptProjectToolchain`、
+    `chooseJavaHome` 等解析链）、
+    `macos/Sources/Lithe/Views/App/EffectiveRuntimeLabel.swift`
   - Windows：`windows/tauri/src/features/settings/components/project-environment-settings.tsx`、
     `windows/tauri/src/features/settings/components/run-configuration-settings.tsx`、
     `windows/tauri/src/features/settings/services/`、
     `windows/tauri/src/features/run/stores/run.store.ts`（`loadProject` 同项目重载）、
+    `windows/tauri/src/features/run/utils/effective-toolchain.ts`、
+    `windows/tauri/src/features/run/hooks/use-resolved-toolchains.ts`、
+    `windows/tauri/src-tauri/src/run.rs`（`run_resolve_toolchains`）、
     `windows/tauri/src/features/maven/api/maven-host-api.ts`（`resolveMavenLaunch`）
 - 相关笔记：
   `.agents/notes/implemented/architecture/2026-09-18-java-project-build-and-launch-boundary.md`

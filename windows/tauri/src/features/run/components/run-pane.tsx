@@ -9,6 +9,7 @@ import { useUIState } from "@/features/window/stores/ui-state.store";
 import { Button } from "@/ui/button";
 import {
   ArrowClockwiseIcon,
+  GearIcon,
   MinusIcon,
   PlayIcon,
   StopIcon,
@@ -67,6 +68,11 @@ export default function RunPane() {
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const setIsBottomPaneVisible = useUIState((state) => state.setIsBottomPaneVisible);
   const openSettings = useUIState((state) => state.openSettingsDialog);
+  // The editor lives in Settings; open it on this configuration in one step.
+  const editInSettings = (id: string) => {
+    actions.editConfiguration(id);
+    openSettings("run");
+  };
   const activeFilePath = useBufferStore((state) => {
     const activeBuffer = getBufferById(state.buffers, state.activeBufferId);
     return activeBuffer?.type === "editor" && !activeBuffer.isVirtual ? activeBuffer.path : undefined;
@@ -243,8 +249,13 @@ export default function RunPane() {
             </div>
           </div>
           {blockingDiagnostic ? (
-            <Button size="xs" onClick={() => openSettings("run")}>
-              {t("settings.run.title")}
+            <Button
+              size="xs"
+              onClick={() =>
+                selectedConfiguration ? editInSettings(selectedConfiguration.id) : openSettings("run")
+              }
+            >
+              {t("run.editService")}
             </Button>
           ) : (
             <Button size="xs" onClick={() => rootFolderPath && void actions.generate(rootFolderPath)}>
@@ -299,6 +310,7 @@ export default function RunPane() {
                   sessions={sessions}
                   onSelect={actions.selectConfiguration}
                   onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
+                  onEdit={editInSettings}
                 />
                 {infrastructure.length > 0 ? <button
                   type="button"
@@ -317,6 +329,7 @@ export default function RunPane() {
                     sessions={sessions}
                     onSelect={actions.selectConfiguration}
                     onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
+                    onEdit={editInSettings}
                   />
                 ) : null}
                 {otherConfigurations.length > 0 ? <button
@@ -337,6 +350,7 @@ export default function RunPane() {
                       sessions={sessions}
                       onSelect={actions.selectConfiguration}
                       onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
+                      onEdit={editInSettings}
                     />
                     <ConfigurationSection
                       title={t("run.tasks")}
@@ -345,6 +359,7 @@ export default function RunPane() {
                       sessions={sessions}
                       onSelect={actions.selectConfiguration}
                       onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
+                      onEdit={editInSettings}
                     />
                   </>
                 ) : null}
@@ -438,6 +453,7 @@ function ConfigurationSection({
   sessions,
   onSelect,
   onRun,
+  onEdit,
 }: {
   title: string;
   configurations: RunConfiguration[];
@@ -445,6 +461,8 @@ function ConfigurationSection({
   sessions: Array<{ id: string; isRunning: boolean }>;
   onSelect: (id: string) => void;
   onRun: (configuration: RunConfiguration) => void;
+  /** Opens Settings → Run configurations on this configuration. */
+  onEdit: (id: string) => void;
 }) {
   const { t } = useTranslation();
   if (configurations.length === 0) return null;
@@ -469,6 +487,15 @@ function ConfigurationSection({
               <JavaCupIcon className="shrink-0 text-subtle-foreground" />
               <span className="min-w-0 truncate">{configuration.name}</span>
             </button>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+              onClick={() => onEdit(configuration.id)}
+              aria-label={t("run.editService")}
+            >
+              <GearIcon />
+            </Button>
             <Button
               variant="ghost"
               size="icon-xs"

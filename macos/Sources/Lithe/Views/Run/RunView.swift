@@ -683,6 +683,7 @@ struct RunView: View {
             isSelected: selectedSessionID == configuration.id,
             isPinned: isPinned(configuration),
             onPin: { togglePinned(configuration) },
+            onEdit: { editInSettings(configuration) },
             checkedConfiguration: configuration,
             onToggle: {
                 if let session, session.isRunning {
@@ -776,6 +777,13 @@ struct RunView: View {
         .accessibilityAddTraits(contentTab == tab ? .isSelected : [])
     }
 
+    /// The editor lives in Settings; open it on this configuration in one step
+    /// without changing which session's output the Run tool window shows.
+    private func editInSettings(_ configuration: RunConfiguration) {
+        feature.editingConfigurationID = configuration.id
+        model.showSettings(category: .run)
+    }
+
     private func configurationDetail(
         _ configuration: RunConfiguration,
         session: RunSession?
@@ -795,6 +803,15 @@ struct RunView: View {
                     Text("Configuration details")
                         .font(.system(size: 11.5, weight: .semibold))
                     Spacer(minLength: 8)
+                    Button {
+                        editInSettings(configuration)
+                    } label: {
+                        Label("Edit Configuration…", systemImage: "gearshape")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .lithePointer()
+                    .disabled(feature.configurationStatus != .ready || feature.isLoadingProject)
                 }
 
                 VStack(spacing: 8) {
@@ -970,6 +987,7 @@ struct RunView: View {
         isSelected: Bool,
         isPinned: Bool = false,
         onPin: (() -> Void)? = nil,
+        onEdit: (() -> Void)? = nil,
         checkedConfiguration: RunConfiguration? = nil,
         onToggle: (() -> Void)?,
         action: @escaping () -> Void
@@ -1038,6 +1056,16 @@ struct RunView: View {
                     .foregroundStyle(isPinned ? LitheTheme.accent : LitheTheme.secondaryText)
                     .help(isPinned ? "Unpin configuration" : "Pin configuration")
                     .accessibilityLabel(isPinned ? "Unpin configuration" : "Pin configuration")
+                }
+                if let onEdit {
+                    Button(action: onEdit) {
+                        Image(systemName: "gearshape")
+                    }
+                    .litheIconButton()
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .help("Edit Configuration…")
+                    .accessibilityLabel("Edit Configuration…")
+                    .disabled(feature.configurationStatus != .ready || feature.isLoadingProject)
                 }
                 if let onToggle {
                     Button(action: onToggle) {

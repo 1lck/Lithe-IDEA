@@ -224,6 +224,112 @@ struct MavenRuntimeTests {
 
     @Test
     @MainActor
+    func javaChoiceNamesTheLaunchedJDKAndItsSource() {
+        // Settings shows this chain's answer in place of "automatic", so each
+        // step must report where the JDK came from, and a pending discovery must
+        // not be replaced by a synchronous probe.
+        let locator = ChoiceRuntimeLocator(
+            environmentValues: ["JAVA_HOME": "/jdk/env"],
+            validJavaHomes: ["/jdk/env", "/jdk/detected", "/jdk/project"]
+        )
+        let service = ProjectRuntimeService(runtimeLocator: locator, store: EmptyKeyValueStore())
+        service.openProject(at: URL(fileURLWithPath: "/workspace", isDirectory: true))
+
+        #expect(describe(service.chooseJavaHome(overridePath: nil) { nil }) == "found /jdk/env javaHomeEnvironment")
+        #expect(describe(service.chooseJavaHome(overridePath: "/missing") { nil }) == "invalid /missing")
+        #expect(describe(service.chooseJavaHome(overridePath: "/jdk/detected") { nil }) == "found /jdk/detected configured")
+
+        var settings = service.settings
+        settings.javaHomePath = "/jdk/project"
+        service.updateSettings(settings)
+        #expect(describe(service.chooseJavaHome(overridePath: nil) { nil }) == "found /jdk/project projectSetting")
+        #expect(service.javaHomeURL()?.path == "/jdk/project")
+        #expect(locator.discoverCalls == 0)
+    }
+
+    @Test
+    @MainActor
+    func automaticJavaChoiceWaitsForDiscoveryInsteadOfProbing() {
+        let locator = ChoiceRuntimeLocator(environmentValues: [:], validJavaHomes: ["/jdk/detected"])
+        let service = ProjectRuntimeService(runtimeLocator: locator, store: EmptyKeyValueStore())
+        service.openProject(at: URL(fileURLWithPath: "/workspace", isDirectory: true))
+        let detected = JavaRuntimeCandidate(homePath: "/jdk/detected", version: "21.0.4", vendor: "Temurin")
+
+        #expect(service.chooseJavaHome(overridePath: nil) { nil } == nil)
+        #expect(describe(service.chooseJavaHome(overridePath: nil) { [detected] }) == "found /jdk/detected detected")
+        #expect(describe(service.chooseJavaHome(overridePath: nil) { [] }) == "notFound")
+        #expect(locator.discoverCalls == 0)
+    }
+
+    @Test
+    @MainActor
+    func viewsShowingAutomaticRuntimesStartDiscoveryOnce() async {
+        // The Run configuration editor can be opened without visiting the project
+        // page, which used to be the only place that started discovery.
+        let locator = ChoiceRuntimeLocator(environmentValues: [:], validJavaHomes: [])
+        let service = ProjectRuntimeService(runtimeLocator: locator, store: EmptyKeyValueStore())
+        await service.ensureRuntimesDiscovered()
+        #expect(locator.discoverCalls == 0)
+
+        service.openProject(at: URL(fileURLWithPath: "/workspace", isDirectory: true))
+        #expect(!service.hasDiscoveredRuntimes)
+        await service.ensureRuntimesDiscovered()
+        #expect(service.hasDiscoveredRuntimes)
+        await service.ensureRuntimesDiscovered()
+        #expect(locator.discoverCalls == 1)
+    }
+
+    @Test
+    @MainActor
+    func mavenJavaChoiceReportsAFallbackInsteadOfHidingIt() {
+        let locator = ChoiceRuntimeLocator(
+            environmentValues: ["JAVA_HOME": "/jdk/env"],
+            validJavaHomes: ["/jdk/env", "/jdk/maven"]
+        )
+        let service = ProjectRuntimeService(runtimeLocator: locator, store: EmptyKeyValueStore())
+        service.openProject(at: URL(fileURLWithPath: "/workspace", isDirectory: true))
+
+        #expect(describe(service.chooseMavenJavaHome(overridePath: nil) { nil }) == "found /jdk/env projectJDK")
+
+        var settings = service.settings
+        settings.mavenJavaHomePath = "/missing-maven-jdk"
+        service.updateSettings(settings)
+        // Launches keep falling back to the project JDK; Settings now says so.
+        #expect(describe(service.chooseMavenJavaHome(overridePath: nil) { nil })
+            == "fallback /missing-maven-jdk -> found /jdk/env javaHomeEnvironment")
+        #expect(service.mavenJavaHomeURL()?.path == "/jdk/env")
+
+        settings.mavenJavaHomePath = "/jdk/maven"
+        service.updateSettings(settings)
+        #expect(describe(service.chooseMavenJavaHome(overridePath: nil) { nil }) == "found /jdk/maven projectSetting")
+        // A usable Maven JDK never walks the project chain, which may probe every JDK.
+        #expect(locator.discoverCalls == 0)
+    }
+
+    @Test
+    @MainActor
+    func mavenChoiceNamesWrapperSystemAndInvalidSelections() {
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let wrapper = root.appendingPathComponent("mvnw")
+        let system = URL(fileURLWithPath: "/usr/local/bin/mvn")
+        let withWrapper = ProjectRuntimeService(
+            runtimeLocator: ChoiceRuntimeLocator(executables: [wrapper.path], systemMaven: system),
+            store: EmptyKeyValueStore()
+        )
+        #expect(describe(withWrapper.chooseMavenExecutable(at: root)) == "found /workspace/mvnw mavenWrapper")
+        #expect(describe(withWrapper.chooseMavenExecutable(at: root, overridePath: "/missing")) == "invalid /missing")
+
+        let systemOnly = ProjectRuntimeService(
+            runtimeLocator: ChoiceRuntimeLocator(systemMaven: system),
+            store: EmptyKeyValueStore()
+        )
+        #expect(describe(systemOnly.chooseMavenExecutable(at: root)) == "found /usr/local/bin/mvn systemMaven")
+        let none = ProjectRuntimeService(runtimeLocator: ChoiceRuntimeLocator(), store: EmptyKeyValueStore())
+        #expect(describe(none.chooseMavenExecutable(at: root)) == "notFound")
+    }
+
+    @Test
+    @MainActor
     func savedRunDefaultsReplaceMirroredRuntimeSettings() {
         // `.lithe/run/local.json` owns the project defaults. Settings mirrored from an
         // older editor must follow it, while unrelated Maven settings stay untouched.
@@ -527,4 +633,50 @@ private struct EmptyKeyValueStore: KeyValueStore {
     func stringArray(forKey key: String) -> [String]? { nil }
     func set(_ value: Any?, forKey key: String) {}
     func removeObject(forKey key: String) {}
+}
+
+/// Flattens a runtime choice for readable expectations.
+private func describe(_ choice: RuntimeChoice?) -> String {
+    switch choice {
+    case nil: "detecting"
+    case .found(let url, let source)?: "found \(url.path) \(source)"
+    case .invalid(let path)?: "invalid \(path)"
+    case .fallback(let path, let replacement)?: "fallback \(path) -> \(describe(replacement))"
+    case .notFound?: "notFound"
+    }
+}
+
+/// Runtime locator with fixed answers that counts synchronous discoveries.
+private final class ChoiceRuntimeLocator: RuntimeLocator, @unchecked Sendable {
+    private let environmentValues: [String: String]
+    private let validJavaHomes: Set<String>
+    private let executables: Set<String>
+    private let systemMaven: URL?
+    private(set) var discoverCalls = 0
+
+    init(
+        environmentValues: [String: String] = [:],
+        validJavaHomes: Set<String> = [],
+        executables: Set<String> = [],
+        systemMaven: URL? = nil
+    ) {
+        self.environmentValues = environmentValues
+        self.validJavaHomes = validJavaHomes
+        self.executables = executables
+        self.systemMaven = systemMaven
+    }
+
+    func environment() -> [String: String] { environmentValues }
+    func discover() -> RuntimeDiscoveryResult {
+        discoverCalls += 1
+        return RuntimeDiscoveryResult(javaRuntimes: [], mavenRuntimes: [])
+    }
+    func validJavaHome(path: String) -> URL? {
+        validJavaHomes.contains(path) ? URL(fileURLWithPath: path, isDirectory: true) : nil
+    }
+    func javaRuntime(at homeURL: URL) -> JavaRuntimeCandidate? { nil }
+    func isExecutable(at url: URL) -> Bool { executables.contains(url.standardizedFileURL.path) }
+    func systemMavenExecutable() -> URL? { systemMaven }
+    func mavenExecutable(forHomePath path: String) -> URL? { nil }
+    func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
 }

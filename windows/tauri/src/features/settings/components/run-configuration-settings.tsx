@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { runOptionsFor, useRunStore } from "@/features/run/stores/run.store";
+import { mavenLaunchContextForWorkspace, useMavenStore } from "@/features/maven/stores/maven.store";
 import { RunConfigurationEditor } from "@/features/run/components/run-configuration-editor";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
@@ -21,6 +22,7 @@ export function RunConfigurationSettings() {
       saveError: state.saveError,
       invalidMessage: state.invalidMessage,
       generationNotice: state.generationNotice,
+      diagnostics: state.diagnostics,
       discoveredJava: state.discoveredJava,
       discoveredMaven: state.discoveredMaven,
       discoveredRuntimes: state.discoveredRuntimes,
@@ -29,9 +31,20 @@ export function RunConfigurationSettings() {
     })),
   );
   const { actions } = state;
+  // A launch falls back to Maven's explicit selection; show the same result.
+  const mavenSelection = useMavenStore(
+    useShallow((maven) =>
+      maven.root === root && maven.project
+        ? { mavenExecutablePath: maven.mavenExecutablePath, javaHomePath: maven.javaHomePath }
+        : null,
+    ),
+  );
   useEffect(() => {
     // `actions` changes with the active workspace's Run store.
-    if (root) void ensureRunSettingsProject(useRunStore, root);
+    if (!root) return;
+    void ensureRunSettingsProject(useRunStore, root);
+    // Launches load Maven's selection before resolving; do the same for display.
+    void mavenLaunchContextForWorkspace(root).catch(() => undefined);
   }, [root, actions]);
 
   if (!root) return <p>{t("settings.project.openProject")}</p>;
@@ -45,7 +58,10 @@ export function RunConfigurationSettings() {
         <h3 className="font-medium">{configuration.name}</h3>
         <RunConfigurationEditor
           key={`${root}:${configuration.id}`}
+          root={root}
           configuration={configuration}
+          diagnostics={state.diagnostics}
+          mavenSelection={mavenSelection}
           options={runOptionsFor(configuration)}
           saveError={state.saveError}
           discoveredJava={state.discoveredJava}

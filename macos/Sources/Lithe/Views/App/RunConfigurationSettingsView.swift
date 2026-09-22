@@ -15,7 +15,10 @@ struct RunConfigurationSettingsView: View {
             }
         }
         .task(id: model.workspaceURL) {
-            if model.workspaceURL != nil { _ = await model.activateExecutionModule() }
+            guard model.workspaceURL != nil else { return }
+            _ = await model.activateExecutionModule()
+            // The editor shows the JDK an automatic or inherited value resolves to.
+            await model.runtimeFeature.ensureRuntimesDiscovered()
         }
     }
 }

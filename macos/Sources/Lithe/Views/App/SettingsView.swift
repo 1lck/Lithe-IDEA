@@ -28,6 +28,8 @@ struct SettingsView: View {
     @ObservedObject var viewState: SettingsViewState
     @State private var missingTerminalShellPath: String?
     let initialCategory: SettingsCategory
+    /// Changes with every category request; see `WorkbenchFeatureModel.settingsCategoryRequest`.
+    let categoryRequest: Int
     private let onDismiss: (() -> Void)?
     private static let footerActionLabelWidth: CGFloat = 52
 
@@ -35,11 +37,13 @@ struct SettingsView: View {
         settings: AppSettings,
         viewState: SettingsViewState,
         initialCategory: SettingsCategory = .general,
+        categoryRequest: Int = 0,
         onDismiss: (() -> Void)? = nil
     ) {
         self.settings = settings
         self.viewState = viewState
         self.initialCategory = initialCategory
+        self.categoryRequest = categoryRequest
         self.onDismiss = onDismiss
     }
 
@@ -69,6 +73,10 @@ struct SettingsView: View {
         .onChange(of: initialCategory) { category in
             viewState.searchQuery = ""
             viewState.selection = category
+        }
+        .onChange(of: categoryRequest) { _ in
+            viewState.searchQuery = ""
+            viewState.selection = initialCategory
         }
         .onChange(of: viewState.searchQuery) { _ in
             guard !filteredCategories.contains(viewState.selection),

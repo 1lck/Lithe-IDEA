@@ -185,6 +185,13 @@ struct RunConfigurationEditorView: View {
                     text: stringBinding(\.javaHomePath),
                     chooseDirectory: { chooseDirectory(for: \.javaHomePath) }
                 )
+                EffectiveRuntimeLabel(
+                    feature: model.runtimeFeature,
+                    choice: { model.runtimeFeature.javaChoice(overridePath: nonEmpty(options.javaHomePath)) },
+                    kind: .java,
+                    mode: options.javaHomePath.isEmpty ? .inherited : .configured,
+                    requirements: requirementMessages(for: "project-jdk")
+                )
             }
             if configuration.kind.isMavenBacked {
                 pathRow(
@@ -194,11 +201,32 @@ struct RunConfigurationEditorView: View {
                     chooseDirectory: { chooseFileOrDirectory(for: \.mavenExecutablePath) },
                     chooseHelp: "Choose Maven executable or home"
                 )
+                if let workspaceURL = model.workspaceURL {
+                    EffectiveRuntimeLabel(
+                        feature: model.runtimeFeature,
+                        choice: {
+                            model.runtimeFeature.mavenChoice(
+                                at: workspaceURL,
+                                overridePath: nonEmpty(options.mavenExecutablePath)
+                                    ?? model.runtimeFeature.settings.mavenExecutableOverride
+                            )
+                        },
+                        kind: .maven,
+                        mode: options.mavenExecutablePath.isEmpty ? .inherited : .configured,
+                        requirements: requirementMessages(for: "project-maven")
+                    )
+                }
                 pathRow(
                     title: "Maven JDK Home",
                     placeholder: "Use project default",
                     text: stringBinding(\.mavenJavaHomePath),
                     chooseDirectory: { chooseDirectory(for: \.mavenJavaHomePath) }
+                )
+                EffectiveRuntimeLabel(
+                    feature: model.runtimeFeature,
+                    choice: { model.runtimeFeature.mavenJavaChoice(overridePath: effectiveMavenJavaOverride) },
+                    kind: .java,
+                    mode: options.mavenJavaHomePath.isEmpty ? .inherited : .configured
                 )
             }
             pathRow(
@@ -208,6 +236,25 @@ struct RunConfigurationEditorView: View {
                 chooseDirectory: { chooseDirectory(for: \.workingDirectoryPath) }
             )
         }
+    }
+
+    private func nonEmpty(_ path: String) -> String? {
+        path.isEmpty ? nil : path
+    }
+
+    /// Mirrors the Maven toolchain provider: Core fills empty overrides with the
+    /// project defaults, and an empty Maven JDK then uses this configuration's JDK.
+    private var effectiveMavenJavaOverride: String? {
+        let defaults = model.runtimeFeature.settings
+        let mavenJDK = nonEmpty(options.mavenJavaHomePath) ?? nonEmpty(defaults.mavenJavaHomePath)
+        return mavenJDK ?? nonEmpty(options.javaHomePath) ?? nonEmpty(defaults.javaHomePath)
+    }
+
+    private func requirementMessages(for toolchain: String) -> [String] {
+        feature.configurationDiagnostics.toolchainRequirementMessages(
+            for: toolchain,
+            configurationID: configuration.id
+        )
     }
 
     private var projectToolchainSection: some View {

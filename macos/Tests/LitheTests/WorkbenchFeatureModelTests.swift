@@ -21,6 +21,19 @@ struct WorkbenchFeatureModelTests {
     }
 
     @Test
+    func repeatingASettingsCategoryRequestIsObservable() {
+        // Settings links may request the category that was requested before,
+        // after the user navigated elsewhere inside the open window.
+        let model = WorkbenchFeatureModel()
+        model.presentSettings(category: .project)
+        let first = model.settingsCategoryRequest
+        model.presentSettings(category: .project)
+        #expect(model.requestedSettingsCategory == .project)
+        #expect(model.settingsCategoryRequest == first + 1)
+        #expect(model.isSettingsPresented)
+    }
+
+    @Test
     func mavenNavigationDoesNotReplaceBottomTools() {
         let model = WorkbenchFeatureModel()
         model.setVisibility(.terminal, isVisible: true)

@@ -46,6 +46,8 @@ final class ProjectRuntimeService: ObservableObject {
     private var discoveryTask: Task<Void, Never>?
     private var activeDiscoveryID: UUID?
     private var javaLanguageServerRuntimePreparation: JavaLanguageServerRuntimePreparation = .unprepared
+    /// Project whose runtimes `javaRuntimes` and `mavenRuntimes` describe.
+    @Published private var discoveredProjectURL: URL?
 
     init(
         runtimeLocator: any RuntimeLocator,
@@ -68,6 +70,7 @@ final class ProjectRuntimeService: ObservableObject {
         projectURL = normalizedURL
         javaRuntimes = []
         mavenRuntimes = []
+        discoveredProjectURL = nil
         settings = loadSettings(for: normalizedURL)
         javaEnvironmentReport = .checking(for: normalizedURL)
         javaLanguageServerRuntimePreparation = .unprepared
@@ -81,6 +84,7 @@ final class ProjectRuntimeService: ObservableObject {
         projectURL = nil
         javaRuntimes = []
         mavenRuntimes = []
+        discoveredProjectURL = nil
         settings = ProjectRuntimeSettings()
         javaEnvironmentReport = nil
         isDiscovering = false
@@ -90,6 +94,14 @@ final class ProjectRuntimeService: ObservableObject {
 
     func setActiveServiceJavaHomePath(_ path: String) {
         activeServiceJavaHomePath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Starts discovery for the open project unless it already ran or is running.
+    /// Every view that shows an automatic runtime calls this; without it the
+    /// value stays "Detecting…" when Settings is entered past the project page.
+    func ensureRuntimesDiscovered() async {
+        guard projectURL != nil, !hasDiscoveredRuntimes, !isDiscovering else { return }
+        await refreshAvailableRuntimes()
     }
 
     func refreshAvailableRuntimes() async {
@@ -120,29 +132,45 @@ final class ProjectRuntimeService: ObservableObject {
               activeDiscoveryID == discoveryID else { return }
         javaRuntimes = result.javaRuntimes
         mavenRuntimes = result.mavenRuntimes
+        discoveredProjectURL = targetProjectURL
         refreshJavaEnvironmentReport(using: result.javaRuntimes)
         isDiscovering = false
     }
 
     func javaHomeURL(overridePath: String? = nil) -> URL? {
+        chooseJavaHome(overridePath: overridePath) { self.runtimeLocator.discover().javaRuntimes }?.url
+    }
+
+    /// The single JDK selection chain behind launches and Settings: an explicit
+    /// override, then the project JDK, then `JAVA_HOME`, then the first detected
+    /// JDK. An invalid explicit path does not fall back, so a launch fails on it.
+    ///
+    /// `detected` supplies discovered runtimes and is only called when the chain
+    /// reaches detection; returning `nil` reports that detection is pending.
+    func chooseJavaHome(
+        overridePath: String?,
+        detected: () -> [JavaRuntimeCandidate]?
+    ) -> RuntimeChoice? {
         if let overridePath {
             let normalizedPath = normalizedOverridePath(overridePath)
             if !normalizedPath.isEmpty {
                 return runtimeLocator.validJavaHome(path: normalizedPath)
+                    .map { RuntimeChoice.found($0, .configured) } ?? .invalid(normalizedPath)
             }
         }
         let configuredProjectJDK = settings.javaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)
         if !configuredProjectJDK.isEmpty {
-            return runtimeLocator.validJavaHome(path: normalizedOverridePath(configuredProjectJDK))
+            let path = normalizedOverridePath(configuredProjectJDK)
+            return runtimeLocator.validJavaHome(path: path).map { RuntimeChoice.found($0, .projectSetting) } ?? .invalid(path)
         }
         let paths = [runtimeLocator.environment()["JAVA_HOME"]]
         for path in paths.compactMap({ $0 }).map(normalizedPath).filter({ !$0.isEmpty }) {
-            if let home = runtimeLocator.validJavaHome(path: path) { return home }
+            if let home = runtimeLocator.validJavaHome(path: path) { return .found(home, .javaHomeEnvironment) }
         }
-        return runtimeLocator.discover()
-            .javaRuntimes
-            .first
+        guard let runtimes = detected() else { return nil }
+        return runtimes.first
             .flatMap { runtimeLocator.validJavaHome(path: $0.homePath) }
+            .map { RuntimeChoice.found($0, .detected) } ?? .notFound
     }
 
     func javaExecutableURL(overridePath: String? = nil) -> URL? {
@@ -218,18 +246,32 @@ final class ProjectRuntimeService: ObservableObject {
     }
 
     func mavenJavaHomeURL(overridePath: String? = nil) -> URL? {
+        chooseMavenJavaHome(overridePath: overridePath) { self.runtimeLocator.discover().javaRuntimes }?.url
+    }
+
+    /// Maven's JDK: an explicit override, then the configured Maven JDK, then
+    /// the project JDK chain. An unusable configured Maven JDK falls back to the
+    /// project JDK, which `.fallback` reports instead of hiding.
+    func chooseMavenJavaHome(
+        overridePath: String?,
+        detected: () -> [JavaRuntimeCandidate]?
+    ) -> RuntimeChoice? {
         if let overridePath {
             let normalizedPath = normalizedOverridePath(overridePath)
             if !normalizedPath.isEmpty {
                 return runtimeLocator.validJavaHome(path: normalizedPath)
+                    .map { RuntimeChoice.found($0, .configured) } ?? .invalid(normalizedPath)
             }
         }
         let configuredMavenJDK = settings.mavenJavaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !configuredMavenJDK.isEmpty,
-           let home = runtimeLocator.validJavaHome(path: normalizedOverridePath(configuredMavenJDK)) {
-            return home
+        // The project chain may probe every JDK, so it runs only when needed.
+        guard !configuredMavenJDK.isEmpty else {
+            return chooseJavaHome(overridePath: nil, detected: detected)?.inheritedAsProjectJDK
         }
-        return javaHomeURL()
+        let path = normalizedOverridePath(configuredMavenJDK)
+        if let home = runtimeLocator.validJavaHome(path: path) { return .found(home, .projectSetting) }
+        guard let projectJDK = chooseJavaHome(overridePath: nil, detected: detected) else { return nil }
+        return .fallback(invalidPath: path, to: projectJDK)
     }
 
     func environment(
@@ -363,6 +405,12 @@ final class ProjectRuntimeService: ObservableObject {
     }
 
     func mavenExecutable(at rootURL: URL, overridePath: String? = nil) -> URL? {
+        chooseMavenExecutable(at: rootURL, overridePath: overridePath).url
+    }
+
+    /// The Maven selection chain behind launches and Settings: an explicit
+    /// path, then the project `mvnw`, then the system Maven.
+    func chooseMavenExecutable(at rootURL: URL, overridePath: String? = nil) -> RuntimeChoice {
         let configured = overridePath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !configured.isEmpty {
             let resolved = configured.hasPrefix("/")
@@ -370,18 +418,21 @@ final class ProjectRuntimeService: ObservableObject {
                 : rootURL.appendingPathComponent(configured)
             let standardized = resolved.standardizedFileURL
             if runtimeLocator.isExecutable(at: standardized) {
-                return standardized
+                return .found(standardized, .configured)
             }
-            return runtimeLocator.mavenExecutable(
-                forHomePath: standardized.path
-            )
+            return runtimeLocator.mavenExecutable(forHomePath: standardized.path)
+                .map { RuntimeChoice.found($0, .configured) } ?? .invalid(standardized.path)
         }
         let wrapper = rootURL.appendingPathComponent("mvnw")
         if runtimeLocator.isExecutable(at: wrapper) {
-            return wrapper
+            return .found(wrapper, .mavenWrapper)
         }
-        return runtimeLocator.systemMavenExecutable()
+        return runtimeLocator.systemMavenExecutable().map { RuntimeChoice.found($0, .systemMaven) } ?? .notFound
     }
+
+    /// Whether a runtime discovery has completed for the open project. Until
+    /// then an automatic JDK cannot be named without probing synchronously.
+    var hasDiscoveredRuntimes: Bool { discoveredProjectURL == projectURL && projectURL != nil }
 
     /// Resolves a Gradle wrapper before falling back to a system Gradle. The
     /// executable check is delegated to RuntimeLocator so platform adapters
