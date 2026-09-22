@@ -28,6 +28,16 @@ impl Drop for Operation {
     }
 }
 
+fn validate_credential_requirement(
+    provider: &Provider,
+    credential: Option<&str>,
+) -> Result<(), &'static str> {
+    if provider.requires_api_key && credential.is_none_or(|key| key.trim().is_empty()) {
+        return Err("AI_COMMIT_MISSING_KEY");
+    }
+    Ok(())
+}
+
 fn read_optional(path: &Path) -> Result<String, String> {
     let file = match std::fs::File::open(path) {
         Ok(file) => file,
@@ -211,13 +221,7 @@ async fn generate(app: AppHandle, args: GenerateArgs) -> Result<Value, String> {
     })
     .await
     .map_err(|_| "AI_COMMIT_INTERNAL_ERROR")??;
-    if provider.requires_api_key
-        && credential
-            .as_deref()
-            .is_none_or(|key| key.trim().is_empty())
-    {
-        return Err("AI_COMMIT_MISSING_KEY".into());
-    }
+    validate_credential_requirement(&provider, credential.as_deref()).map_err(str::to_owned)?;
     let plan = ai::plan_commit(&provider, &args.options, &args.files)?;
     // Never follow a redirect carrying credentials to a different server.
     let client = reqwest::Client::builder()
@@ -264,4 +268,42 @@ async fn generate(app: AppHandle, args: GenerateArgs) -> Result<Value, String> {
         serde_json::from_slice(&bytes).map_err(|_| "AI_COMMIT_INVALID_RESPONSE")?;
     let message = ai::decode_message(&provider.api_protocol, &response, args.options.include_body)?;
     Ok(json!({"message":message}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{validate_credential_requirement, Provider};
+    use lithe_core::ai::ChatTokenLimitField;
+
+    fn provider(requires_api_key: bool) -> Provider {
+        Provider {
+            id: "fixture".into(),
+            name: "Fixture".into(),
+            endpoint: "https://example.test/v1".into(),
+            model: "fixture-model".into(),
+            api_protocol: "responses".into(),
+            authentication: "bearer".into(),
+            source: "codex".into(),
+            requires_api_key,
+            allows_insecure_http: false,
+            chat_token_limit_field: ChatTokenLimitField::default(),
+        }
+    }
+
+    #[test]
+    fn keyless_provider_does_not_require_a_credential() {
+        assert!(validate_credential_requirement(&provider(false), None).is_ok());
+        assert!(validate_credential_requirement(&provider(false), Some(" ")).is_ok());
+    }
+
+    #[test]
+    fn authenticated_provider_rejects_missing_or_blank_credentials() {
+        for credential in [None, Some(""), Some(" \t ")] {
+            assert_eq!(
+                validate_credential_requirement(&provider(true), credential),
+                Err("AI_COMMIT_MISSING_KEY")
+            );
+        }
+        assert!(validate_credential_requirement(&provider(true), Some("fixture-key")).is_ok());
+    }
 }

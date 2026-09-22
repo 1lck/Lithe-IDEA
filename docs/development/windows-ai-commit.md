@@ -66,6 +66,12 @@ Windows 按勾选文件的工作区内容生成，包括该文件尚未暂存的
 
 自动测试覆盖多服务商配置归一化、旧设置默认值、凭据字段剔除、Codex profile/env_key/内置令牌、Claude 模型别名、三种响应解析、输出额度耗尽、Unicode 截断、敏感路径拒绝、空响应、草稿确认、工作区变化、同名文件内容变化和取消。Review 修复补充凭据来源绑定、免密配置、现代与旧版 Token 参数、默认推理参数省略，以及两个 AI 设置页独立可达的回归测试。
 
+## 验证环境
+
+Windows 验证需要仓库锁定的 Bun 版本（由 `windows/tauri/package.json` 的 `packageManager` 声明）、Node.js、Rust stable MSVC 工具链及 `x86_64-pc-windows-msvc` target。前端依赖使用仓库脚本安装，不能用其他 Bun 版本替代。Rust 和前端计时 harness 会为每个测试设置独立超时，并生成 HTML/JUnit 报告。
+
+共享契约和 Rust Core 注释校验依赖 Ruby、zsh、ripgrep、GNU 基础工具；在 Windows 上可通过 MSYS2 提供这些命令，并把 `rg.exe` 加入 MSYS2 进程的 `PATH`。服务边界校验还会调用 macOS 专用的 `plutil` 和构建安全检查，必须在 macOS 工具链上执行；它不是 Windows AI 功能的替代验证。
+
 运行命令：
 
 ```powershell
@@ -92,15 +98,16 @@ node scripts/verify-agent-notes.mjs
 - 测试结束后关闭原生应用及 WebView 子进程，确认调试端口不再监听；恢复原设置，移除测试密钥、临时可执行文件及隔离 WebView 配置目录。
 - 前端类型检查、修改区域 lint、Rustdoc 严格文档检查、测试稳定性静态检查、Agent Note 校验及 `git diff --check` 通过。
 
-验证限制：
+初始验证限制（Review 修复前）：
 
 - SharedRust 全量计时完成 651 项，650 项通过；原有 `tests::git_patch_exchange::patch_exchange_detects_index_flags_and_hidden_destination_edits` 的断言通过，但进程总耗时 15.328 秒，超过 15 秒预算。无并行构建时单独复跑为 10.412 秒，通过；保留原全量失败记录，不将其改记为通过。该全量轮次在最后的输出预算修改前编译，最终 AI 8 项已另行重跑。独立的 Git host 6 项通过。
-- 当前 Windows 环境缺少 Ruby / zsh，无法完成依赖它们的共享契约、服务边界和 Core 注释脚本；Rustdoc 严格检查已通过。Windows 边界脚本还会命中本机已有、未跟踪的旧 CMake 产物，并受 Windows 路径分隔符影响；已核对跟踪文件未新增 C++，前端使用统一平台入口。
+- 当时 Windows 环境缺少 Ruby / zsh，无法完成依赖它们的共享契约、服务边界和 Core 注释脚本；Rustdoc 严格检查已通过。Windows 边界脚本还会命中本机已有、未跟踪的旧 CMake 产物，并受 Windows 路径分隔符影响；已核对跟踪文件未新增 C++，前端使用统一平台入口。
 - 真实网络验证覆盖本机已配置的 Responses 和 Anthropic 服务商；Chat Completions 由确定性协议测试覆盖。未验证其他服务商、OAuth 登录刷新或 macOS 运行行为。
 
 ## Review 修复验证（2026-09-22）
 
 - 前端定向计时测试 25 项通过，包含新的两个 AI 设置页切换回归；Core AI 定向计时测试 13 项通过，所有新增用例均在 40 ms 内完成。
-- Windows Release 整机构建通过，生成 `windows/tauri/src-tauri/target/x86_64-pc-windows-msvc/release/lithe-windows.exe`。Windows Rust 宿主计时测试全部通过：项目 11 项、终端 30 项、宿主 153 项。
+- Windows Release 整机构建通过，生成 `windows/tauri/src-tauri/target/x86_64-pc-windows-msvc/release/lithe-windows.exe`。Windows Rust 宿主计时测试全部通过：项目 11 项、终端 30 项、宿主 155 项，其中新增宿主凭据门禁测试 2 项。
+- 共享契约校验和 Rust Core 注释校验已在 MSYS2 环境通过；宿主凭据门禁的定向测试 2 项通过。共享 Rust 全量计时执行到 476 项时命中一个既有 Git 历史重写测试的时序失败，单独复跑该测试通过，未归因于本次 AI 改动。
 - 严格 Rustdoc、类型检查、修改区域 lint、测试稳定性检查、Agent Note 校验和 `git diff --check` 通过。构建和测试过程中没有启动并遗留 Lithe 应用进程。
-- 当前环境缺少 Ruby / zsh，依赖它们的共享契约、服务边界和 Core 注释脚本仍未执行；未进行真实服务商网络联调或 macOS 运行验证。
+- 服务边界校验仍不能在 Windows 完整通过，因为其中的 macOS 应用安全子检查依赖 `plutil`；未进行真实服务商网络联调或 macOS 运行验证。
