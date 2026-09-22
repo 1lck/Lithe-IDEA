@@ -5,6 +5,10 @@ struct ProjectRuntimeSettingsView: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: RuntimeSettingsFeatureModel
     @State private var selectedSubprojectID = ProjectRuntimeInventory.projectDefaultsID
+    /// Editing waits until the form is seeded from this project's saved defaults.
+    /// An earlier edit could not reach `.lithe/run/local.json`, and adopting the
+    /// saved defaults afterwards would silently revert it.
+    @State private var isPrepared = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,6 +22,7 @@ struct ProjectRuntimeSettingsView: View {
                     Rectangle().fill(LitheTheme.divider).frame(width: 1)
                     detail
                 }
+                .disabled(!isPrepared)
             }
         }
         .background(LitheTheme.settingsSurface)
@@ -26,8 +31,12 @@ struct ProjectRuntimeSettingsView: View {
             if feature.subprojects.contains(where: { $0.id == selectedSubprojectID }) == false {
                 selectedSubprojectID = ProjectRuntimeInventory.projectDefaultsID
             }
+            isPrepared = true
         }
         .onDisappear {
+            // Before preparation the form holds unmerged values; persisting them
+            // would overwrite the saved project and Maven settings.
+            guard isPrepared else { return }
             model.persistProjectRuntimeSettings()
         }
     }
@@ -42,6 +51,12 @@ struct ProjectRuntimeSettingsView: View {
                 ProgressView()
                     .controlSize(.small)
                 Text("Discovering…")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            } else if !isPrepared && model.workspaceURL != nil {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Loading project environment…")
                     .font(.system(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             }

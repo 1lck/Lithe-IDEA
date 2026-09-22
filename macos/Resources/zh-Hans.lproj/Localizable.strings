@@ -2137,6 +2137,7 @@
 "Fetch completed with no reference changes." = "获取完成，没有引用变化。";
 "Project · JDK & Maven" = "项目 · JDK 与 Maven";
 "Project environment" = "项目环境";
+"Loading project environment…" = "正在读取项目环境…";
 "Configure project JDK and Maven…" = "配置项目 JDK 和 Maven…";
 "Run configurations inherit the project JDK and Maven unless overridden below." = "运行配置默认继承项目 JDK 和 Maven，可在下方为当前配置单独覆盖。";
 "These overrides affect only this run configuration. Clear a path to inherit the project environment." = "以下覆盖值仅影响当前运行配置。清空路径可恢复继承项目环境。";
