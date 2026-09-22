@@ -277,6 +277,7 @@
 "The Maven project could not be reloaded. The previous model is still available." = "The Maven project could not be reloaded. The previous model is still available.";
 "Java runtime is not ready. Retry Maven reload." = "Java runtime is not ready. Retry Maven reload.";
 "Dependencies" = "Dependencies";
+"Dependency Paths" = "Dependency Paths";
 "Switch project view" = "Switch project view";
 "Refresh dependencies" = "Refresh dependencies";
 "Loading dependencies..." = "Loading dependencies...";

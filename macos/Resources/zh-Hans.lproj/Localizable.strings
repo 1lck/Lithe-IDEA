@@ -1488,6 +1488,7 @@
 "The Maven project could not be reloaded. The previous model is still available." = "无法重新加载 Maven 项目，仍可使用之前的模型。";
 "Java runtime is not ready. Retry Maven reload." = "Java 运行时尚未就绪，请重试 Maven 重新加载。";
 "Dependencies" = "依赖";
+"Dependency Paths" = "依赖路径";
 "Switch project view" = "切换项目视图";
 "Refresh dependencies" = "刷新依赖";
 "Loading dependencies..." = "正在加载依赖…";

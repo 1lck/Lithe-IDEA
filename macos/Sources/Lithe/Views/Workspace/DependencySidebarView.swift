@@ -130,16 +130,6 @@ private struct DependencyServiceSection: View {
             resolutionTask?.cancel()
             resolutionTask = nil
         }
-        .popover(isPresented: $isConfigurationPresented, arrowEdge: .trailing) {
-            DependencyPathConfigurationEditor(
-                serviceName: service.displayName,
-                workspaceURL: model.workspaceURL,
-                configuration: feature.dependencyPaths(for: service.id),
-                saveError: feature.dependencyConfigurationSaveError
-            ) {
-                feature.updateDependencyPaths($0, serviceID: service.id)
-            }
-        }
     }
 
     private var serviceRow: some View {
@@ -187,6 +177,16 @@ private struct DependencyServiceSection: View {
             .lithePointer()
             .help("Configure dependency search paths")
             .accessibilityIdentifier("dependency-path-settings-\(service.id)")
+            .popover(isPresented: $isConfigurationPresented, arrowEdge: .trailing) {
+                DependencyPathConfigurationEditor(
+                    serviceName: service.displayName,
+                    workspaceURL: model.workspaceURL,
+                    configuration: feature.dependencyPaths(for: service.id),
+                    saveError: feature.dependencyConfigurationSaveError
+                ) {
+                    feature.updateDependencyPaths($0, serviceID: service.id)
+                }
+            }
             .padding(.trailing, 4)
         }
         .frame(maxWidth: .infinity)
@@ -321,7 +321,7 @@ private struct DependencyTreeNodeView: View {
                             .font(.system(size: 11))
                             .foregroundStyle(LitheTheme.secondaryText)
                             .frame(width: 16)
-                        Text(LocalizedStringKey(node.title))
+                        Text(LocalizedStringKey(node.title == "Dependencies" ? "Dependency Paths" : node.title))
                             .font(.system(size: LitheTheme.Metrics.treeFontSize))
                             .foregroundStyle(LitheTheme.primaryText)
                             .lineLimit(1)
