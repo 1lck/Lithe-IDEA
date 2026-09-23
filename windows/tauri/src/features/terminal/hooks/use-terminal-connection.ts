@@ -2,8 +2,18 @@ import { invoke } from "@/platform/tauri-core";
 import type { IDisposable, Terminal as XtermTerminal } from "@xterm/xterm";
 import { useCallback, useEffect, useRef } from "react";
 import { themeRegistry } from "@/extensions/themes/theme-registry";
+import {
+  isFrontendDiagnosticEnabled,
+  submitFrontendLog,
+} from "@/features/logging/frontend-log-runtime";
 import type { TerminalInput, TerminalSize } from "../types/terminal.types";
 import { TerminalOscStream } from "../utils/terminal-osc-stream";
+import {
+  snapshotTerminalLayout,
+  snapshotTerminalViewport,
+  TerminalProtocolDiagnostics,
+  type TerminalResizeSource,
+} from "../utils/terminal-protocol-diagnostics";
 import {
   getTerminalOutputFlowAction,
   getTerminalSize,
@@ -11,7 +21,11 @@ import {
   subscribeToTerminalEvents,
   terminalSizesEqual,
 } from "../utils/terminal-protocol";
-import { useTerminalWriteBuffer } from "./use-terminal-write-buffer";
+import { TerminalOutputWriteBuffer } from "../utils/terminal-output-write-buffer";
+import {
+  useTerminalWriteBuffer,
+  type TerminalWriteBufferTraceEvent,
+} from "./use-terminal-write-buffer";
 
 interface UseTerminalConnectionOptions {
   connectionId?: string;
@@ -54,13 +68,32 @@ export function useTerminalConnection({
   const outputPausedRef = useRef(false);
   const outputDecoderRef = useRef(new TextDecoder());
   const oscStreamRef = useRef(new TerminalOscStream());
+  const diagnosticsRef = useRef<TerminalProtocolDiagnostics | null>(null);
+  const terminalInputEncoder = useRef(new TextEncoder());
 
   const writeInput = useCallback(
     async (activeConnectionId: string, input: TerminalInput) => {
-      await invoke(remoteConnectionId ? "remote_terminal_write" : "terminal_write", {
-        id: activeConnectionId,
-        input,
-      });
+      const bytes =
+        input.kind === "text"
+          ? terminalInputEncoder.current.encode(input.data).byteLength
+          : input.data.length;
+      diagnosticsRef.current?.recordTrace("input-ipc", "start", { bytes, kind: input.kind });
+      try {
+        await invoke(remoteConnectionId ? "remote_terminal_write" : "terminal_write", {
+          id: activeConnectionId,
+          input,
+        });
+        diagnosticsRef.current?.recordTrace("input-ipc", "complete", {
+          bytes,
+          kind: input.kind,
+        });
+      } catch (error) {
+        diagnosticsRef.current?.recordTrace("input-ipc", "failure", {
+          bytes,
+          kind: input.kind,
+        });
+        throw error;
+      }
     },
     [remoteConnectionId],
   );
@@ -71,6 +104,10 @@ export function useTerminalConnection({
     flush,
   } = useTerminalWriteBuffer({
     getConnectionId: () => currentConnectionIdRef.current,
+    onTrace: (event: TerminalWriteBufferTraceEvent) => {
+      const { stage, ...fields } = event;
+      diagnosticsRef.current?.recordTrace("input-buffer", stage, fields);
+    },
     writeChunk: async (activeConnectionId, input) => {
       await writeInput(activeConnectionId, input);
     },
@@ -103,20 +140,49 @@ export function useTerminalConnection({
   );
 
   const sendTerminalSize = useCallback(
-    (activeTerminal: XtermTerminal) => {
+    (activeTerminal: XtermTerminal, source: TerminalResizeSource = "direct") => {
       const activeConnectionId = currentConnectionIdRef.current;
-      if (!activeConnectionId) return;
+      if (!activeConnectionId) {
+        diagnosticsRef.current?.recordTrace("resize", "skip-no-connection");
+        return;
+      }
 
       const size = getTerminalSize(activeTerminal);
-      if (terminalSizesEqual(lastSizeRef.current, size)) return;
+      if (terminalSizesEqual(lastSizeRef.current, size)) {
+        diagnosticsRef.current?.recordTrace("resize", "skip-equal", {
+          cols: size.cols,
+          rows: size.rows,
+          source,
+        });
+        return;
+      }
       lastSizeRef.current = size;
+      diagnosticsRef.current?.recordPtyResize(source, size.cols, size.rows);
+      diagnosticsRef.current?.recordTrace("resize", "ipc-start", {
+        cols: size.cols,
+        rows: size.rows,
+        source,
+      });
 
       void invoke(remoteConnectionId ? "remote_terminal_resize" : "terminal_resize", {
         id: activeConnectionId,
         size,
-      }).catch(() => {
-        lastSizeRef.current = null;
-      });
+      })
+        .then(() => {
+          diagnosticsRef.current?.recordTrace("resize", "ipc-complete", {
+            cols: size.cols,
+            rows: size.rows,
+            source,
+          });
+        })
+        .catch(() => {
+          diagnosticsRef.current?.recordTrace("resize", "ipc-failure", {
+            cols: size.cols,
+            rows: size.rows,
+            source,
+          });
+          lastSizeRef.current = null;
+        });
     },
     [remoteConnectionId],
   );
@@ -141,10 +207,97 @@ export function useTerminalConnection({
     if (!terminal || !isInitialized || !connectionId) return;
 
     const disposables: IDisposable[] = [];
+    const inputEncoder = new TextEncoder();
+    const diagnostics = new TerminalProtocolDiagnostics({
+      emit: (payload) => {
+        void submitFrontendLog({
+          level: "debug",
+          scope: "terminal.protocol",
+          message: "terminal protocol activity",
+          payload: { sessionId, ...payload },
+        });
+      },
+      isEnabled: isFrontendDiagnosticEnabled,
+    });
+    diagnosticsRef.current = diagnostics;
+    diagnostics.recordTrace("effect", "setup", {
+      hasRemoteConnection: remoteConnectionId ? 1 : 0,
+    });
 
-    disposables.push(terminal.onData(write));
+    const getDiagnosticContainer = () => terminal.element ?? null;
+    const layoutContainer = getDiagnosticContainer();
+    const layoutViewport = layoutContainer?.querySelector<HTMLElement>(".xterm-viewport");
+    const layoutObserver =
+      layoutContainer && typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => {
+            if (!isFrontendDiagnosticEnabled()) return;
+            diagnostics.recordResizeObserver();
+            const container = getDiagnosticContainer();
+            if (container) {
+              diagnostics.recordLayout(snapshotTerminalLayout(terminal, container));
+            }
+          })
+        : null;
+    if (layoutObserver && layoutContainer) {
+      layoutObserver.observe(layoutContainer);
+      if (layoutViewport) layoutObserver.observe(layoutViewport);
+      const screen = layoutContainer.querySelector<HTMLElement>(".xterm-screen");
+      if (screen) layoutObserver.observe(screen);
+      for (const canvas of layoutContainer.querySelectorAll("canvas")) {
+        layoutObserver.observe(canvas);
+      }
+    }
+    const diagnosticsHeartbeat = window.setInterval(() => {
+      if (!isFrontendDiagnosticEnabled()) {
+        diagnostics.recordHeartbeat(null);
+        return;
+      }
+      const container = getDiagnosticContainer();
+      diagnostics.recordHeartbeat(container ? snapshotTerminalLayout(terminal, container) : null);
+    }, 1_000);
+
+    const outputWriteBuffer = new TerminalOutputWriteBuffer({
+      write: (data, onComplete) => {
+        const viewportBeforeWrite = snapshotTerminalViewport(terminal);
+        diagnostics.recordTrace("output", "xterm-write-start", {
+          beforeBaseY: viewportBeforeWrite.baseY,
+          beforeViewportY: viewportBeforeWrite.viewportY,
+          bytes: data.byteLength,
+        });
+        terminal.write(data, () => {
+          diagnostics.recordWriteComplete(viewportBeforeWrite, snapshotTerminalViewport(terminal));
+          onComplete();
+        });
+      },
+    });
+
+    disposables.push(
+      terminal.onData((data) => {
+        diagnostics.recordInput(inputEncoder.encode(data).byteLength);
+        write(data);
+      }),
+    );
     disposables.push(terminal.onBinary(writeBinary));
-    disposables.push(terminal.onResize(() => sendTerminalSize(terminal)));
+    disposables.push(
+      terminal.onResize(() => {
+        diagnostics.recordResize(terminal.cols, terminal.rows);
+        sendTerminalSize(terminal, "xterm-resize");
+      }),
+    );
+    disposables.push(
+      terminal.onRender(({ start, end }) => {
+        diagnostics.recordRender(start, end, terminal.rows);
+        const viewport = snapshotTerminalViewport(terminal);
+        diagnostics.recordTrace("render", "event", {
+          baseY: viewport.baseY,
+          cursorY: viewport.cursorY,
+          end,
+          start,
+          viewportY: viewport.viewportY,
+        });
+      }),
+    );
+    disposables.push(terminal.onScroll((position) => diagnostics.recordScroll(position)));
     disposables.push(
       terminal.onSelectionChange(() => {
         const selection = terminal.getSelection();
@@ -158,6 +311,7 @@ export function useTerminalConnection({
     const unsubscribeEvents = subscribeToTerminalEvents(connectionId, (event) => {
       if (event.event === "output") {
         const bytes = Uint8Array.from(event.data);
+        diagnostics.recordOutput(bytes);
         queuedOutputBytesRef.current += bytes.byteLength;
 
         if (
@@ -173,7 +327,7 @@ export function useTerminalConnection({
           updateSession(sessionId, oscUpdates);
         }
 
-        terminal.write(bytes, () => {
+        outputWriteBuffer.enqueue(bytes, () => {
           queuedOutputBytesRef.current = Math.max(
             0,
             queuedOutputBytesRef.current - bytes.byteLength,
@@ -189,6 +343,7 @@ export function useTerminalConnection({
       }
 
       if (event.event === "error") {
+        outputWriteBuffer.flush();
         terminal.writeln(`\r\n\x1b[31mError: ${event.message}\x1b[0m`);
         return;
       }
@@ -198,6 +353,7 @@ export function useTerminalConnection({
         return;
       }
 
+      outputWriteBuffer.flush();
       void invoke(remoteConnectionId ? "close_remote_terminal" : "close_terminal", {
         id: connectionId,
       }).catch(() => {});
@@ -220,9 +376,15 @@ export function useTerminalConnection({
       terminal.writeln("\x1b[90mOpen a new terminal tab or close this one manually.\x1b[0m");
     });
 
-    sendTerminalSize(terminal);
+    sendTerminalSize(terminal, "connection");
 
     return () => {
+      diagnostics.recordTrace("effect", "cleanup");
+      outputWriteBuffer.dispose();
+      diagnostics.flush("dispose");
+      window.clearInterval(diagnosticsHeartbeat);
+      layoutObserver?.disconnect();
+      if (diagnosticsRef.current === diagnostics) diagnosticsRef.current = null;
       void flush();
       if (outputPausedRef.current) setOutputPaused(false);
       for (const disposable of disposables) disposable.dispose();
