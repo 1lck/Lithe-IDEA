@@ -30,3 +30,19 @@
 2. 开发的时候如果涉及到 github 相关的操作麻烦使用 gh CLI 来进行操作而不是使用 Compute rUse 的 Skill。由于沙盒影响可能导致需要反复的 gh 授权，每次需要授权的时候麻烦先申请更高的权限去主环境中查看对应是否有 gh 的Token，如果有就直接复用，这个时候找不到才要求登录 gh
 3. 开发完成提交 PR 的时候需要说清楚对应改动的功能点，哪怕是一些细小的改动也是需要包含在内的，需要确保 code reviewer 马上就可以理解这个改动是什么
 4. 如果让你修复有关 CI 的流程，记得使用 gh 或者 curl 之类的去查看(优先 gh)而不是使用 Computer Use
+
+## 工作树资源复用与文档维护
+
+- Git worktree 之间不共享各自的 `.artifacts`。单独工作树进行本地编译时，优先
+  通过 `scripts/reuse-worktree-resources.mjs --source <已有工作树>` 复用资源，不要
+  手工搬运或直接共享整个 `.artifacts`。脚本必须保持源目录只读，通过目标临时
+  目录完成校验，并在原子发布后再次校验。
+- 新增或修改任何下载、解压、生成或缓存资源时，必须同步更新
+  `scripts/worktree-resources.json`、`scripts/reuse-worktree-resources.mjs` 的校验路由、
+  对应测试，以及 `docs/ci-builds.md` 的“独立工作树的本地编译”章节。更新内容
+  至少包括资源路径、是否允许跨 worktree 复用、版本/平台/架构/工具链身份约束、
+  校验来源、复制时机，以及不能共享时的隔离原因。
+- PR 中如果增加新的资源目录、下载入口、缓存变量或校验逻辑，必须检查并更新
+  资源复用清单和相关验证脚本；不能只把资源加入构建流程而遗漏 worktree 复用
+  说明。生成资源没有可靠 identity stamp 时不得注册为可复用资源；可变构建状态
+  和 LSP workspace 状态不得跨 worktree 共享。
