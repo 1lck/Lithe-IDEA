@@ -1226,13 +1226,7 @@ fn shutdown_adapter_input(stdin: &Arc<Mutex<AdapterInput>>) {
 }
 
 fn kill_adapter_process(pid: u32) {
-    if pid == 0 {
-        return;
-    }
-    let mut command = Command::new("taskkill");
-    command.args(["/F", "/T", "/PID", &pid.to_string()]);
-    apply_creation_flags(&mut command);
-    let _ = command.output();
+    crate::run::terminate_process_tree(pid);
 }
 
 fn adapter_identifier(command: &str) -> String {
@@ -1247,6 +1241,7 @@ fn adapter_identifier(command: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
     use std::process::Stdio;
     use std::sync::mpsc;
     use std::time::Duration;
@@ -1271,7 +1266,7 @@ mod tests {
             .parent()
             .and_then(Path::parent)
             .expect("target directory")
-            .join("fake-dap-adapter.exe")
+            .join(format!("fake-dap-adapter{}", std::env::consts::EXE_SUFFIX))
     }
 
     #[cfg(all(windows, feature = "test-support"))]
@@ -1945,7 +1940,8 @@ mod tests {
 
     #[test]
     fn derives_adapter_identifier_from_the_executable_name() {
-        assert_eq!(adapter_identifier(r"C:\tools\bun.exe"), "bun");
+        let windows_path = Path::new("tools").join("bun.exe");
+        assert_eq!(adapter_identifier(&windows_path.to_string_lossy()), "bun");
         assert_eq!(adapter_identifier("python"), "python");
         assert_eq!(adapter_identifier(""), "custom");
     }

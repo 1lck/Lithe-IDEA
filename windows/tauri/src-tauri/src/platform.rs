@@ -5,6 +5,14 @@ use tauri::Manager;
 
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
+/// Prefix for host-adapter errors. Windows keeps its historical wording so
+/// existing logs and error surfaces stay byte-identical; other platforms use a
+/// neutral prefix because the adapter is no longer Windows-only.
+#[cfg(windows)]
+const PLATFORM_COMMAND_PREFIX: &str = "Windows platform command";
+#[cfg(not(windows))]
+const PLATFORM_COMMAND_PREFIX: &str = "Platform command";
+
 #[tauri::command]
 pub async fn platform_invoke(
     webview: tauri::Webview,
@@ -287,7 +295,7 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
                         payload.insert("emptyTreeBase".into(), json!(true));
                     }
                     None => {
-                        return Err("Windows platform command requires baseRef".to_string());
+                        return Err(format!("{PLATFORM_COMMAND_PREFIX} requires baseRef"));
                     }
                 }
             }
@@ -357,7 +365,7 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
                 let reference = payload
                     .get("reference")
                     .and_then(Value::as_str)
-                    .ok_or_else(|| "Windows platform command requires reference".to_string())?;
+                    .ok_or_else(|| format!("{PLATFORM_COMMAND_PREFIX} requires reference"))?;
                 let kind = reference_kind(reference);
                 payload
                     .entry("referenceKind")
@@ -601,7 +609,7 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
         }
         _ => {
             return Err(format!(
-                "Windows platform command is not implemented: {command}"
+                "{PLATFORM_COMMAND_PREFIX} is not implemented: {command}"
             ));
         }
     };
@@ -663,7 +671,7 @@ fn preserve_typed_or_legacy_reference(
             .as_str()
             .map(str::to_string)
             .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| "Windows platform command requires reference".to_string())?;
+            .ok_or_else(|| format!("{PLATFORM_COMMAND_PREFIX} requires reference"))?;
         payload.insert("reference".into(), json!(reference));
         if legacy_field != "reference" {
             payload.remove(legacy_field);
@@ -701,7 +709,7 @@ fn take_reference(payload: &mut Map<String, Value>) -> Result<String, String> {
             .as_str()
             .map(str::to_string)
             .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| "Windows platform command requires reference".to_string());
+            .ok_or_else(|| format!("{PLATFORM_COMMAND_PREFIX} requires reference"));
     }
     take_text(payload, "branchName").map(|branch| local_branch_reference(&branch))
 }
@@ -727,7 +735,7 @@ fn take_text(payload: &mut Map<String, Value>, field: &str) -> Result<String, St
         .remove(field)
         .and_then(|value| value.as_str().map(str::to_string))
         .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| format!("Windows platform command requires {field}"))
+        .ok_or_else(|| format!("{PLATFORM_COMMAND_PREFIX} requires {field}"))
 }
 
 #[cfg(test)]

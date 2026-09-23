@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-macOS 和 Windows 是两套独立产品，共享的确定性行为放进 Rust Core，平台特有能力留在各自适配层。写代码时先按目录职责放置实现；如果一个行为会被两端共同使用，先确认共享契约和 Rust Core 是否应成为唯一实现。
+macOS 和 Windows/Linux 是彼此独立的产品，共享的确定性行为放进 Rust Core，平台特有能力留在各自适配层。写代码时先按目录职责放置实现；如果一个行为会被两端共同使用，先确认共享契约和 Rust Core 是否应成为唯一实现。Linux 复用 `windows/` 下的 React/Tauri 产品，只覆盖平台差异，具体边界见 [Linux 产品复用 Tauri 工作台](2026-09-23-linux-tauri-product-boundary.md)。
 
 ## 问题
 
@@ -19,8 +19,10 @@ C 符号、模块 ID、能力 ID 或插件入口名称。
 
 ## 决策
 
-macOS 是当前参考产品。Windows 是独立的 React/Tauri 实现，不得导入
-Swift 源码，也不得依赖 macOS 类型。
+macOS 是当前参考产品。Windows 与 Linux 是独立的 React/Tauri 实现，不得导入
+Swift 源码，也不得依赖 macOS 类型；两者共用同一份前端工作台，通过
+`src-tauri/tauri.windows.conf.json` 与 `src-tauri/tauri.linux.conf.json`
+区分平台差异。
 
 仓库采用以下所有权边界：
 
@@ -34,7 +36,7 @@ Swift 源码，也不得依赖 macOS 类型。
 | `macos/Sources/Lithe/Platform/MacOS/` | macOS 适配器和组合根 |
 | `rust/lithe-core/` | 确定性的共享命令、模型、校验和 C ABI |
 | `rust/lithe-git-host/` | 原生 Git 子进程、管道、临时输入和有界清理 |
-| `windows/` | React/Tauri Windows 产品和 Windows Rust 适配器 |
+| `windows/` | React/Tauri Windows 与 Linux 产品和平台 Rust 适配器 |
 | `Plugins/mac/` | macOS 所有的插件包 |
 | `Plugins/win/` | Windows 所有的插件包 |
 | `frontend/editor/` | 两端共同依赖的 Monaco 表现层、分词与编辑器模型；不调用平台 API |

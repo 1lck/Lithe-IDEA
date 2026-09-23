@@ -89,6 +89,7 @@ fn main() {
             app.manage(host::FileClipboard::default());
             app.manage(run::RunProcessManager::default());
             app.manage(debug::DebugAdapterManager::default());
+            #[cfg(windows)]
             run::cleanup_legacy_appdata(app.handle());
             if let Some(window) = app.get_webview_window("main") {
                 host::apply_window_taskbar_icon(&window);
@@ -154,6 +155,7 @@ fn main() {
             logging::record_startup_milestone,
             host::get_system_theme,
             host::set_native_window_appearance,
+            host::uses_native_window_chrome,
             host::get_system_fonts,
             host::get_monospace_fonts,
             host::validate_font,

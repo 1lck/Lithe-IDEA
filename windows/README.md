@@ -1,8 +1,9 @@
-# Windows application
+# Windows and Linux application
 
-Windows is a React and Tauri application under [`tauri`](tauri/). It shares
-deterministic product behavior with macOS through `rust/lithe-core`; it does
-not import Swift code or maintain a second implementation of shared commands.
+Windows and Linux are React and Tauri applications under [`tauri`](tauri/).
+They share deterministic product behavior with macOS through `rust/lithe-core`;
+they do not import Swift code or maintain a second implementation of shared
+commands.
 
 ```text
 React features and stores
@@ -15,15 +16,16 @@ src/platform/tauri-core.ts
         `-- platform_invoke/core_execute -> lithe-core
 ```
 
-The React workbench owns Windows presentation and UI state. Shared search,
-Git, history, language, run-configuration, and file behavior belongs in
-`lithe-core`. Native terminal, file-watcher, credential, dialog, WebView2,
+The React workbench owns Windows and Linux presentation and UI state. Shared
+search, Git, history, language, run-configuration, and file behavior belongs in
+`lithe-core`. Native terminal, file-watcher, credential, dialog, WebView,
 process, and installer behavior belongs in `windows/tauri/src-tauri` or a
 Tauri plugin.
 
 ## Development
 
-Required tools are Bun 1.3.x, Rust, and the Windows WebView2/Tauri toolchain.
+Required tools are Bun 1.3.x, Rust, and the platform WebView/Tauri toolchain
+(WebView2 on Windows, WebKitGTK on Linux).
 
 ```powershell
 cd windows/tauri
@@ -38,9 +40,52 @@ Build the Windows executable through the repository script:
 ./scripts/build-windows.ps1 -Configuration Release
 ```
 
+### Linux
+
+Linux requires Rust, Bun, and the system packages that Tauri and its plugins
+link against:
+
+```bash
+sudo apt-get install -y \
+    libwebkit2gtk-4.1-dev \
+    libgtk-3-dev \
+    libayatana-appindicator3-dev \
+    librsvg2-dev \
+    libssl-dev \
+    libxdo-dev \
+    build-essential \
+    patchelf
+```
+
+Install Bun if it is missing with `curl -fsSL https://bun.sh/install | bash`.
+
+Build the Linux executable through the repository script:
+
+```bash
+./scripts/build-linux.sh --configuration Debug
+./scripts/build-linux.sh --configuration Release
+```
+
+`--configuration` defaults to `Debug`; pass `--target <rust-triple>` to build for
+an architecture other than the host. The script runs `bun install
+--frozen-lockfile`, `bun run typecheck`, `bun run build`, and `tauri build`.
+
+Run the development app from `windows/tauri`:
+
+```bash
+cd windows/tauri
+bun run desktop:dev:linux
+```
+
+Linux uses `src-tauri/tauri.linux.conf.json`, the identifier `app.lithe.linux`,
+the product name `lithe-linux`, and the `deb` and `appimage` bundle targets. The
+bundled JDTLS and JDK resources come from `.artifacts/jdtls-linux` and
+`.artifacts/jdk-linux`, which `scripts/prepare-jdtls-linux.sh` and
+`scripts/prepare-jdk-linux.sh` stage from the manifests under `third_party/`.
+
 The macOS host can run frontend type/build checks and Rust checks, but the
-packaged application, WebView2, ConPTY, installer, signing, and full UI flows
-must be verified on Windows.
+packaged application, WebView2/WebKitGTK, ConPTY/PTY, installer, signing, and
+full UI flows must be verified on Windows or Linux respectively.
 
 ## Migration boundary
 

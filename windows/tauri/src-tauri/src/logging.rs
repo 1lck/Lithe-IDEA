@@ -430,7 +430,7 @@ impl LogManager {
 
         let mut start_fields = BTreeMap::new();
         start_fields.insert("version".into(), app.package_info().version.to_string());
-        start_fields.insert("platform".into(), "windows".into());
+        start_fields.insert("platform".into(), std::env::consts::OS.to_string());
         manager.emit(LogLevel::Info, "session", "session started", start_fields);
         if let Some(reason) = fallback_reason {
             let snapshot = manager.snapshot();
@@ -1897,9 +1897,18 @@ struct LogSanitizer {
 
 impl LogSanitizer {
     fn new() -> Self {
-        let user_profile_patterns = std::env::var("USERPROFILE")
-            .ok()
-            .filter(|value| !value.trim().is_empty())
+        // Redact the current user's home directory on every platform: Windows
+        // exposes USERPROFILE, Unix exposes HOME.
+        let mut profile_values: Vec<String> = Vec::new();
+        for key in ["USERPROFILE", "HOME"] {
+            if let Ok(value) = std::env::var(key) {
+                let value = value.trim().to_string();
+                if !value.is_empty() && !profile_values.contains(&value) {
+                    profile_values.push(value);
+                }
+            }
+        }
+        let user_profile_patterns = profile_values
             .into_iter()
             .flat_map(|profile| [profile.clone(), profile.replace('\\', "/")])
             .filter_map(|profile| Regex::new(&format!("(?i){}", regex::escape(&profile))).ok())

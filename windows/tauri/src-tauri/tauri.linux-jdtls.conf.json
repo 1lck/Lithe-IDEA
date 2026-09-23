@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "resources": {
+      "../../../.artifacts/jdtls-linux": "LanguageServers/jdtls",
+      "../../../.artifacts/jdk-linux": "LanguageServers/jdk"
+    }
+  }
+}

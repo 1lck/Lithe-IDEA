@@ -1,4 +1,4 @@
-//! Windows-owned diagnostic bundle preview and export (Issue #420).
+//! Diagnostic bundle preview and export (Issue #420).
 //!
 //! Every file that can enter a bundle comes from `LogManager::files_available_for_export`
 //! (application logs and panic sidecars only) plus two generated JSON documents.
@@ -103,13 +103,29 @@ fn gather_environment(app_version: String, log_directory: &Path) -> EnvironmentF
 
     EnvironmentFacts {
         app_version,
-        os_name: System::name().unwrap_or_else(|| "Windows".to_string()),
+        os_name: System::name().unwrap_or_else(|| os_name_fallback().to_string()),
         os_version: System::os_version().unwrap_or_default(),
         cpu_core_count,
         // Reuses the same private-working-set figure already sampled for the
-        // in-app memory indicator, instead of a second Win32 memory query.
+        // in-app memory indicator, instead of a second platform memory query.
         memory_rss_bytes: memory::current_process_bytes().unwrap_or(0),
         disk_free_bytes,
+    }
+}
+
+/// Human-readable OS name used when the platform query is unavailable.
+///
+/// Windows keeps the historical `"Windows"` spelling so existing diagnostic
+/// bundles are unchanged; other platforms report the `std::env::consts::OS`
+/// identifier (`linux`, `macos`).
+fn os_name_fallback() -> &'static str {
+    #[cfg(windows)]
+    {
+        "Windows"
+    }
+    #[cfg(not(windows))]
+    {
+        std::env::consts::OS
     }
 }
 

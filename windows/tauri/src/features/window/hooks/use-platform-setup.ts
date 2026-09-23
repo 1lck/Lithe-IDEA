@@ -10,7 +10,7 @@ export function usePlatformSetup() {
       ? "platform-macos"
       : isWindows()
         ? "platform-windows"
-        : "platform-other";
+        : "platform-linux";
     document.documentElement.classList.add(platformClass);
 
     return () => {

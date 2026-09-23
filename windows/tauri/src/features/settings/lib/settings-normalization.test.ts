@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { DEFAULT_UI_FONT_FAMILY } from "@/features/settings/config/typography-defaults";
 import { getDefaultSettingsSnapshot } from "@/features/settings/config/default-settings";
 import {
   normalizeSettings,
@@ -51,12 +52,12 @@ describe("IDEA file icon theme normalization", () => {
   });
 });
 
-describe("Windows New UI defaults", () => {
-  test("uses Chinese and the native CJK UI typography for new settings", () => {
+describe("platform UI defaults", () => {
+  test("uses Chinese and the platform CJK UI typography for new settings", () => {
     const settings = getDefaultSettingsSnapshot();
 
     expect(settings.displayLanguage).toBe("zh-CN");
-    expect(settings.uiFontFamily).toBe("Microsoft YaHei UI");
+    expect(settings.uiFontFamily).toBe(DEFAULT_UI_FONT_FAMILY);
     expect(settings.uiFontSize).toBe(13);
   });
 
@@ -67,7 +68,7 @@ describe("Windows New UI defaults", () => {
 
     const normalized = normalizeSettings(settings);
 
-    expect(normalized.uiFontFamily).toBe("Microsoft YaHei UI");
+    expect(normalized.uiFontFamily).toBe(DEFAULT_UI_FONT_FAMILY);
     expect(normalized.uiFontSize).toBe(13);
   });
 
