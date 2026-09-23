@@ -7,3 +7,9 @@ strip = true
 lto = true
 codegen-units = 1
 opt-level = "s"
+
+# The rsa crate documents that RSA key generation is extremely slow without
+# optimizing its big-integer dependency. The Discourse sign-in flow generates
+# a 2048-bit key per authorization, so debug builds and tests need this too.
+[profile.dev.package.num-bigint-dig]
+opt-level = 3

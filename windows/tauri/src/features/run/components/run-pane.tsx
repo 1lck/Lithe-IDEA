@@ -1,5 +1,5 @@
 import { ProjectPreparationStatus } from "./project-preparation-status";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { isBackendCapabilityAvailable } from "@/config/backend-capabilities";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
@@ -9,6 +9,7 @@ import { useUIState } from "@/features/window/stores/ui-state.store";
 import { Button } from "@/ui/button";
 import {
   ArrowClockwiseIcon,
+  ArrowFatLineDownIcon,
   GearIcon,
   MinusIcon,
   PlayIcon,
@@ -19,6 +20,7 @@ import {
 import { Spinner } from "@/ui/spinner";
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
+import { useFollowOutputEnd } from "../hooks/use-follow-output-end";
 import { ensureRunProcessListeners } from "../hooks/use-run-process-events";
 import { useRunStore } from "../stores/run.store";
 import { PRIMARY_SESSION_ID, type RunConfiguration } from "../types/run.types";
@@ -66,6 +68,7 @@ function JavaDiscoveryNotice() {
 export default function RunPane() {
   const { t } = useTranslation();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
+  const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible);
   const setIsBottomPaneVisible = useUIState((state) => state.setIsBottomPaneVisible);
   const openSettings = useUIState((state) => state.openSettingsDialog);
   // The editor lives in Settings; open it on this configuration in one step.
@@ -99,9 +102,12 @@ export default function RunPane() {
   const actions = useRunStore((state) => state.actions);
   const selectedServiceIDsByWorkspace = useRunPreferencesStore((state) => state.selectedServiceIDsByWorkspace);
   const setSelectedServiceIDs = useRunPreferencesStore((state) => state.actions.setSelectedServiceIDs);
+  const scrollOutputToEnd = useRunPreferencesStore((state) => state.scrollOutputToEnd);
+  const setScrollOutputToEnd = useRunPreferencesStore((state) => state.actions.setScrollOutputToEnd);
   const [selectedServiceIDs, setSelectedServiceIDsLocal] = useState<string[]>([]);
   const [otherConfigurationsCollapsed, setOtherConfigurationsCollapsed] = useState(true);
   const [infrastructureCollapsed, setInfrastructureCollapsed] = useState(true);
+  const outputScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     void ensureRunProcessListeners();
@@ -155,6 +161,8 @@ export default function RunPane() {
     }
     setSelectedServiceIDsLocal(services.slice(0, 1).map((service) => service.id));
   }, [rootFolderPath, selectedServiceIDsByWorkspace, services]);
+
+  useFollowOutputEnd(outputScrollRef, output, scrollOutputToEnd, isBottomPaneVisible);
 
   const updateSelectedServices = (ids: string[]) => {
     setSelectedServiceIDsLocal(ids);
@@ -219,6 +227,18 @@ export default function RunPane() {
             aria-label={t("run.rescan")}
           >
             <ArrowClockwiseIcon />
+          </Button>
+        </Tooltip>
+        <Tooltip content={t("run.scrollToEnd")} side="bottom">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            active={scrollOutputToEnd}
+            onClick={() => setScrollOutputToEnd(!scrollOutputToEnd)}
+            aria-label={t("run.scrollToEnd")}
+            aria-pressed={scrollOutputToEnd}
+          >
+            <ArrowFatLineDownIcon />
           </Button>
         </Tooltip>
         <Tooltip content={t("run.clearOutput")} side="bottom">
@@ -388,7 +408,7 @@ export default function RunPane() {
                   <div className="mt-1 text-subtle-foreground ui-text-sm">{t("run.selectConfiguration")}</div>
                 )}
               </div>
-              <div className="min-h-0 flex-1 overflow-auto px-3 py-2">
+              <div ref={outputScrollRef} className="min-h-0 flex-1 overflow-auto px-3 py-2">
                 <RunOutputText
                   title={t("run.processOutput")}
                   source={output}
