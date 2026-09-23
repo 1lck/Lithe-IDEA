@@ -1,4 +1,5 @@
-import { createJavaGrammar, INITIAL, tokenizeLineWithinLimit } from "./textmate-grammar";
+import { createJavaGrammar, INITIAL } from "./textmate-grammar";
+import { tokenizeLineWithinLimit } from "./textmate-line-limit";
 import { diffStateStacksRefEq } from "vscode-textmate";
 
 type Document = { lines: string[]; states: any[]; version: number; cursor: number; visible: boolean; timer?: ReturnType<typeof setTimeout> };
