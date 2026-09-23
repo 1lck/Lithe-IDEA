@@ -1,0 +1,81 @@
+{
+  "name": "External Tomcat provider for exploded WAR deployment",
+  "notes": [
+    "The `tomcat.external` provider runs a legacy `packaging=war` project against a user-supplied Tomcat installation. Unlike copying a WAR into `webapps/`, it writes a context descriptor into `${tomcatHome}/conf/Catalina/localhost/` whose `docBase` points at the project's exploded directory. JSP and static resource edits are therefore visible without redeployment, and the Tomcat install stays clean except for the one context file.",
+    "`tomcatHome` is a machine-specific absolute path and must live in the local layer (`.lithe/run/local.json`), never the shared project layer. `explodedPath` is workspace-relative and defaults to the Maven module directory; `contextPath` defaults to `/<name>`.",
+    "The launch plan's `executable.path` is a new absolute-path form distinct from `executable.command` (PATH lookup) and `executable.toolchain` (toolchain registry). The host resolves the platform extension (`.sh` on POSIX, `.bat` on Windows) before starting. The host also writes the context XML before start and deletes it on stop.",
+    "A `mvn war:exploded -pl <module> -am` pre-launch step regenerates the exploded directory so source changes reach Tomcat. Debug mode injects JDWP through `CATALINA_OPTS` so the Java Debug Server can attach."
+  ],
+  "requests": [
+    {
+      "command": "runConfig.createUserConfiguration",
+      "payload": {
+        "root": "/workspace",
+        "scope": "local",
+        "name": "legacy-webapp",
+        "type": "tomcat",
+        "module": "web",
+        "tomcatHome": "/opt/tomcat-9",
+        "explodedPath": "web/target/legacy-webapp-1.0",
+        "contextPath": "/legacy",
+        "httpPort": 8080,
+        "shutdownPort": 8005
+      },
+      "workspace": {
+        "pom.xml": "<project><artifactId>parent</artifactId><packaging>pom</packaging><modules><module>web</module></modules></project>",
+        "web/pom.xml": "<project><artifactId>legacy-webapp</artifactId><packaging>war</packaging></project>",
+        "web/target/legacy-webapp-1.0/WEB-INF/web.xml": "<web-app/>"
+      },
+      "expected": {
+        "id": "user:legacy-webapp",
+        "configuration": {
+          "provider": "tomcat.external",
+          "execution": "service",
+          "confidence": "native",
+          "toolchains": { "java": "project-jdk", "maven": "project-maven" },
+          "extensions": {
+            "maven": { "module": "web" },
+            "tomcat": {
+              "tomcatHome": "/opt/tomcat-9",
+              "explodedPath": "web/target/legacy-webapp-1.0",
+              "contextPath": "/legacy",
+              "httpPort": 8080,
+              "shutdownPort": 8005
+            }
+          }
+        }
+      }
+    },
+    {
+      "command": "runConfig.createLaunchPlan",
+      "payload": {
+        "root": "/workspace",
+        "configurationId": "user:legacy-webapp",
+        "localDocument": "{\"version\":2,\"configurations\":[{\"id\":\"user:legacy-webapp\",\"provider\":\"tomcat.external\",\"extensions\":{\"maven\":{\"module\":\"web\"},\"tomcat\":{\"tomcatHome\":\"/opt/tomcat-9\",\"explodedPath\":\"web/target/legacy-webapp-1.0\",\"contextPath\":\"/legacy\"}}}]}"
+      },
+      "workspace": {
+        "web/target/legacy-webapp-1.0/WEB-INF/web.xml": "<web-app/>"
+      },
+      "expected": {
+        "executable": { "path": "/opt/tomcat-9/bin/catalina.sh" },
+        "arguments": ["run"],
+        "environment": {
+          "CATALINA_HOME": { "literal": "/opt/tomcat-9" },
+          "JAVA_HOME": { "toolchain": "project-jdk", "property": "home" }
+        },
+        "preLaunchSteps": [
+          {
+            "executable": { "toolchain": "project-maven" },
+            "arguments": ["war:exploded", "-pl", "web", "-am"]
+          }
+        ],
+        "tomcat": {
+          "contextXmlPath": "/opt/tomcat-9/conf/Catalina/localhost/legacy.xml",
+          "httpPort": 8080,
+          "shutdownPort": 8005,
+          "contextPath": "/legacy"
+        }
+      }
+    }
+  ]
+}

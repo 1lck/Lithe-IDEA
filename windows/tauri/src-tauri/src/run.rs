@@ -169,6 +169,9 @@ pub struct LaunchExecutable {
     /// Empty or absent means the toolchain's default launcher (`java`).
     #[serde(default)]
     pub tool: Option<String>,
+    /// Absolute path to an executable that is neither on PATH nor a toolchain.
+    #[serde(default)]
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -191,6 +194,19 @@ pub struct StartProcessArgs {
     pub working_directory: String,
     #[serde(default)]
     pub environment: HashMap<String, String>,
+    /// Tomcat context descriptor to write before start and delete on exit.
+    #[serde(default)]
+    pub tomcat: Option<TomcatLaunchMetadata>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TomcatLaunchMetadata {
+    pub context_xml_path: String,
+    pub context_xml: String,
+    pub http_port: u16,
+    pub shutdown_port: u16,
+    pub context_path: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -599,6 +615,13 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     apply_creation_flags(&mut command);
+    if let Some(tomcat) = &args.tomcat {
+        let context_dir = Path::new(&tomcat.context_xml_path)
+            .parent()
+            .ok_or("Invalid context XML path")?;
+        std::fs::create_dir_all(context_dir).map_err(|e| e.to_string())?;
+        std::fs::write(&tomcat.context_xml_path, &tomcat.context_xml).map_err(|e| e.to_string())?;
+    }
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
@@ -650,6 +673,7 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
         stderr_reader,
         output_dispatcher,
         argfile,
+        args.tomcat,
     );
     Ok(())
 }
@@ -1353,6 +1377,12 @@ fn resolve_executable(
             .map(|path| path.to_string_lossy().into_owned())
             .ok_or_else(|| format!("Could not find executable: {command}"));
     }
+    if let Some(path) = &executable.path {
+        if !Path::new(path).exists() {
+            return Err(format!("Executable path does not exist: {path}"));
+        }
+        return Ok(path.clone());
+    }
     Err("The launch plan names neither a toolchain nor a command.".into())
 }
 
@@ -1976,6 +2006,7 @@ fn spawn_exit_waiter(
     stderr_reader: thread::JoinHandle<()>,
     output_dispatcher: thread::JoinHandle<()>,
     argfile: Option<launch_arguments::LaunchArgumentFile>,
+    tomcat: Option<TomcatLaunchMetadata>,
 ) {
     thread::spawn(move || {
         let exit_code = child
@@ -1986,6 +2017,9 @@ fn spawn_exit_waiter(
         // The JVM reads the argument file while starting, so it is removed only
         // after the process it configured has ended.
         drop(argfile);
+        if let Some(tomcat) = &tomcat {
+            let _ = std::fs::remove_file(&tomcat.context_xml_path);
+        }
         let _ = stdout_reader.join();
         let _ = stderr_reader.join();
         // Preserve the console contract: the final output batch is observable
@@ -2737,6 +2771,7 @@ mod tests {
             toolchain: Some("project-jdk".into()),
             command: None,
             tool: None,
+            path: None,
         };
         let resolved_main = resolve_executable(
             &home,

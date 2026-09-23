@@ -181,9 +181,11 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             executable = .toolchain(toolchain)
         } else if let command = value.executable.command {
             executable = .command(command)
+        } else if let path = value.executable.path {
+            executable = .path(path)
         } else {
             throw RunConfigurationOperationFailure(
-                message: "The launch plan names neither a toolchain nor a command."
+                message: "The launch plan names neither a toolchain, a command, nor a path."
             )
         }
         let preLaunchSteps = try (value.preLaunchSteps ?? []).map { step -> SharedLaunchPlan.PreLaunchStep in
@@ -192,9 +194,11 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
                 stepExecutable = .toolchain(toolchain)
             } else if let command = step.executable.command {
                 stepExecutable = .command(command)
+            } else if let path = step.executable.path {
+                stepExecutable = .path(path)
             } else {
                 throw RunConfigurationOperationFailure(
-                    message: "A launch plan pre-launch step names neither a toolchain nor a command."
+                    message: "A launch plan pre-launch step names neither a toolchain, a command, nor a path."
                 )
             }
             return SharedLaunchPlan.PreLaunchStep(
@@ -211,7 +215,16 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             environment: value.env ?? [:],
             preLaunchSteps: preLaunchSteps,
             classpath: value.classpath ?? [],
-            modulepath: value.modulepath ?? []
+            modulepath: value.modulepath ?? [],
+            tomcat: value.tomcat.map {
+                SharedLaunchPlan.TomcatLaunchMetadata(
+                    contextXmlPath: $0.contextXmlPath,
+                    contextXml: $0.contextXml,
+                    httpPort: $0.httpPort,
+                    shutdownPort: $0.shutdownPort,
+                    contextPath: $0.contextPath
+                )
+            }
         )
     }
 
@@ -605,6 +618,7 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         case "java.current-file": .currentFile
         case "java.main": .javaMain
         case "maven.module": .mavenModule
+        case "tomcat.external": .tomcat
         default:
             if let framework = MavenFrameworkKind.allCases.first(where: { $0.provider == value }) {
                 .mavenFramework(framework)

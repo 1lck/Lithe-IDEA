@@ -78,7 +78,7 @@ export function resolveRunToolchains(
 
 export function resolveRunLaunch(args: {
   root: string;
-  executable: { toolchain?: string | null; command?: string | null; tool?: string | null };
+  executable: { toolchain?: string | null; command?: string | null; tool?: string | null; path?: string | null };
   workingDirectory: string;
   javaHomePath?: string;
   mavenExecutablePath?: string;
@@ -116,6 +116,13 @@ export function startRunProcess(args: {
   arguments: string[];
   workingDirectory: string;
   environment: Record<string, string>;
+  tomcat?: {
+    contextXmlPath: string;
+    contextXml: string;
+    httpPort: number;
+    shutdownPort: number;
+    contextPath: string;
+  };
 }) {
   return invoke<void>("run_start_process", {
     args: {

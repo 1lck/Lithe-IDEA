@@ -164,6 +164,22 @@ pub struct UpdateOptionsRequest {
     /// Host-owned local layer used when `scope` is `local` and when resolving first.
     #[serde(default)]
     pub local_document: Option<Value>,
+    /// Tomcat installation home. Only valid for `tomcat.external` configurations
+    /// and must live in the local layer because it is a machine-specific path.
+    #[serde(default)]
+    pub tomcat_home: String,
+    /// Workspace-relative exploded Web application directory.
+    #[serde(default)]
+    pub exploded_path: String,
+    /// Servlet context path such as `/myapp`.
+    #[serde(default)]
+    pub context_path: String,
+    /// Tomcat HTTP connector port. Defaults to 8080 when empty.
+    #[serde(default)]
+    pub http_port: Option<u16>,
+    /// Tomcat shutdown port. Defaults to 8005 when empty.
+    #[serde(default)]
+    pub shutdown_port: Option<u16>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -181,6 +197,20 @@ pub struct CreateUserConfigurationRequest {
     pub module: String,
     #[serde(default)]
     pub main_class: String,
+    /// Tomcat installation home. Only valid for the `tomcat` kind and must be
+    /// supplied because the exploded provider cannot start without it.
+    #[serde(default)]
+    pub tomcat_home: String,
+    /// Workspace-relative exploded Web application directory.
+    #[serde(default)]
+    pub exploded_path: String,
+    /// Servlet context path such as `/myapp`.
+    #[serde(default)]
+    pub context_path: String,
+    #[serde(default)]
+    pub http_port: Option<u16>,
+    #[serde(default)]
+    pub shutdown_port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1357,6 +1387,42 @@ fn update_configuration_options(
             extensions.insert("java".to_string(), Value::Object(java_extension));
         }
         patch["extensions"] = Value::Object(extensions);
+    } else if provider == "tomcat.external" {
+        let mut tomcat_extension = serde_json::Map::new();
+        if !request.tomcat_home.trim().is_empty() {
+            tomcat_extension.insert(
+                "tomcatHome".to_string(),
+                json!(request.tomcat_home.trim()),
+            );
+        }
+        if !request.exploded_path.trim().is_empty() {
+            tomcat_extension.insert(
+                "explodedPath".to_string(),
+                json!(request.exploded_path.trim()),
+            );
+        }
+        if !request.context_path.trim().is_empty() {
+            tomcat_extension.insert(
+                "contextPath".to_string(),
+                json!(request.context_path.trim()),
+            );
+        }
+        if let Some(port) = request.http_port {
+            tomcat_extension.insert("httpPort".to_string(), json!(port));
+        }
+        if let Some(port) = request.shutdown_port {
+            tomcat_extension.insert("shutdownPort".to_string(), json!(port));
+        }
+        let jvm_args = split_arguments(&request.jvm_arguments);
+        if !jvm_args.is_empty() {
+            tomcat_extension.insert("jvmArguments".to_string(), json!(jvm_args));
+        }
+        let mut extensions =
+            serde_json::Map::from_iter([("tomcat".to_string(), Value::Object(tomcat_extension))]);
+        if !java_extension.is_empty() {
+            extensions.insert("java".to_string(), Value::Object(java_extension));
+        }
+        patch["extensions"] = Value::Object(extensions);
     } else if !java_extension.is_empty() {
         patch["extensions"] = json!({ "java": java_extension });
     } else {
@@ -1460,6 +1526,7 @@ pub fn create_user_configuration(
         "quarkus" => "quarkus.maven",
         "micronaut" => "micronaut.maven",
         "mavenModule" => "maven.module",
+        "tomcat" => "tomcat.external",
         _ => {
             return Err(CoreError::new(
                 ErrorCode::NotSupported,
@@ -1482,6 +1549,14 @@ pub fn create_user_configuration(
             return Err(CoreError::new(
                 ErrorCode::InvalidRequest,
                 "Spring Boot main class is required",
+            ));
+        }
+    }
+    if configuration_kind == "tomcat.external" {
+        if request.tomcat_home.trim().is_empty() {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Tomcat installation directory is required",
             ));
         }
     }
@@ -1512,18 +1587,48 @@ pub fn create_user_configuration(
     if !main_class.is_empty() {
         maven["mainClass"] = json!(main_class);
     }
-    let configuration = json!({
-        "id": id,
-        "name": name,
-        "provider": configuration_kind,
-        // A framework goal starts something long-running; a bare Maven goal runs to
-        // completion.
-        "execution": if framework_goal(configuration_kind).is_some() { "service" } else { "task" },
-        "confidence": "native",
-        "toolchains": {"java": "project-jdk", "maven": "project-maven"},
-        "debug": {"adapter": "jdwp"},
-        "extensions": {"maven": maven}
-    });
+    let configuration = if configuration_kind == "tomcat.external" {
+        let mut tomcat = json!({
+            "explodedPath": if request.exploded_path.trim().is_empty() {
+                module.clone()
+            } else {
+                request.exploded_path.trim().to_string()
+            },
+            "contextPath": if request.context_path.trim().is_empty() {
+                format!("/{}", name)
+            } else {
+                request.context_path.trim().to_string()
+            },
+            "httpPort": request.http_port.unwrap_or(8080),
+            "shutdownPort": request.shutdown_port.unwrap_or(8005),
+            "jvmArguments": [],
+            "environmentVariables": {}
+        });
+        tomcat["tomcatHome"] = json!(request.tomcat_home.trim());
+        json!({
+            "id": id,
+            "name": name,
+            "provider": configuration_kind,
+            "execution": "service",
+            "confidence": "native",
+            "toolchains": {"java": "project-jdk", "maven": "project-maven"},
+            "debug": {"adapter": "jdwp"},
+            "extensions": {"maven": {"module": module}, "tomcat": tomcat}
+        })
+    } else {
+        json!({
+            "id": id,
+            "name": name,
+            "provider": configuration_kind,
+            // A framework goal starts something long-running; a bare Maven goal runs to
+            // completion.
+            "execution": if framework_goal(configuration_kind).is_some() { "service" } else { "task" },
+            "confidence": "native",
+            "toolchains": {"java": "project-jdk", "maven": "project-maven"},
+            "debug": {"adapter": "jdwp"},
+            "extensions": {"maven": maven}
+        })
+    };
     configurations.push(configuration);
     configurations.sort_by(|left, right| {
         left["id"]
@@ -1635,6 +1740,9 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         .filter(|value| !value.is_empty())
     {
         return toolchain_process_launch_plan(config, toolchain);
+    }
+    if provider == "tomcat.external" {
+        return tomcat_launch_plan(&workspace_root, config, request.debug_port);
     }
     if !is_maven_backed(provider) {
         return Err(CoreError::new(
@@ -2126,6 +2234,126 @@ fn toolchain_process_launch_plan(config: &Value, toolchain: &str) -> Result<Valu
         "workingDirectory": config["cwd"].as_str().unwrap_or("."),
         "environment": {},
         "env": config["env"].as_object().cloned().unwrap_or_default()
+    }))
+}
+
+/// Launch plan for `tomcat.external` configurations.
+///
+/// Tomcat runs an exploded web application described by a context descriptor,
+/// so the plan points at the host's `catalina` launcher, asks Maven to
+/// produce the exploded directory first, and emits the context XML and
+/// CATALINA_BASE the host needs to start the server and locate the docBase.
+fn tomcat_launch_plan(
+    workspace_root: &Path,
+    config: &Value,
+    debug_port: Option<u16>,
+) -> Result<Value, CoreError> {
+    let tomcat = &config["extensions"]["tomcat"];
+    let tomcat_home = tomcat["tomcatHome"]
+        .as_str()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Tomcat configuration is missing its installation home",
+            )
+        })?;
+    let tomcat_home_path = Path::new(tomcat_home);
+    // The launcher is platform-specific: Windows runs `catalina.bat`, POSIX
+    // runs `catalina.sh`. Either is sufficient because the host resolves the
+    // matching interpreter from the path-qualified launcher.
+    let bin_dir = tomcat_home_path.join("bin");
+    let launcher = ["catalina.bat", "catalina.sh"]
+        .iter()
+        .map(|name| bin_dir.join(name))
+        .find(|path| path.is_file())
+        .ok_or_else(|| {
+            CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Tomcat installation is missing its catalina launcher",
+            )
+            .with_details(format!("{}/bin/catalina.{{bat,sh}}", tomcat_home))
+        })?;
+    let web_xml = tomcat_home_path.join("conf").join("web.xml");
+    if !web_xml.is_file() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Tomcat installation is missing conf/web.xml",
+        )
+        .with_details(web_xml.to_string_lossy().to_string()));
+    }
+    let exploded_path = tomcat["explodedPath"]
+        .as_str()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| {
+            config["extensions"]["maven"]["module"]
+                .as_str()
+                .unwrap_or(".")
+        });
+    let context_path = tomcat["contextPath"]
+        .as_str()
+        .filter(|value| !value.is_empty())
+        .unwrap_or("/");
+    let http_port = tomcat["httpPort"].as_u64().unwrap_or(8080) as u16;
+    let shutdown_port = tomcat["shutdownPort"].as_u64().unwrap_or(8005) as u16;
+    // docBase is resolved against the workspace root so Tomcat can locate the
+    // exploded directory regardless of where the catalina launcher starts.
+    let doc_base = workspace_root
+        .join(exploded_path)
+        .to_string_lossy()
+        .replace('\\', "/");
+    let context_xml = format!("<Context docBase=\"{doc_base}\" reloadable=\"true\"/>");
+    let configuration_id = config["id"].as_str().unwrap_or("tomcat");
+    let context_xml_relative = format!(
+        ".lithe/run/tomcat/{}/context.xml",
+        sanitize_path_segment(configuration_id)
+    );
+    let mut environment = serde_json::Map::new();
+    environment.insert(
+        "CATALINA_BASE".to_string(),
+        json!({ "value": tomcat_home }),
+    );
+    let mut catalina_opts = tomcat["jvmArguments"]
+        .as_array()
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if let Some(port) = debug_port {
+        catalina_opts.push(format!(
+            "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:{port}"
+        ));
+    }
+    if !catalina_opts.is_empty() {
+        environment.insert(
+            "CATALINA_OPTS".to_string(),
+            json!({ "value": catalina_opts.join(" ") }),
+        );
+    }
+    let maven_toolchain = config["toolchains"]["maven"]
+        .as_str()
+        .unwrap_or("project-maven");
+    let pre_launch_step = json!({
+        "executable": { "toolchain": maven_toolchain },
+        "arguments": ["war:exploded"]
+    });
+    Ok(json!({
+        "executable": { "path": launcher.to_string_lossy() },
+        "arguments": ["run"],
+        "workingDirectory": config["cwd"].as_str().unwrap_or("."),
+        "environment": environment,
+        "preLaunchSteps": [pre_launch_step],
+        "tomcat": {
+            "contextXmlPath": context_xml_relative,
+            "contextXml": context_xml,
+            "httpPort": http_port,
+            "shutdownPort": shutdown_port,
+            "contextPath": context_path
+        }
     }))
 }
 

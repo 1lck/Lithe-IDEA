@@ -3396,3 +3396,120 @@ fn an_unknown_java_entrypoint_schema_is_rejected() {
     assert_eq!(response["ok"], false, "{response}");
     fs::remove_dir_all(root).unwrap();
 }
+
+/// A `tomcat.external` configuration launches via the host's catalina
+/// launcher after Maven produces the exploded web application directory. The
+/// plan carries the context descriptor, connector ports, and CATALINA_BASE so
+/// the host can start Tomcat and locate the docBase without guessing.
+#[test]
+fn tomcat_external_provider_returns_context_descriptor_and_catalina_path() {
+    let root = temporary_root("run-config-tomcat-external");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::create_dir_all(root.join("src/main/webapp")).unwrap();
+    fs::write(root.join("pom.xml"), "<project/>").unwrap();
+    // Simulate a Tomcat install with the launcher and conf/web.xml.
+    let tomcat_home = temporary_root("run-config-tomcat-external-install");
+    fs::create_dir_all(tomcat_home.join("bin")).unwrap();
+    fs::create_dir_all(tomcat_home.join("conf")).unwrap();
+    fs::write(tomcat_home.join("bin/catalina.bat"), "@echo off\n").unwrap();
+    fs::write(tomcat_home.join("bin/catalina.sh"), "#!/bin/sh\n").unwrap();
+    fs::write(tomcat_home.join("conf/web.xml"), "<web-app/>").unwrap();
+
+    let tomcat_home_str = tomcat_home.to_string_lossy().to_string();
+    let created: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "create-tomcat",
+            "command": "runConfig.createUserConfiguration",
+            "payload": {
+                "root": root,
+                "scope": "project",
+                "name": "Tomcat App",
+                "type": "tomcat",
+                "module": ".",
+                "tomcatHome": tomcat_home_str,
+                "explodedPath": "target/exploded",
+                "contextPath": "/myapp",
+                "httpPort": 8081,
+                "shutdownPort": 8006
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(created["ok"], true, "{created}");
+    let configuration_id = created["data"]["id"].as_str().unwrap().to_string();
+    fs::write(
+        root.join(".lithe/run/configurations.json"),
+        created["data"]["document"].as_str().unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        r#"{"version":2,"configurations":[]}"#,
+    )
+    .unwrap();
+
+    let plan: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "plan-tomcat",
+            "command": "runConfig.createLaunchPlan",
+            "payload": {
+                "root": root,
+                "configurationId": configuration_id
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(plan["ok"], true, "{plan}");
+    let executable_path = plan["data"]["executable"]["path"]
+        .as_str()
+        .expect("executable.path should be a string");
+    assert!(
+        executable_path.ends_with("catalina.bat") || executable_path.ends_with("catalina.sh"),
+        "executable path should point to catalina: {executable_path}"
+    );
+    let arguments = plan["data"]["arguments"]
+        .as_array()
+        .expect("arguments should be an array");
+    assert!(
+        arguments.iter().any(|value| value == "run"),
+        "arguments should include run: {arguments:?}"
+    );
+    let pre_launch = plan["data"]["preLaunchSteps"]
+        .as_array()
+        .expect("preLaunchSteps should be an array");
+    assert!(
+        pre_launch.iter().any(|step| {
+            step["arguments"]
+                .as_array()
+                .map(|args| args.iter().any(|arg| arg == "war:exploded"))
+                .unwrap_or(false)
+        }),
+        "preLaunchSteps should include war:exploded: {pre_launch:?}"
+    );
+    assert_eq!(plan["data"]["tomcat"]["httpPort"], 8081);
+    assert_eq!(plan["data"]["tomcat"]["shutdownPort"], 8006);
+    assert_eq!(plan["data"]["tomcat"]["contextPath"], "/myapp");
+    assert!(
+        plan["data"]["tomcat"]["contextXml"]
+            .as_str()
+            .unwrap()
+            .contains("target/exploded"),
+        "contextXml should reference the exploded directory: {plan}"
+    );
+    assert!(
+        plan["data"]["tomcat"]["contextXmlPath"]
+            .as_str()
+            .unwrap()
+            .contains("context.xml"),
+        "contextXmlPath should name a context.xml: {plan}"
+    );
+    assert_eq!(
+        plan["data"]["environment"]["CATALINA_BASE"]["value"],
+        tomcat_home_str
+    );
+
+    fs::remove_dir_all(root).unwrap();
+    fs::remove_dir_all(tomcat_home).unwrap();
+}
