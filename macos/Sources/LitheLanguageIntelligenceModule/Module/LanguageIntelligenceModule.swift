@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 import LitheModuleAPI
 
 /// The temporary host-facing seam used while the concrete language services
@@ -19,13 +20,22 @@ package protocol LanguageIntelligenceServiceGraph: AnyObject {
 }
 
 @MainActor
-public final class LanguageIntelligenceCapability: NSObject {
+public final class LanguageIntelligenceCapability: NSObject, LanguageDependencyProviding {
     package let sessions: LanguageToolingSessionManager
     package let tools: LanguageServerToolService
 
     fileprivate init(graph: any LanguageIntelligenceServiceGraph) {
         sessions = graph.sessions
         tools = graph.tools
+    }
+
+    public func dependencySnapshot(workspaceURL: URL, serviceID: String) -> LanguageDependencySnapshot? {
+        guard serviceID == "language:java" else { return nil }
+        return sessions.dependencySnapshot(workspaceURL: workspaceURL)
+    }
+
+    public func setDependencySnapshotChangeHandler(_ handler: (@MainActor () -> Void)?) {
+        sessions.onJavaDependencySnapshotChange = handler
     }
 }
 

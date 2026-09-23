@@ -49,6 +49,63 @@ package final class MavenFeatureModel: ObservableObject {
     package var isResolvingDependencies: Bool { service.isResolvingDependencies }
     package var launchContext: MavenLaunchContext? { service.launchContext }
 
+    /// Projects artifacts from Maven's already-resolved dependency tree into
+    /// paths that the generic dependency Provider can display. It never starts
+    /// Maven or scans the local repository.
+    package func resolvedDependencyArtifactPaths(
+        modulePath: String,
+        defaultRepositoryURL: URL? = nil
+    ) -> [URL] {
+        guard case .ready(let dependencies) = service.dependencyState(for: modulePath) else {
+            return []
+        }
+        let repositoryURL: URL
+        if let repository = service.localRepositoryPath {
+            let expanded = (repository as NSString).expandingTildeInPath
+            repositoryURL = URL(
+                fileURLWithPath: expanded,
+                relativeTo: service.project?.rootURL
+            ).standardizedFileURL
+        } else if let defaultRepositoryURL {
+            repositoryURL = defaultRepositoryURL.standardizedFileURL
+        } else {
+            return []
+        }
+        var paths: Set<String> = []
+        for dependency in dependencies {
+            Self.collectResolvedArtifacts(
+                dependency,
+                repositoryURL: repositoryURL,
+                into: &paths
+            )
+        }
+        return paths.map { URL(fileURLWithPath: $0) }
+            .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+    }
+
+    private static func collectResolvedArtifacts(
+        _ dependency: MavenDependency,
+        repositoryURL: URL,
+        into paths: inout Set<String>
+    ) {
+        if dependency.resolution == .resolved {
+            let groupPath = dependency.groupID.replacingOccurrences(of: ".", with: "/")
+            let classifier = dependency.classifier.map { "-\($0)" } ?? ""
+            let fileName = "\(dependency.artifactID)-\(dependency.version)\(classifier).\(dependency.type)"
+            paths.insert(
+                repositoryURL
+                    .appendingPathComponent(groupPath, isDirectory: true)
+                    .appendingPathComponent(dependency.artifactID, isDirectory: true)
+                    .appendingPathComponent(dependency.version, isDirectory: true)
+                    .appendingPathComponent(fileName)
+                    .standardizedFileURL.path
+            )
+        }
+        for child in dependency.children {
+            collectResolvedArtifacts(child, repositoryURL: repositoryURL, into: &paths)
+        }
+    }
+
     package func loadProject(at workspaceURL: URL, files: [URL], snapshotID: UUID? = nil) async {
         await service.loadProject(at: workspaceURL, files: files)
     }
@@ -191,6 +248,41 @@ package final class RunFeatureModel: ObservableObject {
         service.blockingToolchainDiagnostic(for: service.selectedConfiguration)
     }
     package var sourceSearchRoots: [URL] { service.sourceSearchRoots }
+    package var dependencyServices: [DependencyServiceDescriptor] { service.dependencyServices }
+    package func registerDependencySource(languageID: String, displayName: String) {
+        service.registerDependencySource(languageID: languageID, displayName: displayName)
+    }
+    package func unregisterDependencySource(languageID: String) {
+        service.unregisterDependencySource(languageID: languageID)
+    }
+    package var dependencyRevision: Int { service.dependencyRevision }
+    package var dependencyConfigurationSaveError: String? {
+        service.dependencyConfigurationSaveError
+    }
+    package func dependencyPaths(for serviceID: String) -> DependencyPathConfiguration {
+        service.dependencyPaths(for: serviceID)
+    }
+    package func resolveDependencies(serviceID: String) async throws -> DependencyGraph? {
+        try await service.resolveDependencies(serviceID: serviceID)
+    }
+    package func updateDependencyPaths(
+        _ paths: DependencyPathConfiguration,
+        serviceID: String
+    ) {
+        service.updateDependencyPaths(paths, serviceID: serviceID)
+    }
+    package func excludeDependencyPath(_ path: String, serviceID: String) {
+        service.excludeDependencyPath(path, serviceID: serviceID)
+    }
+    package func restoreDependencyPath(_ path: String, serviceID: String) {
+        service.restoreDependencyPath(path, serviceID: serviceID)
+    }
+    package func markDependencyFilesChanged(_ changes: [WorkspaceFileChange]) {
+        service.markDependencyFilesChanged(changes)
+    }
+    package func syncLanguageDependencyPaths(languageID: String) {
+        service.syncLanguageDependencyPaths(languageID: languageID)
+    }
     package func isProjectReady(for workspace: URL, snapshotID: UUID?) -> Bool { service.isProjectReady(for: workspace, snapshotID: snapshotID) }
     package func hasReadyInventory(for workspace: URL) -> Bool { service.hasReadyInventory(for: workspace) }
 
