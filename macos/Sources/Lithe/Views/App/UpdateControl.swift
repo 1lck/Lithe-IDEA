@@ -147,31 +147,39 @@ private struct UpdateDetailsView: View {
                 .fill(LitheTheme.divider)
                 .frame(height: 1)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    if let updateInfo = updateChecker.updateInfo {
-                        if updateInfo.isPreview {
+            if let updateInfo = updateChecker.updateInfo {
+                if updateInfo.isPreview {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 12) {
                             Text("This preview contains changes that have not been officially released and may be unstable.")
                                 .font(.system(size: 12.5))
                                 .foregroundStyle(LitheTheme.secondaryText)
                                 .fixedSize(horizontal: false, vertical: true)
-                        } else {
-                            let releaseNotes = updateInfo.releaseNotes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                            Text("Release notes")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(LitheTheme.secondaryText)
-                            Text(releaseNotes.isEmpty ? "Release notes are not included with this update." : releaseNotes)
+                            statusContent()
+                        }
+                        .padding(16)
+                    }
+                    .frame(minHeight: 64, maxHeight: 100)
+                } else {
+                    let releaseNotes = updateInfo.releaseNotes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Release notes")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                        if releaseNotes.isEmpty {
+                            Text("Release notes are not included with this update.")
                                 .font(.system(size: 12.5))
                                 .foregroundStyle(LitheTheme.primaryText)
-                                .textSelection(.enabled)
+                        } else {
+                            UpdateReleaseNotesView(markdown: releaseNotes)
+                                .frame(height: 230)
                         }
-
                         statusContent()
                     }
+                    .padding(16)
+                    .frame(minHeight: 180, maxHeight: 360)
                 }
-                .padding(16)
             }
-            .frame(minHeight: updateChecker.isPreview ? 64 : 180, maxHeight: updateChecker.isPreview ? 100 : 360)
 
             Rectangle()
                 .fill(LitheTheme.divider)
@@ -250,6 +258,43 @@ private struct UpdateDetailsView: View {
                 .fixedSize(horizontal: false, vertical: true)
         default:
             EmptyView()
+        }
+    }
+}
+
+private struct UpdateReleaseNotesView: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var renderedHTML: String?
+    @State private var renderingError: String?
+
+    let markdown: String
+
+    var body: some View {
+        Group {
+            if let renderedHTML {
+                ReleaseNotesWebView(html: renderedHTML, isDark: colorScheme == .dark)
+            } else if renderingError != nil {
+                Text("Release notes could not be displayed. Open the release page to read them.")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            } else {
+                ProgressView("Loading release notes…")
+                    .controlSize(.small)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .task(id: markdown) {
+            renderedHTML = nil
+            renderingError = nil
+            do {
+                let rendered = try await model.renderMarkdown(markdown)
+                guard !Task.isCancelled else { return }
+                renderedHTML = rendered.html
+            } catch {
+                guard !Task.isCancelled else { return }
+                renderingError = error.localizedDescription
+            }
         }
     }
 }

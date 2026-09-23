@@ -1,8 +1,8 @@
 #!/bin/zsh
 set -euo pipefail
 ROOT_DIR="${0:A:h:h}"
-VERSION=2.9.6
-CHECKSUM=52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192
+VERSION=2.10.0
+CHECKSUM=c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c
 DESTINATION="$ROOT_DIR/.build/sparkle-tools/$VERSION"
 if [[ ! -x "$DESTINATION/bin/generate_appcast" ]]; then
     temporary=$(mktemp -d)

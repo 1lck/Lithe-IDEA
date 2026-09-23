@@ -71,3 +71,8 @@ libc = "0.2"
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# lithe-core's Discourse sign-in generates a 2048-bit RSA key; the rsa crate
+# documents that this is extremely slow unless num-bigint-dig is optimized.
+[profile.dev.package.num-bigint-dig]
+opt-level = 3

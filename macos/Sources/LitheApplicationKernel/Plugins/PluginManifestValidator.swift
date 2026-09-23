@@ -144,6 +144,14 @@ public struct ValidatedPluginCatalog: Sendable {
             .first
     }
 
+    public func languageSupport(forVirtualDocumentURL url: URL) -> PluginLanguageSupportOwnership? {
+        guard !url.isFileURL, let scheme = url.scheme?.lowercased() else { return nil }
+        let owners = languageSupports.values.filter {
+            $0.declaration.virtualDocumentSchemes.contains(scheme)
+        }
+        return owners.count == 1 ? owners.first : nil
+    }
+
     public func languageSupports(
         recognizingProjectFileNames fileNames: some Sequence<String>
     ) -> [PluginLanguageSupportOwnership] {
@@ -172,6 +180,16 @@ public struct ValidatedPluginCatalog: Sendable {
                 || support.fileExtensions.contains(where: { $0.contains("/") || $0.hasPrefix(".") })
                 || support.fileNames.contains(where: { $0.contains("/") })
                 || support.projectFileNames.contains(where: { $0.contains("/") })
+                || support.virtualDocumentSchemes.contains(where: {
+                    $0.range(of: "^[a-z][a-z0-9+.-]*$", options: .regularExpression) == nil
+                })
+                || (support.dependencies?.managementFileNames.contains(where: {
+                    !Self.isSafeRelativePath($0) || $0.contains("\\")
+                }) ?? false)
+                || (support.dependencies.map { declaration in
+                    (declaration.projectDependencyPaths + declaration.projectBinaryPaths)
+                        .contains(where: { !Self.isSafeRelativePath($0) })
+                } ?? false)
             guard languageIDs.insert(support.id).inserted,
                   hasRecognitionMetadata,
                   !hasInvalidName,

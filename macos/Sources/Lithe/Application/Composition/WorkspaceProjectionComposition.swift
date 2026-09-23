@@ -56,7 +56,7 @@ enum WorkspaceProjectionComposition {
                 return conflict
             },
             notifyWorkspaceFileChanges: { [weak model] changes in
-                model?.handleJavaWorkspaceFileChanges(changes)
+                model?.handleWorkspaceFileChanges(changes)
             },
             reloadProjectServices: { [weak model] in
                 guard let model, let workspaceURL = model.workspaceURL else { return }

@@ -1,6 +1,7 @@
 /// <reference path="./monaco-tokenization-internals.d.ts" />
 import { applyStateStackDiff } from "vscode-textmate";
-import { createJavaGrammar, INITIAL, tokenizeLineWithinLimit, tokenRole } from "./textmate-grammar";
+import { createJavaGrammar, INITIAL, tokenRole } from "./textmate-grammar";
+import { tokenizeLineWithinLimit } from "./textmate-line-limit";
 import { TokenizationRegistry, Token, TokenizationResult, EncodedTokenizationResult } from "monaco-editor/esm/vs/editor/common/languages.js";
 import { ContiguousMultilineTokensBuilder } from "monaco-editor/esm/vs/editor/common/tokens/contiguousMultilineTokensBuilder.js";
 import { StandaloneServices } from "monaco-editor/esm/vs/editor/standalone/browser/standaloneServices.js";

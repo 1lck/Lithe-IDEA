@@ -14,7 +14,7 @@ const VERSION: u32 = 2;
 const LEGACY_VERSION: u32 = 1;
 // Bumped when generation changes what a workspace should contain: existing
 // workspaces regenerate instead of keeping a stale `generated.json`.
-const GENERATOR_REVISION: &str = "6";
+const GENERATOR_REVISION: &str = "7";
 /// Toolchain requirements and `project.json` are separate documents that happen
 /// to live under `.lithe`. Their schema did not change with run-config v2, so
 /// they keep their own version and must not be validated against `VERSION`.
@@ -2688,10 +2688,13 @@ fn detect_requirements(
     let maven_root = maven_root.unwrap_or(root);
     let pom = maven_root.join("pom.xml");
     if let Ok(text) = fs::read_to_string(pom) {
-        let re = regex::Regex::new(r"(?:maven.compiler.release|maven.compiler.source|maven.compiler.target|java.version)\s*>?\s*[:=]?\s*([0-9]+)").unwrap();
+        let re = regex::Regex::new(r"(?:maven.compiler.release|maven.compiler.source|maven.compiler.target|java.version)\s*>?\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)").unwrap();
+        // Java 8 projects commonly declare `1.8`; keep the feature version
+        // instead of the legacy `1` prefix.
         jdk.minimum_version = re
             .captures(&text)
-            .and_then(|c| c.get(1).map(|m| m.as_str().to_string()));
+            .and_then(|c| c.get(1))
+            .and_then(|m| major_version(m.as_str()));
     }
     if let Some((version, vendor)) =
         declared_java_version(maven_root).or_else(|| declared_java_version(root))
@@ -2792,7 +2795,12 @@ fn toolchain_diagnostics(
             // documents do not block newer system Maven installs.
             let treat_as_minimum = requirement.minimum_version.is_some()
                 || (requirement.kind == "maven" && requirement.version.is_some());
-            if !version_satisfies(&candidate.version, required, treat_as_minimum) {
+            if !version_satisfies(
+                &requirement.kind,
+                &candidate.version,
+                required,
+                treat_as_minimum,
+            ) {
                 append_toolchain_diagnostics(
                     &mut diagnostics,
                     &consumer_ids,
@@ -2843,9 +2851,13 @@ fn append_toolchain_diagnostics(
     }
 }
 
-fn version_satisfies(actual: &str, required: &str, minimum: bool) -> bool {
-    let actual_parts = version_parts(actual);
-    let required_parts = version_parts(required);
+fn version_satisfies(kind: &str, actual: &str, required: &str, minimum: bool) -> bool {
+    let mut actual_parts = version_parts(actual);
+    let mut required_parts = version_parts(required);
+    if kind == "java" {
+        actual_parts = java_feature_version_parts(actual_parts);
+        required_parts = java_feature_version_parts(required_parts);
+    }
     if actual_parts.is_empty() || required_parts.is_empty() {
         return false;
     }
@@ -2862,6 +2874,16 @@ fn version_parts(value: &str) -> Vec<u32> {
         .filter(|part| !part.is_empty())
         .filter_map(|part| part.parse().ok())
         .collect()
+}
+
+/// Drops the legacy `1.` prefix Java 8 and earlier report (`1.8.0_504`), so
+/// those runtimes compare on the same feature-version scale as `8` or `17.0.12`.
+fn java_feature_version_parts(parts: Vec<u32>) -> Vec<u32> {
+    if parts.len() > 1 && parts[0] == 1 {
+        parts[1..].to_vec()
+    } else {
+        parts
+    }
 }
 
 fn project_inputs(root: &Path) -> Result<BTreeMap<String, String>, CoreError> {
