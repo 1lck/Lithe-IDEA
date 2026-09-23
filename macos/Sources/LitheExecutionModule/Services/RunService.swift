@@ -64,6 +64,9 @@ package final class RunService: ObservableObject {
     private var dependencySources: [String: DependencyServiceDescriptor] = [:]
     private var mavenModelRevision = 0
     private var projectLoadID = UUID()
+    /// Advances on every regeneration so a JDT freshness answer computed against
+    /// the previous document cannot be attached to the new one.
+    private var generationRevision = 0
     private var selectedConfigurationIDsByProject: [String: String] = [:]
     private var lastRunConfiguration: RunConfiguration?
     private var lastCurrentFileURL: URL?
@@ -470,6 +473,50 @@ package final class RunService: ObservableObject {
         }
     }
 
+    /// Adds what JDT reports about the generated Java entries.
+    ///
+    /// `entrypoints` is JDT's current answer. Inspection runs off the main actor,
+    /// and an answer that arrives after a reload or regeneration is dropped.
+    package func reportJavaEntrypointFreshness(_ entrypoints: JavaEntrypoints) async {
+        guard configurationStatus == .ready, let projectURL else { return }
+        let loadID = projectLoadID
+        let revision = generationRevision
+        let operations = runConfigurationOperations
+        let inspection = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: operations.inspect(
+                    at: projectURL,
+                    checkFingerprint: false,
+                    javaEntrypoints: entrypoints
+                ))
+            }
+        }
+        guard !Task.isCancelled, projectLoadID == loadID, generationRevision == revision,
+              self.projectURL == projectURL else { return }
+        let shown = configurationDiagnostics
+        configurationDiagnostics += inspection.diagnostics.filter { !shown.contains($0) }
+    }
+
+    /// Diagnostics after a run document edit. Editing `.lithe` changes no
+    /// project input, so the freshness already reported still holds and the
+    /// inputs are not read again on the main actor.
+    private func diagnosticsAfterDocumentEdit(
+        at projectURL: URL,
+        resolution: [RunConfigurationDiagnostic]
+    ) -> [RunConfigurationDiagnostic] {
+        let freshness = configurationDiagnostics.filter { $0.code == "staleFingerprint" }
+        let inspected = runConfigurationOperations.inspect(
+            at: projectURL,
+            checkFingerprint: false,
+            javaEntrypoints: nil
+        ).diagnostics
+        var diagnostics = freshness
+        for diagnostic in inspected + resolution where !diagnostics.contains(diagnostic) {
+            diagnostics.append(diagnostic)
+        }
+        return diagnostics
+    }
+
     private static func javaDiscoveryStatus(
         _ discovery: JavaEntrypointDiscovery,
         showsJavaEntries: Bool
@@ -503,6 +550,7 @@ package final class RunService: ObservableObject {
             return
         }
         let loadID = projectLoadID
+        generationRevision &+= 1
         isLoadingProject = true
         defer {
             if projectLoadID == loadID {
@@ -551,7 +599,13 @@ package final class RunService: ObservableObject {
                 defaultConfigurationID = resolution.defaultConfigurationID
                 recoveryAction = .none
                 recoveryPath = nil
-                configurationDiagnostics = operations.inspect(at: projectURL).diagnostics + resolution.diagnostics
+                // Generation just recorded the fingerprint; re-reading every input
+                // here would only repeat that scan on the main actor.
+                configurationDiagnostics = operations.inspect(
+                    at: projectURL,
+                    checkFingerprint: false,
+                    javaEntrypoints: nil
+                ).diagnostics + resolution.diagnostics
                 generationState = result.entryCount == 0 ? .noEntries : .succeeded(entryCount: result.entryCount)
                 javaDiscoveryStatus = Self.javaDiscoveryStatus(
                     javaDiscovery,
@@ -688,8 +742,10 @@ package final class RunService: ObservableObject {
                 mavenProject: mavenProject,
                 preferredConfigurationID: configuration.id
             )
-            configurationDiagnostics = runConfigurationOperations.inspect(at: projectURL).diagnostics
-                + resolution.diagnostics
+            configurationDiagnostics = diagnosticsAfterDocumentEdit(
+                at: projectURL,
+                resolution: resolution.diagnostics
+            )
             apply(
                 resolution.configurations,
                 projectToolchain: resolution.projectToolchain,
@@ -732,8 +788,10 @@ package final class RunService: ObservableObject {
                     message: "The new configuration did not pass project validation. Check its module and main class."
                 )
             }
-            configurationDiagnostics = runConfigurationOperations.inspect(at: projectURL).diagnostics
-                + resolution.diagnostics
+            configurationDiagnostics = diagnosticsAfterDocumentEdit(
+                at: projectURL,
+                resolution: resolution.diagnostics
+            )
             apply(
                 resolution.configurations,
                 projectToolchain: resolution.projectToolchain,

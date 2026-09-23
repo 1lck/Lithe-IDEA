@@ -32,6 +32,8 @@ extension AppModel {
         for identity: WorkspaceIdentity
     ) async -> (JavaEntrypointDiscovery, LanguageToolingSessionManager?) {
         javaEntrypointRefreshObservation = nil
+        // A regeneration replaces the entries a pending freshness check compares.
+        javaEntrypointFreshnessObservation = nil
         let hasJavaSources = workspaceFeature.appliedSnapshot?.files
             .contains { $0.pathExtension.lowercased() == "java" } ?? false
         guard hasJavaSources else { return (.notJava, nil) }
@@ -77,6 +79,63 @@ extension AppModel {
                     await self.generateRunConfigurations()
                 }
             }
+    }
+
+    /// Reports Java entries JDT added or removed since the Run list was generated.
+    ///
+    /// The input fingerprint hashes only the Java sources generation reads, so
+    /// a main method added to an existing class is found here instead. The
+    /// check never starts the Java service and does not hold the project load
+    /// open. While a regeneration already waits for JDT, that refresh replaces
+    /// the entries, so there is nothing to compare.
+    func checkJavaEntrypointFreshness(
+        _ runFeature: RunFeatureModel,
+        for identity: WorkspaceIdentity,
+        files: [URL]
+    ) {
+        javaEntrypointFreshnessObservation = nil
+        guard javaEntrypointRefreshObservation == nil,
+              files.contains(where: { $0.pathExtension.lowercased() == "java" }),
+              let sessions = languageToolingSessionsIfActive else { return }
+        if let preparation = sessions.projectPreparation, !preparation.blocksRun {
+            Task { [weak self] in
+                await self?.compareJavaEntrypoints(runFeature, for: identity, sessions: sessions)
+            }
+            return
+        }
+        javaEntrypointFreshnessObservation = sessions.$projectPreparation
+            .compactMap { $0 }
+            .first(where: { !$0.blocksRun || $0.status == "failed" })
+            .sink { [weak self] preparation in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.javaEntrypointFreshnessObservation = nil
+                    // A failed import has no answer to compare; generation reports it.
+                    guard !preparation.blocksRun, self.isCurrentWorkspace(identity) else { return }
+                    await self.compareJavaEntrypoints(runFeature, for: identity, sessions: sessions)
+                }
+            }
+    }
+
+    private func compareJavaEntrypoints(
+        _ runFeature: RunFeatureModel,
+        for identity: WorkspaceIdentity,
+        sessions: LanguageToolingSessionManager
+    ) async {
+        let entrypoints: JavaEntrypoints
+        do {
+            entrypoints = try await sessions.javaEntrypoints(rootURL: identity.url)
+        } catch {
+            sessions.recordLanguageServerLog(
+                providerID: "java",
+                level: .warning,
+                message: "Java entry-point freshness check failed",
+                detail: error.localizedDescription
+            )
+            return
+        }
+        guard isCurrentWorkspace(identity) else { return }
+        await runFeature.reportJavaEntrypointFreshness(entrypoints)
     }
 
     /// Whether JDT lists `documentURL` as a launchable class in the workspace.
