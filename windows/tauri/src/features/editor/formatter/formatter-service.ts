@@ -1,5 +1,6 @@
 import { invoke } from "@/platform/tauri-core";
 import { extensionRegistry } from "@/extensions/registry/extension-registry";
+import { isBuiltInLspPath } from "@/features/editor/lsp/built-in-language-support";
 import { getLanguageIdFromPath } from "@/features/editor/utils/language-id";
 import { logger } from "@/features/editor/utils/logger";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
@@ -186,6 +187,9 @@ export function isFormattingAvailable(filePath: string, languageId?: string): bo
   const formatterConfig = extensionRegistry.getFormatterForFile(filePath);
   if (formatterConfig) return true;
 
+  // Built-in languages such as Java format through their bundled language
+  // server, which is not registered as an extension LSP.
+  if (isBuiltInLspPath(filePath)) return true;
   if (extensionRegistry.getLspServerPath(filePath)) return true;
 
   if (languageId) {

@@ -2064,6 +2064,33 @@ fn run_configuration_generation_detects_maven_compiler_target() {
 }
 
 #[test]
+fn run_configuration_generation_reads_legacy_java_8_compiler_versions() {
+    // Java 8 projects usually write `1.8`; the requirement must be the feature
+    // version `8`, not the legacy `1` prefix that any JDK would satisfy.
+    let root = temporary_root("run-config-legacy-java-version");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("pom.xml"),
+        "<project><properties><java.version>1.8</java.version></properties></project>",
+    )
+    .unwrap();
+    let generated: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "generate-legacy-java",
+            "command": "runConfig.generate",
+            "payload": {"root": root, "paths": [], "modulePaths": []}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(
+        generated["data"]["toolchainRequirements"]["toolchains"]["project-jdk"]["minimumVersion"],
+        "8"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn run_configuration_inspection_invalidates_an_older_generator_revision() {
     let root = temporary_root("run-config-generator-revision");
     let test_source = "module-a/src/test/java/com/example/App.java";
@@ -2329,6 +2356,62 @@ fn run_configuration_resolve_matches_toolchains_and_rejects_unsafe_paths() {
     let unsafe_path = resolve("21.0.5", "Eclipse Temurin");
     assert_eq!(unsafe_path["ok"], false);
     assert_eq!(unsafe_path["error"]["code"], "invalid_request");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn run_configuration_resolve_accepts_legacy_java_8_runtime_versions() {
+    // Regression for #826: JDK 8 reports `1.8.0_504`, which must satisfy a
+    // requirement of `8` (or `1.8`) instead of blocking every launch.
+    let root = temporary_root("run-config-legacy-java-runtime");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        r#"{"version":1,"configurations":[{"id":"current-file","name":"Current File","type":"java.current-file","toolchains":{"java":"project-jdk"}}]}"#,
+    )
+    .unwrap();
+
+    let resolve = |requirement: &str, version: &str| -> bool {
+        fs::write(
+            root.join(".lithe/toolchains/requirements.json"),
+            format!(
+                r#"{{"version":1,"toolchains":{{"project-jdk":{{"type":"java",{requirement}}}}}}}"#
+            ),
+        )
+        .unwrap();
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "resolve-legacy-java",
+                "command": "runConfig.resolve",
+                "payload": {
+                    "root": root,
+                    "toolchainCandidates": [{
+                        "id": "project-jdk",
+                        "type": "java",
+                        "version": version,
+                        "vendor": "Azul Zulu"
+                    }]
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        response["data"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value["code"] == "toolchainVersionMismatch")
+    };
+
+    assert!(!resolve(r#""minimumVersion":"8""#, "1.8.0_504"));
+    assert!(!resolve(r#""minimumVersion":"1.8""#, "1.8.0_131"));
+    assert!(!resolve(r#""version":"8""#, "1.8.0_504"));
+    assert!(!resolve(r#""minimumVersion":"8""#, "21.0.5"));
+    assert!(resolve(r#""minimumVersion":"8""#, "1.7.0_80"));
+    assert!(resolve(r#""version":"8""#, "17.0.12"));
+    assert!(resolve(r#""minimumVersion":"17""#, "1.8.0_504"));
 
     fs::remove_dir_all(root).unwrap();
 }
