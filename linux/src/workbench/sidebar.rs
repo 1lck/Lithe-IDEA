@@ -8,6 +8,7 @@ use gpui_kit::{
 use serde::{Deserialize, Serialize};
 
 use crate::core::CoreClient;
+use crate::theme::ThemeColors;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarTab {
@@ -326,23 +327,54 @@ impl SidebarView {
         }
         false
     }
+
+    fn render_tab_button(
+        &self,
+        id: &'static str,
+        label: String,
+        is_active: bool,
+        tab: SidebarTab,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        div()
+            .id(id)
+            .px_3()
+            .py_1()
+            .rounded_t_sm()
+            .cursor_pointer()
+            .text_xs()
+            .when(is_active, |btn| {
+                btn.bg(ThemeColors::bg_sidebar())
+                    .text_color(ThemeColors::text_primary())
+                    .border_b_2()
+                    .border_color(ThemeColors::accent_blue())
+            })
+            .when(!is_active, |btn| {
+                btn.text_color(ThemeColors::text_muted())
+                    .hover(|h| h.bg(ThemeColors::bg_tab_hover()).text_color(ThemeColors::text_primary()))
+            })
+            .child(label)
+            .on_click(cx.listener(move |this, _event, _window, cx| {
+                this.set_tab(tab, cx);
+            }))
+    }
 }
 
 impl Render for SidebarView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .size_full()
-            .bg(rgb(0x161724))
+            .bg(ThemeColors::BG_SIDEBAR)
             .border_r_1()
-            .border_color(rgb(0x23263b))
+            .border_color(ThemeColors::BORDER)
             .child(
                 // 顶部视图切换栏 (Explorer / Search / Git)
                 h_flex()
                     .h(px(36.0))
                     .w_full()
-                    .bg(rgb(0x141522))
+                    .bg(ThemeColors::BG_TAB_BAR)
                     .border_b_1()
-                    .border_color(rgb(0x23263b))
+                    .border_color(ThemeColors::BORDER)
                     .items_center()
                     .justify_between()
                     .px_2()
@@ -350,44 +382,27 @@ impl Render for SidebarView {
                         h_flex()
                             .items_center()
                             .gap_1()
-                            .child(
-                                Button::new("tab-explorer")
-                                    .small()
-                                    .when(self.active_tab == SidebarTab::Explorer, |b| {
-                                        b.primary()
-                                    })
-                                    .when(self.active_tab != SidebarTab::Explorer, |b| {
-                                        b.ghost()
-                                    })
-                                    .label("Files")
-                                    .on_click(cx.listener(|this, _event, _window, cx| {
-                                        this.set_tab(SidebarTab::Explorer, cx);
-                                    })),
-                            )
-                            .child(
-                                Button::new("tab-search")
-                                    .small()
-                                    .when(self.active_tab == SidebarTab::Search, |b| {
-                                        b.primary()
-                                    })
-                                    .when(self.active_tab != SidebarTab::Search, |b| {
-                                        b.ghost()
-                                    })
-                                    .label("Search")
-                                    .on_click(cx.listener(|this, _event, _window, cx| {
-                                        this.set_tab(SidebarTab::Search, cx);
-                                    })),
-                            )
-                            .child(
-                                Button::new("tab-git")
-                                    .small()
-                                    .when(self.active_tab == SidebarTab::Git, |b| b.primary())
-                                    .when(self.active_tab != SidebarTab::Git, |b| b.ghost())
-                                    .label(format!("Git ({})", self.git_changes.len()))
-                                    .on_click(cx.listener(|this, _event, _window, cx| {
-                                        this.set_tab(SidebarTab::Git, cx);
-                                    })),
-                            ),
+                            .child(self.render_tab_button(
+                                "tab-explorer",
+                                "Files".to_string(),
+                                self.active_tab == SidebarTab::Explorer,
+                                SidebarTab::Explorer,
+                                cx,
+                            ))
+                            .child(self.render_tab_button(
+                                "tab-search",
+                                "Search".to_string(),
+                                self.active_tab == SidebarTab::Search,
+                                SidebarTab::Search,
+                                cx,
+                            ))
+                            .child(self.render_tab_button(
+                                "tab-git",
+                                format!("Git ({})", self.git_changes.len()),
+                                self.active_tab == SidebarTab::Git,
+                                SidebarTab::Git,
+                                cx,
+                            )),
                     )
                     .child(
                         Button::new("refresh-btn")
@@ -459,10 +474,10 @@ impl SidebarView {
                     .pr_2()
                     .text_xs()
                     .when(is_selected, |row| {
-                        row.bg(rgb(0x2a2d42)).text_color(rgb(0xffffff))
+                        row.bg(ThemeColors::BG_TAB_ACTIVE).text_color(ThemeColors::TEXT_PRIMARY)
                     })
                     .when(!is_selected, |row| {
-                        row.text_color(rgb(0xcfd3e0)).hover(|h| h.bg(rgb(0x1e2030)))
+                        row.text_color(ThemeColors::TEXT_PRIMARY).hover(|h| h.bg(ThemeColors::BG_TAB_HOVER))
                     })
                     .child(if is_dir {
                         if item.is_expanded { "📂 " } else { "📁 " }
@@ -495,13 +510,15 @@ impl SidebarView {
                     .h(px(28.0))
                     .w_full()
                     .items_center()
-                    .bg(rgb(0x1e2030))
+                    .bg(ThemeColors::BG_TAB_ACTIVE)
+                    .border_1()
+                    .border_color(ThemeColors::BORDER)
                     .rounded_sm()
                     .px_2()
                     .child(
                         div()
                             .text_xs()
-                            .text_color(rgb(0x8a90a2))
+                            .text_color(ThemeColors::TEXT_MUTED)
                             .child("Search files or text..."),
                     ),
             )
@@ -530,19 +547,19 @@ impl SidebarView {
                             .p_1()
                             .rounded_sm()
                             .cursor_pointer()
-                            .hover(|h| h.bg(rgb(0x1e2030)))
+                            .hover(|h| h.bg(ThemeColors::BG_TAB_HOVER))
                             .child(
                                 h_flex()
                                     .items_center()
                                     .gap_1()
                                     .text_xs()
-                                    .text_color(rgb(0x60a5fa))
+                                    .text_color(ThemeColors::ACCENT_BLUE)
                                     .child(format!("{}{}", path, line_info)),
                             )
                             .child(
                                 div()
                                     .text_xs()
-                                    .text_color(rgb(0x9ca3af))
+                                    .text_color(ThemeColors::TEXT_MUTED)
                                     .child(preview),
                             )
                             .on_click(cx.listener({
@@ -570,16 +587,16 @@ impl SidebarView {
                     .gap_2()
                     .pb_2()
                     .border_b_1()
-                    .border_color(rgb(0x23263b))
+                    .border_color(ThemeColors::BORDER)
                     .text_xs()
-                    .text_color(rgb(0x10b981))
+                    .text_color(ThemeColors::ACCENT_GREEN)
                     .child("⎇ Branch:")
                     .child(branch),
             )
             .child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x8a90a2))
+                    .text_color(ThemeColors::TEXT_MUTED)
                     .child(format!("Changed Files ({})", self.git_changes.len())),
             )
             .children(self.git_changes.iter().enumerate().map(|(idx, change)| {
@@ -595,13 +612,13 @@ impl SidebarView {
                     .px_2()
                     .rounded_sm()
                     .cursor_pointer()
-                    .hover(|h| h.bg(rgb(0x1e2030)))
+                    .hover(|h| h.bg(ThemeColors::BG_TAB_HOVER))
                     .text_xs()
                     .child(
                         h_flex()
                             .items_center()
                             .gap_2()
-                            .text_color(rgb(0xcfd3e0))
+                            .text_color(ThemeColors::TEXT_PRIMARY)
                             .child(path.clone()),
                     )
                     .child(

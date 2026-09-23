@@ -1,7 +1,8 @@
 mod core;
+mod theme;
 mod workbench;
 
-use gpui_kit::component::Root;
+use gpui_kit::component::{Root, Theme, ThemeMode};
 use gpui_kit::*;
 use workbench::WorkbenchView;
 
@@ -10,6 +11,7 @@ fn main() {
 
     app.run(move |cx| {
         gpui_kit::init(cx);
+        Theme::change(ThemeMode::Dark, None, cx);
 
         cx.open_window(WindowOptions::default(), |window, cx| {
             let view = cx.new(|cx| WorkbenchView::new(window, cx));

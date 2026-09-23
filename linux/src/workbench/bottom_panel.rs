@@ -3,10 +3,11 @@ use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, rgb, AppContext as _, Context, Entity, IntoElement,
-    ParentElement as _, Render, Styled as _, Window,
+    div, px, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
+    ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Window,
 };
 
+use crate::theme::ThemeColors;
 use crate::workbench::terminal::TerminalView;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,17 +53,48 @@ impl BottomPanelView {
         self.output_logs.push(log);
         cx.notify();
     }
+
+    fn render_tab_button(
+        &self,
+        id: &'static str,
+        label: String,
+        is_active: bool,
+        tab: BottomTab,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        div()
+            .id(id)
+            .px_3()
+            .py_1()
+            .rounded_t_sm()
+            .cursor_pointer()
+            .text_xs()
+            .when(is_active, |btn| {
+                btn.bg(ThemeColors::bg_bottom_panel())
+                    .text_color(ThemeColors::text_primary())
+                    .border_b_2()
+                    .border_color(ThemeColors::accent_blue())
+            })
+            .when(!is_active, |btn| {
+                btn.text_color(ThemeColors::text_muted())
+                    .hover(|h| h.bg(ThemeColors::bg_tab_hover()).text_color(ThemeColors::text_primary()))
+            })
+            .child(label)
+            .on_click(cx.listener(move |this, _event, _window, cx| {
+                this.set_tab(tab, cx);
+            }))
+    }
 }
 
 impl Render for BottomPanelView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.is_collapsed {
             return div()
-                .h(px(28.0))
+                .h(px(26.0))
                 .w_full()
-                .bg(rgb(0x141522))
+                .bg(ThemeColors::BG_STATUSBAR)
                 .border_t_1()
-                .border_color(rgb(0x23263b))
+                .border_color(ThemeColors::BORDER)
                 .flex()
                 .items_center()
                 .justify_between()
@@ -70,7 +102,7 @@ impl Render for BottomPanelView {
                 .child(
                     div()
                         .text_xs()
-                        .text_color(rgb(0x8a90a2))
+                        .text_color(ThemeColors::TEXT_MUTED)
                         .child("Panel collapsed"),
                 )
                 .child(
@@ -87,17 +119,17 @@ impl Render for BottomPanelView {
         v_flex()
             .h(px(240.0))
             .w_full()
-            .bg(rgb(0x11121d))
+            .bg(ThemeColors::BG_BOTTOM_PANEL)
             .border_t_1()
-            .border_color(rgb(0x23263b))
+            .border_color(ThemeColors::BORDER)
             .child(
                 // 顶部 Tab 切换栏
                 h_flex()
                     .h(px(32.0))
                     .w_full()
-                    .bg(rgb(0x141522))
+                    .bg(ThemeColors::BG_TAB_BAR)
                     .border_b_1()
-                    .border_color(rgb(0x23263b))
+                    .border_color(ThemeColors::BORDER)
                     .items_center()
                     .justify_between()
                     .px_2()
@@ -105,48 +137,27 @@ impl Render for BottomPanelView {
                         h_flex()
                             .items_center()
                             .gap_1()
-                            .child(
-                                Button::new("tab-terminal")
-                                    .small()
-                                    .when(self.active_tab == BottomTab::Terminal, |btn| {
-                                        btn.primary()
-                                    })
-                                    .when(self.active_tab != BottomTab::Terminal, |btn| {
-                                        btn.ghost()
-                                    })
-                                    .label("Terminal")
-                                    .on_click(cx.listener(|this, _event, _window, cx| {
-                                        this.set_tab(BottomTab::Terminal, cx);
-                                    })),
-                            )
-                            .child(
-                                Button::new("tab-output")
-                                    .small()
-                                    .when(self.active_tab == BottomTab::Output, |btn| {
-                                        btn.primary()
-                                    })
-                                    .when(self.active_tab != BottomTab::Output, |btn| {
-                                        btn.ghost()
-                                    })
-                                    .label("Output")
-                                    .on_click(cx.listener(|this, _event, _window, cx| {
-                                        this.set_tab(BottomTab::Output, cx);
-                                    })),
-                            )
-                            .child(
-                                Button::new("tab-problems")
-                                    .small()
-                                    .when(self.active_tab == BottomTab::Problems, |btn| {
-                                        btn.primary()
-                                    })
-                                    .when(self.active_tab != BottomTab::Problems, |btn| {
-                                        btn.ghost()
-                                    })
-                                    .label(format!("Problems ({})", self.problems.len()))
-                                    .on_click(cx.listener(|this, _event, _window, cx| {
-                                        this.set_tab(BottomTab::Problems, cx);
-                                    })),
-                            ),
+                            .child(self.render_tab_button(
+                                "tab-terminal",
+                                "Terminal".to_string(),
+                                self.active_tab == BottomTab::Terminal,
+                                BottomTab::Terminal,
+                                cx,
+                            ))
+                            .child(self.render_tab_button(
+                                "tab-output",
+                                "Output".to_string(),
+                                self.active_tab == BottomTab::Output,
+                                BottomTab::Output,
+                                cx,
+                            ))
+                            .child(self.render_tab_button(
+                                "tab-problems",
+                                format!("Problems ({})", self.problems.len()),
+                                self.active_tab == BottomTab::Problems,
+                                BottomTab::Problems,
+                                cx,
+                            )),
                     )
                     .child(
                         Button::new("collapse-panel")
@@ -171,7 +182,7 @@ impl Render for BottomPanelView {
                         .overflow_y_scrollbar()
                         .text_xs()
                         .font_family("monospace")
-                        .text_color(rgb(0x9ca3af))
+                        .text_color(ThemeColors::text_muted())
                         .children(
                             self.output_logs
                                 .iter()
@@ -184,7 +195,7 @@ impl Render for BottomPanelView {
                         .p_3()
                         .overflow_y_scrollbar()
                         .text_xs()
-                        .text_color(rgb(0x9ca3af))
+                        .text_color(ThemeColors::text_muted())
                         .child(if self.problems.is_empty() {
                             "No problems have been detected in the workspace.".to_string()
                         } else {

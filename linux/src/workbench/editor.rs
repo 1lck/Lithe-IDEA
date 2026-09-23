@@ -7,6 +7,7 @@ use gpui_kit::{
 };
 
 use crate::core::CoreClient;
+use crate::theme::ThemeColors;
 
 #[derive(Debug, Clone)]
 pub struct EditorTab {
@@ -14,11 +15,13 @@ pub struct EditorTab {
     pub title: String,
     pub content: String,
     pub is_dirty: bool,
+    #[allow(dead_code)]
     pub cursor_line: usize,
+    #[allow(dead_code)]
     pub cursor_col: usize,
 }
 
-/// 多标签代码编辑器组件
+/// 多标签代码编辑器组件（对齐 IntelliJ / Tauri 视觉规范）
 pub struct EditorView {
     pub workspace_root: String,
     pub tabs: Vec<EditorTab>,
@@ -148,15 +151,15 @@ impl Render for EditorView {
 
         v_flex()
             .size_full()
-            .bg(rgb(0x13141f))
+            .bg(ThemeColors::BG_EDITOR)
             .child(
                 // 1. 顶部标签栏（Tab Bar）
                 h_flex()
-                    .h(px(36.0))
+                    .h(px(34.0))
                     .w_full()
-                    .bg(rgb(0x10111a))
+                    .bg(ThemeColors::BG_TAB_BAR)
                     .border_b_1()
-                    .border_color(rgb(0x23263b))
+                    .border_color(ThemeColors::BORDER)
                     .items_center()
                     .overflow_x_scrollbar()
                     .px_1()
@@ -167,17 +170,19 @@ impl Render for EditorView {
 
                         h_flex()
                             .id(idx)
-                            .h(px(32.0))
+                            .h(px(34.0))
                             .items_center()
                             .gap_2()
                             .px_3()
-                            .rounded_t_sm()
                             .cursor_pointer()
                             .when(is_active, |t| {
-                                t.bg(rgb(0x181926)).border_t_2().border_color(rgb(0x3b82f6))
+                                t.bg(ThemeColors::BG_TAB_ACTIVE)
+                                    .border_t_2()
+                                    .border_color(ThemeColors::ACCENT_BLUE)
                             })
                             .when(!is_active, |t| {
-                                t.bg(rgb(0x10111a)).hover(|h| h.bg(rgb(0x151624)))
+                                t.bg(ThemeColors::BG_TAB_BAR)
+                                    .hover(|h| h.bg(ThemeColors::BG_TAB_HOVER))
                             })
                             .on_click(cx.listener(move |this, _event, _window, cx| {
                                 this.active_tab_index = Some(idx);
@@ -187,9 +192,9 @@ impl Render for EditorView {
                                 div()
                                     .text_xs()
                                     .text_color(if is_active {
-                                        rgb(0xffffff)
+                                        ThemeColors::TEXT_PRIMARY
                                     } else {
-                                        rgb(0x9ca3af)
+                                        ThemeColors::TEXT_MUTED
                                     })
                                     .child(title),
                             )
@@ -197,7 +202,7 @@ impl Render for EditorView {
                                 t.child(
                                     div()
                                         .text_xs()
-                                        .text_color(rgb(0x3b82f6))
+                                        .text_color(ThemeColors::ACCENT_BLUE)
                                         .child("●"),
                                 )
                             })
@@ -205,7 +210,7 @@ impl Render for EditorView {
                                 div()
                                     .id(("close-tab", idx))
                                     .text_xs()
-                                    .text_color(rgb(0x6b7280))
+                                    .text_color(ThemeColors::TEXT_MUTED)
                                     .hover(|h| h.text_color(rgb(0xef4444)))
                                     .child("×")
                                     .on_click(cx.listener(move |this, _event, _window, cx| {
@@ -214,8 +219,31 @@ impl Render for EditorView {
                             )
                     })),
             )
+            .when_some(active_tab.as_ref(), |this, tab| {
+                // 2. 面包屑导航栏（Breadcrumb Bar）
+                this.child(
+                    h_flex()
+                        .h(px(24.0))
+                        .w_full()
+                        .bg(ThemeColors::BG_TAB_ACTIVE)
+                        .border_b_1()
+                        .border_color(ThemeColors::BORDER)
+                        .items_center()
+                        .px_3()
+                        .gap_1()
+                        .text_xs()
+                        .text_color(ThemeColors::TEXT_MUTED)
+                        .child("📂")
+                        .child(
+                            tab.path
+                                .split('/')
+                                .collect::<Vec<_>>()
+                                .join("  ›  "),
+                        ),
+                )
+            })
             .child(
-                // 2. 中央内容编辑区
+                // 3. 中央代码内容区
                 div().flex_1().w_full().overflow_scrollbar().child(
                     if let Some(tab) = &active_tab {
                         let lines: Vec<String> = tab.content.lines().map(|s| s.to_string()).collect();
@@ -227,19 +255,19 @@ impl Render for EditorView {
                             .font_family("monospace")
                             .text_xs()
                             .child(
-                                // 行号列
+                                // 代码行号槽（Gutter）
                                 v_flex()
                                     .flex_shrink_0()
-                                    .text_color(rgb(0x4b5563))
+                                    .text_color(ThemeColors::TEXT_MUTED)
                                     .children((1..=lines.len().max(1)).map(|num| {
                                         div().h(px(20.0)).child(format!("{num:4}"))
                                     })),
                             )
                             .child(
-                                // 代码文本列
+                                // 代码文本展示行
                                 v_flex()
                                     .flex_1()
-                                    .text_color(rgb(0xe5e7eb))
+                                    .text_color(ThemeColors::TEXT_PRIMARY)
                                     .children(lines.into_iter().enumerate().map(|(idx, line)| {
                                         div()
                                             .id(idx)
@@ -248,49 +276,16 @@ impl Render for EditorView {
                                     })),
                             )
                     } else {
-                        // 空状态
+                        // 无打开文件欢迎占位
                         h_flex()
                             .size_full()
                             .items_center()
                             .justify_center()
                             .text_sm()
-                            .text_color(rgb(0x6b7280))
-                            .child("No file opened. Select a file from the sidebar.")
+                            .text_color(ThemeColors::TEXT_MUTED)
+                            .child("No file opened. Select a file from the project explorer or press Ctrl+P.")
                     },
                 ),
-            )
-            .child(
-                // 3. 底部状态栏
-                h_flex()
-                    .h(px(24.0))
-                    .w_full()
-                    .bg(rgb(0x10111a))
-                    .border_t_1()
-                    .border_color(rgb(0x23263b))
-                    .items_center()
-                    .justify_between()
-                    .px_3()
-                    .text_xs()
-                    .text_color(rgb(0x6b7280))
-                    .child(
-                        h_flex().items_center().gap_3().child(if let Some(tab) = &active_tab {
-                            format!("Ln {}, Col {}", tab.cursor_line, tab.cursor_col)
-                        } else {
-                            "Ready".to_string()
-                        }),
-                    )
-                    .child(
-                        h_flex()
-                            .items_center()
-                            .gap_3()
-                            .child(if let Some(tab) = &active_tab {
-                                Self::language_name(&tab.path)
-                            } else {
-                                "Plain Text"
-                            })
-                            .child("UTF-8")
-                            .child("Lithe Core"),
-                    ),
             )
     }
 }
