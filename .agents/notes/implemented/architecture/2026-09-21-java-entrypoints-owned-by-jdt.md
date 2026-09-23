@@ -93,6 +93,10 @@ Windows 会先同步当前编辑文档再请求该操作。两端都不再解析
 - 列表状态分 `idle / loading / ready / stale / failed`。JDT 未就绪时显示上次
   成功的结果并标记为刷新中；刷新失败不能用空列表覆盖旧结果；用户点运行时必须
   重新向当前 JDT 确认。
+- 判断“运行列表是否过期”也以 JDT 为准：打开项目且 JDT 就绪后，平台把
+  `javaEntrypoints` 的结果传给 `runConfig.inspect`，由 Core 和已生成的 Java 入口
+  比对。输入指纹不再对全部 Java 源码做内容哈希（见
+  `.agents/notes/implemented/bug-fix/2026-09-22-run-panel-fingerprint-loading.md`）。
 
 ### 不要这样做
 

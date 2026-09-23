@@ -372,6 +372,11 @@ package final class RunFeatureModel: ObservableObject {
         await service.loadProject(at: workspaceURL, files: files, mavenProject: mavenProject, snapshotID: snapshotID)
     }
 
+    /// Adds JDT's view of the generated Java entries to the Run diagnostics.
+    package func reportJavaEntrypointFreshness(_ entrypoints: JavaEntrypoints) async {
+        await service.reportJavaEntrypointFreshness(entrypoints)
+    }
+
     package func generateRunConfigurations(
         javaDiscovery: JavaEntrypointDiscovery = .notJava
     ) async {

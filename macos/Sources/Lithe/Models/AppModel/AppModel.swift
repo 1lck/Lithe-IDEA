@@ -351,6 +351,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     /// Regenerates the Run list once JDT has prepared the project, after a
     /// generation that could only show the previous Java entries.
     var javaEntrypointRefreshObservation: AnyCancellable?
+    /// Compares the generated Java entries with JDT once it has prepared the
+    /// project, after a load that found it still importing.
+    var javaEntrypointFreshnessObservation: AnyCancellable?
 
     func cachedModuleCapability<Capability: AnyObject>(
         _ id: ModuleCapabilityID,

@@ -40,8 +40,20 @@ async function runCore<T>(
   return response.data;
 }
 
-export function inspectRunConfiguration(root: string, checkFingerprint = true) {
-  return runCore<CoreInspectResult>("runConfig.inspect", { root, checkFingerprint });
+/**
+ * Validates run documents. `javaEntrypoints` is JDT's current answer; when
+ * given, Core also reports whether the generated Java entries still match it.
+ */
+export function inspectRunConfiguration(
+  root: string,
+  checkFingerprint = true,
+  javaEntrypoints?: JavaEntrypoints,
+) {
+  return runCore<CoreInspectResult>("runConfig.inspect", {
+    root,
+    checkFingerprint,
+    ...(javaEntrypoints ? { javaEntrypoints } : {}),
+  });
 }
 
 /** Updates only machine-local project defaults, even before configurations exist. */
