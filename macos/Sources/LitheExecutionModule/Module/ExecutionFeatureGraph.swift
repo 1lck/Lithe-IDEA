@@ -18,7 +18,8 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
 
     package init(maven: MavenService, run: RunService, tests: LanguageTestService) {
         self.maven = maven; self.run = run; self.tests = tests
-        mavenFeature = MavenFeatureModel(service: maven)
+        let mavenFeature = MavenFeatureModel(service: maven)
+        self.mavenFeature = mavenFeature
         runFeature = RunFeatureModel(service: run)
         projectDevelopment = ProjectDevelopmentFeatureModel(mavenFeature: mavenFeature, runFeature: runFeature)
         run.configureMavenContextProvider { [weak maven] in
@@ -27,6 +28,11 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
         maven.onProjectReloaded = { [weak run] workspace, project in
             run?.acceptMavenProject(project, at: workspace)
         }
+        maven.$dependencyStates.dropFirst().sink { [weak run] _ in
+            Task { @MainActor [weak run] in
+                run?.syncLanguageDependencyPaths(languageID: "java")
+            }
+        }.store(in: &activityObservers)
     }
 
     package var isActive: Bool {

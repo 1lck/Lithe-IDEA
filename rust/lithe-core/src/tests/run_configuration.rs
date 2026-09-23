@@ -2064,6 +2064,33 @@ fn run_configuration_generation_detects_maven_compiler_target() {
 }
 
 #[test]
+fn run_configuration_generation_reads_legacy_java_8_compiler_versions() {
+    // Java 8 projects usually write `1.8`; the requirement must be the feature
+    // version `8`, not the legacy `1` prefix that any JDK would satisfy.
+    let root = temporary_root("run-config-legacy-java-version");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("pom.xml"),
+        "<project><properties><java.version>1.8</java.version></properties></project>",
+    )
+    .unwrap();
+    let generated: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "generate-legacy-java",
+            "command": "runConfig.generate",
+            "payload": {"root": root, "paths": [], "modulePaths": []}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(
+        generated["data"]["toolchainRequirements"]["toolchains"]["project-jdk"]["minimumVersion"],
+        "8"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn run_configuration_inspection_invalidates_an_older_generator_revision() {
     let root = temporary_root("run-config-generator-revision");
     let test_source = "module-a/src/test/java/com/example/App.java";
@@ -2162,49 +2189,194 @@ fn run_configuration_inspection_summarizes_changed_inputs() {
     let root = temporary_root("run-config-input-summary");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(root.join("src/App.java"), "class App {}").unwrap();
-    let generated: Value = serde_json::from_str(&execute_json(
-        &serde_json::json!({
-            "id": "generate-summary",
-            "command": "runConfig.generate",
-            "payload": {"root": root, "paths": ["src/App.java"], "modulePaths": []}
-        })
-        .to_string(),
-    ))
-    .unwrap();
-    let generated_again: Value = serde_json::from_str(&execute_json(
-        &serde_json::json!({
-            "id": "generate-summary-again",
-            "command": "runConfig.generate",
-            "payload": {"root": root, "paths": ["src/App.java"], "modulePaths": []}
-        })
-        .to_string(),
-    ))
-    .unwrap();
-    assert_eq!(generated["data"], generated_again["data"]);
-    fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        serde_json::to_string(&generated["data"]["generated"]).unwrap(),
-    )
-    .unwrap();
-    fs::write(root.join("src/App.java"), "class App { int changed; }").unwrap();
+    fs::write(root.join("package.json"), r#"{"name":"demo"}"#).unwrap();
+    let generated = generate_run_configuration(&root, &["src/App.java"], None);
+    let generated_again = generate_run_configuration(&root, &["src/App.java"], None);
+    assert_eq!(generated, generated_again);
+    write_generated_run_document(&root, &generated);
+    fs::write(root.join("package.json"), r#"{"name":"renamed"}"#).unwrap();
 
-    let inspected: Value = serde_json::from_str(&execute_json(
-        &serde_json::json!({
-            "id": "inspect-summary",
-            "command": "runConfig.inspect",
-            "payload": {"root": root}
-        })
-        .to_string(),
-    ))
-    .unwrap();
-    assert_eq!(inspected["ok"], true);
+    let inspected = inspect_run_configuration(&root, None);
     assert_eq!(
-        inspected["data"]["diagnostics"][0]["message"],
+        inspected["diagnostics"][0]["message"],
         "Project inputs changed: 0 added, 0 removed, 1 modified"
     );
 
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn fingerprint_reads_only_java_sources_that_generation_reads() {
+    // Issue #507: hashing every Java source made each inspection read the whole
+    // project. Generation reads only the entry-point sources it labels; other
+    // Java files matter by path (has-Java, Maven module inference) alone.
+    let root = temporary_root("run-config-fingerprint-scope");
+    let entry = "src/main/java/demo/App.java";
+    let helper = "src/main/java/demo/Helper.java";
+    fs::create_dir_all(root.join("src/main/java/demo")).unwrap();
+    fs::write(
+        root.join(entry),
+        "package demo; class App { public static void main(String[] args) {} }",
+    )
+    .unwrap();
+    fs::write(root.join(helper), "package demo; class Helper {}").unwrap();
+    let generated = generate_run_configuration(
+        &root,
+        &[entry, helper],
+        Some(jdt_entrypoints(&[(entry, "demo.App")])),
+    );
+    let inputs = &generated["generator"]["inputs"];
+    assert!(
+        inputs[entry].as_str().unwrap().starts_with("sha256:"),
+        "{inputs}"
+    );
+    assert_eq!(inputs[helper], "path", "{inputs}");
+    write_generated_run_document(&root, &generated);
+
+    // Editing a class body changes nothing generation depends on.
+    fs::write(root.join(helper), "package demo; class Helper { int x; }").unwrap();
+    assert_eq!(
+        inspect_run_configuration(&root, None)["diagnostics"],
+        serde_json::json!([])
+    );
+
+    // The entry source is still read: a Spring Boot label can change there.
+    fs::write(
+        root.join(entry),
+        "package demo; @SpringBootApplication class App { public static void main(String[] args) {} }",
+    )
+    .unwrap();
+    assert_eq!(
+        inspect_run_configuration(&root, None)["diagnostics"][0]["message"],
+        "Project inputs changed: 0 added, 0 removed, 1 modified"
+    );
+    write_generated_run_document(
+        &root,
+        &generate_run_configuration(
+            &root,
+            &[entry, helper],
+            Some(jdt_entrypoints(&[(entry, "demo.App")])),
+        ),
+    );
+
+    // Adding or removing a Java file still changes the path set.
+    fs::write(
+        root.join("src/main/java/demo/Added.java"),
+        "package demo; class Added {}",
+    )
+    .unwrap();
+    assert_eq!(
+        inspect_run_configuration(&root, None)["diagnostics"][0]["message"],
+        "Project inputs changed: 1 added, 0 removed, 0 modified"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn inspection_compares_generated_java_entries_with_jdt() {
+    // Without whole-source hashing, a main method added to an existing class is
+    // found by comparing JDT's current answer with the generated entries.
+    let root = temporary_root("run-config-jdt-entry-staleness");
+    let app = "src/main/java/demo/App.java";
+    let tool = "src/main/java/demo/Tool.java";
+    fs::create_dir_all(root.join("src/main/java/demo")).unwrap();
+    fs::write(
+        root.join(app),
+        "package demo; class App { public static void main(String[] args) {} }",
+    )
+    .unwrap();
+    fs::write(root.join(tool), "package demo; class Tool {}").unwrap();
+    write_generated_run_document(
+        &root,
+        &generate_run_configuration(
+            &root,
+            &[app, tool],
+            Some(jdt_entrypoints(&[(app, "demo.App")])),
+        ),
+    );
+
+    let unchanged = inspect_run_configuration(&root, Some(jdt_entrypoints(&[(app, "demo.App")])));
+    assert_eq!(unchanged["diagnostics"], serde_json::json!([]));
+    // JDT prefixes classes in named modules; generated entries store the class.
+    let modular = inspect_run_configuration(
+        &root,
+        Some(jdt_entrypoints(&[(app, "demo.module/demo.App")])),
+    );
+    assert_eq!(modular["diagnostics"], serde_json::json!([]));
+
+    let added = inspect_run_configuration(
+        &root,
+        Some(jdt_entrypoints(&[(app, "demo.App"), (tool, "demo.Tool")])),
+    );
+    assert_eq!(added["diagnostics"][0]["code"], "staleFingerprint");
+    assert_eq!(
+        added["diagnostics"][0]["message"],
+        "Java entry points changed: 1 added, 0 removed"
+    );
+    let removed = inspect_run_configuration(&root, Some(jdt_entrypoints(&[])));
+    assert_eq!(
+        removed["diagnostics"][0]["message"],
+        "Java entry points changed: 0 added, 1 removed"
+    );
+    // Settings reads skip hashing but still honor an explicit JDT answer.
+    let settings: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "inspect-settings-jdt",
+            "command": "runConfig.inspect",
+            "payload": {
+                "root": root,
+                "checkFingerprint": false,
+                "javaEntrypoints": jdt_entrypoints(&[(app, "demo.App")])
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(settings["data"]["diagnostics"], serde_json::json!([]));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+fn generate_run_configuration(
+    root: &std::path::Path,
+    paths: &[&str],
+    java_entrypoints: Option<Value>,
+) -> Value {
+    let mut payload = serde_json::json!({ "root": root, "paths": paths, "modulePaths": [] });
+    if let Some(entrypoints) = java_entrypoints {
+        payload["javaEntrypoints"] = entrypoints;
+    }
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({ "id": "generate", "command": "runConfig.generate", "payload": payload })
+            .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    response["data"]["generated"].clone()
+}
+
+fn write_generated_run_document(root: &std::path::Path, generated: &Value) {
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        serde_json::to_string(generated).unwrap(),
+    )
+    .unwrap();
+}
+
+fn inspect_run_configuration(root: &std::path::Path, java_entrypoints: Option<Value>) -> Value {
+    let mut payload = serde_json::json!({ "root": root });
+    if let Some(entrypoints) = java_entrypoints {
+        payload["javaEntrypoints"] = entrypoints;
+    }
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({ "id": "inspect", "command": "runConfig.inspect", "payload": payload })
+            .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    response["data"].clone()
 }
 
 #[test]
@@ -2329,6 +2501,62 @@ fn run_configuration_resolve_matches_toolchains_and_rejects_unsafe_paths() {
     let unsafe_path = resolve("21.0.5", "Eclipse Temurin");
     assert_eq!(unsafe_path["ok"], false);
     assert_eq!(unsafe_path["error"]["code"], "invalid_request");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn run_configuration_resolve_accepts_legacy_java_8_runtime_versions() {
+    // Regression for #826: JDK 8 reports `1.8.0_504`, which must satisfy a
+    // requirement of `8` (or `1.8`) instead of blocking every launch.
+    let root = temporary_root("run-config-legacy-java-runtime");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        r#"{"version":1,"configurations":[{"id":"current-file","name":"Current File","type":"java.current-file","toolchains":{"java":"project-jdk"}}]}"#,
+    )
+    .unwrap();
+
+    let resolve = |requirement: &str, version: &str| -> bool {
+        fs::write(
+            root.join(".lithe/toolchains/requirements.json"),
+            format!(
+                r#"{{"version":1,"toolchains":{{"project-jdk":{{"type":"java",{requirement}}}}}}}"#
+            ),
+        )
+        .unwrap();
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "resolve-legacy-java",
+                "command": "runConfig.resolve",
+                "payload": {
+                    "root": root,
+                    "toolchainCandidates": [{
+                        "id": "project-jdk",
+                        "type": "java",
+                        "version": version,
+                        "vendor": "Azul Zulu"
+                    }]
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        response["data"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value["code"] == "toolchainVersionMismatch")
+    };
+
+    assert!(!resolve(r#""minimumVersion":"8""#, "1.8.0_504"));
+    assert!(!resolve(r#""minimumVersion":"1.8""#, "1.8.0_131"));
+    assert!(!resolve(r#""version":"8""#, "1.8.0_504"));
+    assert!(!resolve(r#""minimumVersion":"8""#, "21.0.5"));
+    assert!(resolve(r#""minimumVersion":"8""#, "1.7.0_80"));
+    assert!(resolve(r#""version":"8""#, "17.0.12"));
+    assert!(resolve(r#""minimumVersion":"17""#, "1.8.0_504"));
 
     fs::remove_dir_all(root).unwrap();
 }

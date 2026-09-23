@@ -1981,7 +1981,13 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let output: String
     }
 
-    private struct RunConfigurationInspectRequest: Encodable { let root: String }
+    private struct RunConfigurationInspectRequest: Encodable {
+        let root: String
+        /// Omitted means full inspection, including the input fingerprint.
+        let checkFingerprint: Bool?
+        /// JDT's current answer; omitted while the Java service is not ready.
+        let javaEntrypoints: JavaEntrypoints?
+    }
     private struct RunConfigurationGenerateRequest: Encodable {
         let root: String
         let paths: [String]
@@ -2811,10 +2817,18 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
-    func inspectRunConfiguration(at rootURL: URL) -> Result<RunConfigurationInspectPayload, CoreCallError> {
+    func inspectRunConfiguration(
+        at rootURL: URL,
+        checkFingerprint: Bool? = nil,
+        javaEntrypoints: JavaEntrypoints? = nil
+    ) -> Result<RunConfigurationInspectPayload, CoreCallError> {
         executeResult(
             command: "runConfig.inspect",
-            payload: RunConfigurationInspectRequest(root: rootURL.standardizedFileURL.path)
+            payload: RunConfigurationInspectRequest(
+                root: rootURL.standardizedFileURL.path,
+                checkFingerprint: checkFingerprint,
+                javaEntrypoints: javaEntrypoints
+            )
         )
     }
 

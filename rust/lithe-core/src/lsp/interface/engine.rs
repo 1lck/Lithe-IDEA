@@ -7478,6 +7478,49 @@ mod tests {
     }
 
     #[test]
+    fn null_java_test_answer_for_a_file_without_tests_is_an_empty_list() {
+        // Issue #840: vscode-java-test answers `null` for a file with no tests;
+        // that must not surface as an `invalidServerResult` error in the logs.
+        let mut harness = java_entrypoints_harness();
+        let operation_id = harness.engine.next_operation_id();
+        harness
+            .session()
+            .request(
+                SemanticRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    operation: LspSemanticOperation::JavaTestItems,
+                    uri: Some("file:///workspace/src/main/java/demo/App.java".to_string()),
+                    virtual_uri: None,
+                    position: None,
+                    new_name: None,
+                    range: None,
+                    diagnostics: Vec::new(),
+                    completion_item: None,
+                    code_action: None,
+                    command: None,
+                },
+                operation_id.clone(),
+            )
+            .unwrap();
+        let request_id = harness
+            .server
+            .await_request("workspace/executeCommand")
+            .unwrap();
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "id": request_id, "result": null
+        }));
+        let event = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
+            .clone();
+        assert!(event.error.is_none(), "{event:?}");
+        assert_eq!(
+            event.result,
+            Some(json!({ "schemaVersion": 1, "items": [], "diagnostics": [] }))
+        );
+    }
+
+    #[test]
     fn wait_events_returns_queued_events_without_waiting_the_timeout() {
         let harness = Harness::start(|_| {});
         let started = Instant::now();

@@ -328,6 +328,19 @@ async function readRunProjectSnapshot(
   };
 }
 
+/** Diagnostics from `incoming` that `existing` does not already show. */
+function newDiagnostics(existing: RunDiagnostic[], incoming: RunDiagnostic[]): RunDiagnostic[] {
+  return incoming.filter((diagnostic) =>
+    !existing.some((shown) => shown.code === diagnostic.code &&
+      shown.message === diagnostic.message && shown.id === diagnostic.id &&
+      shown.toolchain === diagnostic.toolchain));
+}
+
+/** Java entries and the Current File fallback exist only for Java projects. */
+function isJavaConfiguration(configuration: RunConfiguration): boolean {
+  return configuration.provider.startsWith("java.");
+}
+
 function readyRunState(
   snapshot: Extract<RunProjectSnapshot, { status: "ready" }>,
   currentSelection: string | null,
@@ -401,6 +414,51 @@ export const createRunStore = (
     stopWaitingForJavaProject?.();
     stopWaitingForJavaProject = null;
   };
+  // Generation hashes only the Java sources it reads, so a main method added to
+  // an existing class is found by comparing JDT's answer with the generated
+  // entries. The check waits for JDT outside the load task and never starts it.
+  let stopWaitingForEntrypointCheck: (() => void) | null = null;
+  const cancelEntrypointCheck = () => {
+    stopWaitingForEntrypointCheck?.();
+    stopWaitingForEntrypointCheck = null;
+  };
+  const checkJavaEntrypoints = async (
+    root: string,
+    owns: () => boolean,
+    publish: (diagnostics: RunDiagnostic[]) => void,
+  ): Promise<void> => {
+    const discovery = await (dependencies.discoverJavaEntrypoints ?? discoverJavaEntrypoints)(
+      { workspaceId, root },
+      [],
+    );
+    if (!owns()) return;
+    if (discovery.kind === "pending") {
+      stopWaitingForEntrypointCheck = (dependencies.whenJavaProjectPrepared ?? whenJavaProjectPrepared)(
+        root,
+        () => {
+          stopWaitingForEntrypointCheck = null;
+          if (owns()) void checkJavaEntrypoints(root, owns, publish);
+        },
+      );
+      return;
+    }
+    // A failed Java service has no answer to compare; generation reports it.
+    if (discovery.kind !== "discovered") return;
+    try {
+      const inspected = await (dependencies.inspectRunConfiguration ?? inspectRunConfiguration)(
+        root,
+        false,
+        discovery.entrypoints,
+      );
+      if (!owns()) return;
+      publish(mapDiagnostics(inspected.diagnostics));
+    } catch (error) {
+      if (!owns()) return;
+      frontendTrace("warn", "run.entrypointCheck", root, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
   return createStore<RunState>()((set, get) => ({
     root: null,
     javaDiscovery: "idle",
@@ -430,6 +488,7 @@ export const createRunStore = (
     effectiveRuntimeExecutablePaths: {},
     actions: {
       loadProject: async (root) => {
+        cancelEntrypointCheck();
         const sameProject = get().root === root;
         if (sameProject) {
           // Reloading the same project only refreshes its documents and toolchains.
@@ -484,10 +543,10 @@ export const createRunStore = (
             if (checked.status !== "ready") {
               throw new Error("Run configuration documents changed during inspection. Reload the project.");
             }
-            const additionalDiagnostics = mapDiagnostics(checked.diagnostics).filter((diagnostic) =>
-              !snapshot.diagnostics.some((existing) => existing.code === diagnostic.code &&
-                existing.message === diagnostic.message && existing.id === diagnostic.id &&
-                existing.toolchain === diagnostic.toolchain));
+            const additionalDiagnostics = newDiagnostics(
+              snapshot.diagnostics,
+              mapDiagnostics(checked.diagnostics),
+            );
             set({ diagnostics: [...snapshot.diagnostics, ...additionalDiagnostics] });
           } catch (error) {
             if (!ownsSnapshot()) return;
@@ -498,6 +557,18 @@ export const createRunStore = (
               code: "fingerprintCheckFailed",
               message: `Could not check run configuration freshness: ${detail}`,
             }] });
+          }
+          // A regeneration already waiting for JDT will replace the Java entries.
+          if (
+            stopWaitingForJavaProject === null &&
+            ownsSnapshot() &&
+            snapshot.configurations.some(isJavaConfiguration)
+          ) {
+            void checkJavaEntrypoints(root, ownsSnapshot, (incoming) => {
+              const current = get().diagnostics;
+              const added = newDiagnostics(current, incoming);
+              if (added.length > 0) set({ diagnostics: [...current, ...added] });
+            });
           }
         } catch (error) {
           if (revision !== projectLoadRevision || get().root !== root) return;
@@ -519,6 +590,7 @@ export const createRunStore = (
       generate: (root) => {
         const task = (async () => {
           cancelJavaRefresh();
+          cancelEntrypointCheck();
           const revision = ++projectLoadRevision;
           const isCurrent = () => revision === projectLoadRevision && get().root === root;
           set({

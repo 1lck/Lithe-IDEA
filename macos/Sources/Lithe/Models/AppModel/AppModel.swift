@@ -351,6 +351,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     /// Regenerates the Run list once JDT has prepared the project, after a
     /// generation that could only show the previous Java entries.
     var javaEntrypointRefreshObservation: AnyCancellable?
+    /// Compares the generated Java entries with JDT once it has prepared the
+    /// project, after a load that found it still importing.
+    var javaEntrypointFreshnessObservation: AnyCancellable?
 
     func cachedModuleCapability<Capability: AnyObject>(
         _ id: ModuleCapabilityID,
@@ -388,6 +391,10 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         for ownership in services.pluginCatalog.languageSupports.values {
             let support = ownership.declaration
             if support.languageServerModuleID == moduleID {
+                (services.moduleRuntime.capability(.languageServerExtension(support.id))
+                    as? any LanguageDependencyProviding)?
+                    .setDependencySnapshotChangeHandler(nil)
+                runFeatureIfActive?.unregisterDependencySource(languageID: support.id)
                 languageToolingSessionsIfActive?.unregisterLanguageServerExtension(
                     languageID: support.id
                 )
@@ -1288,6 +1295,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 )
                 return false
             }
+            registerLanguageDependencySourceIfAvailable(support: support)
         }
         if let snapshot = try? services.moduleRuntime.snapshot(for: .languageIntelligence),
            snapshot.state != .active,

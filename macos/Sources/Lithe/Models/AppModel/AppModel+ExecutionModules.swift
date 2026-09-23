@@ -2,6 +2,7 @@ import Combine
 import Foundation
 import LitheDebugModule
 import LitheExecutionModule
+import LitheModuleAPI
 
 @MainActor
 extension AppModel {
@@ -16,7 +17,40 @@ extension AppModel {
         // session's module graph is still being torn down. Activating first would
         // hand back a run feature that teardown releases moments later, and the
         // deferred action waiting on it would never be resumed.
-        await executionModuleCoordinator.activateAccess()
+        guard let access = await executionModuleCoordinator.activateAccess() else { return nil }
+        for ownership in services.pluginCatalog.languageSupports.values {
+            registerLanguageDependencySourceIfAvailable(support: ownership.declaration)
+        }
+        registerJavaDependencySourceIfAvailable()
+        return access
+    }
+
+    func registerJavaDependencySourceIfAvailable() {
+        guard workspaceURL != nil,
+              !languageToolingFeature.isDisabled("java"),
+              languageToolingSessionsIfActive?.activeLanguageServerIDs.contains("java") == true,
+              let provider = services.moduleRuntime.capability(.languageIntelligence)
+                as? any LanguageDependencyProviding else { return }
+        runFeatureIfActive?.registerDependencySource(languageID: "java", displayName: "Java")
+        provider.setDependencySnapshotChangeHandler { [weak self] in
+            self?.runFeatureIfActive?.syncLanguageDependencyPaths(languageID: "java")
+        }
+        runFeatureIfActive?.syncLanguageDependencyPaths(languageID: "java")
+    }
+
+    func registerLanguageDependencySourceIfAvailable(support: LanguageSupportDeclaration) {
+        guard support.languageServerModuleID != nil,
+              !languageToolingFeature.isDisabled(support.id),
+              let provider = services.moduleRuntime.capability(.languageServerExtension(support.id))
+                as? any LanguageDependencyProviding else { return }
+        runFeatureIfActive?.registerDependencySource(
+            languageID: support.id,
+            displayName: support.displayName
+        )
+        provider.setDependencySnapshotChangeHandler { [weak self] in
+            self?.runFeatureIfActive?.syncLanguageDependencyPaths(languageID: support.id)
+        }
+        runFeatureIfActive?.syncLanguageDependencyPaths(languageID: support.id)
     }
 
     func activateDebugModule() async -> DebugFeatureAccess? {

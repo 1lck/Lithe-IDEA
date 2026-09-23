@@ -73,11 +73,17 @@ pub(crate) struct JavaTestItemDiagnostic {
 
 /// Converts `findTestTypesAndMethods` output into the shared typed contract.
 ///
-/// An array is a valid answer, including an empty one. A non-array is a broken
-/// server contract and returns `None` so callers do not mistake it for “no
-/// tests”. Malformed child nodes are diagnosed without discarding valid peers.
+/// An array is a valid answer, including an empty one. `null` is also “no
+/// tests”: vscode-java-test returns its root's `children`, which stays `null`
+/// until a first test is added. Any other shape is a broken server contract and
+/// returns `None` so callers do not mistake it for “no tests”. Malformed child
+/// nodes are diagnosed without discarding valid peers.
 pub(crate) fn normalize_java_test_items(result: &Value) -> Option<JavaTestItems> {
-    let candidates = result.as_array()?;
+    let candidates = match result {
+        Value::Null => &Vec::new(),
+        Value::Array(candidates) => candidates,
+        _ => return None,
+    };
     let mut diagnostics = Vec::new();
     let items = candidates
         .iter()
@@ -268,5 +274,20 @@ mod tests {
     #[test]
     fn non_array_is_not_misreported_as_an_empty_test_list() {
         assert_eq!(normalize_java_test_items(&json!({ "items": [] })), None);
+        assert_eq!(normalize_java_test_items(&json!("items")), None);
+    }
+
+    #[test]
+    fn null_from_a_file_without_tests_is_an_empty_test_list() {
+        // vscode-java-test 0.46.0 returns `fakeRoot.getChildren()`, which is
+        // `null` for a file such as `src/main/java/App.java` with no tests.
+        assert_eq!(
+            normalize_java_test_items(&Value::Null),
+            Some(JavaTestItems {
+                schema_version: JAVA_TEST_ITEMS_SCHEMA_VERSION,
+                items: Vec::new(),
+                diagnostics: Vec::new(),
+            })
+        );
     }
 }
