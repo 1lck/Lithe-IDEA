@@ -1390,10 +1390,7 @@ fn update_configuration_options(
     } else if provider == "tomcat.external" {
         let mut tomcat_extension = serde_json::Map::new();
         if !request.tomcat_home.trim().is_empty() {
-            tomcat_extension.insert(
-                "tomcatHome".to_string(),
-                json!(request.tomcat_home.trim()),
-            );
+            tomcat_extension.insert("tomcatHome".to_string(), json!(request.tomcat_home.trim()));
         }
         if !request.exploded_path.trim().is_empty() {
             tomcat_extension.insert(
@@ -2309,10 +2306,7 @@ fn tomcat_launch_plan(
         sanitize_path_segment(configuration_id)
     );
     let mut environment = serde_json::Map::new();
-    environment.insert(
-        "CATALINA_BASE".to_string(),
-        json!({ "value": tomcat_home }),
-    );
+    environment.insert("CATALINA_BASE".to_string(), json!({ "value": tomcat_home }));
     let mut catalina_opts = tomcat["jvmArguments"]
         .as_array()
         .map(|values| {
