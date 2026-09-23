@@ -40,8 +40,18 @@ async function runCore<T>(
   return response.data;
 }
 
-export function inspectRunConfiguration(root: string) {
-  return runCore<CoreInspectResult>("runConfig.inspect", { root });
+export function inspectRunConfiguration(root: string, checkFingerprint = true) {
+  return runCore<CoreInspectResult>("runConfig.inspect", { root, checkFingerprint });
+}
+
+/** Updates only machine-local project defaults, even before configurations exist. */
+export function updateProjectToolchain(root: string, toolchain: GlobalToolchain) {
+  return runCore<{ document: string }>("runConfig.updateOptions", {
+    root,
+    scope: "local",
+    configurationId: "",
+    toolchain,
+  });
 }
 
 /**

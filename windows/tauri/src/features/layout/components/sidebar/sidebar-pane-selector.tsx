@@ -10,6 +10,7 @@ import {
   normalizeItemOrder,
 } from "@/features/layout/config/item-order";
 import { RunIcon } from "@/features/run/components/run-icon";
+import { MavenIcon } from "@/features/maven/components/maven-icon";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { SidebarListItem } from "@/ui/sidebar";
 import { Tabs, TabsList, TabsTrigger } from "@/ui/tabs";
@@ -19,7 +20,6 @@ import {
   GitGraphIcon,
   FilesIcon,
   MagnifyingGlassIcon,
-  PackageIcon,
   TerminalWindowIcon,
   WarningIcon,
 } from "@/ui/icons";
@@ -241,7 +241,7 @@ export const SidebarPaneSelector = ({
             {
               id: "maven",
               label: showLabels ? `${t("run.title")} - ${t("maven.title")}` : undefined,
-              icon: <PackageIcon className={iconClassName} />,
+              icon: <MavenIcon className={iconClassName} />,
               isActive: isMavenActive,
               onClick: onMavenClick,
               ariaLabel: `${t("run.title")} - ${t("maven.title")}`,

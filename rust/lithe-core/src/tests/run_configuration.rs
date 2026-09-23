@@ -7,6 +7,74 @@ use std::fs;
 use std::path::PathBuf;
 
 #[test]
+fn project_environment_saves_before_generation_and_preserves_service_overrides() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/run-configuration/project-environment.json"
+    ))
+    .unwrap();
+    let root = temporary_root("project-environment");
+    fs::create_dir_all(&root).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).expect("remove workspace");
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let call = |command: &str, payload: Value| -> Value {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "project-environment", "command": command, "payload": payload
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        response["data"].clone()
+    };
+    let mutation = call(
+        "runConfig.updateOptions",
+        serde_json::json!({
+            "root": root, "scope": "local", "configurationId": "",
+            "localDocument": fixture["local"], "toolchain": fixture["toolchain"]
+        }),
+    );
+    let saved: Value = serde_json::from_str(mutation["document"].as_str().unwrap()).unwrap();
+    assert_eq!(saved["configurations"], fixture["local"]["configurations"]);
+    let inspection = call(
+        "runConfig.inspect",
+        serde_json::json!({
+            "root": root, "localDocument": saved, "checkFingerprint": false
+        }),
+    );
+    assert_eq!(inspection["status"], "missing");
+    assert_eq!(inspection["toolchain"], fixture["expected"]["toolchain"]);
+    assert!(!root.join(".lithe/run/generated.json").exists());
+    assert!(!root.join(".lithe/run/local.json").exists());
+
+    // Settings reads skip source freshness, while normal inspection must still
+    // detect files added after generation.
+    let generated = call(
+        "runConfig.generate",
+        serde_json::json!({ "root": root, "paths": [] }),
+    );
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        generated["generated"].to_string(),
+    )
+    .unwrap();
+    fs::write(root.join("Added.java"), "class Added {}").unwrap();
+    let settings = call(
+        "runConfig.inspect",
+        serde_json::json!({ "root": root, "checkFingerprint": false }),
+    );
+    assert_eq!(settings["diagnostics"], serde_json::json!([]));
+    let full = call("runConfig.inspect", serde_json::json!({ "root": root }));
+    assert_eq!(full["diagnostics"][0]["code"], "staleFingerprint");
+}
+
+#[test]
 fn resolved_maven_ownership_survives_cwd_override_and_separates_reactors() {
     let fixture: Value = serde_json::from_str(include_str!(
         "../../../../shared/fixtures/run-configuration/maven-module-ownership.json"

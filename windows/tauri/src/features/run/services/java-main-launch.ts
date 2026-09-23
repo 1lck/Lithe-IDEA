@@ -103,10 +103,14 @@ export async function editJavaMainConfiguration(
   workspaceId: string,
   filePath: string,
   mainClass: string,
+  dependencies = {
+    resolve: resolveMainConfiguration,
+    edit: (workspace: string, id: string) =>
+      useRunStore.getStore(workspace).getState().actions.editConfiguration(id),
+    openSettings: () => useUIState.getState().openSettingsDialog("run"),
+  },
 ): Promise<void> {
-  const configuration = await resolveMainConfiguration(workspaceId, filePath, mainClass);
-  const store = useRunStore.getStore(workspaceId);
-  store.getState().actions.selectConfiguration(configuration.id);
-  showRunPane();
-  store.getState().actions.editConfiguration(configuration.id);
+  const configuration = await dependencies.resolve(workspaceId, filePath, mainClass);
+  dependencies.edit(workspaceId, configuration.id);
+  dependencies.openSettings();
 }

@@ -44,6 +44,38 @@ export function discoverRunToolchains(root: string, selected?: GlobalToolchain) 
   });
 }
 
+/** Where a resolved toolchain came from; see `run_resolve_toolchains`. */
+export type ToolchainSource =
+  | "configured"
+  | "javaHome"
+  | "path"
+  | "project"
+  | "detected"
+  | "mavenWrapper"
+  | "projectJdk";
+
+export type ToolchainResolution =
+  | { status: "resolved"; path: string; version: string; vendor: string; source: ToolchainSource }
+  | { status: "notFound"; message: string | null }
+  | { status: "invalid"; message: string };
+
+export interface ResolvedToolchains {
+  java: ToolchainResolution;
+  maven: ToolchainResolution;
+  mavenJava: ToolchainResolution;
+}
+
+/**
+ * Resolves the project JDK, Maven and Maven JDK exactly as a launch would,
+ * without starting anything, so Settings can show what "automatic" picks.
+ */
+export function resolveRunToolchains(
+  root: string,
+  selection: { javaHomePath: string; mavenExecutablePath: string; mavenJavaHomePath: string },
+) {
+  return invoke<ResolvedToolchains>("run_resolve_toolchains", { args: { root, ...selection } });
+}
+
 export function resolveRunLaunch(args: {
   root: string;
   executable: { toolchain?: string | null; command?: string | null; tool?: string | null };

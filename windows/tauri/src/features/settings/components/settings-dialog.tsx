@@ -14,6 +14,7 @@ import {
   KeyboardIcon,
   MagicWandIcon,
   FileTextIcon,
+  FolderIcon,
   TerminalWindowIcon,
   type Icon,
 } from "@/ui/icons";
@@ -33,11 +34,14 @@ interface CategoryItem {
 
 const categories: CategoryItem[] = [
   { id: "general", labelKey: "settings.tabs.general", icon: GearSixIcon },
+  { id: "project", labelKey: "settings.project.title", icon: FolderIcon },
+  { id: "run", labelKey: "settings.run.title", icon: GearIcon },
   { id: "editor", labelKey: "settings.tabs.editor", icon: CodeBlockIcon },
   { id: "keyboard", labelKey: "settings.tabs.keyboard", icon: KeyboardIcon },
   { id: "terminal", labelKey: "settings.tabs.terminal", icon: TerminalWindowIcon },
   { id: "lsp", labelKey: "settings.tabs.lsp", icon: DatabaseIcon },
-  { id: "ai", labelKey: "settings.tabs.aiCommit", icon: MagicWandIcon },
+  { id: "ai", labelKey: "settings.tabs.ai", icon: MagicWandIcon },
+  { id: "ai-commit", labelKey: "settings.tabs.aiCommit", icon: MagicWandIcon },
   { id: "git", labelKey: "settings.tabs.git", icon: CodeBlockIcon },
   { id: "logs", labelKey: "settings.tabs.logs", icon: FileTextIcon },
   { id: "updates", labelKey: "settings.tabs.updates", icon: ArrowClockwiseIcon },
@@ -45,12 +49,17 @@ const categories: CategoryItem[] = [
 
 function categoryFromRequestedTab(tab: SettingsTab | null): MacSettingsCategory {
   switch (tab) {
+    case "run":
+      return "run";
+    case "project":
+      return "project";
     case "git":
       return "git";
     case "editor":
     case "keyboard":
     case "terminal":
     case "ai":
+    case "ai-commit":
     case "logs":
       return tab;
     case "language":
@@ -63,13 +72,14 @@ function categoryFromRequestedTab(tab: SettingsTab | null): MacSettingsCategory 
 const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
   const { t } = useTranslation();
   const settingsInitialTab = useUIState((state) => state.settingsInitialTab);
+  const settingsTabRequest = useUIState((state) => state.settingsTabRequest);
   const [activeCategory, setActiveCategory] = useState<MacSettingsCategory>("general");
   const resetToDefaults = useSettingsStore((state) => state.actions.resetToDefaults);
 
   useEffect(() => {
     if (!isOpen) return;
     setActiveCategory(categoryFromRequestedTab(settingsInitialTab));
-  }, [isOpen, settingsInitialTab]);
+  }, [isOpen, settingsInitialTab, settingsTabRequest]);
 
   if (!isOpen) return null;
 

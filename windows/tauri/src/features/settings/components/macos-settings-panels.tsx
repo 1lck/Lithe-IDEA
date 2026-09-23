@@ -1,8 +1,7 @@
+import { AiCommitSettingsPanel } from "./ai-commit-settings-panel";
+import { AISettings } from "./tabs/ai-settings";
 import { getVersion } from "@tauri-apps/api/app";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { getProviderApiToken } from "@/features/ai/services/ai-token-service";
-import { useAIChatStore } from "@/features/ai/stores/ai-chat.store";
-import { useToast } from "@/features/layout/contexts/toast-context";
 import { themeRegistry } from "@/extensions/themes/theme-registry";
 import { useRegisteredThemes } from "@/extensions/themes/use-registered-themes";
 import { useUpdater } from "@/features/settings/hooks/use-updater";
@@ -17,8 +16,13 @@ import { Button } from "@/ui/button";
 import Switch from "@/ui/switch";
 import { LogSettingsPanel } from "./log-settings-panel";
 import { GitSettings } from "./tabs/git-settings";
+import { ProjectEnvironmentSettings } from "./project-environment-settings";
+
+import { RunConfigurationSettings } from "./run-configuration-settings";
 
 export type MacSettingsCategory =
+  | "run"
+  | "project"
   | "git"
   | "general"
   | "editor"
@@ -26,6 +30,7 @@ export type MacSettingsCategory =
   | "terminal"
   | "lsp"
   | "ai"
+  | "ai-commit"
   | "logs"
   | "updates";
 
@@ -432,109 +437,6 @@ function LspPanel() {
   );
 }
 
-function AiPanel() {
-  const { t } = useTranslation();
-  const { showToast } = useToast();
-  const settings = useSettingsStore((state) => state.settings);
-  const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
-  const saveApiKey = useAIChatStore((state) => state.actions.saveApiKey);
-  const [apiKeyInput, setApiKeyInput] = useState("");
-  const [hasStoredKey, setHasStoredKey] = useState(false);
-  const [isSavingKey, setIsSavingKey] = useState(false);
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        const token = await getProviderApiToken(settings.aiProviderId);
-        setHasStoredKey(Boolean(token));
-      } catch {
-        setHasStoredKey(false);
-      }
-    })();
-  }, [settings.aiProviderId]);
-
-  const handleSaveApiKey = async () => {
-    const apiKey = apiKeyInput.trim();
-    if (!apiKey || isSavingKey) return;
-    setIsSavingKey(true);
-    try {
-      // The store action persists the key before validating, so a failed
-      // validation never discards the typed key.
-      const isValid = await saveApiKey(settings.aiProviderId, apiKey);
-      setApiKeyInput("");
-      setHasStoredKey(true);
-      showToast({
-        message: isValid
-          ? t("settings.mac.apiKeySaved")
-          : t("settings.mac.apiKeySavedWithoutValidation"),
-        type: isValid ? "success" : "warning",
-      });
-    } catch {
-      showToast({ message: t("settings.mac.apiKeySaveFailed"), type: "error" });
-    } finally {
-      setIsSavingKey(false);
-    }
-  };
-
-  return (
-    <div className="flex flex-col gap-4">
-      <SettingsGroup title={t("settings.mac.aiProvider")}>
-        <SettingsRow label={t("settings.mac.provider")}>
-          <input
-            className={`${controlClassName} w-72`}
-            value={settings.aiProviderId}
-            onChange={(event) => void updateSetting("aiProviderId", event.target.value)}
-          />
-        </SettingsRow>
-        <SettingsRow label={t("settings.mac.apiUrl")}>
-          <input
-            className={`${controlClassName} w-72`}
-            value={settings.aiCustomBaseUrl}
-            onChange={(event) => void updateSetting("aiCustomBaseUrl", event.target.value)}
-          />
-        </SettingsRow>
-        <SettingsRow label={t("settings.mac.model")}>
-          <input
-            className={`${controlClassName} w-72`}
-            value={settings.aiModelId}
-            onChange={(event) => void updateSetting("aiModelId", event.target.value)}
-          />
-        </SettingsRow>
-        <SettingsRow label={t("settings.mac.apiKey")}>
-          <input
-            type="password"
-            className={`${controlClassName} w-72`}
-            value={apiKeyInput}
-            onChange={(event) => setApiKeyInput(event.target.value)}
-            onBlur={() => void handleSaveApiKey()}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.currentTarget.blur();
-              }
-            }}
-            placeholder={
-              hasStoredKey
-                ? t("settings.mac.apiKeyStoredPlaceholder")
-                : t("settings.mac.apiKeyPlaceholder")
-            }
-            disabled={isSavingKey}
-            autoComplete="off"
-          />
-        </SettingsRow>
-      </SettingsGroup>
-      <SettingsGroup title={t("settings.mac.commitMessage")}>
-        <SettingsRow label={t("settings.mac.enableAiCommit")}>
-          <Switch
-            checked={settings.aiCompletion}
-            onChange={(checked) => void updateSetting("aiCompletion", checked)}
-            size="sm"
-          />
-        </SettingsRow>
-      </SettingsGroup>
-    </div>
-  );
-}
-
 function UpdatesPanel() {
   const { t } = useTranslation();
   const [appVersion, setAppVersion] = useState("");
@@ -588,6 +490,10 @@ export function MacSettingsPanel({
   onClose: () => void;
 }) {
   switch (category) {
+    case "run":
+      return <RunConfigurationSettings />;
+    case "project":
+      return <ProjectEnvironmentSettings />;
     case "git":
       return <GitSettings />;
     case "general":
@@ -601,7 +507,9 @@ export function MacSettingsPanel({
     case "lsp":
       return <LspPanel />;
     case "ai":
-      return <AiPanel />;
+      return <AISettings />;
+    case "ai-commit":
+      return <AiCommitSettingsPanel />;
     case "logs":
       return <LogSettingsPanel onClose={onClose} />;
     case "updates":

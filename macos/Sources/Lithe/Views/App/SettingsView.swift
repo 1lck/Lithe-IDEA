@@ -28,6 +28,8 @@ struct SettingsView: View {
     @ObservedObject var viewState: SettingsViewState
     @State private var missingTerminalShellPath: String?
     let initialCategory: SettingsCategory
+    /// Changes with every category request; see `WorkbenchFeatureModel.settingsCategoryRequest`.
+    let categoryRequest: Int
     private let onDismiss: (() -> Void)?
     private static let footerActionLabelWidth: CGFloat = 52
 
@@ -35,11 +37,13 @@ struct SettingsView: View {
         settings: AppSettings,
         viewState: SettingsViewState,
         initialCategory: SettingsCategory = .general,
+        categoryRequest: Int = 0,
         onDismiss: (() -> Void)? = nil
     ) {
         self.settings = settings
         self.viewState = viewState
         self.initialCategory = initialCategory
+        self.categoryRequest = categoryRequest
         self.onDismiss = onDismiss
     }
 
@@ -69,6 +73,10 @@ struct SettingsView: View {
         .onChange(of: initialCategory) { category in
             viewState.searchQuery = ""
             viewState.selection = category
+        }
+        .onChange(of: categoryRequest) { _ in
+            viewState.searchQuery = ""
+            viewState.selection = initialCategory
         }
         .onChange(of: viewState.searchQuery) { _ in
             guard !filteredCategories.contains(viewState.selection),
@@ -139,7 +147,7 @@ struct SettingsView: View {
                 Image(systemName: category.icon)
                     .font(.system(size: 12.5, weight: .medium))
                     .frame(width: 18)
-                Text(LocalizedStringKey(category.rawValue))
+                Text(LocalizedStringKey(category.title))
                     .font(.system(size: 12.5, weight: .regular))
                 Spacer(minLength: 8)
             }
@@ -176,6 +184,8 @@ struct SettingsView: View {
             ["Keymap", "Keyboard shortcuts", "Shortcuts", "Actions"]
         case .project:
             ["Project", "Java SDK", "JDK", "Project JDK", "Maven", "Maven Home", "Maven Wrapper", "Maven JDK"]
+        case .run:
+            ["Run configurations", "Program arguments", "VM options", "Environment variables", "Working directory", "Services"]
         case .terminal:
             ["Terminal", "Shell", "Default shell"]
         case .lsp:
@@ -215,6 +225,9 @@ struct SettingsView: View {
         } else if viewState.selection == .lsp {
             LSPControlCenterView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if viewState.selection == .run {
+            RunConfigurationSettingsView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if viewState.selection == .project {
             ProjectRuntimeSettingsView(feature: model.runtimeFeature)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -227,7 +240,7 @@ struct SettingsView: View {
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(LocalizedStringKey(viewState.selection.rawValue))
+                    Text(LocalizedStringKey(viewState.selection.title))
                         .font(.system(size: 22, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
                         .padding(.bottom, 8)
@@ -239,6 +252,7 @@ struct SettingsView: View {
                     case .terminal: terminalSettings
                     case .lsp: EmptyView()
                     case .project: EmptyView()
+                    case .run: EmptyView()
                     case .ai: aiSettings
                     case .git:
                         VStack(alignment: .leading, spacing: 14) {

@@ -124,6 +124,7 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
 
 ```bash
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'StableRollbackTests|UpdateCheckerTests|UpdateManifestTests'
+./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --max-seconds 60 -- --filter StableRollbackDiskImageIntegrationTests
 ./scripts/test-macos.sh
 ./scripts/verify-macos-package.sh
 sparkle_tools=$(zsh scripts/prepare-sparkle-tools.sh)
