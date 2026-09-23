@@ -1,6 +1,6 @@
 /// <reference path="./monaco-tokenization-internals.d.ts" />
 import { applyStateStackDiff } from "vscode-textmate";
-import { createJavaGrammar, INITIAL, tokenRole } from "./textmate-grammar";
+import { createJavaGrammar, INITIAL, tokenizeLineWithinLimit, tokenRole } from "./textmate-grammar";
 import { TokenizationRegistry, Token, TokenizationResult, EncodedTokenizationResult } from "monaco-editor/esm/vs/editor/common/languages.js";
 import { ContiguousMultilineTokensBuilder } from "monaco-editor/esm/vs/editor/common/tokens/contiguousMultilineTokensBuilder.js";
 import { StandaloneServices } from "monaco-editor/esm/vs/editor/standalone/browser/standaloneServices.js";
@@ -84,11 +84,11 @@ export async function installJavaTextMate(resourcesConfig: JavaTextMateResources
   const registration = TokenizationRegistry.register("java", {
     getInitialState: () => INITIAL,
     tokenize(line: string, _hasEOL: boolean, state: any) {
-      const result = grammar.tokenizeLine(line, state, 20);
+      const result = tokenizeLineWithinLimit(grammar, line, state);
       return new TokenizationResult(result.tokens.map(token => new Token(token.startIndex, tokenRole(token.scopes), "java")), result.ruleStack);
     },
     tokenizeEncoded(line: string, _hasEOL: boolean, state: any) {
-      const result = grammar.tokenizeLine(line, state, 20);
+      const result = tokenizeLineWithinLimit(grammar, line, state);
       return new EncodedTokenizationResult(encoded(result.tokens, line.length, false), result.ruleStack);
     },
     createBackgroundTokenizer(model: any, store: any) {
