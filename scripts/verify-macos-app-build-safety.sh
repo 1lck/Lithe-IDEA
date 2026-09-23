@@ -33,6 +33,10 @@ for packaging_script in scripts/package-app.sh scripts/preview.sh; do
         print -u2 -- "$packaging_script must stamp traceable build metadata"
         exit 1
     fi
+    if ! /usr/bin/grep -Fq -- 'Lithe_Lithe.bundle' "$packaging_script"; then
+        print -u2 -- "$packaging_script must package Lithe's SwiftPM resources"
+        exit 1
+    fi
     if ! /usr/bin/grep -Fq -- 'SwiftTerm_SwiftTerm.bundle' "$packaging_script"; then
         print -u2 -- "$packaging_script must package SwiftTerm's Metal shader resources"
         exit 1

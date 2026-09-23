@@ -29,6 +29,12 @@ extension AppModel {
             cancelJavaLanguageServerPreparation()
         }
         languageToolingFeature.setEnabled(enabled, providerID: providerID)
+        if !enabled {
+            runFeatureIfActive?.unregisterDependencySource(languageID: providerID)
+        } else if let support = services.pluginCatalog.languageSupports[providerID]?.declaration {
+            registerLanguageDependencySourceIfAvailable(support: support)
+        }
+        if providerID == "java", enabled { registerJavaDependencySourceIfAvailable() }
         if providerID == "java", enabled, let workspaceURL {
             prepareJavaLanguageServerForWorkspaceIfNeeded(at: workspaceURL, files: projectFiles)
         }
@@ -144,6 +150,14 @@ extension AppModel {
         _ state: LanguageServerSessionState,
         operationID: UUID?
     ) {
+        switch state {
+        case .ready:
+            registerJavaDependencySourceIfAvailable()
+        case .stopped, .failed:
+            runFeatureIfActive?.unregisterDependencySource(languageID: "java")
+        case .startingProcess, .initializing, .stopping:
+            break
+        }
         let currentWorkspaceURL = workspaceURL
         javaLanguageServerPreparationCoordinator.handleSessionState(
             state,
@@ -177,15 +191,21 @@ extension AppModel {
         showNotification(String(localized: "Java service is preparing"))
     }
 
-    func handleJavaWorkspaceFileChanges(_ changes: [WorkspaceFileChange]) {
+    func handleWorkspaceFileChanges(_ changes: [WorkspaceFileChange]) {
         guard let workspaceURL else { return }
+        runFeatureIfActive?.markDependencyFilesChanged(changes)
         let maven = mavenFeatureIfActive
         let forwarded = changes.filter { change in
+            if Self.isWorkspaceDependencyMetadata(
+                change.fileURL,
+                workspaceURL: workspaceURL
+            ) {
+                return false
+            }
             guard change.fileURL.lastPathComponent.lowercased() == "pom.xml" else { return true }
-            // Initial scans must see edits too. Until Maven accepts a model,
-            // Java still owns its ordinary workspace-change handling.
             maven?.markPomChanged(change.fileURL)
-            return maven?.project == nil
+            // JDT LS also needs the change to refresh its resolved classpath snapshot.
+            return true
         }
         javaLanguageServerPreparationCoordinator.notifyWorkspaceFileChanges(
             forwarded,
@@ -201,6 +221,18 @@ extension AppModel {
             },
             sessions: languageToolingSessionsIfActive
         )
+    }
+
+    private static func isWorkspaceDependencyMetadata(
+        _ fileURL: URL,
+        workspaceURL: URL
+    ) -> Bool {
+        let directory = workspaceURL.standardizedFileURL
+            .appendingPathComponent(".lithe", isDirectory: true)
+            .appendingPathComponent("dependencies", isDirectory: true)
+            .standardizedFileURL.path
+        let path = fileURL.standardizedFileURL.path
+        return path == directory || path.hasPrefix(directory + "/")
     }
 
     func reloadMavenProject(rescan: Bool) async {
