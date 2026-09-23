@@ -18,12 +18,29 @@ const STALE = { code: "staleFingerprint", message: "Java entry points changed: 1
  * longer hashes every Java source, so after a load the store compares JDT's
  * answer with the generated entries instead.
  */
-function harness(options: { provider?: string; discoveries: JavaEntrypointDiscovery[] }) {
+function harness(options: {
+  provider?: string;
+  discoveries: Array<JavaEntrypointDiscovery | Promise<JavaEntrypointDiscovery>>;
+}) {
   const discoverCalls: string[][] = [];
   const entrypointChecks: Array<JavaEntrypoints | undefined> = [];
   const preparedListeners: Array<() => void> = [];
   let stoppedWaiting = 0;
   const discoveries = [...options.discoveries];
+  // Tests await observable events instead of counting microtasks: the check
+  // runs after `loadProject` resolves, off the load task.
+  const waiters: Array<{ ready: () => boolean; resolve: () => void }> = [];
+  const notify = () => {
+    for (const waiter of waiters.splice(0)) {
+      if (waiter.ready()) waiter.resolve();
+      else waiters.push(waiter);
+    }
+  };
+  const until = (ready: () => boolean) =>
+    new Promise<void>((resolve) => {
+      if (ready()) resolve();
+      else waiters.push({ ready, resolve });
+    });
   let checked!: () => void;
   const entrypointsChecked = new Promise<void>((resolve) => {
     checked = resolve;
@@ -31,10 +48,12 @@ function harness(options: { provider?: string; discoveries: JavaEntrypointDiscov
   const store = createRunStore("workspace-1", {
     discoverJavaEntrypoints: async (_scope, sources) => {
       discoverCalls.push(sources);
-      return discoveries.shift() ?? { kind: "pending" };
+      notify();
+      return await (discoveries.shift() ?? { kind: "pending" });
     },
     whenJavaProjectPrepared: (_root, listener) => {
       preparedListeners.push(listener);
+      notify();
       return () => {
         stoppedWaiting += 1;
       };
@@ -66,6 +85,7 @@ function harness(options: { provider?: string; discoveries: JavaEntrypointDiscov
     entrypointsChecked,
     preparedListeners,
     stoppedWaiting: () => stoppedWaiting,
+    until,
   };
 }
 
@@ -84,14 +104,14 @@ describe("Java entry-point freshness after loading the Run list", () => {
   });
 
   test("waits for JDT to finish preparing, then compares", async () => {
-    const { store, entrypointChecks, entrypointsChecked, preparedListeners } = harness({
+    const { store, entrypointChecks, entrypointsChecked, preparedListeners, until } = harness({
       discoveries: [{ kind: "pending" }, { kind: "discovered", entrypoints: ENTRYPOINTS }],
     });
     await store.getState().actions.loadProject(ROOT);
     // The load finishes without holding its task open for JDT.
     expect(store.getState().isLoading).toBe(false);
+    await until(() => preparedListeners.length === 1);
     expect(entrypointChecks).toEqual([]);
-    expect(preparedListeners).toHaveLength(1);
 
     preparedListeners[0]();
     await entrypointsChecked;
@@ -100,16 +120,43 @@ describe("Java entry-point freshness after loading the Run list", () => {
   });
 
   test("loading another project stops waiting for the previous one", async () => {
-    const { store, entrypointChecks, preparedListeners, stoppedWaiting } = harness({
+    const { store, entrypointChecks, preparedListeners, stoppedWaiting, until } = harness({
       discoveries: [{ kind: "pending" }],
     });
     await store.getState().actions.loadProject(ROOT);
+    await until(() => preparedListeners.length === 1);
     await store.getState().actions.loadProject("C:/other");
     expect(stoppedWaiting()).toBeGreaterThanOrEqual(1);
     // A late notification for the first project must not compare its entries.
     preparedListeners[0]();
     await Promise.resolve();
     expect(entrypointChecks).toEqual([]);
+  });
+
+  test("a reload cancels a check whose JDT answer is still in flight", async () => {
+    // Event order: the first load asks JDT, a same-project reload cancels that
+    // check and registers its own wait, then JDT answers the first request.
+    let answerFirst!: (discovery: JavaEntrypointDiscovery) => void;
+    const firstAnswer = new Promise<JavaEntrypointDiscovery>((resolve) => {
+      answerFirst = resolve;
+    });
+    const { store, discoverCalls, preparedListeners, stoppedWaiting, until } = harness({
+      discoveries: [firstAnswer, { kind: "pending" }],
+    });
+    await store.getState().actions.loadProject(ROOT);
+    await until(() => discoverCalls.length === 1);
+    await store.getState().actions.loadProject(ROOT);
+    await until(() => preparedListeners.length === 1);
+    expect(discoverCalls).toHaveLength(2);
+
+    answerFirst({ kind: "pending" });
+    await firstAnswer;
+    // Let the first check's continuation run; it must stop at the cancellation.
+    for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
+    // The cancelled check must not register a second wait nor replace the
+    // current one, which would leave a subscription nobody can cancel.
+    expect(preparedListeners).toHaveLength(1);
+    expect(stoppedWaiting()).toBe(0);
   });
 
   test("skips projects without Java configurations", async () => {

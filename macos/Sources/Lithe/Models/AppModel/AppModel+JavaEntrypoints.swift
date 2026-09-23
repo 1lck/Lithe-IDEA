@@ -94,7 +94,10 @@ extension AppModel {
         files: [URL]
     ) {
         javaEntrypointFreshnessObservation = nil
-        guard javaEntrypointRefreshObservation == nil,
+        // Without readable generated entries there is nothing to compare, so do
+        // not ask JDT for an answer the Run service would discard.
+        guard runFeature.configurationStatus == .ready,
+              javaEntrypointRefreshObservation == nil,
               files.contains(where: { $0.pathExtension.lowercased() == "java" }),
               let sessions = languageToolingSessionsIfActive else { return }
         if let preparation = sessions.projectPreparation, !preparation.blocksRun {
