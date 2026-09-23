@@ -22,6 +22,7 @@ const FRAMEWORK_TITLES: Record<string, string> = {
   "java.main": "Java Application",
   "java.current-file": "Current File",
   "maven.module": "Maven Module",
+  "tomcat.external": "Tomcat",
 };
 
 export function mapCoreConfiguration(value: CoreResolvedConfiguration): RunConfiguration {
@@ -73,6 +74,7 @@ export function normalizeExecution(execution: string | undefined, provider: stri
   }
   if (provider.endsWith(".maven") && provider !== "maven.module") return "service";
   if (provider === "maven.module") return "task";
+  if (provider === "tomcat.external") return "service";
   return "application";
 }
 

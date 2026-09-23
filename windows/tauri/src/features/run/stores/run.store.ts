@@ -921,6 +921,7 @@ export const createRunStore = (
             arguments: mainArguments,
             workingDirectory: resolved.workingDirectory,
             environment: resolved.environment,
+            tomcat: plan.tomcat,
           });
           if (!isCurrent()) {
             await dependencies.stopRunProcess(sessionId, executionId);

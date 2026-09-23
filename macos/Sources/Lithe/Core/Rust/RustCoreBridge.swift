@@ -666,6 +666,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         struct Executable: Codable, Sendable {
             let toolchain: String?
             let command: String?
+            let path: String?
             let tool: String?
         }
         struct PreLaunchStep: Codable, Sendable {
@@ -681,6 +682,15 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let preLaunchSteps: [PreLaunchStep]?
         let classpath: [String]?
         let modulepath: [String]?
+        let tomcat: TomcatLaunchMetadata?
+    }
+
+    struct TomcatLaunchMetadata: Codable, Sendable {
+        let contextXmlPath: String
+        let contextXml: String
+        let httpPort: Int
+        let shutdownPort: Int
+        let contextPath: String
     }
 
     struct RunConfigurationMutationPayload: Codable, Sendable {

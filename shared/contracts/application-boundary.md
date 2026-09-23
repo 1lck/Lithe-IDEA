@@ -391,6 +391,23 @@ its Maven-goal compatibility path. Run and Debug share the Java preparation path
 so module selection, generated sources, test-source mains, and dependency paths
 do not drift.
 
+The launch plan `executable` field has three mutually exclusive forms:
+`executable.command` (bare name resolved on PATH), `executable.toolchain`
+(resolved from the host toolchain registry), and `executable.path` (an absolute
+path supplied by Core for providers whose launcher is not on PATH and not a
+registered toolchain, such as an external Tomcat installation). The host
+branches on which key is present and must reject plans that name none.
+
+The `tomcat.external` provider runs a legacy `packaging=war` project against a
+user-supplied Tomcat. It does not copy files into `webapps/`; instead Core
+returns a context descriptor path and XML body in the plan's `tomcat` object,
+and the host writes that file into `${tomcatHome}/conf/Catalina/localhost/`
+before starting and deletes it on stop. `docBase` points at the project's
+exploded directory so JSP and static edits are visible without redeployment.
+`tomcatHome` is a machine-local absolute path and must live only in
+`.lithe/run/local.json`. A `mvn war:exploded` pre-launch step keeps the exploded
+directory current; debug mode injects JDWP through `CATALINA_OPTS`.
+
 An unsuccessful Java launch build is evidence, not an unconditional host veto.
 For `javaBuildCompilationErrors` and `javaBuildFailed`, the language boundary
 still resolves the target's runtime paths and returns them with Core's build

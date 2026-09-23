@@ -131,6 +131,32 @@ package struct SharedLaunchPlan: Sendable {
     package enum Executable: Sendable {
         case toolchain(String)
         case command(String)
+        case path(String)
+    }
+
+    /// Tomcat-specific launch metadata returned by Core for `tomcat.external`
+    /// configurations. The host writes `contextXml` to `contextXmlPath` before
+    /// starting the container and deletes that file after the process stops.
+    package struct TomcatLaunchMetadata: Sendable {
+        package let contextXmlPath: String
+        package let contextXml: String
+        package let httpPort: Int
+        package let shutdownPort: Int
+        package let contextPath: String
+
+        package init(
+            contextXmlPath: String,
+            contextXml: String,
+            httpPort: Int,
+            shutdownPort: Int,
+            contextPath: String
+        ) {
+            self.contextXmlPath = contextXmlPath
+            self.contextXml = contextXml
+            self.httpPort = httpPort
+            self.shutdownPort = shutdownPort
+            self.contextPath = contextPath
+        }
     }
 
     /// One compiler or generator invocation the host must run to completion,
@@ -171,6 +197,9 @@ package struct SharedLaunchPlan: Sendable {
     package let classpath: [String]
     /// Java module-path entries joined by the host with its platform separator.
     package let modulepath: [String]
+    /// Tomcat-specific launch metadata for `tomcat.external` configurations.
+    /// The host writes the context XML before starting and deletes it on stop.
+    package let tomcat: TomcatLaunchMetadata?
 
     package init(
         executable: Executable,
@@ -179,7 +208,8 @@ package struct SharedLaunchPlan: Sendable {
         environment: [String: String] = [:],
         preLaunchSteps: [PreLaunchStep] = [],
         classpath: [String] = [],
-        modulepath: [String] = []
+        modulepath: [String] = [],
+        tomcat: TomcatLaunchMetadata? = nil
     ) {
         self.executable = executable
         self.arguments = arguments
@@ -188,6 +218,7 @@ package struct SharedLaunchPlan: Sendable {
         self.preLaunchSteps = preLaunchSteps
         self.classpath = classpath
         self.modulepath = modulepath
+        self.tomcat = tomcat
     }
 
     package var toolchainID: String? {

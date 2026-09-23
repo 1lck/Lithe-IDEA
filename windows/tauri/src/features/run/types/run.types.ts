@@ -96,6 +96,21 @@ export interface LaunchExecutable {
   command?: string | null;
   /** Sibling tool to run from the toolchain's `bin` dir, e.g. `"javac"`. */
   tool?: string | null;
+  /** Absolute path to an executable that is neither on PATH nor a toolchain. */
+  path?: string | null;
+}
+
+/**
+ * Tomcat-specific launch metadata returned by Core for `tomcat.external`
+ * configurations. The host writes `contextXml` to `contextXmlPath` before
+ * starting the container and deletes that file after the process stops.
+ */
+export interface TomcatLaunchMetadata {
+  contextXmlPath: string;
+  contextXml: string;
+  httpPort: number;
+  shutdownPort: number;
+  contextPath: string;
 }
 
 /**
@@ -122,6 +137,8 @@ export interface LaunchPlan {
   classpath?: string[];
   /** Java module-path entries joined with `;` by the Windows host. */
   modulepath?: string[];
+  /** Tomcat-specific metadata for `tomcat.external` configurations. */
+  tomcat?: TomcatLaunchMetadata;
 }
 
 export interface JavaLaunchTarget {

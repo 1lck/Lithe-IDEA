@@ -65,6 +65,9 @@ package final class RunService: ObservableObject {
     private let runtime: any RunRuntimePort
     private let executableResolver: any RunExecutableResolving
     private var mavenContextProvider: @MainActor () -> MavenLaunchContext? = { nil }
+    /// Context XML path written for the active `tomcat.external` run, deleted
+    /// when the process stops so the Tomcat install stays clean.
+    private var activeTomcatContextXmlPath: String?
 
     package init(
         runtime: any RunRuntimePort,
@@ -979,6 +982,10 @@ package final class RunService: ObservableObject {
         runningTitle = nil
         lastExitCode = exitCode
         activeOperationID = nil
+        if let xmlPath = activeTomcatContextXmlPath {
+            try? FileManager.default.removeItem(atPath: xmlPath)
+            activeTomcatContextXmlPath = nil
+        }
     }
 
     private func consumeLifecycle(_ event: ProcessLifecycleEvent) {

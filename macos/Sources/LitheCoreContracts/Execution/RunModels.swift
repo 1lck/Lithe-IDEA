@@ -95,6 +95,10 @@ package enum RunConfigurationKind: Hashable, Identifiable, Sendable {
     case mavenModule
     /// A JVM framework whose service is started by a Maven goal.
     case mavenFramework(MavenFrameworkKind)
+    /// An external servlet container (Tomcat) running a project's exploded
+    /// Web application. Core generates a context descriptor; the host writes it
+    /// before start and deletes it on stop.
+    case tomcat
     /// Any provider this build has no first-class handling for. Carrying the
     /// raw provider keeps unknown ecosystems visible and runnable instead of
     /// silently dropping them at the decode boundary.
@@ -110,6 +114,7 @@ package enum RunConfigurationKind: Hashable, Identifiable, Sendable {
         case "mavenModule": self = .mavenModule
         case "quarkus": self = .mavenFramework(.quarkus)
         case "micronaut": self = .mavenFramework(.micronaut)
+        case "tomcat": self = .tomcat
         default: return nil
         }
     }
@@ -120,6 +125,7 @@ package enum RunConfigurationKind: Hashable, Identifiable, Sendable {
         case .javaMain: "javaMain"
         case .mavenModule: "mavenModule"
         case .mavenFramework(let framework): framework.rawValue
+        case .tomcat: "tomcat"
         case .process(let provider): provider
         }
     }
@@ -128,6 +134,7 @@ package enum RunConfigurationKind: Hashable, Identifiable, Sendable {
         switch self {
         case .currentFile, .javaMain: "java"
         case .mavenModule, .mavenFramework: "maven"
+        case .tomcat: "tomcat"
         case .process(let provider): provider.split(separator: ".").first.map(String.init) ?? provider
         }
     }
@@ -153,6 +160,8 @@ package enum RunConfigurationKind: Hashable, Identifiable, Sendable {
                 .workingDirectory, .arguments, .environment, .javaRuntime,
                 .javaVMArguments, .mavenProfiles, .mavenSkipTests, .jdwpDebug
             ]
+        case .tomcat:
+            return [.workingDirectory, .environment, .javaRuntime, .javaVMArguments, .jdwpDebug]
         case .process:
             return .process
         }
@@ -164,6 +173,7 @@ package enum RunConfigurationKind: Hashable, Identifiable, Sendable {
         case .javaMain: "Java Application"
         case .mavenModule: "Maven Module"
         case .mavenFramework(let framework): framework.title
+        case .tomcat: "Tomcat"
         case .process(let provider): Self.displayTitle(for: provider)
         }
     }
@@ -176,6 +186,7 @@ package enum RunConfigurationKind: Hashable, Identifiable, Sendable {
         // All three are long-running JVM services started the same way, so they
         // share one symbol rather than implying a difference that is not there.
         case .mavenFramework: "leaf"
+        case .tomcat: "globe"
         case .process(let provider): Self.symbol(for: provider)
         }
     }
@@ -311,7 +322,7 @@ package struct RunConfiguration: Identifiable, Hashable, Sendable {
         for kind: RunConfigurationKind
     ) -> RunConfigurationExecution {
         switch kind {
-        case .mavenFramework: .service
+        case .mavenFramework, .tomcat: .service
         case .currentFile, .javaMain, .process: .application
         case .mavenModule: .task
         }
