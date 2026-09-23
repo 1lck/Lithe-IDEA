@@ -14,7 +14,7 @@
         "inputs": {
           "type": "object",
           "propertyNames": { "type": "string", "minLength": 1 },
-          "additionalProperties": { "type": "string", "pattern": "^sha256:" }
+          "additionalProperties": { "type": "string", "pattern": "^(sha256:.+|path)$" }
         }
       },
       "additionalProperties": false

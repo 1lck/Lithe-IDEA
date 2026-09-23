@@ -297,6 +297,14 @@ package protocol RunConfigurationOperations: Sendable {
     /// Saves project defaults without modifying any service or requiring generated configurations.
     func saveProjectToolchain(_ toolchain: ProjectToolchainSelection, at projectURL: URL) throws
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection
+    /// `checkFingerprint: false` validates the documents without reading project
+    /// inputs. `javaEntrypoints`, JDT's current answer, additionally reports
+    /// whether the generated Java entries still match it.
+    func inspect(
+        at projectURL: URL,
+        checkFingerprint: Bool,
+        javaEntrypoints: JavaEntrypoints?
+    ) -> ProjectRunConfigurationInspection
     /// `javaEntrypoints` is JDT's current answer; `nil` keeps the previous
     /// generation's Java entries while the Java service prepares the project.
     func generate(
@@ -345,6 +353,13 @@ package protocol RunConfigurationOperations: Sendable {
 }
 
 package extension RunConfigurationOperations {
+    func inspect(
+        at projectURL: URL,
+        checkFingerprint _: Bool,
+        javaEntrypoints _: JavaEntrypoints?
+    ) -> ProjectRunConfigurationInspection {
+        inspect(at: projectURL)
+    }
     func saveProjectToolchain(_: ProjectToolchainSelection, at _: URL) throws {
         throw RunConfigurationEditorSaveFailure(stage: .prepare, message: "Project environment saving is unavailable.")
     }

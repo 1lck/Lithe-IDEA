@@ -37,7 +37,19 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
     }
 
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
-        switch core.inspectRunConfiguration(at: projectURL) {
+        inspect(at: projectURL, checkFingerprint: true, javaEntrypoints: nil)
+    }
+
+    func inspect(
+        at projectURL: URL,
+        checkFingerprint: Bool,
+        javaEntrypoints: JavaEntrypoints?
+    ) -> ProjectRunConfigurationInspection {
+        switch core.inspectRunConfiguration(
+            at: projectURL,
+            checkFingerprint: checkFingerprint,
+            javaEntrypoints: javaEntrypoints
+        ) {
         case .success(let payload):
             return ProjectRunConfigurationInspection(
                 status: payload.status == "ready" ? .ready : .missing,
