@@ -169,20 +169,27 @@ macOS is the current reference product. Windows is an independent React/Tauri im
 ```mermaid
 flowchart LR
     subgraph macOS["macOS"]
-        MacUI["SwiftUI / AppKit workbench"] --> MacApp["Application models and services"]
-        MacApp --> MacAdapters["macOS adapters"]
+        MacViews["SwiftUI / AppKit Views"] --> MacModel["AppModel and UI models"]
+        MacModel --> MacFeatures["Application feature models"]
+        MacFeatures --> MacServices["AppServices and Swift services"]
+        MacServices --> MacRust["Typed Rust operations"]
+        MacServices --> MacPorts["Platform ports"]
+        MacPorts --> MacAdapters["macOS adapters"]
     end
 
     subgraph Shared["Shared behavior"]
+        Editor["Shared Monaco editor"]
         Contracts["JSON contracts and fixtures"] --> Core["Rust lithe-core"]
     end
 
     subgraph Windows["Windows"]
-        WinUI["React workbench"] --> WinFeatures["TypeScript features and stores"]
-        WinFeatures --> Tauri["Tauri 2 host and Windows adapters"]
+        WinUI["React workbench and feature state"] --> WinBoundary["src/platform/tauri-core.ts"]
+        WinBoundary --> Tauri["Tauri composition root and Windows adapters"]
     end
 
-    MacApp -->|"JSON C ABI"| Core
+    Editor -.-> MacViews
+    Editor -.-> WinUI
+    MacRust -->|"JSON C ABI"| Core
     Tauri -->|"Rust crate"| Core
 ```
 
@@ -299,6 +306,16 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
     </td>
   </tr>
 </table>
+
+### ☕ Support Lithe
+
+If Lithe is useful to you, you are welcome to buy the project a cup of coffee. Every contribution will be put back into Lithe's continued development and maintenance.
+
+<p align="center">
+  <img src="./docs/assets/donation/wechat.png" width="280" alt="WeChat donation QR code">
+  <img src="./docs/assets/donation/alipay.png" width="280" alt="Alipay donation QR code">
+</p>
+<p align="center"><sub>WeChat&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Alipay</sub></p>
 
 ### ⭐ Special thanks
 

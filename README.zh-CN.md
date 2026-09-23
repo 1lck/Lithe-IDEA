@@ -169,20 +169,27 @@ macOS 是当前参考产品，Windows 是独立的 React/Tauri 实现。两端�
 ```mermaid
 flowchart LR
     subgraph macOS["macOS"]
-        MacUI["SwiftUI / AppKit 工作台"] --> MacApp["应用模型与服务"]
-        MacApp --> MacAdapters["macOS 适配器"]
+        MacViews["SwiftUI / AppKit Views"] --> MacModel["AppModel 与界面模型"]
+        MacModel --> MacFeatures["Application 功能模型"]
+        MacFeatures --> MacServices["AppServices 与 Swift Services"]
+        MacServices --> MacRust["类型化 Rust 操作"]
+        MacServices --> MacPorts["平台无关端口"]
+        MacPorts --> MacAdapters["macOS 适配器"]
     end
 
     subgraph Shared["共享行为"]
+        Editor["共享 Monaco 编辑器"]
         Contracts["JSON 契约与 Fixtures"] --> Core["Rust lithe-core"]
     end
 
     subgraph Windows["Windows"]
-        WinUI["React 工作台"] --> WinFeatures["TypeScript Features 与 Stores"]
-        WinFeatures --> Tauri["Tauri 2 Host 与 Windows 适配器"]
+        WinUI["React 工作台与功能状态"] --> WinBoundary["src/platform/tauri-core.ts"]
+        WinBoundary --> Tauri["Tauri 组合根与 Windows 适配器"]
     end
 
-    MacApp -->|"JSON C ABI"| Core
+    Editor -.-> MacViews
+    Editor -.-> WinUI
+    MacRust -->|"JSON C ABI"| Core
     Tauri -->|"Rust crate"| Core
 ```
 
@@ -295,6 +302,16 @@ open dist/Lithe.app
     </td>
   </tr>
 </table>
+
+### ☕ 支持 Lithe
+
+如果 Lithe 对你有帮助，欢迎请项目喝一杯咖啡。收到的每一笔支持都会继续投入 Lithe 的开发与维护。
+
+<p align="center">
+  <img src="./docs/assets/donation/wechat.png" width="280" alt="微信收款码">
+  <img src="./docs/assets/donation/alipay.png" width="280" alt="支付宝收款码">
+</p>
+<p align="center"><sub>微信&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;支付宝</sub></p>
 
 ### ⭐ 特别鸣谢
 
