@@ -147,6 +147,7 @@ validate_output() {
     local declared_bundle
     for declared_bundle in "${declared_bundles[@]}"; do
         [[ -f "$OUTPUT_DIR/java-test/extensions/$declared_bundle" ]] || { print -u2 -- "Java Test bundle $declared_bundle is missing: $OUTPUT_DIR/java-test/extensions"; exit 1; }
+        [[ ! -e "$OUTPUT_DIR/plugins/$declared_bundle" ]] || { print -u2 -- "Java Test bundle $declared_bundle duplicates a JDTLS plugin: $OUTPUT_DIR/plugins"; exit 1; }
     done
     local java_test_extension_bundles=("$OUTPUT_DIR"/java-test/extensions/*.jar(N))
     (( ${#java_test_extension_bundles[@]} == ${#declared_bundles[@]} )) || { print -u2 -- "Java Test extension bundles do not match $java_test_bundle_list: $OUTPUT_DIR/java-test/extensions"; exit 1; }
@@ -210,14 +211,18 @@ unzip -q \
     -d "$java_test_extraction"
 mkdir -p "$OUTPUT_DIR/java-test/extensions" "$OUTPUT_DIR/java-test/runner"
 # The extension's `contributes.javaExtensions` is the upstream list of bundles
-# JDT LS must load; copying exactly that list keeps the runner and coverage
-# agent out of OSGi and follows upstream when the bundle set changes.
+# JDT LS must load; copying that list keeps the runner and coverage agent out of
+# OSGi and follows upstream when the bundle set changes. Bundles JDT LS already
+# ships (Eclipse names them `<symbolic-name>_<version>.jar`) are skipped: JDT LS
+# cannot replace its own copy, so loading them only fails with "A bundle is
+# already installed" at every start.
 : > "$OUTPUT_DIR/$java_test_bundle_list"
 java_test_bundle_index=0
 while java_test_bundle="$(/usr/bin/plutil -extract "contributes.javaExtensions.$java_test_bundle_index" raw -o - "$java_test_extraction/extension/package.json" 2>/dev/null)"; do
+    (( java_test_bundle_index += 1 ))
+    [[ -e "$OUTPUT_DIR/plugins/${java_test_bundle:t}" ]] && continue
     cp "$java_test_extraction/extension/${java_test_bundle#./}" "$OUTPUT_DIR/java-test/extensions/${java_test_bundle:t}"
     print -r -- "${java_test_bundle:t}" >> "$OUTPUT_DIR/$java_test_bundle_list"
-    (( java_test_bundle_index += 1 ))
 done
 (( java_test_bundle_index > 0 )) || { print -u2 -- "Java Test extension declares no JDT LS bundles"; exit 1; }
 cp "$java_test_extraction/extension/server/$java_test_runner_name" "$OUTPUT_DIR/java-test/runner/$java_test_runner_name"

@@ -1348,8 +1348,10 @@ projectName? }` entries plus diagnostics for unusable upstream records.
 `vscode.java.test.findTestTypesAndMethods`, and returns schema version 1 with a
 typed class/method tree. Each item carries the upstream identity, label, fully
 qualified name, project, test kind/level, optional JDT handler and sort text,
-optional zero-based UTF-16 range, and children. A malformed top-level result is
-an `invalidServerResult`, never an empty semantic answer.
+optional zero-based UTF-16 range, and children. A `null` upstream result means
+the file has no tests (Java Test leaves its root's children unset) and yields an
+empty item list; any other non-list top-level result is an
+`invalidServerResult`, never an empty semantic answer.
 `javaMainMethods` requires a file URI, invokes Java Debug Server's
 `vscode.java.resolveMainMethod`, and returns schema version 1 with
 `{ methods: [{ range, mainClass, projectName? }], diagnostics }`. `range` is the
