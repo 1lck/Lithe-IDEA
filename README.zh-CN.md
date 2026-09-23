@@ -307,11 +307,18 @@ open dist/Lithe.app
 
 如果 Lithe 对你有帮助，欢迎请项目喝一杯咖啡。收到的每一笔支持都会继续投入 Lithe 的开发与维护。
 
-<p align="center">
-  <img src="./docs/assets/donation/wechat.png" width="280" alt="微信收款码">
-  <img src="./docs/assets/donation/alipay.png" width="280" alt="支付宝收款码">
-</p>
-<p align="center"><sub>微信&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;支付宝</sub></p>
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="./docs/assets/donation/wechat.png" width="280" alt="微信收款码"><br>
+      <strong>微信</strong>
+    </td>
+    <td width="50%" align="center">
+      <img src="./docs/assets/donation/alipay.png" width="280" alt="支付宝收款码"><br>
+      <strong>支付宝</strong>
+    </td>
+  </tr>
+</table>
 
 ### ⭐ 特别鸣谢
 
