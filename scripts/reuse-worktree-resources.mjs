@@ -5,7 +5,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const REGISTRY_PATH = path.join(SCRIPT_DIRECTORY, "worktree-resources.json");
@@ -203,21 +203,27 @@ async function countPayloadFiles(root) {
   return count;
 }
 
-async function publishDirectory(staging, destination, validatePublished) {
+async function publishDirectory(staging, destination, validatePublished, rename = fs.rename) {
   const suffix = `${process.pid}-${randomUUID()}`;
   const backup = `${destination}.backup-${suffix}`;
   const destinationExists = await pathExists(destination);
+  let backupCreated = false;
   let committed = false;
   try {
-    if (destinationExists) await fs.rename(destination, backup);
-    await fs.rename(staging, destination);
+    if (destinationExists) {
+      await rename(destination, backup);
+      backupCreated = true;
+    }
+    await rename(staging, destination);
     await validatePublished(destination);
     committed = true;
   } catch (error) {
-    if (await pathExists(destination)) await fs.rm(destination, { force: true, recursive: true });
-    if (await pathExists(backup)) {
+    if ((backupCreated || !destinationExists) && await pathExists(destination)) {
+      await fs.rm(destination, { force: true, recursive: true });
+    }
+    if (backupCreated && await pathExists(backup)) {
       try {
-        await fs.rename(backup, destination);
+        await rename(backup, destination);
       } catch (restoreError) {
         throw new AggregateError([error, restoreError], `Could not publish or restore ${destination}`);
       }
@@ -228,7 +234,11 @@ async function publishDirectory(staging, destination, validatePublished) {
   }
 }
 
-async function reuseResource(resource, sourceRoot, targetRoot) {
+function throwIfInterrupted(signal) {
+  if (signal) throw new Error(`Resource reuse interrupted by ${signal}`);
+}
+
+async function reuseResource(resource, sourceRoot, targetRoot, getSignal = () => null) {
   const source = path.join(sourceRoot, resource.path);
   const destination = path.join(targetRoot, resource.path);
   if (!(await pathExists(source))) {
@@ -242,7 +252,9 @@ async function reuseResource(resource, sourceRoot, targetRoot) {
   const staging = `${destination}.staging-${process.pid}-${randomUUID()}`;
   try {
     await fs.cp(source, staging, { recursive: true, force: true, preserveTimestamps: true });
+    throwIfInterrupted(getSignal());
     await verifyResource(resource, staging, targetRoot);
+    throwIfInterrupted(getSignal());
     const sourceFiles = await countPayloadFiles(staging);
     if (sourceFiles === 0) {
       process.stdout.write(`Skipping ${resource.id}: no verified source files remain.\n`);
@@ -253,6 +265,7 @@ async function reuseResource(resource, sourceRoot, targetRoot) {
     if (await pathExists(destination)) {
       await assertRealDirectory(destination, `${resource.id} target`);
       await verifyResource(resource, destination, targetRoot);
+      throwIfInterrupted(getSignal());
       targetFiles = await countPayloadFiles(destination);
     }
     if (targetFiles >= sourceFiles) {
@@ -262,6 +275,7 @@ async function reuseResource(resource, sourceRoot, targetRoot) {
 
     let publishedFiles = 0;
     await publishDirectory(staging, destination, async (published) => {
+      throwIfInterrupted(getSignal());
       await verifyResource(resource, published, targetRoot);
       publishedFiles = await countPayloadFiles(published);
       if (publishedFiles !== sourceFiles) {
@@ -271,6 +285,58 @@ async function reuseResource(resource, sourceRoot, targetRoot) {
     process.stdout.write(`Reused ${resource.id}: published ${publishedFiles} verified file(s).\n`);
   } finally {
     await fs.rm(staging, { force: true, recursive: true });
+  }
+}
+
+async function readLockOwner(lock) {
+  try {
+    const owner = JSON.parse(await fs.readFile(path.join(lock, "owner.json"), "utf8"));
+    return Number.isInteger(owner.pid) ? owner : null;
+  } catch {
+    return null;
+  }
+}
+
+function processIsAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+async function acquireLock(lock) {
+  while (true) {
+    try {
+      await fs.mkdir(lock);
+      break;
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+      const owner = await readLockOwner(lock);
+      if (!owner || processIsAlive(owner.pid)) {
+        const details = owner ? ` (pid ${owner.pid})` : "";
+        throw new Error(`Another resource reuse operation owns ${lock}${details}`);
+      }
+      const abandonedLock = `${lock}.stale-${process.pid}-${randomUUID()}`;
+      try {
+        await fs.rename(lock, abandonedLock);
+      } catch (renameError) {
+        if (renameError?.code === "ENOENT") continue;
+        throw renameError;
+      }
+      await fs.rm(abandonedLock, { force: true, recursive: true });
+    }
+  }
+  try {
+    await fs.writeFile(
+      path.join(lock, "owner.json"),
+      `${JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })}\n`,
+      "utf8",
+    );
+  } catch (error) {
+    await fs.rm(lock, { force: true, recursive: true });
+    throw new Error(`Could not initialize resource reuse lock ${lock}: ${error.message}`, { cause: error });
   }
 }
 
@@ -304,20 +370,31 @@ async function main() {
   const artifactRoot = path.join(target.root, ".artifacts");
   const lock = path.join(artifactRoot, ".reuse-worktree-resources.lock");
   await fs.mkdir(artifactRoot, { recursive: true });
+  await acquireLock(lock);
+  let interruptedSignal = null;
+  const handleSignal = (signal) => {
+    interruptedSignal ??= signal;
+    process.exitCode = signal === "SIGINT" ? 130 : 143;
+  };
+  process.once("SIGINT", handleSignal);
+  process.once("SIGTERM", handleSignal);
   try {
-    await fs.mkdir(lock);
-  } catch (error) {
-    if (error?.code === "EEXIST") throw new Error(`Another resource reuse operation owns ${lock}`);
-    throw error;
-  }
-  try {
-    for (const resource of selected) await reuseResource(resource, source.root, target.root);
+    for (const resource of selected) {
+      throwIfInterrupted(interruptedSignal);
+      await reuseResource(resource, source.root, target.root, () => interruptedSignal);
+    }
   } finally {
+    process.removeListener("SIGINT", handleSignal);
+    process.removeListener("SIGTERM", handleSignal);
     await fs.rm(lock, { force: true, recursive: true });
   }
 }
 
-main().catch((error) => {
-  process.stderr.write(`${error.stack || error}\n`);
-  process.exitCode = 1;
-});
+export { publishDirectory, validatorArguments };
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    process.stderr.write(`${error.stack || error}\n`);
+    process.exitCode ||= 1;
+  });
+}

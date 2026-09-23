@@ -4,8 +4,9 @@ import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { publishDirectory } from "./reuse-worktree-resources.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const reuseScript = path.join(scriptDirectory, "reuse-worktree-resources.mjs");
@@ -13,6 +14,25 @@ const emptySha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b785
 const testRoot = await fs.mkdtemp(path.join(os.tmpdir(), "lithe-worktree-resources-"));
 const sourceRoot = path.join(testRoot, "source");
 const targetRoot = path.join(testRoot, "target");
+
+async function testFailedBackupPreservesDestination() {
+  const root = path.join(testRoot, "publish");
+  const destination = path.join(root, "destination");
+  const staging = path.join(root, "staging");
+  await fs.mkdir(destination, { recursive: true });
+  await fs.mkdir(staging, { recursive: true });
+  await fs.writeFile(path.join(destination, "old.txt"), "old");
+  await fs.writeFile(path.join(staging, "new.txt"), "new");
+
+  await assert.rejects(
+    publishDirectory(staging, destination, async () => {}, async () => {
+      throw new Error("simulated backup rename failure");
+    }),
+    /simulated backup rename failure/,
+  );
+  assert.equal(await fs.readFile(path.join(destination, "old.txt"), "utf8"), "old");
+  await assert.rejects(fs.access(path.join(destination, "new.txt")));
+}
 
 function run(command, argumentsList, workingDirectory = testRoot) {
   const result = spawnSync(command, argumentsList, {
@@ -43,6 +63,7 @@ function reuse(extraArguments = []) {
 }
 
 try {
+  await testFailedBackupPreservesDestination();
   await fs.mkdir(path.join(sourceRoot, "third_party", "jdtls"), { recursive: true });
   await fs.writeFile(
     path.join(sourceRoot, "third_party", "jdtls", "manifest.json"),
@@ -82,6 +103,18 @@ try {
   ];
   await fs.mkdir(cache, { recursive: true });
   for (const fileName of expectedFiles) await fs.writeFile(path.join(cache, fileName), "");
+
+  const staleLock = path.join(targetRoot, ".artifacts", ".reuse-worktree-resources.lock");
+  await fs.mkdir(staleLock, { recursive: true });
+  const exitedProcess = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
+  await new Promise((resolve, reject) => {
+    exitedProcess.once("error", reject);
+    exitedProcess.once("exit", resolve);
+  });
+  await fs.writeFile(
+    path.join(staleLock, "owner.json"),
+    `${JSON.stringify({ pid: exitedProcess.pid, startedAt: new Date().toISOString() })}\n`,
+  );
 
   let result = reuse();
   assertSucceeded(result);
