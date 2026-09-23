@@ -1,0 +1,235 @@
+use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::scroll::ScrollableElement as _;
+use gpui_kit::component::{h_flex, v_flex, Sizable as _};
+use gpui_kit::{
+    div, px, rgb, Context, InteractiveElement as _, IntoElement, ParentElement as _, Render,
+    Styled as _, Window,
+};
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use std::io::{Read, Write};
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+/// Linux 原生 PTY 会话
+pub struct TerminalSession {
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    pub output_lines: Arc<Mutex<Vec<String>>>,
+    #[allow(dead_code)]
+    input_buffer: Arc<Mutex<String>>,
+}
+
+impl TerminalSession {
+    pub fn new(cols: u16, rows: u16, working_dir: &str) -> anyhow::Result<Self> {
+        let pty_system = native_pty_system();
+        let pair = pty_system.openpty(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })?;
+
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+        let mut cmd = CommandBuilder::new(&shell);
+        cmd.cwd(working_dir);
+
+        let _child = pair.slave.spawn_command(cmd)?;
+        let mut reader = pair.master.try_clone_reader()?;
+        let writer = pair.master.take_writer()?;
+
+        let output_lines = Arc::new(Mutex::new(vec![format!(
+            "Lithe Terminal (PTY Session: {shell})"
+        )]));
+        let output_lines_clone = Arc::clone(&output_lines);
+
+        thread::spawn(move || {
+            let mut buf = [0u8; 1024];
+            let mut line_accumulator = String::new();
+
+            while let Ok(n) = reader.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                let chunk = String::from_utf8_lossy(&buf[..n]);
+                for ch in chunk.chars() {
+                    if ch == '\n' {
+                        let mut lines = output_lines_clone.lock().unwrap();
+                        lines.push(line_accumulator.clone());
+                        if lines.len() > 1000 {
+                            lines.remove(0);
+                        }
+                        line_accumulator.clear();
+                    } else if ch == '\r' {
+                        // ignore carriage return
+                    } else {
+                        line_accumulator.push(ch);
+                    }
+                }
+                if !line_accumulator.is_empty() {
+                    let mut lines = output_lines_clone.lock().unwrap();
+                    if let Some(last) = lines.last_mut() {
+                        *last = line_accumulator.clone();
+                    }
+                }
+            }
+        });
+
+        Ok(Self {
+            writer: Arc::new(Mutex::new(writer)),
+            output_lines,
+            input_buffer: Arc::new(Mutex::new(String::new())),
+        })
+    }
+
+    pub fn write_input(&self, input: &str) -> anyhow::Result<()> {
+        let mut writer = self.writer.lock().unwrap();
+        writer.write_all(input.as_bytes())?;
+        writer.flush()?;
+        Ok(())
+    }
+
+    pub fn get_lines(&self) -> Vec<String> {
+        self.output_lines.lock().unwrap().clone()
+    }
+}
+
+/// 终端视图组件
+pub struct TerminalView {
+    pub session: Option<TerminalSession>,
+    pub current_input: String,
+    pub working_dir: String,
+}
+
+impl TerminalView {
+    pub fn new(working_dir: String, _cx: &mut Context<Self>) -> Self {
+        let session = TerminalSession::new(120, 30, &working_dir).ok();
+
+        Self {
+            session,
+            current_input: String::new(),
+            working_dir,
+        }
+    }
+
+    pub fn send_command(&mut self, cmd: &str, cx: &mut Context<Self>) {
+        if let Some(session) = &self.session {
+            let mut full = cmd.to_string();
+            full.push('\n');
+            let _ = session.write_input(&full);
+        }
+        self.current_input.clear();
+        cx.notify();
+    }
+
+    pub fn clear(&mut self, cx: &mut Context<Self>) {
+        if let Some(session) = &self.session {
+            if let Ok(mut lines) = session.output_lines.lock() {
+                lines.clear();
+                lines.push("Terminal cleared.".to_string());
+            }
+        }
+        cx.notify();
+    }
+}
+
+impl Render for TerminalView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let lines = self
+            .session
+            .as_ref()
+            .map(|s| s.get_lines())
+            .unwrap_or_else(|| vec!["PTY unavailable".to_string()]);
+
+        v_flex()
+            .size_full()
+            .bg(rgb(0x0e0f17))
+            .p_2()
+            .child(
+                // 终端顶部控制栏
+                h_flex()
+                    .h(px(28.0))
+                    .w_full()
+                    .justify_between()
+                    .items_center()
+                    .border_b_1()
+                    .border_color(rgb(0x23263b))
+                    .pb_1()
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_2()
+                            .text_xs()
+                            .text_color(rgb(0x8a90a2))
+                            .child("Linux PTY Shell")
+                            .child(format!("({})", self.working_dir)),
+                    )
+                    .child(
+                        Button::new("clear-term")
+                            .small()
+                            .ghost()
+                            .label("Clear")
+                            .on_click(cx.listener(|this, _event, _window, cx| {
+                                this.clear(cx);
+                            })),
+                    ),
+            )
+            .child(
+                // 终端输出行展示区
+                div()
+                    .flex_1()
+                    .w_full()
+                    .overflow_y_scrollbar()
+                    .p_2()
+                    .text_xs()
+                    .text_color(rgb(0xd1d5db))
+                    .font_family("monospace")
+                    .children(lines.into_iter().enumerate().map(|(idx, line)| {
+                        div()
+                            .id(idx)
+                            .child(if line.is_empty() { " ".to_string() } else { line })
+                    })),
+            )
+            .child(
+                // 命令行输入条
+                h_flex()
+                    .h(px(32.0))
+                    .w_full()
+                    .bg(rgb(0x141522))
+                    .border_t_1()
+                    .border_color(rgb(0x23263b))
+                    .items_center()
+                    .px_2()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x10b981))
+                            .font_family("monospace")
+                            .child("$"),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_xs()
+                            .text_color(rgb(0xffffff))
+                            .font_family("monospace")
+                            .child(if self.current_input.is_empty() {
+                                "Type command here...".to_string()
+                            } else {
+                                self.current_input.clone()
+                            }),
+                    )
+                    .child(
+                        Button::new("run-cmd")
+                            .small()
+                            .primary()
+                            .label("Execute")
+                            .on_click(cx.listener(|this, _event, _window, cx| {
+                                let cmd = this.current_input.clone();
+                                if !cmd.is_empty() {
+                                    this.send_command(&cmd, cx);
+                                }
+                            })),
+                    ),
+            )
+    }
+}

@@ -1,0 +1,80 @@
+name: Linux CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & Package Linux Frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install system dependencies for GPUI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libxcb-xkb-dev \
+            libfontconfig1-dev \
+            libfreetype6-dev \
+            libx11-dev \
+            libxcb1-dev \
+            libx11-xcb-dev \
+            libssl-dev \
+            pkg-config
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Restore Cargo dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+            target
+          key: cargo-linux-${{ runner.os }}-${{ hashFiles('linux/Cargo.toml', 'rust/Cargo.lock') }}
+          restore-keys: |
+            cargo-linux-${{ runner.os }}-
+
+      - name: Check formatting
+        run: |
+          cargo fmt --manifest-path linux/Cargo.toml -- --check
+
+      - name: Check lithe-linux compilation
+        run: |
+          cargo check --manifest-path linux/Cargo.toml
+
+      - name: Build lithe-linux binary
+        run: |
+          ./scripts/build-linux.sh --release
+
+      - name: Package Linux application
+        run: |
+          ./scripts/package-linux.sh --release
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lithe-linux-dist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
