@@ -388,6 +388,10 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         for ownership in services.pluginCatalog.languageSupports.values {
             let support = ownership.declaration
             if support.languageServerModuleID == moduleID {
+                (services.moduleRuntime.capability(.languageServerExtension(support.id))
+                    as? any LanguageDependencyProviding)?
+                    .setDependencySnapshotChangeHandler(nil)
+                runFeatureIfActive?.unregisterDependencySource(languageID: support.id)
                 languageToolingSessionsIfActive?.unregisterLanguageServerExtension(
                     languageID: support.id
                 )
@@ -1288,6 +1292,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 )
                 return false
             }
+            registerLanguageDependencySourceIfAvailable(support: support)
         }
         if let snapshot = try? services.moduleRuntime.snapshot(for: .languageIntelligence),
            snapshot.state != .active,

@@ -425,6 +425,11 @@ struct ModuleRuntimeTests {
                 displayName: "Go",
                 fileExtensions: [".GO", "go"],
                 projectFileNames: ["go.mod"],
+                dependencies: LanguageDependencyDeclaration(
+                    managementFileNames: ["go.mod", "vendor/modules.txt"],
+                    projectDependencyPaths: ["vendor"]
+                ),
+                virtualDocumentSchemes: ["plugin-go"],
                 languageServerModuleID: lsp.id,
                 executionModuleID: execution.id,
                 testingModuleID: execution.id
@@ -438,9 +443,13 @@ struct ModuleRuntimeTests {
         let support = try #require(catalog.manifests.first?.languageSupports?.first)
         #expect(support.fileExtensions == ["go"])
         #expect(support.projectFileNames == ["go.mod"])
+        #expect(support.dependencies?.managementFileNames == ["go.mod", "vendor/modules.txt"])
         #expect(support.languageServerModuleID != support.executionModuleID)
         #expect(support.testingModuleID == support.executionModuleID)
         #expect(catalog.languageSupport(for: URL(fileURLWithPath: "/workspace/main.go"))?.pluginID == manifest.id)
+        #expect(catalog.languageSupport(
+            forVirtualDocumentURL: try #require(URL(string: "plugin-go://package/source.go"))
+        )?.pluginID == manifest.id)
         #expect(catalog.languageSupports(
             recognizingProjectFileNames: ["README.md", "go.mod"]
         ).map(\.pluginID) == [manifest.id])
@@ -480,6 +489,22 @@ struct ModuleRuntimeTests {
                 hostVersion: BuiltInPluginCatalog.hostVersion
             )
         }
+    }
+
+    @Test
+    func olderLanguageSupportManifestDecodesWithoutDependencyMetadata() throws {
+        let support = try JSONDecoder().decode(
+            LanguageSupportDeclaration.self,
+            from: Data(#"{"id":"go","displayName":"Go","fileExtensions":["go"]}"#.utf8)
+        )
+        #expect(support.dependencies == nil)
+        #expect(support.virtualDocumentSchemes.isEmpty)
+        let partial = try JSONDecoder().decode(
+            LanguageSupportDeclaration.self,
+            from: Data(#"{"id":"go","displayName":"Go","dependencies":{"managementFileNames":["go.mod"]}}"#.utf8)
+        )
+        #expect(partial.dependencies?.managementFileNames == ["go.mod"])
+        #expect(partial.dependencies?.projectDependencyPaths.isEmpty == true)
     }
 
     @Test
