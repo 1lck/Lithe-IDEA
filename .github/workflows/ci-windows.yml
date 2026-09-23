@@ -30,9 +30,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Test dependency cache verification
+      - name: Test dependency cache tooling
         shell: bash
-        run: node scripts/test-verify-download-cache.mjs
+        run: |
+          node scripts/test-verify-download-cache.mjs
+          node scripts/test-reuse-worktree-resources.mjs
 
       - name: Resolve comparison base
         id: base

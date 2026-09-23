@@ -156,12 +156,23 @@ jobs:
           ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
             --report .artifacts/test-stability/macos-unit.json \
             --suite-timeout-seconds 660 -- \
+            --skip fullSignedDiskImageStagesWithoutChangingInstalledApp \
             --skip WebKitIntegrationTests \
             --skip StableRollbackDiskImageIntegrationTests \
             --skip GitStatusObservationTests \
             --skip LitheGitPerformanceTests \
             --skip '(LitheDatabaseModuleTests|LitheTests\.LitheCoreLogicTests/database)' \
             --skip '([Pp]lugin|LitheGoSupportModuleTests|LinuxDo)'
+
+      - name: Run stable rollback disk image integration test
+        timeout-minutes: 3
+        run: |
+          # Creating and mounting a real disk image has variable runner latency.
+          ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
+            --report .artifacts/test-stability/macos-rollback-dmg.json \
+            --max-seconds 45 --suite-timeout-seconds 120 -- \
+            --skip-build \
+            --filter fullSignedDiskImageStagesWithoutChangingInstalledApp
 
       - name: Run Git performance baseline
         if: needs.changes.outputs.git_validation == 'true'
