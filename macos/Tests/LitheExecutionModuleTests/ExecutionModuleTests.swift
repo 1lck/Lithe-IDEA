@@ -950,6 +950,59 @@ struct ExecutionModuleTests {
     }
 
     @Test
+    func dependencyIndexSurvivesRunConfigurationApplyAndReusesPersistedGraph() async throws {
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let moduleFile = root.appendingPathComponent("go.mod")
+        let cachedDependency = URL(fileURLWithPath: "/external/cache/cached.jar")
+        let store = TestWorkspaceDependencyStore()
+
+        let firstService = RunService(
+            runtime: TestRuntime(),
+            process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(contents: [moduleFile: "module example.dev/api"]),
+            preferences: TestRunPreferences(),
+            serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: TestGoProjectRunConfigurationOperations(),
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback),
+            dependencyStore: store
+        )
+        defer { firstService.reset() }
+        firstService.configureLanguageDependencyProvider { _, _, _ in
+            LanguageDependencySnapshot(dependencyRoots: [cachedDependency])
+        }
+        await firstService.loadProject(at: root, files: [moduleFile], mavenProject: nil)
+        firstService.registerDependencySource(languageID: "go", displayName: "Go")
+        _ = try await firstService.resolveDependencies(serviceID: "language:go")
+        #expect(store.indexes.services["language:go"] != nil)
+
+        let secondService = RunService(
+            runtime: TestRuntime(),
+            process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(contents: [moduleFile: "module example.dev/api"]),
+            preferences: TestRunPreferences(),
+            serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: TestGoProjectRunConfigurationOperations(),
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback),
+            dependencyStore: store
+        )
+        defer { secondService.reset() }
+        secondService.configureLanguageDependencyProvider { _, _, _ in nil }
+        await secondService.loadProject(at: root, files: [moduleFile], mavenProject: nil)
+        secondService.registerDependencySource(languageID: "go", displayName: "Go")
+
+        let graph = try #require(
+            try await secondService.resolveDependencies(serviceID: "language:go")
+        )
+        #expect(graph.roots.first?.children[2].children.map(\.id) == [cachedDependency.path])
+    }
+
+    @Test
     func goTestsRunThroughExtensionOwnedSession() throws {
         let builtInProcess = TestStreamingProcess()
         let extensionSession = TestLanguageExecutionSession()
@@ -2453,6 +2506,33 @@ private struct TestRunFileAccess: RunFileAccess {
     func isDirectory(at url: URL) -> Bool { directories.contains(url.standardizedFileURL) }
     func readData(from url: URL) throws -> Data {
         Data((contents[url.standardizedFileURL] ?? "").utf8)
+    }
+}
+
+private final class TestWorkspaceDependencyStore: WorkspaceDependencyStoring, @unchecked Sendable {
+    var configuration = WorkspaceDependencyConfiguration()
+    var indexes = WorkspaceDependencyIndexes()
+
+    func loadDependencyConfiguration(workspaceURL: URL) throws -> WorkspaceDependencyConfiguration? {
+        configuration
+    }
+
+    func saveDependencyConfiguration(
+        _ configuration: WorkspaceDependencyConfiguration,
+        workspaceURL: URL
+    ) throws {
+        self.configuration = configuration
+    }
+
+    func loadDependencyIndexes(workspaceURL: URL) throws -> WorkspaceDependencyIndexes? {
+        indexes
+    }
+
+    func saveDependencyIndexes(
+        _ indexes: WorkspaceDependencyIndexes,
+        workspaceURL: URL
+    ) throws {
+        self.indexes = indexes
     }
 }
 

@@ -1267,14 +1267,6 @@ package final class RunService: ObservableObject {
         effectiveSourcesByConfigurationID = Dictionary(uniqueKeysWithValues: resolved.map {
             ($0.configuration.id, $0.source)
         })
-        let activeDependencyServiceIDs = Set(
-            configurations.lazy
-                .filter { $0.id != RunConfiguration.currentFileID && !$0.disabled }
-                .map(\.id)
-        )
-        dependencyIndexes.services = dependencyIndexes.services.filter {
-            activeDependencyServiceIDs.contains($0.key)
-        }
         dependencyRevision &+= 1
         reconcileModuleSessions(validConfigurationIDs: Set(configurations.map(\.id)))
         refreshPortConflicts()
