@@ -18,14 +18,34 @@ package struct RunConfigurationDiagnostic: Equatable, Identifiable, Sendable {
     package let configurationID: String?
     package let code: String
     package let message: String
+    /// Toolchain requirement ID the diagnostic is about, such as `project-jdk`.
+    package let toolchain: String?
 
-    package init(configurationID: String?, code: String, message: String) {
+    package init(configurationID: String?, code: String, message: String, toolchain: String? = nil) {
         self.configurationID = configurationID
         self.code = code
         self.message = message
+        self.toolchain = toolchain
     }
 
     package var id: String { [configurationID, code, message].compactMap { $0 }.joined(separator: ":") }
+}
+
+package extension Array where Element == RunConfigurationDiagnostic {
+    /// Core's requirement checks for one toolchain, such as a JDK older than the
+    /// project requires. Without `configurationID`, every configuration's result
+    /// counts, because project defaults apply to all of them.
+    func toolchainRequirementMessages(for toolchain: String, configurationID: String? = nil) -> [String] {
+        let codes: Set<String> = ["missingToolchain", "toolchainVersionMismatch", "toolchainVendorMismatch"]
+        var seen = Set<String>()
+        return filter { diagnostic in
+            codes.contains(diagnostic.code)
+                && diagnostic.toolchain == toolchain
+                && (configurationID == nil || diagnostic.configurationID == configurationID)
+        }
+        .map(\.message)
+        .filter { seen.insert($0).inserted }
+    }
 }
 
 package struct ProjectRunConfigurationInspection: Equatable, Sendable {
@@ -33,17 +53,22 @@ package struct ProjectRunConfigurationInspection: Equatable, Sendable {
     package let diagnostics: [RunConfigurationDiagnostic]
     package var recoveryAction: RunConfigurationRecoveryAction = .none
     package var recoveryPath: String? = nil
+    /// Project defaults saved in the machine-local run layer. `nil` means that
+    /// layer holds no defaults yet, which differs from explicitly automatic ones.
+    package var projectToolchain: ProjectToolchainSelection? = nil
 
     package init(
         status: ProjectRunConfigurationStatus,
         diagnostics: [RunConfigurationDiagnostic],
         recoveryAction: RunConfigurationRecoveryAction = .none,
-        recoveryPath: String? = nil
+        recoveryPath: String? = nil,
+        projectToolchain: ProjectToolchainSelection? = nil
     ) {
         self.status = status
         self.diagnostics = diagnostics
         self.recoveryAction = recoveryAction
         self.recoveryPath = recoveryPath
+        self.projectToolchain = projectToolchain
     }
 }
 
@@ -63,6 +88,18 @@ package enum ProjectLoadState: Equatable, Sendable {
     package func hasReadyInventory(for workspace: URL) -> Bool {
         guard case .ready(let boundWorkspace, _) = self else { return false }
         return boundWorkspace == workspace.standardizedFileURL
+    }
+
+    /// Whether the run documents of `workspace`, including its project toolchain,
+    /// have been read. Unlike `hasReadyInventory`, a project without generated
+    /// configurations counts once inspection bound it.
+    package func hasLoadedDocuments(for workspace: URL) -> Bool {
+        switch self {
+        case .bound(let boundWorkspace), .ready(let boundWorkspace, _):
+            boundWorkspace == workspace.standardizedFileURL
+        case .idle, .loading, .failed:
+            false
+        }
     }
 }
 
@@ -257,6 +294,8 @@ package struct ProjectToolchainSelection: Codable, Equatable, Sendable {
 }
 
 package protocol RunConfigurationOperations: Sendable {
+    /// Saves project defaults without modifying any service or requiring generated configurations.
+    func saveProjectToolchain(_ toolchain: ProjectToolchainSelection, at projectURL: URL) throws
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection
     /// `javaEntrypoints` is JDT's current answer; `nil` keeps the previous
     /// generation's Java entries while the Java service prepares the project.
@@ -306,6 +345,9 @@ package protocol RunConfigurationOperations: Sendable {
 }
 
 package extension RunConfigurationOperations {
+    func saveProjectToolchain(_: ProjectToolchainSelection, at _: URL) throws {
+        throw RunConfigurationEditorSaveFailure(stage: .prepare, message: "Project environment saving is unavailable.")
+    }
     func launchPlan(
         at projectURL: URL,
         configurationID: String,

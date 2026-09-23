@@ -747,6 +747,7 @@ private struct SettingsWindow: View {
                 settings: settings,
                 viewState: viewState,
                 initialCategory: model.requestedSettingsCategory,
+                categoryRequest: model.settingsCategoryRequest,
                 onDismiss: close
             )
             .environmentObject(model)

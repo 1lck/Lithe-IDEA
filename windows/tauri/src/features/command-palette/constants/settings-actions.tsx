@@ -61,11 +61,14 @@ interface SettingsActionsParams {
 }
 
 const settingsTabLabels: Record<SettingsTab, string> = {
+  project: "Project JDK & Maven",
+  run: "Run configurations",
   general: "General",
   editor: "Editor",
   git: "Git",
   appearance: "Appearance",
   ai: "AI",
+  "ai-commit": "AI & Commit",
   keyboard: "Keybindings",
   language: "Editor",
   logs: "Logs",
@@ -76,7 +79,7 @@ const settingsTabLabels: Record<SettingsTab, string> = {
 
 const settingsTabCommands = (Object.entries(settingsTabLabels) as Array<[SettingsTab, string]>)
   .map(([tab, label]) => ({ tab, label }))
-  .filter(({ tab }) => !["ai", "language"].includes(tab));
+  .filter(({ tab }) => tab !== "language");
 
 function getMatchingSettingsRecords(query: string) {
   const trimmedQuery = query.trim();

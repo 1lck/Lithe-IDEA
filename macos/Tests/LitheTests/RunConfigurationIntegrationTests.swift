@@ -10,6 +10,119 @@ import Testing
 @MainActor
 struct RunConfigurationIntegrationTests {
     @Test
+    func projectEnvironmentSavesWithoutGeneratedConfigurationsAndPreservesOverrides() throws {
+        // The unit lane does not link Rust Core; the Rust test with the same
+        // shared fixture covers the Core half there.
+        let core = RustCoreBridge()
+        guard core.isAvailable else { return }
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-project-environment-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(".lithe/run"),
+                                               withIntermediateDirectories: true)
+        let localURL = root.appendingPathComponent(".lithe/run/local.json")
+        let original = #"{"version":2,"configurations":[{"id":"user:service","extensions":{"java":{"homePath":"/fixture/service-jdk"}}}]}"#
+        try Data(original.utf8).write(to: localURL)
+        let store = MacRunConfigurationStore(core: core, storage: MacFileStorage(),
+                                            preferences: RunTestKeyValueStore())
+        // A layer that never saved defaults reports none, not automatic ones.
+        #expect(store.inspect(at: root).projectToolchain == nil)
+        try store.saveProjectToolchain(ProjectToolchainSelection(javaHomePath: "/fixture/project-jdk"), at: root)
+        #expect(store.inspect(at: root).projectToolchain == ProjectToolchainSelection(javaHomePath: "/fixture/project-jdk"))
+        let saved = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: localURL)) as? [String: Any])
+        let configurations = try #require(saved["configurations"] as? [[String: Any]])
+        let extensions = try #require(configurations.first?["extensions"] as? [String: Any])
+        let java = try #require(extensions["java"] as? [String: String])
+        #expect(java["homePath"] == "/fixture/service-jdk")
+        let toolchain = try #require(saved["toolchain"] as? [String: [String: String]])
+        #expect(toolchain["java"]?["homePath"] == "/fixture/project-jdk")
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/run/generated.json").path))
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/run/configurations.json").path))
+        let ignoreURL = root.appendingPathComponent(".lithe/.gitignore")
+        let requiredIgnore = "/run/local.json\n/run/classes/\n**/*.tmp\n"
+        #expect(try String(contentsOf: ignoreURL, encoding: .utf8) == requiredIgnore)
+        let existingIgnore = "# user rule\ncache/\n!run/local.json"
+        try Data(existingIgnore.utf8).write(to: ignoreURL)
+        try store.saveProjectToolchain(ProjectToolchainSelection(javaHomePath: "/fixture/project-jdk"), at: root)
+        let expectedIgnore = existingIgnore + "\n" + requiredIgnore
+        #expect(try String(contentsOf: ignoreURL, encoding: .utf8) == expectedIgnore)
+        try store.saveProjectToolchain(ProjectToolchainSelection(), at: root)
+        #expect(try String(contentsOf: ignoreURL, encoding: .utf8) == expectedIgnore)
+
+        // Rules written by generation already protect local paths; saving must
+        // not dirty the committed ignore file with equivalent anchored copies.
+        let generatedIgnore = "run/local.json\nrun/classes/\n**/*.tmp\n"
+        try Data(generatedIgnore.utf8).write(to: ignoreURL)
+        try store.saveProjectToolchain(ProjectToolchainSelection(javaHomePath: "/fixture/project-jdk"), at: root)
+        #expect(try String(contentsOf: ignoreURL, encoding: .utf8) == generatedIgnore)
+
+        // A user rule after Lithe's rules must not make every save append them again.
+        let userExtendedIgnore = expectedIgnore + "build/\n"
+        try Data(userExtendedIgnore.utf8).write(to: ignoreURL)
+        try store.saveProjectToolchain(ProjectToolchainSelection(javaHomePath: "/fixture/project-jdk"), at: root)
+        try store.saveProjectToolchain(ProjectToolchainSelection(), at: root)
+        #expect(try String(contentsOf: ignoreURL, encoding: .utf8) == userExtendedIgnore)
+    }
+
+    @Test
+    func projectDefaultsPersistOnlyAfterTheWorkspaceDocumentsWereRead() {
+        // Settings persists the project toolchain when it closes. Loading, failed or
+        // foreign states hold no toolchain for this workspace and must not be saved over it.
+        let workspace = URL(fileURLWithPath: "/fixture/project")
+        let other = URL(fileURLWithPath: "/fixture/other")
+        #expect(ProjectLoadState.bound(workspace: workspace).hasLoadedDocuments(for: workspace))
+        #expect(ProjectLoadState.ready(workspace: workspace, snapshotID: UUID()).hasLoadedDocuments(for: workspace))
+        #expect(!ProjectLoadState.idle.hasLoadedDocuments(for: workspace))
+        #expect(!ProjectLoadState.loading(workspace: workspace).hasLoadedDocuments(for: workspace))
+        #expect(!ProjectLoadState.failed(workspace: workspace, message: "fixture").hasLoadedDocuments(for: workspace))
+        #expect(!ProjectLoadState.bound(workspace: other).hasLoadedDocuments(for: workspace))
+    }
+
+    @Test
+    func missingConfigurationsStillBindTheWorkspaceDocuments() async {
+        let fixture = makeFixture(status: .missing)
+        let saved = ProjectToolchainSelection(javaHomePath: "/fixture/project-jdk")
+        fixture.operations.inspectionToolchain = saved
+        await fixture.service.loadProject(at: fixture.root, files: [], mavenProject: nil)
+        #expect(fixture.service.projectLoadState.hasLoadedDocuments(for: fixture.root))
+        // Settings mirror these defaults before any configuration is generated.
+        #expect(fixture.service.savedProjectToolchain == saved)
+    }
+
+    @Test
+    func localRunIgnoreRulesRespectOrderOfUserNegations() {
+        let all = ["/run/local.json", "/run/classes/", "**/*.tmp"]
+        #expect(MacRunConfigurationStore.missingLocalRunIgnoreRules(in: "") == all)
+        #expect(MacRunConfigurationStore.missingLocalRunIgnoreRules(
+            in: "run/local.json\r\n/run/classes/\n  **/*.tmp  \n"
+        ).isEmpty)
+        // A later negation re-exposes the local document, so the rule is appended after it.
+        #expect(MacRunConfigurationStore.missingLocalRunIgnoreRules(
+            in: "run/local.json\nrun/classes/\n**/*.tmp\n!run/local.json\n"
+        ) == ["/run/local.json"])
+        #expect(MacRunConfigurationStore.missingLocalRunIgnoreRules(
+            in: "!/run/local.json\n/run/local.json\nrun/classes/\n**/*.tmp\n"
+        ).isEmpty)
+    }
+
+    @Test
+    func generationRefusesUnsupportedVersionsEvenWithoutTheConfirmationEntry() async {
+        let fixture = makeFixture(status: .invalid("Unsupported configuration version"))
+        fixture.operations.inspectionRecoveryAction = .upgradeApplication
+        await fixture.service.loadProject(at: fixture.root, files: [], mavenProject: nil, snapshotID: UUID())
+        let feature = RunFeatureModel(service: fixture.service)
+        feature.requestRunConfigurationGeneration()
+        #expect(!feature.isGenerationConfirmationPresented)
+        await fixture.service.generateRunConfigurations()
+        #expect(fixture.operations.generateCalls == 0)
+        #expect(fixture.service.recoveryAction == .upgradeApplication)
+        guard case .failed = fixture.service.generationState else {
+            Issue.record("Direct generation must report an unsupported version without writing")
+            return
+        }
+    }
+
+    @Test
     func projectPreparationDoesNotBlockStandaloneOrMavenGoalLaunchers() {
         func configuration(_ kind: RunConfigurationKind, reactor: String? = nil) -> RunConfiguration {
             RunConfiguration(id: "sample", name: "Sample", kind: kind, modulePath: nil,
@@ -4332,6 +4445,42 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func editorSaveKeepsTheEffectiveProjectDefaults() async {
+        // Core rewrites the project defaults with every editor save. Resolving a
+        // layer without saved defaults yields an empty selection; writing it would
+        // turn "never saved" into explicit automatic defaults and drop the JDK the
+        // runtime settings still hold.
+        let configuration = JavaRunConfiguration(
+            id: "spring",
+            name: "Spring",
+            kind: .springBoot,
+            modulePath: ".",
+            mainClass: nil
+        )
+        let mirror = ProjectToolchainSelection(javaHomePath: "/fixture/mirrored-jdk")
+        let unsaved = makeFixture(
+            status: .ready,
+            effective: [EffectiveRunConfiguration(configuration: configuration, options: RunOptions(), source: .generated)]
+        )
+        await unsaved.service.loadProject(at: unsaved.root, files: [], mavenProject: unsaved.mavenProject)
+        #expect(unsaved.service.savedProjectToolchain == nil)
+        #expect(unsaved.service.saveEditorChanges(RunOptions(), toolchain: mirror, for: configuration, scope: .local))
+        #expect(unsaved.operations.savedToolchains == [mirror])
+        #expect(unsaved.service.savedProjectToolchain == mirror)
+
+        // Once the local layer holds defaults, they win over a stale mirror.
+        let saved = ProjectToolchainSelection(javaHomePath: "/fixture/saved-jdk", mavenExecutablePath: "mvnw")
+        let stored = makeFixture(
+            status: .ready,
+            effective: [EffectiveRunConfiguration(configuration: configuration, options: RunOptions(), source: .generated)]
+        )
+        stored.operations.inspectionToolchain = saved
+        await stored.service.loadProject(at: stored.root, files: [], mavenProject: stored.mavenProject)
+        #expect(stored.service.saveEditorChanges(RunOptions(), toolchain: mirror, for: configuration, scope: .local))
+        #expect(stored.operations.savedToolchains == [saved])
+    }
+
+    @Test
     func editorSaveReportsReloadFailureWithoutApplyingTheDraft() async {
         let configuration = JavaRunConfiguration(
             id: "spring",
@@ -4606,6 +4755,9 @@ private struct RunServiceFixture {
 }
 
 private final class RecordingRunConfigurationOperations: RunConfigurationOperations, @unchecked Sendable {
+    var inspectionRecoveryAction: RunConfigurationRecoveryAction = .none
+    var inspectionToolchain: ProjectToolchainSelection?
+    private(set) var generateCalls = 0
     let status: ProjectRunConfigurationStatus
     private var effective: [EffectiveRunConfiguration]
     let plans: [String: SharedLaunchPlan]
@@ -4642,7 +4794,12 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
     }
 
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
-        ProjectRunConfigurationInspection(status: status, diagnostics: [])
+        ProjectRunConfigurationInspection(
+            status: status,
+            diagnostics: [],
+            recoveryAction: inspectionRecoveryAction,
+            projectToolchain: inspectionToolchain
+        )
     }
     func generate(
         at projectURL: URL,
@@ -4650,7 +4807,8 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
         modulePaths: [String],
         javaEntrypoints: JavaEntrypoints?
     ) throws -> RunConfigurationGenerationResult {
-        RunConfigurationGenerationResult(entryCount: generationEntryCount ?? effective.count)
+        generateCalls += 1
+        return RunConfigurationGenerationResult(entryCount: generationEntryCount ?? effective.count)
     }
     func resolve(
         at projectURL: URL,

@@ -155,10 +155,10 @@ jobs:
         run: |
           ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
             --report .artifacts/test-stability/macos-unit.json \
-            --max-seconds 20 \
             --suite-timeout-seconds 660 -- \
             --skip fullSignedDiskImageStagesWithoutChangingInstalledApp \
             --skip WebKitIntegrationTests \
+            --skip StableRollbackDiskImageIntegrationTests \
             --skip GitStatusObservationTests \
             --skip LitheGitPerformanceTests \
             --skip '(LitheDatabaseModuleTests|LitheTests\.LitheCoreLogicTests/database)' \
@@ -188,6 +188,17 @@ jobs:
           ./scripts/test-macos.sh \
             --skip-build \
             --filter GitStatusObservationTests
+
+      - name: Run stable rollback disk image integration tests
+        timeout-minutes: 3
+        run: |
+          # Builds, signs, and mounts a real disk image; CI runners measured
+          # 17-20s, so it gets its own budget instead of raising the unit lane's.
+          ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
+            --report .artifacts/test-stability/macos-rollback-dmg.json \
+            --max-seconds 60 --suite-timeout-seconds 150 -- \
+            --skip-build \
+            --filter StableRollbackDiskImageIntegrationTests
 
       - name: Run WebKit lifecycle integration tests
         timeout-minutes: 3

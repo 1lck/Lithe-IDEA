@@ -38,6 +38,11 @@ release response strings with `lithe_core_free_string`.
 
 ## Envelope
 
+The typed `lithe_core::ai` API provides credential-free commit request planning,
+configuration parsing, and response decoding. Its [AI commit contract](ai-commit.md)
+documents the Windows adapter and current macOS migration boundary. It does not
+add a JSON command or change the C ABI.
+
 Every request has this shape:
 
 ```json
@@ -1512,6 +1517,16 @@ fixture is `shared/fixtures/maven/dependency-tree-v1.json`.
 the response preserves the path text, uses one-based line and column values,
 and normalizes severity to `error` or `warning`. Duplicate issue lines are
 removed deterministically.
+
+`runConfig.inspect` also returns the local document-level `toolchain`, including
+when no generated configuration exists (`status: "missing"`). Settings,
+toolchain-only callers, and initial run-panel presentation may send
+`checkFingerprint: false` to validate documents without traversing or hashing
+project sources. Omission preserves full inspection. The Windows run panel
+publishes readable configurations first, then performs full inspection and
+reports freshness failures without discarding those configurations.
+Project environment saves use the existing local `runConfig.updateOptions`
+toolchain payload with an empty `configurationId`; service overrides are untouched.
 
 The `runConfig.*` commands implement the versioned project protocol described
 by the JSON Schemas in this directory. `runConfig.inspect` accepts `root` and
