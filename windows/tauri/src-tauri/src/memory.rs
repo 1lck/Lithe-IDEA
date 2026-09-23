@@ -284,7 +284,234 @@ mod warning_tests {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
+mod platform {
+    use super::ApplicationMemoryUsage;
+    use std::collections::HashSet;
+    use std::fs;
+
+    const WEBKIT_PROCESS_NAMES: [&str; 3] = [
+        "WebKitWebProcess",
+        "WebKitNetworkProcess",
+        "WebKitGPUProcess",
+    ];
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct ProcessRecord {
+        process_id: u32,
+        parent_process_id: u32,
+        executable_name: String,
+    }
+
+    pub(super) fn application_memory_usage() -> Result<ApplicationMemoryUsage, String> {
+        let lithe_bytes = current_process_resident_bytes()?;
+        let processes = process_snapshot()?;
+        let webview_process_ids = owned_webview_process_ids(&processes, std::process::id());
+        let webview_bytes = webview_process_ids
+            .into_iter()
+            // WebKit processes can exit between the snapshot and this query.
+            .filter_map(process_resident_bytes)
+            .fold(0_u64, u64::saturating_add);
+
+        Ok(ApplicationMemoryUsage {
+            lithe_bytes,
+            total_bytes: lithe_bytes.saturating_add(webview_bytes),
+        })
+    }
+
+    fn current_process_resident_bytes() -> Result<u64, String> {
+        let statm = fs::read_to_string("/proc/self/statm")
+            .map_err(|error| format!("Failed to read /proc/self/statm: {error}"))?;
+        // Field 2 of statm is the resident set size in pages.
+        let resident_pages = statm
+            .split_whitespace()
+            .nth(1)
+            .and_then(|value| value.parse::<u64>().ok())
+            .ok_or_else(|| "Failed to parse /proc/self/statm".to_string())?;
+        Ok(resident_pages.saturating_mul(page_size()))
+    }
+
+    fn process_resident_bytes(process_id: u32) -> Option<u64> {
+        let stat = fs::read_to_string(format!("/proc/{process_id}/stat")).ok()?;
+        let rss_pages = stat_rss_pages(&stat)?;
+        Some(rss_pages.saturating_mul(page_size()))
+    }
+
+    fn process_snapshot() -> Result<Vec<ProcessRecord>, String> {
+        let entries =
+            fs::read_dir("/proc").map_err(|error| format!("Failed to read /proc: {error}"))?;
+        let mut processes = Vec::new();
+        for entry in entries {
+            let Ok(entry) = entry else {
+                continue;
+            };
+            let Some(process_id) = entry
+                .file_name()
+                .to_str()
+                .and_then(|name| name.parse::<u32>().ok())
+            else {
+                continue;
+            };
+            // Processes can exit mid-scan; skip any entry that disappears.
+            let Ok(stat) = fs::read_to_string(entry.path().join("stat")) else {
+                continue;
+            };
+            let Some(parent_process_id) = stat_parent_process_id(&stat) else {
+                continue;
+            };
+            let Some(executable_name) = process_executable_name(&entry.path()) else {
+                continue;
+            };
+            processes.push(ProcessRecord {
+                process_id,
+                parent_process_id,
+                executable_name,
+            });
+        }
+        Ok(processes)
+    }
+
+    /// Returns a process's executable basename.
+    ///
+    /// `/proc/<pid>/comm` is truncated to 15 bytes, which cuts
+    /// `WebKitWebProcess` to `WebKitWebProces`. The `exe` link carries the full
+    /// name, and the kernel also writes the untruncated name in `stat`; fall
+    /// back to `comm` only when neither is readable.
+    fn process_executable_name(proc_path: &std::path::Path) -> Option<String> {
+        if let Ok(target) = fs::read_link(proc_path.join("exe")) {
+            if let Some(name) = target.file_name().and_then(|value| value.to_str()) {
+                return Some(name.to_string());
+            }
+        }
+        fs::read_to_string(proc_path.join("comm"))
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    }
+
+    /// Extracts the parent process id from a `/proc/<pid>/stat` line.
+    ///
+    /// The command name sits in parentheses and may itself contain spaces or
+    /// parentheses, so parsing resumes after the last `)`. The first field
+    /// there is the process state and the second is the parent process id.
+    fn stat_parent_process_id(stat: &str) -> Option<u32> {
+        stat.rsplit_once(')')?
+            .1
+            .split_whitespace()
+            .nth(1)
+            .and_then(|value| value.parse::<u32>().ok())
+    }
+
+    /// Extracts the resident set size in pages from a `/proc/<pid>/stat` line.
+    fn stat_rss_pages(stat: &str) -> Option<u64> {
+        // Field 24 is RSS; fields after the command name restart at field 3.
+        stat.rsplit_once(')')?
+            .1
+            .split_whitespace()
+            .nth(21)
+            .and_then(|value| value.parse::<u64>().ok())
+    }
+
+    fn page_size() -> u64 {
+        let value = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+        u64::try_from(value).unwrap_or(4096)
+    }
+
+    fn is_webkit_process(executable_name: &str) -> bool {
+        WEBKIT_PROCESS_NAMES
+            .iter()
+            .any(|name| executable_name.eq_ignore_ascii_case(name))
+    }
+
+    fn owned_webview_process_ids(processes: &[ProcessRecord], lithe_process_id: u32) -> Vec<u32> {
+        // A WebKit app launched inside Lithe's terminal is also a descendant of
+        // Lithe. Requiring the WebKit root to be a direct child keeps that
+        // unrelated process tree out of the application total.
+        let mut owned: HashSet<u32> = processes
+            .iter()
+            .filter(|process| {
+                process.parent_process_id == lithe_process_id
+                    && is_webkit_process(&process.executable_name)
+            })
+            .map(|process| process.process_id)
+            .collect();
+
+        loop {
+            let before = owned.len();
+            for process in processes {
+                if owned.contains(&process.parent_process_id)
+                    && is_webkit_process(&process.executable_name)
+                {
+                    owned.insert(process.process_id);
+                }
+            }
+            if owned.len() == before {
+                break;
+            }
+        }
+
+        let mut process_ids: Vec<u32> = owned.into_iter().collect();
+        process_ids.sort_unstable();
+        process_ids
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn process(
+            process_id: u32,
+            parent_process_id: u32,
+            executable_name: &str,
+        ) -> ProcessRecord {
+            ProcessRecord {
+                process_id,
+                parent_process_id,
+                executable_name: executable_name.to_string(),
+            }
+        }
+
+        #[test]
+        fn selects_only_webview_tree_started_directly_by_lithe() {
+            let processes = vec![
+                process(10, 1, "lithe-linux"),
+                process(20, 10, "WebKitWebProcess"),
+                process(21, 20, "WebKitWebProcess"),
+                process(22, 20, "webkitwebprocess"),
+                process(30, 10, "bash"),
+                process(31, 30, "other-tauri-app"),
+                process(32, 31, "WebKitWebProcess"),
+                process(40, 99, "WebKitWebProcess"),
+            ];
+
+            assert_eq!(owned_webview_process_ids(&processes, 10), vec![20, 21, 22]);
+        }
+
+        #[test]
+        fn parses_parent_and_resident_pages_from_stat_with_spaced_command_name() {
+            // The command name contains a space and a closing parenthesis, so
+            // parsing must resume after the final ')'.
+            let stat = "42 (WebKit Web (Process)) S 7 1 1 0 -1 4194560 0 0 0 0 0 0 0 0 20 0 1 0 123 456 256 789";
+            assert_eq!(stat_parent_process_id(stat), Some(7));
+            assert_eq!(stat_rss_pages(stat), Some(256));
+        }
+
+        #[test]
+        fn reads_the_untruncated_executable_name_from_proc() {
+            let name = process_executable_name(std::path::Path::new("/proc/self"))
+                .expect("self executable name");
+            let expected = std::env::current_exe()
+                .expect("current exe")
+                .file_name()
+                .and_then(|value| value.to_str())
+                .expect("exe file name")
+                .to_string();
+            assert_eq!(name, expected);
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 mod platform {
     use super::ApplicationMemoryUsage;
 

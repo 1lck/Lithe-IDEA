@@ -3,7 +3,9 @@ import { useEffect, useState } from "react";
 import { IS_LINUX } from "@/utils/platform";
 
 export function useNativeWindowChrome() {
-  const [usesNativeWindowChrome, setUsesNativeWindowChrome] = useState(IS_LINUX);
+  // Lithe draws its own title bar on Linux, so start from custom chrome and let
+  // the backend confirm whether the platform adds a native frame.
+  const [usesNativeWindowChrome, setUsesNativeWindowChrome] = useState(false);
 
   useEffect(() => {
     if (!IS_LINUX) {

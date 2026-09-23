@@ -1,4 +1,4 @@
-//! Windows discovery for the built-in Java language server.
+//! Platform discovery for the built-in Java language server.
 //!
 //! Shared JDT LS process ownership stays in `lithe-core`. This adapter only
 //! finds `jdtls`, its direct-launch resources, the bundled runtime JDK, and a
@@ -235,6 +235,18 @@ fn resolve_java_lsp_launch(
     })
 }
 
+/// JDT LS ships one configuration directory per platform; the direct-Java
+/// launcher must point at the one matching this build.
+fn jdtls_configuration_name() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "config_win"
+    } else if cfg!(target_os = "macos") {
+        "config_mac"
+    } else {
+        "config_linux"
+    }
+}
+
 fn resolve_jdtls_launch_resources(
     executable: &Path,
 ) -> Result<ResolvedJdtlsLaunchResources, String> {
@@ -254,7 +266,7 @@ fn resolve_jdtls_launch_resources(
     for root in unique_roots {
         inspected.push(root.clone());
         let plugins = root.join("plugins");
-        let configuration_directory = root.join("config_win");
+        let configuration_directory = root.join(jdtls_configuration_name());
         let lombok_agent_path = root.join("lombok").join("lombok.jar");
         let java_debug_directory = root.join("java-debug");
         let Some(launcher_jar_path) = first_equinox_launcher(&plugins)? else {
@@ -285,7 +297,8 @@ fn resolve_jdtls_launch_resources(
         .collect::<Vec<_>>()
         .join(", ");
     Err(format!(
-        "Expected an Equinox launcher JAR, config_win, lombok/lombok.jar, a Java Debug Server bundle, and the Java Test bundles listed in java-test/{JAVA_TEST_BUNDLE_LIST} under: {roots}"
+        "Expected an Equinox launcher JAR, {}, lombok/lombok.jar, a Java Debug Server bundle, and the Java Test bundles listed in java-test/{JAVA_TEST_BUNDLE_LIST} under: {roots}",
+        jdtls_configuration_name()
     ))
 }
 
@@ -442,6 +455,20 @@ fn jdtls_search_roots(project_root: Option<&Path>) -> Vec<PathBuf> {
     if let Some(root) = project_root {
         roots.push(root.join(".lithe").join("toolchains").join("jdtls"));
     }
+    #[cfg(target_os = "linux")]
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        roots.push(home.join(".local").join("share").join("jdtls"));
+        roots.push(home.join(".jdtls"));
+        if let Some(data_home) = std::env::var_os("XDG_DATA_HOME") {
+            roots.push(PathBuf::from(data_home).join("jdtls"));
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        roots.push(PathBuf::from("/usr/share/java/jdtls"));
+        roots.push(PathBuf::from("/opt/jdtls"));
+    }
     roots
 }
 
@@ -468,7 +495,7 @@ fn bundled_jdk_root(app: &AppHandle) -> Option<PathBuf> {
             candidates.push(exe_dir.join("LanguageServers").join("jdk"));
             let mut cursor = exe_dir.to_path_buf();
             for _ in 0..MAX_CURRENT_EXE_JDTLS_WALK_DEPTH {
-                candidates.push(cursor.join(".artifacts").join("jdk"));
+                candidates.push(cursor.join(".artifacts").join(development_jdk_name()));
                 if !cursor.pop() {
                     break;
                 }
@@ -479,7 +506,14 @@ fn bundled_jdk_root(app: &AppHandle) -> Option<PathBuf> {
 }
 
 fn is_jdk_home(root: &Path) -> bool {
-    root.join("bin").join("java.exe").is_file()
+    #[cfg(windows)]
+    {
+        root.join("bin").join("java.exe").is_file()
+    }
+    #[cfg(not(windows))]
+    {
+        run::java_executable(root).is_some()
+    }
 }
 
 fn jdtls_version_for_executable(executable: &Path) -> Result<String, String> {
@@ -600,6 +634,28 @@ fn is_jdtls_root(root: &Path) -> bool {
 
 /// NSIS bundles JDTLS under the resource directory. Unbundled `cargo`/`build-windows`
 /// executables do not, so also look next to the exe and walk up to repo `.artifacts/jdtls`.
+/// Name of the unbundled development artifact directory for this platform.
+///
+/// Windows and macOS stage `.artifacts/jdtls`; Linux uses a separate
+/// `.artifacts/jdtls-linux` so a Linux build never mixes the macOS/Windows
+/// prepared runtime into its bundle.
+fn development_artifacts_name() -> &'static str {
+    if cfg!(target_os = "linux") {
+        "jdtls-linux"
+    } else {
+        "jdtls"
+    }
+}
+
+/// Name of the unbundled development runtime JDK directory for this platform.
+fn development_jdk_name() -> &'static str {
+    if cfg!(target_os = "linux") {
+        "jdk-linux"
+    } else {
+        "jdk"
+    }
+}
+
 fn select_bundled_jdtls_root(
     resource_dir: Option<&Path>,
     current_exe: Option<&Path>,
@@ -613,7 +669,7 @@ fn select_bundled_jdtls_root(
             candidates.push(exe_dir.join("LanguageServers").join("jdtls"));
             let mut cursor = exe_dir.to_path_buf();
             for _ in 0..MAX_CURRENT_EXE_JDTLS_WALK_DEPTH {
-                candidates.push(cursor.join(".artifacts").join("jdtls"));
+                candidates.push(cursor.join(".artifacts").join(development_artifacts_name()));
                 if !cursor.pop() {
                     break;
                 }
@@ -691,11 +747,11 @@ mod tests {
 
     fn create_direct_launch_resources(root: &Path) -> ResolvedJdtlsLaunchResources {
         let plugins = root.join("plugins");
-        let configuration_directory = root.join("config_win");
+        let configuration_directory = root.join(super::jdtls_configuration_name());
         let lombok_directory = root.join("lombok");
         let java_debug_directory = root.join("java-debug");
         fs::create_dir_all(&plugins).expect("plugins");
-        fs::create_dir_all(&configuration_directory).expect("config_win");
+        fs::create_dir_all(&configuration_directory).expect("configuration directory");
         fs::create_dir_all(&lombok_directory).expect("lombok");
         fs::create_dir_all(&java_debug_directory).expect("java-debug");
         fs::write(plugins.join("org.eclipse.equinox.launcher_2.0.0.jar"), [])
@@ -916,6 +972,7 @@ mod tests {
         fs::remove_dir_all(root).ok();
     }
 
+    #[cfg(windows)]
     #[test]
     fn windows_bundled_jdk_rejects_a_unix_java_executable() {
         let root = temp_dir().join("non-windows-jdk-test");
@@ -924,6 +981,19 @@ mod tests {
         fs::write(bin.join("java"), "").expect("Unix java marker");
 
         assert!(!is_jdk_home(&root));
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn unix_bundled_jdk_accepts_an_extensionless_java_executable() {
+        let root = temp_dir().join("unix-jdk-test");
+        let bin = root.join("bin");
+        fs::create_dir_all(&bin).expect("JDK bin");
+        assert!(!is_jdk_home(&root));
+        fs::write(bin.join("java"), "").expect("Unix java marker");
+
+        assert!(is_jdk_home(&root));
         fs::remove_dir_all(root).ok();
     }
 
@@ -956,7 +1026,8 @@ mod tests {
     #[test]
     fn bundled_root_walks_from_unbundled_exe_to_repo_artifacts() {
         let repo = temp_dir();
-        let artifacts_bin = repo.join(".artifacts").join("jdtls").join("bin");
+        let artifacts_name = super::development_artifacts_name();
+        let artifacts_bin = repo.join(".artifacts").join(artifacts_name).join("bin");
         fs::create_dir_all(&artifacts_bin).expect("artifacts bin");
         fs::write(artifacts_bin.join("jdtls.bat"), "@echo off\n").expect("jdtls");
 
@@ -975,7 +1046,7 @@ mod tests {
             .expect("empty resource");
 
         let found = select_bundled_jdtls_root(Some(&empty_resource), Some(&exe)).expect("found");
-        assert_eq!(found, repo.join(".artifacts").join("jdtls"));
+        assert_eq!(found, repo.join(".artifacts").join(artifacts_name));
         fs::remove_dir_all(repo).ok();
     }
 

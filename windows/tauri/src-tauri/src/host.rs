@@ -11,8 +11,9 @@ use tauri_plugin_opener::OpenerExt;
 static WINDOW_ID: AtomicU64 = AtomicU64::new(1);
 static PATCH_SAVE_ID: AtomicU64 = AtomicU64::new(1);
 
-// Windows 11 taskbar downscales a 256-only ICO into an empty pill. Use the 32px
-// asset after window creation so frameless windows keep a readable app icon.
+// Windows 11 taskbar downscales a 256-only ICO into an empty pill, so Windows
+// uses this 32px asset; other platforms use it to set the window icon after
+// creation so frameless windows keep a readable app icon.
 const WINDOW_TASKBAR_ICON: tauri::image::Image<'_> = tauri::include_image!("./icons/32x32.png");
 
 pub fn apply_window_taskbar_icon(window: &WebviewWindow) {
@@ -511,6 +512,13 @@ pub fn get_system_theme(window: WebviewWindow) -> String {
     }
 }
 
+/// Reports whether the operating system draws the native window frame for this
+/// window. The frontend uses it to decide between native and custom chrome.
+#[tauri::command]
+pub fn uses_native_window_chrome(window: WebviewWindow) -> bool {
+    window.is_decorated().unwrap_or(false)
+}
+
 #[tauri::command]
 pub fn set_native_window_appearance(
     window: WebviewWindow,
@@ -595,7 +603,68 @@ fn font_query_process_creation_flags() -> u32 {
     CREATE_NO_WINDOW
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
+fn platform_fonts() -> Vec<FontInfo> {
+    use std::collections::BTreeMap;
+    use std::process::Command;
+
+    let listed = Command::new("fc-list")
+        .arg("--format=%{family[0]}|%{spacing}\n")
+        .output()
+        .ok()
+        .filter(|value| value.status.success())
+        .map(|value| String::from_utf8_lossy(&value.stdout).into_owned());
+
+    let Some(listed) = listed else {
+        return [
+            ("Geist Sans", false),
+            ("Geist Mono", true),
+            ("Noto Sans Mono", true),
+            ("DejaVu Sans Mono", true),
+        ]
+        .into_iter()
+        .map(|(family, is_monospace)| FontInfo {
+            name: family.into(),
+            family: family.into(),
+            style: "Regular".into(),
+            is_monospace,
+        })
+        .collect();
+    };
+
+    // Keying on the lowercase family name deduplicates case-insensitively and
+    // yields the required lowercase ordering.
+    let mut families: BTreeMap<String, (String, bool)> = BTreeMap::new();
+    for line in listed.lines() {
+        let Some((family, spacing)) = line.split_once('|') else {
+            continue;
+        };
+        let family = family.trim();
+        if family.is_empty() {
+            continue;
+        }
+        // Fontconfig reports spacing 100 for monospaced faces.
+        families
+            .entry(family.to_lowercase())
+            .or_insert_with(|| (family.to_string(), spacing.trim() == "100"));
+    }
+    // The bundled Geist families are always offered even when fontconfig has
+    // not indexed them yet.
+    families.insert("geist sans".into(), ("Geist Sans".into(), false));
+    families.insert("geist mono".into(), ("Geist Mono".into(), true));
+
+    families
+        .into_values()
+        .map(|(family, is_monospace)| FontInfo {
+            name: family.clone(),
+            family,
+            style: "Regular".into(),
+            is_monospace,
+        })
+        .collect()
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 fn platform_fonts() -> Vec<FontInfo> {
     [
         ("Geist Sans", false),

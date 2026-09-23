@@ -543,20 +543,22 @@ export const AppearanceSettings = () => {
           </SettingRow>
         )}
 
-        <SettingRow
-          label={t("settings.appearance.windowTransparency")}
-          description={t("settings.appearance.windowTransparencyDescription")}
-          onReset={() =>
-            updateSetting("windowTransparency", getDefaultSetting("windowTransparency"))
-          }
-          canReset={settings.windowTransparency !== getDefaultSetting("windowTransparency")}
-        >
-          <Switch
-            checked={settings.windowTransparency}
-            onChange={(checked) => updateSetting("windowTransparency", checked)}
-            size="sm"
-          />
-        </SettingRow>
+        {!IS_MAC && !IS_LINUX && (
+          <SettingRow
+            label={t("settings.appearance.windowTransparency")}
+            description={t("settings.appearance.windowTransparencyDescription")}
+            onReset={() =>
+              updateSetting("windowTransparency", getDefaultSetting("windowTransparency"))
+            }
+            canReset={settings.windowTransparency !== getDefaultSetting("windowTransparency")}
+          >
+            <Switch
+              checked={settings.windowTransparency}
+              onChange={(checked) => updateSetting("windowTransparency", checked)}
+              size="sm"
+            />
+          </SettingRow>
+        )}
 
         <SettingRow
           label={t("settings.appearance.openProjectsNewWindow")}

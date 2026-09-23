@@ -10,7 +10,7 @@ import {
   DEFAULT_UI_FONT_FAMILY,
   getTypographyFontFallbacks,
 } from "@/features/settings/config/typography-defaults";
-import { IS_WINDOWS } from "@/utils/platform";
+import { currentPlatform } from "@/utils/platform";
 import { buildFontFamilyStack, normalizeConfiguredFontFamily } from "./font-family-resolution";
 import { getUiFontScale, normalizeUiFontSize, UI_FONT_SIZE_DEFAULT } from "./ui-font-size";
 
@@ -143,7 +143,7 @@ export function applyBootstrapAppearance(cache: AppearanceBootstrapCache): void 
     root.style.setProperty(key, value);
   }
 
-  const { mono, sans } = getTypographyFontFallbacks(IS_WINDOWS);
+  const { mono, sans } = getTypographyFontFallbacks(currentPlatform);
 
   root.style.setProperty(
     "--editor-font-family",

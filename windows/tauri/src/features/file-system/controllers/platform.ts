@@ -120,7 +120,14 @@ export async function deletePath(path: string): Promise<void> {
  */
 export async function openFolder(): Promise<string | null> {
   if (IS_LINUX) {
-    return useLinuxFolderPickerStore.getState().actions.open();
+    try {
+      const selected = await open({ directory: true, multiple: false });
+      return selected as string | null;
+    } catch {
+      // Some Linux desktops have no XDG portal or GTK dialog backend; the
+      // in-app picker still lets the user open a project.
+      return useLinuxFolderPickerStore.getState().actions.open();
+    }
   }
 
   const selected = await open({
@@ -136,7 +143,12 @@ export async function openFolder(): Promise<string | null> {
  */
 export async function openFile(): Promise<string | null> {
   if (IS_LINUX) {
-    return promptForPath("File path");
+    try {
+      const selected = await open({ directory: false, multiple: false });
+      return selected as string | null;
+    } catch {
+      return promptForPath("File path");
+    }
   }
 
   const selected = await open({

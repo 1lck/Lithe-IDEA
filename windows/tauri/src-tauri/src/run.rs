@@ -17,10 +17,13 @@ use std::sync::{
 };
 use std::thread;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager};
+#[cfg(windows)]
+use tauri::Manager;
+use tauri::{AppHandle, Emitter};
 
 mod launch_arguments;
 
+#[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const RUN_OUTPUT_FLUSH_INTERVAL: Duration = Duration::from_millis(100);
 const RUN_OUTPUT_HIGH_WATER_BYTES: usize = 1_048_576;
@@ -714,6 +717,7 @@ pub fn run_write_stdin(
 
 /// Removes the abandoned `run/` app-data directory written by an earlier
 /// implementation. Other app-data content (window state, settings) is kept.
+#[cfg(windows)]
 pub fn cleanup_legacy_appdata(app: &AppHandle) {
     let Ok(app_dir) = app.path().app_data_dir() else {
         return;
@@ -820,15 +824,29 @@ fn normalize_path(path: &Path) -> PathBuf {
     PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(text.as_ref()))
 }
 
+/// Normalizes a path for containment comparison: forward slashes everywhere,
+/// and case-insensitive only on Windows where the filesystem is.
+fn comparable_path_text(path: &Path) -> String {
+    let text = path.to_string_lossy().replace('\\', "/");
+    if cfg!(windows) {
+        text.to_ascii_lowercase()
+    } else {
+        text
+    }
+}
+
 fn validate_write_target(root: &Path, target: &Path) -> Result<(), String> {
-    let root = normalize_path(root);
+    let root_text = comparable_path_text(&normalize_path(root));
     let parent = target
         .parent()
         .map(normalize_path)
-        .unwrap_or_else(|| root.clone());
-    let root_text = root.to_string_lossy().to_ascii_lowercase();
-    let parent_text = parent.to_string_lossy().to_ascii_lowercase();
-    if parent_text != root_text && !parent_text.starts_with(&(root_text.clone() + "\\")) {
+        .unwrap_or_else(|| normalize_path(root));
+    let parent_text = comparable_path_text(&parent);
+    let within = parent_text == root_text
+        || parent_text
+            .strip_prefix(&root_text)
+            .is_some_and(|rest| rest.starts_with('/'));
+    if !within {
         return Err("Refusing to write outside the project directory.".into());
     }
     Ok(())
@@ -1113,7 +1131,30 @@ fn node_executable_candidates(project_root: Option<&Path>) -> Vec<PathBuf> {
     if let Some(root) = project_root {
         executables.push(root.join(".lithe/toolchains/node/node.exe"));
     }
+    #[cfg(target_os = "linux")]
+    append_nvm_node_executables(&mut executables);
     executables
+}
+
+/// Adds Node installations managed by nvm on Linux, which live under
+/// `~/.nvm/versions/node/<version>/bin/node` instead of a Windows layout.
+#[cfg(target_os = "linux")]
+fn append_nvm_node_executables(executables: &mut Vec<PathBuf>) {
+    let Some(home) = std::env::var_os("HOME") else {
+        return;
+    };
+    let versions = PathBuf::from(home)
+        .join(".nvm")
+        .join("versions")
+        .join("node");
+    let Ok(entries) = fs::read_dir(versions) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if entry.path().is_dir() {
+            executables.push(entry.path().join("bin").join("node"));
+        }
+    }
 }
 
 fn append_node_versions(executables: &mut Vec<PathBuf>, root: &Path) {
@@ -1197,6 +1238,25 @@ fn well_known_java_roots() -> Vec<PathBuf> {
         roots.push(profile.join(".jdks"));
         roots.push(profile.join(".sdkman").join("candidates").join("java"));
     }
+    #[cfg(target_os = "linux")]
+    {
+        for root in ["/usr/lib/jvm", "/usr/java", "/opt/java", "/opt/jdk"] {
+            roots.push(PathBuf::from(root));
+        }
+        if let Some(home) = std::env::var_os("HOME") {
+            let home = PathBuf::from(home);
+            roots.push(home.join(".sdkman").join("candidates").join("java"));
+            roots.push(home.join(".jdks"));
+            roots.push(home.join(".jabba").join("jdk"));
+            roots.push(
+                home.join(".local")
+                    .join("share")
+                    .join("mise")
+                    .join("installs")
+                    .join("java"),
+            );
+        }
+    }
     roots
 }
 
@@ -1222,6 +1282,18 @@ fn maven_executable_candidates(project_root: Option<&Path>) -> Vec<PathBuf> {
         if let Some(path) = lookup_on_path(name) {
             executables.push(path);
         }
+    }
+    #[cfg(target_os = "linux")]
+    if let Some(home) = std::env::var_os("HOME") {
+        executables.push(
+            PathBuf::from(home)
+                .join(".sdkman")
+                .join("candidates")
+                .join("maven")
+                .join("current")
+                .join("bin")
+                .join("mvn"),
+        );
     }
     executables
 }
@@ -1631,6 +1703,7 @@ fn command_output(executable: &Path, arguments: &[&str]) -> String {
         .unwrap_or_default()
 }
 
+#[cfg(windows)]
 fn is_batch_file(executable: &str) -> bool {
     Path::new(executable)
         .extension()
@@ -1641,6 +1714,7 @@ fn is_batch_file(executable: &str) -> bool {
 }
 
 fn command_for_executable(executable: &str, arguments: &[String]) -> Command {
+    #[cfg(windows)]
     if is_batch_file(executable) {
         return batch_command(executable, arguments);
     }
@@ -1649,13 +1723,13 @@ fn command_for_executable(executable: &str, arguments: &[String]) -> Command {
     command
 }
 
+#[cfg(windows)]
 fn batch_command(executable: &str, arguments: &[String]) -> Command {
     let mut command = Command::new("cmd.exe");
     // cmd.exe /C only treats the next token as the command. Extra argv after a
     // quoted .cmd path are dropped, so Maven wrappers start with no goals and
     // exit immediately. /D /S /C plus one verbatim command string is the
     // Windows host convention used by Node and the Maven wrapper itself.
-    #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         command.raw_arg("/D");
@@ -1663,13 +1737,10 @@ fn batch_command(executable: &str, arguments: &[String]) -> Command {
         command.raw_arg("/C");
         command.raw_arg(batch_command_line(executable, arguments));
     }
-    #[cfg(not(windows))]
-    {
-        command.arg("/C").arg(executable).args(arguments);
-    }
     command
 }
 
+#[cfg(windows)]
 fn batch_command_line(executable: &str, arguments: &[String]) -> String {
     let mut inner = String::from("call ");
     inner.push_str(&quote_windows_arg(executable));
@@ -1680,6 +1751,7 @@ fn batch_command_line(executable: &str, arguments: &[String]) -> String {
     format!("\"{inner}\"")
 }
 
+#[cfg(windows)]
 fn quote_windows_arg(argument: &str) -> String {
     if argument.is_empty() {
         return "\"\"".into();
@@ -1717,6 +1789,13 @@ pub(crate) fn apply_creation_flags(command: &mut Command) {
     {
         use std::os::windows::process::CommandExt;
         command.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // Every launched process owns its own process group so a stop request
+        // can signal the whole tree, matching the Windows `taskkill /T` behavior.
+        command.process_group(0);
     }
     let _ = command;
 }
@@ -2027,6 +2106,41 @@ fn take_owned_session(
     current.remove(key)
 }
 
+/// Terminates a launched process and the children it started.
+///
+/// Windows uses `taskkill /T`; Unix signals the process group created by
+/// `apply_creation_flags`, escalating to `SIGKILL` if the group does not exit.
+pub(crate) fn terminate_process_tree(pid: u32) {
+    if pid == 0 {
+        return;
+    }
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("taskkill");
+        command.args(["/F", "/T", "/PID", &pid.to_string()]);
+        apply_creation_flags(&mut command);
+        let _ = command.output();
+    }
+    #[cfg(unix)]
+    {
+        // Negative pid targets the whole process group started for this session.
+        let group = -(pid as i32);
+        unsafe {
+            libc::kill(group, libc::SIGTERM);
+        }
+        // Give the group up to two seconds to exit before forcing it.
+        for _ in 0..20 {
+            if !std::path::Path::new(&format!("/proc/{pid}")).exists() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        unsafe {
+            libc::kill(group, libc::SIGKILL);
+        }
+    }
+}
+
 fn stop_session(window_label: &str, session_id: &str, execution_id: Option<&str>) {
     let pid = sessions().lock().ok().and_then(|mut current| {
         take_owned_session(
@@ -2037,10 +2151,7 @@ fn stop_session(window_label: &str, session_id: &str, execution_id: Option<&str>
         .map(|session| session.pid)
     });
     if let Some(pid) = pid {
-        let mut command = Command::new("taskkill");
-        command.args(["/F", "/T", "/PID", &pid.to_string()]);
-        apply_creation_flags(&mut command);
-        let _ = command.output();
+        terminate_process_tree(pid);
     }
 }
 
@@ -2177,8 +2288,8 @@ mod tests {
 
     #[test]
     fn workspace_relative_paths_use_forward_slashes() {
-        let root = PathBuf::from(r"C:\project");
-        let file = PathBuf::from(r"C:\project\src\main\java\App.java");
+        let root = std::env::temp_dir();
+        let file = root.join("src").join("main").join("java").join("App.java");
         assert_eq!(
             workspace_relative(&root, &file).as_deref(),
             Some("src/main/java/App.java")
@@ -2490,6 +2601,7 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
     #[test]
     fn batch_command_line_keeps_maven_goals_inside_one_cmd_string() {
         let line = batch_command_line(
@@ -2509,6 +2621,7 @@ mod tests {
         assert!(!is_batch_file(r"D:\jdk\bin\java.exe"));
     }
 
+    #[cfg(windows)]
     #[test]
     fn quote_windows_arg_wraps_paths_with_spaces() {
         assert_eq!(

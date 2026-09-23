@@ -7,7 +7,7 @@ import {
   getTypographyFontFallbacks,
 } from "@/features/settings/config/typography-defaults";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
-import { currentPlatform, IS_WINDOWS } from "@/utils/platform";
+import { currentPlatform } from "@/utils/platform";
 import { buildFontFamilyStack } from "../lib/font-family-resolution";
 import { getUiFontScale, normalizeUiFontSize } from "../lib/ui-font-size";
 
@@ -32,7 +32,7 @@ export const FontStyleInjector = () => {
 
     const requestedEditorFont = fontFamily || codeEditorFontFamily || DEFAULT_MONO_FONT_FAMILY;
     const requestedUiFont = uiFontFamily || DEFAULT_UI_FONT_FAMILY;
-    const { mono, sans } = getTypographyFontFallbacks(IS_WINDOWS);
+    const { mono, sans } = getTypographyFontFallbacks(currentPlatform);
 
     setRootStyleProperty("--editor-font-family", buildFontFamilyStack(requestedEditorFont, mono));
     setRootStyleProperty("--app-font-family", buildFontFamilyStack(requestedUiFont, sans));

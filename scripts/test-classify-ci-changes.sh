@@ -165,6 +165,8 @@ modify_macos_cache_action() {
 modify_metadata() { printf '%s\n' 'cask "lithe" do' '  version "1.0.0"' 'end' > Casks/lithe.rb; }
 modify_classifier() { printf '%s\n' '# classifier test change' >> scripts/classify-ci-changes.sh; }
 modify_java_jdt() { printf '%s\n' 'pub fn normalize() { let _ = 1; }' > rust/lithe-core/src/lsp/languages/java_tests.rs; }
+modify_linux_build_script() { printf '%s\n' '#!/usr/bin/env bash' 'echo build' > scripts/build-linux.sh; }
+modify_linux_jdtls_script() { printf '%s\n' '#!/usr/bin/env bash' 'echo jdtls' > scripts/prepare-jdtls-linux.sh; }
 modify_swift_and_database() {
     modify_swift_source
     modify_database_swift
@@ -279,6 +281,12 @@ assert_classification windows-rust \
 assert_classification java-jdt \
     "$(classification false false false true false true true true false false false true)" \
     modify_java_jdt
+assert_classification linux-build-script \
+    "$(classification false false false false false false true true false false)" \
+    modify_linux_build_script
+assert_classification linux-jdtls-script \
+    "$(classification false false false false false false true true false false false true)" \
+    modify_linux_jdtls_script
 assert_classification download-cache-validator \
     "$(classification true true true true false true true true false false)" \
     modify_download_cache_validator
