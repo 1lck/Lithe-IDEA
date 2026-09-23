@@ -237,7 +237,7 @@ extension AppModel {
         let departure = recordsHistory ? currentEditorNavigationLocation() : nil
         let providerID = location.virtualProviderID
             ?? virtualDocumentProviderIDs[location.url]
-            ?? languageNavigationCoordinator.state.providerID
+            ?? services.pluginCatalog.languageSupport(forVirtualDocumentURL: location.url)?.declaration.id
         languageNavigationCoordinator.navigate(
             to: location,
             recordsHistory: recordsHistory,

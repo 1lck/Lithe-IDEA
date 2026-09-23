@@ -277,14 +277,55 @@ public struct PluginModuleDeclaration: Equatable, Codable, Sendable {
     }
 }
 
-/// Inert metadata used to recognize a language project and route host UI to
-/// independently activated modules without loading the plugin Bundle.
+/// Inert inputs and existing project-local paths for a language's dependency tree.
+/// A management entry can be a file name or a workspace-relative suffix.
+public struct LanguageDependencyDeclaration: Equatable, Codable, Sendable {
+    public let managementFileNames: [String]
+    public let projectDependencyPaths: [String]
+    public let projectBinaryPaths: [String]
+
+    public init(
+        managementFileNames: [String] = [],
+        projectDependencyPaths: [String] = [],
+        projectBinaryPaths: [String] = []
+    ) {
+        self.managementFileNames = Self.normalized(managementFileNames, lowercased: true)
+        self.projectDependencyPaths = Self.normalized(projectDependencyPaths)
+        self.projectBinaryPaths = Self.normalized(projectBinaryPaths)
+    }
+
+    private static func normalized(_ values: [String], lowercased: Bool = false) -> [String] {
+        Set(values.map { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return lowercased ? trimmed.lowercased() : trimmed
+        }
+            .filter { !$0.isEmpty }).sorted()
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case managementFileNames, projectDependencyPaths, projectBinaryPaths
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            managementFileNames: try values.decodeIfPresent([String].self, forKey: .managementFileNames) ?? [],
+            projectDependencyPaths: try values.decodeIfPresent([String].self, forKey: .projectDependencyPaths) ?? [],
+            projectBinaryPaths: try values.decodeIfPresent([String].self, forKey: .projectBinaryPaths) ?? []
+        )
+    }
+}
+
+/// Recognizes a language and routes its independently activated capabilities
+/// without loading the plugin Bundle.
 public struct LanguageSupportDeclaration: Equatable, Codable, Sendable {
     public let id: String
     public let displayName: String
     public let fileExtensions: [String]
     public let fileNames: [String]
     public let projectFileNames: [String]
+    public let dependencies: LanguageDependencyDeclaration?
+    public let virtualDocumentSchemes: [String]
     public let languageServerModuleID: ModuleID?
     public let executionModuleID: ModuleID?
     public let testingModuleID: ModuleID?
@@ -296,6 +337,8 @@ public struct LanguageSupportDeclaration: Equatable, Codable, Sendable {
         fileExtensions: [String] = [],
         fileNames: [String] = [],
         projectFileNames: [String] = [],
+        dependencies: LanguageDependencyDeclaration? = nil,
+        virtualDocumentSchemes: [String] = [],
         languageServerModuleID: ModuleID? = nil,
         executionModuleID: ModuleID? = nil,
         testingModuleID: ModuleID? = nil,
@@ -306,6 +349,8 @@ public struct LanguageSupportDeclaration: Equatable, Codable, Sendable {
         self.fileExtensions = Self.normalized(fileExtensions, removingLeadingDot: true)
         self.fileNames = Self.normalized(fileNames)
         self.projectFileNames = Self.normalized(projectFileNames)
+        self.dependencies = dependencies
+        self.virtualDocumentSchemes = Self.normalized(virtualDocumentSchemes)
         self.languageServerModuleID = languageServerModuleID
         self.executionModuleID = executionModuleID
         self.testingModuleID = testingModuleID
@@ -314,6 +359,29 @@ public struct LanguageSupportDeclaration: Equatable, Codable, Sendable {
 
     public var moduleIDs: [ModuleID] {
         [languageServerModuleID, executionModuleID, testingModuleID, debugModuleID].compactMap { $0 }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, displayName, fileExtensions, fileNames, projectFileNames
+        case dependencies, virtualDocumentSchemes
+        case languageServerModuleID, executionModuleID, testingModuleID, debugModuleID
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try values.decode(String.self, forKey: .id),
+            displayName: try values.decode(String.self, forKey: .displayName),
+            fileExtensions: try values.decodeIfPresent([String].self, forKey: .fileExtensions) ?? [],
+            fileNames: try values.decodeIfPresent([String].self, forKey: .fileNames) ?? [],
+            projectFileNames: try values.decodeIfPresent([String].self, forKey: .projectFileNames) ?? [],
+            dependencies: try values.decodeIfPresent(LanguageDependencyDeclaration.self, forKey: .dependencies),
+            virtualDocumentSchemes: try values.decodeIfPresent([String].self, forKey: .virtualDocumentSchemes) ?? [],
+            languageServerModuleID: try values.decodeIfPresent(ModuleID.self, forKey: .languageServerModuleID),
+            executionModuleID: try values.decodeIfPresent(ModuleID.self, forKey: .executionModuleID),
+            testingModuleID: try values.decodeIfPresent(ModuleID.self, forKey: .testingModuleID),
+            debugModuleID: try values.decodeIfPresent(ModuleID.self, forKey: .debugModuleID)
+        )
     }
 
     public func handles(fileURL: URL) -> Bool {

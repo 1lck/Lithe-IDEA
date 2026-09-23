@@ -135,6 +135,7 @@ public enum BundledLanguagePluginCatalog {
             displayName: specification.displayName,
             fileExtensions: specification.fileExtensions,
             fileNames: specification.fileNames,
+            dependencies: dependencyDeclaration(for: specification.id),
             languageServerModuleID: specification.supportsLanguageServer
                 ? .languageServerExtension(specification.id)
                 : nil,
@@ -145,6 +146,24 @@ public enum BundledLanguagePluginCatalog {
                 ? .languageExecutionExtension(specification.id)
                 : nil
         )
+    }
+
+    private static func dependencyDeclaration(for languageID: String) -> LanguageDependencyDeclaration? {
+        switch languageID {
+        case "node":
+            return LanguageDependencyDeclaration(
+                managementFileNames: ["package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"],
+                projectDependencyPaths: ["node_modules"]
+            )
+        case "rust":
+            return LanguageDependencyDeclaration(managementFileNames: ["cargo.toml", "cargo.lock"])
+        case "python":
+            return LanguageDependencyDeclaration(managementFileNames: [
+                "pyproject.toml", "requirements.txt", "poetry.lock", "uv.lock", "pipfile", "pipfile.lock"
+            ])
+        default:
+            return nil
+        }
     }
 
     private static func languageServerManifest(_ specification: BundledLanguagePluginSpecification) -> ModuleManifest {
