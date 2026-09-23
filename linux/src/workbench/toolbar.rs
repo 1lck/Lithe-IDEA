@@ -1,27 +1,29 @@
+use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
-use gpui_kit::component::{h_flex, Sizable as _};
+use gpui_kit::component::{h_flex, Icon, Sizable as _};
 use gpui_kit::{
-    div, px, Context, EventEmitter, InteractiveElement as _, IntoElement, ParentElement as _,
-    Render, StatefulInteractiveElement as _, Styled as _, Window,
+    div, px, Context, EventEmitter, FontWeight, InteractiveElement as _, IntoElement,
+    ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Window,
 };
 
 use crate::theme::ThemeColors;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum ToolbarEvent {
     NewFile,
     Save,
     CloseTab,
     Run,
     Debug,
-    #[allow(dead_code)]
     Stop,
     ToggleTerminal,
     ClearTerminal,
     ToggleSidebar,
     RefreshWorkspace,
     QuickOpen,
+    OpenSettings,
     About,
     Exit,
 }
@@ -46,7 +48,6 @@ impl ToolbarView {
         }
     }
 
-    #[allow(dead_code)]
     pub fn set_git_branch(&mut self, branch: Option<String>, cx: &mut Context<Self>) {
         self.git_branch = branch;
         cx.notify();
@@ -68,96 +69,78 @@ impl Render for ToolbarView {
             .justify_between()
             .px_3()
             .child(
-                // 1. 左侧：Logo + 菜单栏 + 项目名称选择器 + 分支
+                // 1. 左侧：Lithe Logo + 项目选择器胶囊 + 分支选择器胶囊
                 h_flex()
                     .items_center()
-                    .gap_1()
+                    .gap_3()
                     .child(
+                        // Lithe Logo + 品牌名
                         h_flex()
                             .items_center()
-                            .gap_1()
-                            .pr_2()
+                            .gap_1p5()
+                            .pr_1()
                             .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(ThemeColors::accent_blue())
-                                    .child("⚡"),
+                                Icon::new(IconName::Zap)
+                                    .size(px(16.0))
+                                    .text_color(ThemeColors::accent_blue()),
                             )
                             .child(
                                 div()
+                                    .font_weight(FontWeight::BOLD)
                                     .text_sm()
                                     .text_color(ThemeColors::text_primary())
                                     .child("Lithe"),
                             ),
                     )
-                    // File 菜单
+                    // 项目选择器胶囊（点击可展开项目切换下拉菜单）
                     .child({
                         let v = view.clone();
-                        Button::new("menu-file")
+                        Button::new("tb-project-selector")
                             .small()
                             .ghost()
-                            .label("File")
+                            .icon(IconName::Folder)
+                            .label(self.workspace_name.clone())
+                            .bg(ThemeColors::bg_tab_hover())
+                            .border_1()
+                            .border_color(ThemeColors::border())
+                            .rounded_md()
                             .dropdown_menu(move |menu, _window, _cx| {
-                                let v_new = v.clone();
+                                let v_refresh = v.clone();
+                                let v_new_file = v.clone();
                                 let v_save = v.clone();
                                 let v_close = v.clone();
+                                let v_sidebar = v.clone();
+                                let v_terminal = v.clone();
+                                let v_settings = v.clone();
+                                let v_about = v.clone();
                                 let v_exit = v.clone();
 
                                 menu.item(
                                     PopupMenuItem::new("New File (Ctrl+N)")
                                         .on_click(move |_, _, cx| {
-                                            v_new.update(cx, |_, cx| cx.emit(ToolbarEvent::NewFile));
+                                            v_new_file.update(cx, |_, cx| {
+                                                cx.emit(ToolbarEvent::NewFile)
+                                            });
                                         }),
                                 )
                                 .item(
                                     PopupMenuItem::new("Save (Ctrl+S)")
                                         .on_click(move |_, _, cx| {
-                                            v_save.update(cx, |_, cx| cx.emit(ToolbarEvent::Save));
+                                            v_save.update(cx, |_, cx| {
+                                                cx.emit(ToolbarEvent::Save)
+                                            });
                                         }),
                                 )
                                 .item(
                                     PopupMenuItem::new("Close Active Tab (Ctrl+W)")
                                         .on_click(move |_, _, cx| {
-                                            v_close.update(cx, |_, cx| cx.emit(ToolbarEvent::CloseTab));
+                                            v_close.update(cx, |_, cx| {
+                                                cx.emit(ToolbarEvent::CloseTab)
+                                            });
                                         }),
                                 )
                                 .separator()
                                 .item(
-                                    PopupMenuItem::new("Exit")
-                                        .on_click(move |_, _, cx| {
-                                            v_exit.update(cx, |_, cx| cx.emit(ToolbarEvent::Exit));
-                                        }),
-                                )
-                            })
-                    })
-                    // Edit 菜单
-                    .child(
-                        Button::new("menu-edit")
-                            .small()
-                            .ghost()
-                            .label("Edit")
-                            .dropdown_menu(|menu, _window, _cx| {
-                                menu.item(PopupMenuItem::new("Undo (Ctrl+Z)"))
-                                    .item(PopupMenuItem::new("Redo (Ctrl+Y)"))
-                                    .separator()
-                                    .item(PopupMenuItem::new("Cut (Ctrl+X)"))
-                                    .item(PopupMenuItem::new("Copy (Ctrl+C)"))
-                                    .item(PopupMenuItem::new("Paste (Ctrl+V)"))
-                            }),
-                    )
-                    // View 菜单
-                    .child({
-                        let v = view.clone();
-                        Button::new("menu-view")
-                            .small()
-                            .ghost()
-                            .label("View")
-                            .dropdown_menu(move |menu, _window, _cx| {
-                                let v_sidebar = v.clone();
-                                let v_term = v.clone();
-                                let v_refresh = v.clone();
-
-                                menu.item(
                                     PopupMenuItem::new("Toggle Sidebar (Ctrl+B)")
                                         .on_click(move |_, _, cx| {
                                             v_sidebar.update(cx, |_, cx| {
@@ -168,12 +151,11 @@ impl Render for ToolbarView {
                                 .item(
                                     PopupMenuItem::new("Toggle Terminal (Ctrl+`)")
                                         .on_click(move |_, _, cx| {
-                                            v_term.update(cx, |_, cx| {
+                                            v_terminal.update(cx, |_, cx| {
                                                 cx.emit(ToolbarEvent::ToggleTerminal)
                                             });
                                         }),
                                 )
-                                .separator()
                                 .item(
                                     PopupMenuItem::new("Refresh Workspace")
                                         .on_click(move |_, _, cx| {
@@ -182,124 +164,60 @@ impl Render for ToolbarView {
                                             });
                                         }),
                                 )
-                            })
-                    })
-                    // Run 菜单
-                    .child({
-                        let v = view.clone();
-                        Button::new("menu-run")
-                            .small()
-                            .ghost()
-                            .label("Run")
-                            .dropdown_menu(move |menu, _window, _cx| {
-                                let v_run = v.clone();
-                                let v_debug = v.clone();
-
-                                menu.item(
-                                    PopupMenuItem::new("Run Configuration (Shift+F10)")
-                                        .on_click(move |_, _, cx| {
-                                            v_run.update(cx, |_, cx| cx.emit(ToolbarEvent::Run));
-                                        }),
-                                )
+                                .separator()
                                 .item(
-                                    PopupMenuItem::new("Debug Configuration (Shift+F9)")
+                                    PopupMenuItem::new("Settings")
                                         .on_click(move |_, _, cx| {
-                                            v_debug.update(cx, |_, cx| cx.emit(ToolbarEvent::Debug));
-                                        }),
-                                )
-                            })
-                    })
-                    // Terminal 菜单
-                    .child({
-                        let v = view.clone();
-                        Button::new("menu-terminal")
-                            .small()
-                            .ghost()
-                            .label("Terminal")
-                            .dropdown_menu(move |menu, _window, _cx| {
-                                let v_toggle = v.clone();
-                                let v_clear = v.clone();
-
-                                menu.item(
-                                    PopupMenuItem::new("Toggle Terminal")
-                                        .on_click(move |_, _, cx| {
-                                            v_toggle.update(cx, |_, cx| {
-                                                cx.emit(ToolbarEvent::ToggleTerminal)
+                                            v_settings.update(cx, |_, cx| {
+                                                cx.emit(ToolbarEvent::OpenSettings)
                                             });
                                         }),
                                 )
                                 .item(
-                                    PopupMenuItem::new("Clear Output")
-                                        .on_click(move |_, _, cx| {
-                                            v_clear.update(cx, |_, cx| {
-                                                cx.emit(ToolbarEvent::ClearTerminal)
-                                            });
-                                        }),
-                                )
-                            })
-                    })
-                    // Help 菜单
-                    .child({
-                        let v = view.clone();
-                        Button::new("menu-help")
-                            .small()
-                            .ghost()
-                            .label("Help")
-                            .dropdown_menu(move |menu, _window, _cx| {
-                                let v_about = v.clone();
-
-                                menu.item(
                                     PopupMenuItem::new("About Lithe")
                                         .on_click(move |_, _, cx| {
-                                            v_about.update(cx, |_, cx| cx.emit(ToolbarEvent::About));
+                                            v_about.update(cx, |_, cx| {
+                                                cx.emit(ToolbarEvent::About)
+                                            });
+                                        }),
+                                )
+                                .separator()
+                                .item(
+                                    PopupMenuItem::new("Exit")
+                                        .on_click(move |_, _, cx| {
+                                            v_exit.update(cx, |_, cx| {
+                                                cx.emit(ToolbarEvent::Exit)
+                                            });
                                         }),
                                 )
                             })
                     })
-                    // 分隔竖线
-                    .child(
-                        div()
-                            .h(px(14.0))
-                            .w(px(1.0))
-                            .bg(ThemeColors::border())
-                            .mx_2(),
-                    )
-                    // 项目选择器外观
+                    // 分支选择器胶囊：带 GitBranch 图标、分支名和 ChevronDown
                     .child(
                         h_flex()
                             .items_center()
-                            .gap_1()
+                            .gap_1p5()
                             .px_2()
-                            .py(px(2.0))
+                            .py(px(3.0))
                             .rounded_md()
                             .bg(ThemeColors::bg_tab_hover())
                             .border_1()
                             .border_color(ThemeColors::border())
-                            .child("📂")
                             .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(ThemeColors::text_primary())
-                                    .child(self.workspace_name.clone()),
-                            ),
-                    )
-                    // Git 分支标识
-                    .child(
-                        h_flex()
-                            .items_center()
-                            .gap_1()
-                            .px_2()
-                            .py(px(2.0))
-                            .rounded_md()
-                            .bg(ThemeColors::bg_tab_hover())
-                            .border_1()
-                            .border_color(ThemeColors::border())
-                            .child("⎇")
+                                Icon::new(IconName::GitBranch)
+                                    .size(px(13.0))
+                                    .text_color(ThemeColors::accent_green()),
+                            )
                             .child(
                                 div()
                                     .text_xs()
                                     .text_color(ThemeColors::accent_green())
                                     .child(branch),
+                            )
+                            .child(
+                                Icon::new(IconName::ChevronDown)
+                                    .size(px(12.0))
+                                    .text_color(ThemeColors::text_muted()),
                             ),
                     ),
             )
@@ -307,12 +225,12 @@ impl Render for ToolbarView {
                 // 2. 中间：全局搜索栏 (Search Everywhere)
                 div()
                     .id("search-everywhere-bar")
-                    .w(px(260.0))
-                    .h(px(26.0))
+                    .w(px(280.0))
+                    .h(px(28.0))
                     .bg(ThemeColors::bg_tab_active())
                     .border_1()
                     .border_color(ThemeColors::border())
-                    .rounded_md()
+                    .rounded(px(6.0))
                     .px_2()
                     .flex()
                     .items_center()
@@ -326,7 +244,11 @@ impl Render for ToolbarView {
                         h_flex()
                             .items_center()
                             .gap_2()
-                            .child(div().text_xs().text_color(ThemeColors::text_muted()).child("🔍"))
+                            .child(
+                                Icon::new(IconName::Search)
+                                    .size(px(13.0))
+                                    .text_color(ThemeColors::text_muted()),
+                            )
                             .child(
                                 div()
                                     .text_xs()
@@ -338,22 +260,49 @@ impl Render for ToolbarView {
                         div()
                             .text_xs()
                             .text_color(ThemeColors::text_muted())
-                            .px_1()
+                            .px_1p5()
+                            .py(px(1.0))
                             .bg(ThemeColors::bg_titlebar())
-                            .rounded_sm()
+                            .border_1()
+                            .border_color(ThemeColors::border())
+                            .rounded(px(4.0))
                             .child("Ctrl+P"),
                     ),
             )
             .child(
-                // 3. 右侧：运行/调试配置按钮组
+                // 3. 右侧：运行目标胶囊 + 运行/调试/停止/设置控制组
                 h_flex()
                     .items_center()
                     .gap_2()
                     .child(
+                        // 运行目标胶囊
+                        h_flex()
+                            .items_center()
+                            .gap_1p5()
+                            .px_2()
+                            .py(px(3.0))
+                            .rounded_md()
+                            .bg(ThemeColors::bg_tab_hover())
+                            .border_1()
+                            .border_color(ThemeColors::border())
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(ThemeColors::text_primary())
+                                    .child("[Project] Default"),
+                            )
+                            .child(
+                                Icon::new(IconName::ChevronDown)
+                                    .size(px(12.0))
+                                    .text_color(ThemeColors::text_muted()),
+                            ),
+                    )
+                    .child(
                         Button::new("tb-run")
                             .small()
                             .primary()
-                            .label("▶ Run")
+                            .icon(IconName::Play)
+                            .label("Run")
                             .on_click(cx.listener(|_this, _event, _window, cx| {
                                 cx.emit(ToolbarEvent::Run);
                             })),
@@ -362,18 +311,30 @@ impl Render for ToolbarView {
                         Button::new("tb-debug")
                             .small()
                             .ghost()
-                            .label("🐞 Debug")
+                            .icon(IconName::Bug)
+                            .label("Debug")
                             .on_click(cx.listener(|_this, _event, _window, cx| {
                                 cx.emit(ToolbarEvent::Debug);
                             })),
                     )
                     .child(
-                        Button::new("tb-save")
+                        Button::new("tb-stop")
                             .small()
                             .ghost()
-                            .label("💾 Save")
+                            .icon(IconName::Square)
+                            .tooltip("Stop")
                             .on_click(cx.listener(|_this, _event, _window, cx| {
-                                cx.emit(ToolbarEvent::Save);
+                                cx.emit(ToolbarEvent::Stop);
+                            })),
+                    )
+                    .child(
+                        Button::new("tb-settings")
+                            .small()
+                            .ghost()
+                            .icon(IconName::Settings)
+                            .tooltip("Settings")
+                            .on_click(cx.listener(|_this, _event, _window, cx| {
+                                cx.emit(ToolbarEvent::OpenSettings);
                             })),
                     ),
             )

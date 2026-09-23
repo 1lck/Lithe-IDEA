@@ -1,6 +1,7 @@
-use gpui_kit::component::h_flex;
+use gpui_kit::assets::IconName;
+use gpui_kit::component::{h_flex, Icon};
 use gpui_kit::{
-    div, px, Context, IntoElement, ParentElement as _, Render, Styled as _, Window,
+    div, px, Context, FontWeight, IntoElement, ParentElement as _, Render, Styled as _, Window,
 };
 
 use crate::theme::ThemeColors;
@@ -68,42 +69,96 @@ impl Render for StatusBarView {
             .text_xs()
             .text_color(ThemeColors::text_muted())
             .child(
-                // 左侧状态栏项目
+                // 左侧状态栏项目（分支 + 文件状态）
                 h_flex()
                     .items_center()
-                    .gap_3()
+                    .gap_2()
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_1p5()
+                            .text_color(ThemeColors::accent_green())
+                            .child(
+                                Icon::new(IconName::GitBranch)
+                                    .size(px(12.0))
+                                    .text_color(ThemeColors::accent_green()),
+                            )
+                            .child(
+                                div()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(branch),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .h(px(10.0))
+                            .w(px(1.0))
+                            .bg(ThemeColors::border())
+                            .mx_1(),
+                    )
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_1p5()
+                            .child(
+                                Icon::new(IconName::FileText)
+                                    .size(px(12.0))
+                                    .text_color(ThemeColors::text_muted()),
+                            )
+                            .child(
+                                div()
+                                    .text_color(ThemeColors::text_primary())
+                                    .child(file_label),
+                            ),
+                    ),
+            )
+            .child(
+                // 右侧状态栏项目（行列号、缩进、编码、语言、核心状态）
+                h_flex()
+                    .items_center()
+                    .gap_2()
+                    .child(format!("Ln {}, Col {}", self.cursor_line, self.cursor_col))
+                    .child(
+                        div()
+                            .h(px(10.0))
+                            .w(px(1.0))
+                            .bg(ThemeColors::border()),
+                    )
+                    .child("4 spaces")
+                    .child(
+                        div()
+                            .h(px(10.0))
+                            .w(px(1.0))
+                            .bg(ThemeColors::border()),
+                    )
+                    .child(self.encoding.clone())
+                    .child(
+                        div()
+                            .h(px(10.0))
+                            .w(px(1.0))
+                            .bg(ThemeColors::border()),
+                    )
+                    .child(self.language.clone())
+                    .child(
+                        div()
+                            .h(px(10.0))
+                            .w(px(1.0))
+                            .bg(ThemeColors::border()),
+                    )
                     .child(
                         h_flex()
                             .items_center()
                             .gap_1()
-                            .text_color(ThemeColors::accent_green())
-                            .child("⎇")
-                            .child(branch),
-                    )
-                    .child(div().text_color(ThemeColors::border()).child("|"))
-                    .child(
-                        div()
-                            .text_color(ThemeColors::text_primary())
-                            .child(file_label),
-                    ),
-            )
-            .child(
-                // 右侧状态栏项目
-                h_flex()
-                    .items_center()
-                    .gap_3()
-                    .child(format!("Ln {}, Col {}", self.cursor_line, self.cursor_col))
-                    .child(div().text_color(ThemeColors::border()).child("|"))
-                    .child(self.language.clone())
-                    .child(div().text_color(ThemeColors::border()).child("|"))
-                    .child(self.encoding.clone())
-                    .child(div().text_color(ThemeColors::border()).child("|"))
-                    .child("4 spaces")
-                    .child(div().text_color(ThemeColors::border()).child("|"))
-                    .child(
-                        div()
-                            .text_color(ThemeColors::accent_blue())
-                            .child("Lithe Core"),
+                            .child(
+                                Icon::new(IconName::Check)
+                                    .size(px(12.0))
+                                    .text_color(ThemeColors::accent_green()),
+                            )
+                            .child(
+                                div()
+                                    .text_color(ThemeColors::accent_blue())
+                                    .child("Lithe Core"),
+                            ),
                     ),
             )
     }

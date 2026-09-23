@@ -14,7 +14,7 @@ use crate::workbench::sidebar::{SidebarEvent, SidebarTab, SidebarView};
 use crate::workbench::status_bar::StatusBarView;
 use crate::workbench::toolbar::{ToolbarEvent, ToolbarView};
 
-/// Linux 前端主工作台视图组件（复刻 Tauri IDE 经典架构）
+/// Linux 前端主工作台视图组件（复刻 macOS LitheTheme / Tauri 架构）
 pub struct WorkbenchView {
     /// 项目工作区根路径
     pub workspace_root: String,
@@ -78,7 +78,20 @@ impl WorkbenchView {
             }
         });
 
-        // 2. 订阅左侧活动栏 (Activity Rail) 事件
+        // 2. 观察侧边栏 Git 分支状态变化并同步至 Toolbar 与 StatusBar
+        let toolbar_branch_sync = toolbar.clone();
+        let status_bar_branch_sync = status_bar.clone();
+        let obs_sidebar = cx.observe(&sidebar, move |_this, sidebar, cx| {
+            let branch = sidebar.read(cx).git_branch.clone();
+            let _ = toolbar_branch_sync.update(cx, |tb, cx| {
+                tb.set_git_branch(branch.clone(), cx);
+            });
+            let _ = status_bar_branch_sync.update(cx, |sb, cx| {
+                sb.set_git_branch(branch, cx);
+            });
+        });
+
+        // 3. 订阅左侧活动栏 (Activity Rail) 事件
         let sidebar_clone = sidebar.clone();
         let bottom_panel_clone = bottom_panel.clone();
         let sub_rail = cx.subscribe(&activity_rail, move |this, rail, event: &ActivityRailEvent, cx| {
@@ -116,7 +129,7 @@ impl WorkbenchView {
             }
         });
 
-        // 3. 订阅顶部标题栏与菜单栏事件
+        // 4. 订阅顶部工具栏事件
         let sub_toolbar = cx.subscribe(&toolbar, |this, _toolbar, event: &ToolbarEvent, cx| {
             match event {
                 ToolbarEvent::NewFile => {
@@ -192,9 +205,14 @@ impl WorkbenchView {
                         bp.append_log("[Stop] Session terminated by user.".to_string(), cx);
                     });
                 }
+                ToolbarEvent::OpenSettings => {
+                    let _ = this.bottom_panel.update(cx, |bp, cx| {
+                        bp.append_log("[Settings] Settings dialog requested".to_string(), cx);
+                    });
+                }
                 ToolbarEvent::About => {
                     let _ = this.bottom_panel.update(cx, |bp, cx| {
-                        bp.append_log("[About] Lithe IDE for Linux (Powered by Zed GPUI Kit & Rust Core)".to_string(), cx);
+                        bp.append_log("[About] Lithe IDE for Linux (Powered by GPUI Kit & Rust Core)".to_string(), cx);
                     });
                 }
                 ToolbarEvent::Exit => {
@@ -213,7 +231,7 @@ impl WorkbenchView {
             bottom_panel,
             status_bar,
             client: CoreClient::new(),
-            _subscriptions: vec![sub_sidebar, sub_rail, sub_toolbar],
+            _subscriptions: vec![sub_sidebar, obs_sidebar, sub_rail, sub_toolbar],
         }
     }
 
@@ -251,7 +269,7 @@ impl Render for WorkbenchView {
             .size_full()
             .bg(ThemeColors::bg_editor())
             .child(
-                // 1. 顶部标题栏/菜单栏/运行控制 (Title Bar)
+                // 1. 顶部标题栏/工具栏 (Toolbar)
                 self.toolbar.clone(),
             )
             .child(

@@ -1,8 +1,10 @@
+use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{h_flex, v_flex, Sizable as _};
+use gpui_kit::component::scroll::ScrollableElement as _;
+use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, rgb, Context, EventEmitter, InteractiveElement as _, IntoElement,
+    div, px, Context, EventEmitter, FontWeight, InteractiveElement as _, IntoElement,
     ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Window,
 };
 use serde::{Deserialize, Serialize};
@@ -327,88 +329,71 @@ impl SidebarView {
         }
         false
     }
+}
 
-    fn render_tab_button(
-        &self,
-        id: &'static str,
-        label: String,
-        is_active: bool,
-        tab: SidebarTab,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        div()
-            .id(id)
-            .px_3()
-            .py_1()
-            .rounded_t_sm()
-            .cursor_pointer()
-            .text_xs()
-            .when(is_active, |btn| {
-                btn.bg(ThemeColors::bg_sidebar())
-                    .text_color(ThemeColors::text_primary())
-                    .border_b_2()
-                    .border_color(ThemeColors::accent_blue())
-            })
-            .when(!is_active, |btn| {
-                btn.text_color(ThemeColors::text_muted())
-                    .hover(|h| h.bg(ThemeColors::bg_tab_hover()).text_color(ThemeColors::text_primary()))
-            })
-            .child(label)
-            .on_click(cx.listener(move |this, _event, _window, cx| {
-                this.set_tab(tab, cx);
-            }))
-    }
+fn is_code_file(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    lower.ends_with(".rs")
+        || lower.ends_with(".js")
+        || lower.ends_with(".ts")
+        || lower.ends_with(".jsx")
+        || lower.ends_with(".tsx")
+        || lower.ends_with(".json")
+        || lower.ends_with(".toml")
+        || lower.ends_with(".html")
+        || lower.ends_with(".css")
+        || lower.ends_with(".java")
+        || lower.ends_with(".c")
+        || lower.ends_with(".cpp")
+        || lower.ends_with(".h")
+        || lower.ends_with(".hpp")
+        || lower.ends_with(".py")
+        || lower.ends_with(".go")
+        || lower.ends_with(".swift")
+        || lower.ends_with(".sh")
+        || lower.ends_with(".xml")
+        || lower.ends_with(".yaml")
+        || lower.ends_with(".yml")
+        || lower.ends_with(".sql")
 }
 
 impl Render for SidebarView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let title = match self.active_tab {
+            SidebarTab::Explorer => "PROJECT",
+            SidebarTab::Search => "SEARCH",
+            SidebarTab::Git => "GIT",
+        };
+
         v_flex()
             .size_full()
-            .bg(ThemeColors::BG_SIDEBAR)
+            .bg(ThemeColors::bg_sidebar())
             .border_r_1()
-            .border_color(ThemeColors::BORDER)
+            .border_color(ThemeColors::border())
             .child(
-                // 顶部视图切换栏 (Explorer / Search / Git)
+                // 顶部工具窗口精简标题 + 刷新操作按钮（无老旧横排Tab栏）
                 h_flex()
-                    .h(px(36.0))
+                    .h(px(32.0))
                     .w_full()
-                    .bg(ThemeColors::BG_TAB_BAR)
+                    .bg(ThemeColors::bg_sidebar())
                     .border_b_1()
-                    .border_color(ThemeColors::BORDER)
+                    .border_color(ThemeColors::border())
                     .items_center()
                     .justify_between()
-                    .px_2()
+                    .px_3()
                     .child(
-                        h_flex()
-                            .items_center()
-                            .gap_1()
-                            .child(self.render_tab_button(
-                                "tab-explorer",
-                                "Files".to_string(),
-                                self.active_tab == SidebarTab::Explorer,
-                                SidebarTab::Explorer,
-                                cx,
-                            ))
-                            .child(self.render_tab_button(
-                                "tab-search",
-                                "Search".to_string(),
-                                self.active_tab == SidebarTab::Search,
-                                SidebarTab::Search,
-                                cx,
-                            ))
-                            .child(self.render_tab_button(
-                                "tab-git",
-                                format!("Git ({})", self.git_changes.len()),
-                                self.active_tab == SidebarTab::Git,
-                                SidebarTab::Git,
-                                cx,
-                            )),
+                        div()
+                            .text_xs()
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(ThemeColors::text_muted())
+                            .child(title),
                     )
                     .child(
-                        Button::new("refresh-btn")
+                        Button::new("sidebar-refresh")
                             .small()
                             .ghost()
-                            .label("↻")
+                            .icon(IconName::RotateCw)
+                            .tooltip("Refresh")
                             .on_click(cx.listener(|this, _event, _window, cx| {
                                 this.refresh(cx);
                                 this.refresh_git(cx);
@@ -417,7 +402,7 @@ impl Render for SidebarView {
             )
             .child(
                 // 对应面板内容渲染
-                div().flex_1().w_full().child(
+                div().flex_1().w_full().overflow_y_scrollbar().child(
                     match self.active_tab {
                         SidebarTab::Explorer => self.render_explorer(cx).into_any_element(),
                         SidebarTab::Search => self.render_search(cx).into_any_element(),
@@ -437,13 +422,12 @@ impl SidebarView {
 
         v_flex()
             .size_full()
-            .p_2()
-            .gap_1()
+            .py_1()
             .when(self.is_loading, |this| {
                 this.child(
                     div()
                         .text_xs()
-                        .text_color(rgb(0x8a90a2))
+                        .text_color(ThemeColors::text_muted())
                         .p_2()
                         .child("Loading workspace files..."),
                 )
@@ -452,7 +436,7 @@ impl SidebarView {
                 this.child(
                     div()
                         .text_xs()
-                        .text_color(rgb(0xef4444))
+                        .text_color(ThemeColors::accent_red())
                         .p_2()
                         .child(err.clone()),
                 )
@@ -470,21 +454,73 @@ impl SidebarView {
                     .items_center()
                     .cursor_pointer()
                     .rounded_sm()
-                    .pl(px(indent + 4.0))
+                    .pl(px(indent + 6.0))
                     .pr_2()
+                    .gap_1p5()
                     .text_xs()
                     .when(is_selected, |row| {
-                        row.bg(ThemeColors::BG_TAB_ACTIVE).text_color(ThemeColors::TEXT_PRIMARY)
+                        row.bg(ThemeColors::subtle_selection())
+                            .text_color(ThemeColors::text_primary())
                     })
                     .when(!is_selected, |row| {
-                        row.text_color(ThemeColors::TEXT_PRIMARY).hover(|h| h.bg(ThemeColors::BG_TAB_HOVER))
+                        row.text_color(ThemeColors::text_primary())
+                            .hover(|h| h.bg(ThemeColors::bg_tab_hover()))
                     })
                     .child(if is_dir {
-                        if item.is_expanded { "📂 " } else { "📁 " }
+                        if item.is_expanded {
+                            h_flex()
+                                .items_center()
+                                .gap_1()
+                                .child(
+                                    Icon::new(IconName::ChevronDown)
+                                        .size(px(12.0))
+                                        .text_color(ThemeColors::text_muted()),
+                                )
+                                .child(
+                                    Icon::new(IconName::FolderOpen)
+                                        .size(px(14.0))
+                                        .text_color(ThemeColors::accent_blue()),
+                                )
+                                .into_any_element()
+                        } else {
+                            h_flex()
+                                .items_center()
+                                .gap_1()
+                                .child(
+                                    Icon::new(IconName::ChevronRight)
+                                        .size(px(12.0))
+                                        .text_color(ThemeColors::text_muted()),
+                                )
+                                .child(
+                                    Icon::new(IconName::Folder)
+                                        .size(px(14.0))
+                                        .text_color(ThemeColors::accent_blue()),
+                                )
+                                .into_any_element()
+                        }
                     } else {
-                        "📄 "
+                        let icon_name = if is_code_file(&item.name) {
+                            IconName::FileCode
+                        } else {
+                            IconName::FileText
+                        };
+                        h_flex()
+                            .items_center()
+                            .gap_1()
+                            .child(div().w(px(12.0)))
+                            .child(
+                                Icon::new(icon_name)
+                                    .size(px(14.0))
+                                    .text_color(ThemeColors::text_muted()),
+                            )
+                            .into_any_element()
                     })
-                    .child(item.name)
+                    .child(
+                        div()
+                            .flex_1()
+                            .truncate()
+                            .child(item.name),
+                    )
                     .on_click(cx.listener({
                         let path = path_str.clone();
                         move |this, _event, _window, cx| {
@@ -510,15 +546,21 @@ impl SidebarView {
                     .h(px(28.0))
                     .w_full()
                     .items_center()
-                    .bg(ThemeColors::BG_TAB_ACTIVE)
+                    .gap_2()
+                    .bg(ThemeColors::bg_tab_active())
                     .border_1()
-                    .border_color(ThemeColors::BORDER)
-                    .rounded_sm()
+                    .border_color(ThemeColors::border())
+                    .rounded(px(4.0))
                     .px_2()
+                    .child(
+                        Icon::new(IconName::Search)
+                            .size(px(13.0))
+                            .text_color(ThemeColors::text_muted()),
+                    )
                     .child(
                         div()
                             .text_xs()
-                            .text_color(ThemeColors::TEXT_MUTED)
+                            .text_color(ThemeColors::text_muted())
                             .child("Search files or text..."),
                     ),
             )
@@ -526,7 +568,8 @@ impl SidebarView {
                 this.child(
                     div()
                         .text_xs()
-                        .text_color(rgb(0x8a90a2))
+                        .text_color(ThemeColors::text_muted())
+                        .p_1()
                         .child("Searching..."),
                 )
             })
@@ -544,22 +587,31 @@ impl SidebarView {
 
                         v_flex()
                             .id(idx)
-                            .p_1()
+                            .p_1p5()
                             .rounded_sm()
                             .cursor_pointer()
-                            .hover(|h| h.bg(ThemeColors::BG_TAB_HOVER))
+                            .hover(|h| h.bg(ThemeColors::bg_tab_hover()))
                             .child(
                                 h_flex()
                                     .items_center()
-                                    .gap_1()
+                                    .gap_1p5()
                                     .text_xs()
-                                    .text_color(ThemeColors::ACCENT_BLUE)
-                                    .child(format!("{}{}", path, line_info)),
+                                    .child(
+                                        Icon::new(IconName::FileText)
+                                            .size(px(12.0))
+                                            .text_color(ThemeColors::accent_blue()),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_color(ThemeColors::accent_blue())
+                                            .child(format!("{}{}", path, line_info)),
+                                    ),
                             )
                             .child(
                                 div()
                                     .text_xs()
-                                    .text_color(ThemeColors::TEXT_MUTED)
+                                    .text_color(ThemeColors::text_muted())
+                                    .pl(px(18.0))
                                     .child(preview),
                             )
                             .on_click(cx.listener({
@@ -587,21 +639,41 @@ impl SidebarView {
                     .gap_2()
                     .pb_2()
                     .border_b_1()
-                    .border_color(ThemeColors::BORDER)
-                    .text_xs()
-                    .text_color(ThemeColors::ACCENT_GREEN)
-                    .child("⎇ Branch:")
-                    .child(branch),
+                    .border_color(ThemeColors::border())
+                    .child(
+                        Icon::new(IconName::GitBranch)
+                            .size(px(13.0))
+                            .text_color(ThemeColors::accent_green()),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(ThemeColors::accent_green())
+                            .child(branch),
+                    ),
             )
             .child(
                 div()
                     .text_xs()
-                    .text_color(ThemeColors::TEXT_MUTED)
+                    .text_color(ThemeColors::text_muted())
                     .child(format!("Changed Files ({})", self.git_changes.len())),
             )
             .children(self.git_changes.iter().enumerate().map(|(idx, change)| {
                 let path = change.path.clone();
                 let status = change.status.clone();
+                let status_color = match status.as_str() {
+                    "M" => ThemeColors::accent_yellow(),
+                    "A" => ThemeColors::accent_green(),
+                    "D" => ThemeColors::accent_red(),
+                    _ => ThemeColors::text_muted(),
+                };
+
+                let icon_name = if is_code_file(&path) {
+                    IconName::FileCode
+                } else {
+                    IconName::FileText
+                };
 
                 h_flex()
                     .id(idx)
@@ -612,18 +684,28 @@ impl SidebarView {
                     .px_2()
                     .rounded_sm()
                     .cursor_pointer()
-                    .hover(|h| h.bg(ThemeColors::BG_TAB_HOVER))
+                    .hover(|h| h.bg(ThemeColors::bg_tab_hover()))
                     .text_xs()
                     .child(
                         h_flex()
                             .items_center()
                             .gap_2()
-                            .text_color(ThemeColors::TEXT_PRIMARY)
-                            .child(path.clone()),
+                            .child(
+                                Icon::new(icon_name)
+                                    .size(px(13.0))
+                                    .text_color(ThemeColors::text_muted()),
+                            )
+                            .child(
+                                div()
+                                    .text_color(ThemeColors::text_primary())
+                                    .truncate()
+                                    .child(path.clone()),
+                            ),
                     )
                     .child(
                         div()
-                            .text_color(rgb(0xf59e0b))
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(status_color)
                             .child(status),
                     )
                     .on_click(cx.listener({

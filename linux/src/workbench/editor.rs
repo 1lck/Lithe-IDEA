@@ -1,8 +1,9 @@
+use gpui_kit::assets::IconName;
 use gpui_kit::component::scroll::ScrollableElement as _;
-use gpui_kit::component::{h_flex, v_flex};
+use gpui_kit::component::{h_flex, v_flex, Icon};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, rgb, Context, InteractiveElement as _, IntoElement, ParentElement as _,
+    div, px, Context, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _,
     Render, StatefulInteractiveElement as _, Styled as _, Window,
 };
 
@@ -21,7 +22,7 @@ pub struct EditorTab {
     pub cursor_col: usize,
 }
 
-/// 多标签代码编辑器组件（对齐 IntelliJ / Tauri 视觉规范）
+/// 多标签代码编辑器组件（对齐 macOS LitheTheme / IntelliJ 视觉规范）
 pub struct EditorView {
     pub workspace_root: String,
     pub tabs: Vec<EditorTab>,
@@ -137,10 +138,38 @@ impl EditorView {
             "YAML"
         } else if path.ends_with(".sh") {
             "Shell"
+        } else if path.ends_with(".sql") {
+            "SQL"
         } else {
             "Plain Text"
         }
     }
+}
+
+fn is_code_file(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    lower.ends_with(".rs")
+        || lower.ends_with(".js")
+        || lower.ends_with(".ts")
+        || lower.ends_with(".jsx")
+        || lower.ends_with(".tsx")
+        || lower.ends_with(".json")
+        || lower.ends_with(".toml")
+        || lower.ends_with(".html")
+        || lower.ends_with(".css")
+        || lower.ends_with(".java")
+        || lower.ends_with(".c")
+        || lower.ends_with(".cpp")
+        || lower.ends_with(".h")
+        || lower.ends_with(".hpp")
+        || lower.ends_with(".py")
+        || lower.ends_with(".go")
+        || lower.ends_with(".swift")
+        || lower.ends_with(".sh")
+        || lower.ends_with(".xml")
+        || lower.ends_with(".yaml")
+        || lower.ends_with(".yml")
+        || lower.ends_with(".sql")
 }
 
 impl Render for EditorView {
@@ -151,22 +180,26 @@ impl Render for EditorView {
 
         v_flex()
             .size_full()
-            .bg(ThemeColors::BG_EDITOR)
+            .bg(ThemeColors::bg_editor())
             .child(
-                // 1. 顶部标签栏（Tab Bar）
+                // 1. 顶部标签栏（Tab Bar，高 34px）
                 h_flex()
                     .h(px(34.0))
                     .w_full()
-                    .bg(ThemeColors::BG_TAB_BAR)
+                    .bg(ThemeColors::bg_tab_bar())
                     .border_b_1()
-                    .border_color(ThemeColors::BORDER)
+                    .border_color(ThemeColors::border())
                     .items_center()
                     .overflow_x_scrollbar()
-                    .px_1()
                     .children(self.tabs.iter().enumerate().map(|(idx, tab)| {
                         let is_active = self.active_tab_index == Some(idx);
                         let title = tab.title.clone();
                         let is_dirty = tab.is_dirty;
+                        let icon_name = if is_code_file(&title) {
+                            IconName::FileCode
+                        } else {
+                            IconName::FileText
+                        };
 
                         h_flex()
                             .id(idx)
@@ -174,72 +207,124 @@ impl Render for EditorView {
                             .items_center()
                             .gap_2()
                             .px_3()
+                            .relative()
                             .cursor_pointer()
-                            .when(is_active, |t| {
-                                t.bg(ThemeColors::BG_TAB_ACTIVE)
-                                    .border_t_2()
-                                    .border_color(ThemeColors::ACCENT_BLUE)
-                            })
+                            .when(is_active, |t| t.bg(ThemeColors::bg_editor()))
                             .when(!is_active, |t| {
-                                t.bg(ThemeColors::BG_TAB_BAR)
-                                    .hover(|h| h.bg(ThemeColors::BG_TAB_HOVER))
+                                t.bg(ThemeColors::bg_tab_bar())
+                                    .hover(|h| h.bg(ThemeColors::bg_tab_hover()))
                             })
                             .on_click(cx.listener(move |this, _event, _window, cx| {
                                 this.active_tab_index = Some(idx);
                                 cx.notify();
                             }))
                             .child(
+                                Icon::new(icon_name)
+                                    .size(px(14.0))
+                                    .text_color(if is_active {
+                                        ThemeColors::accent_blue()
+                                    } else {
+                                        ThemeColors::text_muted()
+                                    }),
+                            )
+                            .child(
                                 div()
                                     .text_xs()
                                     .text_color(if is_active {
-                                        ThemeColors::TEXT_PRIMARY
+                                        ThemeColors::text_primary()
                                     } else {
-                                        ThemeColors::TEXT_MUTED
+                                        ThemeColors::text_muted()
                                     })
                                     .child(title),
                             )
                             .when(is_dirty, |t| {
                                 t.child(
                                     div()
-                                        .text_xs()
-                                        .text_color(ThemeColors::ACCENT_BLUE)
-                                        .child("●"),
+                                        .w(px(6.0))
+                                        .h(px(6.0))
+                                        .rounded_full()
+                                        .bg(ThemeColors::accent_blue()),
                                 )
                             })
                             .child(
                                 div()
                                     .id(("close-tab", idx))
-                                    .text_xs()
-                                    .text_color(ThemeColors::TEXT_MUTED)
-                                    .hover(|h| h.text_color(rgb(0xef4444)))
-                                    .child("×")
+                                    .p(px(2.0))
+                                    .rounded_sm()
+                                    .cursor_pointer()
+                                    .hover(|h| {
+                                        h.bg(ThemeColors::bg_tab_hover())
+                                            .text_color(ThemeColors::accent_red())
+                                    })
+                                    .child(
+                                        Icon::new(IconName::Close)
+                                            .size(px(12.0))
+                                            .text_color(ThemeColors::text_muted()),
+                                    )
                                     .on_click(cx.listener(move |this, _event, _window, cx| {
                                         this.close_tab(idx, cx);
                                     })),
                             )
+                            // 激活 Tab 底部 2px 高亮条（对齐 macOS tabUnderline）
+                            .when(is_active, |t| {
+                                t.child(
+                                    div()
+                                        .absolute()
+                                        .bottom_0()
+                                        .left_0()
+                                        .right_0()
+                                        .h(px(2.0))
+                                        .bg(ThemeColors::accent_blue()),
+                                )
+                            })
                     })),
             )
             .when_some(active_tab.as_ref(), |this, tab| {
-                // 2. 面包屑导航栏（Breadcrumb Bar）
+                // 2. 面包屑导航栏（Breadcrumb Bar，高 24px）
+                let segments: Vec<&str> = tab.path.split('/').filter(|s| !s.is_empty()).collect();
+                let last_idx = segments.len().saturating_sub(1);
+
                 this.child(
                     h_flex()
                         .h(px(24.0))
                         .w_full()
-                        .bg(ThemeColors::BG_TAB_ACTIVE)
+                        .bg(ThemeColors::bg_tab_active())
                         .border_b_1()
-                        .border_color(ThemeColors::BORDER)
+                        .border_color(ThemeColors::border())
                         .items_center()
                         .px_3()
-                        .gap_1()
+                        .gap_1p5()
                         .text_xs()
-                        .text_color(ThemeColors::TEXT_MUTED)
-                        .child("📂")
+                        .text_color(ThemeColors::text_muted())
                         .child(
-                            tab.path
-                                .split('/')
-                                .collect::<Vec<_>>()
-                                .join("  ›  "),
-                        ),
+                            Icon::new(IconName::Folder)
+                                .size(px(12.0))
+                                .text_color(ThemeColors::text_muted()),
+                        )
+                        .children(segments.into_iter().enumerate().flat_map(|(idx, seg)| {
+                            let is_last = idx == last_idx;
+                            let seg_element = div()
+                                .text_xs()
+                                .text_color(if is_last {
+                                    ThemeColors::text_primary()
+                                } else {
+                                    ThemeColors::text_muted()
+                                })
+                                .child(seg.to_string())
+                                .into_any_element();
+
+                            if is_last {
+                                vec![seg_element]
+                            } else {
+                                vec![
+                                    seg_element,
+                                    Icon::new(IconName::ChevronRight)
+                                        .size(px(10.0))
+                                        .text_color(ThemeColors::text_muted())
+                                        .into_any_element(),
+                                ]
+                            }
+                        })),
                 )
             })
             .child(
@@ -247,27 +332,33 @@ impl Render for EditorView {
                 div().flex_1().w_full().overflow_scrollbar().child(
                     if let Some(tab) = &active_tab {
                         let lines: Vec<String> = tab.content.lines().map(|s| s.to_string()).collect();
+                        let total_lines = lines.len().max(1);
 
                         h_flex()
                             .size_full()
-                            .p_3()
-                            .gap_4()
+                            .p_2()
                             .font_family("monospace")
                             .text_xs()
                             .child(
                                 // 代码行号槽（Gutter）
                                 v_flex()
                                     .flex_shrink_0()
-                                    .text_color(ThemeColors::TEXT_MUTED)
-                                    .children((1..=lines.len().max(1)).map(|num| {
-                                        div().h(px(20.0)).child(format!("{num:4}"))
+                                    .w(px(48.0))
+                                    .pr_3()
+                                    .border_r_1()
+                                    .border_color(ThemeColors::border())
+                                    .text_color(ThemeColors::text_muted())
+                                    .items_end()
+                                    .children((1..=total_lines).map(|num| {
+                                        div().h(px(20.0)).child(format!("{num}"))
                                     })),
                             )
                             .child(
                                 // 代码文本展示行
                                 v_flex()
                                     .flex_1()
-                                    .text_color(ThemeColors::TEXT_PRIMARY)
+                                    .pl_3()
+                                    .text_color(ThemeColors::text_primary())
                                     .children(lines.into_iter().enumerate().map(|(idx, line)| {
                                         div()
                                             .id(idx)
@@ -276,14 +367,77 @@ impl Render for EditorView {
                                     })),
                             )
                     } else {
-                        // 无打开文件欢迎占位
+                        // 无打开文件 Empty State（精致 Lithe 居中徽标与操作提示）
                         h_flex()
                             .size_full()
                             .items_center()
                             .justify_center()
-                            .text_sm()
-                            .text_color(ThemeColors::TEXT_MUTED)
-                            .child("No file opened. Select a file from the project explorer or press Ctrl+P.")
+                            .child(
+                                v_flex()
+                                    .items_center()
+                                    .gap_3()
+                                    .child(
+                                        Icon::new(IconName::Zap)
+                                            .size(px(48.0))
+                                            .text_color(ThemeColors::accent_blue()),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_lg()
+                                            .font_weight(FontWeight::BOLD)
+                                            .text_color(ThemeColors::text_primary())
+                                            .child("Lithe IDEA"),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(ThemeColors::text_muted())
+                                            .child("Next-generation IDE for Linux, powered by GPUI Kit & Rust Core"),
+                                    )
+                                    .child(
+                                        v_flex()
+                                            .pt_2()
+                                            .gap_2()
+                                            .child(
+                                                h_flex()
+                                                    .items_center()
+                                                    .gap_2()
+                                                    .text_xs()
+                                                    .text_color(ThemeColors::text_muted())
+                                                    .child("Search files everywhere:")
+                                                    .child(
+                                                        div()
+                                                            .px_1p5()
+                                                            .py(px(1.0))
+                                                            .bg(ThemeColors::bg_tab_hover())
+                                                            .border_1()
+                                                            .border_color(ThemeColors::border())
+                                                            .rounded_sm()
+                                                            .text_color(ThemeColors::text_primary())
+                                                            .child("Ctrl+P"),
+                                                    ),
+                                            )
+                                            .child(
+                                                h_flex()
+                                                    .items_center()
+                                                    .gap_2()
+                                                    .text_xs()
+                                                    .text_color(ThemeColors::text_muted())
+                                                    .child("Toggle terminal panel:")
+                                                    .child(
+                                                        div()
+                                                            .px_1p5()
+                                                            .py(px(1.0))
+                                                            .bg(ThemeColors::bg_tab_hover())
+                                                            .border_1()
+                                                            .border_color(ThemeColors::border())
+                                                            .rounded_sm()
+                                                            .text_color(ThemeColors::text_primary())
+                                                            .child("Ctrl+`"),
+                                                    ),
+                                            ),
+                                    ),
+                            )
                     },
                 ),
             )

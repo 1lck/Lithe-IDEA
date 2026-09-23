@@ -1,6 +1,7 @@
+use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::scroll::ScrollableElement as _;
-use gpui_kit::component::{h_flex, v_flex, Sizable as _};
+use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     div, px, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
@@ -57,16 +58,18 @@ impl BottomPanelView {
     fn render_tab_button(
         &self,
         id: &'static str,
+        icon: IconName,
         label: String,
         is_active: bool,
         tab: BottomTab,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        div()
+        h_flex()
             .id(id)
+            .items_center()
+            .gap_1p5()
             .px_3()
-            .py_1()
-            .rounded_t_sm()
+            .h(px(30.0))
             .cursor_pointer()
             .text_xs()
             .when(is_active, |btn| {
@@ -77,8 +80,20 @@ impl BottomPanelView {
             })
             .when(!is_active, |btn| {
                 btn.text_color(ThemeColors::text_muted())
-                    .hover(|h| h.bg(ThemeColors::bg_tab_hover()).text_color(ThemeColors::text_primary()))
+                    .hover(|h| {
+                        h.bg(ThemeColors::bg_tab_hover())
+                            .text_color(ThemeColors::text_primary())
+                    })
             })
+            .child(
+                Icon::new(icon)
+                    .size(px(13.0))
+                    .text_color(if is_active {
+                        ThemeColors::accent_blue()
+                    } else {
+                        ThemeColors::text_muted()
+                    }),
+            )
             .child(label)
             .on_click(cx.listener(move |this, _event, _window, cx| {
                 this.set_tab(tab, cx);
@@ -92,24 +107,40 @@ impl Render for BottomPanelView {
             return div()
                 .h(px(26.0))
                 .w_full()
-                .bg(ThemeColors::BG_STATUSBAR)
+                .bg(ThemeColors::bg_statusbar())
                 .border_t_1()
-                .border_color(ThemeColors::BORDER)
+                .border_color(ThemeColors::border())
                 .flex()
                 .items_center()
                 .justify_between()
                 .px_3()
                 .child(
-                    div()
-                        .text_xs()
-                        .text_color(ThemeColors::TEXT_MUTED)
-                        .child("Panel collapsed"),
+                    h_flex()
+                        .id("collapsed-terminal-btn")
+                        .items_center()
+                        .gap_1p5()
+                        .cursor_pointer()
+                        .child(
+                            Icon::new(IconName::Terminal)
+                                .size(px(12.0))
+                                .text_color(ThemeColors::text_muted()),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(ThemeColors::text_muted())
+                                .child("Terminal"),
+                        )
+                        .on_click(cx.listener(|this, _event, _window, cx| {
+                            this.toggle_collapsed(cx);
+                        })),
                 )
                 .child(
                     Button::new("expand-panel")
                         .small()
                         .ghost()
-                        .label("▲ Expand")
+                        .icon(IconName::ChevronUp)
+                        .tooltip("Expand Panel")
                         .on_click(cx.listener(|this, _event, _window, cx| {
                             this.toggle_collapsed(cx);
                         })),
@@ -119,17 +150,17 @@ impl Render for BottomPanelView {
         v_flex()
             .h(px(240.0))
             .w_full()
-            .bg(ThemeColors::BG_BOTTOM_PANEL)
+            .bg(ThemeColors::bg_bottom_panel())
             .border_t_1()
-            .border_color(ThemeColors::BORDER)
+            .border_color(ThemeColors::border())
             .child(
-                // 顶部 Tab 切换栏
+                // 顶部 Tab 切换栏（高 30px）
                 h_flex()
-                    .h(px(32.0))
+                    .h(px(30.0))
                     .w_full()
-                    .bg(ThemeColors::BG_TAB_BAR)
+                    .bg(ThemeColors::bg_tab_bar())
                     .border_b_1()
-                    .border_color(ThemeColors::BORDER)
+                    .border_color(ThemeColors::border())
                     .items_center()
                     .justify_between()
                     .px_2()
@@ -139,6 +170,7 @@ impl Render for BottomPanelView {
                             .gap_1()
                             .child(self.render_tab_button(
                                 "tab-terminal",
+                                IconName::Terminal,
                                 "Terminal".to_string(),
                                 self.active_tab == BottomTab::Terminal,
                                 BottomTab::Terminal,
@@ -146,6 +178,7 @@ impl Render for BottomPanelView {
                             ))
                             .child(self.render_tab_button(
                                 "tab-output",
+                                IconName::FileText,
                                 "Output".to_string(),
                                 self.active_tab == BottomTab::Output,
                                 BottomTab::Output,
@@ -153,6 +186,7 @@ impl Render for BottomPanelView {
                             ))
                             .child(self.render_tab_button(
                                 "tab-problems",
+                                IconName::Bug,
                                 format!("Problems ({})", self.problems.len()),
                                 self.active_tab == BottomTab::Problems,
                                 BottomTab::Problems,
@@ -160,13 +194,41 @@ impl Render for BottomPanelView {
                             )),
                     )
                     .child(
-                        Button::new("collapse-panel")
-                            .small()
-                            .ghost()
-                            .label("▼ Hide")
-                            .on_click(cx.listener(|this, _event, _window, cx| {
-                                this.toggle_collapsed(cx);
-                            })),
+                        h_flex()
+                            .items_center()
+                            .gap_1()
+                            .child(
+                                Button::new("clear-panel")
+                                    .small()
+                                    .ghost()
+                                    .icon(IconName::Trash)
+                                    .tooltip("Clear")
+                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                        match this.active_tab {
+                                            BottomTab::Terminal => {
+                                                let _ = this.terminal.update(cx, |t, cx| t.clear(cx));
+                                            }
+                                            BottomTab::Output => {
+                                                this.output_logs.clear();
+                                                cx.notify();
+                                            }
+                                            BottomTab::Problems => {
+                                                this.problems.clear();
+                                                cx.notify();
+                                            }
+                                        }
+                                    })),
+                            )
+                            .child(
+                                Button::new("collapse-panel")
+                                    .small()
+                                    .ghost()
+                                    .icon(IconName::ChevronDown)
+                                    .tooltip("Hide Panel")
+                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                        this.toggle_collapsed(cx);
+                                    })),
+                            ),
                     ),
             )
             .child(
