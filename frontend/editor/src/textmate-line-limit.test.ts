@@ -1,5 +1,5 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { LINE_TIME_LIMIT_MS, tokenizeLineWithinLimit } from "./textmate-grammar";
+import { LINE_TIME_LIMIT_MS, tokenizeLineWithinLimit } from "./textmate-line-limit";
 
 type State = { name: string };
 const start: State = { name: "line start" };
