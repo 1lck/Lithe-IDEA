@@ -156,15 +156,22 @@ export interface MavenSettings {
   javaHomePath: string;
 }
 
+export type MavenEffectiveConfigurationStatus = "idle" | "loading" | "ready" | "failed";
+
 /**
- * What a Maven launch would use for the current settings. A `null` field means
- * the machine-level detection found nothing, not that the field is disabled.
+ * What a Maven launch would use for the current settings, plus the values
+ * machine detection found while ignoring saved overrides. A `null` field means
+ * detection found nothing, not that the field is disabled.
  */
 export interface MavenEffectiveConfiguration {
   settingsPath: string | null;
   localRepositoryPath: string | null;
   mavenExecutablePath: string | null;
   javaHomePath: string | null;
+  detectedSettingsPath: string | null;
+  detectedLocalRepositoryPath: string | null;
+  detectedMavenExecutablePath: string | null;
+  detectedJavaHomePath: string | null;
 }
 
 export const MAVEN_LIFECYCLE_PHASES = [

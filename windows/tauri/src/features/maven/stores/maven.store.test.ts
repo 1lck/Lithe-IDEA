@@ -128,6 +128,10 @@ const effectiveConfiguration = {
   localRepositoryPath: "C:/Users/example/.m2/repository",
   mavenExecutablePath: "D:/Tools/apache-maven/bin/mvn.cmd",
   javaHomePath: "C:/Java/jdk-21",
+  detectedSettingsPath: "C:/Users/example/.m2/settings.xml",
+  detectedLocalRepositoryPath: "C:/Users/example/.m2/repository",
+  detectedMavenExecutablePath: "D:/Tools/apache-maven/bin/mvn.cmd",
+  detectedJavaHomePath: "C:/Java/jdk-21",
 };
 const resolveMavenEffectiveConfiguration = mock(async () => effectiveConfiguration);
 const startMavenProcess = mock(async () => undefined);
@@ -426,7 +430,42 @@ describe("Maven workspace state", () => {
     expect(store.getState().mavenExecutablePath).toBe("");
   });
 
-  test("seeds only blank local fields without flagging a reload", async () => {
+  test("imports a legacy toolchain only before Maven settings exist", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    store.getState().actions.seedLocalConfiguration({
+      mavenExecutablePath: "D:/Tools/apache-maven",
+      javaHomePath: "C:/Java/jdk-21",
+    });
+    expect(store.getState().mavenExecutablePath).toBe("");
+
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+
+    expect(store.getState().mavenExecutablePath).toBe("D:/Tools/apache-maven");
+    expect(store.getState().javaHomePath).toBe("C:/Java/jdk-21");
+    expect(store.getState().reloadRequired).toBe(false);
+
+    store.getState().actions.seedLocalConfiguration({
+      settingsPath: "C:/Other/settings.xml",
+      mavenExecutablePath: "D:/Other/maven",
+    });
+    expect(store.getState().settingsPath).toBe("");
+    expect(store.getState().mavenExecutablePath).toBe("D:/Tools/apache-maven");
+  });
+
+  test("imports a legacy toolchain after a project loads with no saved settings", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    expect(store.getState().mavenExecutablePath).toBe("");
+
+    store.getState().actions.seedLocalConfiguration({
+      mavenExecutablePath: "D:/Tools/apache-maven",
+    });
+
+    expect(store.getState().mavenExecutablePath).toBe("D:/Tools/apache-maven");
+    expect(store.getState().reloadRequired).toBe(false);
+  });
+
+  test("keeps automatic fields empty after Maven settings are saved", async () => {
     const store = createMavenStore("workspace", dependencies);
     await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
     store.getState().actions.updateLocalConfiguration({
@@ -444,17 +483,28 @@ describe("Maven workspace state", () => {
     });
 
     expect(store.getState().settingsPath).toBe("C:/custom/settings.xml");
-    expect(store.getState().mavenExecutablePath).toBe("D:/Tools/apache-maven");
-    expect(store.getState().javaHomePath).toBe("C:/Java/jdk-21");
-    expect(store.getState().reloadRequired).toBe(false);
+    expect(store.getState().mavenExecutablePath).toBe("");
+    expect(store.getState().javaHomePath).toBe("");
+  });
 
-    // Existing values win, so a second seed cannot overwrite them.
-    store.getState().actions.seedLocalConfiguration({
-      settingsPath: "C:/Other/settings.xml",
-      mavenExecutablePath: "D:/Other/maven",
+  test("does not import a legacy toolchain over a saved automatic configuration", async () => {
+    loadMavenConfiguration.mockResolvedValue({
+      local: {
+        version: 1,
+        settingsPath: null,
+        localRepositoryPath: null,
+        mavenExecutablePath: null,
+        javaHomePath: null,
+      },
     });
-    expect(store.getState().settingsPath).toBe("C:/custom/settings.xml");
-    expect(store.getState().mavenExecutablePath).toBe("D:/Tools/apache-maven");
+    const store = createMavenStore("workspace", dependencies);
+    store.getState().actions.seedLocalConfiguration({
+      mavenExecutablePath: "D:/Tools/apache-maven",
+    });
+
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+
+    expect(store.getState().mavenExecutablePath).toBe("");
   });
 
   test("shares the effective machine configuration with every surface", async () => {

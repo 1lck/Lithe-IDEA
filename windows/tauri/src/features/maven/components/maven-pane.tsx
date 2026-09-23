@@ -150,6 +150,9 @@ function MavenSettingsDialog({
 }) {
   const { t } = useTranslation();
   const effectiveConfiguration = useMavenStore((state) => state.effectiveConfiguration);
+  const effectiveConfigurationStatus = useMavenStore(
+    (state) => state.effectiveConfigurationStatus,
+  );
   const [draft, setDraft] = useState(initial);
 
   const choosePath = async (field: keyof MavenSettings, directory: boolean) => {
@@ -257,6 +260,7 @@ function MavenSettingsDialog({
               field={field}
               value={draft[field]}
               effective={effectiveConfiguration}
+              status={effectiveConfigurationStatus}
             />
           </label>
         ))}

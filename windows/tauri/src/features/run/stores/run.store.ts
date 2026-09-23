@@ -6,7 +6,7 @@ import {
   mavenLaunchContextForWorkspace,
   useMavenStore,
 } from "@/features/maven/stores/maven.store";
-import type { MavenSettings } from "@/features/maven/types/maven.types";
+import type { MavenLaunchContext, MavenSettings } from "@/features/maven/types/maven.types";
 import {
   createLaunchPlan,
   generateRunConfiguration,
@@ -248,6 +248,25 @@ function appendStampedOutput(sessionId: string, existing: string, chunk: string)
 
 function flushStampedOutput(sessionId: string, existing: string): string {
   return trimOutput(existing + stamperFor(sessionId).flush());
+}
+
+// A loaded Maven project owns the executable and JDK, including a blank value
+// that means automatic. The run configuration's copy is only for projects that
+// have no Maven settings document.
+function mavenProcessPaths(
+  mavenContext: MavenLaunchContext | null,
+  configuration: { mavenExecutablePath: string; mavenJavaHomePath: string },
+) {
+  if (mavenContext) {
+    return {
+      mavenExecutablePath: mavenContext.mavenExecutablePath ?? "",
+      mavenJavaHomePath: mavenContext.javaHomePath ?? "",
+    };
+  }
+  return {
+    mavenExecutablePath: configuration.mavenExecutablePath || "",
+    mavenJavaHomePath: configuration.mavenJavaHomePath || "",
+  };
 }
 
 function optionsFromConfiguration(configuration: RunConfiguration): RunOptions {
@@ -561,12 +580,7 @@ export const createRunStore = (
             executable: plan.executable,
             workingDirectory: plan.workingDirectory,
             javaHomePath: configuration.javaHomePath,
-            // The shared Maven settings win; the per-configuration copy is only a
-            // fallback for configurations saved before the paths were unified.
-            mavenExecutablePath:
-              mavenContext?.mavenExecutablePath || configuration.mavenExecutablePath || "",
-            mavenJavaHomePath:
-              mavenContext?.javaHomePath || configuration.mavenJavaHomePath || "",
+            ...mavenProcessPaths(mavenContext, configuration),
             runtimeExecutablePaths: state.effectiveRuntimeExecutablePaths,
             environment: mergeLaunchEnvironment(configuration.env, plan),
           });
@@ -647,12 +661,7 @@ export const createRunStore = (
               executable: step.executable,
               workingDirectory: plan.workingDirectory,
               javaHomePath: configuration.javaHomePath,
-              // The shared Maven settings win; the per-configuration copy is only
-              // a fallback for configurations saved before the paths were unified.
-              mavenExecutablePath:
-                mavenContext?.mavenExecutablePath || configuration.mavenExecutablePath || "",
-              mavenJavaHomePath:
-                mavenContext?.javaHomePath || configuration.mavenJavaHomePath || "",
+              ...mavenProcessPaths(mavenContext, configuration),
               runtimeExecutablePaths: state.effectiveRuntimeExecutablePaths,
               environment: mergeLaunchEnvironment(configuration.env, plan),
             });

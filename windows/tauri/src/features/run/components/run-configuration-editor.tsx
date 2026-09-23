@@ -122,6 +122,8 @@ export function RunConfigurationEditor({
   const mavenExecutablePath = useMavenStore((state) => state.mavenExecutablePath);
   const mavenJavaHomePath = useMavenStore((state) => state.javaHomePath);
   const mavenEffectiveConfiguration = useMavenStore((state) => state.effectiveConfiguration);
+  const mavenEffectiveStatus = useMavenStore((state) => state.effectiveConfigurationStatus);
+  const mavenProject = useMavenStore((state) => state.project);
   const updateMavenConfiguration = useMavenStore((state) => state.actions.updateLocalConfiguration);
   const [draft, setDraft] = useState(() => ({
     ...configurationOverrides(options, globalToolchain),
@@ -185,7 +187,12 @@ export function RunConfigurationEditor({
     const effectiveField =
       field === "mavenExecutablePath" ? "mavenExecutablePath" : "javaHomePath";
     return (
-      <MavenDetectedValue field={effectiveField} value={value} effective={mavenEffectiveConfiguration} />
+      <MavenDetectedValue
+        field={effectiveField}
+        value={value}
+        effective={mavenEffectiveConfiguration}
+        status={mavenEffectiveStatus}
+      />
     );
   };
 
@@ -237,20 +244,31 @@ export function RunConfigurationEditor({
 
   const save = async () => {
     setSaving(true);
-    const runOptions = { ...draft, environment: environmentFromText(envText) };
+    // A Maven project keeps these paths in the Maven settings document. The run
+    // documents must not keep a second copy, or a blank automatic field gets
+    // filled back in from the toolchain the next time the project opens.
+    const mavenPathsOwnedBySettings = Boolean(mavenProject);
+    const runOptions = {
+      ...draft,
+      environment: environmentFromText(envText),
+      ...(mavenPathsOwnedBySettings
+        ? { mavenExecutablePath: "", mavenJavaHomePath: "" }
+        : {}),
+    };
+    const toolchainToSave = mavenPathsOwnedBySettings
+      ? { ...toolchainDraft, mavenExecutablePath: "", mavenJavaHomePath: "" }
+      : toolchainDraft;
     try {
-      const saved = await onSave(runOptions, toolchainDraft, scope);
-      if (saved) {
-        // These fields are the shared Maven settings, so a saved override is
-        // written back for every surface that reads them.
+      if (mavenPathsOwnedBySettings) {
         updateMavenConfiguration({
           settingsPath: mavenSettingsPath,
           localRepositoryPath: mavenLocalRepositoryPath,
           mavenExecutablePath: toolchainDraft.mavenExecutablePath,
           javaHomePath: toolchainDraft.mavenJavaHomePath,
         });
-        onClose();
       }
+      const saved = await onSave(runOptions, toolchainToSave, scope);
+      if (saved) onClose();
     } finally {
       setSaving(false);
     }

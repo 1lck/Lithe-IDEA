@@ -170,4 +170,54 @@ describe("Maven-backed Run context", () => {
       }),
     ]);
   });
+
+  test("uses a blank Maven setting instead of a legacy run toolchain path", async () => {
+    const automaticContext: MavenLaunchContext = {
+      ...mavenContext,
+      mavenExecutablePath: null,
+      javaHomePath: null,
+    };
+    const resolveRunLaunch = mock(async () => ({
+      executable: "D:/Tools/mvn.cmd",
+      workingDirectory: "D:/work/reactor",
+      environment: {},
+    }));
+    const dependencies: RunStoreDependencies = {
+      createLaunchPlan: mock(async () => ({
+        executable: { toolchain: "project-maven" as const },
+        arguments: ["-B", "spring-boot:run"],
+        workingDirectory: "reactor",
+      })),
+      mavenLaunchContextForWorkspace: mock(async () => automaticContext),
+      resolveRunLaunch,
+      saveWorkspaceBeforeLaunch: mock(async () => undefined),
+      executePreLaunchStep: mock(async () => ({ exitCode: 0, output: "" })),
+      startRunProcess: mock(async () => undefined),
+      stopRunProcess: mock(async () => undefined),
+      seedMavenLocalConfiguration: () => undefined,
+      prepareJavaRunLaunch: mock(async () => null),
+    };
+    const store = createRunStore("workspace", dependencies);
+    store.setState({
+      root: "D:/work",
+      configurations: [
+        {
+          ...configuration,
+          mavenExecutablePath: "D:/legacy/mvn.cmd",
+          mavenJavaHomePath: "C:/legacy/jdk",
+        },
+      ],
+      diagnostics: [],
+      effectiveRuntimeExecutablePaths: {},
+    });
+
+    await store.getState().actions.runConfiguration(configuration.id);
+
+    expect(resolveRunLaunch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mavenExecutablePath: "",
+        mavenJavaHomePath: "",
+      }),
+    );
+  });
 });

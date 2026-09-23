@@ -3,6 +3,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { MavenDetectedValue } from "@/features/maven/components/maven-detected-value";
 import type { MavenSettings } from "@/features/maven/types/maven.types";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
+import { WorkspaceStoreScopeContext } from "@/features/workspace/stores/create-workspace-scoped-store";
+import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import { FolderIcon, TrashIcon } from "@/ui/icons";
@@ -33,9 +35,25 @@ interface MavenField {
 /**
  * The Maven page of the application settings. It edits the same project-scoped
  * configuration as the Maven tool window, so both surfaces always agree, and it
- * shows what blank fields fall back to on this machine.
+ * shows what automatic detection found on this machine.
+ *
+ * The settings dialog sits outside the workbench's workspace provider, so this
+ * wrapper pins it to the active project tab — the same store the Maven tool
+ * window uses.
  */
 export function MavenSettingsPanel() {
+  const projectTabId = useWorkspaceTabsStore(
+    (state) => state.projectTabs.find((tab) => tab.isActive)?.id ?? null,
+  );
+  if (!projectTabId) return <MavenSettingsForm />;
+  return (
+    <WorkspaceStoreScopeContext.Provider value={projectTabId}>
+      <MavenSettingsForm />
+    </WorkspaceStoreScopeContext.Provider>
+  );
+}
+
+function MavenSettingsForm() {
   const { t } = useTranslation();
   const project = useMavenStore((state) => state.project);
   const projectStatus = useMavenStore((state) => state.projectStatus);
@@ -45,7 +63,17 @@ export function MavenSettingsPanel() {
   const javaHomePath = useMavenStore((state) => state.javaHomePath);
   const configurationSaveError = useMavenStore((state) => state.configurationSaveError);
   const effectiveConfiguration = useMavenStore((state) => state.effectiveConfiguration);
+  const effectiveConfigurationStatus = useMavenStore(
+    (state) => state.effectiveConfigurationStatus,
+  );
   const updateLocalConfiguration = useMavenStore((state) => state.actions.updateLocalConfiguration);
+  const resolveEffectiveConfiguration = useMavenStore(
+    (state) => state.actions.resolveEffectiveConfiguration,
+  );
+
+  useEffect(() => {
+    void resolveEffectiveConfiguration();
+  }, [project, resolveEffectiveConfiguration]);
 
   const saved: MavenSettings = {
     settingsPath,
@@ -131,6 +159,7 @@ export function MavenSettingsPanel() {
             field={field}
             value={draft[field]}
             effective={effectiveConfiguration}
+            status={effectiveConfigurationStatus}
           />
         </label>
       ))}

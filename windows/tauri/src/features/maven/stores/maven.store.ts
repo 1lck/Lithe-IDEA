@@ -32,6 +32,7 @@ import type {
   MavenLocalConfiguration,
   MavenPortableConfiguration,
   MavenProfile,
+  MavenEffectiveConfigurationStatus,
   MavenProject,
   MavenProjectStatus,
   MavenSettings,
@@ -127,6 +128,7 @@ export interface MavenState {
    * surface that shows these fields. `null` hides the detected values.
    */
   effectiveConfiguration: MavenEffectiveConfiguration | null;
+  effectiveConfigurationStatus: MavenEffectiveConfigurationStatus;
   reloadRequired: boolean;
   projectReloadRequired: boolean;
   reloadRevision: number;
@@ -219,6 +221,42 @@ function normalizedPath(value: string | null | undefined): string {
   return value?.trim() ?? "";
 }
 
+type MavenLocalPaths = Pick<
+  MavenState,
+  "settingsPath" | "localRepositoryPath" | "mavenExecutablePath" | "javaHomePath"
+>;
+
+function mavenLocalPaths(settings: Partial<MavenSettings>): MavenLocalPaths {
+  return {
+    settingsPath: normalizedPath(settings.settingsPath),
+    localRepositoryPath: normalizedPath(settings.localRepositoryPath),
+    mavenExecutablePath: normalizedPath(settings.mavenExecutablePath),
+    javaHomePath: normalizedPath(settings.javaHomePath),
+  };
+}
+
+function withBlankFieldsFilled(
+  current: MavenLocalPaths,
+  incoming: Partial<MavenSettings>,
+): MavenLocalPaths {
+  const next = mavenLocalPaths(incoming);
+  return {
+    settingsPath: current.settingsPath || next.settingsPath,
+    localRepositoryPath: current.localRepositoryPath || next.localRepositoryPath,
+    mavenExecutablePath: current.mavenExecutablePath || next.mavenExecutablePath,
+    javaHomePath: current.javaHomePath || next.javaHomePath,
+  };
+}
+
+function sameLocalPaths(left: MavenLocalPaths, right: MavenLocalPaths): boolean {
+  return (
+    left.settingsPath === right.settingsPath &&
+    left.localRepositoryPath === right.localRepositoryPath &&
+    left.mavenExecutablePath === right.mavenExecutablePath &&
+    left.javaHomePath === right.javaHomePath
+  );
+}
+
 export function availableMavenProfiles(state: Pick<MavenState, "project" | "customProfiles">) {
   const profiles = new Map<string, MavenProfile>();
   for (const profile of state.project?.profiles ?? []) profiles.set(profile.id, profile);
@@ -307,6 +345,11 @@ export const createMavenStore = (
   let projectLoadRevision = 0;
   let configurationRevision = 0;
   let effectiveConfigurationRevision = 0;
+  // True once this workspace has a Maven local document, including one the user
+  // saved with blank fields. Blank then means automatic, so a legacy run
+  // toolchain must not fill those fields back in.
+  let localConfigurationPersisted = false;
+  let pendingLocalSeed: MavenLocalPaths | null = null;
   let launchRevision = 0;
   let diagnosticsRevision = 0;
   let dependencyRevision = 0;
@@ -316,6 +359,34 @@ export const createMavenStore = (
   let configurationWriteTask = Promise.resolve();
   let pomWatchTask = Promise.resolve();
   let watchedPomPaths = new Set<string>();
+
+  const rememberPendingSeed = (settings: Partial<MavenSettings>) => {
+    pendingLocalSeed = withBlankFieldsFilled(
+      pendingLocalSeed ?? {
+        settingsPath: "",
+        localRepositoryPath: "",
+        mavenExecutablePath: "",
+        javaHomePath: "",
+      },
+      settings,
+    );
+  };
+
+  // Applies a toolchain seed only while this workspace has never saved Maven
+  // settings. A saved document, even one whose paths are blank, already chose
+  // automatic for those fields.
+  const adoptPendingLocalSeed = (settings: MavenLocalPaths) => {
+    if (localConfigurationPersisted) {
+      pendingLocalSeed = null;
+      return { settings, migrated: false };
+    }
+    if (!pendingLocalSeed) return { settings, migrated: false };
+    const next = withBlankFieldsFilled(settings, pendingLocalSeed);
+    pendingLocalSeed = null;
+    const migrated = !sameLocalPaths(settings, next);
+    if (migrated) localConfigurationPersisted = true;
+    return { settings: next, migrated };
+  };
 
   return createStore<MavenState>()((set, get) => {
     const pomWatchOperations = dependencies.createMavenPomWatchOperations(workspaceId);
@@ -509,6 +580,7 @@ export const createMavenStore = (
       javaHomePath: "",
       configurationSaveError: null,
       effectiveConfiguration: null,
+      effectiveConfigurationStatus: "idle",
       reloadRequired: false,
       projectReloadRequired: false,
       reloadRevision: 0,
@@ -543,6 +615,8 @@ export const createMavenStore = (
               releaseMavenSessionWorkspace(previous.activeSessionId);
             }
             if (previous.root && previous.root !== root) {
+              pendingLocalSeed = null;
+              localConfigurationPersisted = false;
               await synchronizePomWatches(new Set());
               if (projectLoadRevision !== revision) return;
             }
@@ -580,6 +654,7 @@ export const createMavenStore = (
               if (!project) {
                 await synchronizePomWatches(new Set());
                 if (projectLoadRevision !== revision || get().root !== root) return;
+                localConfigurationPersisted = false;
                 set({
                   projectStatus: "ready",
                   project: null,
@@ -642,6 +717,18 @@ export const createMavenStore = (
               const selectedProfiles = normalizedProfiles(
                 stored.portable?.selectedProfiles ?? defaultProfiles,
               ).filter((profile) => knownProfiles.has(profile));
+              if (!preserveLatestInMemoryConfiguration) {
+                localConfigurationPersisted = stored.local != null;
+              }
+              const loadedPaths = {
+                settingsPath: normalizedPath(stored.local?.settingsPath),
+                localRepositoryPath: normalizedPath(stored.local?.localRepositoryPath),
+                mavenExecutablePath: normalizedPath(stored.local?.mavenExecutablePath),
+                javaHomePath: normalizedPath(stored.local?.javaHomePath),
+              };
+              const adopted = preserveLatestInMemoryConfiguration
+                ? { settings: loadedPaths, migrated: false }
+                : adoptPendingLocalSeed(loadedPaths);
               set({
                 projectStatus: "ready",
                 projectError: null,
@@ -649,11 +736,9 @@ export const createMavenStore = (
                 selectedProfiles,
                 customProfiles,
                 skipTests: stored.portable?.skipTests ?? false,
-                settingsPath: normalizedPath(stored.local?.settingsPath),
-                localRepositoryPath: normalizedPath(stored.local?.localRepositoryPath),
-                mavenExecutablePath: normalizedPath(stored.local?.mavenExecutablePath),
-                javaHomePath: normalizedPath(stored.local?.javaHomePath),
+                ...adopted.settings,
               });
+              if (adopted.migrated) persistConfiguration();
             } catch (error) {
               if (projectLoadRevision !== revision || get().root !== root) return;
               const message =
@@ -668,6 +753,7 @@ export const createMavenStore = (
                 }));
                 return;
               }
+              localConfigurationPersisted = false;
               set({
                 projectStatus: "failed",
                 projectError: message,
@@ -776,52 +862,51 @@ export const createMavenStore = (
           ) {
             return;
           }
+          localConfigurationPersisted = true;
+          pendingLocalSeed = null;
           set(next);
           configurationDidChange();
           void get().actions.resolveEffectiveConfiguration();
         },
 
-        // Fills blank local fields from another configuration surface, such as
-        // the run feature's legacy project toolchain. Existing values win and the
-        // reload prompt stays off: this migrates an already effective value
-        // instead of recording a user edit. Workspaces without a Maven project
-        // never seed, because the shared configuration exists only with one.
+        // Imports a legacy run-toolchain path into a blank field, once, before
+        // this workspace has its own Maven settings document. A document that
+        // exists — including one the user saved with blank paths — already owns
+        // those fields, so a later toolchain value cannot overwrite automatic.
+        // The reload prompt stays off: this migrates an already effective value.
         seedLocalConfiguration: (settings) => {
+          if (localConfigurationPersisted) return;
           const state = get();
-          if (!state.project) return;
-          const next = {
-            settingsPath: state.settingsPath || normalizedPath(settings.settingsPath),
-            localRepositoryPath:
-              state.localRepositoryPath || normalizedPath(settings.localRepositoryPath),
-            mavenExecutablePath:
-              state.mavenExecutablePath || normalizedPath(settings.mavenExecutablePath),
-            javaHomePath: state.javaHomePath || normalizedPath(settings.javaHomePath),
-          };
-          if (
-            next.settingsPath === state.settingsPath &&
-            next.localRepositoryPath === state.localRepositoryPath &&
-            next.mavenExecutablePath === state.mavenExecutablePath &&
-            next.javaHomePath === state.javaHomePath
-          ) {
+          if (!state.project) {
+            rememberPendingSeed(settings);
             return;
           }
+          const next = withBlankFieldsFilled(state, settings);
+          if (sameLocalPaths(state, next)) return;
+          localConfigurationPersisted = true;
+          pendingLocalSeed = null;
           set(next);
           persistConfiguration();
           void get().actions.resolveEffectiveConfiguration();
         },
 
-        // Resolves the values a launch would use for the saved configuration, so
-        // every surface showing these fields can display what blank ones fall
-        // back to. A detection failure hides them instead of reporting an error,
-        // and a workspace without a Maven project clears them without asking the
-        // host at all.
+        // Resolves the launch values and the machine-detected values for the
+        // saved configuration. A detection failure clears the result so the
+        // surfaces can say detection did not finish, and a workspace without a
+        // Maven project clears it without asking the host at all.
         resolveEffectiveConfiguration: async () => {
           const state = get();
           if (!state.root || !state.project) {
-            if (get().effectiveConfiguration !== null) set({ effectiveConfiguration: null });
+            if (
+              get().effectiveConfiguration !== null ||
+              get().effectiveConfigurationStatus !== "idle"
+            ) {
+              set({ effectiveConfiguration: null, effectiveConfigurationStatus: "idle" });
+            }
             return;
           }
           const revision = ++effectiveConfigurationRevision;
+          set({ effectiveConfigurationStatus: "loading" });
           try {
             const resolved = await dependencies.resolveMavenEffectiveConfiguration(
               state.root,
@@ -834,10 +919,10 @@ export const createMavenStore = (
               },
             );
             if (effectiveConfigurationRevision !== revision) return;
-            set({ effectiveConfiguration: resolved });
+            set({ effectiveConfiguration: resolved, effectiveConfigurationStatus: "ready" });
           } catch {
             if (effectiveConfigurationRevision !== revision) return;
-            set({ effectiveConfiguration: null });
+            set({ effectiveConfiguration: null, effectiveConfigurationStatus: "failed" });
           }
         },
 

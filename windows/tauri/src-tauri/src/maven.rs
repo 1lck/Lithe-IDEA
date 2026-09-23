@@ -102,8 +102,9 @@ pub struct ResolveEffectiveConfigurationArgs {
     pub java_home_path: String,
 }
 
-/// The values a Maven launch would actually use. `None` means the machine-level
-/// detection found nothing for that field.
+/// The values a Maven launch would actually use, alongside the values detection
+/// found when every saved override is ignored. `None` means detection found
+/// nothing for that field.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MavenEffectiveConfiguration {
@@ -111,6 +112,10 @@ pub struct MavenEffectiveConfiguration {
     pub local_repository_path: Option<String>,
     pub maven_executable_path: Option<String>,
     pub java_home_path: Option<String>,
+    pub detected_settings_path: Option<String>,
+    pub detected_local_repository_path: Option<String>,
+    pub detected_maven_executable_path: Option<String>,
+    pub detected_java_home_path: Option<String>,
 }
 
 /// Resolves the effective Maven configuration for the saved settings, so the
@@ -127,28 +132,82 @@ pub fn maven_resolve_effective_configuration(
         "" => root.clone(),
         reactor => root.join(reactor),
     };
-    let maven_executable_path =
-        resolve_maven_executable(&root, &working_directory, &args.maven_executable_path).ok();
-    let java_home_path = resolve_java_home(&root, &args.java_home_path)
-        .ok()
-        .flatten();
-    let home = user_home_directory();
-    let settings_path = effective_settings_path(
+    // Detection is resolved once with empty overrides. A saved path is resolved
+    // only when the user set one, so the automatic case does not probe twice.
+    let detected_maven = resolve_maven_executable(&root, &working_directory, "").ok();
+    let detected_java = resolve_java_home(&root, "").ok().flatten();
+    let selected_maven = if args.maven_executable_path.trim().is_empty() {
+        detected_maven.clone()
+    } else {
+        resolve_maven_executable(&root, &working_directory, &args.maven_executable_path).ok()
+    };
+    let selected_java = if args.java_home_path.trim().is_empty() {
+        detected_java.clone()
+    } else {
+        resolve_java_home(&root, &args.java_home_path).ok().flatten()
+    };
+    Ok(assemble_effective_configuration(
         &args.settings_path,
-        home.as_deref(),
+        &args.local_repository_path,
+        &args.maven_executable_path,
+        &args.java_home_path,
+        detected_maven,
+        detected_java,
+        selected_maven,
+        selected_java,
+        user_home_directory().as_deref(),
+    ))
+}
+
+/// Combines saved overrides with already resolved executables.
+///
+/// `detected_*` arguments are what the machine finds with every override blank.
+/// `selected_*` arguments are the executables a launch would use, which equal
+/// the detected ones when the corresponding override is blank.
+fn assemble_effective_configuration(
+    configured_settings: &str,
+    configured_repository: &str,
+    configured_maven: &str,
+    configured_java: &str,
+    detected_maven: Option<String>,
+    detected_java: Option<String>,
+    selected_maven: Option<String>,
+    selected_java: Option<String>,
+    home: Option<&Path>,
+) -> MavenEffectiveConfiguration {
+    let maven_executable_path = if configured_maven.trim().is_empty() {
+        detected_maven.clone()
+    } else {
+        selected_maven
+    };
+    let java_home_path = if configured_java.trim().is_empty() {
+        detected_java.clone()
+    } else {
+        selected_java
+    };
+    let detected_settings_path = effective_settings_path("", home, detected_maven.as_deref());
+    let settings_path = effective_settings_path(
+        configured_settings,
+        home,
         maven_executable_path.as_deref(),
     );
+    let detected_local_repository_path =
+        effective_local_repository_path("", detected_settings_path.as_deref(), home);
     let local_repository_path = effective_local_repository_path(
-        &args.local_repository_path,
+        configured_repository,
         settings_path.as_deref(),
-        home.as_deref(),
+        home,
     );
-    Ok(MavenEffectiveConfiguration {
+    MavenEffectiveConfiguration {
         settings_path,
         local_repository_path,
         maven_executable_path,
         java_home_path,
-    })
+        detected_settings_path,
+        detected_local_repository_path,
+        detected_maven_executable_path: detected_maven,
+        detected_java_home_path: detected_java,
+    }
 }
 
 /// The current user's home directory, which owns the Maven user-level defaults
@@ -440,6 +499,98 @@ mod tests {
 
         fs::remove_dir_all(home).ok();
         fs::remove_dir_all(installation).ok();
+    }
+
+    #[test]
+    fn detected_paths_stay_visible_when_overrides_are_configured() {
+        let home = temp_directory();
+        fs::create_dir_all(home.join(".m2")).expect("user m2");
+        let user_settings = home.join(".m2").join("settings.xml");
+        fs::write(
+            &user_settings,
+            "<settings><localRepository>C:\\from-settings</localRepository></settings>",
+        )
+        .expect("write user settings");
+
+        let resolved = assemble_effective_configuration(
+            "D:\\custom-settings.xml",
+            "D:\\custom-repo",
+            "D:\\custom-maven",
+            "D:\\custom-jdk",
+            Some("D:\\detected\\mvn.cmd".into()),
+            Some("D:\\detected-jdk".into()),
+            Some("D:\\custom-maven\\bin\\mvn.cmd".into()),
+            Some("D:\\custom-jdk".into()),
+            Some(&home),
+        );
+
+        assert_eq!(
+            resolved.maven_executable_path.as_deref(),
+            Some("D:\\custom-maven\\bin\\mvn.cmd")
+        );
+        assert_eq!(
+            resolved.detected_maven_executable_path.as_deref(),
+            Some("D:\\detected\\mvn.cmd")
+        );
+        assert_eq!(resolved.java_home_path.as_deref(), Some("D:\\custom-jdk"));
+        assert_eq!(
+            resolved.detected_java_home_path.as_deref(),
+            Some("D:\\detected-jdk")
+        );
+        assert_eq!(
+            resolved.settings_path.as_deref(),
+            Some("D:\\custom-settings.xml")
+        );
+        assert_eq!(
+            resolved.detected_settings_path.as_deref(),
+            Some(user_settings.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            resolved.local_repository_path.as_deref(),
+            Some("D:\\custom-repo")
+        );
+        assert_eq!(
+            resolved.detected_local_repository_path.as_deref(),
+            Some("C:\\from-settings")
+        );
+        fs::remove_dir_all(home).ok();
+    }
+
+    #[test]
+    fn blank_configuration_uses_the_detected_values() {
+        let home = temp_directory();
+        let resolved = assemble_effective_configuration(
+            "",
+            "",
+            "",
+            "",
+            Some("D:\\detected\\mvn.cmd".into()),
+            None,
+            Some("D:\\detected\\mvn.cmd".into()),
+            None,
+            Some(&home),
+        );
+        let repository = home.join(".m2").join("repository");
+
+        assert_eq!(
+            resolved.maven_executable_path.as_deref(),
+            Some("D:\\detected\\mvn.cmd")
+        );
+        assert_eq!(
+            resolved.detected_maven_executable_path.as_deref(),
+            Some("D:\\detected\\mvn.cmd")
+        );
+        assert_eq!(resolved.java_home_path, None);
+        assert_eq!(resolved.detected_java_home_path, None);
+        assert_eq!(
+            resolved.local_repository_path.as_deref(),
+            Some(repository.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            resolved.detected_local_repository_path,
+            resolved.local_repository_path
+        );
+        fs::remove_dir_all(home).ok();
     }
 
     #[test]
