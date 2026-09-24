@@ -8,11 +8,18 @@ import SwiftUI
 /// - Maven 错误行 `[ERROR] path:[line,col]` 与 Java 堆栈行 `at x.y.Foo.bar(Foo.java:42)` 可点击跳转源码
 /// - 智能滚动:用户上翻后不强制拉底,并显示 "Jump to latest" 按钮
 /// - 右上角一键复制全部输出
+/// - 可选自动换行:调用方提供切换回调时,右键菜单附带「自动换行」勾选项
 struct OutputTextView: View {
     let output: String
     let searchRoots: [URL]
     let fileExists: (URL) -> Bool
     let emptyMessage: String
+    /// Wraps lines to the pane width; off keeps each line on one row with
+    /// horizontal scrolling, the historical behavior of every output pane.
+    var wrapsLines = false
+    /// Adds a soft-wrap toggle to the context menu. Callers that do not own a
+    /// wrap preference leave it nil and keep the plain text menu.
+    var onToggleWrapsLines: (() -> Void)?
     let onOpenLocation: (URL, Int, Int?) -> Void
 
     @State private var isAtBottom = true
@@ -27,6 +34,8 @@ struct OutputTextView: View {
             fileExists: fileExists,
             emptyMessage: emptyMessage,
             theme: LitheTheme.activeTheme,
+            wrapsLines: wrapsLines,
+            onToggleWrapsLines: onToggleWrapsLines,
             scrollToLatestRequest: scrollToLatestRequest,
             bottomThreshold: Self.bottomThreshold,
             render: Self.renderOutput,
@@ -462,6 +471,8 @@ private struct OutputTextStorageView: NSViewRepresentable {
     let fileExists: (URL) -> Bool
     let emptyMessage: String
     let theme: AppColorTheme
+    let wrapsLines: Bool
+    let onToggleWrapsLines: (() -> Void)?
     let scrollToLatestRequest: Int
     let bottomThreshold: CGFloat
     let render: (String, [URL], @escaping (URL) -> Bool, Bool, AppColorTheme) -> NSAttributedString
@@ -503,8 +514,9 @@ private struct OutputTextStorageView: NSViewRepresentable {
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
-        LitheTextViewportLayout.applyUnwrappedScrolling(to: textView, in: scrollView)
         scrollView.documentView = textView
+        LitheTextViewportLayout.apply(to: textView, in: scrollView, softWrap: wrapsLines)
+        context.coordinator.appliedWrapsLines = wrapsLines
         scrollView.contentView.postsBoundsChangedNotifications = true
         context.coordinator.attach(scrollView: scrollView, textView: textView)
         return scrollView
@@ -514,6 +526,8 @@ private struct OutputTextStorageView: NSViewRepresentable {
         context.coordinator.onOpenLocation = onOpenLocation
         context.coordinator.onBottomStateChange = onBottomStateChange
         context.coordinator.bottomThreshold = bottomThreshold
+        context.coordinator.onToggleWrapsLines = onToggleWrapsLines
+        context.coordinator.applyWrapsLines(wrapsLines)
         context.coordinator.apply(
             output: output,
             emptyMessage: emptyMessage,
@@ -537,6 +551,8 @@ private struct OutputTextStorageView: NSViewRepresentable {
         var onBottomStateChange: (@MainActor (Bool) -> Void)?
         var bottomThreshold: CGFloat = 80
         var scrollToLatestRequest = 0
+        var onToggleWrapsLines: (() -> Void)?
+        var appliedWrapsLines = false
         private var source = ""
         private var sourceHadANSI = false
         private var showingEmptyMessage = false
@@ -646,6 +662,34 @@ private struct OutputTextStorageView: NSViewRepresentable {
             isAtBottom = true
         }
 
+        /// Switches the viewport geometry only when the mode changes, so an
+        /// ordinary output append never triggers a full relayout. A reader who
+        /// was following the tail stays on it after the lines rewrap.
+        func applyWrapsLines(_ wrapsLines: Bool) {
+            guard wrapsLines != appliedWrapsLines,
+                  let scrollView, let textView else { return }
+            let wasAtBottom = isAtBottom
+            appliedWrapsLines = wrapsLines
+            LitheTextViewportLayout.apply(to: textView, in: scrollView, softWrap: wrapsLines)
+            if wasAtBottom { scrollToBottom() }
+            reportBottomState()
+        }
+
+        func textView(_ view: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
+            guard let onToggleWrapsLines else { return menu }
+            // AppKit may hand back a reused menu; drop an earlier toggle and its
+            // separator so repeated right-clicks never stack duplicate entries.
+            if let index = menu.items.firstIndex(where: { $0 is OutputSoftWrapMenuItem }) {
+                menu.removeItem(at: index)
+                if index > 0, menu.items[index - 1].isSeparatorItem {
+                    menu.removeItem(at: index - 1)
+                }
+            }
+            menu.addItem(.separator())
+            menu.addItem(OutputSoftWrapMenuItem(isOn: appliedWrapsLines, onToggle: onToggleWrapsLines))
+            return menu
+        }
+
         func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
             guard let url = link as? URL, let location = OutputTextView.location(from: url) else { return false }
             onOpenLocation?(location.url, location.line, location.column)
@@ -665,6 +709,32 @@ private struct OutputTextStorageView: NSViewRepresentable {
         deinit {
             if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
         }
+    }
+}
+
+/// The checkable soft-wrap entry appended to an output pane's context menu. It
+/// carries its own action so the text view's standard menu items are untouched.
+final class OutputSoftWrapMenuItem: NSMenuItem {
+    private let onToggle: () -> Void
+
+    init(isOn: Bool, onToggle: @escaping () -> Void) {
+        self.onToggle = onToggle
+        super.init(
+            title: String(localized: "Use soft wraps"),
+            action: #selector(toggle),
+            keyEquivalent: ""
+        )
+        target = self
+        state = isOn ? .on : .off
+    }
+
+    @available(*, unavailable)
+    required init(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    @objc private func toggle() {
+        onToggle()
     }
 }
 

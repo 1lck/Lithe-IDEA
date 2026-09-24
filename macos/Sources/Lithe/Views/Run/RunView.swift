@@ -16,6 +16,9 @@ struct RunView: View {
     private enum ContentTab { case console, details }
     @AppStorage("lithe.run.pinnedConfigurationIDs") private var pinnedConfigurationTokens = ""
     @AppStorage("lithe.run.configurationListCollapsed") private var isConfigurationListCollapsed = false
+    /// Soft wrap for every run console. Off by default: macOS run output has
+    /// always kept long lines on one row with horizontal scrolling.
+    @AppStorage("lithe.run.wrapOutputLines") private var wrapsOutputLines = false
     @State private var pinnedConfigurationCache = RunConfigurationTokenCache()
 
     var body: some View {
@@ -41,7 +44,9 @@ struct RunView: View {
                     output: feature.output,
                     searchRoots: feature.sourceSearchRoots,
                     fileExists: { model.fileExists(at: $0) },
-                    emptyMessage: String(localized: "Run a configuration to see process output.")
+                    emptyMessage: String(localized: "Run a configuration to see process output."),
+                    wrapsLines: wrapsOutputLines,
+                    onToggleWrapsLines: toggleOutputWrapping
                 ) { url, line, column in
                     model.openSourceLocation(url: url, line: line, column: column)
                 }
@@ -342,6 +347,17 @@ struct RunView: View {
             .help("Rescan services")
 
             Button {
+                toggleOutputWrapping()
+            } label: {
+                Image(systemName: "text.word.spacing")
+            }
+            .litheIconButton()
+            .foregroundStyle(wrapsOutputLines ? LitheTheme.accent : LitheTheme.secondaryText)
+            .help("Use soft wraps")
+            .accessibilityLabel(Text("Use soft wraps"))
+            .accessibilityValue(Text(wrapsOutputLines ? LocalizedStringKey("On") : LocalizedStringKey("Off")))
+
+            Button {
                 if let session = selectedModuleSession {
                     feature.clearModuleOutput(session)
                 } else if selectedSessionID == nil {
@@ -355,6 +371,10 @@ struct RunView: View {
             .disabled(selectedSessionID != nil && selectedModuleSession == nil)
 
         }
+    }
+
+    private func toggleOutputWrapping() {
+        wrapsOutputLines.toggle()
     }
 
     private var runnableConfigurations: [RunConfiguration] {
@@ -411,7 +431,9 @@ struct RunView: View {
                 output: selectedOutput,
                 searchRoots: feature.sourceSearchRoots,
                 fileExists: { model.fileExists(at: $0) },
-                emptyMessage: String(localized: "Select a run configuration to see its output.")
+                emptyMessage: String(localized: "Select a run configuration to see its output."),
+                wrapsLines: wrapsOutputLines,
+                onToggleWrapsLines: toggleOutputWrapping
             ) { url, line, column in
                 model.openSourceLocation(url: url, line: line, column: column)
             }
@@ -752,7 +774,9 @@ struct RunView: View {
                     output: session?.output ?? "",
                     searchRoots: feature.sourceSearchRoots,
                     fileExists: { model.fileExists(at: $0) },
-                    emptyMessage: String(localized: "Start this configuration to see its output here.")
+                    emptyMessage: String(localized: "Start this configuration to see its output here."),
+                    wrapsLines: wrapsOutputLines,
+                    onToggleWrapsLines: toggleOutputWrapping
                 ) { url, line, column in
                     model.openSourceLocation(url: url, line: line, column: column)
                 }
