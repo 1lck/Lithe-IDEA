@@ -35,3 +35,14 @@ test("scroll-to-end defaults on and the run pane toggle flips it", () => {
   setScrollOutputToEnd(true);
   expect(useRunPreferencesStore.getState().scrollOutputToEnd).toBe(true);
 });
+
+test("soft wraps default on and toggling keeps single-line mode sticky", () => {
+  expect(useRunPreferencesStore.getState().wrapOutputLines).toBe(true);
+
+  const { setWrapOutputLines } = useRunPreferencesStore.getState().actions;
+  setWrapOutputLines(false);
+  expect(useRunPreferencesStore.getState().wrapOutputLines).toBe(false);
+
+  setWrapOutputLines(true);
+  expect(useRunPreferencesStore.getState().wrapOutputLines).toBe(true);
+});

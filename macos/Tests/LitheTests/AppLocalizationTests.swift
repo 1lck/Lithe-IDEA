@@ -293,7 +293,8 @@ struct GitLocalizationTests {
             "Text, me, author:, branch:, path:", "Any Time", "Today", "Yesterday",
             "Last 7 Days", "Last 30 Days", "Loading commits…", "Load more commits",
             "Clear Git console", "Git exited with code %d", "%lld files",
-            "%lld worktrees", "Worktree action unavailable", "Invalid Git tag name."
+            "%lld worktrees", "Worktree action unavailable", "Invalid Git tag name.",
+            "Show worktree repositories", "Hide worktree repositories"
         ]
         let pattern = try NSRegularExpression(pattern: #"%(?:\d+\$)?(?:lld|ld|d|@)"#)
         for key in keys {

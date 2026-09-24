@@ -541,7 +541,7 @@ Raw parser capture has an independent 32 MiB per-stream bound and fails on
 overflow. See `shared/fixtures/git/execution-events-v1.json`.
 
 `git.write` accepts a typed mutation request. Its required `operation` values are
-`stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `excludePatterns`, `unexcludePatterns`, `cherryPick`, `revert`,
+`stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `cherryPick`, `revert`,
 `reset`, `undoCommit`, `editCommitMessage`, `deleteCommit`, `squashCommits`, `createBranch`, `publishBranch`,
 `renameBranch`, `setUpstream`, `unsetUpstream`, `deleteBranch`, `updateBranch`, `merge`, `rebase`, `createWorktree`,
 `removeWorktree`, `lockWorktree`, `unlockWorktree`, `repairWorktrees`, `pruneWorktrees`,
@@ -678,19 +678,7 @@ the legacy behavior of committing the existing index. `ignore` appends root-anch
 repository's top-level `.gitignore`; `exclude` appends the same patterns to the
 worktree-aware Git metadata path for `info/exclude`. Both ignore operations
 preserve existing content, escape Git pattern characters, de-duplicate rules,
-and interpret a trailing `/` as a directory rule. `excludePatterns` and
-`unexcludePatterns` mutate exact literal lines in that same worktree-aware
-`info/exclude` file without root-anchoring or escaping, so recommended IDE
-patterns such as `.factorypath` can be added or removed once. Existing lines are
-compared as stored raw bytes, including leading and trailing whitespace and
-non-UTF-8 content; a leading space is a different Git ignore rule and is neither
-treated as a duplicate on add nor removed as the same rule. Unrelated lines keep
-their original bytes; add appends without rewriting the existing file, and
-remove rebuilds from the original line bytes and terminators rather than
-decoding the file as UTF-8. Request values are trimmed and rejected when empty or
-when they contain NULs or line breaks. Remove is a no-op when managed lines are
-absent. A non-repository root fails with `invalid_request` / `Not a Git
-repository`.
+and interpret a trailing `/` as a directory rule.
 
 `editCommitMessage` rebuilds the selected commit and its later first-parent
 descendants with the new `message`. `squashCommits` requires at least two
@@ -1246,6 +1234,21 @@ followed by a null separator and that opaque fingerprint to select
 Omitting the fingerprint preserves the legacy path-only key for older clients.
 Changing structure selects a new directory without deleting the old one, so a
 later switch back can reuse it.
+
+Core starts JDT LS with
+`-Djava.import.generatesMetadataFilesAtProjectRoot=false`, so the Eclipse
+project files JDT LS maintains (`.project`, `.classpath`, `.factorypath`, and
+`.settings/*.prefs`) live in that state directory instead of the user's
+modules. Before launch, Core removes such files that earlier versions left in a
+Maven or Gradle module directory when the enclosing Git repository does not
+track them; tracked files and workspaces outside Git are left alone because JDT
+LS keeps honoring files that already exist at a module root. Tracking is decided
+by the repository that owns each module, located through its `.git` entry, with
+one batched `git ls-files` query per repository; modules outside Git start no Git
+process. When any file is removed, Core also deletes the current state directory
+so the launch imports the modules afresh instead of reusing a model that points
+at the removed files, and records the removed workspace-relative paths in the
+session's `info` log event.
 
 `java.jdtWorkspaceFingerprint` accepts
 `{ buildFiles, directMavenModules, jdtlsVersion }`. Each build-file observation

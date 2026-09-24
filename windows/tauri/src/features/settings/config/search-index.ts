@@ -195,6 +195,14 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     description: "Maximum number of tabs before oldest closes",
     keywords: ["tabs", "limit", "maximum", "open"],
   },
+  {
+    id: "editor-tab-layout-mode",
+    tab: "editor",
+    section: "Tabs",
+    label: "Editor Tab Layout",
+    description: "Show editor tabs in a single scrolling row or wrap them into multiple rows",
+    keywords: ["tabs", "layout", "single row", "multiple rows", "wrap", "rows"],
+  },
 
   // File Tree Settings
   {
@@ -1042,14 +1050,6 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     keywords: ["terminal", "cursor", "inactive", "unfocused", "outline", "hidden"],
   },
 
-  {
-    id: "editor-horizontal-tab-scroll",
-    tab: "editor",
-    section: "Tabs",
-    label: "Buffer Carousel",
-    description: "Show open buffers as a horizontally scrollable carousel in the main view",
-    keywords: ["tabs", "buffers", "carousel", "scroll", "horizontal", "trackpad", "main view"],
-  },
   // Advanced Settings
   {
     id: "advanced-export-settings",
