@@ -5,7 +5,19 @@ edition = "2021"
 
 [dependencies]
 rfd = "0.16"
-gpui-kit = "0.6"
+gpui-kit = { version = "0.6", features = [
+    "tree-sitter-bash",
+    "tree-sitter-java",
+    "tree-sitter-javascript",
+    "tree-sitter-markdown",
+    "tree-sitter-markdown-inline",
+    "tree-sitter-rust",
+    "tree-sitter-sql",
+    "tree-sitter-toml",
+    "tree-sitter-tsx",
+    "tree-sitter-typescript",
+    "tree-sitter-yaml",
+] }
 lithe-core = { path = "../rust/lithe-core" }
 portable-pty = "0.9"
 serde = { version = "1", features = ["derive"] }

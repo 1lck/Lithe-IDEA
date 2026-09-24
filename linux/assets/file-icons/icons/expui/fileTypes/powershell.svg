@@ -1,0 +1,7 @@
+<!-- Custom Lithe icon: PowerShell files use the Windows four-pane mark. -->
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M2.5 3.5L7.5 2.75V7.5H2.5V3.5Z" fill="#EBECF0" stroke="#6C707E" stroke-linejoin="round"/>
+<path d="M8.5 2.6L13.5 1.85V7.5H8.5V2.6Z" fill="#EBECF0" stroke="#6C707E" stroke-linejoin="round"/>
+<path d="M2.5 8.5H7.5V13.25L2.5 12.5V8.5Z" fill="#EBECF0" stroke="#6C707E" stroke-linejoin="round"/>
+<path d="M8.5 8.5H13.5V14.15L8.5 13.4V8.5Z" fill="#EBECF0" stroke="#6C707E" stroke-linejoin="round"/>
+</svg>

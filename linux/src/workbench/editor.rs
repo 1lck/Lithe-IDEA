@@ -167,6 +167,13 @@ impl EditorView {
         };
 
         let language = Self::language_name(&tab.path).to_lowercase();
+        // 上游 `Language::from_name` 只认 `bash`/`sh`，`language_name` 的 `Shell`
+        // 转小写后是 `shell`，此处映射回 `sh` 否则高亮回退到 Plain。
+        let language = if language == "shell" {
+            "sh"
+        } else {
+            language.as_str()
+        };
         let content = tab.content.clone();
         self.editor_state.update(cx, |editor, cx| {
             editor.set_value(content, window, cx);
