@@ -20,7 +20,7 @@ macOS 是当前参考产品，Windows 是独立实现。两端可以共享 Rust 
 - `docs/development/platform-parity.md` 和仓库根目录 `AGENTS.md` 说明更新规则；功能 PR 必须更新源数据，不得直接手改生成视图。
 - `.github/workflows/verify-platform-feature-matrix.yml` 在每个 PR、`main` 推送和手动运行时执行校验，并上传 JSON、Markdown、CSV 视图，方便在线查看和下载。
 
-状态分为 `implemented`、`partial`、`missing`、`needs-verification` 和 `platform-specific`。其中 `implemented` 只代表代码入口与产品接入存在，不替代真实运行验证；这避免把“有文件”误报成“跨平台可用”。
+状态分为 `implemented`、`partial`、`missing`、`needs-verification` 和 `platform-specific`。矩阵行按“一个可单独验收的用户能力”拆分，`area` 和 `group` 只用于导航，不作为状态统计单位。其中 `implemented` 只代表代码入口与产品接入存在，不替代真实运行验证；这避免把“有文件”误报成“跨平台可用”。
 
 ## 考虑过的备选方案
 
@@ -42,7 +42,7 @@ CSV 方便筛选，Excel 对非开发者更友好，但二进制 Excel 不利于
 
 ## 收益和代价
 
-收益是 PR 中能直接看到新增缺口，证据路径失效会被脚本发现，发布前也能按 `partial` 和 `needs-verification` 集中排查；开发者还可以用 CSV 在 Excel/Numbers 中筛选，任何 PR 的 Actions 运行都能下载对应版本的文件。代价是每个功能 PR 多维护一条清单记录，而且“已实现”仍需要平台运行验证，不能完全自动推断。
+收益是 PR 中能直接看到新增缺口，证据路径失效会被脚本发现，发布前也能按 `partial` 和 `needs-verification` 集中排查；开发者还可以用 CSV 在 Excel/Numbers 中按能力点筛选，任何 PR 的 Actions 运行都能下载对应版本的文件。代价是能力点数量会明显多于顶层功能模块，每个功能 PR 需要选择或新增准确的能力点，而且“已实现”仍需要平台运行验证，不能完全自动推断。
 
 ## 后果
 
