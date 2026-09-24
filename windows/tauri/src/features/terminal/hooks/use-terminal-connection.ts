@@ -273,11 +273,17 @@ export function useTerminalConnection({
 
     disposables.push(
       terminal.onData((data) => {
+        outputWriteBuffer.flush();
         diagnostics.recordInput(inputEncoder.encode(data).byteLength);
         write(data);
       }),
     );
-    disposables.push(terminal.onBinary(writeBinary));
+    disposables.push(
+      terminal.onBinary((data) => {
+        outputWriteBuffer.flush();
+        writeBinary(data);
+      }),
+    );
     disposables.push(
       terminal.onResize(() => {
         diagnostics.recordResize(terminal.cols, terminal.rows);
@@ -314,20 +320,13 @@ export function useTerminalConnection({
         diagnostics.recordOutput(bytes);
         queuedOutputBytesRef.current += bytes.byteLength;
 
-        if (
-          getTerminalOutputFlowAction(queuedOutputBytesRef.current, outputPausedRef.current) ===
-          "pause"
-        ) {
-          setOutputPaused(true);
-        }
-
         const decoded = outputDecoderRef.current.decode(bytes, { stream: true });
         const oscUpdates = oscStreamRef.current.feed(decoded);
         if (oscUpdates.title !== undefined || oscUpdates.currentDirectory !== undefined) {
           updateSession(sessionId, oscUpdates);
         }
 
-        outputWriteBuffer.enqueue(bytes, () => {
+        const flushedAtWatermark = outputWriteBuffer.enqueue(bytes, () => {
           queuedOutputBytesRef.current = Math.max(
             0,
             queuedOutputBytesRef.current - bytes.byteLength,
@@ -339,6 +338,18 @@ export function useTerminalConnection({
             setOutputPaused(false);
           }
         });
+
+        const flowAction = getTerminalOutputFlowAction(
+          queuedOutputBytesRef.current,
+          outputPausedRef.current,
+        );
+        if (
+          flowAction === "pause" &&
+          !flushedAtWatermark &&
+          !outputWriteBuffer.hasPendingWrites
+        ) {
+          setOutputPaused(true);
+        }
         return;
       }
 
@@ -349,6 +360,7 @@ export function useTerminalConnection({
       }
 
       if (event.event === "exit") {
+        outputWriteBuffer.flush();
         lastExitInfoRef.current = event;
         return;
       }

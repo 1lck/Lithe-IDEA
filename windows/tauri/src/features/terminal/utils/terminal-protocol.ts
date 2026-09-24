@@ -10,7 +10,7 @@ interface TerminalEventStream {
 }
 
 const eventStreams = new Map<string, TerminalEventStream>();
-const TERMINAL_OUTPUT_HIGH_WATERMARK = 500_000;
+export const TERMINAL_OUTPUT_HIGH_WATERMARK = 500_000;
 const TERMINAL_OUTPUT_LOW_WATERMARK = 100_000;
 
 export interface PendingTerminalEventChannel {

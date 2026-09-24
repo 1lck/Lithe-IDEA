@@ -1,9 +1,14 @@
+import { TERMINAL_OUTPUT_HIGH_WATERMARK } from "./terminal-protocol";
+
 const SYNCHRONIZED_OUTPUT_ENTER = new Uint8Array([0x1b, 0x5b, 0x3f, 0x32, 0x30, 0x32, 0x36, 0x68]);
 const SYNCHRONIZED_OUTPUT_EXIT = new Uint8Array([0x1b, 0x5b, 0x3f, 0x32, 0x30, 0x32, 0x36, 0x6c]);
 const SYNCHRONIZED_OUTPUT_MARKER_LENGTH = SYNCHRONIZED_OUTPUT_ENTER.length;
 // Keep a short burst together so xterm paints a complete redraw state instead
 // of exposing every intermediate clear-and-redraw frame.
 const DEFAULT_SETTLE_DELAY_MS = 40;
+// Match xterm's synchronized-output safety timeout so a missing end marker has
+// the same bounded recovery window at both layers.
+const DEFAULT_SYNCHRONIZED_OUTPUT_TIMEOUT_MS = 1_000;
 
 interface PendingWrite {
   data: Uint8Array;
@@ -15,27 +20,35 @@ export interface TerminalOutputWriteBufferOptions {
   scheduleFlush?: (callback: () => void, delayMs: number) => unknown;
   cancelFlush?: (handle: unknown) => void;
   settleDelayMs?: number;
+  synchronizedOutputTimeoutMs?: number;
+  maxPendingBytes?: number;
 }
 
 /**
  * Keeps a DEC 2026 synchronized redraw atomic at the xterm write boundary.
  *
  * xterm can defer canvas painting while synchronized output is active, but a
- * fragmented ED3/exit/trailing-output sequence can still expose an
+ * fragmented enter/exit/trailing-output sequence can still expose an
  * intermediate scrollback position between two writes. Ordinary output keeps
- * its existing immediate path; only synchronized output is held briefly until
- * the next frame can be included.
+ * its existing immediate path; synchronized output is held briefly until the
+ * next frame can be included, a safety timeout fires, or the byte watermark
+ * requires an early write.
  */
 export class TerminalOutputWriteBuffer {
   private readonly write: TerminalOutputWriteBufferOptions["write"];
   private readonly scheduleFlush: NonNullable<TerminalOutputWriteBufferOptions["scheduleFlush"]>;
   private readonly cancelFlush: NonNullable<TerminalOutputWriteBufferOptions["cancelFlush"]>;
   private readonly settleDelayMs: number;
+  private readonly synchronizedOutputTimeoutMs: number;
+  // Keep the application-owned queue bounded even when a frame never closes.
+  private readonly maxPendingBytes: number;
   private readonly pending: PendingWrite[] = [];
+  private pendingBytes = 0;
   private scanTail = new Uint8Array(0);
   private synchronizedOutput = false;
   private awaitingTrailingOutput = false;
   private scheduledFlush: unknown;
+  private synchronizedOutputTimeout: unknown;
   private disposed = false;
 
   public constructor(options: TerminalOutputWriteBufferOptions) {
@@ -45,12 +58,16 @@ export class TerminalOutputWriteBuffer {
     this.cancelFlush =
       options.cancelFlush ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
     this.settleDelayMs = options.settleDelayMs ?? DEFAULT_SETTLE_DELAY_MS;
+    this.synchronizedOutputTimeoutMs =
+      options.synchronizedOutputTimeoutMs ?? DEFAULT_SYNCHRONIZED_OUTPUT_TIMEOUT_MS;
+    this.maxPendingBytes = options.maxPendingBytes ?? TERMINAL_OUTPUT_HIGH_WATERMARK;
   }
 
-  public enqueue(data: Uint8Array, onComplete: () => void): void {
+  /** Returns true when the pending-byte watermark forced a write. */
+  public enqueue(data: Uint8Array, onComplete: () => void): boolean {
     if (this.disposed) {
       onComplete();
-      return;
+      return false;
     }
 
     const containsSynchronizedMarker = this.containsSynchronizedMarker(data);
@@ -63,22 +80,35 @@ export class TerminalOutputWriteBuffer {
     if (!shouldBuffer) {
       this.updateProtocolState(data);
       this.write(data, onComplete);
-      return;
+      return false;
     }
 
     this.pending.push({ data: data.slice(), onComplete });
+    this.pendingBytes += data.byteLength;
     this.updateProtocolState(data);
+
+    if (this.pendingBytes >= this.maxPendingBytes) {
+      // Keep protocol state and its timeout alive, but hand the current batch
+      // to xterm so the PTY never has to wait for a missing end marker.
+      this.flushPending();
+      return true;
+    }
+
+    return false;
   }
 
   public flush(): void {
-    this.cancelScheduledFlush();
-    this.flushPending();
+    this.forceFlush();
+  }
+
+  public get hasPendingWrites(): boolean {
+    return this.pending.length > 0;
   }
 
   public dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.flush();
+    this.forceFlush();
   }
 
   private containsSynchronizedMarker(data: Uint8Array): boolean {
@@ -100,12 +130,15 @@ export class TerminalOutputWriteBuffer {
       if (nextIndex === -1) break;
 
       if (enterIndex !== -1 && enterIndex === nextIndex) {
+        const wasSynchronized = this.synchronizedOutput;
         this.synchronizedOutput = true;
         this.awaitingTrailingOutput = false;
         this.cancelScheduledFlush();
+        if (!wasSynchronized) this.scheduleSynchronizedOutputTimeout();
       } else {
         this.synchronizedOutput = false;
         this.awaitingTrailingOutput = true;
+        this.cancelSynchronizedOutputTimeout();
         this.schedulePendingFlush();
       }
 
@@ -133,10 +166,35 @@ export class TerminalOutputWriteBuffer {
     this.scheduledFlush = undefined;
   }
 
+  private scheduleSynchronizedOutputTimeout(): void {
+    if (this.synchronizedOutputTimeout !== undefined) return;
+
+    this.synchronizedOutputTimeout = this.scheduleFlush(() => {
+      this.synchronizedOutputTimeout = undefined;
+      if (!this.synchronizedOutput) return;
+      this.forceFlush();
+    }, this.synchronizedOutputTimeoutMs);
+  }
+
+  private cancelSynchronizedOutputTimeout(): void {
+    if (this.synchronizedOutputTimeout === undefined) return;
+    this.cancelFlush(this.synchronizedOutputTimeout);
+    this.synchronizedOutputTimeout = undefined;
+  }
+
+  private forceFlush(): void {
+    this.cancelScheduledFlush();
+    this.cancelSynchronizedOutputTimeout();
+    this.synchronizedOutput = false;
+    this.awaitingTrailingOutput = false;
+    this.flushPending();
+  }
+
   private flushPending(): void {
     if (this.pending.length === 0) return;
 
     const writes = this.pending.splice(0);
+    this.pendingBytes = 0;
     const data = this.concatMany(writes.map((write) => write.data));
     this.write(data, () => {
       for (const write of writes) write.onComplete();
