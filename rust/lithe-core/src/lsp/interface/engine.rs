@@ -36,6 +36,7 @@ use crate::lsp::languages::jdt_build::{
 use crate::lsp::languages::jdt_build::{JavaBuildMarkerScope, JavaBuildRecovery};
 use crate::lsp::languages::jdt_navigation::{JavaNavigationMarkerBatch, MAX_JAVA_NAVIGATION_TASKS};
 use crate::lsp::languages::jdt_progress::JavaPreparationDiagnostics;
+use crate::lsp::languages::prepare_jdt_workspace;
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -1042,6 +1043,11 @@ impl LspEngine {
             arguments: request.arguments.clone(),
             workspace_fingerprint: request.workspace_fingerprint.clone(),
         });
+        if let Some(directory) = &adaptation.data_directory {
+            // Runs before the cache disposition is read: a reset state directory
+            // is reported as `new`, which is what the following import will be.
+            prepare_jdt_workspace(&workspace_root, directory)?;
+        }
         let java_cache_disposition = adaptation.data_directory.as_ref().map(|directory| {
             if directory.join(".metadata").is_dir() {
                 "reused"

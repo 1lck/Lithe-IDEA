@@ -2188,18 +2188,6 @@ package final class GitFeatureModel: ObservableObject {
         }
     }
 
-    /// One-shot `info/exclude` mutation used by Settings recommended-rules actions.
-    /// Runs through GitService so the Core write stays off the MainActor.
-    package func mutateLiteralLocalExcludePatterns(
-        _ patterns: [String],
-        adding: Bool,
-        at rootURL: URL
-    ) async -> GitService.CommandResult {
-        await withGitOperation {
-            await service.mutateLiteralLocalExcludePatterns(patterns, adding: adding, at: rootURL)
-        }
-    }
-
     private func recordGitSetupCommand(
         root: URL,
         arguments: [String],
