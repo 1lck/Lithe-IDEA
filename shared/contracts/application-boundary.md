@@ -44,7 +44,8 @@ verification scripts are the executable source of boundary checks.
 Local text documents expose the selected encoding in the editor status bar. The
 supported labels are `UTF-8`, `UTF-8 with BOM`, `GBK`, `GB18030`, `Shift JIS`,
 and `Windows-1252`. Native adapters auto-detect UTF-8/BOM and the GBK family
-when opening a file; an explicit reopen request uses strict decoding. “Save
+when opening a file; an explicit reopen request decodes with the selected codec
+and exposes replacement characters for invalid byte sequences. “Save
 with Encoding” converts the current Unicode buffer only after the target codec
 accepts every character. Both products preserve the raw-byte identity of the
 last acknowledged disk snapshot and reject a save when another process changed

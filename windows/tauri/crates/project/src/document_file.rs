@@ -178,6 +178,20 @@ impl DocumentEncoding {
         Ok(text.into_owned())
     }
 
+    fn decode_lossy(self, bytes: &[u8]) -> String {
+        let bytes = if matches!(self, Self::Utf8 | Self::Utf8Bom)
+            && bytes.starts_with(&[0xEF, 0xBB, 0xBF])
+        {
+            &bytes[3..]
+        } else {
+            bytes
+        };
+        self.codec()
+            .decode_without_bom_handling(bytes)
+            .0
+            .into_owned()
+    }
+
     fn encode(self, text: &str) -> io::Result<Vec<u8>> {
         let (encoded, _, had_errors) = self.codec().encode(text);
         if had_errors {
@@ -264,8 +278,13 @@ fn decode_document_bytes(bytes: &[u8], encoding: Option<&str>) -> io::Result<Doc
             }
         },
     };
+    let content = if encoding.is_some() {
+        selected.decode_lossy(&bytes)
+    } else {
+        selected.decode(&bytes)?
+    };
     Ok(DocumentRead {
-        content: selected.decode(&bytes)?,
+        content,
         encoding: selected.label().to_string(),
         identity: bytes_identity(&bytes),
     })
@@ -719,16 +738,15 @@ mod tests {
     }
 
     #[test]
-    fn explicit_encoding_rejects_invalid_bytes_and_preserves_bom_policy() {
+    fn explicit_encoding_replaces_invalid_bytes_and_preserves_bom_policy() {
         let directory = Directory::new();
         let invalid = directory.0.join("invalid.txt");
         fs::write(&invalid, [0xFF, 0xFE]).unwrap();
-        assert_eq!(
-            read_document_with_encoding(&invalid, Some("UTF-8"))
-                .unwrap_err()
-                .kind(),
-            io::ErrorKind::InvalidData
-        );
+        let decoded = read_document_with_encoding(&invalid, Some("UTF-8"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(decoded.content, "��");
+        assert_eq!(decoded.encoding, "UTF-8");
 
         let bom = directory.0.join("bom.txt");
         fs::write(&bom, DocumentEncoding::Utf8Bom.encode("带 BOM").unwrap()).unwrap();

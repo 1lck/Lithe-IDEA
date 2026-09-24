@@ -35,6 +35,19 @@ struct DocumentGuardedSaveTests {
         }
     }
 
+    @Test func explicitUTF8ReopenShowsReplacementCharactersForGBKBytes() throws {
+        try withFile { url, files in
+            try Data([0xD6, 0xD0, 0xCE, 0xC4]).write(to: url)
+            guard let details = try files.readDocumentDetails(from: url, encoding: .utf8) else {
+                Issue.record("Expected explicitly decoded UTF-8 details")
+                return
+            }
+            #expect(details.text.contains("\u{FFFD}"))
+            #expect(details.text != "中文")
+            #expect(details.encoding == .utf8)
+        }
+    }
+
     @Test func documentEncodingExplicitGB18030RoundTrips() throws {
         try withFile { url, files in
             let source = "中文𠀀\n"
