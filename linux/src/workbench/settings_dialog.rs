@@ -73,19 +73,19 @@ impl SettingsCategory {
         }
     }
 
-    /// 中文标题，展示在导航项与内容区标题。
+    /// 中文标题，与 Tauri `settings-dialog.tsx` 各分类 `labelKey` 的中文翻译逐字对应。
     pub fn title(self) -> &'static str {
         match self {
-            SettingsCategory::General => "通用",
-            SettingsCategory::Project => "项目",
-            SettingsCategory::Run => "运行",
+            SettingsCategory::General => "常规",
+            SettingsCategory::Project => "项目 · JDK 与 Maven",
+            SettingsCategory::Run => "运行配置",
             SettingsCategory::Editor => "编辑器",
             SettingsCategory::Keyboard => "快捷键",
             SettingsCategory::Terminal => "终端",
-            SettingsCategory::Lsp => "语言服务",
-            SettingsCategory::Ai => "AI 助手",
-            SettingsCategory::AiCommit => "AI 提交",
-            SettingsCategory::Git => "版本控制",
+            SettingsCategory::Lsp => "LSP",
+            SettingsCategory::Ai => "AI 聊天与编辑",
+            SettingsCategory::AiCommit => "AI 与提交",
+            SettingsCategory::Git => "Git",
             SettingsCategory::Logs => "日志",
             SettingsCategory::Updates => "更新",
         }
@@ -109,7 +109,7 @@ impl SettingsCategory {
         }
     }
 
-    /// 由持久化的 `lastSettingsTab` 反解分类；`language` 归到 LSP，未知值回退通用。
+    /// 由持久化的 `lastSettingsTab` 反解分类；`language` 归到 LSP，未知值回退常规。
     pub fn from_id(id: &str) -> Self {
         match id {
             "general" => SettingsCategory::General,
@@ -461,7 +461,7 @@ impl Render for SettingsDialog {
     }
 }
 
-/// 通用渲染块：分组、行、控件与分类内容。
+/// 常规渲染块：分组、行、控件与分类内容。
 impl SettingsDialog {
     /// 左侧导航项：active 使用 accent 背景 + 左侧 primary 竖条 + 加粗前景。
     fn render_nav_item(&self, cat: SettingsCategory, cx: &mut Context<Self>) -> impl IntoElement {
