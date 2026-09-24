@@ -18,8 +18,10 @@ use crate::workbench::activity_rail::{
     ActivityRailEvent, ActivityRailView, PluginActivityRailView, PluginRailEvent,
 };
 use crate::workbench::bottom_panel::{BottomPanelView, BottomTab};
+use crate::workbench::branch_manager::{BranchManagerEvent, BranchManagerView};
 use crate::workbench::command_palette::{CommandPaletteEvent, CommandPaletteModal};
 use crate::workbench::editor::EditorView;
+use crate::workbench::go_to_line::{GoToLineEvent, GoToLineModal};
 use crate::workbench::maven::{MavenEvent, MavenView};
 use crate::workbench::project_dialog::{ProjectDialog, ProjectDialogEvent, ProjectDialogMode};
 use crate::workbench::quick_open::{QuickOpenEvent, QuickOpenModal};
@@ -54,12 +56,16 @@ pub struct WorkbenchView {
     pub show_search_everywhere: bool,
     /// 快速打开浮层是否可见
     pub show_quick_open: bool,
+    /// 跳转到行浮层是否可见
+    pub show_go_to_line: bool,
     /// 命令面板浮层是否可见
     pub show_command_palette: bool,
     /// 设置模态对话框是否可见
     pub show_settings_dialog: bool,
     /// 新建/克隆项目对话框是否可见
     pub show_project_dialog: bool,
+    /// 分支管理器弹窗是否可见
+    pub show_branch_manager: bool,
     /// 右侧 Maven 导航工具窗口是否可见
     pub show_maven: bool,
 
@@ -83,12 +89,16 @@ pub struct WorkbenchView {
     pub search_everywhere: Entity<SearchEverywhereModal>,
     /// 快速打开弹窗
     pub quick_open: Entity<QuickOpenModal>,
+    /// 跳转到行弹窗
+    pub go_to_line: Entity<GoToLineModal>,
     /// 命令面板
     pub command_palette: Entity<CommandPaletteModal>,
     /// 设置模态对话框
     pub settings_dialog: Entity<SettingsDialog>,
     /// 新建/克隆项目对话框
     pub project_dialog: Entity<ProjectDialog>,
+    /// 分支管理器弹窗（对齐 Tauri `GitBranchManager`）
+    pub branch_manager: Entity<BranchManagerView>,
     /// 欢迎页
     pub welcome_screen: Entity<WelcomeScreenView>,
 
@@ -118,9 +128,12 @@ impl WorkbenchView {
         let status_bar = cx.new(|_cx| StatusBarView::new());
         let search_everywhere = cx.new(|cx| SearchEverywhereModal::new(cx));
         let quick_open = cx.new(|cx| QuickOpenModal::new(cx));
+        let go_to_line = cx.new(|cx| GoToLineModal::new(cx));
         let command_palette = cx.new(|cx| CommandPaletteModal::new(cx));
         let settings_dialog = cx.new(|cx| SettingsDialog::new(cx));
         let project_dialog = cx.new(|cx| ProjectDialog::new(cx));
+        let branch_manager_root = root.clone();
+        let branch_manager = cx.new(|cx| BranchManagerView::new(branch_manager_root, cx));
         let welcome_screen = cx.new(|cx| WelcomeScreenView::new(cx));
         let maven = cx.new(|cx| MavenView::new(root.clone(), cx));
         let focus_handle = cx.focus_handle();
@@ -191,43 +204,6 @@ impl WorkbenchView {
             let _ = status_bar_git_sync.update(cx, |sb, cx| {
                 sb.set_git_changes(sidebar.read(cx).git_changes.len(), cx);
             });
-
-            // 同步本地分支列表：core `git.references` 取 kind == local 的 shortName，
-            // 供顶栏分支胶囊下拉切换（对齐 Tauri 分支管理器列表）。
-            let toolbar_branches_sync = toolbar_branch_sync.clone();
-            let branch_client = this.client.clone();
-            let branch_root = this.workspace_root.clone();
-            cx.spawn(async move |_this, cx| {
-                let task = branch_client.execute::<serde_json::Value, serde_json::Value>(
-                    &cx,
-                    "git.references",
-                    serde_json::json!({ "root": branch_root }),
-                );
-                if let Ok(val) = task.await {
-                    let mut branches: Vec<String> = val
-                        .get("references")
-                        .and_then(|r| r.as_array())
-                        .map(|arr| {
-                            arr.iter()
-                                .filter(|item| {
-                                    item.get("kind").and_then(|k| k.as_str()) == Some("local")
-                                })
-                                .filter_map(|item| {
-                                    item.get("shortName")
-                                        .and_then(|n| n.as_str())
-                                        .map(|s| s.to_string())
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    branches.sort();
-                    branches.dedup();
-                    let _ = toolbar_branches_sync.update(cx, |tb, cx| {
-                        tb.set_branches(branches, cx);
-                    });
-                }
-            })
-            .detach();
 
             // 收集所有文件供全局搜索与快速打开
             let mut file_list = Vec::new();
@@ -455,25 +431,14 @@ impl WorkbenchView {
                     ToolbarEvent::OpenRecentProject(path) => {
                         this.open_project_path(path.clone(), cx);
                     }
-                    ToolbarEvent::CheckoutBranch(branch) => {
-                        // 分支检出走底部 Terminal（分支名双引号包裹防空格/特殊字符），
-                        // 检出异步执行，2 秒后重读 sidebar git 状态刷新分支与变更。
-                        let _ = this.bottom_panel.update(cx, |bp, cx| {
-                            bp.set_tab(BottomTab::Terminal, cx);
-                            let _ = bp.terminal.update(cx, |term, cx| {
-                                term.send_command(&format!("git checkout \"{branch}\""), cx);
-                            });
+                    ToolbarEvent::OpenBranchManager => {
+                        let root = this.workspace_root.clone();
+                        let current = this.sidebar.read(cx).git_branch.clone();
+                        let _ = this.branch_manager.update(cx, |bm, cx| {
+                            bm.set_repo(root, current, cx);
                         });
-                        let sidebar = this.sidebar.clone();
-                        cx.spawn(async move |_this, cx| {
-                            cx.background_executor()
-                                .timer(std::time::Duration::from_secs(2))
-                                .await;
-                            let _ = sidebar.update(cx, |sb, cx| {
-                                sb.refresh_git(cx);
-                            });
-                        })
-                        .detach();
+                        this.show_branch_manager = true;
+                        cx.notify();
                     }
                 },
             );
@@ -535,6 +500,25 @@ impl WorkbenchView {
             },
         );
 
+        // 7b. 订阅跳转到行事件
+        let sub_go_to_line = cx.subscribe(
+            &go_to_line,
+            move |this, _modal, event: &GoToLineEvent, cx| match event {
+                GoToLineEvent::Confirm(line) => {
+                    let line = *line;
+                    this.show_go_to_line = false;
+                    this.editor_window_action(cx, move |ed, window, cx| {
+                        ed.go_to_line(line, window, cx);
+                    });
+                    cx.notify();
+                }
+                GoToLineEvent::Close => {
+                    this.show_go_to_line = false;
+                    cx.notify();
+                }
+            },
+        );
+
         // 8. 订阅命令面板事件
         let sub_command_palette = cx.subscribe(
             &command_palette,
@@ -584,6 +568,30 @@ impl WorkbenchView {
                 }
                 ProjectDialogEvent::Close => {
                     this.show_project_dialog = false;
+                    cx.notify();
+                }
+            },
+        );
+
+        // 9c. 订阅分支管理器弹窗事件
+        let sub_branch_manager = cx.subscribe(
+            &branch_manager,
+            |this, _bm, event: &BranchManagerEvent, cx| match event {
+                BranchManagerEvent::CheckoutDone => {
+                    // core 直连已完成才返回：关弹窗并重读 sidebar git 状态，
+                    // 分支徽标经既有 observer 同步刷新。
+                    this.show_branch_manager = false;
+                    let _ = this.sidebar.update(cx, |sb, cx| {
+                        sb.refresh_git(cx);
+                    });
+                    cx.notify();
+                }
+                BranchManagerEvent::OpenWorktree(path) => {
+                    this.show_branch_manager = false;
+                    this.open_project_path(path.clone(), cx);
+                }
+                BranchManagerEvent::Close => {
+                    this.show_branch_manager = false;
                     cx.notify();
                 }
             },
@@ -667,9 +675,11 @@ impl WorkbenchView {
             show_welcome: false,
             show_search_everywhere: false,
             show_quick_open: false,
+            show_go_to_line: false,
             show_command_palette: false,
             show_settings_dialog: false,
             show_project_dialog: false,
+            show_branch_manager: false,
             show_maven: false,
             toolbar,
             activity_rail,
@@ -681,9 +691,11 @@ impl WorkbenchView {
             status_bar,
             search_everywhere,
             quick_open,
+            go_to_line,
             command_palette,
             settings_dialog,
             project_dialog,
+            branch_manager,
             welcome_screen,
             focus_handle,
             client: CoreClient::new(),
@@ -696,9 +708,11 @@ impl WorkbenchView {
                 sub_toolbar,
                 sub_search,
                 sub_quick_open,
+                sub_go_to_line,
                 sub_command_palette,
                 sub_settings,
                 sub_project_dialog,
+                sub_branch_manager,
                 sub_welcome,
                 sub_status,
                 sub_appearance,
@@ -713,6 +727,11 @@ impl WorkbenchView {
         view.apply_resolved_theme(is_dark, cx);
         // 启动目录同样记入最近项目（对齐 Tauri 打开即记录）。
         settings::record_recent_project(cx, &view.workspace_root.clone());
+        // 同步工具栏当前项目行（仿分支同步写法；构造时已传入，此处再确认一次）。
+        let root_for_toolbar = view.workspace_root.clone();
+        let _ = view.toolbar.update(cx, |tb, cx| {
+            tb.set_workspace_root(root_for_toolbar.clone(), cx);
+        });
         // 构造后初始化 Maven 入口可用性，避免无 pom 目录首次打开仍显示入口。
         let maven_has_projects = view.maven.read(cx).has_projects();
         let _ = view.plugin_rail.update(cx, |r, cx| {
@@ -801,6 +820,10 @@ impl WorkbenchView {
         }
         self.workspace_root = path.clone();
         self.show_welcome = false;
+        // 同步工具栏当前项目行（仿分支同步写法）。
+        let _ = self.toolbar.update(cx, |tb, cx| {
+            tb.set_workspace_root(path.clone(), cx);
+        });
         // 记录最近项目（对齐 Tauri upsert）。
         settings::record_recent_project(cx, &path);
         let _ = self.sidebar.update(cx, |sb, cx| {
@@ -840,6 +863,15 @@ impl WorkbenchView {
         cx.notify();
     }
 
+    /// 打开跳转到行弹窗
+    pub fn open_go_to_line(&mut self, cx: &mut Context<Self>) {
+        self.show_go_to_line = true;
+        let _ = self.go_to_line.update(cx, |modal, cx| {
+            modal.reset(cx);
+        });
+        cx.notify();
+    }
+
     /// 打开命令面板
     pub fn open_command_palette(&mut self, cx: &mut Context<Self>) {
         self.show_command_palette = true;
@@ -858,6 +890,144 @@ impl WorkbenchView {
                 Self::collect_all_file_paths(child, output);
             }
         }
+    }
+
+    /// 持有 `&mut Window` 调用方的编辑器动作直达通道（按键监听等已有
+    /// window 的路径使用，避免经窗口句柄二次 `update` 的重入借用失败）。
+    fn editor_direct(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        action: impl FnOnce(&mut EditorView, &mut Window, &mut Context<EditorView>),
+    ) {
+        let _ = self.editor.update(cx, |ed, cx| action(ed, window, cx));
+    }
+
+    /// 无 `window` 上下文的编辑器动作经窗口句柄下发（菜单/面板事件路径，
+    /// 非重入场景）。`active_window` 仅反映平台聚焦，Xvfb 下可能为 None，
+    /// 单窗口应用退化到 `windows()` 首个句柄。
+    fn editor_window_action(
+        &self,
+        cx: &mut Context<Self>,
+        action: impl FnOnce(&mut EditorView, &mut Window, &mut Context<EditorView>) + 'static,
+    ) {
+        let editor = self.editor.clone();
+        let handle = cx
+            .active_window()
+            .or_else(|| cx.windows().into_iter().next());
+        if let Some(handle) = handle {
+            let _ = handle.update(cx, |_, window, cx| {
+                editor.update(cx, |ed, cx| action(ed, window, cx));
+            });
+        }
+    }
+
+    /// 在系统浏览器中打开 URL（Linux-frame：`xdg-open`，失败忽略）。
+    fn open_url(url: &str) {
+        let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    }
+
+    /// 另存为：存盘框选目标后落盘，并更新活动标签的 path/title。
+    ///
+    /// 目标在工作区内时经 core `file.write`（仿 `save_active`）；工作区外
+    /// core 会拒绝绝对路径，改用 `std::fs` 直写。
+    fn save_active_as(&mut self, cx: &mut Context<Self>) {
+        let (old_path, text) = {
+            let ed = self.editor.read(cx);
+            let Some(idx) = ed.active_tab_index else {
+                return;
+            };
+            let Some(tab) = ed.tabs.get(idx) else {
+                return;
+            };
+            (tab.path.clone(), tab.content.clone())
+        };
+        let default_name = old_path
+            .rsplit('/')
+            .next()
+            .unwrap_or("untitled.txt")
+            .to_string();
+        let dest = rfd::FileDialog::new()
+            .set_directory(&self.workspace_root)
+            .set_file_name(&default_name)
+            .save_file();
+        let Some(dest) = dest else {
+            return;
+        };
+        let title = dest
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or(default_name);
+        let root = self.workspace_root.clone();
+        if let Ok(rel) = dest.strip_prefix(std::path::Path::new(&root)) {
+            let rel = rel.to_string_lossy().to_string();
+            let editor = self.editor.clone();
+            let client = self.client.clone();
+            cx.spawn(async move |_this, cx| {
+                if client.write_file(&cx, &root, &rel, &text).await.is_ok() {
+                    let _ = editor.update(cx, |ed, cx| {
+                        if let Some(idx) = ed.active_tab_index {
+                            if let Some(t) = ed.tabs.get_mut(idx) {
+                                if t.path == old_path {
+                                    t.path = rel.clone();
+                                    t.title = title.clone();
+                                    t.is_dirty = false;
+                                    cx.notify();
+                                }
+                            }
+                        }
+                    });
+                }
+            })
+            .detach();
+        } else if std::fs::write(&dest, text.as_bytes()).is_ok() {
+            let abs = dest.to_string_lossy().to_string();
+            let _ = self.editor.update(cx, |ed, cx| {
+                if let Some(idx) = ed.active_tab_index {
+                    if let Some(t) = ed.tabs.get_mut(idx) {
+                        if t.path == old_path {
+                            t.path = abs;
+                            t.title = title;
+                            t.is_dirty = false;
+                            cx.notify();
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    /// 还原文件：重读活动文件内容并灌回编辑器（同路径 `open_file` 会刷新内容并清除脏标记）。
+    fn revert_active_file(&mut self, cx: &mut Context<Self>) {
+        let path = {
+            let ed = self.editor.read(cx);
+            let Some(idx) = ed.active_tab_index else {
+                return;
+            };
+            let Some(tab) = ed.tabs.get(idx) else {
+                return;
+            };
+            tab.path.clone()
+        };
+        if std::path::Path::new(&path).is_absolute() {
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                let _ = self.editor.update(cx, |ed, cx| {
+                    ed.open_file(path, text, cx);
+                });
+            }
+            return;
+        }
+        let root = self.workspace_root.clone();
+        let editor = self.editor.clone();
+        let client = self.client.clone();
+        cx.spawn(async move |_this, cx| {
+            if let Ok(text) = client.read_file(&cx, &root, &path).await {
+                let _ = editor.update(cx, |ed, cx| {
+                    ed.open_file(path, text, cx);
+                });
+            }
+        })
+        .detach();
     }
 
     /// 执行常用命令动作（工具栏菜单、命令面板、全局搜索共用）。
@@ -897,7 +1067,7 @@ impl WorkbenchView {
                     }
                 });
             }
-            "workbench.toggle_terminal" | "view.toggle_bottom_panel" | "terminal.new" => {
+            "workbench.toggle_terminal" | "view.toggle_bottom_panel" => {
                 let _ = self.bottom_panel.update(cx, |bp, cx| {
                     bp.toggle_collapsed(cx);
                 });
@@ -953,7 +1123,7 @@ impl WorkbenchView {
                     cx,
                 );
             }
-            "file.exit" | "window.close" => {
+            "file.exit" | "window.close" | "file.close_window" => {
                 cx.quit();
             }
             "window.minimize" => {
@@ -1010,11 +1180,189 @@ impl WorkbenchView {
                 self.append_log("[Run and Debug] Debug panel is not wired yet.", cx);
             }
             // 快捷键设置：设置对话框切到 Keyboard 分类并打开。
-            "tools.shortcuts" => {
+            "tools.shortcuts" | "help.shortcuts" => {
                 let _ = self.settings_dialog.update(cx, |d, cx| {
                     d.set_category(SettingsCategory::Keyboard, cx);
                 });
                 self.open_settings(cx);
+            }
+            // ---- File：新窗口 / 文件夹 / 另存为 / 标签页批量操作 ----
+            "file.new_window" => {
+                if let Ok(exe) = std::env::current_exe() {
+                    let _ = std::process::Command::new(exe).spawn();
+                }
+            }
+            "file.open_folder" => {
+                if let Some(dir) = ProjectDialog::pick_folder(None) {
+                    self.open_project_path(dir, cx);
+                }
+            }
+            "file.close_folder" => {
+                self.show_welcome = true;
+                cx.notify();
+            }
+            "file.save_as" => {
+                self.save_active_as(cx);
+            }
+            "file.save_all" => {
+                let _ = self.editor.update(cx, |ed, cx| {
+                    ed.save_all_tabs(cx);
+                });
+            }
+            "file.revert" => {
+                self.revert_active_file(cx);
+            }
+            "file.close_all" => {
+                let _ = self.editor.update(cx, |ed, cx| {
+                    ed.close_all_tabs(cx);
+                });
+            }
+            "file.close_others" => {
+                let _ = self.editor.update(cx, |ed, cx| {
+                    ed.close_other_tabs(cx);
+                });
+            }
+            "file.close_saved" => {
+                let _ = self.editor.update(cx, |ed, cx| {
+                    ed.close_saved_tabs(cx);
+                });
+            }
+            "file.close_left" => {
+                let _ = self.editor.update(cx, |ed, cx| {
+                    ed.close_tabs_to_left(cx);
+                });
+            }
+            "file.close_right" => {
+                let _ = self.editor.update(cx, |ed, cx| {
+                    ed.close_tabs_to_right(cx);
+                });
+            }
+            "file.reopen_closed" => {
+                let _ = self.editor.update(cx, |ed, cx| {
+                    ed.reopen_closed_tab(cx);
+                });
+            }
+            // ---- Edit：撤销/剪贴板/行操作（需 window 的经 defer 下发） ----
+            "edit.undo" => {
+                self.editor_window_action(cx, |ed, window, cx| ed.undo(window, cx));
+            }
+            "edit.redo" => {
+                self.editor_window_action(cx, |ed, window, cx| ed.redo(window, cx));
+            }
+            "edit.cut" => {
+                self.editor_window_action(cx, |ed, window, cx| ed.cut(window, cx));
+            }
+            "edit.copy" => {
+                let _ = self.editor.update(cx, |ed, cx| {
+                    ed.copy(cx);
+                });
+            }
+            "edit.paste" => {
+                self.editor_window_action(cx, |ed, window, cx| ed.paste(window, cx));
+            }
+            "edit.select_all" => {
+                self.editor_window_action(cx, |ed, window, cx| ed.select_all(window, cx));
+            }
+            "edit.toggle_comment" => {
+                self.editor_window_action(cx, |ed, window, cx| ed.toggle_comment(window, cx));
+            }
+            "edit.duplicate_line" => {
+                self.editor_window_action(cx, |ed, window, cx| ed.duplicate_line(window, cx));
+            }
+            "edit.delete_line" => {
+                self.editor_window_action(cx, |ed, window, cx| ed.delete_line(window, cx));
+            }
+            "edit.move_up" => {
+                self.editor_window_action(cx, |ed, window, cx| ed.move_line_up(window, cx));
+            }
+            "edit.move_down" => {
+                self.editor_window_action(cx, |ed, window, cx| ed.move_line_down(window, cx));
+            }
+            // ---- Go：跳转到行 / 标签页切换 ----
+            "go.go_to_line" => {
+                self.open_go_to_line(cx);
+            }
+            "go.next_tab" => {
+                let _ = self.editor.update(cx, |ed, cx| {
+                    ed.goto_next_tab(cx);
+                });
+            }
+            "go.prev_tab" => {
+                let _ = self.editor.update(cx, |ed, cx| {
+                    ed.goto_prev_tab(cx);
+                });
+            }
+            // ---- View：显示开关 / 缩放 ----
+            "view.toggle_wrap" => {
+                self.editor_window_action(cx, |ed, window, cx| ed.toggle_wrap(window, cx));
+            }
+            "view.toggle_line_numbers" => {
+                self.editor_window_action(cx, |ed, window, cx| ed.toggle_line_numbers(window, cx));
+            }
+            "view.toggle_whitespace" => {
+                self.editor_window_action(cx, |ed, window, cx| ed.toggle_whitespace(window, cx));
+            }
+            "view.zoom_in" => {
+                settings::update(cx, |s| s.font_size = (s.font_size + 1.0).min(22.0));
+                let msg = format!(
+                    "[View] Font size: {} px",
+                    settings::get(cx).font_size as i32
+                );
+                self.append_log(&msg, cx);
+                cx.notify();
+            }
+            "view.zoom_out" => {
+                settings::update(cx, |s| s.font_size = (s.font_size - 1.0).max(10.0));
+                let msg = format!(
+                    "[View] Font size: {} px",
+                    settings::get(cx).font_size as i32
+                );
+                self.append_log(&msg, cx);
+                cx.notify();
+            }
+            "view.reset_zoom" => {
+                settings::update(cx, |s| s.font_size = 14.0);
+                self.append_log("[View] Font size reset to 14 px", cx);
+                cx.notify();
+            }
+            // ---- Terminal：新建会话 / 关闭面板（只关不开） ----
+            "terminal.new" => {
+                let _ = self.bottom_panel.update(cx, |bp, cx| {
+                    bp.set_tab(BottomTab::Terminal, cx);
+                    let _ = bp.terminal.update(cx, |term, cx| {
+                        term.respawn(cx);
+                    });
+                });
+            }
+            "terminal.close" => {
+                if !self.bottom_panel.read(cx).is_collapsed {
+                    let _ = self.bottom_panel.update(cx, |bp, cx| {
+                        bp.toggle_collapsed(cx);
+                    });
+                }
+            }
+            // ---- Window：全屏（gpui-pre `Window::toggle_fullscreen`） ----
+            "window.fullscreen" => {
+                cx.defer(|cx| {
+                    if let Some(handle) = cx.active_window() {
+                        let _ = handle.update(cx, |_, window, _| window.toggle_fullscreen());
+                    }
+                });
+            }
+            // ---- Help：外部链接经 `xdg-open` 打开 ----
+            "help.docs" => {
+                Self::open_url("https://lithe.top/docs");
+            }
+            "help.changelog" => {
+                Self::open_url("https://github.com/1lck/Lithe-IDEA/releases");
+            }
+            "help.report_bug" => {
+                Self::open_url("https://github.com/1lck/Lithe-IDEA/issues/new?template=01-bug.yml");
+            }
+            "help.feature" => {
+                Self::open_url(
+                    "https://github.com/1lck/Lithe-IDEA/issues/new?template=02-feature.yml",
+                );
             }
             _ => {}
         }
@@ -1092,16 +1440,20 @@ impl Render for WorkbenchView {
             .relative()
             .size_full()
             .bg(ThemeColors::background())
-            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 let key = event.keystroke.key.as_str();
                 let modifiers = event.keystroke.modifiers;
 
                 // 浮层优先：Esc 关闭最上层模态。
                 if key == "escape" {
-                    if this.show_command_palette {
+                    if this.show_branch_manager {
+                        this.show_branch_manager = false;
+                    } else if this.show_command_palette {
                         this.show_command_palette = false;
                     } else if this.show_quick_open {
                         this.show_quick_open = false;
+                    } else if this.show_go_to_line {
+                        this.show_go_to_line = false;
                     } else if this.show_search_everywhere {
                         this.show_search_everywhere = false;
                     } else if this.show_settings_dialog {
@@ -1134,7 +1486,34 @@ impl Render for WorkbenchView {
                                 bp.set_tab(BottomTab::Terminal, cx);
                             });
                         }
-                        _ => {}
+                        // 行操作快捷键与菜单展示一致（上游编辑器不原生支持）。
+                        // 按键监听自带 `window`，直接下发，避免经句柄二次
+                        // `update` 的重入借用失败。
+                        "d" => this.editor_direct(window, cx, |ed, window, cx| {
+                            ed.duplicate_line(window, cx);
+                        }),
+                        "/" => this.editor_direct(window, cx, |ed, window, cx| {
+                            ed.toggle_comment(window, cx);
+                        }),
+                        _ => {
+                            if modifiers.shift && (key == "k" || key == "K") {
+                                this.editor_direct(window, cx, |ed, window, cx| {
+                                    ed.delete_line(window, cx);
+                                });
+                            }
+                        }
+                    }
+                    // Alt+Up/Down 移动行（`modifiers.alt`）。
+                    if modifiers.alt && (key == "up" || key == "down") {
+                        if key == "up" {
+                            this.editor_direct(window, cx, |ed, window, cx| {
+                                ed.move_line_up(window, cx);
+                            });
+                        } else {
+                            this.editor_direct(window, cx, |ed, window, cx| {
+                                ed.move_line_down(window, cx);
+                            });
+                        }
                     }
                 }
             }))
@@ -1187,6 +1566,9 @@ impl Render for WorkbenchView {
             .when(self.show_quick_open, |view| {
                 view.child(self.quick_open.clone())
             })
+            .when(self.show_go_to_line, |view| {
+                view.child(self.go_to_line.clone())
+            })
             .when(self.show_command_palette, |view| {
                 view.child(self.command_palette.clone())
             })
@@ -1195,6 +1577,9 @@ impl Render for WorkbenchView {
             })
             .when(self.show_project_dialog, |view| {
                 view.child(self.project_dialog.clone())
+            })
+            .when(self.show_branch_manager, |view| {
+                view.child(self.branch_manager.clone())
             })
     }
 }

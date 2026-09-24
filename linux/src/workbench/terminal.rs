@@ -131,6 +131,12 @@ impl TerminalView {
         }
         cx.notify();
     }
+
+    /// 用现有工作目录重建 PTY 会话（失败则置空并通知）。
+    pub fn respawn(&mut self, cx: &mut Context<Self>) {
+        self.session = TerminalSession::new(120, 30, &self.working_dir).ok();
+        cx.notify();
+    }
 }
 
 impl Render for TerminalView {

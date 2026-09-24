@@ -1,7 +1,9 @@
 pub mod activity_rail;
 pub mod bottom_panel;
+pub mod branch_manager;
 pub mod command_palette;
 pub mod editor;
+pub mod go_to_line;
 pub mod maven;
 pub mod project_dialog;
 pub mod quick_open;
@@ -21,9 +23,13 @@ pub use activity_rail::{
 #[allow(unused_imports)]
 pub use bottom_panel::BottomPanelView;
 #[allow(unused_imports)]
+pub use branch_manager::{BranchManagerEvent, BranchManagerView, BranchTab};
+#[allow(unused_imports)]
 pub use command_palette::{CommandPaletteEvent, CommandPaletteModal};
 #[allow(unused_imports)]
 pub use editor::EditorView;
+#[allow(unused_imports)]
+pub use go_to_line::{GoToLineEvent, GoToLineModal};
 #[allow(unused_imports)]
 pub use maven::{MavenEvent, MavenView};
 #[allow(unused_imports)]

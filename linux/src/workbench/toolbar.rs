@@ -7,7 +7,7 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
-use gpui_kit::component::{h_flex, v_flex, Icon, Selectable as _, Sizable as _};
+use gpui_kit::component::{h_flex, v_flex, Disableable as _, Icon, Selectable as _, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     div, px, Anchor, AnyElement, Context, EventEmitter, InteractiveElement as _, IntoElement,
@@ -50,18 +50,17 @@ pub enum ToolbarEvent {
     OpenRecent,
     /// 打开最近项目中的指定路径（项目胶囊“最近项目”分组条目）。
     OpenRecentProject(String),
-    /// 检出指定本地分支（分支胶囊下拉条目，对齐 Tauri 分支管理器检出）。
-    CheckoutBranch(String),
+    /// 打开分支管理器弹窗（分支徽标按钮，对齐 Tauri `GitBranchManager`）。
+    OpenBranchManager,
 }
 
 /// 应用图标：与 Tauri 端 `public/logo.png` 同一文件，编译期嵌入。
 const APP_LOGO_PNG: &[u8] = include_bytes!("../../assets/logo.png");
 
 pub struct ToolbarView {
+    pub workspace_root: String,
     pub workspace_name: String,
     pub git_branch: Option<String>,
-    /// 本地分支列表（view 侧由 core `git.references` 同步，供分支胶囊下拉切换）。
-    pub branches: Vec<String>,
     /// 紧凑菜单条是否展开（对齐 Tauri `isCompactMenuVisible`）。
     compact_menu_open: bool,
     /// 解码后的应用图标，项目菜单触发器左侧的徽标（对齐 Tauri 的 `logo.png`）。
@@ -72,15 +71,10 @@ impl EventEmitter<ToolbarEvent> for ToolbarView {}
 
 impl ToolbarView {
     pub fn new(workspace_root: &str) -> Self {
-        let name = workspace_root
-            .rsplit_once('/')
-            .map(|(_, n)| n.to_string())
-            .unwrap_or_else(|| workspace_root.to_string());
-
         Self {
-            workspace_name: name,
+            workspace_root: workspace_root.to_string(),
+            workspace_name: workspace_dir_name(workspace_root),
             git_branch: None,
-            branches: Vec::new(),
             compact_menu_open: false,
             app_logo: std::sync::Arc::new(gpui_kit::Image::from_bytes(
                 gpui_kit::ImageFormat::Png,
@@ -94,10 +88,20 @@ impl ToolbarView {
         cx.notify();
     }
 
-    pub fn set_branches(&mut self, branches: Vec<String>, cx: &mut Context<Self>) {
-        self.branches = branches;
+    /// 同步当前 workspace：项目胶囊触发器名称与“打开的项目”行跟随切换。
+    pub fn set_workspace_root(&mut self, root: String, cx: &mut Context<Self>) {
+        self.workspace_root = root.clone();
+        self.workspace_name = workspace_dir_name(&root);
         cx.notify();
     }
+}
+
+/// 取 workspace 目录名（项目胶囊触发器与当前项目行主行共用）。
+fn workspace_dir_name(workspace_root: &str) -> String {
+    workspace_root
+        .rsplit_once('/')
+        .map(|(_, n)| n.to_string())
+        .unwrap_or_else(|| workspace_root.to_string())
 }
 
 /// 单个菜单项：i18n 键（`crate::i18n::menu_text`）+ 稳定动作 id + 快捷键展示文本。
@@ -155,7 +159,7 @@ const FILE_MENU: &[&[MenuEntry]] = &[
         entry("menu.saveAs", "file.save_as", "Ctrl+Shift+S"),
         entry("menu.saveAll", "file.save_all", "Ctrl+Alt+S"),
         entry("menu.revertFile", "file.revert", ""),
-        entry("menu.showLocalHistory", "file.local_history", ""),
+        disabled_entry("menu.showLocalHistory", "file.local_history", ""),
     ],
     &[
         entry("menu.closeTab", "file.close_editor", "Ctrl+W"),
@@ -186,21 +190,21 @@ const EDIT_MENU: &[&[MenuEntry]] = &[
         entry("menu.find", "edit.find", "Ctrl+F"),
         entry("menu.findAndReplace", "edit.find_replace", "Ctrl+Alt+F"),
         entry("menu.toggleComment", "edit.toggle_comment", "Ctrl+/"),
-        entry("menu.quickFix", "edit.quick_fix", "Ctrl+."),
-        entry(
+        disabled_entry("menu.quickFix", "edit.quick_fix", "Ctrl+."),
+        disabled_entry(
             "menu.triggerParameterHints",
             "edit.param_hints",
             "Ctrl+Shift+Space",
         ),
-        entry("menu.showHover", "edit.show_hover", "Ctrl+K Ctrl+I"),
+        disabled_entry("menu.showHover", "edit.show_hover", "Ctrl+K Ctrl+I"),
     ],
     &[
         entry("menu.duplicateLine", "edit.duplicate_line", "Ctrl+D"),
         entry("menu.deleteLine", "edit.delete_line", "Ctrl+Shift+K"),
         entry("menu.moveLineUp", "edit.move_up", "Alt+Up"),
         entry("menu.moveLineDown", "edit.move_down", "Alt+Down"),
-        entry("menu.formatDocument", "edit.format_doc", "Ctrl+Alt+L"),
-        entry("menu.formatSelection", "edit.format_sel", "Ctrl+K Ctrl+F"),
+        disabled_entry("menu.formatDocument", "edit.format_doc", "Ctrl+Alt+L"),
+        disabled_entry("menu.formatSelection", "edit.format_sel", "Ctrl+K Ctrl+F"),
     ],
     &[entry(
         "menu.commandPalette",
@@ -235,8 +239,8 @@ const VIEW_MENU: &[&[MenuEntry]] = &[
         entry("menu.runAndDebug", "view.show_debug", ""),
     ],
     &[
-        entry("menu.splitEditor", "view.split_editor", ""),
-        entry("menu.toggleMinimap", "view.toggle_minimap", ""),
+        disabled_entry("menu.splitEditor", "view.split_editor", ""),
+        disabled_entry("menu.toggleMinimap", "view.toggle_minimap", ""),
         entry("menu.toggleWordWrap", "view.toggle_wrap", "Alt+Z"),
         entry("menu.toggleLineNumbers", "view.toggle_line_numbers", ""),
         entry("menu.toggleRenderWhitespace", "view.toggle_whitespace", ""),
@@ -255,15 +259,15 @@ const GO_MENU: &[&[MenuEntry]] = &[
         entry("menu.goToLine", "go.go_to_line", "Ctrl+G"),
     ],
     &[
-        entry("menu.goBack", "go.back", "Ctrl+Alt+Left"),
-        entry("menu.goForward", "go.forward", "Ctrl+Alt+Right"),
+        disabled_entry("menu.goBack", "go.back", "Ctrl+Alt+Left"),
+        disabled_entry("menu.goForward", "go.forward", "Ctrl+Alt+Right"),
     ],
     &[
-        entry("menu.goToDefinition", "go.definition", "F12"),
-        entry("menu.goToImplementation", "go.implementation", "Ctrl+F12"),
-        entry("menu.goToTypeDefinition", "go.type_definition", ""),
-        entry("menu.goToReferences", "go.references", "Ctrl+B"),
-        entry("menu.renameSymbol", "go.rename", "F2"),
+        disabled_entry("menu.goToDefinition", "go.definition", "F12"),
+        disabled_entry("menu.goToImplementation", "go.implementation", "Ctrl+F12"),
+        disabled_entry("menu.goToTypeDefinition", "go.type_definition", ""),
+        disabled_entry("menu.goToReferences", "go.references", "Ctrl+B"),
+        disabled_entry("menu.renameSymbol", "go.rename", "F2"),
     ],
     &[
         entry("menu.nextTab", "go.next_tab", "Ctrl+Alt+Right"),
@@ -274,8 +278,8 @@ const GO_MENU: &[&[MenuEntry]] = &[
 // ---- Terminal：对齐 tsx，单组无分隔线 ----
 const TERMINAL_MENU: &[&[MenuEntry]] = &[&[
     entry("menu.newTerminal", "terminal.new", ""),
-    entry("menu.splitTerminalRight", "terminal.split_right", "Ctrl+D"),
-    entry(
+    disabled_entry("menu.splitTerminalRight", "terminal.split_right", "Ctrl+D"),
+    disabled_entry(
         "menu.splitTerminalDown",
         "terminal.split_down",
         "Ctrl+Shift+D",
@@ -285,15 +289,19 @@ const TERMINAL_MENU: &[&[MenuEntry]] = &[&[
 
 // ---- Run：对齐 tsx，单组无分隔线 ----
 const RUN_MENU: &[&[MenuEntry]] = &[&[
-    entry("menu.startDebugging", "run.debug_start", "F5"),
-    entry("menu.stopDebugging", "run.debug_stop", "Shift+F5"),
-    entry("menu.toggleBreakpoint", "run.breakpoint", "F9"),
+    disabled_entry("menu.startDebugging", "run.debug_start", "F5"),
+    disabled_entry("menu.stopDebugging", "run.debug_stop", "Shift+F5"),
+    disabled_entry("menu.toggleBreakpoint", "run.breakpoint", "F9"),
 ]];
 
 // ---- Tools：对齐 tsx 三组（首项 databases 禁用，对齐后端能力缺失） ----
 const TOOLS_MENU: &[&[MenuEntry]] = &[
     &[disabled_entry("menu.databases", "tools.database", "")],
-    &[entry("menu.webInspector", "tools.inspector", "Ctrl+Alt+I")],
+    &[disabled_entry(
+        "menu.webInspector",
+        "tools.inspector",
+        "Ctrl+Alt+I",
+    )],
     &[
         entry("menu.preferences", "tools.settings", ""),
         entry("menu.keyboardShortcuts", "tools.shortcuts", ""),
@@ -312,14 +320,18 @@ const HELP_MENU: &[&[MenuEntry]] = &[
     &[
         entry("menu.documentation", "help.docs", ""),
         entry("menu.keyboardShortcuts", "help.shortcuts", ""),
-        entry("menu.whatsNew", "help.whats_new", ""),
+        disabled_entry("menu.whatsNew", "help.whats_new", ""),
         entry("menu.changelog", "help.changelog", ""),
     ],
     &[
         entry("menu.reportBug", "help.report_bug", ""),
         entry("menu.requestFeature", "help.feature", ""),
     ],
-    &[entry("menu.checkForUpdates", "help.check_updates", "")],
+    &[disabled_entry(
+        "menu.checkForUpdates",
+        "help.check_updates",
+        "",
+    )],
 ];
 
 const APP_MENUS: &[AppMenu] = &[
@@ -462,6 +474,48 @@ fn recent_project_item(
     })
 }
 
+/// 当前项目行：复用最近项目条目的两行样式，右侧加 Check，不可点。
+///
+/// 单根架构下“打开的项目”分组只渲染当前 workspace 这一行，对齐 Tauri
+/// `ProjectMenuRow` 当前项（`if (project.isActive) return`，点击无动作）。
+fn current_project_item(name: String, path: String) -> PopupMenuItem {
+    PopupMenuItem::element(move |_window, _cx| {
+        let name = name.clone();
+        let path = path.clone();
+        h_flex()
+            .w_full()
+            .items_center()
+            .gap_2()
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .child(
+                        div()
+                            .w_full()
+                            .truncate()
+                            .text_xs()
+                            .text_color(ThemeColors::foreground())
+                            .child(name),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .truncate()
+                            .text_xs()
+                            .text_color(ThemeColors::subtle_foreground())
+                            .child(path),
+                    ),
+            )
+            .child(
+                Icon::new(IconName::Check)
+                    .size(px(14.0))
+                    .text_color(ThemeColors::primary()),
+            )
+    })
+    .disabled(true)
+}
+
 /// 按分组把菜单项灌入 `PopupMenu`，分组之间自动插入分隔线。
 ///
 /// 文案在 builder 内用 `cx`（`&mut Context<PopupMenu>`）实时解析；
@@ -540,11 +594,13 @@ impl Render for ToolbarView {
         let t_open_projects = crate::i18n::menu_text(cx, "titleProject.openProjects").to_string();
         let t_recent = crate::i18n::menu_text(cx, "titleProject.recentProjects").to_string();
         let t_no_recent = crate::i18n::menu_text(cx, "titleProject.noRecentProjects").to_string();
-        // 最近项目（首位最新，过滤不存在的路径，上限与持久化数组一致）。
+        // 当前 workspace：打开的项目分组只渲染这一行（单根架构，对齐 Tauri 当前项打 Check）。
+        let current_root = self.workspace_root.clone();
+        // 最近项目（首位最新，过滤不存在的路径与当前已打开路径，上限与持久化数组一致）。
         let recents: Vec<(String, String)> = settings::get(cx)
             .recent_projects
             .iter()
-            .filter(|p| std::path::Path::new(p).exists())
+            .filter(|p| p.as_str() != current_root && std::path::Path::new(p).exists())
             .take(settings::MAX_RECENT_PROJECTS)
             .map(|p| (settings::project_dir_name(p).to_string(), p.clone()))
             .collect();
@@ -580,7 +636,6 @@ impl Render for ToolbarView {
                         )),
                 )
                 .when(open, move |this| {
-                    let v_out = v_menu.clone();
                     this.child(gpui_kit::deferred(
                         gpui_kit::anchored()
                             .anchor(Anchor::TopLeft)
@@ -600,13 +655,10 @@ impl Render for ToolbarView {
                                     .border_1()
                                     .border_color(ThemeColors::border())
                                     .shadow_lg()
-                                    // 点击菜单条以外区域时收起，对齐 Tauri 紧凑菜单的行为。
-                                    .on_mouse_down_out(move |_, _, cx| {
-                                        v_out.update(cx, |this, cx| {
-                                            this.compact_menu_open = false;
-                                            cx.notify();
-                                        });
-                                    })
+                                    // 紧凑菜单条不挂 `on_mouse_down_out`：下拉弹窗渲染在
+                                    // overlay 层，点击弹窗项会被判为“条外”而在 click
+                                    // 完成前销毁弹窗，导致所有菜单项无法触发。
+                                    // 收起由汉堡按钮切换与菜单项自身处理。
                                     .children(APP_MENUS.iter().enumerate().map(|(ix, app)| {
                                         let v_item = v_menu.clone();
                                         let key = app.key;
@@ -663,6 +715,8 @@ impl Render for ToolbarView {
                         // 项目菜单：应用图标 + 项目名 + ChevronDown，点击展开项目列表
                         let v = view.clone();
                         let name = project_name.clone();
+                        let current_name = project_name.clone();
+                        let current_root = current_root.clone();
                         let logo = self.app_logo.clone();
                         Button::new("tb-project-selector")
                             .small()
@@ -710,8 +764,12 @@ impl Render for ToolbarView {
                                         &v,
                                     ))
                                     .separator()
-                                    // 打开的项目分组标签：只展示，不可点。
+                                    // 打开的项目分组标签：只展示，不可点；下方单根只渲染当前项目行。
                                     .item(PopupMenuItem::label(t_open_projects.clone()))
+                                    .item(current_project_item(
+                                        current_name.clone(),
+                                        current_root.clone(),
+                                    ))
                                     .separator()
                                     .item(PopupMenuItem::label(t_recent.clone()));
                                 if recents.is_empty() {
@@ -729,14 +787,13 @@ impl Render for ToolbarView {
                             })
                     })
                     .child({
-                        // 分支胶囊：点击展开本地分支下拉（对齐 Tauri 分支管理器），
-                        // 当前分支打勾并禁用，点击其他分支发射 CheckoutBranch 由 view 侧检出。
-                        let v = view.clone();
-                        let current = branch.clone();
-                        let branches = self.branches.clone();
+                        // 分支徽标：普通按钮，点击打开分支管理器弹窗
+                        //（对齐 Tauri `GitBranchManager`）；无仓库时禁用。
+                        let has_repo = self.git_branch.is_some();
                         Button::new("tb-branch-selector")
                             .small()
                             .ghost()
+                            .disabled(!has_repo)
                             .child(
                                 Icon::new(IconName::GitBranch)
                                     .size(px(13.0))
@@ -750,46 +807,9 @@ impl Render for ToolbarView {
                                     .text_color(ThemeColors::success())
                                     .child(branch.clone()),
                             )
-                            .child(
-                                Icon::new(IconName::ChevronDown)
-                                    .size(px(12.0))
-                                    .text_color(ThemeColors::subtle_foreground()),
-                            )
-                            .dropdown_menu(move |mut menu, _window, _cx| {
-                                if branches.is_empty() {
-                                    menu = menu.item(
-                                        PopupMenuItem::new(current.clone())
-                                            .icon(IconName::Check)
-                                            .disabled(true),
-                                    );
-                                } else {
-                                    for name in &branches {
-                                        if *name == current {
-                                            menu = menu.item(
-                                                PopupMenuItem::new(name.clone())
-                                                    .icon(IconName::Check)
-                                                    .disabled(true),
-                                            );
-                                        } else {
-                                            let v = v.clone();
-                                            let target = name.clone();
-                                            menu = menu.item(
-                                                PopupMenuItem::new(name.clone()).on_click(
-                                                    move |_, _, cx| {
-                                                        let target = target.clone();
-                                                        v.update(cx, |_this, cx| {
-                                                            cx.emit(ToolbarEvent::CheckoutBranch(
-                                                                target,
-                                                            ));
-                                                        });
-                                                    },
-                                                ),
-                                            );
-                                        }
-                                    }
-                                }
-                                menu
-                            })
+                            .on_click(cx.listener(|_this, _event, _window, cx| {
+                                cx.emit(ToolbarEvent::OpenBranchManager);
+                            }))
                     }),
             )
             // 右侧：全局搜索图标按钮 + 窗口控件（对齐 Tauri `quickOpenAction` + `WindowControls`）

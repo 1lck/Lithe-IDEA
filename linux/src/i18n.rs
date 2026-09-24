@@ -183,6 +183,23 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
         "notifications.title" => ("通知", "Notifications"),
         // ---- Git ----
         "git.commit" => ("提交", "Commit"),
+        // ---- Git 分支管理器（与 Tauri locale.ts git.* 逐字对齐） ----
+        "git.repositories" => ("仓库", "Repositories"),
+        "git.branches" => ("分支", "Branches"),
+        "git.worktrees" => ("工作树", "Worktrees"),
+        "git.searchBranches" => ("搜索分支...", "Search branches..."),
+        "git.searchWorktrees" => ("搜索工作树...", "Search worktrees..."),
+        "git.filterRepositories" => ("筛选仓库...", "Filter repositories..."),
+        "git.branchCount" => ("{count} 个分支", "{count} branch"),
+        "git.branchesCount" => ("{count} 个分支", "{count} branches"),
+        "git.worktreeCount" => ("{count} 个工作树", "{count} worktree"),
+        "git.worktreesCount" => ("{count} 个工作树", "{count} worktrees"),
+        "git.repositoryCount" => ("{count} 个仓库", "{count} repository"),
+        "git.repositoriesCount" => ("{count} 个仓库", "{count} repositories"),
+        "git.selectorSections" => ("Git 选择分区", "Git selector sections"),
+        "git.noMatchingBranches" => ("没有匹配的分支", "No matching branches"),
+        "git.noBranchesFound" => ("未找到分支", "No branches found"),
+        "git.createNewBranch" => ("创建新分支 “{name}”", "Create new branch \"{name}\""),
         // ---- Quick Open / Command Palette / Search Everywhere（与 Tauri locale.ts 对齐） ----
         "quickOpen.searchFiles" => ("输入以搜索文件...", "Type to search files..."),
         "quickOpen.searchSymbols" => ("输入以筛选符号...", "Type to filter symbols..."),
@@ -209,6 +226,9 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
             "Remove {name} from recent projects",
         ),
         // ---- Linux-frame 新增键（Tauri 无对应） ----
+        "goToLine.title" => ("转到行", "Go to Line"),
+        "goToLine.placeholder" => ("输入行号...", "Type a line number..."),
+        "goToLine.hint" => ("按 Enter 跳转到指定行", "Press Enter to go to the specified line"),
         "search.scopeAll" => ("全部", "All"),
         "search.scopeFiles" => ("文件", "Files"),
         "search.scopeActions" => ("操作", "Actions"),
