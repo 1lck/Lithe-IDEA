@@ -86,6 +86,32 @@ impl Default for CoreFeatures {
     }
 }
 
+/// Tauri 默认隐藏目录模式（`DEFAULT_HIDDEN_DIRECTORY_PATTERNS`）。
+pub const DEFAULT_HIDDEN_DIRECTORY_PATTERNS: &[&str] = &[
+    ".git",
+    ".hg",
+    ".idea",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".svn",
+    "CVS",
+    "__pycache__",
+    "_svn",
+];
+
+/// Tauri 默认隐藏文件模式（`DEFAULT_HIDDEN_FILE_PATTERNS`）。
+pub const DEFAULT_HIDDEN_FILE_PATTERNS: &[&str] = &[
+    "*.pyc",
+    "*.pyo",
+    "*.rbc",
+    "*.yarb",
+    "*~",
+    ".DS_Store",
+    "vssver.scc",
+    "vssver2.scc",
+];
+
 /// 应用设置真源，字段名与 Tauri `defaultSettings` 的 camelCase 键一一对应。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -99,8 +125,10 @@ pub struct Settings {
     pub word_wrap: bool,
     pub line_numbers: bool,
     pub show_minimap: bool,
+    pub code_lens: bool,
     // Terminal
     pub terminal_scrollback: usize,
+    pub terminal_default_shell_id: String,
     // UI
     pub display_language: String,
     pub reduce_motion: bool,
@@ -127,6 +155,33 @@ pub struct Settings {
     // Tabs
     pub max_open_tabs: usize,
     pub horizontal_tab_scroll: bool,
+    // Keyboard
+    pub keybinding_preset: String,
+    // Language
+    pub auto_completion: bool,
+    pub parameter_hints: bool,
+    pub semantic_tokens: bool,
+    // Projects
+    pub open_folders_in_new_window: bool,
+    pub ask_where_to_open_projects: bool,
+    // File tree
+    pub hidden_file_patterns: Vec<String>,
+    pub hidden_directory_patterns: Vec<String>,
+    // Git
+    pub auto_refresh_git_status: bool,
+    pub show_untracked_files: bool,
+    pub show_staged_first: bool,
+    pub git_default_diff_view: String,
+    pub open_diff_on_click: bool,
+    pub git_changes_folder_view: bool,
+    pub compact_git_status_badges: bool,
+    pub collapse_empty_git_sections: bool,
+    pub remember_last_git_panel_mode: bool,
+    pub confirm_before_discard: bool,
+    pub enable_inline_git_blame: bool,
+    pub git_fetch_prune: bool,
+    pub git_fetch_submodules: String,
+    pub git_fetch_tags: String,
     // Advanced
     pub last_settings_tab: String,
     pub core_features: CoreFeatures,
@@ -142,7 +197,9 @@ impl Default for Settings {
             word_wrap: false,
             line_numbers: true,
             show_minimap: true,
+            code_lens: true,
             terminal_scrollback: 10000,
+            terminal_default_shell_id: String::new(),
             display_language: "zh-CN".to_string(),
             reduce_motion: false,
             show_status_bar: true,
@@ -174,6 +231,34 @@ impl Default for Settings {
             right_tool_window_width: 400.0,
             max_open_tabs: 100,
             horizontal_tab_scroll: true,
+            keybinding_preset: "none".to_string(),
+            auto_completion: true,
+            parameter_hints: true,
+            semantic_tokens: true,
+            open_folders_in_new_window: true,
+            ask_where_to_open_projects: true,
+            hidden_file_patterns: DEFAULT_HIDDEN_FILE_PATTERNS
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            hidden_directory_patterns: DEFAULT_HIDDEN_DIRECTORY_PATTERNS
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            auto_refresh_git_status: true,
+            show_untracked_files: true,
+            show_staged_first: true,
+            git_default_diff_view: "unified".to_string(),
+            open_diff_on_click: true,
+            git_changes_folder_view: true,
+            compact_git_status_badges: false,
+            collapse_empty_git_sections: false,
+            remember_last_git_panel_mode: false,
+            confirm_before_discard: true,
+            enable_inline_git_blame: true,
+            git_fetch_prune: true,
+            git_fetch_submodules: "inherit".to_string(),
+            git_fetch_tags: "inherit".to_string(),
             last_settings_tab: "general".to_string(),
             core_features: CoreFeatures::default(),
         }
