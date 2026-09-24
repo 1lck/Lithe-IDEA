@@ -1074,21 +1074,21 @@ impl SettingsDialog {
                         .child(div().text_xs().text_color(ThemeColors::foreground()).child(
                             crate::i18n::menu_text(cx, "settings.mac.directories").to_string(),
                         ))
-                        .child({
-                            div()
+                        .child(
+                            Textarea::new(&dirs_entity)
+                                .bordered(true)
                                 .w_full()
-                                .h(px(72.0))
-                                .child(Textarea::new(&dirs_entity).bordered(true))
-                        })
+                                .h(px(120.0)),
+                        )
                         .child(div().text_xs().text_color(ThemeColors::foreground()).child(
                             crate::i18n::menu_text(cx, "settings.mac.filePatterns").to_string(),
                         ))
-                        .child({
-                            div()
+                        .child(
+                            Textarea::new(&files_entity)
+                                .bordered(true)
                                 .w_full()
-                                .h(px(56.0))
-                                .child(Textarea::new(&files_entity).bordered(true))
-                        })
+                                .h(px(96.0)),
+                        )
                         .child(
                             h_flex().w_full().justify_end().child(
                                 Button::new("general-apply-patterns")
