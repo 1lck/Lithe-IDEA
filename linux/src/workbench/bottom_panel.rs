@@ -385,10 +385,18 @@ impl BottomPanelView {
     }
 
     /// 运行 Maven 目标：切 Maven 页 + 经 core `maven.launchPlan` 拿确定性参数
-    ///（payload `{root, context: {version: 1, reactorPath: "."}, module, goals}`），
+    ///（payload `{root, context: {version: 1, reactorPath: ".", profiles, skipTests}, module, goals}`），
     /// 起受管进程并把输出泵入 Maven 页（首行 `$ mvn …`，对齐 Tauri Maven 页）。
     /// 已有任务在跑时先停掉（对齐 Tauri 停掉上一个 session）。
-    pub fn run_maven_goal(&mut self, pom_path: &str, goal: &str, cx: &mut Context<Self>) {
+    pub fn run_maven_goal(
+        &mut self,
+        pom_path: &str,
+        goal: &str,
+        target: &str,
+        profiles: &[String],
+        skip_tests: bool,
+        cx: &mut Context<Self>,
+    ) {
         let goal = goal.trim().to_string();
         if goal.is_empty() {
             return;
@@ -402,10 +410,7 @@ impl BottomPanelView {
         }
         self.maven_seq += 1;
         let seq = self.maven_seq;
-        let title = format!(
-            "{goal} · {}",
-            maven_display_pom(&self.working_dir, pom_path)
-        );
+        let title = format!("{goal} · {target}");
         self.active_tab = BottomTab::Maven;
         self.is_collapsed = false;
         self.maven_title = Some(title.clone());
@@ -416,6 +421,7 @@ impl BottomPanelView {
         let client = self.client.clone();
         let root = self.working_dir.clone();
         let module = maven_module_for_pom(&self.working_dir, pom_path);
+        let profiles = profiles.to_vec();
         let child_slot = self.maven_child.clone();
         cx.spawn(async move |this, cx| {
             let plan = client
@@ -424,7 +430,12 @@ impl BottomPanelView {
                     "maven.launchPlan",
                     serde_json::json!({
                         "root": root,
-                        "context": { "version": 1, "reactorPath": "." },
+                        "context": {
+                            "version": 1,
+                            "reactorPath": ".",
+                            "profiles": profiles,
+                            "skipTests": skip_tests,
+                        },
                         "module": module,
                         "goals": [goal],
                     }),
@@ -1466,21 +1477,6 @@ fn plan_to_steps(
         }
     }
     fallback_run_steps(item, root)
-}
-
-/// Maven 页展示用的 pom 路径：相对工作区，根 pom 显示 `pom.xml`。
-fn maven_display_pom(root: &str, pom: &str) -> String {
-    std::path::Path::new(pom)
-        .strip_prefix(root)
-        .map(|rel| {
-            let s = rel.to_string_lossy().into_owned();
-            if s.is_empty() {
-                pom.to_string()
-            } else {
-                s
-            }
-        })
-        .unwrap_or_else(|_| pom.to_string())
 }
 
 /// pom 所在目录相对 root 的模块路径：根 pom 为 `.`，与 core 模块约定一致。

@@ -362,18 +362,29 @@ impl WorkbenchView {
             },
         );
 
-        // 4b. 订阅 Maven 视图事件（执行目标、关闭工具窗口）
-        // 对齐 Tauri：目标走底部 Maven 页受管进程，不进交互终端。
+        // 4b. 订阅 Maven 视图事件（执行目标走底部 Maven 页、依赖开 pom、设置对话框、关闭工具窗口）
         let sub_maven = cx.subscribe(&maven, |this, _maven, event: &MavenEvent, cx| match event {
-            MavenEvent::RunGoal { pom_path, phase } => {
+            MavenEvent::RunGoal {
+                pom_path,
+                phase,
+                target,
+                profiles,
+                skip_tests,
+            } => {
                 let _ = this.bottom_panel.update(cx, |bp, cx| {
-                    bp.run_maven_goal(pom_path, phase, cx);
+                    bp.run_maven_goal(pom_path, phase, target, profiles, *skip_tests, cx);
                 });
                 let has_run = this.bottom_panel.read(cx).has_maven_run();
                 let _ = this.activity_rail.update(cx, |r, cx| {
                     r.set_has_maven_run(has_run, cx);
                 });
                 cx.notify();
+            }
+            MavenEvent::OpenFile(path) => {
+                this.open_file(path, cx);
+            }
+            MavenEvent::OpenSettings => {
+                this.open_settings(cx);
             }
             MavenEvent::Close => {
                 this.right_tool = None;
