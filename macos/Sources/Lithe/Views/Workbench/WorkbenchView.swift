@@ -191,13 +191,9 @@ struct WorkbenchView: View {
     @EnvironmentObject private var settings: AppSettings
     @Environment(\.projectWindowScope) private var projectWindowScope
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @StateObject private var linuxDoWebSession = LinuxDoAnonymousWebSession()
     @State private var sidebarWidth: CGFloat = 320
     @State private var rightSidebarWidth: CGFloat = 380
     @State private var mavenPaneWidth = CGFloat(WorkbenchLayout.defaultMavenPaneWidth)
-    @State private var hoveredRightSidebarContributionID: String?
-    @State private var isRightSidebarPanelHovered = false
-    @State private var rightSidebarDismissTask: Task<Void, Never>?
     @State private var topPaneHeight: CGFloat?
     @State private var isBranchSwitcherPresented = false
     @State private var newBranchReference: GitReference?
@@ -230,7 +226,7 @@ struct WorkbenchView: View {
             }
             .frame(maxHeight: .infinity)
             .overlay(alignment: .trailing) {
-                rightHoverRegion
+                pluginActivityBar
             }
 
             statusBar
@@ -1320,19 +1316,6 @@ struct WorkbenchView: View {
                         isSelected: renderer.isSelected(model),
                         action: { moduleUIRegistry.perform(contribution, model: model) }
                     )
-                    .onHover { isHovering in
-                        guard renderer.rightSidebarBehavior == .hover else { return }
-                        if isHovering {
-                            rightSidebarDismissTask?.cancel()
-                            hoveredRightSidebarContributionID = contribution.id
-                            if !renderer.isSelected(model) {
-                                moduleUIRegistry.perform(contribution, model: model)
-                            }
-                        } else {
-                            hoveredRightSidebarContributionID = nil
-                            scheduleRightSidebarDismissal()
-                        }
-                    }
                 }
             }
             Spacer()
@@ -1344,74 +1327,6 @@ struct WorkbenchView: View {
 
     private var unreadNotificationCount: Int {
         model.notifications.lazy.filter { !$0.isRead }.count
-    }
-
-    private var rightHoverRegion: some View {
-        HStack(spacing: 0) {
-            if isHoverSidebarVisible {
-                moduleUIRegistry.selectedToolContent(
-                    from: hoverSidebarContributions,
-                    model: model
-                )
-                .equatable()
-                .environmentObject(linuxDoWebSession)
-                .frame(width: rightSidebarWidth)
-                .frame(maxHeight: .infinity)
-                .workbenchPaneChrome(
-                    background: model.workbenchBackgroundFeature.hasImage
-                        ? Color.clear
-                        : LitheTheme.editor,
-                    surrounding: model.workbenchBackgroundFeature.hasImage
-                        ? Color.clear
-                        : LitheTheme.titlebar,
-                    roundsCorners: !model.workbenchBackgroundFeature.hasImage
-                )
-                .padding(WorkbenchWorkspaceMetrics.paneInset)
-                .background(
-                    model.workbenchBackgroundFeature.hasImage
-                        ? Color.clear
-                        : LitheTheme.titlebar
-                )
-                .transition(
-                    reduceMotion
-                        ? .opacity
-                        : .move(edge: .trailing).combined(with: .opacity)
-                )
-                .onHover { isHovering in
-                    isRightSidebarPanelHovered = isHovering
-                    if isHovering {
-                        rightSidebarDismissTask?.cancel()
-                    } else {
-                        scheduleRightSidebarDismissal()
-                    }
-                }
-            }
-            pluginActivityBar
-        }
-        .fixedSize(horizontal: true, vertical: false)
-        .animation(
-            reduceMotion ? nil : .easeOut(duration: 0.14),
-            value: isHoverSidebarVisible
-        )
-    }
-
-    private func scheduleRightSidebarDismissal() {
-        rightSidebarDismissTask?.cancel()
-        rightSidebarDismissTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 60_000_000)
-            guard !Task.isCancelled,
-                  hoveredRightSidebarContributionID == nil,
-                  !isRightSidebarPanelHovered else { return }
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.10)) {
-                model.isDiscourseCommunityVisible = false
-            }
-        }
-    }
-
-    private var hoverSidebarContributions: [ModuleContribution] {
-        model.rightSidebarContributions.filter {
-            moduleUIRegistry.renderer(for: $0)?.rightSidebarBehavior == .hover
-        }
     }
 
     private var dockedSidebarContributions: [ModuleContribution] {

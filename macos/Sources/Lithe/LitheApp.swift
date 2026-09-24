@@ -58,7 +58,6 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     var recordCleanPluginShutdown: (() -> Void)?
     var prepareStableRollbackTermination: (() -> Bool)?
     var cancelStableRollbackTermination: (() -> Bool)?
-    var authorizationCallbackRouter: MacExternalAuthorizationCallbackRouter?
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
@@ -249,9 +248,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleOpenedURLs(_ urls: [URL]) {
         for url in urls {
-            if url.scheme == "lithe" {
-                authorizationCallbackRouter?.route(url)
-            } else if url.isFileURL {
+            if url.isFileURL {
                 if let projectSessions {
                     projectSessions.openStandaloneFile(url)
                 } else if !pendingFileURLs.contains(where: {
@@ -346,7 +343,6 @@ struct LitheApp: App {
         let processRegistry = ManagedProcessRegistry()
         let moduleStore = MacModuleConfigurationStore(store: store)
         let pluginRuntimeRecovery = MacPluginRuntimeRecoveryCoordinator()
-        let authorizationCallbackRouter = MacExternalAuthorizationCallbackRouter()
         pluginRuntimeRecovery.recoverPreviousSession(using: moduleStore)
         _settings = StateObject(wrappedValue: settings)
         let projectWindowLauncher = ProjectWindowLauncher()
@@ -365,7 +361,6 @@ struct LitheApp: App {
                             : .normal,
                         moduleStore: moduleStore,
                         pluginRuntimeRecovery: pluginRuntimeRecovery,
-                        authorizationCallbackRouter: authorizationCallbackRouter,
                         gitPerformanceLogger: gitPerformanceLogger
                     ).services
                 )
@@ -397,7 +392,6 @@ struct LitheApp: App {
         })
         _updateChecker = StateObject(wrappedValue: updateChecker)
         appDelegate.projectSessions = projectSessions
-        appDelegate.authorizationCallbackRouter = authorizationCallbackRouter
         appDelegate.recordCleanPluginShutdown = {
             pluginRuntimeRecovery.recordCleanShutdown(using: moduleStore)
         }

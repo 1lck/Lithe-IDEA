@@ -19,12 +19,17 @@
     "noFallthroughCasesInSwitch": true,
     "paths": {
       "@/*": ["./src/*"],
+      "@lithe/v0/*": ["../../Plugins/win/Official/V0Support/*"],
+      "@tauri-apps/plugin-http": ["./node_modules/@tauri-apps/plugin-http"],
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"],
+      "zustand/*": ["./node_modules/zustand/*"],
       "@lithe/editor/*": ["../../frontend/editor/src/*"],
       "monaco-editor": ["./node_modules/monaco-editor"],
       "monaco-editor/*": ["./node_modules/monaco-editor/*"]
     }
   },
-  "include": ["src"],
+  "include": ["src", "../../Plugins/win/Official/V0Support"],
   "exclude": ["**/*.stories.tsx", "**/*.stories.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

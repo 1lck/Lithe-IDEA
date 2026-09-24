@@ -15,8 +15,7 @@ enum WorkbenchModuleUIComposition {
                 gitRegistration,
                 languageRegistration,
                 executionRegistration,
-                debugRegistration,
-                communityRegistration
+                debugRegistration
             ])
         } catch {
             preconditionFailure("Invalid built-in module UI registration: \(error)")
@@ -201,30 +200,4 @@ enum WorkbenchModuleUIComposition {
             )
         ]
     )
-
-    private static let communityRegistration: WorkbenchModuleUIRegistry.Registration = {
-        let moduleID = OfficialPluginCatalog.linuxDoSupportModuleID
-        let contributions = OfficialPluginCatalog.manifest(forModule: moduleID)?
-            .modules.first(where: { $0.manifest.id == moduleID })?
-            .contributions ?? []
-        return WorkbenchModuleUIRegistry.Registration(
-            contributions: contributions,
-            actions: [
-                .init(id: "community.linux-do.toggle", perform: {
-                    $0.isDiscourseCommunityVisible.toggle()
-                })
-            ],
-            renderers: [
-                .init(
-                    id: "community.linux-do.browser",
-                    ideaAssetPath: nil,
-                    isVisible: { _ in true },
-                    isSelected: { $0.isDiscourseCommunityVisible },
-                    content: { _ in
-                        AnyView(LinuxDoCommunityView())
-                    }
-                )
-            ]
-        )
-    }()
 }

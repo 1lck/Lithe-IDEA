@@ -1,10 +1,12 @@
-import { describe, expect, test } from "bun:test";
-import { bundledExtensionManifests } from "./bundled/bundled-extension-manifests";
+import { afterEach, describe, expect, test } from "bun:test";
+import { builtinIconThemes } from "./icon-themes/builtin-icon-themes";
+import { iconThemeRegistry } from "./icon-themes/icon-theme-registry";
+import { registerBuiltinIconTheme } from "./runtime/extension-contribution-runtime";
 
-function getIdeaIconTheme() {
-  const manifest = bundledExtensionManifests.find(
-    ({ manifest }) => manifest.id === "lithe.icon-theme.idea-icons",
-  )?.manifest;
+afterEach(() => iconThemeRegistry.unregisterThemesByExtension("builtin.icon-themes"));
+
+async function getIdeaIconTheme() {
+  const manifest = await builtinIconThemes.find(({ id }) => id === "idea-icons")?.load();
   const iconTheme = manifest?.icons?.find(({ id }) => id === "idea-icons");
 
   if (!iconTheme) {
@@ -30,15 +32,33 @@ const IDEA_TREE_ICON_IDS = [
 ];
 
 describe("bundled file icon themes", () => {
-  test("ships IDEA Icons without the retired Lithe icon theme", () => {
-    const extensionIds = bundledExtensionManifests.map(({ manifest }) => manifest.id);
+  test("keeps only the selected built-in theme registered", async () => {
+    const idea = await builtinIconThemes[0].load();
+    const material = await builtinIconThemes.at(-1)!.load();
 
-    expect(extensionIds).toContain("lithe.icon-theme.idea-icons");
-    expect(extensionIds).not.toContain("lithe.icon-theme.lithe-icons");
+    registerBuiltinIconTheme(idea, "idea-icons", {});
+    expect(iconThemeRegistry.getThemeIdsByExtension("builtin.icon-themes")).toEqual(["idea-icons"]);
+
+    registerBuiltinIconTheme(material, "material", {});
+    expect(iconThemeRegistry.getThemeIdsByExtension("builtin.icon-themes")).toEqual(["material"]);
   });
 
-  test("maps the common IDEA project tree entries to ExpUI icons", () => {
-    const iconTheme = getIdeaIconTheme();
+  test("each appearance option resolves to an icon theme contribution", async () => {
+    for (const entry of builtinIconThemes) {
+      const manifest = await entry.load();
+      expect(manifest.icons?.some((theme) => theme.id === entry.id)).toBe(true);
+    }
+  });
+
+  test("lists IDEA Icons without the retired Lithe icon theme", () => {
+    const themeIds = builtinIconThemes.map(({ id }) => id);
+
+    expect(themeIds).toContain("idea-icons");
+    expect(themeIds).not.toContain("lithe-icons");
+  });
+
+  test("maps the common IDEA project tree entries to ExpUI icons", async () => {
+    const iconTheme = await getIdeaIconTheme();
 
     expect(iconTheme.fileExtensions?.[".java"]).toBe("idea-java");
     expect(iconTheme.filenames?.["pom.xml"]).toBe("idea-maven");
@@ -50,8 +70,8 @@ describe("bundled file icon themes", () => {
     expect(iconTheme.expandedFolders).toEqual(iconTheme.folders);
   });
 
-  test("declares dark and light assets for every added IDEA tree icon", () => {
-    const iconTheme = getIdeaIconTheme();
+  test("declares dark and light assets for every added IDEA tree icon", async () => {
+    const iconTheme = await getIdeaIconTheme();
 
     for (const iconId of IDEA_TREE_ICON_IDS) {
       expect(iconTheme.iconDefinitions[iconId]).toMatch(/_dark\.svg$/);
@@ -60,7 +80,7 @@ describe("bundled file icon themes", () => {
   });
 
   test("preserves the upstream copyright header in added IDEA assets", async () => {
-    const iconTheme = getIdeaIconTheme();
+    const iconTheme = await getIdeaIconTheme();
 
     for (const iconId of IDEA_TREE_ICON_IDS) {
       const assetPaths = [

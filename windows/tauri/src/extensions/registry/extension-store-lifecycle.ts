@@ -55,18 +55,13 @@ async function refreshSyntaxHighlightingForActiveBuffer(extension: AvailableExte
 
 async function unloadLanguageProviders(extensionId: string, languageIds: string[]) {
   const { extensionManager } = await import("@/features/editor/extensions/manager");
-
-  try {
-    await Promise.all(
-      languageIds.map((languageId) =>
-        extensionManager.unloadLanguageExtension(`${extensionId}:${languageId}`),
-      ),
-    );
-
-    // Backward compatibility for previously loaded single-id providers.
-    await extensionManager.unloadLanguageExtension(extensionId);
-  } catch (error) {
-    console.warn(`Failed to unload language extension ${extensionId}:`, error);
+  for (const providerId of [
+    ...languageIds.map((languageId) => `${extensionId}:${languageId}`),
+    extensionId, // Backward compatibility for previously loaded single-id providers.
+  ]) {
+    if (extensionManager.isExtensionLoaded(providerId)) {
+      await extensionManager.unloadLanguageExtension(providerId);
+    }
   }
 }
 
@@ -247,11 +242,11 @@ export async function uninstallExtensionLifecycle(params: {
   if (languageConfigs.length > 0) {
     const languageIds = languageConfigs.map((language) => language.id);
 
+    await disableExtensionLifecycle({ extensionId, extension });
     await uninstallLanguageArtifacts(languageIds);
-    await unloadLanguageProviders(extensionId, languageIds);
     extensionRegistry.registerExtension(extension.manifest, {
       isBundled: false,
-      isEnabled: true,
+      isEnabled: false,
       state: "not-installed",
     });
     onLanguageUninstalled();
@@ -259,18 +254,18 @@ export async function uninstallExtensionLifecycle(params: {
   }
 
   if (isBundledContributionExtension(extension.manifest)) {
-    await deactivateExtensionContributions(extensionId, extension.manifest);
+    await disableExtensionLifecycle({ extensionId, extension });
     markBundledContributionExtensionUninstalled(extensionId);
     extensionRegistry.registerExtension(extension.manifest, {
       isBundled: false,
-      isEnabled: true,
+      isEnabled: false,
       state: "not-installed",
     });
     onNonLanguageUninstalled();
     return;
   }
 
-  await deactivateExtensionContributions(extensionId, extension.manifest);
+  await disableExtensionLifecycle({ extensionId, extension });
   await invoke("uninstall_extension_new", { extensionId });
   await reloadInstalledExtensions();
   onNonLanguageUninstalled();
@@ -329,25 +324,68 @@ export async function disableExtensionLifecycle(params: {
   const languageConfigs = getManifestLanguageContributions(extension.manifest);
 
   if (languageConfigs.length > 0) {
-    await unloadLanguageProviders(
-      extensionId,
-      languageConfigs.map((language) => language.id),
-    );
-    extensionRegistry.registerExtension(extension.manifest, {
-      isBundled: false,
+    const previous = extensionRegistry.getExtension(extensionId);
+    // Gate all registry-backed launch paths before waiting for in-flight LSP
+    // starts and stopping the sessions owned by this language extension.
+    extensionRegistry.registerExtension(previous?.manifest ?? extension.manifest, {
+      isBundled: previous?.isBundled ?? false,
       isEnabled: false,
       state: "deactivated",
     });
-    await refreshSyntaxHighlightingForActiveBuffer(extension);
+    try {
+      const { LspClient } = await import("@/features/editor/lsp/lsp-client");
+      await LspClient.getInstance().stopLanguageServers(
+        languageConfigs.map((language) => language.id),
+      );
+      await unloadLanguageProviders(
+        extensionId,
+        languageConfigs.map((language) => language.id),
+      );
+      for (const language of languageConfigs) {
+        wasmParserLoader.unloadParser(language.id);
+      }
+    } catch (error) {
+      if (previous) {
+        extensionRegistry.registerExtension(previous.manifest, {
+          path: previous.path,
+          isBundled: previous.isBundled,
+          isEnabled: previous.isEnabled,
+          state: previous.state,
+        });
+      } else {
+        extensionRegistry.unregisterExtension(extensionId);
+      }
+      throw error;
+    }
+    try {
+      await refreshSyntaxHighlightingForActiveBuffer(extension);
+    } catch (error) {
+      console.warn(`Could not refresh syntax highlighting after disabling ${extensionId}:`, error);
+    }
     return;
   }
 
-  await deactivateExtensionContributions(extensionId, extension.manifest);
-  extensionRegistry.registerExtension(extension.manifest, {
-    isBundled: false,
+  const previous = extensionRegistry.getExtension(extensionId);
+  extensionRegistry.registerExtension(previous?.manifest ?? extension.manifest, {
+    isBundled: previous?.isBundled ?? false,
     isEnabled: false,
     state: "deactivated",
   });
+  try {
+    await deactivateExtensionContributions(extensionId, extension.manifest);
+  } catch (error) {
+    if (previous) {
+      extensionRegistry.registerExtension(previous.manifest, {
+        path: previous.path,
+        isBundled: previous.isBundled,
+        isEnabled: previous.isEnabled,
+        state: previous.state,
+      });
+    } else {
+      extensionRegistry.unregisterExtension(extensionId);
+    }
+    throw error;
+  }
 }
 
 export async function updateExtensionLifecycle(params: {
@@ -355,24 +393,27 @@ export async function updateExtensionLifecycle(params: {
   extension: AvailableExtension;
   clearInstalledStateForUpdate: () => void;
   reinstall: () => Promise<void>;
+  restoreDisabled: () => Promise<void>;
 }) {
-  const { extensionId, extension, clearInstalledStateForUpdate, reinstall } = params;
+  const { extensionId, extension, clearInstalledStateForUpdate, reinstall, restoreDisabled } = params;
+  const restoreDisabledState = extension.isEnabled === false;
 
   const languageIds = getManifestLanguageContributions(extension.manifest).map(
     (language) => language.id,
   );
 
+  await disableExtensionLifecycle({ extensionId, extension });
   if (languageIds.length > 0) {
-    await unloadLanguageProviders(extensionId, languageIds);
     await uninstallLanguageArtifacts(languageIds);
-  } else {
-    await deactivateExtensionContributions(extensionId, extension.manifest);
   }
 
   extensionRegistry.unregisterExtension(extensionId);
 
   clearInstalledStateForUpdate();
   await reinstall();
+  if (restoreDisabledState) {
+    await restoreDisabled();
+  }
 }
 
 export function buildInstalledExtensionMetadata(
