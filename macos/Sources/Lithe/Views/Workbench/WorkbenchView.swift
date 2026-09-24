@@ -1771,13 +1771,14 @@ struct WorkbenchView: View {
             if let document = model.activeDocument, document.url.isFileURL {
                 Menu {
                     Section("Reopen with Encoding") {
-                        ForEach(DocumentEncoding.allCases, id: \.self) { encoding in
+                        ForEach(DocumentEncoding.catalog.filter(\.supportsRead), id: \.id) { descriptor in
+                            let encoding = descriptor.id
                             Button {
                                 model.reopenDocument(document, with: encoding)
                             } label: {
                                 HStack {
-                                    Text(encoding.displayName)
-                                    if document.encoding == encoding {
+                                    Text(descriptor.displayName)
+                                    if document.readEncoding == encoding {
                                         Spacer()
                                         Image(systemName: "checkmark")
                                     }
@@ -1787,13 +1788,14 @@ struct WorkbenchView: View {
                     }
                     Divider()
                     Section("Save with Encoding") {
-                        ForEach(DocumentEncoding.allCases, id: \.self) { encoding in
+                        ForEach(DocumentEncoding.catalog.filter(\.supportsWrite), id: \.id) { descriptor in
+                            let encoding = descriptor.id
                             Button {
                                 model.saveDocument(document, encoding: encoding)
                             } label: {
                                 HStack {
-                                    Text(encoding.displayName)
-                                    if document.encoding == encoding {
+                                    Text(descriptor.displayName)
+                                    if document.saveEncoding == encoding {
                                         Spacer()
                                         Image(systemName: "checkmark")
                                     }
@@ -1803,7 +1805,7 @@ struct WorkbenchView: View {
                         }
                     }
                 } label: {
-                    Text(document.encoding.displayName)
+                    Text(document.readEncoding.displayName)
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()

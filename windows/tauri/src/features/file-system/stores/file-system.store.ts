@@ -341,7 +341,8 @@ const serializeWorkspaceBuffer = (
       isPinned: buffer.isPinned,
       isPreview: buffer.isPreview,
       workspaceScope: getEditorWorkspaceScope(buffer.path, workspaceRootPath, workspaceFolderPaths),
-      encoding: buffer.encoding,
+      readEncoding: buffer.readEncoding ?? buffer.encoding,
+      saveEncoding: buffer.saveEncoding ?? buffer.readEncoding ?? buffer.encoding,
       editorState: buildPersistedEditorViewState(buffer),
     };
   }
@@ -1051,10 +1052,16 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
               name: buffer.name,
               isPinned: buffer.isPinned,
               isPreview: buffer.isPreview ?? false,
-              encoding: buffer.encoding,
+              readEncoding: buffer.readEncoding ?? buffer.encoding,
+              saveEncoding: buffer.saveEncoding ?? buffer.readEncoding ?? buffer.encoding,
               editorState: buffer.editorState,
             });
-            editorJobs.push({ bufferId, path: buffer.path, encoding: buffer.encoding, editorState: buffer.editorState });
+            editorJobs.push({
+              bufferId,
+              path: buffer.path,
+              encoding: buffer.readEncoding ?? buffer.encoding,
+              editorState: buffer.editorState,
+            });
           }
           sessionRestoreJobs = new Map(editorJobs.map((job) => [job.bufferId, job]));
 

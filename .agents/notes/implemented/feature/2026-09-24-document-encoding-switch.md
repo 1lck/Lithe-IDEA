@@ -6,7 +6,7 @@
 
 ## 先说结论
 
-macOS 和 Windows 编辑器都在状态栏提供编码入口，并支持“以编码重新打开”和“以编码保存”。两端使用相同的编码名称、脏文件确认和外部修改保护语义；具体字节转换留在各自的原生文件适配器。当前支持 UTF-8、UTF-8 with BOM、GBK、GB18030、Shift JIS 和 Windows-1252。
+macOS 和 Windows 编辑器都在状态栏提供编码入口，并支持“以编码重新打开”和“以编码保存”。两端使用相同的编码目录、脏文件确认和外部修改保护语义；具体字节转换留在各自的原生文件适配器。读取编码和保存编码是两个独立状态，分别持久化。当前支持 UTF-8、UTF-8 with BOM、GBK、GB18030、Shift JIS 和 Windows-1252。
 
 ## 问题
 
@@ -19,6 +19,7 @@ macOS 和 Windows 编辑器都在状态栏提供编码入口，并支持“以�
 - 编辑器把编码和磁盘指纹放入文档状态与工作区会话。文件监视器、磁盘重载和会话恢复沿用当前编码，并在异步结果提交前检查路径、内容修订和编码是否仍匹配。
 - Windows 在 `windows/tauri/crates/project` 使用 `encoding_rs`，macOS 在 `macos/Sources/Lithe/Platform/MacOS/FileSystem` 使用 Foundation/CoreFoundation 编码适配；应用层不复制平台转换实现。
 - “以编码重新打开”由单独的应用服务执行，脏文件先选择保存、放弃或取消；读取完成后只允许替换捕获的同一个缓冲区。转换保存复用现有保存生命周期，干净文件会临时进入保存状态，写入成功后再恢复干净状态。
+- 编码目录由稳定 ID、显示名称、别名、读写能力和 BOM 策略组成；新增编码必须同步更新共享契约、macOS 映射、Windows `encoding_rs` 映射、UI 目录和原始字节 fixture，具体步骤见 `docs/development/document-encoding.md`。
 
 ## 考虑过的备选方案
 

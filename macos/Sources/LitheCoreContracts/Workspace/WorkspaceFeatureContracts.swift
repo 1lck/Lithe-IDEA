@@ -3,12 +3,19 @@ import Foundation
 package struct WorkspaceDocumentState: Sendable {
     package let url: URL
     package let isDirty: Bool
-    package let encoding: DocumentEncoding?
+    package let readEncoding: DocumentEncoding?
+    package let saveEncoding: DocumentEncoding?
 
-    package init(url: URL, isDirty: Bool, encoding: DocumentEncoding? = nil) {
+    package init(
+        url: URL,
+        isDirty: Bool,
+        readEncoding: DocumentEncoding? = nil,
+        saveEncoding: DocumentEncoding? = nil
+    ) {
         self.url = url
         self.isDirty = isDirty
-        self.encoding = encoding
+        self.readEncoding = readEncoding
+        self.saveEncoding = saveEncoding
     }
 }
 
@@ -16,26 +23,42 @@ package struct WorkspaceSession: Codable, Sendable {
     package let openPaths: [String]
     package let activePath: String?
     package let selectedSidebar: String
-    package let openEncodings: [String: DocumentEncoding]
+    package let openReadEncodings: [String: DocumentEncoding]
+    package let openSaveEncodings: [String: DocumentEncoding]
 
     package init(
         openPaths: [String], activePath: String?, selectedSidebar: String,
-        openEncodings: [String: DocumentEncoding] = [:]
+        openReadEncodings: [String: DocumentEncoding] = [:],
+        openSaveEncodings: [String: DocumentEncoding] = [:]
     ) {
         self.openPaths = openPaths
         self.activePath = activePath
         self.selectedSidebar = selectedSidebar
-        self.openEncodings = openEncodings
+        self.openReadEncodings = openReadEncodings
+        self.openSaveEncodings = openSaveEncodings
     }
 
-    private enum CodingKeys: String, CodingKey { case openPaths, activePath, selectedSidebar, openEncodings }
+    private enum CodingKeys: String, CodingKey { case openPaths, activePath, selectedSidebar, openReadEncodings, openSaveEncodings }
+    private enum LegacyCodingKeys: String, CodingKey { case openEncodings }
+
+    package func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(openPaths, forKey: .openPaths)
+        try container.encodeIfPresent(activePath, forKey: .activePath)
+        try container.encode(selectedSidebar, forKey: .selectedSidebar)
+        try container.encode(openReadEncodings, forKey: .openReadEncodings)
+        try container.encode(openSaveEncodings, forKey: .openSaveEncodings)
+    }
 
     package init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         openPaths = try container.decode([String].self, forKey: .openPaths)
         activePath = try container.decodeIfPresent(String.self, forKey: .activePath)
         selectedSidebar = try container.decode(String.self, forKey: .selectedSidebar)
-        openEncodings = try container.decodeIfPresent([String: DocumentEncoding].self, forKey: .openEncodings) ?? [:]
+        let legacyContainer = try decoder.container(keyedBy: LegacyCodingKeys.self)
+        let legacy = try legacyContainer.decodeIfPresent([String: DocumentEncoding].self, forKey: .openEncodings) ?? [:]
+        openReadEncodings = try container.decodeIfPresent([String: DocumentEncoding].self, forKey: .openReadEncodings) ?? legacy
+        openSaveEncodings = try container.decodeIfPresent([String: DocumentEncoding].self, forKey: .openSaveEncodings) ?? legacy
     }
 }
 

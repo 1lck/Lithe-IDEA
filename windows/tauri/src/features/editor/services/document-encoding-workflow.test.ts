@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { reopenDocumentWithEncoding } from "./document-encoding-workflow";
 import type { EditorContent } from "@/features/panes/types/pane-content.types";
-import type { DocumentReadDetails } from "@/platform/document-files";
+import { DOCUMENT_ENCODING_CATALOG, type DocumentReadDetails } from "@/platform/document-files";
 
 function document(overrides: Partial<EditorContent> = {}): EditorContent {
   return {
@@ -17,7 +17,8 @@ function document(overrides: Partial<EditorContent> = {}): EditorContent {
     isPinned: false,
     isPreview: false,
     isActive: true,
-    encoding: "UTF-8",
+    readEncoding: "UTF-8",
+    saveEncoding: "Windows-1252",
     diskIdentity: "old",
     tokens: [],
     contentRevision: 2,
@@ -32,6 +33,12 @@ const details: DocumentReadDetails = {
 };
 
 describe("document encoding workflow", () => {
+  test("catalog exposes stable IDs independently from protocol labels", () => {
+    expect(DOCUMENT_ENCODING_CATALOG.map((descriptor) => descriptor.stableId)).toEqual([
+      "utf-8", "utf-8-bom", "gbk", "gb18030", "shift-jis", "windows-1252",
+    ]);
+  });
+
   test("discards dirty content and commits only the captured disk snapshot", async () => {
     let current = document({ content: "未保存", isDirty: true, documentLifecycle: { status: "dirty", revision: 3, savedRevision: 2 }, contentRevision: 3 });
     let replaced = false;
@@ -43,14 +50,15 @@ describe("document encoding workflow", () => {
       read: async () => details,
       replace: (source, next) => {
         expect(source.content).toBe("未保存");
-        current = document({ content: next.content, encoding: next.encoding, diskIdentity: next.identity });
+        current = document({ content: next.content, readEncoding: next.encoding, diskIdentity: next.identity });
         replaced = true;
         return true;
       },
     });
     expect(result).toBe(true);
     expect(replaced).toBe(true);
-    expect(current.encoding).toBe("GBK");
+    expect(current.readEncoding).toBe("GBK");
+    expect(current.saveEncoding).toBe("Windows-1252");
   });
 
   test("rejects a read that completes after the buffer changed", async () => {

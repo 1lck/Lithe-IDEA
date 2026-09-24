@@ -36,7 +36,7 @@ export function useFooterEditorStatusItems(): Array<ChromeItem<FooterTrailingIte
       ? {
           type: buffer.type,
           readOnly: buffer.type === "editor" && buffer.readOnly === true,
-          encoding: buffer.type === "editor" ? buffer.encoding ?? "UTF-8" : null,
+          encoding: buffer.type === "editor" ? buffer.readEncoding ?? buffer.encoding ?? "UTF-8" : null,
         }
       : null;
   });

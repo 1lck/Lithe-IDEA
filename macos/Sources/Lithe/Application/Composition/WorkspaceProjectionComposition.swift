@@ -17,12 +17,14 @@ enum WorkspaceProjectionComposition {
         graph.workspace.configureProjection(
             documentsProvider: { [weak document] in
                 document?.openDocuments.map {
-                    WorkspaceDocumentState(url: $0.url, isDirty: $0.isDirty, encoding: $0.encoding)
+                    WorkspaceDocumentState(url: $0.url, isDirty: $0.isDirty,
+                                           readEncoding: $0.readEncoding, saveEncoding: $0.saveEncoding)
                 } ?? []
             },
             activeDocumentProvider: { [weak document] in
                 document?.activeDocument.map {
-                    WorkspaceDocumentState(url: $0.url, isDirty: $0.isDirty, encoding: $0.encoding)
+                    WorkspaceDocumentState(url: $0.url, isDirty: $0.isDirty,
+                                           readEncoding: $0.readEncoding, saveEncoding: $0.saveEncoding)
                 }
             },
             selectedSidebarProvider: { [weak workbench] in
@@ -38,7 +40,8 @@ enum WorkspaceProjectionComposition {
                     orderedPaths: session.openPaths,
                     activePath: session.activePath,
                     availableFiles: availableFiles,
-                    encodings: session.openEncodings
+                    readEncodings: session.openReadEncodings,
+                    saveEncodings: session.openSaveEncodings
                 )
             },
             openFile: { [weak model] url in model?.openFile(url) },

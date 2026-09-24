@@ -18,6 +18,9 @@ interface EditorBufferSession {
   isPinned: boolean;
   isPreview?: boolean;
   workspaceScope?: "workspace" | "external";
+  readEncoding?: FileEncoding;
+  saveEncoding?: FileEncoding;
+  /** @deprecated Read only for sessions written before encoding roles split. */
   encoding?: FileEncoding;
   editorState?: PersistedEditorViewState;
 }

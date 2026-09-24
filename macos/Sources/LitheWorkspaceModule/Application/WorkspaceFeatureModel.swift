@@ -459,9 +459,12 @@ package final class WorkspaceFeatureModel: ObservableObject {
                     $0.url.isFileURL ? $0.url.standardizedFileURL.path : nil
                 },
                 selectedSidebar: selectedSidebarProvider(),
-                openEncodings: Dictionary(uniqueKeysWithValues: documentsProvider()
-                    .filter { $0.url.isFileURL && $0.encoding != nil }
-                    .compactMap { state in state.encoding.map { (state.url.standardizedFileURL.path, $0) } })
+                openReadEncodings: Dictionary(uniqueKeysWithValues: documentsProvider()
+                    .filter { $0.url.isFileURL && $0.readEncoding != nil }
+                    .compactMap { state in state.readEncoding.map { (state.url.standardizedFileURL.path, $0) } }),
+                openSaveEncodings: Dictionary(uniqueKeysWithValues: documentsProvider()
+                    .filter { $0.url.isFileURL && $0.saveEncoding != nil }
+                    .compactMap { state in state.saveEncoding.map { (state.url.standardizedFileURL.path, $0) } })
             ),
             for: targetURL
         )

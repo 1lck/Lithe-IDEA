@@ -70,7 +70,17 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
         get { storedText }
         set { replaceText(newValue, publish: true) }
     }
-    @Published private(set) var encoding: DocumentEncoding
+    /// Codec used to decode the current in-memory text. Changing it never
+    /// changes the codec selected for a future write.
+    @Published private(set) var readEncoding: DocumentEncoding
+    /// Codec selected for the next write. It is intentionally independent from
+    /// ``readEncoding`` so opening a file differently cannot silently convert it.
+    @Published private(set) var saveEncoding: DocumentEncoding
+    /// Codec used by the last successful write confirmed on disk.
+    private(set) var storageEncoding: DocumentEncoding
+    /// Compatibility view for integrations compiled against the original
+    /// single-encoding document model. New code must choose a role explicitly.
+    var encoding: DocumentEncoding { readEncoding }
     private(set) var diskIdentity: String?
     private(set) var externalDiskIdentity: String?
     @Published private(set) var savedText: String
@@ -110,6 +120,7 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
         isFileWritable: Bool = true,
         displayPath: String? = nil,
         encoding: DocumentEncoding = .utf8,
+        saveEncoding: DocumentEncoding? = nil,
         diskIdentity: String? = nil
     ) {
         self.url = url
@@ -118,7 +129,9 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
         self.displayPath = displayPath
         self.storedText = text
         self.savedText = text
-        self.encoding = encoding
+        self.readEncoding = encoding
+        self.saveEncoding = saveEncoding ?? encoding
+        self.storageEncoding = encoding
         self.diskIdentity = diskIdentity
         self.lifecycleState = .clean(revision: 0)
         self.lastKnownModificationDate = modificationDate
@@ -236,9 +249,9 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
         guard !needsEditorSynchronization else { throw DocumentError.editorNotSynchronized }
         guard !isReadOnly else { throw DocumentError.readOnly }
         switch try files.writeDocumentText(text, to: url, expectedContent: expectedDiskContent,
-                                          encoding: encoding, expectedIdentity: diskIdentity) {
+                                          encoding: saveEncoding, expectedIdentity: diskIdentity) {
         case .saved(let identity):
-            updatePersistence(encoding: encoding, identity: identity)
+            updatePersistence(encoding: saveEncoding, identity: identity)
             markSavedWithoutWriting()
         case .conflict(let content, let identity):
             observeDiskConflict(content, identity: identity)
@@ -247,22 +260,34 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
     }
 
     func reloadFromDisk(using files: any WorkspaceFileOperations) throws {
-        guard let snapshot = try files.readDocumentDetails(from: url, encoding: encoding) else {
+        guard let snapshot = try files.readDocumentDetails(from: url, encoding: readEncoding) else {
             throw CocoaError(.fileReadNoSuchFile)
         }
         replaceWithDiskContent(snapshot.text, encoding: snapshot.encoding, identity: snapshot.identity)
     }
 
     func updatePersistence(encoding: DocumentEncoding, identity: String?) {
-        self.encoding = encoding
+        self.saveEncoding = encoding
+        self.storageEncoding = encoding
         diskIdentity = identity
+    }
+
+    func updateReadEncoding(_ encoding: DocumentEncoding) {
+        readEncoding = encoding
+    }
+
+    func updateSaveEncoding(_ encoding: DocumentEncoding) {
+        saveEncoding = encoding
     }
 
     func replaceWithDiskContent(_ contents: String, encoding: DocumentEncoding? = nil, identity: String? = nil) {
         storedText = contents
         textDidChange.send()
         savedText = contents
-        updatePersistence(encoding: encoding ?? self.encoding, identity: identity)
+        if let encoding {
+            readEncoding = encoding
+        }
+        diskIdentity = identity
         hasAcknowledgedDiskContent = false
         hasObservedDiskConflict = false
         lifecycleState = .clean(revision: lifecycleState.revision + 1)

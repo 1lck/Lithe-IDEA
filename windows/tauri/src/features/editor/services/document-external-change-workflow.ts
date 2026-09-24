@@ -9,6 +9,8 @@ export interface DocumentBufferSnapshot {
   lifecycle: DocumentLifecycleState;
   baseline: string | null;
   diskIdentity?: string;
+  readEncoding?: FileEncoding;
+  /** @deprecated Legacy snapshot field. */
   encoding?: FileEncoding;
   externalContent?: string | null;
   externalIdentity?: string;
@@ -38,14 +40,15 @@ export async function handleExternalDocumentChange({ owner, operationId, depende
   const decide = dependencies.decide ?? decideDocumentLifecycle;
   try {
     const details = dependencies.readDetails
-      ? await dependencies.readDetails(source.path, source.encoding)
+      ? await dependencies.readDetails(source.path, source.readEncoding ?? source.encoding)
       : null;
     const content = dependencies.readDetails ? details?.content ?? null : await (dependencies.readFile ?? readDocumentFile)(source.path);
     const identity = details?.identity;
     let latest = owner.getSnapshot();
     if (!latest || latest.path !== source.path) return "ignored";
     if (latest.lifecycle.status === "saving") return "deferred";
-    if (latest.baseline !== source.baseline || latest.diskIdentity !== source.diskIdentity || latest.encoding !== source.encoding) return "deferred";
+    if (latest.baseline !== source.baseline || latest.diskIdentity !== source.diskIdentity ||
+        (latest.readEncoding ?? latest.encoding) !== (source.readEncoding ?? source.encoding)) return "deferred";
     if (identity && latest.diskIdentity && identity === latest.diskIdentity) return "ignored";
     if (!identity && content === latest.baseline) return "ignored";
     const observed = latest;
@@ -78,7 +81,7 @@ export async function resolveExternalDocumentConflict(owner: DocumentBufferOwner
   try {
     if (resolution === "loadDisk") {
       const details = dependencies.readDetails
-        ? await dependencies.readDetails(source.path, source.encoding)
+        ? await dependencies.readDetails(source.path, source.readEncoding ?? source.encoding)
         : null;
       const content = dependencies.readDetails ? details?.content ?? null : await (dependencies.readFile ?? readDocumentFile)(source.path);
       const latest = owner.getSnapshot();
@@ -101,7 +104,8 @@ export async function resolveExternalDocumentConflict(owner: DocumentBufferOwner
 function sameSnapshot(left: DocumentBufferSnapshot, right: DocumentBufferSnapshot) {
   return left.bufferId === right.bufferId && left.path === right.path && left.baseline === right.baseline &&
     left.lifecycle.revision === right.lifecycle.revision && left.lifecycle.status === right.lifecycle.status &&
-    left.diskIdentity === right.diskIdentity && left.externalIdentity === right.externalIdentity && left.encoding === right.encoding;
+    left.diskIdentity === right.diskIdentity && left.externalIdentity === right.externalIdentity &&
+    (left.readEncoding ?? left.encoding) === (right.readEncoding ?? right.encoding);
 }
 function trace(level: "info" | "warn" | "error", message: string, snapshot: DocumentBufferSnapshot, operationId: string, payload: Record<string, unknown> = {}) {
   frontendTrace(level, "document.lifecycle", message, { operationID: operationId, bufferId: snapshot.bufferId, path: snapshot.path, ...payload });

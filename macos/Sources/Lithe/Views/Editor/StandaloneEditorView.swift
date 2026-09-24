@@ -167,33 +167,35 @@ struct StandaloneEditorView: View {
                 Spacer()
                 Menu {
                     Section("Reopen with Encoding") {
-                        ForEach(DocumentEncoding.allCases, id: \.self) { encoding in
+                        ForEach(DocumentEncoding.catalog.filter(\.supportsRead), id: \.id) { descriptor in
+                            let encoding = descriptor.id
                             Button {
                                 model.reopenDocument(document, with: encoding)
                             } label: {
                                 HStack {
-                                    Text(encoding.displayName)
-                                    if document.encoding == encoding { Spacer(); Image(systemName: "checkmark") }
+                                    Text(descriptor.displayName)
+                                    if document.readEncoding == encoding { Spacer(); Image(systemName: "checkmark") }
                                 }
                             }
                         }
                     }
                     Divider()
                     Section("Save with Encoding") {
-                        ForEach(DocumentEncoding.allCases, id: \.self) { encoding in
+                        ForEach(DocumentEncoding.catalog.filter(\.supportsWrite), id: \.id) { descriptor in
+                            let encoding = descriptor.id
                             Button {
                                 model.saveDocument(document, encoding: encoding)
                             } label: {
                                 HStack {
-                                    Text(encoding.displayName)
-                                    if document.encoding == encoding { Spacer(); Image(systemName: "checkmark") }
+                                    Text(descriptor.displayName)
+                                    if document.saveEncoding == encoding { Spacer(); Image(systemName: "checkmark") }
                                 }
                             }
                             .disabled(document.isReadOnly)
                         }
                     }
                 } label: {
-                    Text(document.encoding.displayName)
+                    Text(document.readEncoding.displayName)
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()

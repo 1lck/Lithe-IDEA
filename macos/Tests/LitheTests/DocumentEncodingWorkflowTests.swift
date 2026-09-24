@@ -25,7 +25,8 @@ struct DocumentEncodingWorkflowTests {
         await reopenTask.value
 
         #expect(document.text == "磁盘文本")
-        #expect(document.encoding == .gbk)
+        #expect(document.readEncoding == .gbk)
+        #expect(document.saveEncoding == .utf8)
         #expect(!document.isDirty)
     }
 
@@ -49,6 +50,24 @@ struct DocumentEncodingWorkflowTests {
         #expect(document.text == "new local edit")
         #expect(document.encoding == .utf8)
         #expect(document.isDirty)
+    }
+
+    @Test func savingUsesTheIndependentSaveEncoding() throws {
+        let operations = EncodingTestFileOperations()
+        let document = EditorDocument(
+            url: URL(fileURLWithPath: "/in-memory/save-encoding.txt"),
+            text: "文本",
+            modificationDate: nil,
+            encoding: .gbk,
+            saveEncoding: .utf8,
+            diskIdentity: "disk"
+        )
+
+        try document.save(using: operations)
+
+        #expect(operations.lastWriteEncoding == .utf8)
+        #expect(document.readEncoding == .gbk)
+        #expect(document.saveEncoding == .utf8)
     }
 
     private func makeFeature(_ operations: EncodingTestFileOperations) -> DocumentFeatureModel {
@@ -92,6 +111,7 @@ private final class EncodingTestFileOperations: WorkspaceFileOperations, @unchec
     private var readCount = 0
     private let secondReadStarted = TestGate()
     private let releaseGate = TestGate()
+    private(set) var lastWriteEncoding: DocumentEncoding?
 
     init(blockSecondRead: Bool = false) { self.blockSecondRead = blockSecondRead }
 
@@ -118,7 +138,8 @@ private final class EncodingTestFileOperations: WorkspaceFileOperations, @unchec
     }
 
     func writeDocumentText(_ text: String, to url: URL, expectedContent: String?, encoding: DocumentEncoding, expectedIdentity: String?) throws -> EncodedDocumentWriteResult {
-        .saved(identity: "saved-\(encoding.rawValue)")
+        lock.withLock { lastWriteEncoding = encoding }
+        return .saved(identity: "saved-\(encoding.rawValue)")
     }
 
     private func nextRead() -> Int {

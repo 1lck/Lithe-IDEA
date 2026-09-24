@@ -40,7 +40,8 @@ final class EditorSessionCoordinator {
 
     func restoreDocuments(
         orderedPaths: [String], activePath: String?, availableFiles: [URL],
-        encodings: [String: DocumentEncoding] = [:]
+        readEncodings: [String: DocumentEncoding] = [:],
+        saveEncodings: [String: DocumentEncoding] = [:]
     ) async {
         let availablePaths = Set(availableFiles.map { $0.standardizedFileURL.path })
         let paths = orderedPaths.filter { availablePaths.contains($0) }
@@ -52,7 +53,8 @@ final class EditorSessionCoordinator {
                         isReadOnly: false,
                         displayPath: nil,
                         activateWhenReady: false,
-                        encoding: encodings[path]
+                        encoding: readEncodings[path],
+                        saveEncoding: saveEncodings[path]
                     )
                 }
             }

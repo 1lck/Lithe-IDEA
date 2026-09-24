@@ -95,7 +95,11 @@ export interface EditorContent extends PaneContentBase {
   documentLifecycle?: DocumentLifecycleState;
   isVirtual: boolean;
   readOnly?: boolean;
-  /** Encoding used for the last disk read/write of this local document. */
+  /** Encoding used to decode the current in-memory text. */
+  readEncoding?: FileEncoding;
+  /** Encoding selected for the next write; independent from readEncoding. */
+  saveEncoding?: FileEncoding;
+  /** @deprecated Legacy session shape; treated as readEncoding on restore. */
   encoding?: FileEncoding;
   /** SHA-256 identity of the exact disk bytes last acknowledged by the editor. */
   diskIdentity?: string;
@@ -357,6 +361,9 @@ export type OpenContentSpec =
       isVirtual?: boolean;
       isPreview?: boolean;
       readOnly?: boolean;
+      readEncoding?: FileEncoding;
+      saveEncoding?: FileEncoding;
+      /** @deprecated Use readEncoding. */
       encoding?: FileEncoding;
       diskIdentity?: string;
       language?: string;

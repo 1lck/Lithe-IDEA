@@ -1,9 +1,43 @@
 import Foundation
 
-/// User-visible text encodings supported by the native document adapters.
+/// Stable descriptor for one document encoding.
+package struct DocumentEncodingDescriptor: Sendable {
+    package let id: DocumentEncoding
+    package let stableID: String
+    package let displayName: String
+    package let aliases: [String]
+    package let supportsRead: Bool
+    package let supportsWrite: Bool
+    package let bom: DocumentEncodingBOM
+
+    package init(
+        id: DocumentEncoding,
+        stableID: String,
+        displayName: String,
+        aliases: [String] = [],
+        supportsRead: Bool = true,
+        supportsWrite: Bool = true,
+        bom: DocumentEncodingBOM = .none
+    ) {
+        self.id = id
+        self.stableID = stableID
+        self.displayName = displayName
+        self.aliases = aliases
+        self.supportsRead = supportsRead
+        self.supportsWrite = supportsWrite
+        self.bom = bom
+    }
+}
+
+package enum DocumentEncodingBOM: String, Codable, Sendable {
+    case none
+    case utf8
+}
+
+/// Stable encoding IDs shared by native adapters and the editor UI.
 ///
-/// The raw values are stable persistence and command-palette identifiers. The
-/// platform adapters own the actual byte conversion implementation.
+/// Additions must also be registered in ``catalog`` and mapped by each native
+/// adapter. The raw values are persistence and command-palette identifiers.
 package enum DocumentEncoding: String, CaseIterable, Codable, Sendable {
     case utf8 = "utf-8"
     case utf8Bom = "utf-8-bom"
@@ -12,16 +46,20 @@ package enum DocumentEncoding: String, CaseIterable, Codable, Sendable {
     case shiftJIS = "shift-jis"
     case windows1252 = "windows-1252"
 
-    package var displayName: String {
-        switch self {
-        case .utf8: "UTF-8"
-        case .utf8Bom: "UTF-8 with BOM"
-        case .gbk: "GBK"
-        case .gb18030: "GB18030"
-        case .shiftJIS: "Shift JIS"
-        case .windows1252: "Windows-1252"
-        }
+    package static let catalog: [DocumentEncodingDescriptor] = [
+        .init(id: .utf8, stableID: "utf-8", displayName: "UTF-8", aliases: ["utf8"]),
+        .init(id: .utf8Bom, stableID: "utf-8-bom", displayName: "UTF-8 with BOM", aliases: ["utf8-bom", "utf-8-bom"], bom: .utf8),
+        .init(id: .gbk, stableID: "gbk", displayName: "GBK", aliases: ["cp936"]),
+        .init(id: .gb18030, stableID: "gb18030", displayName: "GB18030"),
+        .init(id: .shiftJIS, stableID: "shift-jis", displayName: "Shift JIS", aliases: ["shift-jis", "shift_jis"]),
+        .init(id: .windows1252, stableID: "windows-1252", displayName: "Windows-1252", aliases: ["cp1252"]),
+    ]
+
+    package var descriptor: DocumentEncodingDescriptor {
+        Self.catalog.first { $0.id == self }!
     }
+
+    package var displayName: String { descriptor.displayName }
 }
 
 /// A decoded file snapshot. `identity` is the SHA-256 of the original bytes.

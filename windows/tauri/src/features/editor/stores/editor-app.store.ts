@@ -74,7 +74,8 @@ async function claimDocumentSave(
   if (!decision || !workspaceRuntimeRegistry.hasWorkspace(workspaceId)) return null;
   const bufferStore = useBufferStore.getStore(workspaceId);
   const latest = getBufferById(bufferStore.getState().buffers, buffer.id);
-  if (!latest || !isEditorContent(latest) || latest.path !== buffer.path || latest.encoding !== buffer.encoding) {
+  if (!latest || !isEditorContent(latest) || latest.path !== buffer.path ||
+      (latest.readEncoding ?? latest.encoding) !== (buffer.readEncoding ?? buffer.encoding)) {
     traceDocumentSaveCancellation(context, "buffer-closed-before-claim");
     return null;
   }
@@ -106,12 +107,12 @@ async function persistClaimedDocument(
     await writeFile(claim.context.path, content);
     return { saved: true };
   }
-  const outcome = targetEncoding || expectedEncoding || current.encoding
+  const outcome = targetEncoding || expectedEncoding || current.saveEncoding || current.readEncoding || current.encoding
     ? await saveDocumentFile(
         claim.context.path,
         content,
         expectedContent,
-        targetEncoding ?? current.encoding ?? "UTF-8",
+        targetEncoding ?? current.saveEncoding ?? current.readEncoding ?? current.encoding ?? "UTF-8",
         expectedEncoding,
         expectedIdentity,
       )
@@ -121,8 +122,8 @@ async function persistClaimedDocument(
     const latest = getBufferById(useBufferStore.getStore(workspaceId).getState().buffers, claim.context.bufferId);
     if (latest?.type === "editor" && latest.path === claim.context.path &&
         latest.documentLifecycle?.status === "saving" && latest.documentLifecycle.operationId === claim.context.operationId) {
-      useBufferStore.getStore(workspaceId).getState().actions.setBufferEncoding(
-        latest.id, targetEncoding ?? current.encoding ?? "UTF-8", outcome.identity,
+      useBufferStore.getStore(workspaceId).getState().actions.setBufferSaveEncoding(
+        latest.id, targetEncoding ?? current.saveEncoding ?? current.readEncoding ?? current.encoding ?? "UTF-8", outcome.identity,
       );
     }
     return { saved: true, identity: outcome.identity };
@@ -372,8 +373,8 @@ async function saveEditorBufferById(
       claimedSave,
       contentToSave,
       expectedContent,
-      options.targetEncoding ?? saveBuffer.encoding,
-      options.expectedEncoding ?? saveBuffer.encoding,
+      options.targetEncoding ?? saveBuffer.saveEncoding ?? saveBuffer.readEncoding ?? saveBuffer.encoding,
+      options.expectedEncoding ?? saveBuffer.saveEncoding ?? saveBuffer.readEncoding ?? saveBuffer.encoding,
       options.expectedIdentity ?? saveBuffer.diskIdentity,
     );
     if (!persisted.saved) return "cancelled";
@@ -571,8 +572,19 @@ const createEditorAppStore = (workspaceId: string) =>
                   );
                   if (!claim) return;
                   await recordLocalHistoryBeforeWrite(activeBuffer.path, "auto-save");
-                  const expectedContent = latestBeforeSave.acknowledgedDiskContent === undefined ? latestBeforeSave.savedContent : latestBeforeSave.acknowledgedDiskContent;
-                  const persisted = await persistClaimedDocument(workspaceId, claim, content, expectedContent, latestBeforeSave.encoding, latestBeforeSave.encoding, latestBeforeSave.diskIdentity);
+                  const expectedContent = latestBeforeSave.acknowledgedDiskContent === undefined
+                    ? latestBeforeSave.savedContent
+                    : latestBeforeSave.acknowledgedDiskContent;
+                  const saveEncoding = latestBeforeSave.saveEncoding ?? latestBeforeSave.readEncoding ?? latestBeforeSave.encoding;
+                  const persisted = await persistClaimedDocument(
+                    workspaceId,
+                    claim,
+                    content,
+                    expectedContent,
+                    saveEncoding,
+                    saveEncoding,
+                    latestBeforeSave.diskIdentity,
+                  );
                   if (!persisted.saved) return;
                   await finishDocumentSave(workspaceId, claim, content);
 
@@ -636,7 +648,7 @@ const createEditorAppStore = (workspaceId: string) =>
           if (!current || !isEditorContent(current)) return "failed";
           if (!isLocalDocumentPath(current.path) || current.isVirtual || current.readOnly || !isBufferContentLoaded(current)) return "failed";
           if (current.documentLifecycle?.status === "saving" || current.documentLifecycle?.status === "conflict") return "cancelled";
-          if (!current.isDirty && current.encoding === encoding) return "saved";
+          if (!current.isDirty && (current.saveEncoding ?? current.readEncoding ?? current.encoding) === encoding) return "saved";
           const pendingAutoSave = get().autoSaveTasks[current.id];
           if (pendingAutoSave) {
             clearTimeout(pendingAutoSave.timeoutId);
@@ -647,7 +659,7 @@ const createEditorAppStore = (workspaceId: string) =>
           if (!wasDirty) bufferStore.getState().actions.markBufferDirty(current.id, true);
           const result = await saveEditorBufferById(workspaceId, current.id, {
             targetEncoding: encoding,
-            expectedEncoding: current.encoding ?? "UTF-8",
+            expectedEncoding: current.saveEncoding ?? current.readEncoding ?? current.encoding ?? "UTF-8",
             expectedIdentity: current.diskIdentity,
           });
           if (result !== "saved" && !wasDirty) {

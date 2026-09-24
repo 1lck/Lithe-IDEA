@@ -213,6 +213,8 @@ interface BufferActions {
   setMarkdownViewMode: (bufferId: string, mode: MarkdownViewMode) => void;
   updateBufferLanguage: (bufferId: string, language: string) => void;
   setBufferEncoding: (bufferId: string, encoding: FileEncoding, diskIdentity?: string) => void;
+  setBufferReadEncoding: (bufferId: string, encoding: FileEncoding, diskIdentity?: string) => void;
+  setBufferSaveEncoding: (bufferId: string, encoding: FileEncoding, diskIdentity?: string) => void;
   replaceBufferFromDisk: (
     bufferId: string,
     expectedPath: string,
@@ -249,6 +251,8 @@ interface BufferActions {
     name: string;
     isPinned: boolean;
     isPreview: boolean;
+    readEncoding?: FileEncoding;
+    saveEncoding?: FileEncoding;
     encoding?: FileEncoding;
     editorState?: PersistedEditorViewState;
   }) => string;
@@ -303,7 +307,7 @@ function makeDocumentBufferOwner(
         lifecycle: lifecycleStateForBuffer(buffer),
         baseline: buffer.acknowledgedDiskContent === undefined ? buffer.savedContent : buffer.acknowledgedDiskContent,
         diskIdentity: buffer.diskIdentity,
-        encoding: buffer.encoding,
+        readEncoding: buffer.readEncoding ?? buffer.encoding,
         externalContent: buffer.externalDiskContent,
         externalIdentity: buffer.externalDiskIdentity,
       };
@@ -346,6 +350,7 @@ function makeDocumentBufferOwner(
         buffer.documentLifecycle = { status: "clean", revision };
         buffer.isDirty = false;
         if (details) {
+          buffer.readEncoding = details.encoding;
           buffer.encoding = details.encoding;
           buffer.diskIdentity = details.identity;
         }
@@ -1644,7 +1649,33 @@ const createBufferStore = (workspaceId: string) => {
           set((state) => {
             const buffer = state.buffers.find((candidate) => candidate.id === bufferId);
             if (buffer && isEditorContent(buffer)) {
+              // Legacy action used by initial file loads: establish both roles.
+              buffer.readEncoding = encoding;
+              buffer.saveEncoding = encoding;
               buffer.encoding = encoding;
+              if (diskIdentity !== undefined) buffer.diskIdentity = diskIdentity;
+            }
+          });
+          saveWorkspaceSession(get().buffers, get().activeBufferId);
+        },
+
+        setBufferReadEncoding: (bufferId: string, encoding: FileEncoding, diskIdentity?: string) => {
+          set((state) => {
+            const buffer = state.buffers.find((candidate) => candidate.id === bufferId);
+            if (buffer && isEditorContent(buffer)) {
+              buffer.readEncoding = encoding;
+              buffer.encoding = encoding;
+              if (diskIdentity !== undefined) buffer.diskIdentity = diskIdentity;
+            }
+          });
+          saveWorkspaceSession(get().buffers, get().activeBufferId);
+        },
+
+        setBufferSaveEncoding: (bufferId: string, encoding: FileEncoding, diskIdentity?: string) => {
+          set((state) => {
+            const buffer = state.buffers.find((candidate) => candidate.id === bufferId);
+            if (buffer && isEditorContent(buffer)) {
+              buffer.saveEncoding = encoding;
               if (diskIdentity !== undefined) buffer.diskIdentity = diskIdentity;
             }
           });
@@ -1677,6 +1708,7 @@ const createBufferStore = (workspaceId: string) => {
             buffer.contentRevision = expectedRevision + 1;
             buffer.documentLifecycle = { status: "clean", revision: buffer.contentRevision };
             buffer.isDirty = false;
+            buffer.readEncoding = encoding;
             buffer.encoding = encoding;
             buffer.diskIdentity = diskIdentity;
             buffer.loadState = "loaded";
@@ -1988,7 +2020,7 @@ const createBufferStore = (workspaceId: string) => {
           const expectedRevision = buffer.contentRevision ?? 0;
           try {
             const details = isLocalDocumentPath(buffer.path)
-              ? await readDocumentFileDetails(buffer.path, buffer.encoding)
+              ? await readDocumentFileDetails(buffer.path, buffer.readEncoding ?? buffer.encoding)
               : await readFileContentWithEncoding(buffer.path);
             if (!details) return;
             get().actions.replaceBufferFromDisk(
@@ -2014,6 +2046,8 @@ const createBufferStore = (workspaceId: string) => {
           name: string;
           isPinned: boolean;
           isPreview: boolean;
+          readEncoding?: FileEncoding;
+          saveEncoding?: FileEncoding;
           encoding?: FileEncoding;
           editorState?: PersistedEditorViewState;
         }): string => {
@@ -2080,7 +2114,11 @@ const createBufferStore = (workspaceId: string) => {
             buf.loadState = "loaded";
             buf.loadError = undefined;
             if (language) buf.language = language;
-            if (encoding) buf.encoding = encoding;
+            if (encoding) {
+              buf.readEncoding = encoding;
+              buf.encoding = encoding;
+              if (!buf.saveEncoding) buf.saveEncoding = encoding;
+            }
             if (diskIdentity) buf.diskIdentity = diskIdentity;
             buf.documentLifecycle = { status: "clean", revision: buf.contentRevision };
           });

@@ -23,7 +23,9 @@ interface ReopenOwner {
 function sameDocument(left: EditorContent, right: EditorContent | null): boolean {
   return !!right && left.id === right.id && left.path === right.path &&
     left.contentRevision === right.contentRevision && left.content === right.content &&
-    left.encoding === right.encoding && left.diskIdentity === right.diskIdentity &&
+    (left.readEncoding ?? left.encoding) === (right.readEncoding ?? right.encoding) &&
+    (left.saveEncoding ?? left.readEncoding ?? left.encoding) === (right.saveEncoding ?? right.readEncoding ?? right.encoding) &&
+    left.diskIdentity === right.diskIdentity &&
     left.documentLifecycle?.status === right.documentLifecycle?.status;
 }
 

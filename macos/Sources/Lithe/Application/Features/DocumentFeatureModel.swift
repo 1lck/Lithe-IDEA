@@ -433,7 +433,8 @@ final class DocumentFeatureModel: ObservableObject {
         displayPath: String?,
         activateWhenReady: Bool,
         asPreview: Bool = false,
-        encoding: DocumentEncoding? = nil
+        encoding: DocumentEncoding? = nil,
+        saveEncoding: DocumentEncoding? = nil
     ) async {
         let normalizedURL = url.standardizedFileURL
         let filePath = normalizedURL.path
@@ -472,7 +473,8 @@ final class DocumentFeatureModel: ObservableObject {
         // One owned load serves every caller; cancelling a preview must not cancel another caller's load.
         let task = Task { @MainActor in
             await loadFile(normalizedURL, isReadOnly: isReadOnly, displayPath: displayPath,
-                           activateWhenReady: activateWhenReady, requestID: requestID, encoding: encoding)
+                           activateWhenReady: activateWhenReady, requestID: requestID,
+                           encoding: encoding, saveEncoding: saveEncoding)
         }
         pendingFileOpenRequests[filePath] = (requestID, task, asPreview)
         await task.value
@@ -480,7 +482,7 @@ final class DocumentFeatureModel: ObservableObject {
 
     private func loadFile(
         _ normalizedURL: URL, isReadOnly: Bool, displayPath: String?,
-        activateWhenReady: Bool, requestID: UUID, encoding: DocumentEncoding?
+        activateWhenReady: Bool, requestID: UUID, encoding: DocumentEncoding?, saveEncoding: DocumentEncoding?
     ) async {
         let filePath = normalizedURL.path
         defer {
@@ -547,7 +549,7 @@ final class DocumentFeatureModel: ObservableObject {
             isReadOnly: isReadOnly,
             isFileWritable: fileStorage.metadata(for: normalizedURL)?.isWritable ?? true,
             displayPath: displayPath,
-            encoding: details.encoding, diskIdentity: details.identity
+            encoding: details.encoding, saveEncoding: saveEncoding, diskIdentity: details.identity
         )
         guard !openDocuments.contains(where: {
             $0.url.standardizedFileURL.path == filePath
@@ -925,7 +927,7 @@ final class DocumentFeatureModel: ObservableObject {
     @discardableResult
     func requestReopen(_ document: EditorDocument, with encoding: DocumentEncoding) -> Task<Void, Never>? {
         guard fileOperations.supportsDocumentEncoding, document.url.isFileURL,
-              document.encoding != encoding,
+              document.readEncoding != encoding,
               document.lifecycleState.status != .saving,
               openDocuments.contains(where: { $0 === document }) else { return nil }
         cancelEncodingChange()
@@ -1011,13 +1013,13 @@ final class DocumentFeatureModel: ObservableObject {
             onRecordSave?(document, previousText)
         }
         let identity = document.diskIdentity
-        let previousEncoding = document.encoding
+        let previousEncoding = document.readEncoding
         guard let details = try await fileOperations.readDocumentDetailsAsync(from: request.url, encoding: request.encoding) else {
             throw CocoaError(.fileReadNoSuchFile)
         }
         guard WorkspaceTextFilePolicy.isPlainText(details.text) else { throw CocoaError(.fileReadInapplicableStringEncoding) }
         guard isCurrent(), document.lifecycleState.status != .saving,
-              document.diskIdentity == identity, document.encoding == previousEncoding else { return }
+              document.diskIdentity == identity, document.readEncoding == previousEncoding else { return }
         if document.isDirty { onRecordDiscard?(document) }
         document.replaceWithDiskContent(details.text, encoding: details.encoding, identity: details.identity)
         onDocumentChanged?(document)
@@ -1088,7 +1090,7 @@ final class DocumentFeatureModel: ObservableObject {
                       document.lifecycleState.status != .saving,
                       self.observedDocuments.contains(where: { $0 === document }) else { return }
                 let revision = document.lifecycleState.revision
-                let encoding = document.encoding
+                let encoding = document.readEncoding
                 guard let details = try await self.fileOperations.readDocumentDetailsAsync(from: url, encoding: encoding),
                       !Task.isCancelled, document.url == url,
                       document.locationRevision == locationRevision, document.lifecycleState.status != .saving,
@@ -1163,7 +1165,7 @@ final class DocumentFeatureModel: ObservableObject {
                 let revision = document.lifecycleState.revision
                 let baseline = document.expectedDiskContent.map { Data($0.utf8) }
                 let identity = document.diskIdentity
-                let encoding = document.encoding
+                let encoding = document.readEncoding
                 do {
                     let details = try await self.fileOperations.readDocumentDetailsAsync(from: url, encoding: encoding)
                     let content = details?.text
@@ -1171,7 +1173,7 @@ final class DocumentFeatureModel: ObservableObject {
                           self.observedDocuments.contains(where: { $0.id == document.id }) else { return }
                     if document.lifecycleState.status == .saving || self.encodingDocumentID == document.id { return }
                     guard baseline == document.expectedDiskContent.map({ Data($0.utf8) }),
-                          identity == document.diskIdentity, encoding == document.encoding else {
+                          identity == document.diskIdentity, encoding == document.readEncoding else {
                         self.processExternalChanges([url]); return
                     }
                     if let identity {
@@ -1186,7 +1188,7 @@ final class DocumentFeatureModel: ObservableObject {
                           document.lifecycleState.status != .saving,
                           self.observedDocuments.contains(where: { $0 === document }),
                           baseline == document.expectedDiskContent.map({ Data($0.utf8) }),
-                          identity == document.diskIdentity, encoding == document.encoding,
+                          identity == document.diskIdentity, encoding == document.readEncoding,
                           self.encodingDocumentID != document.id else { return }
                     // New local input stays owned by the editor. The reducer sees its latest state.
                     let decision = try self.documentLifecycleDecider.decide(state: document.lifecycleState,
@@ -1298,7 +1300,7 @@ final class DocumentFeatureModel: ObservableObject {
         if let task = saveTasks[document.id] {
             try await task.value
             guard !document.isDirty else { throw SaveProgress.newerRevisionPending }
-            if let targetEncoding, document.encoding != targetEncoding {
+            if let targetEncoding, document.saveEncoding != targetEncoding {
                 try await saveDocument(document, targetEncoding: targetEncoding)
             }
             return
@@ -1359,7 +1361,7 @@ final class DocumentFeatureModel: ObservableObject {
         let url = document.url
         let expectedContent = document.expectedDiskContent
         let expectedIdentity = document.diskIdentity
-        let encoding = targetEncoding ?? document.encoding
+        let encoding = targetEncoding ?? document.saveEncoding
         let locationRevision = document.locationRevision
 
         var failureStage = "write"

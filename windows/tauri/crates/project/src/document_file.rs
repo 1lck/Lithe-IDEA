@@ -7,8 +7,8 @@ use std::{
     io::{self, Read, Write},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering},
         Mutex,
+        atomic::{AtomicU64, Ordering},
     },
 };
 
@@ -28,6 +28,25 @@ pub enum SaveOutcome {
     },
 }
 
+/// BOM policy advertised by the shared encoding catalog.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DocumentEncodingBom {
+    None,
+    Utf8,
+}
+
+/// Native side of the shared document-encoding extension point.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DocumentEncodingDescriptor {
+    pub id: &'static str,
+    pub stable_id: &'static str,
+    pub display_name: &'static str,
+    pub aliases: &'static [&'static str],
+    pub supports_read: bool,
+    pub supports_write: bool,
+    pub bom: DocumentEncodingBom,
+}
+
 /// Text encoding used when decoding or publishing a local document.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DocumentEncoding {
@@ -40,6 +59,64 @@ pub enum DocumentEncoding {
 }
 
 impl DocumentEncoding {
+    /// The native mapping must stay in lockstep with the frontend catalog.
+    pub const CATALOG: &'static [DocumentEncodingDescriptor] = &[
+        DocumentEncodingDescriptor {
+            id: "UTF-8",
+            stable_id: "utf-8",
+            display_name: "UTF-8",
+            aliases: &["utf8"],
+            supports_read: true,
+            supports_write: true,
+            bom: DocumentEncodingBom::None,
+        },
+        DocumentEncodingDescriptor {
+            id: "UTF-8 with BOM",
+            stable_id: "utf-8-bom",
+            display_name: "UTF-8 with BOM",
+            aliases: &["utf8-bom", "utf-8-bom"],
+            supports_read: true,
+            supports_write: true,
+            bom: DocumentEncodingBom::Utf8,
+        },
+        DocumentEncodingDescriptor {
+            id: "GBK",
+            stable_id: "gbk",
+            display_name: "GBK",
+            aliases: &["cp936"],
+            supports_read: true,
+            supports_write: true,
+            bom: DocumentEncodingBom::None,
+        },
+        DocumentEncodingDescriptor {
+            id: "GB18030",
+            stable_id: "gb18030",
+            display_name: "GB18030",
+            aliases: &[],
+            supports_read: true,
+            supports_write: true,
+            bom: DocumentEncodingBom::None,
+        },
+        DocumentEncodingDescriptor {
+            id: "Shift JIS",
+            stable_id: "shift-jis",
+            display_name: "Shift JIS",
+            aliases: &["shift-jis", "shift_jis"],
+            supports_read: true,
+            supports_write: true,
+            bom: DocumentEncodingBom::None,
+        },
+        DocumentEncodingDescriptor {
+            id: "Windows-1252",
+            stable_id: "windows-1252",
+            display_name: "Windows-1252",
+            aliases: &["cp1252"],
+            supports_read: true,
+            supports_write: true,
+            bom: DocumentEncodingBom::None,
+        },
+    ];
+
     /// Returns the stable label exchanged with the Tauri frontend.
     pub fn label(self) -> &'static str {
         match self {
@@ -196,7 +273,7 @@ fn read_document_bytes(path: &Path) -> io::Result<Option<Vec<u8>>> {
     {
         use std::os::windows::{fs::MetadataExt, io::AsRawHandle};
         use windows_sys::Win32::Storage::FileSystem::{
-            GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+            BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
         };
         if metadata.file_attributes() & 0x400 != 0 {
             return Err(io::Error::new(
@@ -283,20 +360,23 @@ fn save_with_precommit(
             "Invalid document path or size",
         ));
     }
-    let expected_bytes = expected
-        .map(|text| expected_encoding.encode(text))
-        .transpose()?;
+    // A supplied raw identity is authoritative. Reopened text may not be
+    // representable by the original disk codec and must not be re-encoded here.
+    let expected_bytes = if expected_identity.is_none() {
+        expected
+            .map(|text| expected_encoding.encode(text))
+            .transpose()?
+    } else {
+        None
+    };
     let fallback_identity = expected_bytes.as_deref().map(bytes_identity);
     let expected_identity = expected_identity.or(fallback_identity.as_deref());
     let _gate = WRITE_GATE
         .lock()
         .map_err(|_| io::Error::other("Document write gate failed"))?;
-    let current = read_document_with_encoding(path, Some(expected_encoding.label()))?;
-    if !matches_expected(&current, expected, expected_identity) {
-        return Ok(SaveOutcome::Conflict {
-            identity: current.as_ref().map(|document| document.identity.clone()),
-            content: current.map(|document| document.content),
-        });
+    let current = read_document_bytes(path)?;
+    if !matches_expected(&current, expected_bytes.as_deref(), expected_identity) {
+        return Ok(disk_conflict(current, expected_encoding));
     }
     if fs::metadata(path).is_ok_and(|metadata| metadata.permissions().readonly()) {
         return Err(io::Error::new(
@@ -336,12 +416,9 @@ fn save_with_precommit(
     }
     drop(file);
     before_commit();
-    let latest = read_document_with_encoding(path, Some(expected_encoding.label()))?;
-    if !matches_expected(&latest, expected, expected_identity) {
-        return Ok(SaveOutcome::Conflict {
-            identity: latest.as_ref().map(|document| document.identity.clone()),
-            content: latest.map(|document| document.content),
-        });
+    let latest = read_document_bytes(path)?;
+    if !matches_expected(&latest, expected_bytes.as_deref(), expected_identity) {
+        return Ok(disk_conflict(latest, expected_encoding));
     }
     if expected.is_none() {
         // Creation must never replace a file created after the missing-file check.
@@ -355,14 +432,27 @@ fn save_with_precommit(
 }
 
 fn matches_expected(
-    current: &Option<DocumentRead>,
-    expected: Option<&str>,
+    current: &Option<Vec<u8>>,
+    expected_bytes: Option<&[u8]>,
     expected_identity: Option<&str>,
 ) -> bool {
-    match (current, expected_identity) {
-        (Some(document), Some(identity)) => document.identity == identity,
-        (None, Some(_)) => false,
-        _ => current.as_ref().map(|document| document.content.as_str()) == expected,
+    if let Some(identity) = expected_identity {
+        return current.as_deref().map(bytes_identity).as_deref() == Some(identity);
+    }
+    match expected_bytes {
+        Some(expected) => current.as_deref() == Some(expected),
+        None => current.is_none(),
+    }
+}
+
+fn disk_conflict(bytes: Option<Vec<u8>>, encoding: DocumentEncoding) -> SaveOutcome {
+    // An external encoding change still returns a conflict even if its bytes
+    // cannot be decoded. Never substitute replacement characters or overwrite it.
+    SaveOutcome::Conflict {
+        identity: bytes.as_deref().map(bytes_identity),
+        content: bytes
+            .as_deref()
+            .and_then(|bytes| encoding.decode(bytes).ok()),
     }
 }
 
@@ -493,6 +583,34 @@ mod tests {
             SaveOutcome::Conflict { .. }
         ));
     }
+
+    #[test]
+    fn identity_guard_does_not_decode_disk_bytes_with_the_save_encoding() {
+        let directory = Directory::new();
+        let path = directory.0.join("reopened-with-different-encoding.txt");
+        let original = DocumentEncoding::Gbk.encode("中文").unwrap();
+        fs::write(&path, &original).unwrap();
+        let identity = bytes_identity(&original);
+
+        let outcome = save_document_with_encoding(
+            &path,
+            "更新",
+            Some("中文"),
+            Some("GBK"),
+            Some("UTF-8"),
+            Some(&identity),
+        )
+        .unwrap();
+
+        assert!(matches!(outcome, SaveOutcome::Saved { .. }));
+        assert_eq!(
+            read_document_with_encoding(&path, Some("GBK"))
+                .unwrap()
+                .unwrap()
+                .content,
+            "更新"
+        );
+    }
     #[test]
     fn rechecks_after_staging_and_cleans_temporary_file() {
         let directory = Directory::new();
@@ -617,5 +735,15 @@ mod tests {
             SaveOutcome::Conflict { .. }
         ));
         assert_eq!(fs::read_to_string(&path).unwrap(), "new mine");
+    }
+    #[test]
+    fn catalog_has_unique_stable_ids_and_protocol_labels() {
+        let mut stable_ids = std::collections::HashSet::new();
+        assert_eq!(DocumentEncoding::CATALOG.len(), 6);
+        for descriptor in DocumentEncoding::CATALOG {
+            assert!(stable_ids.insert(descriptor.stable_id));
+            assert!(!descriptor.id.is_empty());
+            assert!(descriptor.supports_read || descriptor.supports_write);
+        }
     }
 }
