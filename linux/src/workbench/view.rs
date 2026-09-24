@@ -3,6 +3,7 @@
 //! 结构对齐 Tauri `MainLayout`：顶栏 / 多项目标签条 / 活动栏 + 侧边栏 + 编辑区 +
 //! 右侧插件活动栏 / 底部面板 / 状态栏；无项目时显示欢迎页，浮层由模态状态控制。
 
+use gpui_kit::component::resizable::{h_resizable, resizable_panel};
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -20,7 +21,7 @@ use crate::workbench::activity_rail::{
 use crate::workbench::bottom_panel::{BottomPanelView, BottomTab};
 use crate::workbench::branch_manager::{BranchManagerEvent, BranchManagerView};
 use crate::workbench::command_palette::{CommandPaletteEvent, CommandPaletteModal};
-use crate::workbench::editor::EditorView;
+use crate::workbench::editor::{EditorTabEvent, EditorView};
 use crate::workbench::extensions_panel::{ExtensionsEvent, ExtensionsView};
 use crate::workbench::go_to_line::{GoToLineEvent, GoToLineModal};
 use crate::workbench::maven::{MavenEvent, MavenView};
@@ -577,6 +578,17 @@ impl WorkbenchView {
             },
         );
 
+        // 8b. 订阅编辑器标签页事件（在终端中打开）
+        let sub_editor_tab =
+            cx.subscribe(
+                &editor,
+                move |this, _ed, event: &EditorTabEvent, cx| match event {
+                    EditorTabEvent::OpenInTerminal { dir } => {
+                        this.send_terminal_command(&format!("cd \"{dir}\""), cx);
+                    }
+                },
+            );
+
         // 9. 订阅设置对话框事件
         let sub_settings = cx.subscribe(
             &settings_dialog,
@@ -752,6 +764,7 @@ impl WorkbenchView {
                 sub_quick_open,
                 sub_go_to_line,
                 sub_command_palette,
+                sub_editor_tab,
                 sub_settings,
                 sub_project_dialog,
                 sub_branch_manager,
@@ -1690,7 +1703,50 @@ impl WorkbenchView {
     fn render_workbench(&self, show_status_bar: bool, cx: &mut Context<Self>) -> impl IntoElement {
         let bottom_visible = self.bottom_panel.read(cx).is_visible();
         let bottom_splitter = self.render_bottom_splitter(cx);
-        let right_width = settings::get(cx).right_tool_window_width;
+        let right_width = settings::get(cx)
+            .right_tool_window_width
+            .clamp(240.0, 600.0);
+        let right_panel = self.right_tool.map(|tool| match tool {
+            RightToolView::Notifications => self.notifications.clone().into_any_element(),
+            RightToolView::Maven => self.maven.clone().into_any_element(),
+            RightToolView::Extensions => self.extensions.clone().into_any_element(),
+        });
+        let mut center = h_resizable("workbench-center")
+            .on_resize(|state, _, cx| {
+                if state.read(cx).sizes().len() < 2 {
+                    return;
+                }
+                if let Some(width) = state.read(cx).sizes().last() {
+                    let w = width.as_f32().clamp(240.0, 600.0);
+                    settings::update(cx, |s| s.right_tool_window_width = w);
+                }
+            })
+            .child(
+                resizable_panel().child(
+                    div()
+                        .flex_1()
+                        .h_full()
+                        .min_w_0()
+                        .bg(ThemeColors::background())
+                        .child(self.editor.clone()),
+                ),
+            );
+        if let Some(panel) = right_panel {
+            center = center.child(
+                resizable_panel()
+                    .size(px(right_width))
+                    .size_range(px(240.0)..px(600.0))
+                    .flex_none()
+                    .child(
+                        div()
+                            .h_full()
+                            .w_full()
+                            .border_l_1()
+                            .border_color(ThemeColors::border())
+                            .child(panel),
+                    ),
+            );
+        }
         v_flex()
             .size_full()
             .bg(ThemeColors::background())
@@ -1713,32 +1769,7 @@ impl WorkbenchView {
                             )
                             .child(self.render_sidebar_splitter(cx))
                     })
-                    .child(
-                        div()
-                            .flex_1()
-                            .h_full()
-                            .min_w_0()
-                            .bg(ThemeColors::background())
-                            .child(self.editor.clone()),
-                    )
-                    .when_some(self.right_tool, |layout, tool| {
-                        let panel = match tool {
-                            RightToolView::Notifications => {
-                                self.notifications.clone().into_any_element()
-                            }
-                            RightToolView::Maven => self.maven.clone().into_any_element(),
-                            RightToolView::Extensions => self.extensions.clone().into_any_element(),
-                        };
-                        layout.child(
-                            div()
-                                .w(px(right_width))
-                                .h_full()
-                                .flex_shrink_0()
-                                .border_l_1()
-                                .border_color(ThemeColors::border())
-                                .child(panel),
-                        )
-                    })
+                    .child(div().flex_1().h_full().min_w_0().child(center))
                     .child(self.plugin_rail.clone()),
             )
             .when(bottom_visible, |layout| layout.child(bottom_splitter))
