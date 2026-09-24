@@ -21,6 +21,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -29,6 +31,14 @@ jobs:
 
       - name: Verify source data and generated views
         run: ./scripts/verify-platform-feature-matrix.sh
+
+      - name: Require matrix updates for platform changes
+        if: github.event_name == 'pull_request'
+        env:
+          MATRIX_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          MATRIX_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MATRIX_UPDATE_EXEMPT: ${{ contains(github.event.pull_request.labels.*.name, 'matrix-exempt') }}
+        run: ./scripts/verify-platform-feature-matrix-change.sh
 
       - name: Add matrix links to job summary
         env:
