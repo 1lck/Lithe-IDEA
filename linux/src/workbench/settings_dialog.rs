@@ -265,8 +265,9 @@ impl Render for SettingsDialog {
                     .overflow_hidden()
                     .on_mouse_down(
                         gpui_kit::MouseButton::Left,
-                        cx.listener(|_this, _event, _window, _cx| {
-                            // 阻止向遮罩冒泡
+                        cx.listener(|_this, _event, _window, cx| {
+                            // 卡片内点击必须阻断冒泡，否则会触发遮罩的关闭逻辑。
+                            cx.stop_propagation();
                         }),
                     )
                     // 1. 头部：标题、搜索占位、关闭按钮

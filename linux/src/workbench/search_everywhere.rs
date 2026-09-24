@@ -322,8 +322,9 @@ impl Render for SearchEverywhereModal {
                     .overflow_hidden()
                     .on_mouse_down(
                         gpui_kit::MouseButton::Left,
-                        cx.listener(|_this, _event, _window, _cx| {
-                            // 阻止向外层遮罩冒泡关闭
+                        cx.listener(|_this, _event, _window, cx| {
+                            // 卡片内点击必须阻断冒泡，否则会触发遮罩的关闭逻辑。
+                            cx.stop_propagation();
                         }),
                     )
                     .child(
