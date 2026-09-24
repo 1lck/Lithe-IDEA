@@ -6,8 +6,8 @@ use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex, Disableable as _, Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, AnyElement, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Window,
+    div, px, AnyElement, AppContext as _, Context, Entity, FontWeight, InteractiveElement as _,
+    IntoElement, ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Window,
 };
 
 use crate::core::CoreClient;
@@ -57,6 +57,36 @@ struct RunStep {
     program: String,
     args: Vec<String>,
     cwd: String,
+}
+
+/// 进程 framing 行文案（`run_steps_blocking` 无 `cx`，调用方预取传入）。
+#[derive(Debug, Clone)]
+struct StepText {
+    start_failed: String,
+    exit_code: String,
+    exited: String,
+    finished: String,
+}
+
+impl StepText {
+    fn load(cx: &gpui_kit::App) -> Self {
+        Self {
+            start_failed: crate::i18n::menu_text(cx, "run.startFailed").to_string(),
+            exit_code: crate::i18n::menu_text(cx, "run.exitCode").to_string(),
+            exited: crate::i18n::menu_text(cx, "run.exited").to_string(),
+            finished: crate::i18n::menu_text(cx, "run.finished").to_string(),
+        }
+    }
+}
+
+/// 上次 Maven 目标参数（头部重跑按钮回放，对齐 Tauri `rerunLastTest` 语义的子集）。
+#[derive(Debug, Clone)]
+struct MavenGoalParams {
+    pom_path: String,
+    goal: String,
+    target: String,
+    profiles: Vec<String>,
+    skip_tests: bool,
 }
 
 /// Git 提交记录行数上限。
@@ -115,6 +145,8 @@ pub struct BottomPanelView {
     maven_child: Arc<Mutex<Option<std::process::Child>>>,
     /// Maven 启动序号，丢弃过期 `launchPlan` 结果。
     maven_seq: u64,
+    /// 上次 Maven 目标参数（头部重跑按钮回放）。
+    last_maven_goal: Option<MavenGoalParams>,
     /// reload 序号，丢弃过期探测结果。
     run_seq: u64,
     /// 最近一次加载的 Git 提交记录。
@@ -146,6 +178,7 @@ impl BottomPanelView {
             maven_running: false,
             maven_child: Arc::new(Mutex::new(None)),
             maven_seq: 0,
+            last_maven_goal: None,
             client: CoreClient::new(),
             run_child: Arc::new(Mutex::new(None)),
             run_seq: 0,
@@ -280,10 +313,18 @@ impl BottomPanelView {
             return;
         };
         self.run_running = true;
-        push_run_line(&mut self.run_output, format!("开始运行：{}", item.name));
+        push_run_line(
+            &mut self.run_output,
+            format!(
+                "{}：{}",
+                crate::i18n::menu_text(cx, "run.starting"),
+                item.name
+            ),
+        );
         cx.notify();
         let (tx, rx) = mpsc::channel::<String>();
         let child_slot = self.run_child.clone();
+        let text = StepText::load(cx);
         let client = self.client.clone();
         let root = self.working_dir.clone();
         cx.spawn(async move |this, cx| {
@@ -302,7 +343,10 @@ impl BottomPanelView {
             let started = this.update(cx, |view, cx| {
                 if steps.is_empty() {
                     view.run_running = false;
-                    push_run_line(&mut view.run_output, "无可执行步骤".to_string());
+                    push_run_line(
+                        &mut view.run_output,
+                        crate::i18n::menu_text(cx, "run.noSteps").to_string(),
+                    );
                     cx.notify();
                     return false;
                 }
@@ -315,7 +359,7 @@ impl BottomPanelView {
             if !matches!(started, Ok(true)) {
                 return;
             }
-            std::thread::spawn(move || run_steps_blocking(steps, child_slot, tx));
+            std::thread::spawn(move || run_steps_blocking(steps, child_slot, text, tx));
             // 输出泵：每行经 background 线程阻塞收，再回到主线程落盘展示。
             let rx = Arc::new(Mutex::new(rx));
             loop {
@@ -366,11 +410,17 @@ impl BottomPanelView {
             }
         }
         if self.run_running {
-            push_run_line(&mut self.run_output, "已发送停止信号…".to_string());
+            push_run_line(
+                &mut self.run_output,
+                crate::i18n::menu_text(cx, "run.stopping").to_string(),
+            );
             stopped = true;
         }
         if self.maven_running {
-            push_run_line(&mut self.maven_output, "已发送停止信号…".to_string());
+            push_run_line(
+                &mut self.maven_output,
+                crate::i18n::menu_text(cx, "run.stopping").to_string(),
+            );
             stopped = true;
         }
         if stopped {
@@ -411,6 +461,13 @@ impl BottomPanelView {
         self.maven_seq += 1;
         let seq = self.maven_seq;
         let title = format!("{goal} · {target}");
+        self.last_maven_goal = Some(MavenGoalParams {
+            pom_path: pom_path.to_string(),
+            goal: goal.clone(),
+            target: target.to_string(),
+            profiles: profiles.to_vec(),
+            skip_tests,
+        });
         self.active_tab = BottomTab::Maven;
         self.is_collapsed = false;
         self.maven_title = Some(title.clone());
@@ -422,6 +479,7 @@ impl BottomPanelView {
         let root = self.working_dir.clone();
         let module = maven_module_for_pom(&self.working_dir, pom_path);
         let profiles = profiles.to_vec();
+        let text = StepText::load(cx);
         let child_slot = self.maven_child.clone();
         cx.spawn(async move |this, cx| {
             let plan = client
@@ -458,7 +516,7 @@ impl BottomPanelView {
             }
             let steps = vec![RunStep { program, args, cwd }];
             let (tx, rx) = mpsc::channel::<String>();
-            std::thread::spawn(move || run_steps_blocking(steps, child_slot, tx));
+            std::thread::spawn(move || run_steps_blocking(steps, child_slot, text, tx));
             let rx = Arc::new(Mutex::new(rx));
             loop {
                 let slot = rx.clone();
@@ -501,6 +559,24 @@ impl BottomPanelView {
         .detach();
     }
 
+    /// 重跑上次 Maven 目标（头部重跑按钮，对齐 Tauri `rerunLastTest` 语义的子集：
+    /// Linux 无测试会话跟踪，重跑即以上次参数再跑一次）。
+    pub fn rerun_maven(&mut self, cx: &mut Context<Self>) {
+        if self.maven_running {
+            return;
+        }
+        if let Some(last) = self.last_maven_goal.clone() {
+            self.run_maven_goal(
+                &last.pom_path,
+                &last.goal,
+                &last.target,
+                &last.profiles,
+                last.skip_tests,
+                cx,
+            );
+        }
+    }
+
     /// 当前选中项（无选中或已失效时回退首项）。
     fn selected_run_item(&self) -> Option<RunConfigItem> {
         self.selected_run_config
@@ -517,51 +593,6 @@ impl BottomPanelView {
             .is_some_and(|id| self.run_configs.iter().any(|c| &c.id == id));
         if !keep {
             self.selected_run_config = self.run_configs.first().map(|c| c.id.clone());
-        }
-    }
-
-    /// Run 面板状态行文案。
-    fn run_state_text(&self, cx: &gpui_kit::App) -> String {
-        let zh = crate::i18n::is_zh(cx);
-        match &self.run_state {
-            RunProjectState::Missing => {
-                if zh {
-                    "无可运行配置".to_string()
-                } else {
-                    "No runnable configurations".to_string()
-                }
-            }
-            RunProjectState::Loading => {
-                if zh {
-                    "加载中…".to_string()
-                } else {
-                    "Loading…".to_string()
-                }
-            }
-            RunProjectState::Ready => {
-                if self.run_running {
-                    if zh {
-                        "运行中".to_string()
-                    } else {
-                        "Running".to_string()
-                    }
-                } else if zh {
-                    format!("就绪 · {} 个配置", self.run_configs.len())
-                } else {
-                    format!("Ready · {} configurations", self.run_configs.len())
-                }
-            }
-            RunProjectState::Failed(err) => {
-                if err.is_empty() {
-                    if zh {
-                        "加载失败".to_string()
-                    } else {
-                        "Failed to load".to_string()
-                    }
-                } else {
-                    err.clone()
-                }
-            }
         }
     }
 
@@ -586,44 +617,192 @@ impl BottomPanelView {
     /// 当前仅保留调用点可编译，不存储不展示。
     pub fn append_log(&mut self, _log: String, _cx: &mut Context<Self>) {}
 
-    fn render_tab_button(
+    /// 窗格通用头部：图标 + 标题 + 状态区 + 操作按钮 + 最小化，
+    /// 对齐 Tauri 各窗格自带按钮头（底部无标签切换条，切换只走左侧活动栏）。
+    fn render_pane_header(
         &self,
-        id: &'static str,
         icon: IconName,
-        label: String,
-        is_active: bool,
-        tab: BottomTab,
+        title: String,
+        status: Option<AnyElement>,
+        buttons: Vec<AnyElement>,
         cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    ) -> AnyElement {
         h_flex()
-            .id(id)
-            .items_center()
-            .gap_1p5()
-            .px_3()
             .h(px(30.0))
-            .cursor_pointer()
-            .text_xs()
-            .when(is_active, |btn| {
-                btn.bg(ThemeColors::bg_bottom_panel())
+            .w_full()
+            .flex_shrink_0()
+            .bg(ThemeColors::bg_tab_bar())
+            .border_b_1()
+            .border_color(ThemeColors::border())
+            .items_center()
+            .gap_1()
+            .px_2()
+            .child(
+                Icon::new(icon)
+                    .size(px(14.0))
+                    .text_color(ThemeColors::text_muted()),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .truncate()
+                    .text_xs()
+                    .font_weight(FontWeight::BOLD)
                     .text_color(ThemeColors::text_primary())
-                    .border_b_2()
-                    .border_color(ThemeColors::accent_blue())
-            })
-            .when(!is_active, |btn| {
-                btn.text_color(ThemeColors::text_muted()).hover(|h| {
-                    h.bg(ThemeColors::bg_tab_hover())
-                        .text_color(ThemeColors::text_primary())
-                })
-            })
-            .child(Icon::new(icon).size(px(13.0)).text_color(if is_active {
-                ThemeColors::accent_blue()
-            } else {
-                ThemeColors::text_muted()
+                    .child(title),
+            )
+            .when_some(status, |el, status| el.child(status))
+            .children(buttons)
+            .child(
+                Button::new("pane-minimize")
+                    .small()
+                    .ghost()
+                    .icon(IconName::Minus)
+                    .tooltip(crate::i18n::menu_text(cx, "run.minimize"))
+                    .on_click(cx.listener(|this, _event, _window, cx| {
+                        this.toggle_collapsed(cx);
+                    })),
+            )
+            .into_any_element()
+    }
+
+    /// 最小化之外的头部操作按钮（小幽灵图标按钮 + tooltip）。
+    fn header_button(
+        id: String,
+        icon: IconName,
+        tooltip: String,
+        disabled: bool,
+        cx: &mut Context<Self>,
+        on_click: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
+    ) -> AnyElement {
+        Button::new(id)
+            .small()
+            .ghost()
+            .icon(icon)
+            .tooltip(tooltip)
+            .disabled(disabled)
+            .on_click(cx.listener(move |this, _event, window, cx| {
+                on_click(this, window, cx);
             }))
-            .child(label)
-            .on_click(cx.listener(move |this, _event, _window, cx| {
-                this.set_tab(tab, cx);
-            }))
+            .into_any_element()
+    }
+
+    /// Run 窗格头部：运行/停止 + 重扫 + 清空 + 最小化（对齐 Tauri RunPane 头）。
+    fn render_run_header(&self, cx: &mut Context<Self>) -> AnyElement {
+        let running = self.run_running;
+        let status = running.then(|| {
+            div()
+                .text_xs()
+                .text_color(ThemeColors::accent_green())
+                .child(crate::i18n::menu_text(cx, "run.running"))
+                .into_any_element()
+        });
+        let title = format!(
+            "{} {}",
+            crate::i18n::menu_text(cx, "run.title"),
+            self.run_project_name
+        );
+        let can_run = !matches!(self.run_state, RunProjectState::Loading);
+        self.render_pane_header(
+            IconName::Play,
+            title,
+            status,
+            vec![
+                Self::header_button(
+                    "run-toggle".to_string(),
+                    if running {
+                        IconName::Square
+                    } else {
+                        IconName::Play
+                    },
+                    crate::i18n::menu_text(cx, if running { "run.stop" } else { "run.run" })
+                        .to_string(),
+                    !can_run,
+                    cx,
+                    |this, _window, cx| this.run_selected_config(cx),
+                ),
+                Self::header_button(
+                    "run-rescan".to_string(),
+                    IconName::RotateCw,
+                    crate::i18n::menu_text(cx, "run.rescan").to_string(),
+                    running,
+                    cx,
+                    |this, _window, cx| this.reload_run_project(cx),
+                ),
+                Self::header_button(
+                    "run-clear-output".to_string(),
+                    IconName::Trash,
+                    crate::i18n::menu_text(cx, "run.clearOutput").to_string(),
+                    self.run_output.is_empty(),
+                    cx,
+                    |this, _window, cx| {
+                        this.run_output.clear();
+                        cx.notify();
+                    },
+                ),
+            ],
+            cx,
+        )
+    }
+
+    /// Maven 窗格头部：停止 + 重跑 + 清空 + 最小化（对齐 Tauri MavenRunPane 头）。
+    fn render_maven_header(&self, cx: &mut Context<Self>) -> AnyElement {
+        let title = match self.maven_title.clone() {
+            Some(task) => format!(
+                "{} - {} - {task}",
+                crate::i18n::menu_text(cx, "run.title"),
+                crate::i18n::menu_text(cx, "maven.title")
+            ),
+            None => format!(
+                "{} - {}",
+                crate::i18n::menu_text(cx, "run.title"),
+                crate::i18n::menu_text(cx, "maven.title")
+            ),
+        };
+        let status = self.maven_running.then(|| {
+            div()
+                .text_xs()
+                .text_color(ThemeColors::accent_green())
+                .child(crate::i18n::menu_text(cx, "run.running"))
+                .into_any_element()
+        });
+        let can_rerun = self.last_maven_goal.is_some() && !self.maven_running;
+        let can_clear = !self.maven_output.is_empty() || self.maven_title.is_some();
+        self.render_pane_header(
+            IconName::Box,
+            title,
+            status,
+            vec![
+                Self::header_button(
+                    "maven-stop".to_string(),
+                    IconName::Square,
+                    crate::i18n::menu_text(cx, "maven.stop").to_string(),
+                    !self.maven_running,
+                    cx,
+                    |this, _window, cx| this.stop_running(cx),
+                ),
+                Self::header_button(
+                    "maven-rerun".to_string(),
+                    IconName::RefreshCw,
+                    crate::i18n::menu_text(cx, "maven.rerunTest").to_string(),
+                    !can_rerun,
+                    cx,
+                    |this, _window, cx| this.rerun_maven(cx),
+                ),
+                Self::header_button(
+                    "maven-clear-output".to_string(),
+                    IconName::Trash,
+                    crate::i18n::menu_text(cx, "maven.clearOutput").to_string(),
+                    !can_clear,
+                    cx,
+                    |this, _window, cx| {
+                        this.maven_output.clear();
+                        cx.notify();
+                    },
+                ),
+            ],
+            cx,
+        )
     }
 
     /// Run 面板：Tauri RunPane 子集——顶部状态行（工程名+状态+运行/停止+
@@ -689,15 +868,6 @@ impl BottomPanelView {
             }
         }
 
-        let running = self.run_running;
-        let run_label = if running {
-            run_ui_text(cx, "停止", "Stop")
-        } else {
-            run_ui_text(cx, "运行", "Run")
-        };
-        let can_run = !matches!(self.run_state, RunProjectState::Loading);
-        let status = format!("{} · {}", self.run_project_name, self.run_state_text(cx));
-
         let rows: Vec<AnyElement> = self
             .run_configs
             .iter()
@@ -761,7 +931,7 @@ impl BottomPanelView {
         let output: Vec<AnyElement> = if self.run_output.is_empty() {
             vec![div()
                 .text_color(ThemeColors::text_muted())
-                .child(run_ui_text(cx, "暂无输出", "No output"))
+                .child(crate::i18n::menu_text(cx, "run.emptyOutput"))
                 .into_any_element()]
         } else {
             self.run_output[start..]
@@ -772,55 +942,6 @@ impl BottomPanelView {
 
         v_flex()
             .size_full()
-            .child(
-                h_flex()
-                    .flex_shrink_0()
-                    .h(px(30.0))
-                    .w_full()
-                    .items_center()
-                    .gap_2()
-                    .px_3()
-                    .border_b_1()
-                    .border_color(ThemeColors::border())
-                    .child(
-                        div()
-                            .flex_1()
-                            .truncate()
-                            .text_xs()
-                            .text_color(ThemeColors::text_primary())
-                            .child(status),
-                    )
-                    .child(
-                        Button::new("run-toggle")
-                            .small()
-                            .primary()
-                            .disabled(!can_run)
-                            .label(run_label)
-                            .on_click(cx.listener(|this, _event, _window, cx| {
-                                this.run_selected_config(cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("run-rescan")
-                            .small()
-                            .ghost()
-                            .disabled(running)
-                            .label(run_ui_text(cx, "重扫", "Rescan"))
-                            .on_click(cx.listener(|this, _event, _window, cx| {
-                                this.reload_run_project(cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("run-clear-output")
-                            .small()
-                            .ghost()
-                            .label(run_ui_text(cx, "清空输出", "Clear"))
-                            .on_click(cx.listener(|this, _event, _window, cx| {
-                                this.run_output.clear();
-                                cx.notify();
-                            })),
-                    ),
-            )
             .child(
                 h_flex()
                     .flex_1()
@@ -852,22 +973,14 @@ impl BottomPanelView {
             .into_any_element()
     }
 
-    /// Maven 面板：对齐 Tauri Maven 页——顶部任务标题+运行状态+停止/清空，
-    /// 输出区首行 `$ mvn …`，流式追加进程输出。
+    /// Maven 面板体：输出区（首行 `$ mvn …`，流式追加）；头部由 `render_maven_header` 负责。
     fn render_maven_panel(&self, cx: &mut Context<Self>) -> AnyElement {
-        let status = if self.maven_running {
-            run_ui_text(cx, "运行中…", "Running…")
-        } else if let Some(title) = self.maven_title.clone() {
-            title
-        } else {
-            run_ui_text(cx, "尚未运行 Maven 目标", "No Maven goal has run yet")
-        };
         let total = self.maven_output.len();
         let start = total.saturating_sub(800);
         let output: Vec<AnyElement> = if self.maven_output.is_empty() {
             vec![div()
                 .text_color(ThemeColors::text_muted())
-                .child(run_ui_text(cx, "暂无输出", "No output"))
+                .child(crate::i18n::menu_text(cx, "run.emptyOutput"))
                 .into_any_element()]
         } else {
             self.maven_output[start..]
@@ -875,59 +988,16 @@ impl BottomPanelView {
                 .map(|line| div().child(line.clone()).into_any_element())
                 .collect()
         };
-        v_flex()
-            .size_full()
-            .child(
-                h_flex()
-                    .flex_shrink_0()
-                    .h(px(30.0))
-                    .w_full()
-                    .items_center()
-                    .gap_2()
-                    .px_3()
-                    .border_b_1()
-                    .border_color(ThemeColors::border())
-                    .child(
-                        div()
-                            .flex_1()
-                            .truncate()
-                            .text_xs()
-                            .text_color(ThemeColors::text_primary())
-                            .child(status),
-                    )
-                    .child(
-                        Button::new("maven-stop")
-                            .small()
-                            .primary()
-                            .disabled(!self.maven_running)
-                            .label(run_ui_text(cx, "停止", "Stop"))
-                            .on_click(cx.listener(|this, _event, _window, cx| {
-                                this.stop_running(cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("maven-clear-output")
-                            .small()
-                            .ghost()
-                            .label(run_ui_text(cx, "清空输出", "Clear"))
-                            .on_click(cx.listener(|this, _event, _window, cx| {
-                                this.maven_output.clear();
-                                cx.notify();
-                            })),
-                    ),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .w_full()
-                    .min_h_0()
-                    .overflow_y_scrollbar()
-                    .p_2()
-                    .font_family("monospace")
-                    .text_xs()
-                    .text_color(ThemeColors::text_primary())
-                    .children(output),
-            )
+        div()
+            .flex_1()
+            .w_full()
+            .min_h_0()
+            .overflow_y_scrollbar()
+            .p_2()
+            .font_family("monospace")
+            .text_xs()
+            .text_color(ThemeColors::text_primary())
+            .children(output)
             .into_any_element()
     }
 
@@ -1007,149 +1077,98 @@ impl Render for BottomPanelView {
             return div().h(px(0.0));
         }
 
+        // 各窗格自带按钮头（对齐 Tauri：底部无标签切换条，切换只走左侧活动栏）。
+        let (header, body) = match self.active_tab {
+            BottomTab::Terminal => (
+                self.render_pane_header(
+                    IconName::Terminal,
+                    crate::i18n::menu_text(cx, "workbench.terminal").to_string(),
+                    None,
+                    vec![Self::header_button(
+                        "terminal-clear".to_string(),
+                        IconName::Trash,
+                        crate::i18n::menu_text(cx, "ui.clear").to_string(),
+                        false,
+                        cx,
+                        |this, _window, cx| {
+                            let _ = this.terminal.update(cx, |t, cx| t.clear(cx));
+                        },
+                    )],
+                    cx,
+                ),
+                div()
+                    .size_full()
+                    .child(self.terminal.clone())
+                    .into_any_element(),
+            ),
+            BottomTab::Run => (self.render_run_header(cx), self.render_run_panel(cx)),
+            BottomTab::Maven => (self.render_maven_header(cx), self.render_maven_panel(cx)),
+            BottomTab::Diagnostics => (
+                self.render_pane_header(
+                    IconName::TriangleAlert,
+                    format!(
+                        "{} ({})",
+                        crate::i18n::menu_text(cx, "workbench.diagnostics"),
+                        self.diagnostics.len()
+                    ),
+                    None,
+                    vec![Self::header_button(
+                        "diagnostics-clear".to_string(),
+                        IconName::Trash,
+                        crate::i18n::menu_text(cx, "ui.clear").to_string(),
+                        self.diagnostics.is_empty(),
+                        cx,
+                        |this, _window, cx| {
+                            this.diagnostics.clear();
+                            cx.notify();
+                        },
+                    )],
+                    cx,
+                ),
+                div()
+                    .size_full()
+                    .p_3()
+                    .overflow_y_scrollbar()
+                    .text_xs()
+                    .text_color(ThemeColors::text_muted())
+                    .child(if self.diagnostics.is_empty() {
+                        crate::i18n::menu_text(cx, "diagnostics.empty").to_string()
+                    } else {
+                        format!(
+                            "{} ({})",
+                            crate::i18n::menu_text(cx, "workbench.diagnostics"),
+                            self.diagnostics.len()
+                        )
+                    })
+                    .into_any_element(),
+            ),
+            BottomTab::GitLog => (
+                self.render_pane_header(
+                    IconName::GitGraph,
+                    crate::i18n::menu_text(cx, "workbench.gitLog").to_string(),
+                    None,
+                    vec![Self::header_button(
+                        "gitlog-refresh".to_string(),
+                        IconName::RotateCw,
+                        crate::i18n::menu_text(cx, "ui.refresh").to_string(),
+                        false,
+                        cx,
+                        |this, _window, cx| this.refresh_git_log(cx),
+                    )],
+                    cx,
+                ),
+                self.render_git_log_panel(cx),
+            ),
+        };
+
         v_flex()
             .h(px(self.height))
             .w_full()
             .bg(ThemeColors::bg_bottom_panel())
             .border_t_1()
             .border_color(ThemeColors::border())
-            .child(
-                // 顶部 Tab 切换栏（高 30px）：仅保留 Tauri 存在的 Terminal / Diagnostics，
-                // 自创的 Output 页签已去掉。
-                h_flex()
-                    .h(px(30.0))
-                    .w_full()
-                    .bg(ThemeColors::bg_tab_bar())
-                    .border_b_1()
-                    .border_color(ThemeColors::border())
-                    .items_center()
-                    .justify_between()
-                    .px_2()
-                    .child(
-                        h_flex()
-                            .items_center()
-                            .gap_1()
-                            .child(self.render_tab_button(
-                                "tab-terminal",
-                                IconName::Terminal,
-                                crate::i18n::menu_text(cx, "workbench.terminal").to_string(),
-                                self.active_tab == BottomTab::Terminal,
-                                BottomTab::Terminal,
-                                cx,
-                            ))
-                            .child(self.render_tab_button(
-                                "tab-run",
-                                IconName::Play,
-                                crate::i18n::menu_text(cx, "workbench.run").to_string(),
-                                self.active_tab == BottomTab::Run,
-                                BottomTab::Run,
-                                cx,
-                            ))
-                            .child(self.render_tab_button(
-                                "tab-maven",
-                                IconName::Box,
-                                crate::i18n::menu_text(cx, "maven.title").to_string(),
-                                self.active_tab == BottomTab::Maven,
-                                BottomTab::Maven,
-                                cx,
-                            ))
-                            .child(self.render_tab_button(
-                                "tab-diagnostics",
-                                IconName::TriangleAlert,
-                                format!(
-                                    "{} ({})",
-                                    crate::i18n::menu_text(cx, "workbench.diagnostics"),
-                                    self.diagnostics.len()
-                                ),
-                                self.active_tab == BottomTab::Diagnostics,
-                                BottomTab::Diagnostics,
-                                cx,
-                            ))
-                            .child(self.render_tab_button(
-                                "tab-gitlog",
-                                IconName::GitGraph,
-                                crate::i18n::menu_text(cx, "workbench.gitLog").to_string(),
-                                self.active_tab == BottomTab::GitLog,
-                                BottomTab::GitLog,
-                                cx,
-                            )),
-                    )
-                    .child(
-                        h_flex()
-                            .items_center()
-                            .gap_1()
-                            .child(
-                                Button::new("clear-panel")
-                                    .small()
-                                    .ghost()
-                                    .icon(IconName::Trash)
-                                    .tooltip(crate::i18n::menu_text(cx, "ui.clear"))
-                                    .on_click(cx.listener(|this, _event, _window, cx| {
-                                        match this.active_tab {
-                                            BottomTab::Terminal => {
-                                                let _ =
-                                                    this.terminal.update(cx, |t, cx| t.clear(cx));
-                                            }
-                                            BottomTab::Run => {
-                                                this.run_history.clear();
-                                                this.run_output.clear();
-                                                cx.notify();
-                                            }
-                                            BottomTab::Maven => {
-                                                this.maven_output.clear();
-                                                cx.notify();
-                                            }
-                                            BottomTab::Diagnostics => {
-                                                this.diagnostics.clear();
-                                                cx.notify();
-                                            }
-                                            // GitLog 无可清空的输出，该按钮退化为手动刷新。
-                                            BottomTab::GitLog => {
-                                                this.refresh_git_log(cx);
-                                            }
-                                        }
-                                    })),
-                            )
-                            .child(
-                                Button::new("collapse-panel")
-                                    .small()
-                                    .ghost()
-                                    .icon(IconName::ChevronDown)
-                                    .tooltip(crate::i18n::menu_text(cx, "ui.close"))
-                                    .on_click(cx.listener(|this, _event, _window, cx| {
-                                        this.toggle_collapsed(cx);
-                                    })),
-                            ),
-                    ),
-            )
-            .child(
-                // 内容区域根据 Tab 切换
-                div().flex_1().w_full().child(match self.active_tab {
-                    BottomTab::Terminal => div()
-                        .size_full()
-                        .child(self.terminal.clone())
-                        .into_any_element(),
-                    BottomTab::Run => self.render_run_panel(cx),
-                    BottomTab::Maven => self.render_maven_panel(cx),
-                    BottomTab::Diagnostics => div()
-                        .size_full()
-                        .p_3()
-                        .overflow_y_scrollbar()
-                        .text_xs()
-                        .text_color(ThemeColors::text_muted())
-                        .child(if self.diagnostics.is_empty() {
-                            crate::i18n::menu_text(cx, "diagnostics.empty").to_string()
-                        } else {
-                            format!(
-                                "{} ({})",
-                                crate::i18n::menu_text(cx, "workbench.diagnostics"),
-                                self.diagnostics.len()
-                            )
-                        })
-                        .into_any_element(),
-                    BottomTab::GitLog => self.render_git_log_panel(cx),
-                }),
-            )
+            .child(header)
+            .child(div().flex_1().w_full().min_h_0().child(body))
     }
 }
 
@@ -1634,6 +1653,7 @@ fn pick_npm_script(root: &str) -> String {
 fn run_steps_blocking(
     steps: Vec<RunStep>,
     child_slot: Arc<Mutex<Option<std::process::Child>>>,
+    text: StepText,
     tx: mpsc::Sender<String>,
 ) {
     use std::io::BufRead as _;
@@ -1648,7 +1668,7 @@ fn run_steps_blocking(
         {
             Ok(child) => child,
             Err(err) => {
-                let _ = tx.send(format!("启动失败：{err}"));
+                let _ = tx.send(format!("{}：{err}", text.start_failed));
                 return;
             }
         };
@@ -1701,14 +1721,14 @@ fn run_steps_blocking(
         }
         match status {
             Some(status) if status.success() => {
-                let _ = tx.send("退出码：0".to_string());
+                let _ = tx.send(format!("{}：0", text.exit_code));
             }
             Some(status) => {
-                let _ = tx.send(format!("进程已退出：{status}"));
+                let _ = tx.send(format!("{}：{status}", text.exited));
                 return;
             }
             None => {
-                let _ = tx.send("运行已结束".to_string());
+                let _ = tx.send(text.finished.clone());
                 return;
             }
         }
