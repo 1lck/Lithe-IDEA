@@ -905,14 +905,19 @@ impl WorkbenchView {
         cx.notify();
     }
 
-    /// 切换到指定项目根路径：同步侧边栏、Maven 与欢迎页状态，并记录最近项目。
     /// 右侧工具窗口 toggle（对齐 `resolveRightToolWindowUpdate`）：
-    /// 同视图再点关闭，否则切换视图并展开。
+    /// 同视图再点关闭，否则切换视图并展开。扩展页内容多（列表+详情），
+    /// 打开时宽度不足则默认撑到 560（用户拖过的更宽值保留）。
     fn toggle_right_tool(&mut self, view: RightToolView, cx: &mut Context<Self>) {
         if self.right_tool == Some(view) {
             self.right_tool = None;
         } else {
             self.right_tool = Some(view);
+            if view == RightToolView::Extensions
+                && settings::get(cx).right_tool_window_width < 560.0
+            {
+                settings::update(cx, |s| s.right_tool_window_width = 560.0);
+            }
         }
         cx.notify();
     }
@@ -2016,21 +2021,22 @@ impl WorkbenchView {
                 );
                 let ratio_leaf = pane_first_leaf(first);
                 let view = cx.entity();
-                let on_resize = move |state: &Entity<ResizableState>, _: &mut Window, cx: &mut App| {
-                    let sizes = state.read(cx).sizes().clone();
-                    if sizes.len() < 2 {
-                        return;
-                    }
-                    let total = sizes[0].as_f32() + sizes[1].as_f32();
-                    if total <= 0.0 {
-                        return;
-                    }
-                    let ratio = sizes[0].as_f32() / total;
-                    let _ = view.update(cx, |this, cx| {
-                        this.pane_tree.set_ratio(ratio_leaf, ratio);
-                        cx.notify();
-                    });
-                };
+                let on_resize =
+                    move |state: &Entity<ResizableState>, _: &mut Window, cx: &mut App| {
+                        let sizes = state.read(cx).sizes().clone();
+                        if sizes.len() < 2 {
+                            return;
+                        }
+                        let total = sizes[0].as_f32() + sizes[1].as_f32();
+                        if total <= 0.0 {
+                            return;
+                        }
+                        let ratio = sizes[0].as_f32() / total;
+                        let _ = view.update(cx, |this, cx| {
+                            this.pane_tree.set_ratio(ratio_leaf, ratio);
+                            cx.notify();
+                        });
+                    };
                 if *dir == SplitDir::Horizontal {
                     h_resizable(group_id)
                         .on_resize(on_resize)
