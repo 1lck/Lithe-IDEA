@@ -908,6 +908,7 @@ impl WorkbenchView {
     /// 右侧工具窗口 toggle（对齐 `resolveRightToolWindowUpdate`）：
     /// 同视图再点关闭，否则切换视图并展开。扩展页内容多（列表+详情），
     /// 打开时宽度不足则默认撑到 560（用户拖过的更宽值保留）。
+    /// 通知页打开即全标已读（对齐 Tauri 打开工具窗即已读）。
     fn toggle_right_tool(&mut self, view: RightToolView, cx: &mut Context<Self>) {
         if self.right_tool == Some(view) {
             self.right_tool = None;
@@ -917,6 +918,11 @@ impl WorkbenchView {
                 && settings::get(cx).right_tool_window_width < 560.0
             {
                 settings::update(cx, |s| s.right_tool_window_width = 560.0);
+            }
+            if view == RightToolView::Notifications {
+                let _ = self.notifications.update(cx, |n, cx| {
+                    n.mark_all_read(cx);
+                });
             }
         }
         cx.notify();
@@ -970,8 +976,9 @@ impl WorkbenchView {
             bp.set_working_dir(path.clone(), cx);
         });
         // 右侧通知中心投递项目打开事件（对齐 Tauri 系统事件通知）。
+        let opened = crate::i18n::menu_text(cx, "notifications.projectOpened").to_string();
         let _ = self.notifications.update(cx, |n, cx| {
-            n.push("已打开项目", path.clone(), cx);
+            n.push(opened, path.clone(), cx);
         });
         cx.notify();
     }

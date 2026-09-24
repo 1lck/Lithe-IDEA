@@ -202,6 +202,18 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
         "extensions.activate" => ("启用", "Activate"),
         "extensions.deactivate" => ("停用", "Deactivate"),
         "notifications.title" => ("通知", "Notifications"),
+        "notifications.empty" => ("暂无通知。", "No notifications yet."),
+        "notifications.noMatch" => ("没有匹配的通知。", "No matching notifications."),
+        "notifications.markAllRead" => ("全部标为已读", "Mark all read"),
+        "notifications.delete" => ("删除", "Delete"),
+        "notifications.clearAll" => ("全部清除", "Clear All"),
+        "notifications.details" => ("通知详情", "Notification details"),
+        "notifications.filterAll" => ("全部", "All"),
+        "notifications.filterInfo" => ("信息", "Info"),
+        "notifications.filterSuccess" => ("成功", "Success"),
+        "notifications.filterWarnings" => ("警告", "Warnings"),
+        "notifications.filterErrors" => ("错误", "Errors"),
+        "notifications.projectOpened" => ("已打开项目", "Project opened"),
         // ---- Git ----
         "git.commit" => ("提交", "Commit"),
         // ---- Git 分支管理器（与 Tauri locale.ts git.* 逐字对齐） ----

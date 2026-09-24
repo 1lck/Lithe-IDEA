@@ -29,7 +29,7 @@ pub enum NotificationsEvent {
 }
 
 /// 通知类型，对齐 Tauri `NotificationEntry["type"]`；`Diagnostic` 为 Linux 侧
-/// 由诊断快照投递的定位类通知，点击时额外发出 `OpenFile`。
+/// 由诊断快照投递的定位类通知，点击时额外发出 `OpenFile`，筛选时归入错误桶。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NotificationKind {
     Info,
@@ -39,6 +39,50 @@ pub enum NotificationKind {
     Warning,
     Error,
     Diagnostic,
+}
+
+/// 类型筛选：对齐 Tauri 通知筛选菜单（全部/信息/成功/警告/错误）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NotificationFilter {
+    #[default]
+    All,
+    Info,
+    Success,
+    Warning,
+    Error,
+}
+
+impl NotificationFilter {
+    const ALL: [NotificationFilter; 5] = [
+        NotificationFilter::All,
+        NotificationFilter::Info,
+        NotificationFilter::Success,
+        NotificationFilter::Warning,
+        NotificationFilter::Error,
+    ];
+
+    fn matches(self, kind: NotificationKind) -> bool {
+        match self {
+            NotificationFilter::All => true,
+            NotificationFilter::Info => kind == NotificationKind::Info,
+            NotificationFilter::Success => kind == NotificationKind::Success,
+            NotificationFilter::Warning => kind == NotificationKind::Warning,
+            // 诊断类通知按错误展示，归入错误桶。
+            NotificationFilter::Error => {
+                kind == NotificationKind::Error || kind == NotificationKind::Diagnostic
+            }
+        }
+    }
+
+    fn label_key(self) -> &'static str {
+        match self {
+            NotificationFilter::All => "notifications.filterAll",
+            NotificationFilter::Info => "notifications.filterInfo",
+            NotificationFilter::Success => "notifications.filterSuccess",
+            NotificationFilter::Warning => "notifications.filterWarnings",
+            NotificationFilter::Error => "notifications.filterErrors",
+        }
+    }
 }
 
 /// 单条通知：诊断类通过 `path` 携带定位信息，非诊断类为 `None`。
@@ -58,38 +102,22 @@ pub struct NotificationsView {
     items: Vec<NotificationItem>,
     next_id: u64,
     search: Option<Entity<InputState>>,
+    filter: NotificationFilter,
+    /// 展开详情的通知 id（对齐 Tauri 点击行打开详情）。
+    selected: Option<u64>,
 }
 
 impl EventEmitter<NotificationsEvent> for NotificationsView {}
 
 impl NotificationsView {
-    /// 构造并预置 2 条未读提示，保证面板首次打开非空。
+    /// 构造空列表（对齐 Tauri：无通知时展示空态，不预置文案）。
     pub fn new(_cx: &mut Context<Self>) -> Self {
         Self {
-            items: vec![
-                NotificationItem {
-                    id: 0,
-                    title: "Welcome to Lithe".to_string(),
-                    body: "Notifications from the workspace and language services appear here."
-                        .to_string(),
-                    kind: NotificationKind::Info,
-                    read: false,
-                    path: None,
-                    line: 1,
-                },
-                NotificationItem {
-                    id: 1,
-                    title: "Tip: diagnostics are clickable".to_string(),
-                    body: "Click a diagnostic notification to jump to its file location."
-                        .to_string(),
-                    kind: NotificationKind::Info,
-                    read: false,
-                    path: None,
-                    line: 1,
-                },
-            ],
-            next_id: 2,
+            items: Vec::new(),
+            next_id: 0,
             search: None,
+            filter: NotificationFilter::All,
+            selected: None,
         }
     }
 
@@ -150,7 +178,7 @@ impl NotificationsView {
             .count()
     }
 
-    /// 全部标为已读。
+    /// 全部标为已读（宿主在打开面板时调用，对齐 Tauri 打开即已读）。
     pub fn mark_all_read(&mut self, cx: &mut Context<Self>) {
         for item in &mut self.items {
             item.read = true;
@@ -158,9 +186,28 @@ impl NotificationsView {
         cx.notify();
     }
 
-    fn toggle_read(&mut self, id: u64, cx: &mut Context<Self>) {
+    /// 删除一条通知；删的是展开项则收起详情。
+    pub fn remove(&mut self, id: u64, cx: &mut Context<Self>) {
+        self.items.retain(|item| item.id != id);
+        if self.selected == Some(id) {
+            self.selected = None;
+        }
+        cx.notify();
+    }
+
+    /// 清空全部通知。
+    pub fn clear_all(&mut self, cx: &mut Context<Self>) {
+        self.items.clear();
+        self.selected = None;
+        cx.notify();
+    }
+
+    /// 点击行：标已读 + 展开详情（对齐 Tauri 打开详情；诊断类额外跳文件）。
+    /// 行内删除按钮冒泡上来时条目已不存在，此时不留过期选中。
+    fn open_details(&mut self, id: u64, cx: &mut Context<Self>) {
         if let Some(item) = self.items.iter_mut().find(|item| item.id == id) {
-            item.read = !item.read;
+            item.read = true;
+            self.selected = Some(id);
         }
         cx.notify();
     }
@@ -201,9 +248,12 @@ impl Render for NotificationsView {
         let search_entity = self.ensure_search(window, cx);
         let query = self.query(cx);
         let unread = self.unread_count();
+        let filter = self.filter;
+        let selected = self.selected;
         let items: Vec<NotificationItem> = self
             .items
             .iter()
+            .filter(|item| filter.matches(item.kind))
             .filter(|item| {
                 query.is_empty()
                     || item.title.to_lowercase().contains(&query)
@@ -219,6 +269,7 @@ impl Render for NotificationsView {
             let path = item.path.clone();
             let line = item.line;
             let is_diagnostic = item.kind == NotificationKind::Diagnostic;
+            let expanded = selected == Some(id);
             rows.push(
                 v_flex()
                     .id(format!("notification-{id}"))
@@ -230,6 +281,7 @@ impl Render for NotificationsView {
                     .gap_1()
                     .hover(|row| row.bg(ThemeColors::bg_tab_hover()))
                     .when(!item.read, |row| row.bg(ThemeColors::subtle_selection()))
+                    .when(expanded, |row| row.bg(ThemeColors::subtle_selection()))
                     .child(
                         h_flex()
                             .w_full()
@@ -271,8 +323,41 @@ impl Render for NotificationsView {
                             .text_color(ThemeColors::text_muted())
                             .child(item.body.clone()),
                     )
+                    .when(expanded, |row| {
+                        row.child(
+                            v_flex()
+                                .w_full()
+                                .pl(px(20.0))
+                                .gap_1p5()
+                                .py_1()
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .font_weight(FontWeight::BOLD)
+                                        .text_color(ThemeColors::text_muted())
+                                        .child(crate::i18n::menu_text(cx, "notifications.details")),
+                                )
+                                .child(
+                                    div()
+                                        .w_full()
+                                        .text_xs()
+                                        .text_color(ThemeColors::text_primary())
+                                        .child(item.body.clone()),
+                                )
+                                .child(
+                                    Button::new(format!("notification-delete-{id}"))
+                                        .small()
+                                        .ghost()
+                                        .icon(IconName::Trash)
+                                        .label(crate::i18n::menu_text(cx, "notifications.delete"))
+                                        .on_click(cx.listener(move |this, _event, _window, cx| {
+                                            this.remove(id, cx);
+                                        })),
+                                ),
+                        )
+                    })
                     .on_click(cx.listener(move |this, _event, _window, cx| {
-                        this.toggle_read(id, cx);
+                        this.open_details(id, cx);
                         if is_diagnostic {
                             if let Some(path) = path.clone() {
                                 cx.emit(NotificationsEvent::OpenFile(path, line));
@@ -327,9 +412,27 @@ impl Render for NotificationsView {
                                     Button::new("notifications-mark-read")
                                         .small()
                                         .ghost()
-                                        .label("Mark all read")
+                                        .label(crate::i18n::menu_text(
+                                            cx,
+                                            "notifications.markAllRead",
+                                        ))
                                         .on_click(cx.listener(|this, _event, _window, cx| {
                                             this.mark_all_read(cx);
+                                        })),
+                                )
+                            })
+                            .when(!is_empty, |actions| {
+                                actions.child(
+                                    Button::new("notifications-clear-all")
+                                        .small()
+                                        .ghost()
+                                        .icon(IconName::Trash)
+                                        .tooltip(crate::i18n::menu_text(
+                                            cx,
+                                            "notifications.clearAll",
+                                        ))
+                                        .on_click(cx.listener(|this, _event, _window, cx| {
+                                            this.clear_all(cx);
                                         })),
                                 )
                             })
@@ -363,6 +466,43 @@ impl Render for NotificationsView {
                             .child(Input::new(&search_entity).cleanable(true)),
                     ),
             )
+            .child(
+                h_flex()
+                    .w_full()
+                    .flex_shrink_0()
+                    .gap_1()
+                    .px_2()
+                    .pb_1()
+                    .overflow_x_scrollbar()
+                    .children(NotificationFilter::ALL.iter().map(|kind| {
+                        let active = filter == *kind;
+                        let id = *kind;
+                        h_flex()
+                            .id(format!("notification-filter-{}", id.label_key()))
+                            .flex_shrink_0()
+                            .items_center()
+                            .h(px(24.0))
+                            .px_2()
+                            .rounded_sm()
+                            .cursor_pointer()
+                            .text_xs()
+                            .when(active, |el| {
+                                el.bg(ThemeColors::subtle_selection())
+                                    .text_color(ThemeColors::text_primary())
+                            })
+                            .when(!active, |el| {
+                                el.text_color(ThemeColors::text_muted()).hover(|h| {
+                                    h.bg(ThemeColors::bg_tab_hover())
+                                        .text_color(ThemeColors::text_primary())
+                                })
+                            })
+                            .child(crate::i18n::menu_text(cx, id.label_key()))
+                            .on_click(cx.listener(move |this, _event, _window, cx| {
+                                this.filter = id;
+                                cx.notify();
+                            }))
+                    })),
+            )
             .child(if is_empty {
                 div()
                     .flex_1()
@@ -372,7 +512,7 @@ impl Render for NotificationsView {
                     .justify_center()
                     .text_xs()
                     .text_color(ThemeColors::text_muted())
-                    .child("No notifications")
+                    .child(crate::i18n::menu_text(cx, "notifications.empty"))
                     .into_any_element()
             } else if items.is_empty() {
                 div()
@@ -383,7 +523,7 @@ impl Render for NotificationsView {
                     .justify_center()
                     .text_xs()
                     .text_color(ThemeColors::text_muted())
-                    .child("No matching notifications")
+                    .child(crate::i18n::menu_text(cx, "notifications.noMatch"))
                     .into_any_element()
             } else {
                 div()
