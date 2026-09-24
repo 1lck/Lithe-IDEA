@@ -344,10 +344,17 @@ impl WorkbenchView {
         );
 
         // 4b. 订阅 Maven 视图事件（执行目标、关闭工具窗口）
+        // 对齐 Tauri：目标走底部 Maven 页受管进程，不进交互终端。
         let sub_maven = cx.subscribe(&maven, |this, _maven, event: &MavenEvent, cx| match event {
             MavenEvent::RunGoal { pom_path, phase } => {
-                let cmd = format!("mvn -f \"{pom_path}\" {phase}");
-                this.send_terminal_command(&cmd, cx);
+                let _ = this.bottom_panel.update(cx, |bp, cx| {
+                    bp.run_maven_goal(pom_path, phase, cx);
+                });
+                let has_run = this.bottom_panel.read(cx).has_maven_run();
+                let _ = this.activity_rail.update(cx, |r, cx| {
+                    r.set_has_maven_run(has_run, cx);
+                });
+                cx.notify();
             }
             MavenEvent::Close => {
                 this.right_tool = None;
@@ -402,13 +409,17 @@ impl WorkbenchView {
                         this.open_quick_open(cx);
                     }
                     ToolbarEvent::Run => {
-                        this.send_terminal_command("echo '[Lithe Run]' && cargo check", cx);
+                        this.open_run_pane(cx);
                     }
                     ToolbarEvent::Debug => {
-                        this.append_log("[Debug] Launching DAP debug session...", cx);
+                        // Linux 无独立 DAP 面板：对齐 Tauri 可见行为，Debug 同样
+                        // 走底部受管进程（Run 页），不再只记一条假日志。
+                        this.open_run_pane(cx);
                     }
                     ToolbarEvent::Stop => {
-                        this.append_log("[Stop] Session terminated by user.", cx);
+                        let _ = this.bottom_panel.update(cx, |bp, cx| {
+                            bp.stop_running(cx);
+                        });
                     }
                     ToolbarEvent::OpenSettings => {
                         this.open_settings(cx);
@@ -880,8 +891,8 @@ impl WorkbenchView {
         cx.notify();
     }
 
-    /// 经底部终端发送命令：执行 + 计入运行历史 + 点亮左侧 maven 项
-    ///（对齐 Tauri `toggleTerminalPane` 系 + `hasMavenRun` 挂载语义）。
+    /// 经底部终端发送命令：只执行，不计入 maven 运行门控
+    ///（对齐 Tauri：左侧 maven 项仅由 Maven 任务点亮）。
     fn send_terminal_command(&mut self, cmd: &str, cx: &mut Context<Self>) {
         let cmd = cmd.to_string();
         let _ = self.bottom_panel.update(cx, |bp, cx| {
@@ -891,9 +902,15 @@ impl WorkbenchView {
             });
             bp.record_run(&cmd, cx);
         });
-        let has_run = self.bottom_panel.read(cx).has_run_history();
-        let _ = self.activity_rail.update(cx, |r, cx| {
-            r.set_has_maven_run(has_run, cx);
+        cx.notify();
+    }
+
+    /// 打开底部 Run 页并运行选中配置：对齐 Tauri `openRunDecisionPane` +
+    /// `runConfiguration`（页签可见 + 受管进程，不进交互终端）。
+    fn open_run_pane(&mut self, cx: &mut Context<Self>) {
+        let _ = self.bottom_panel.update(cx, |bp, cx| {
+            bp.set_tab(BottomTab::Run, cx);
+            bp.run_selected_config(cx);
         });
         cx.notify();
     }
@@ -1176,10 +1193,15 @@ impl WorkbenchView {
                 });
             }
             "workbench.run" | "run.run" | "run.start" => {
-                self.send_terminal_command("cargo check", cx);
+                self.open_run_pane(cx);
             }
             "workbench.debug" | "run.debug" => {
-                self.append_log("[Debug] Launching DAP debug session...", cx);
+                self.open_run_pane(cx);
+            }
+            "workbench.stop" | "run.stop" => {
+                let _ = self.bottom_panel.update(cx, |bp, cx| {
+                    bp.stop_running(cx);
+                });
             }
             "workbench.clear_terminal" | "terminal.clear" => {
                 let _ = self.bottom_panel.update(cx, |bp, cx| {
@@ -1492,11 +1514,13 @@ fn sidebar_tab_for(view_id: &str) -> Option<SidebarTab> {
     }
 }
 
-/// 活动栏底部项 id → 底部面板标签（对齐 Tauri `BottomPaneTab`）。
+/// 活动栏底部项 id → 底部面板标签（对齐 Tauri `BottomPaneTab`：
+/// `run` 与 `maven` 是两个独立页）。
 fn bottom_tab_for(pane_id: &str) -> Option<BottomTab> {
     match pane_id {
         "terminal" => Some(BottomTab::Terminal),
-        "run" | "maven" => Some(BottomTab::Run),
+        "run" => Some(BottomTab::Run),
+        "maven" => Some(BottomTab::Maven),
         "diagnostics" => Some(BottomTab::Diagnostics),
         "gitLog" => Some(BottomTab::GitLog),
         _ => None,

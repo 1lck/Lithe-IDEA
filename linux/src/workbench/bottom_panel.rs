@@ -66,6 +66,7 @@ const MAX_GIT_LOG_ENTRIES: usize = 50;
 pub enum BottomTab {
     Terminal,
     Run,
+    Maven,
     Diagnostics,
     GitLog,
 }
@@ -100,10 +101,20 @@ pub struct BottomPanelView {
     pub(crate) run_output: Vec<String>,
     /// 是否有进程在跑。
     pub(crate) run_running: bool,
+    /// Maven 任务标题（对齐 Tauri `taskTitle`，如 `compile · pom.xml`）。
+    pub(crate) maven_title: Option<String>,
+    /// Maven 任务输出行（`$ mvn …` 开头，对齐 Tauri Maven 页）。
+    pub(crate) maven_output: Vec<String>,
+    /// Maven 任务是否在跑。
+    pub(crate) maven_running: bool,
     /// core 客户端（`reload_run_project` / `createLaunchPlan` 经它走 core JSON 命令）。
     client: CoreClient,
     /// 在跑子进程句柄：停止按钮经 `kill` 停，运行线程经 `try_wait` 短锁轮询收割。
     run_child: Arc<Mutex<Option<std::process::Child>>>,
+    /// Maven 任务子进程句柄（与 Run 共用停止语义，分开存放可各自启停）。
+    maven_child: Arc<Mutex<Option<std::process::Child>>>,
+    /// Maven 启动序号，丢弃过期 `launchPlan` 结果。
+    maven_seq: u64,
     /// reload 序号，丢弃过期探测结果。
     run_seq: u64,
     /// 最近一次加载的 Git 提交记录。
@@ -130,6 +141,11 @@ impl BottomPanelView {
             selected_run_config: None,
             run_output: Vec::new(),
             run_running: false,
+            maven_title: None,
+            maven_output: Vec::new(),
+            maven_running: false,
+            maven_child: Arc::new(Mutex::new(None)),
+            maven_seq: 0,
             client: CoreClient::new(),
             run_child: Arc::new(Mutex::new(None)),
             run_seq: 0,
@@ -339,15 +355,144 @@ impl BottomPanelView {
         .detach();
     }
 
-    /// 停止在跑进程（只 kill 直接子进程；mvn 拉起的 java 孙进程不在此列）。
+    /// 停止在跑进程（Run 与 Maven 各自 kill；mvn 拉起的 java 孙进程不在此列）。
     pub fn stop_running(&mut self, cx: &mut Context<Self>) {
+        let mut stopped = false;
         if let Ok(mut slot) = self.run_child.lock() {
             if let Some(child) = slot.as_mut() {
                 let _ = child.kill();
+                stopped = true;
             }
         }
-        push_run_line(&mut self.run_output, "已发送停止信号…".to_string());
+        if let Ok(mut slot) = self.maven_child.lock() {
+            if let Some(child) = slot.as_mut() {
+                let _ = child.kill();
+                stopped = true;
+            }
+        }
+        if self.run_running {
+            push_run_line(&mut self.run_output, "已发送停止信号…".to_string());
+            stopped = true;
+        }
+        if self.maven_running {
+            push_run_line(&mut self.maven_output, "已发送停止信号…".to_string());
+            stopped = true;
+        }
+        if stopped {
+            cx.notify();
+        }
+    }
+
+    /// 是否发生过 Maven 运行；宿主据此决定左侧栏是否展示 maven 项
+    ///（对齐 Tauri `hasMavenRun`：任务跑过即真，与终端历史无关）。
+    pub fn has_maven_run(&self) -> bool {
+        self.maven_running || !self.maven_output.is_empty()
+    }
+
+    /// 运行 Maven 目标：切 Maven 页 + 经 core `maven.launchPlan` 拿确定性参数
+    ///（payload `{root, context: {version: 1, reactorPath: "."}, module, goals}`），
+    /// 起受管进程并把输出泵入 Maven 页（首行 `$ mvn …`，对齐 Tauri Maven 页）。
+    /// 已有任务在跑时先停掉（对齐 Tauri 停掉上一个 session）。
+    pub fn run_maven_goal(&mut self, pom_path: &str, goal: &str, cx: &mut Context<Self>) {
+        let goal = goal.trim().to_string();
+        if goal.is_empty() {
+            return;
+        }
+        if self.maven_running {
+            if let Ok(mut slot) = self.maven_child.lock() {
+                if let Some(child) = slot.as_mut() {
+                    let _ = child.kill();
+                }
+            }
+        }
+        self.maven_seq += 1;
+        let seq = self.maven_seq;
+        let title = format!(
+            "{goal} · {}",
+            maven_display_pom(&self.working_dir, pom_path)
+        );
+        self.active_tab = BottomTab::Maven;
+        self.is_collapsed = false;
+        self.maven_title = Some(title.clone());
+        self.maven_output.clear();
+        self.maven_running = true;
         cx.notify();
+
+        let client = self.client.clone();
+        let root = self.working_dir.clone();
+        let module = maven_module_for_pom(&self.working_dir, pom_path);
+        let child_slot = self.maven_child.clone();
+        cx.spawn(async move |this, cx| {
+            let plan = client
+                .execute::<serde_json::Value, serde_json::Value>(
+                    &cx,
+                    "maven.launchPlan",
+                    serde_json::json!({
+                        "root": root,
+                        "context": { "version": 1, "reactorPath": "." },
+                        "module": module,
+                        "goals": [goal],
+                    }),
+                )
+                .await
+                .ok();
+            let (program, args, cwd) = maven_plan_to_step(plan.as_ref(), &root, &goal);
+            let display = format!("$ {} {}", program, args.join(" "));
+            let started = this.update(cx, |view, cx| {
+                if view.maven_seq != seq {
+                    return false;
+                }
+                push_run_line(&mut view.maven_output, display.clone());
+                view.record_run(&display, cx);
+                cx.notify();
+                true
+            });
+            if !matches!(started, Ok(true)) {
+                return;
+            }
+            let steps = vec![RunStep { program, args, cwd }];
+            let (tx, rx) = mpsc::channel::<String>();
+            std::thread::spawn(move || run_steps_blocking(steps, child_slot, tx));
+            let rx = Arc::new(Mutex::new(rx));
+            loop {
+                let slot = rx.clone();
+                let next = cx
+                    .background_executor()
+                    .spawn(async move {
+                        let guard = slot.lock().ok()?;
+                        guard.recv().ok()
+                    })
+                    .await;
+                match next {
+                    Some(line) => {
+                        // `run_steps_blocking` 首行会再发一次 `$ …`，Maven 页已有
+                        // 展示首行，跳过重复（对齐 Tauri 单首行）。
+                        let skip = this
+                            .update(cx, |view, cx| {
+                                let duplicate = line.trim_start().starts_with("$ ")
+                                    && !view.maven_output.is_empty();
+                                if !duplicate {
+                                    push_run_line(&mut view.maven_output, line);
+                                }
+                                cx.notify();
+                                view.maven_seq == seq
+                            })
+                            .unwrap_or(false);
+                        if !skip {
+                            break;
+                        }
+                    }
+                    None => break,
+                }
+            }
+            let _ = this.update(cx, |view, cx| {
+                if view.maven_seq == seq {
+                    view.maven_running = false;
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// 当前选中项（无选中或已失效时回退首项）。
@@ -701,6 +846,85 @@ impl BottomPanelView {
             .into_any_element()
     }
 
+    /// Maven 面板：对齐 Tauri Maven 页——顶部任务标题+运行状态+停止/清空，
+    /// 输出区首行 `$ mvn …`，流式追加进程输出。
+    fn render_maven_panel(&self, cx: &mut Context<Self>) -> AnyElement {
+        let status = if self.maven_running {
+            run_ui_text(cx, "运行中…", "Running…")
+        } else if let Some(title) = self.maven_title.clone() {
+            title
+        } else {
+            run_ui_text(cx, "尚未运行 Maven 目标", "No Maven goal has run yet")
+        };
+        let total = self.maven_output.len();
+        let start = total.saturating_sub(800);
+        let output: Vec<AnyElement> = if self.maven_output.is_empty() {
+            vec![div()
+                .text_color(ThemeColors::text_muted())
+                .child(run_ui_text(cx, "暂无输出", "No output"))
+                .into_any_element()]
+        } else {
+            self.maven_output[start..]
+                .iter()
+                .map(|line| div().child(line.clone()).into_any_element())
+                .collect()
+        };
+        v_flex()
+            .size_full()
+            .child(
+                h_flex()
+                    .flex_shrink_0()
+                    .h(px(30.0))
+                    .w_full()
+                    .items_center()
+                    .gap_2()
+                    .px_3()
+                    .border_b_1()
+                    .border_color(ThemeColors::border())
+                    .child(
+                        div()
+                            .flex_1()
+                            .truncate()
+                            .text_xs()
+                            .text_color(ThemeColors::text_primary())
+                            .child(status),
+                    )
+                    .child(
+                        Button::new("maven-stop")
+                            .small()
+                            .primary()
+                            .disabled(!self.maven_running)
+                            .label(run_ui_text(cx, "停止", "Stop"))
+                            .on_click(cx.listener(|this, _event, _window, cx| {
+                                this.stop_running(cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("maven-clear-output")
+                            .small()
+                            .ghost()
+                            .label(run_ui_text(cx, "清空输出", "Clear"))
+                            .on_click(cx.listener(|this, _event, _window, cx| {
+                                this.maven_output.clear();
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .w_full()
+                    .min_h_0()
+                    .overflow_y_scrollbar()
+                    .p_2()
+                    .font_family("monospace")
+                    .text_xs()
+                    .text_color(ThemeColors::text_primary())
+                    .children(output),
+            )
+            .into_any_element()
+    }
+
     /// GitLog 面板：只读提交列表，行点击不跳转；空态与失败文案兜底。
     fn render_git_log_panel(&self, cx: &mut Context<Self>) -> AnyElement {
         if let Some(err) = self.git_log_error.clone() {
@@ -816,6 +1040,14 @@ impl Render for BottomPanelView {
                                 cx,
                             ))
                             .child(self.render_tab_button(
+                                "tab-maven",
+                                IconName::Box,
+                                crate::i18n::menu_text(cx, "maven.title").to_string(),
+                                self.active_tab == BottomTab::Maven,
+                                BottomTab::Maven,
+                                cx,
+                            ))
+                            .child(self.render_tab_button(
                                 "tab-diagnostics",
                                 IconName::TriangleAlert,
                                 format!(
@@ -857,6 +1089,10 @@ impl Render for BottomPanelView {
                                                 this.run_output.clear();
                                                 cx.notify();
                                             }
+                                            BottomTab::Maven => {
+                                                this.maven_output.clear();
+                                                cx.notify();
+                                            }
                                             BottomTab::Diagnostics => {
                                                 this.diagnostics.clear();
                                                 cx.notify();
@@ -888,6 +1124,7 @@ impl Render for BottomPanelView {
                         .child(self.terminal.clone())
                         .into_any_element(),
                     BottomTab::Run => self.render_run_panel(cx),
+                    BottomTab::Maven => self.render_maven_panel(cx),
                     BottomTab::Diagnostics => div()
                         .size_full()
                         .p_3()
@@ -1234,6 +1471,73 @@ fn plan_to_steps(
         }
     }
     fallback_run_steps(item, root)
+}
+
+/// Maven 页展示用的 pom 路径：相对工作区，根 pom 显示 `pom.xml`。
+fn maven_display_pom(root: &str, pom: &str) -> String {
+    std::path::Path::new(pom)
+        .strip_prefix(root)
+        .map(|rel| {
+            let s = rel.to_string_lossy().into_owned();
+            if s.is_empty() {
+                pom.to_string()
+            } else {
+                s
+            }
+        })
+        .unwrap_or_else(|_| pom.to_string())
+}
+
+/// pom 所在目录相对 root 的模块路径：根 pom 为 `.`，与 core 模块约定一致。
+fn maven_module_for_pom(root: &str, pom: &str) -> String {
+    let relative = std::path::Path::new(pom)
+        .parent()
+        .and_then(|dir| dir.strip_prefix(root).ok())
+        .map(|rel| rel.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_default();
+    let trimmed = relative.trim_matches('/').to_string();
+    if trimmed.is_empty() {
+        ".".to_string()
+    } else {
+        trimmed
+    }
+}
+
+/// `maven.launchPlan`（`{executable.toolchain, arguments[], workingDirectory}`）
+/// 转本地执行步骤；拿不到计划时退化为 `mvn <goal>`。
+fn maven_plan_to_step(
+    plan: Option<&serde_json::Value>,
+    root: &str,
+    goal: &str,
+) -> (String, Vec<String>, String) {
+    if let Some(plan) = plan {
+        let cwd = plan
+            .get("workingDirectory")
+            .and_then(|v| v.as_str())
+            .unwrap_or(".");
+        let cwd = if cwd == "." || cwd.is_empty() {
+            root.to_string()
+        } else {
+            format!("{root}/{cwd}")
+        };
+        let args = plan
+            .get("arguments")
+            .and_then(|a| a.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect::<Vec<_>>()
+            })
+            .filter(|args| !args.is_empty());
+        if let Some(args) = args {
+            return (resolve_maven_executable(root), args, cwd);
+        }
+    }
+    (
+        resolve_maven_executable(root),
+        vec![goal.to_string()],
+        root.to_string(),
+    )
 }
 
 /// 退化执行规则：maven 用 mvn 跑 `compile exec:java`；npm 跑 `run dev`；
