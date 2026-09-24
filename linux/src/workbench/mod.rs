@@ -3,6 +3,7 @@ pub mod bottom_panel;
 pub mod command_palette;
 pub mod editor;
 pub mod maven;
+pub mod project_dialog;
 pub mod quick_open;
 pub mod search_everywhere;
 pub mod settings_dialog;
@@ -25,6 +26,8 @@ pub use command_palette::{CommandPaletteEvent, CommandPaletteModal};
 pub use editor::EditorView;
 #[allow(unused_imports)]
 pub use maven::{MavenEvent, MavenView};
+#[allow(unused_imports)]
+pub use project_dialog::{ProjectDialog, ProjectDialogEvent, ProjectDialogMode};
 #[allow(unused_imports)]
 pub use quick_open::{QuickOpenEvent, QuickOpenModal};
 #[allow(unused_imports)]

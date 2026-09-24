@@ -21,6 +21,7 @@ use crate::workbench::bottom_panel::{BottomPanelView, BottomTab};
 use crate::workbench::command_palette::{CommandPaletteEvent, CommandPaletteModal};
 use crate::workbench::editor::EditorView;
 use crate::workbench::maven::{MavenEvent, MavenView};
+use crate::workbench::project_dialog::{ProjectDialog, ProjectDialogEvent, ProjectDialogMode};
 use crate::workbench::quick_open::{QuickOpenEvent, QuickOpenModal};
 use crate::workbench::search_everywhere::{SearchEverywhereEvent, SearchEverywhereModal};
 use crate::workbench::settings_dialog::{SettingsCategory, SettingsDialog, SettingsEvent};
@@ -57,6 +58,8 @@ pub struct WorkbenchView {
     pub show_command_palette: bool,
     /// 设置模态对话框是否可见
     pub show_settings_dialog: bool,
+    /// 新建/克隆项目对话框是否可见
+    pub show_project_dialog: bool,
     /// 右侧 Maven 导航工具窗口是否可见
     pub show_maven: bool,
 
@@ -84,6 +87,8 @@ pub struct WorkbenchView {
     pub command_palette: Entity<CommandPaletteModal>,
     /// 设置模态对话框
     pub settings_dialog: Entity<SettingsDialog>,
+    /// 新建/克隆项目对话框
+    pub project_dialog: Entity<ProjectDialog>,
     /// 欢迎页
     pub welcome_screen: Entity<WelcomeScreenView>,
 
@@ -115,6 +120,7 @@ impl WorkbenchView {
         let quick_open = cx.new(|cx| QuickOpenModal::new(cx));
         let command_palette = cx.new(|cx| CommandPaletteModal::new(cx));
         let settings_dialog = cx.new(|cx| SettingsDialog::new(cx));
+        let project_dialog = cx.new(|cx| ProjectDialog::new(cx));
         let welcome_screen = cx.new(|cx| WelcomeScreenView::new(cx));
         let maven = cx.new(|cx| MavenView::new(root.clone(), cx));
         let focus_handle = cx.focus_handle();
@@ -386,13 +392,24 @@ impl WorkbenchView {
                     ToolbarEvent::MenuAction(id) => {
                         this.handle_action(id, cx);
                     }
-                    ToolbarEvent::NewProject
-                    | ToolbarEvent::OpenProject
-                    | ToolbarEvent::CloneRepository => {
-                        this.append_log(
-                            "[Project] Project picker is not wired to the backend yet.",
-                            cx,
-                        );
+                    ToolbarEvent::NewProject => {
+                        let _ = this.project_dialog.update(cx, |d, cx| {
+                            d.set_mode(ProjectDialogMode::New, cx);
+                        });
+                        this.show_project_dialog = true;
+                        cx.notify();
+                    }
+                    ToolbarEvent::OpenProject => {
+                        if let Some(dir) = ProjectDialog::pick_folder(None) {
+                            this.open_project_path(dir, cx);
+                        }
+                    }
+                    ToolbarEvent::CloneRepository => {
+                        let _ = this.project_dialog.update(cx, |d, cx| {
+                            d.set_mode(ProjectDialogMode::Clone, cx);
+                        });
+                        this.show_project_dialog = true;
+                        cx.notify();
                     }
                     ToolbarEvent::OpenRecent => {
                         this.show_welcome = true;
@@ -488,34 +505,55 @@ impl WorkbenchView {
             },
         );
 
+        // 9b. 订阅新建/克隆项目对话框事件
+        let sub_project_dialog = cx.subscribe(
+            &project_dialog,
+            |this, _dialog, event: &ProjectDialogEvent, cx| match event {
+                ProjectDialogEvent::OpenedProject { path, starter } => {
+                    this.show_project_dialog = false;
+                    this.open_project_path(path.clone(), cx);
+                    if let Some(cmd) = starter {
+                        let _ = this.bottom_panel.update(cx, |bp, cx| {
+                            bp.set_tab(BottomTab::Terminal, cx);
+                            let _ = bp.terminal.update(cx, |term, cx| {
+                                term.send_command(cmd, cx);
+                            });
+                        });
+                    }
+                    cx.notify();
+                }
+                ProjectDialogEvent::Close => {
+                    this.show_project_dialog = false;
+                    cx.notify();
+                }
+            },
+        );
+
         // 10. 订阅欢迎页事件
         let sub_welcome = cx.subscribe(
             &welcome_screen,
             |this, _welcome, event: &WelcomeEvent, cx| match event {
-                WelcomeEvent::OpenFolder | WelcomeEvent::NewProject => {
-                    this.append_log(
-                        "[Welcome] Project picker is not wired to the backend yet.",
-                        cx,
-                    );
+                WelcomeEvent::OpenFolder => {
+                    if let Some(dir) = ProjectDialog::pick_folder(None) {
+                        this.open_project_path(dir, cx);
+                    }
+                }
+                WelcomeEvent::NewProject => {
+                    let _ = this.project_dialog.update(cx, |d, cx| {
+                        d.set_mode(ProjectDialogMode::New, cx);
+                    });
+                    this.show_project_dialog = true;
+                    cx.notify();
                 }
                 WelcomeEvent::CloneRepository => {
-                    this.append_log(
-                        "[Welcome] Clone repository is not wired to the backend yet.",
-                        cx,
-                    );
+                    let _ = this.project_dialog.update(cx, |d, cx| {
+                        d.set_mode(ProjectDialogMode::Clone, cx);
+                    });
+                    this.show_project_dialog = true;
+                    cx.notify();
                 }
                 WelcomeEvent::OpenProject(path) => {
-                    this.workspace_root = path.clone();
-                    this.show_welcome = false;
-                    let _ = this.sidebar.update(cx, |sb, cx| {
-                        sb.root_path = path.clone();
-                        sb.refresh(cx);
-                        sb.refresh_git(cx);
-                    });
-                    let _ = this.maven.update(cx, |m, cx| {
-                        m.set_root(path.clone(), cx);
-                    });
-                    cx.notify();
+                    this.open_project_path(path.clone(), cx);
                 }
                 WelcomeEvent::OpenSettings => {
                     this.open_settings(cx);
@@ -571,6 +609,7 @@ impl WorkbenchView {
             show_quick_open: false,
             show_command_palette: false,
             show_settings_dialog: false,
+            show_project_dialog: false,
             show_maven: false,
             toolbar,
             activity_rail,
@@ -584,6 +623,7 @@ impl WorkbenchView {
             quick_open,
             command_palette,
             settings_dialog,
+            project_dialog,
             welcome_screen,
             focus_handle,
             client: CoreClient::new(),
@@ -598,6 +638,7 @@ impl WorkbenchView {
                 sub_quick_open,
                 sub_command_palette,
                 sub_settings,
+                sub_project_dialog,
                 sub_welcome,
                 sub_status,
                 sub_appearance,
@@ -688,6 +729,24 @@ impl WorkbenchView {
     fn open_settings(&mut self, cx: &mut Context<Self>) {
         self.show_settings_dialog = true;
         let _ = self.settings_dialog.update(cx, |d, cx| d.open(cx));
+        cx.notify();
+    }
+
+    /// 切换到指定项目根路径：同步侧边栏、Maven 与欢迎页状态。
+    fn open_project_path(&mut self, path: String, cx: &mut Context<Self>) {
+        if self.show_project_dialog {
+            self.show_project_dialog = false;
+        }
+        self.workspace_root = path.clone();
+        self.show_welcome = false;
+        let _ = self.sidebar.update(cx, |sb, cx| {
+            sb.root_path = path.clone();
+            sb.refresh(cx);
+            sb.refresh_git(cx);
+        });
+        let _ = self.maven.update(cx, |m, cx| {
+            m.set_root(path.clone(), cx);
+        });
         cx.notify();
     }
 
@@ -1069,6 +1128,9 @@ impl Render for WorkbenchView {
             })
             .when(self.show_settings_dialog, |view| {
                 view.child(self.settings_dialog.clone())
+            })
+            .when(self.show_project_dialog, |view| {
+                view.child(self.project_dialog.clone())
             })
     }
 }

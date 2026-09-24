@@ -508,6 +508,82 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
             "Rules applied when generating commit messages",
         ),
         "settings.ai.defaultValue" => ("默认", "Default"),
+        // ---- 新建项目对话框（与 Tauri locale.ts newProject.* 逐字对齐） ----
+        "newProject.backToStarters" => ("返回项目模板", "Back to project starters"),
+        "newProject.repositoryUrl" => ("仓库 URL", "Repository URL"),
+        "newProject.repositoryUrlDescription" => (
+            "支持 HTTPS 和 SSH 仓库 URL。",
+            "HTTPS and SSH repository URLs are supported.",
+        ),
+        "newProject.projectName" => ("项目名称", "Project Name"),
+        "newProject.location" => ("位置", "Location"),
+        "newProject.chooseParentFolder" => ("选择父文件夹", "Choose a parent folder"),
+        "newProject.chooseProjectLocation" => ("选择项目位置", "Choose project location"),
+        "newProject.packageManager" => ("包管理器", "Package Manager"),
+        "newProject.packageManagerDescription" => (
+            "安装会在集成终端中运行，方便你查看输出。",
+            "Setup runs in the integrated terminal so you can follow its output.",
+        ),
+        "newProject.projectLocation" => ("项目位置", "Project location"),
+        "newProject.starters" => ("模板", "Starters"),
+        "newProject.errorEnterName" => ("请输入项目名称。", "Enter a project name."),
+        "newProject.errorPathTraversalName" => (
+            "项目名称不能是路径穿越片段。",
+            "Project names cannot be path traversal segments.",
+        ),
+        "newProject.errorReservedCharacters" => (
+            "项目名称不能包含路径分隔符或保留字符。",
+            "Project names cannot contain path separators or reserved characters.",
+        ),
+        "newProject.errorTrailingPeriodOrSpace" => (
+            "项目名称不能以句点或空格结尾。",
+            "Project names cannot end with a period or space.",
+        ),
+        "newProject.errorCrossPlatformName" => (
+            "请选择所有平台都支持的项目名称。",
+            "Choose a project name that is supported on every platform.",
+        ),
+        "newProject.errorDestinationExists" => (
+            "{path} 已存在文件或文件夹。",
+            "A file or folder already exists at {path}.",
+        ),
+        "newProject.errorCreatedButCouldNotOpen" => (
+            "项目已创建，但 Lithe 无法打开它。",
+            "The project was created but Lithe could not open it.",
+        ),
+        "newProject.cloningRepository" => ("正在克隆仓库", "Cloning Repository"),
+        "newProject.creatingProject" => ("正在创建项目", "Creating Project"),
+        "newProject.cloningRepositoryStatus" => ("正在克隆仓库", "Cloning repository"),
+        "newProject.preparingProject" => ("正在准备项目", "Preparing project"),
+        // ---- 新建项目来源（与 Tauri locale.ts welcome.* 逐字对齐） ----
+        "welcome.newProject" => ("新建项目", "New Project"),
+        "welcome.chooseHowToStart" => ("选择如何开始...", "Choose how to start..."),
+        "welcome.emptyProject" => ("空项目", "Empty Project"),
+        "welcome.emptyProjectDescription" => (
+            "创建一个空白文件夹，从零开始。",
+            "Create a clean folder and start from scratch.",
+        ),
+        "welcome.builtIn" => ("内置", "Built-in"),
+        "welcome.webApp" => ("Web 应用", "Web app"),
+        "welcome.nextjsDescription" => (
+            "包含 App Router、TypeScript、Tailwind CSS、ESLint 和 src 目录。",
+            "App Router, TypeScript, Tailwind CSS, ESLint, and a src directory.",
+        ),
+        "welcome.viteReactDescription" => (
+            "轻量的 React 和 TypeScript 起步模板。",
+            "A lightweight React and TypeScript starter.",
+        ),
+        "welcome.cloneRepository" => ("克隆仓库", "Clone Repository"),
+        "welcome.cloneRepositoryDescription" => (
+            "将已有 Git 仓库克隆到本地新项目。",
+            "Clone an existing Git repository into a new local project.",
+        ),
+        "welcome.gitBadge" => ("Git", "Git"),
+        "welcome.noStarters" => (
+            "没有匹配 “{query}” 的项目模板。",
+            "No project starters match \"{query}\".",
+        ),
+        "welcome.backToProjects" => ("返回项目列表", "Back to projects"),
         _ => return "",
     };
     if is_zh(cx) {

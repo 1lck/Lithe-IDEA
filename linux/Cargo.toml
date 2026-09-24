@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+rfd = "0.16"
 gpui-kit = "0.6"
 lithe-core = { path = "../rust/lithe-core" }
 portable-pty = "0.9"
