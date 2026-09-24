@@ -6,6 +6,7 @@ mod diagnostics;
 mod document;
 mod file_events;
 mod host;
+mod language_tools;
 mod logging;
 mod lsp;
 mod maven;
@@ -17,9 +18,9 @@ mod terminal;
 mod watcher;
 
 use file_events::TauriFileChangeEmitter;
-use lithe_project::FileWatcher;
 use lithe_project::document_watcher::DocumentWatcher;
 use lithe_project::git_watcher::GitMetadataWatcher;
+use lithe_project::FileWatcher;
 use lithe_terminal::TerminalManager;
 use std::sync::Arc;
 use tauri::Manager;
@@ -32,8 +33,7 @@ fn main() {
             &arguments.next().unwrap_or_default(),
         ));
     }
-    if std::env::var("LITHE_GIT_ASKPASS_MODE").as_deref() == Ok("1")
-        && std::env::args().len() == 2
+    if std::env::var("LITHE_GIT_ASKPASS_MODE").as_deref() == Ok("1") && std::env::args().len() == 2
     {
         std::process::exit(lithe_core::git_askpass_main(
             &std::env::args().nth(1).unwrap_or_default(),
@@ -174,6 +174,8 @@ fn main() {
             host::create_app_window,
             lsp::lsp_resolve_java_launch,
             lsp::lsp_rebuild_java_index,
+            language_tools::get_tool_path,
+            language_tools::install_language_tools,
             maven::maven_load_configuration,
             maven::maven_write_configuration,
             run::run_list_java_sources,

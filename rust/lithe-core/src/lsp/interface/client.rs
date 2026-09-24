@@ -33,15 +33,20 @@ pub fn client_initialize(request: ClientInitializeRequest) -> Result<LspClientRe
                     "synchronization": {},
                     "completion": {
                         "dynamicRegistration": true,
+                        "contextSupport": true,
                         "completionItem": {
                             "snippetSupport": true,
                             "documentationFormat": ["markdown", "plaintext"],
+                            // Intelephense and JDT LS omit typed class/namespace labels
+                            // unless the client advertises labelDetailsSupport.
+                            "labelDetailsSupport": true,
                             "resolveSupport": {
                                 "properties": [
                                     "detail",
                                     "documentation",
                                     "textEdit",
-                                    "additionalTextEdits"
+                                    "additionalTextEdits",
+                                    "labelDetails"
                                 ]
                             }
                         }
@@ -347,9 +352,17 @@ pub fn client_apply_server_message(
                         .and_then(Value::as_str)
                         .unwrap_or_default();
                     validate_uri(uri)?;
-                    let Some(document) = state.open_documents.get(uri) else {
+                    // Servers may re-encode the URIs they echo back (VS Code's
+                    // URI library writes `d%3A` for a Windows drive while this
+                    // host opened the document as `d:`), so a raw map lookup
+                    // silently drops every published diagnostic on Windows.
+                    // Match through the normalized form and publish under the
+                    // document's own canonical URI.
+                    let document = open_document_for_published_uri(&state.open_documents, uri);
+                    let Some(document) = document else {
                         return Ok(client_response(state, responses, events));
                     };
+                    let document_uri = document.uri.clone();
                     let version = params.get("version").and_then(Value::as_i64);
                     if version.is_some_and(|version| version != document.version) {
                         return Ok(client_response(state, responses, events));
@@ -357,17 +370,19 @@ pub fn client_apply_server_message(
                     let diagnostics = parse_diagnostics(params.get("diagnostics"));
                     state
                         .diagnostics
-                        .insert(uri.to_string(), diagnostics.clone());
+                        .insert(document_uri.clone(), diagnostics.clone());
                     if let Some(version) = version {
-                        state.diagnostic_versions.insert(uri.to_string(), version);
+                        state
+                            .diagnostic_versions
+                            .insert(document_uri.clone(), version);
                     } else {
-                        state.diagnostic_versions.remove(uri);
+                        state.diagnostic_versions.remove(&document_uri);
                     }
                     events.push(LspClientEvent {
                         kind: "diagnostics".to_string(),
                         request_id: None,
                         method: None,
-                        uri: Some(uri.to_string()),
+                        uri: Some(document_uri),
                         version,
                         diagnostics: Some(diagnostics),
                         result: None,
@@ -598,6 +613,51 @@ fn validate_uri(value: &str) -> Result<(), CoreError> {
     } else {
         Ok(())
     }
+}
+
+/// Resolves a server-published document URI against the client's open
+/// documents, tolerating URI re-encoding differences.
+///
+/// Language servers frequently normalize the URIs a client sends them: VS
+/// Code's URI library (used by Intelephense, typescript-language-server, and
+/// others) percent-encodes the Windows drive colon (`d:` becomes `d%3A`) and
+/// lowercases the drive letter. A raw map lookup therefore misses even though
+/// the document is open. Comparison happens on the decoded form with the
+/// Windows drive letter case-folded, which keeps Unix URIs case-sensitive.
+fn open_document_for_published_uri<'a>(
+    documents: &'a std::collections::BTreeMap<String, LspClientDocument>,
+    uri: &str,
+) -> Option<&'a LspClientDocument> {
+    if let Some(document) = documents.get(uri) {
+        return Some(document);
+    }
+    let normalized = normalize_uri_for_comparison(uri);
+    documents
+        .iter()
+        .find(|(key, _)| normalize_uri_for_comparison(key) == normalized)
+        .map(|(_, document)| document)
+}
+
+fn normalize_uri_for_comparison(uri: &str) -> String {
+    let decoded = percent_decode(uri);
+    // Fold the Windows drive letter inside a file URI path (`file:///D:/...`)
+    // to lowercase; NTFS paths are case-insensitive and servers standardize on
+    // the lowercase form. The drive letter starts right after `file:///`.
+    const FILE_PREFIX: &str = "file:///";
+    if let Some(path) = decoded.strip_prefix(FILE_PREFIX) {
+        let bytes = path.as_bytes();
+        if bytes.len() >= 2
+            && bytes[1] == b':'
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[0].is_ascii_uppercase()
+        {
+            let mut normalized = decoded;
+            let drive_index = FILE_PREFIX.len();
+            normalized[drive_index..drive_index + 1].make_ascii_lowercase();
+            return normalized;
+        }
+    }
+    decoded
 }
 
 fn workspace_name_from_uri(uri: &str) -> String {
@@ -945,23 +1005,52 @@ fn parse_completion_item(item: &Value) -> Option<Value> {
                 .and_then(Value::as_str)
         })
         .unwrap_or(label);
-    Some(json!({
+    let mut mapped = json!({
         "label": label,
         "insertText": insert_text,
-        "insertTextFormat": item.get("insertTextFormat").and_then(Value::as_u64).unwrap_or(1),
-        "kind": item.get("kind").and_then(Value::as_i64),
-        "detail": item.get("detail").and_then(Value::as_str),
-        "documentation": completion_documentation(item.get("documentation")),
-        "sortText": item.get("sortText").and_then(Value::as_str),
-        "filterText": item.get("filterText").and_then(Value::as_str),
-        "textEdit": item.get("textEdit").and_then(parse_lsp_text_edit_value),
-        "additionalTextEdits": item
-            .get("additionalTextEdits")
-            .and_then(Value::as_array)
-            .map(|edits| edits.iter().filter_map(parse_lsp_text_edit_value).collect::<Vec<_>>())
-            .unwrap_or_default(),
-        "data": item.get("data").cloned().unwrap_or(Value::Null)
-    }))
+        "insertTextFormat": item.get("insertTextFormat").and_then(Value::as_u64).unwrap_or(1)
+    });
+    if let Some(kind) = item.get("kind").and_then(Value::as_i64) {
+        mapped["kind"] = json!(kind);
+    }
+    if let Some(detail) = item.get("detail").and_then(Value::as_str) {
+        mapped["detail"] = json!(detail);
+    }
+    if let Some(documentation) = completion_documentation(item.get("documentation")) {
+        mapped["documentation"] = json!(documentation);
+    }
+    if let Some(sort_text) = item.get("sortText").and_then(Value::as_str) {
+        mapped["sortText"] = json!(sort_text);
+    }
+    if let Some(filter_text) = item.get("filterText").and_then(Value::as_str) {
+        mapped["filterText"] = json!(filter_text);
+    }
+    if let Some(edit) = item.get("textEdit").and_then(parse_lsp_text_edit_value) {
+        mapped["textEdit"] = edit;
+    }
+    if let Some(edits) = item
+        .get("additionalTextEdits")
+        .and_then(Value::as_array)
+        .map(|edits| {
+            edits
+                .iter()
+                .filter_map(parse_lsp_text_edit_value)
+                .collect::<Vec<_>>()
+        })
+        .filter(|edits| !edits.is_empty())
+    {
+        mapped["additionalTextEdits"] = json!(edits);
+    }
+    // `data: null` makes Intelephense/JDT LS treat resolve as a no-op, so only
+    // forward a real resolve token. Namespace display lives in labelDetails;
+    // import `use`/`import` edits usually arrive only from completionItem/resolve.
+    if let Some(data) = item.get("data").filter(|value| !value.is_null()) {
+        mapped["data"] = data.clone();
+    }
+    if let Some(details) = item.get("labelDetails").filter(|value| value.is_object()) {
+        mapped["labelDetails"] = details.clone();
+    }
+    Some(mapped)
 }
 
 fn completion_documentation(value: Option<&Value>) -> Option<String> {

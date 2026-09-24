@@ -86,7 +86,8 @@ export class JavaWorkspaceChangeScheduler {
       dependencies.setTimer ??
       ((callback, delayMilliseconds) =>
         setTimeout(() => void callback(), delayMilliseconds));
-    this.clearTimer = dependencies.clearTimer ?? clearTimeout;
+    this.clearTimer =
+      dependencies.clearTimer ?? ((handle) => clearTimeout(handle));
   }
 
   schedule(

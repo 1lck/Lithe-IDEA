@@ -1270,7 +1270,7 @@ and virtual-location representation as ordinary navigation.
 `lsp.request` accepts a semantic `operation` plus
 the operation-specific URI, position, range, diagnostics, item, action, or
 command fields, and returns `{ operationId }`. Supported operations include
-completion, hover, definition/declaration/type-definition, references,
+completion and resolve, hover, definition/declaration/type-definition, references,
 implementation, rename, formatting, code actions and resolve, execute command,
 inlay hints, full-document semantic tokens, folding ranges, code lens, and provider virtual documents.
 The `semanticTokens` operation uses the open document URI and normal version,
@@ -1647,4 +1647,8 @@ Completion items returned by the LSP client and runtime preserve `insertTextForm
 (`1` for plain text, `2` for snippets; absent values default to `1`). Hosts retain
 this field through completion resolution. Monaco applies snippet text with its
 snippet insertion rule so placeholders participate in selection and undo rather
-than being inserted as literal source text.
+than being inserted as literal source text. The initialize handshake advertises
+`completion.completionItem.labelDetailsSupport` and resolve support for
+`labelDetails` so language servers attach typed class/namespace labels on
+incomplete items. Core forwards `labelDetails` and omits null `data` so
+`completionItem/resolve` can still produce import `use`/`import` edits.

@@ -309,9 +309,7 @@ pub fn run_resolve_launch(args: ResolveLaunchArgs) -> Result<ResolvedLaunch, Str
 /// main `java` process starts; the store aborts the run when `exit_code != 0`
 /// and surfaces `output` as the compiler's real diagnostic.
 #[tauri::command]
-pub async fn run_execute_prelaunch(
-    args: ExecutePreLaunchArgs,
-) -> Result<PreLaunchOutcome, String> {
+pub async fn run_execute_prelaunch(args: ExecutePreLaunchArgs) -> Result<PreLaunchOutcome, String> {
     // `.output()` blocks until the compiler exits. Sync Tauri commands run on the
     // main thread, so a long `javac` compile would freeze the workbench; run the
     // blocking wait on a worker thread instead.

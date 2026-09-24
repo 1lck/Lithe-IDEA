@@ -3,8 +3,8 @@ use serde_json::Value;
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, Theme, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_opener::OpenerExt;
 
@@ -308,8 +308,8 @@ pub async fn create_app_window(app: AppHandle, request: Option<Value>) -> Result
 #[cfg(test)]
 mod tests {
     use super::{
-        WINDOW_TASKBAR_ICON, cli_payloads, copy_path, create_app_window, read_bounded,
-        read_local_file_bounded, unique_destination,
+        cli_payloads, copy_path, create_app_window, read_bounded, read_local_file_bounded,
+        unique_destination, WINDOW_TASKBAR_ICON,
     };
     use std::fs;
     use std::future::Future;

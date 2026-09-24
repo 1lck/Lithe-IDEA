@@ -1,6 +1,6 @@
-use lithe_project::FileWatcher;
 use lithe_project::git_watcher::{GitMetadataWatcher, GitWatchContext};
-use serde_json::{Value, json};
+use lithe_project::FileWatcher;
+use serde_json::{json, Value};
 use std::sync::Arc;
 use tauri::State;
 

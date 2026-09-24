@@ -478,13 +478,27 @@ fn client_core_initializes_and_applies_server_capabilities() {
         true
     );
     assert_eq!(
+        client_capabilities["textDocument"]["completion"]["contextSupport"],
+        true
+    );
+    assert_eq!(
         client_capabilities["textDocument"]["completion"]["completionItem"]["snippetSupport"],
+        true
+    );
+    assert_eq!(
+        client_capabilities["textDocument"]["completion"]["completionItem"]["labelDetailsSupport"],
         true
     );
     assert_eq!(
         client_capabilities["textDocument"]["completion"]["completionItem"]["resolveSupport"]
             ["properties"],
-        json!(["detail", "documentation", "textEdit", "additionalTextEdits"])
+        json!([
+            "detail",
+            "documentation",
+            "textEdit",
+            "additionalTextEdits",
+            "labelDetails"
+        ])
     );
     assert_eq!(
         initialize_message["params"]["initializationOptions"]["ui.semanticTokens"],
@@ -969,6 +983,162 @@ fn client_core_closes_open_documents() {
     })
     .unwrap_err();
     assert_eq!(serde_json::to_value(error.code).unwrap(), "invalid_request");
+}
+
+#[test]
+fn client_core_matches_reencoded_windows_uris_from_published_diagnostics() {
+    // The host opens the document with an unencoded drive letter while servers
+    // using VS Code's URI library echo `d%3A` back; diagnostics must still land.
+    let opened_uri = "file:///D:/project/main.php";
+    let published_uri = "file:///d%3A/project/main.php";
+    let opened = client_open_document(ClientOpenDocumentRequest {
+        state: LspClientState::default(),
+        uri: opened_uri.to_string(),
+        language_id: "php".to_string(),
+        text: "<?php\n".to_string(),
+    })
+    .unwrap();
+    let diagnosed = client_apply_server_message(ClientApplyServerMessageRequest {
+        state: opened.state,
+        message: json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/publishDiagnostics",
+            "params": {
+                "uri": published_uri,
+                "version": 1,
+                "diagnostics": [{
+                    "range": {
+                        "start": { "line": 1, "character": 0 },
+                        "end": { "line": 1, "character": 1 }
+                    },
+                    "message": "Unexpected ';'"
+                }]
+            }
+        })
+        .to_string(),
+    })
+    .unwrap();
+    // Diagnostics are stored and emitted under the document's canonical URI so
+    // the frontend can resolve them back to the open file path.
+    assert!(diagnosed.state.diagnostics.contains_key(opened_uri));
+    assert_eq!(
+        diagnosed.state.diagnostic_versions.get(opened_uri),
+        Some(&1)
+    );
+    let diagnostics_event = diagnosed
+        .events
+        .iter()
+        .find(|event| event.kind == "diagnostics")
+        .expect("re-encoded publishDiagnostics should emit a diagnostics event");
+    assert_eq!(diagnostics_event.uri.as_deref(), Some(opened_uri));
+}
+
+#[test]
+fn client_core_preserves_class_completion_namespace_and_import_edits() {
+    // Incomplete class items carry the namespace in labelDetails; the import
+    // `use` edit arrives only after completionItem/resolve.
+    let opened = client_open_document(ClientOpenDocumentRequest {
+        state: LspClientState::default(),
+        uri: "file:///tmp/project/index.php".to_string(),
+        language_id: "php".to_string(),
+        text: "<?php\nnew Car".to_string(),
+    })
+    .unwrap();
+    let requested = client_feature_request(ClientFeatureRequest {
+        state: opened.state,
+        uri: "file:///tmp/project/index.php".to_string(),
+        method: "textDocument/completion".to_string(),
+        position: Some(LspPosition {
+            line: 1,
+            utf16_column: 7,
+        }),
+        new_name: None,
+        range: None,
+        diagnostics: Vec::new(),
+        completion_item: None,
+        code_action: None,
+        command: None,
+    })
+    .unwrap();
+    let completed = client_apply_server_message(ClientApplyServerMessageRequest {
+        state: requested.state,
+        message: r#"{
+                "jsonrpc": "2.0",
+                "id": "1",
+                "result": {
+                    "items": [{
+                        "label": "Carbon",
+                        "kind": 7,
+                        "labelDetails": { "description": "Carbon\\Carbon" },
+                        "insertText": "Carbon",
+                        "data": { "fqn": "Carbon\\Carbon" }
+                    }]
+                }
+            }"#
+        .to_string(),
+    })
+    .unwrap();
+    let completion = completed.events[0].result.as_ref().unwrap();
+    assert_eq!(completion["items"][0]["label"], "Carbon");
+    assert_eq!(completion["items"][0]["kind"], 7);
+    assert_eq!(
+        completion["items"][0]["labelDetails"]["description"],
+        "Carbon\\Carbon"
+    );
+    assert_eq!(completion["items"][0]["data"]["fqn"], "Carbon\\Carbon");
+    assert!(completion["items"][0].get("additionalTextEdits").is_none());
+
+    let resolve = client_feature_request(ClientFeatureRequest {
+        state: completed.state,
+        uri: "file:///tmp/project/index.php".to_string(),
+        method: "completionItem/resolve".to_string(),
+        position: None,
+        new_name: None,
+        range: None,
+        diagnostics: Vec::new(),
+        completion_item: Some(json!({
+            "label": "Carbon",
+            "kind": 7,
+            "insertText": "Carbon",
+            "data": { "fqn": "Carbon\\Carbon" }
+        })),
+        code_action: None,
+        command: None,
+    })
+    .unwrap();
+    let resolved = client_apply_server_message(ClientApplyServerMessageRequest {
+        state: resolve.state,
+        message: r#"{
+                "jsonrpc": "2.0",
+                "id": "2",
+                "result": {
+                    "label": "Carbon",
+                    "kind": 7,
+                    "detail": "class Carbon\\Carbon",
+                    "insertText": "Carbon",
+                    "additionalTextEdits": [{
+                        "range": {
+                            "start": { "line": 1, "character": 0 },
+                            "end": { "line": 1, "character": 0 }
+                        },
+                        "newText": "use Carbon\\Carbon;\n"
+                    }],
+                    "data": { "fqn": "Carbon\\Carbon" }
+                }
+            }"#
+        .to_string(),
+    })
+    .unwrap();
+    let item = &resolved.events[0].result.as_ref().unwrap()["item"];
+    assert_eq!(item["detail"], "class Carbon\\Carbon");
+    assert_eq!(
+        item["additionalTextEdits"][0]["newText"],
+        "use Carbon\\Carbon;\n"
+    );
+    assert_eq!(
+        item["additionalTextEdits"][0]["range"]["start"]["utf16Column"],
+        0
+    );
 }
 
 #[test]

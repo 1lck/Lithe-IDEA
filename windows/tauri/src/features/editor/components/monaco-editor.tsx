@@ -879,6 +879,10 @@ export function MonacoEditor({
       selectionHighlight: highlightOccurrences,
       quickSuggestions: autoCompletion,
       suggestOnTriggerCharacters: autoCompletion,
+      // Word-scan suggestions are a fallback when LSP completions are unavailable.
+      // They insert plain identifiers without namespace imports, so LSP results
+      // remain the primary source for typed class completions.
+      wordBasedSuggestions: "matchingDocuments",
       // Expensive-service options are read from the ref so this effect stays
       // stable across active-surface flips; the dedicated `updateOptions` effect
       // below re-applies them whenever the live value changes.
@@ -1995,6 +1999,10 @@ export function MonacoEditor({
       glyphMargin: enableExpensiveServices && monacoLanguageId === "java",
       quickSuggestions: autoCompletion,
       suggestOnTriggerCharacters: autoCompletion,
+      // Word-scan suggestions are a fallback when LSP completions are unavailable.
+      // They insert plain identifiers without namespace imports, so LSP results
+      // remain the primary source for typed class completions.
+      wordBasedSuggestions: "matchingDocuments",
       parameterHints: { enabled: enableExpensiveServices && parameterHints },
       codeLens: enableExpensiveServices && codeLens,
       inlayHints: { enabled: enableExpensiveServices && inlayHints ? "on" : "off" },

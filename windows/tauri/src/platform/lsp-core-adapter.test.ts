@@ -679,6 +679,69 @@ describe("Rust Core LSP adapter failures", () => {
     await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
   });
 
+  test("resolves an incomplete class completion so import edits can be applied", async () => {
+    scenario = "semantic-request";
+    const filePath = "C:/work/index.php";
+    const completionItem = {
+      label: "Carbon",
+      kind: 7,
+      insertText: "Carbon",
+      data: { fqn: "Carbon\\Carbon" },
+    };
+    semanticRequestResult = {
+      item: {
+        ...completionItem,
+        detail: "class Carbon\\Carbon",
+        additionalTextEdits: [
+          {
+            range: {
+              start: { line: 1, utf16Column: 0 },
+              end: { line: 1, utf16Column: 0 },
+            },
+            newText: "use Carbon\\Carbon;\n",
+          },
+        ],
+      },
+    };
+    await invokeLsp("lsp_start_for_file", {
+      workspacePath: "C:/work",
+      filePath,
+      languageId: "php",
+      providerId: "php",
+      serverPath: "C:/Lithe/intelephense.cmd",
+    });
+
+    const resolved = await invokeLsp("lsp_resolve_completion", {
+      filePath,
+      completionItem,
+    });
+
+    expect(resolved).toEqual({
+      label: "Carbon",
+      kind: 7,
+      insertText: "Carbon",
+      data: { fqn: "Carbon\\Carbon" },
+      detail: "class Carbon\\Carbon",
+      additionalTextEdits: [
+        {
+          range: {
+            start: { line: 1, character: 0 },
+            end: { line: 1, character: 0 },
+          },
+          newText: "use Carbon\\Carbon;\n",
+        },
+      ],
+    });
+    expect(requestPayload).toEqual({
+      sessionId: "java-session",
+      operation: "resolveCompletion",
+      uri: "file:///C:/work/index.php",
+      completionItem,
+    });
+
+    await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
+  });
+
   test("normalizes Core Java navigation locations to standard LSP positions", async () => {
     scenario = "semantic-request";
     const filePath = "C:/work/Main.java";
@@ -807,6 +870,7 @@ describe("Rust Core LSP adapter failures", () => {
   test("maps or explicitly rejects every LspClient adapter command", () => {
     expect(LSP_OPERATION_BY_COMMAND).toEqual({
       lsp_get_completions: "completion",
+      lsp_resolve_completion: "resolveCompletion",
       lsp_get_hover: "hover",
       lsp_get_definition: "definition",
       lsp_get_implementation: "implementation",
