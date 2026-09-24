@@ -146,6 +146,10 @@ const TAB_CLOSE_BUTTON_VISIBILITY_MODES = new Set<Settings["tabCloseButtonVisibi
   "hover",
   "always",
 ]);
+const EDITOR_TAB_LAYOUT_MODES = new Set<Settings["editorTabLayoutMode"]>([
+  "singleLine",
+  "multipleRows",
+]);
 const WINDOW_CHROME_DENSITIES = new Set<Settings["windowChromeDensity"]>([
   "focused",
   "comfortable",
@@ -267,6 +271,12 @@ function normalizeTabCloseButtonVisibility(value: unknown): Settings["tabCloseBu
   return TAB_CLOSE_BUTTON_VISIBILITY_MODES.has(value as Settings["tabCloseButtonVisibility"])
     ? (value as Settings["tabCloseButtonVisibility"])
     : defaultSettings.tabCloseButtonVisibility;
+}
+
+function normalizeEditorTabLayoutMode(value: unknown): Settings["editorTabLayoutMode"] {
+  return EDITOR_TAB_LAYOUT_MODES.has(value as Settings["editorTabLayoutMode"])
+    ? (value as Settings["editorTabLayoutMode"])
+    : defaultSettings.editorTabLayoutMode;
 }
 
 function normalizeWindowChromeDensity(value: unknown): Settings["windowChromeDensity"] {
@@ -511,6 +521,9 @@ export function normalizeSettings(settings: Settings): Settings {
   normalizedSettings.tabCloseButtonVisibility = normalizeTabCloseButtonVisibility(
     (normalizedSettings as { tabCloseButtonVisibility?: unknown }).tabCloseButtonVisibility,
   );
+  normalizedSettings.editorTabLayoutMode = normalizeEditorTabLayoutMode(
+    (normalizedSettings as { editorTabLayoutMode?: unknown }).editorTabLayoutMode,
+  );
   normalizedSettings.windowChromeDensity = normalizeWindowChromeDensity(
     (normalizedSettings as { windowChromeDensity?: unknown }).windowChromeDensity,
   );
@@ -626,6 +639,10 @@ export function normalizeSettingValue<K extends keyof Settings>(
 
   if (key === "tabCloseButtonVisibility") {
     return normalizeTabCloseButtonVisibility(value) as Settings[K];
+  }
+
+  if (key === "editorTabLayoutMode") {
+    return normalizeEditorTabLayoutMode(value) as Settings[K];
   }
 
   if (key === "windowChromeDensity") {

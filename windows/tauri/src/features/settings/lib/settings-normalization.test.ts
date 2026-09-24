@@ -1,9 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { getDefaultSettingsSnapshot } from "@/features/settings/config/default-settings";
+import {
+  defaultSettings,
+  getDefaultSettingsSnapshot,
+} from "@/features/settings/config/default-settings";
 import {
   normalizeSettings,
   normalizeSettingValue,
 } from "@/features/settings/lib/settings-normalization";
+import type { Settings } from "@/features/settings/types/settings.types";
 
 describe("default settings", () => {
   test("enables auto-save unless the user turns it off", () => {
@@ -80,5 +84,18 @@ describe("Windows New UI defaults", () => {
 
     expect(normalized.uiFontFamily).toBe("Geist Sans");
     expect(normalized.uiFontSize).toBe(14);
+  });
+});
+
+describe("editor tab layout mode normalization", () => {
+  test("defaults to a single row like macOS", () => {
+    expect(defaultSettings.editorTabLayoutMode).toBe("singleLine");
+  });
+
+  test("keeps a supported layout and falls back for unknown values", () => {
+    expect(normalizeSettingValue("editorTabLayoutMode", "multipleRows")).toBe("multipleRows");
+    expect(
+      normalizeSettingValue("editorTabLayoutMode", "wrap" as Settings["editorTabLayoutMode"]),
+    ).toBe("singleLine");
   });
 });

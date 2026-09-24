@@ -1,6 +1,5 @@
 import { type DragEndEvent, type DragMoveEvent, type DragStartEvent } from "@dnd-kit/core";
-import { restrictToHorizontalAxis } from "@dnd-kit/modifiers";
-import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortable";
+import { SortableContext } from "@dnd-kit/sortable";
 import {
   ArrowLeftIcon as ArrowLeft,
   ArrowRightIcon as ArrowRight,
@@ -41,6 +40,7 @@ import { SortableTab, TabBarSurface, TabDndContext, useTabDragClickGuard } from 
 import { cn } from "@/utils/cn";
 import { getRelativePath } from "@/utils/path-helpers";
 import { useTabWheelScroll } from "../hooks/use-tab-wheel-scroll";
+import { getTabStripLayout } from "../utils/tab-strip-layout";
 import { calculateDisplayNames } from "../utils/path-shortener";
 import {
   clearInternalTabDragData,
@@ -104,6 +104,9 @@ const TabBar = ({
     showNewTabView,
   } = useBufferStore.use.actions();
   const maxOpenTabs = useSettingsStore((state) => state.settings.maxOpenTabs);
+  const tabStripLayout = getTabStripLayout(
+    useSettingsStore((state) => state.settings.editorTabLayoutMode),
+  );
   const updateActivePath = useSidebarStore.use.actions().updateActivePath;
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.() || undefined;
   const jumpListActions = useJumpListStore.use.actions();
@@ -236,7 +239,7 @@ const TabBar = ({
     setPaneLocked(paneId, !isPaneLocked);
   }, [isPaneLocked, paneId, setPaneLocked]);
 
-  useTabWheelScroll(tabScrollRef, !draggedBufferId);
+  useTabWheelScroll(tabScrollRef, tabStripLayout.scrollsHorizontally && !draggedBufferId);
 
   const sortedBuffers = useMemo(() => {
     const pinnedBuffers: PaneContent[] = [];
@@ -315,6 +318,7 @@ const TabBar = ({
 
   // Auto-scroll active tab into view
   useEffect(() => {
+    if (!tabStripLayout.scrollsHorizontally) return;
     const activeIndex = activeBufferId ? (sortedBufferIndexById.get(activeBufferId) ?? -1) : -1;
     if (activeIndex !== -1 && tabRefs.current[activeIndex] && tabScrollRef.current) {
       const activeTab = tabRefs.current[activeIndex];
@@ -334,7 +338,7 @@ const TabBar = ({
         }
       }
     }
-  }, [activeBufferId, sortedBufferIndexById]);
+  }, [activeBufferId, sortedBufferIndexById, tabStripLayout.scrollsHorizontally]);
 
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent, index: number) => {
@@ -616,7 +620,7 @@ const TabBar = ({
   return (
     <>
       <TabDndContext
-        modifiers={[restrictToHorizontalAxis]}
+        modifiers={tabStripLayout.dragModifiers}
         onDragStart={handleDragStart}
         onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
@@ -625,11 +629,19 @@ const TabBar = ({
         <TabBarSurface
           ref={tabBarRef}
           data-tab-bar-pane-id={paneId ?? ""}
-          className="group/tabbar scrollbar-hidden bg-background overscroll-x-contain"
+          className={cn(
+            "group/tabbar scrollbar-hidden bg-background overscroll-x-contain",
+            tabStripLayout.wrapsTabs && "h-auto items-start py-1",
+          )}
           role="tablist"
           aria-label={t("tabs.openFiles")}
         >
-          <div className="flex h-8 shrink-0 items-center gap-0.5">
+          <div
+            className={cn(
+              "flex shrink-0 items-center gap-0.5",
+              tabStripLayout.wrapsTabs ? "h-(--lithe-tab-height)" : "h-8",
+            )}
+          >
             <Button
               type="button"
               onClick={handleJumpBack}
@@ -658,8 +670,16 @@ const TabBar = ({
             </Button>
           </div>
 
-          <SortableContext items={sortedBufferIds} strategy={horizontalListSortingStrategy}>
-            <div ref={tabScrollRef} className="scrollbar-hidden flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto overflow-y-hidden overscroll-x-contain">
+          <SortableContext items={sortedBufferIds} strategy={tabStripLayout.sortingStrategy}>
+            <div
+              ref={tabScrollRef}
+              className={cn(
+                "flex min-w-0 flex-1 items-center gap-0.5",
+                tabStripLayout.wrapsTabs
+                  ? "flex-wrap"
+                  : "scrollbar-hidden overflow-x-auto overflow-y-hidden overscroll-x-contain",
+              )}
+            >
               {sortedBuffers.map((buffer, index) => (
                 <SortableTab
                   key={buffer.id}
@@ -668,6 +688,7 @@ const TabBar = ({
                     tabRefs.current[index] = el;
                   }}
                   disabled={editingBufferId === buffer.id}
+                  className={tabStripLayout.sortableTabClassName}
                   onClickCapture={getClickCapture(buffer.id)}
                 >
                   {({ isDragging }) => (
@@ -679,6 +700,7 @@ const TabBar = ({
                           index={index}
                           isActive={buffer.id === activeBufferId}
                           isDraggedTab={isDragging}
+                          isWrapped={tabStripLayout.wrapsTabs}
                           onClick={() => handleTabSelect(buffer)}
                           onDoubleClick={(e) => handleDoubleClick(e, index)}
                           onKeyDown={(e) => handleKeyDown(e, index)}
@@ -759,7 +781,12 @@ const TabBar = ({
             </div>
           </SortableContext>
 
-          <div className="flex h-8 shrink-0 items-center gap-1 pl-0.5">
+          <div
+            className={cn(
+              "flex shrink-0 items-center gap-1 pl-0.5",
+              tabStripLayout.wrapsTabs ? "h-(--lithe-tab-height)" : "h-8",
+            )}
+          >
             {activeBuffer?.type === "editor" && (
               <MarkdownModePicker bufferId={activeBufferId ?? undefined} />
             )}
