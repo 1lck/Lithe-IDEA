@@ -10,7 +10,7 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::component::h_flex;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
-use gpui_kit::{div, px, ClipboardItem, Context, Entity, ParentElement as _, Styled as _, Window};
+use gpui_kit::{div, ClipboardItem, Context, Entity, ParentElement as _, Styled as _, Window};
 
 use super::editor::{EditorTabEvent, EditorView};
 use crate::theme::ThemeColors;
