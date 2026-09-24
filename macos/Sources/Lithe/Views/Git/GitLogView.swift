@@ -24,10 +24,15 @@ struct GitLogView: View {
     @State private var remoteExpanded = true
     @State private var tagsExpanded = true
     @State private var collapsedReferenceGroups: Set<String> = []
+    @State private var collapsedRepositoryGroups: Set<String> = []
     @State private var collapsedFileGroups: Set<String> = []
     @State private var localReferenceRows: [GitReferenceRow] = []
     @State private var remoteReferenceRows: [GitReferenceRow] = []
     @State private var tagReferenceRows: [GitReferenceRow] = []
+    @State private var repositoryReferenceRows: [GitRepositoryReferenceRows] = []
+    /// Whether multi-repository grouping lists linked worktree repositories.
+    /// Persisted so the choice survives reopening the Git Log.
+    @AppStorage("lithe.gitLog.showWorktreeRepositories") private var showWorktreeRepositories = true
     @State private var currentReferenceCache = GitCurrentReferenceCache()
     @State private var branchDialogRequest: GitBranchDialogRequest?
     @State private var tagDialogRequest: GitTagDialogRequest?
@@ -655,6 +660,16 @@ struct GitLogView: View {
                 .help("Clear log search")
 
                 Spacer()
+
+                gitToolbarButton(
+                    systemImage: "square.stack",
+                    help: showWorktreeRepositories
+                        ? "Hide worktree repositories"
+                        : "Show worktree repositories"
+                ) {
+                    showWorktreeRepositories.toggle()
+                }
+                .disabled(!hasWorktreeRepositories)
             }
             .padding(.horizontal, 6)
             .frame(height: GitVisual.toolbarHeight)
@@ -669,24 +684,33 @@ struct GitLogView: View {
                                 .padding(.bottom, 4)
                         }
 
-                        referenceSection(
-                            title: "Local",
-                            icon: "folder",
-                            kind: .local,
-                            expanded: $localExpanded
-                        )
-                        referenceSection(
-                            title: "Remote",
-                            icon: "network",
-                            kind: .remote,
-                            expanded: $remoteExpanded
-                        )
-                        referenceSection(
-                            title: "Tags",
-                            icon: "tag",
-                            kind: .tag,
-                            expanded: $tagsExpanded
-                        )
+                        if isMultiRepositoryReferencePane {
+                            ForEach(repositoryReferenceRows) { repository in
+                                repositoryReferenceGroup(
+                                    repository,
+                                    isActive: isActiveRepository(repository)
+                                )
+                            }
+                        } else {
+                            activeReferenceSection(
+                                title: "Local",
+                                icon: "folder",
+                                kind: .local,
+                                expanded: $localExpanded
+                            )
+                            activeReferenceSection(
+                                title: "Remote",
+                                icon: "network",
+                                kind: .remote,
+                                expanded: $remoteExpanded
+                            )
+                            activeReferenceSection(
+                                title: "Tags",
+                                icon: "tag",
+                                kind: .tag,
+                                expanded: $tagsExpanded
+                            )
+                        }
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 9)
@@ -702,11 +726,108 @@ struct GitLogView: View {
         .background(background.hasImage ? Color.clear : LitheTheme.sidebar)
     }
 
-    private func referenceSection(
+    /// Wraps the three Local/Remote/Tags sections of the active repository with
+    /// its own rows and actions, so the single-repository layout stays exactly
+    /// as before this feature.
+    private func activeReferenceSection(
         title: String,
         icon: String,
         kind: GitReferenceKind,
         expanded: Binding<Bool>
+    ) -> some View {
+        referenceSection(
+            title: title,
+            icon: icon,
+            kind: kind,
+            expanded: expanded,
+            rows: rows(for: kind),
+            currentReference: currentReference,
+            isActiveRepository: true,
+            actions: referenceRowActions
+        )
+    }
+
+    private func repositoryReferenceGroup(
+        _ repository: GitRepositoryReferenceRows,
+        isActive: Bool
+    ) -> some View {
+        let collapseKey = "repository:" + repository.repositoryRoot.standardizedFileURL.path
+        let isCollapsed = collapsedRepositoryGroups.contains(collapseKey)
+        let actions = repoRowActions(for: repository.repositoryRoot, isActive: isActive)
+        return VStack(alignment: .leading, spacing: 2) {
+            Button {
+                if isCollapsed {
+                    collapsedRepositoryGroups.remove(collapseKey)
+                } else {
+                    collapsedRepositoryGroups.insert(collapseKey)
+                }
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                        .frame(width: 10)
+                    LitheSystemIcon(systemImage: "shippingbox", size: 14)
+                        .foregroundStyle(LitheTheme.secondaryText)
+                    Text(repository.name)
+                        .font(GitVisual.section)
+                        .foregroundStyle(LitheTheme.primaryText)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(verbatim: String(repository.totalCount))
+                        .font(GitVisual.meta)
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                }
+                .frame(maxWidth: .infinity, minHeight: GitVisual.treeRowHeight, alignment: .leading)
+                .contentShape(Rectangle())
+                .litheRowHover(cornerRadius: 4)
+            }
+            .buttonStyle(.plain)
+            .lithePointer()
+
+            if !isCollapsed {
+                referenceSection(
+                    title: "Local",
+                    icon: "folder",
+                    kind: .local,
+                    expanded: $localExpanded,
+                    rows: repository.localRows,
+                    currentReference: repository.currentReference,
+                    isActiveRepository: isActive,
+                    actions: actions
+                )
+                referenceSection(
+                    title: "Remote",
+                    icon: "network",
+                    kind: .remote,
+                    expanded: $remoteExpanded,
+                    rows: repository.remoteRows,
+                    currentReference: repository.currentReference,
+                    isActiveRepository: isActive,
+                    actions: actions
+                )
+                referenceSection(
+                    title: "Tags",
+                    icon: "tag",
+                    kind: .tag,
+                    expanded: $tagsExpanded,
+                    rows: repository.tagRows,
+                    currentReference: repository.currentReference,
+                    isActiveRepository: isActive,
+                    actions: actions
+                )
+            }
+        }
+    }
+
+    private func referenceSection(
+        title: String,
+        icon: String,
+        kind: GitReferenceKind,
+        expanded: Binding<Bool>,
+        rows: [GitReferenceRow],
+        currentReference: GitReference?,
+        isActiveRepository: Bool,
+        actions: GitReferenceRowActions
     ) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             Button {
@@ -730,14 +851,17 @@ struct GitLogView: View {
 
             if expanded.wrappedValue {
                 LazyVStack(alignment: .leading, spacing: 1) {
-                    ForEach(referenceRows(for: kind)) { row in
+                    ForEach(rows) { row in
                         GitReferenceRowView(
                             row: row,
-                            isSelected: isReferenceRowSelected(row),
+                            isSelected: isReferenceRowSelected(
+                                row,
+                                isActiveRepository: isActiveRepository
+                            ),
                             isPerformingBranchOperation: feature.isPerformingBranchOperation,
                             currentReferenceID: currentReference?.id,
                             comparisonSourceID: comparisonSourceReference?.id,
-                            actions: referenceRowActions
+                            actions: actions
                         )
                         .equatable()
                         .id(row.id)
@@ -747,7 +871,7 @@ struct GitLogView: View {
         }
     }
 
-    private func referenceRows(for kind: GitReferenceKind) -> [GitReferenceRow] {
+    private func rows(for kind: GitReferenceKind) -> [GitReferenceRow] {
         switch kind {
         case .local: localReferenceRows
         case .remote: remoteReferenceRows
@@ -755,12 +879,35 @@ struct GitLogView: View {
         }
     }
 
-    private func isReferenceRowSelected(_ row: GitReferenceRow) -> Bool {
-        guard case .reference(let reference) = row.content else { return false }
+    /// Only the active repository highlights a reference; a repository shown
+    /// below it must not paint its own current branch as selected.
+    private func isReferenceRowSelected(
+        _ row: GitReferenceRow,
+        isActiveRepository: Bool
+    ) -> Bool {
+        guard isActiveRepository, case .reference(let reference) = row.content else { return false }
         return !feature.isShowingAllGitReferences && (
             feature.selectedGitReference?.id == reference.id
                 || (feature.selectedGitReference == nil && reference.isCurrent)
         )
+    }
+
+    /// Selecting a reference in another repository first switches the active
+    /// repository, then loads that reference's history, so history keeps its
+    /// single-repository semantics.
+    private func repoRowActions(
+        for repositoryRoot: URL,
+        isActive: Bool
+    ) -> GitReferenceRowActions {
+        var actions = referenceRowActions
+        guard !isActive else { return actions }
+        actions.select = { reference in
+            Task {
+                await feature.selectRepository(repositoryRoot)
+                await feature.selectGitReference(reference)
+            }
+        }
+        return actions
     }
 
     /// Rebuilt on each body pass, but every closure is stable in behavior, and
@@ -1681,12 +1828,17 @@ struct GitLogView: View {
         currentReferenceCache.reference(in: feature.gitReferences)
     }
 
-    /// Both inputs the flattened rows depend on. `gitReferences` is compared by
-    /// value because it is small and changes rarely; the collapse set changes
-    /// only on an explicit disclosure toggle.
+    /// Every input the flattened rows depend on. References are compared by
+    /// value because they are small and change rarely; the collapse set changes
+    /// only on an explicit disclosure toggle. The per-repository list and the
+    /// worktree toggle decide the multi-repository grouping.
     private var referenceRowsTaskIdentity: GitReferenceRowsIdentity {
         GitReferenceRowsIdentity(
             references: feature.gitReferences,
+            repositoryReferences: feature.gitRepositoryReferences,
+            availableRepositoryRoots: feature.availableRepositoryRoots,
+            activeRepositoryRoot: feature.gitRepositoryRoot,
+            showWorktreeRepositories: showWorktreeRepositories,
             collapsedGroups: collapsedReferenceGroups
         )
     }
@@ -1708,6 +1860,64 @@ struct GitLogView: View {
             kind: .tag,
             collapsedGroups: collapsedReferenceGroups
         )
+        rebuildRepositoryReferenceRows(activeReferences: references)
+    }
+
+    /// Groups the visible repository roots with their references. The active
+    /// repository falls back to `gitReferences` so its rows are present even
+    /// before `gitRepositoryReferences` finishes loading.
+    private func rebuildRepositoryReferenceRows(activeReferences: [GitReference]) {
+        let activeRoot = feature.gitRepositoryRoot?.standardizedFileURL
+        let visibleRoots = GitRepositoryHierarchy.visibleRepositoryRoots(
+            feature.availableRepositoryRoots,
+            activeRoot: feature.gitRepositoryRoot,
+            showWorktreeRepositories: showWorktreeRepositories
+        )
+        repositoryReferenceRows = visibleRoots.map { root in
+            let isActive = root.standardizedFileURL == activeRoot
+            let repositoryReferences: [GitReference]
+            if isActive {
+                repositoryReferences = activeReferences
+            } else {
+                repositoryReferences = feature.gitRepositoryReferences
+                    .first { $0.repositoryRoot.standardizedFileURL == root.standardizedFileURL }?
+                    .references ?? []
+            }
+            return GitRepositoryReferenceRows(
+                repositoryRoot: root,
+                localRows: GitReferenceRowsBuilder.rows(
+                    from: repositoryReferences.filter { $0.kind == .local },
+                    kind: .local,
+                    collapsedGroups: collapsedReferenceGroups
+                ),
+                remoteRows: GitReferenceRowsBuilder.rows(
+                    from: repositoryReferences.filter { $0.kind == .remote },
+                    kind: .remote,
+                    collapsedGroups: collapsedReferenceGroups
+                ),
+                tagRows: GitReferenceRowsBuilder.rows(
+                    from: repositoryReferences.filter { $0.kind == .tag },
+                    kind: .tag,
+                    collapsedGroups: collapsedReferenceGroups
+                ),
+                totalCount: repositoryReferences.count,
+                currentReference: repositoryReferences.first { $0.isCurrent }
+            )
+        }
+    }
+
+    private var isMultiRepositoryReferencePane: Bool {
+        repositoryReferenceRows.count > 1
+    }
+
+    private func isActiveRepository(_ repository: GitRepositoryReferenceRows) -> Bool {
+        repository.repositoryRoot.standardizedFileURL
+            == feature.gitRepositoryRoot?.standardizedFileURL
+    }
+
+    private var hasWorktreeRepositories: Bool {
+        let roots = feature.availableRepositoryRoots
+        return roots.contains { GitRepositoryHierarchy.isLinkedWorktreeRepository($0, among: roots) }
     }
 
     private func referenceIcon(_ reference: GitReference) -> String {
@@ -2626,11 +2836,28 @@ struct GitCheckoutConflictDialog: View {
 /// rebuilt when either the references or the collapse state changes.
 private struct GitReferenceRowsIdentity: Equatable {
     let references: [GitReference]
+    let repositoryReferences: [GitRepositoryReferences]
+    let availableRepositoryRoots: [URL]
+    let activeRepositoryRoot: URL?
+    let showWorktreeRepositories: Bool
     let collapsedGroups: Set<String>
 }
 
+/// One repository's flattened reference rows for the grouped pane.
+private struct GitRepositoryReferenceRows: Identifiable {
+    let repositoryRoot: URL
+    let localRows: [GitReferenceRow]
+    let remoteRows: [GitReferenceRow]
+    let tagRows: [GitReferenceRow]
+    let totalCount: Int
+    let currentReference: GitReference?
+
+    var id: String { repositoryRoot.standardizedFileURL.path }
+    var name: String { repositoryRoot.lastPathComponent }
+}
+
 private struct GitReferenceRowActions {
-    let select: (GitReference) -> Void
+    var select: (GitReference) -> Void
     let toggleGroup: (String) -> Void
     let newBranch: (GitReference) -> Void
     let renameBranch: (GitReference) -> Void
