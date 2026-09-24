@@ -45,6 +45,8 @@ export interface GitReference {
   upstreamShortName?: string;
   ahead?: number;
   behind?: number;
+  /** Repository root that owns this reference when a workspace aggregates multiple Git repositories. */
+  repositoryPath?: string;
 }
 
 export interface GitHistorySnapshot {
