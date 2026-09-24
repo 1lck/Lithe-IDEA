@@ -136,17 +136,17 @@ impl ActivityRailView {
     }
 
     fn render_item(&self, id: &'static str, cx: &mut Context<Self>) -> AnyElement {
-        let (icon, tooltip) = item_meta(id);
+        let icon = item_icon(id);
+        let tooltip = item_tooltip(cx, id);
         let is_active =
             self.active_view.as_deref() == Some(id) || self.active_bottom.as_deref() == Some(id);
         let event = Self::event_for(id);
 
-        // 用相对容器叠加左侧 2px 高亮竖条：Button 自身不便稳定地画出单边竖条，
-        // 且竖条需要压在按钮背景之上。hover 反馈由 ghost 变体内置的 accent 背景提供。
+        // 对齐 Tauri `SidebarListItem` iconOnly 激活态（`bg-accent text-foreground`，
+        // 无左侧竖条）：激活态用 accent 背景 + 前景文字，hover 反馈由 ghost 变体内置提供。
         div()
             .w(px(32.0))
             .h(px(32.0))
-            .relative()
             .flex_shrink_0()
             .child(
                 Button::new(format!("rail-{id}"))
@@ -157,26 +157,15 @@ impl ActivityRailView {
                     .h(px(32.0))
                     .rounded(px(4.0))
                     .text_color(if is_active {
-                        ThemeColors::primary()
+                        ThemeColors::text_primary()
                     } else {
                         ThemeColors::subtle_foreground()
                     })
-                    .when(is_active, |btn| btn.bg(ThemeColors::selected()))
+                    .when(is_active, |btn| btn.bg(ThemeColors::accent()))
                     .on_click(cx.listener(move |_this, _event, _window, cx| {
                         cx.emit(event.clone());
                     })),
             )
-            .when(is_active, |d| {
-                d.child(
-                    div()
-                        .absolute()
-                        .left_0()
-                        .top_0()
-                        .bottom_0()
-                        .w(px(2.0))
-                        .bg(ThemeColors::primary()),
-                )
-            })
             .into_any_element()
     }
 }
@@ -197,7 +186,7 @@ impl Render for ActivityRailView {
             .collect();
 
         v_flex()
-            .w(px(40.0))
+            .w(px(38.0))
             .h_full()
             .flex_shrink_0()
             .bg(ThemeColors::surface())
@@ -349,19 +338,45 @@ impl Render for PluginActivityRailView {
     }
 }
 
-/// id → 图标与 tooltip（含快捷键，文案对齐 Tauri）。
-fn item_meta(id: &str) -> (IconName, &'static str) {
+/// id → 图标，对齐 Tauri 侧边栏各项图标。
+fn item_icon(id: &str) -> IconName {
     match id {
-        "files" => (IconName::Files, "Files (Ctrl+Shift+E)"),
-        "git" => (IconName::GitBranch, "Version Control (Ctrl+Shift+G)"),
-        "search" => (IconName::Search, "Search (Ctrl+Shift+F)"),
-        "maven" => (IconName::Box, "Maven"),
-        "run" => (IconName::Play, "Run (Shift+F10)"),
-        "terminal" => (IconName::Terminal, "Terminal (Ctrl+J)"),
-        "diagnostics" => (IconName::TriangleAlert, "Problems (Ctrl+Shift+J)"),
-        "gitLog" => (IconName::GitGraph, "Git Graph (Alt+9)"),
-        _ => (IconName::Settings, "Settings"),
+        "files" => IconName::Files,
+        "git" => IconName::GitBranch,
+        "search" => IconName::Search,
+        "maven" => IconName::Box,
+        "run" => IconName::Play,
+        "terminal" => IconName::Terminal,
+        "diagnostics" => IconName::TriangleAlert,
+        "gitLog" => IconName::GitGraph,
+        _ => IconName::Settings,
     }
+}
+
+/// id → 本地化 tooltip（含快捷键后缀，文案对齐 Tauri；maven 无后缀）。
+fn item_tooltip(cx: &mut Context<ActivityRailView>, id: &'static str) -> String {
+    let base: &str = match id {
+        "files" => crate::i18n::menu_text(cx, "workbench.project"),
+        "git" => crate::i18n::menu_text(cx, "workbench.changes"),
+        "search" => crate::i18n::menu_text(cx, "workbench.search"),
+        "run" => crate::i18n::menu_text(cx, "workbench.run"),
+        "terminal" => crate::i18n::menu_text(cx, "workbench.terminal"),
+        "diagnostics" => crate::i18n::menu_text(cx, "workbench.diagnostics"),
+        "gitLog" => crate::i18n::menu_text(cx, "workbench.gitLog"),
+        "settings" => crate::i18n::menu_text(cx, "workbench.settings"),
+        _ => "Maven",
+    };
+    let suffix = match id {
+        "files" => " (Ctrl+Shift+E)",
+        "git" => " (Ctrl+Shift+G)",
+        "search" => " (Ctrl+Shift+F)",
+        "terminal" => " (Ctrl+J)",
+        "diagnostics" => " (Ctrl+Shift+J)",
+        "run" => " (Shift+F10)",
+        "gitLog" => " (Alt+9)",
+        _ => "",
+    };
+    format!("{base}{suffix}")
 }
 
 /// 把持久化顺序规范化成合法且无重复的静态 id 列表，缺失项按默认顺序补齐，

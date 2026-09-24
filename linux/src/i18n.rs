@@ -133,6 +133,13 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
         "titleProject.recentProjects" => ("最近项目", "Recent Projects"),
         // ---- 侧边栏 explorer 头部 ----
         "workbench.project" => ("项目", "Project"),
+        "workbench.changes" => ("更改", "Changes"),
+        "workbench.search" => ("搜索", "Search"),
+        "workbench.run" => ("运行", "Run"),
+        "workbench.terminal" => ("终端", "Terminal"),
+        "workbench.diagnostics" => ("诊断", "Diagnostics"),
+        "workbench.gitLog" => ("提交记录", "Git Log"),
+        "workbench.settings" => ("设置", "Settings"),
         "fileExplorer.searchFiles" => ("搜索文件", "Search files"),
         "fileExplorer.preferences" => ("文件资源管理器偏好设置", "File explorer preferences"),
         "fileExplorer.visibility" => ("可见性", "Visibility"),

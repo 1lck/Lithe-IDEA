@@ -14,8 +14,7 @@ use crate::workbench::terminal::TerminalView;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BottomTab {
     Terminal,
-    Output,
-    Problems,
+    Diagnostics,
 }
 
 pub struct BottomPanelView {
@@ -23,8 +22,7 @@ pub struct BottomPanelView {
     pub is_collapsed: bool,
     pub height: f32,
     pub terminal: Entity<TerminalView>,
-    pub output_logs: Vec<String>,
-    pub problems: Vec<String>,
+    pub diagnostics: Vec<String>,
 }
 
 impl BottomPanelView {
@@ -33,12 +31,15 @@ impl BottomPanelView {
 
         Self {
             active_tab: BottomTab::Terminal,
-            is_collapsed: false,
+            is_collapsed: true,
             height: 240.0,
             terminal,
-            output_logs: vec!["[Lithe Linux] Initialized.".to_string()],
-            problems: Vec::new(),
+            diagnostics: Vec::new(),
         }
+    }
+
+    pub fn is_visible(&self) -> bool {
+        !self.is_collapsed
     }
 
     pub fn set_height(&mut self, height: f32, cx: &mut Context<Self>) {
@@ -57,10 +58,9 @@ impl BottomPanelView {
         cx.notify();
     }
 
-    pub fn append_log(&mut self, log: String, cx: &mut Context<Self>) {
-        self.output_logs.push(log);
-        cx.notify();
-    }
+    /// 占位日志入口：Tauri 没有通用 Output 面板，各业务接线后改走各自面板，
+    /// 当前仅保留调用点可编译，不存储不展示。
+    pub fn append_log(&mut self, _log: String, _cx: &mut Context<Self>) {}
 
     fn render_tab_button(
         &self,
@@ -86,21 +86,16 @@ impl BottomPanelView {
                     .border_color(ThemeColors::accent_blue())
             })
             .when(!is_active, |btn| {
-                btn.text_color(ThemeColors::text_muted())
-                    .hover(|h| {
-                        h.bg(ThemeColors::bg_tab_hover())
-                            .text_color(ThemeColors::text_primary())
-                    })
+                btn.text_color(ThemeColors::text_muted()).hover(|h| {
+                    h.bg(ThemeColors::bg_tab_hover())
+                        .text_color(ThemeColors::text_primary())
+                })
             })
-            .child(
-                Icon::new(icon)
-                    .size(px(13.0))
-                    .text_color(if is_active {
-                        ThemeColors::accent_blue()
-                    } else {
-                        ThemeColors::text_muted()
-                    }),
-            )
+            .child(Icon::new(icon).size(px(13.0)).text_color(if is_active {
+                ThemeColors::accent_blue()
+            } else {
+                ThemeColors::text_muted()
+            }))
             .child(label)
             .on_click(cx.listener(move |this, _event, _window, cx| {
                 this.set_tab(tab, cx);
@@ -111,47 +106,7 @@ impl BottomPanelView {
 impl Render for BottomPanelView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.is_collapsed {
-            return div()
-                .h(px(26.0))
-                .w_full()
-                .bg(ThemeColors::bg_statusbar())
-                .border_t_1()
-                .border_color(ThemeColors::border())
-                .flex()
-                .items_center()
-                .justify_between()
-                .px_3()
-                .child(
-                    h_flex()
-                        .id("collapsed-terminal-btn")
-                        .items_center()
-                        .gap_1p5()
-                        .cursor_pointer()
-                        .child(
-                            Icon::new(IconName::Terminal)
-                                .size(px(12.0))
-                                .text_color(ThemeColors::text_muted()),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(ThemeColors::text_muted())
-                                .child("Terminal"),
-                        )
-                        .on_click(cx.listener(|this, _event, _window, cx| {
-                            this.toggle_collapsed(cx);
-                        })),
-                )
-                .child(
-                    Button::new("expand-panel")
-                        .small()
-                        .ghost()
-                        .icon(IconName::ChevronUp)
-                        .tooltip("Expand Panel")
-                        .on_click(cx.listener(|this, _event, _window, cx| {
-                            this.toggle_collapsed(cx);
-                        })),
-                );
+            return div().h(px(0.0));
         }
 
         v_flex()
@@ -161,7 +116,8 @@ impl Render for BottomPanelView {
             .border_t_1()
             .border_color(ThemeColors::border())
             .child(
-                // 顶部 Tab 切换栏（高 30px）
+                // 顶部 Tab 切换栏（高 30px）：仅保留 Tauri 存在的 Terminal / Diagnostics，
+                // 自创的 Output 页签已去掉。
                 h_flex()
                     .h(px(30.0))
                     .w_full()
@@ -178,25 +134,21 @@ impl Render for BottomPanelView {
                             .child(self.render_tab_button(
                                 "tab-terminal",
                                 IconName::Terminal,
-                                "Terminal".to_string(),
+                                crate::i18n::menu_text(cx, "workbench.terminal").to_string(),
                                 self.active_tab == BottomTab::Terminal,
                                 BottomTab::Terminal,
                                 cx,
                             ))
                             .child(self.render_tab_button(
-                                "tab-output",
-                                IconName::FileText,
-                                "Output".to_string(),
-                                self.active_tab == BottomTab::Output,
-                                BottomTab::Output,
-                                cx,
-                            ))
-                            .child(self.render_tab_button(
-                                "tab-problems",
-                                IconName::Bug,
-                                format!("Problems ({})", self.problems.len()),
-                                self.active_tab == BottomTab::Problems,
-                                BottomTab::Problems,
+                                "tab-diagnostics",
+                                IconName::TriangleAlert,
+                                format!(
+                                    "{} ({})",
+                                    crate::i18n::menu_text(cx, "workbench.diagnostics"),
+                                    self.diagnostics.len()
+                                ),
+                                self.active_tab == BottomTab::Diagnostics,
+                                BottomTab::Diagnostics,
                                 cx,
                             )),
                     )
@@ -213,14 +165,11 @@ impl Render for BottomPanelView {
                                     .on_click(cx.listener(|this, _event, _window, cx| {
                                         match this.active_tab {
                                             BottomTab::Terminal => {
-                                                let _ = this.terminal.update(cx, |t, cx| t.clear(cx));
+                                                let _ =
+                                                    this.terminal.update(cx, |t, cx| t.clear(cx));
                                             }
-                                            BottomTab::Output => {
-                                                this.output_logs.clear();
-                                                cx.notify();
-                                            }
-                                            BottomTab::Problems => {
-                                                this.problems.clear();
+                                            BottomTab::Diagnostics => {
+                                                this.diagnostics.clear();
                                                 cx.notify();
                                             }
                                         }
@@ -245,30 +194,16 @@ impl Render for BottomPanelView {
                         .size_full()
                         .child(self.terminal.clone())
                         .into_any_element(),
-                    BottomTab::Output => div()
-                        .size_full()
-                        .p_3()
-                        .overflow_y_scrollbar()
-                        .text_xs()
-                        .font_family("monospace")
-                        .text_color(ThemeColors::text_muted())
-                        .children(
-                            self.output_logs
-                                .iter()
-                                .cloned()
-                                .map(|log| div().child(log)),
-                        )
-                        .into_any_element(),
-                    BottomTab::Problems => div()
+                    BottomTab::Diagnostics => div()
                         .size_full()
                         .p_3()
                         .overflow_y_scrollbar()
                         .text_xs()
                         .text_color(ThemeColors::text_muted())
-                        .child(if self.problems.is_empty() {
-                            "No problems have been detected in the workspace.".to_string()
+                        .child(if self.diagnostics.is_empty() {
+                            "No diagnostics have been detected in the workspace.".to_string()
                         } else {
-                            format!("{} problems found", self.problems.len())
+                            format!("{} diagnostics found", self.diagnostics.len())
                         })
                         .into_any_element(),
                 }),

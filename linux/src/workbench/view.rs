@@ -67,7 +67,7 @@ pub struct WorkbenchView {
     pub sidebar: Entity<SidebarView>,
     /// 主代码编辑器区
     pub editor: Entity<EditorView>,
-    /// 底部抽屉面板 (Terminal / Output / Problems)
+    /// 底部抽屉面板 (Terminal / Diagnostics，对齐 Tauri BottomPaneTab)
     pub bottom_panel: Entity<BottomPanelView>,
     /// 底部状态栏 (Status Bar)
     pub status_bar: Entity<StatusBarView>,
@@ -256,7 +256,7 @@ impl WorkbenchView {
                 PluginRailEvent::ToggleMaven => {
                     let _ = this
                         .bottom_panel
-                        .update(cx, |bp, cx| bp.set_tab(BottomTab::Output, cx));
+                        .update(cx, |bp, cx| bp.set_tab(BottomTab::Terminal, cx));
                     this.append_log("[Maven] Opening Maven tool window...", cx);
                     cx.notify();
                 }
@@ -808,10 +808,10 @@ impl WorkbenchView {
             "view.global_search" | "edit.find" | "edit.find_replace" => {
                 self.open_search_everywhere(cx);
             }
-            // 诊断信息：底部面板切换到 Problems 并展开。
+            // 诊断信息：底部面板切换到 Diagnostics 并展开。
             "view.diagnostics" => {
                 let _ = self.bottom_panel.update(cx, |bp, cx| {
-                    bp.set_tab(BottomTab::Problems, cx);
+                    bp.set_tab(BottomTab::Diagnostics, cx);
                 });
             }
             // 显示资源管理器：侧边栏切到 Explorer 并展开。
@@ -892,11 +892,12 @@ fn sidebar_tab_for(view_id: &str) -> Option<SidebarTab> {
     }
 }
 
-/// 活动栏底部项 id → 底部面板标签。
+/// 活动栏底部项 id → 底部面板标签。Linux 目前只有 Terminal / Diagnostics
+/// 两种真实面板：run/maven/gitLog 暂落到 Terminal，待各自后端面板接入。
 fn bottom_tab_for(pane_id: &str) -> Option<BottomTab> {
     match pane_id {
-        "terminal" | "run" | "maven" | "gitLog" => Some(BottomTab::Output),
-        "diagnostics" => Some(BottomTab::Problems),
+        "terminal" | "run" | "maven" | "gitLog" => Some(BottomTab::Terminal),
+        "diagnostics" => Some(BottomTab::Diagnostics),
         _ => None,
     }
 }
@@ -1032,6 +1033,8 @@ impl Render for WorkbenchView {
 impl WorkbenchView {
     /// 渲染工作台主体（顶栏 / 侧边栏 / 编辑区 / 底部面板 / 状态栏）。
     fn render_workbench(&self, show_status_bar: bool, cx: &mut Context<Self>) -> impl IntoElement {
+        let bottom_visible = self.bottom_panel.read(cx).is_visible();
+        let bottom_splitter = self.render_bottom_splitter(cx);
         v_flex()
             .size_full()
             .bg(ThemeColors::background())
@@ -1064,8 +1067,10 @@ impl WorkbenchView {
                     )
                     .child(self.plugin_rail.clone()),
             )
-            .child(self.render_bottom_splitter(cx))
-            .child(self.bottom_panel.clone())
+            .when(bottom_visible, |layout| layout.child(bottom_splitter))
+            .when(bottom_visible, |layout| {
+                layout.child(self.bottom_panel.clone())
+            })
             .when(show_status_bar, |layout| {
                 layout.child(self.status_bar.clone())
             })
