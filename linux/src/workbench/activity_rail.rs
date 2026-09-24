@@ -247,7 +247,7 @@ impl PluginActivityRailView {
         &self,
         id: &'static str,
         icon: IconName,
-        tooltip: &'static str,
+        tooltip: String,
         event: PluginRailEvent,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -271,7 +271,7 @@ impl Render for PluginActivityRailView {
         let extensions = self.render_button(
             "plugin-extensions",
             IconName::Puzzle,
-            "Extensions",
+            crate::i18n::menu_text(cx, "extensions.title").to_string(),
             PluginRailEvent::OpenExtensions,
             cx,
         );
@@ -279,7 +279,7 @@ impl Render for PluginActivityRailView {
             self.render_button(
                 "plugin-maven",
                 IconName::Box,
-                "Maven",
+                crate::i18n::menu_text(cx, "maven.title").to_string(),
                 PluginRailEvent::ToggleMaven,
                 cx,
             )
@@ -306,7 +306,7 @@ impl Render for PluginActivityRailView {
                     .child(self.render_button(
                         "plugin-notifications",
                         IconName::Bell,
-                        "Notifications",
+                        crate::i18n::menu_text(cx, "notifications.title").to_string(),
                         PluginRailEvent::ToggleNotifications,
                         cx,
                     ))
@@ -364,7 +364,7 @@ fn item_tooltip(cx: &mut Context<ActivityRailView>, id: &'static str) -> String 
         "diagnostics" => crate::i18n::menu_text(cx, "workbench.diagnostics"),
         "gitLog" => crate::i18n::menu_text(cx, "workbench.gitLog"),
         "settings" => crate::i18n::menu_text(cx, "workbench.settings"),
-        _ => "Maven",
+        _ => crate::i18n::menu_text(cx, "maven.title"),
     };
     let suffix = match id {
         "files" => " (Ctrl+Shift+E)",

@@ -276,7 +276,8 @@ impl WelcomeScreenView {
                                         ThemeColors::foreground()
                                     })
                                     .child(if self.query.is_empty() {
-                                        "Search projects".to_string()
+                                        crate::i18n::menu_text(cx, "welcome.searchProjects")
+                                            .to_string()
                                     } else {
                                         self.query.clone()
                                     }),
@@ -328,7 +329,10 @@ impl WelcomeScreenView {
                                         .text_sm()
                                         .font_weight(FontWeight::MEDIUM)
                                         .text_color(ThemeColors::foreground())
-                                        .child("No recent projects"),
+                                        .child(crate::i18n::menu_text(
+                                            cx,
+                                            "welcome.noRecentProjects",
+                                        )),
                                 )
                                 .child(
                                     div()
@@ -402,7 +406,16 @@ impl WelcomeScreenView {
                                             .xsmall()
                                             .ghost()
                                             .icon(IconName::Trash)
-                                            .tooltip("Remove from recent")
+                                            .tooltip(
+                                                crate::i18n::menu_text(cx, "welcome.removeRecent")
+                                                    .replace(
+                                                        "{name}",
+                                                        remove_path
+                                                            .rsplit('/')
+                                                            .next()
+                                                            .unwrap_or(&remove_path),
+                                                    ),
+                                            )
                                             .on_click(cx.listener(
                                                 move |this, _event, _window, cx| {
                                                     // 阻止冒泡到整行，避免删除时同时打开项目

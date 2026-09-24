@@ -164,7 +164,6 @@ impl Render for CommandPaletteModal {
 
         let rows = self.build_rows();
         let current_index = self.current_index();
-        let total = self.filtered.len();
 
         // 全屏半透明遮罩：点击空白处关闭
         div()
@@ -276,7 +275,11 @@ impl Render for CommandPaletteModal {
                                                 ThemeColors::foreground()
                                             })
                                             .child(if self.query.is_empty() {
-                                                "Type a command...".to_string()
+                                                crate::i18n::menu_text(
+                                                    cx,
+                                                    "commandPalette.placeholder",
+                                                )
+                                                .to_string()
                                             } else {
                                                 self.query.clone()
                                             }),
@@ -304,7 +307,7 @@ impl Render for CommandPaletteModal {
                                         .text_center()
                                         .text_sm()
                                         .text_color(ThemeColors::subtle_foreground())
-                                        .child("No commands found"),
+                                        .child(crate::i18n::menu_text(cx, "search.noResults")),
                                 )
                             })
                             .children(rows.into_iter().map(|row| {
@@ -318,7 +321,7 @@ impl Render for CommandPaletteModal {
                                                 .text_xs()
                                                 .font_weight(FontWeight::MEDIUM)
                                                 .text_color(ThemeColors::muted_foreground())
-                                                .child(category),
+                                                .child(palette_category_label(&category, cx)),
                                         )
                                         .into_any_element(),
                                     PaletteRow::Item(position) => {
@@ -370,32 +373,31 @@ impl Render for CommandPaletteModal {
                                     }
                                 }
                             })),
-                    )
-                    .child(
-                        // 3. 底部指引栏：左侧命令数、右侧操作提示
-                        h_flex()
-                            .h(px(34.0))
-                            .w_full()
-                            .items_center()
-                            .justify_between()
-                            .px_4()
-                            .bg(ThemeColors::background())
-                            .border_t_1()
-                            .border_color(ThemeColors::border())
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(ThemeColors::subtle_foreground())
-                                    .child(format!("{} commands", total)),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(ThemeColors::subtle_foreground())
-                                    .child("↑↓ Navigate  ·  ↵ Run  ·  Esc Close"),
-                            ),
                     ),
             )
+    }
+}
+
+/// 命令分组标题本地化：英文 category 映射到菜单键，未知回退原样。
+/// 条目构造处的 category 字段保持英文不动，只在渲染时映射。
+fn palette_category_label(category: &str, cx: &gpui_kit::App) -> String {
+    let key = match category {
+        "File" => Some("menu.file"),
+        "Edit" => Some("menu.edit"),
+        "View" => Some("menu.view"),
+        "Go" => Some("menu.go"),
+        "Terminal" => Some("menu.terminal"),
+        "Run" => Some("menu.run"),
+        "Tools" => Some("menu.tools"),
+        "Window" => Some("menu.window"),
+        "Help" => Some("menu.help"),
+        "Settings" => Some("menu.preferences"),
+        "Pane" => Some("menu.view"),
+        _ => None,
+    };
+    match key {
+        Some(key) => crate::i18n::menu_text(cx, key).to_string(),
+        None => category.to_string(),
     }
 }
 

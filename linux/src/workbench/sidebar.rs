@@ -401,8 +401,8 @@ impl Render for SidebarView {
         // 标题跟随语言：Explorer 用 workbench.project（项目/Project）。
         let title = match self.active_tab {
             SidebarTab::Explorer => crate::i18n::menu_text(cx, "workbench.project").to_string(),
-            SidebarTab::Search => "SEARCH".to_string(),
-            SidebarTab::Git => "GIT".to_string(),
+            SidebarTab::Search => crate::i18n::menu_text(cx, "workbench.search").to_string(),
+            SidebarTab::Git => crate::i18n::menu_text(cx, "workbench.sourceControl").to_string(),
         };
         // 过滤行在链式构建前算好，避免在 `.when` 闭包里同时借用 self 与 cx。
         let filter_row = if self.show_tree_filter {
@@ -506,7 +506,7 @@ impl Render for SidebarView {
                                         .small()
                                         .ghost()
                                         .icon(IconName::RotateCw)
-                                        .tooltip("Refresh")
+                                        .tooltip(crate::i18n::menu_text(cx, "ui.refresh"))
                                         .on_click(cx.listener(|this, _event, _window, cx| {
                                             this.refresh(cx);
                                             this.refresh_git(cx);
@@ -847,7 +847,7 @@ impl SidebarView {
                         .text_xs()
                         .text_color(ThemeColors::text_muted())
                         .p_2()
-                        .child("Loading workspace files..."),
+                        .child(format!("{}...", crate::i18n::menu_text(cx, "ui.loading"))),
                 )
             })
             .when_some(self.error_message.as_ref(), |this, err| {
@@ -973,10 +973,9 @@ impl SidebarView {
                             .text_color(ThemeColors::text_muted()),
                     )
                     .child(
-                        div()
-                            .text_xs()
-                            .text_color(ThemeColors::text_muted())
-                            .child("Search files or text..."),
+                        div().text_xs().text_color(ThemeColors::text_muted()).child(
+                            crate::i18n::menu_text(cx, "workbench.searchInFiles").to_string(),
+                        ),
                     ),
             )
             .when(self.is_searching, |this| {
@@ -985,7 +984,7 @@ impl SidebarView {
                         .text_xs()
                         .text_color(ThemeColors::text_muted())
                         .p_1()
-                        .child("Searching..."),
+                        .child(format!("{}...", crate::i18n::menu_text(cx, "ui.loading"))),
                 )
             })
             .children(self.search_results.iter().enumerate().map(|(idx, res)| {
@@ -1074,7 +1073,11 @@ impl SidebarView {
                         div()
                             .text_xs()
                             .text_color(ThemeColors::text_muted())
-                            .child(format!("Changed Files ({})", self.git_changes.len())),
+                            .child(format!(
+                                "{} ({})",
+                                crate::i18n::menu_text(cx, "workbench.changes"),
+                                self.git_changes.len()
+                            )),
                     )
                     .children(self.git_changes.iter().enumerate().map(|(idx, change)| {
                         let path = change.path.clone();
@@ -1160,7 +1163,8 @@ impl SidebarView {
                                 ThemeColors::text_primary()
                             })
                             .child(if self.git_commit_message.is_empty() {
-                                "Commit message (e.g. feat: update files)...".to_string()
+                                crate::i18n::menu_text(cx, "git.commitMessagePlaceholder")
+                                    .to_string()
                             } else {
                                 self.git_commit_message.clone()
                             }),
@@ -1170,18 +1174,19 @@ impl SidebarView {
                             .w_full()
                             .items_center()
                             .justify_between()
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(ThemeColors::text_muted())
-                                    .child(format!("{} changed", self.git_changes.len())),
-                            )
+                            .child(div().text_xs().text_color(ThemeColors::text_muted()).child(
+                                format!(
+                                    "{} ({})",
+                                    crate::i18n::menu_text(cx, "workbench.changes"),
+                                    self.git_changes.len()
+                                ),
+                            ))
                             .child(
                                 Button::new("git-commit-btn")
                                     .small()
                                     .primary()
                                     .icon(IconName::Check)
-                                    .label("Commit")
+                                    .label(crate::i18n::menu_text(cx, "git.commit"))
                                     .on_click(cx.listener(|this, _event, _window, cx| {
                                         let msg = if this.git_commit_message.trim().is_empty() {
                                             "feat: update workspace files".to_string()

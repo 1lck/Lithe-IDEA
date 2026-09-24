@@ -509,7 +509,6 @@ impl Render for ToolbarView {
                         .small()
                         .ghost()
                         .icon(IconName::List)
-                        .tooltip("Menu")
                         .selected(open)
                         .on_click(cx.listener(
                             |this, _event: &gpui_kit::ClickEvent, _window, cx| {
@@ -694,7 +693,7 @@ impl Render for ToolbarView {
                             .small()
                             .ghost()
                             .icon(IconName::Search)
-                            .tooltip("Search")
+                            .tooltip(crate::i18n::menu_text(cx, "menu.quickOpen"))
                             .on_click(cx.listener(|_this, _event, _window, cx| {
                                 cx.emit(ToolbarEvent::QuickOpen);
                             })),

@@ -4,12 +4,37 @@ use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, rgba, Context, EventEmitter, FocusHandle, FontWeight,
-    InteractiveElement as _, IntoElement, KeyDownEvent, ParentElement as _, Render,
-    StatefulInteractiveElement as _, Styled as _, Window,
+    div, px, rgba, Context, EventEmitter, FocusHandle, FontWeight, InteractiveElement as _,
+    IntoElement, KeyDownEvent, ParentElement as _, Render, StatefulInteractiveElement as _,
+    Styled as _, Window,
 };
 
 use crate::theme::ThemeColors;
+
+/// Search Everywhere 动作本地化显示名（id → 菜单键），未知 id 回退 id 本身。
+fn action_display_name(id: &str, cx: &gpui_kit::App) -> String {
+    let key = match id {
+        "workbench.new_file" => Some("menu.newFile"),
+        "workbench.save" => Some("menu.save"),
+        "workbench.close_tab" => Some("menu.closeTab"),
+        "workbench.toggle_terminal" => Some("menu.toggleTerminal"),
+        "workbench.toggle_sidebar" => Some("menu.toggleSecondarySidebar"),
+        "workbench.open_settings" => Some("menu.preferences"),
+        "workbench.refresh_workspace" => Some("ui.refresh"),
+        "workbench.run" => Some("menu.run"),
+        "workbench.debug" => Some("menu.startDebugging"),
+        _ => None,
+    };
+    match key {
+        Some(key) => crate::i18n::menu_text(cx, key).to_string(),
+        None if id == "workbench.clear_terminal" => format!(
+            "{}{}",
+            crate::i18n::menu_text(cx, "ui.clear"),
+            crate::i18n::menu_text(cx, "menu.terminal")
+        ),
+        None => id.to_string(),
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchScope {
@@ -42,7 +67,6 @@ pub enum MatchedItem {
     },
     Action {
         id: String,
-        name: String,
         shortcut: Option<String>,
         icon: IconName,
     },
@@ -146,7 +170,7 @@ impl SearchEverywhereModal {
         cx.notify();
     }
 
-    fn filtered_items(&self) -> Vec<MatchedItem> {
+    fn filtered_items(&self, cx: &gpui_kit::App) -> Vec<MatchedItem> {
         let q = self.query.trim().to_lowercase();
         let mut results = Vec::new();
 
@@ -168,16 +192,17 @@ impl SearchEverywhereModal {
             }
         }
 
-        // 2. Actions
+        // 2. Actions（本地化显示名、英文原名、id 任一包含即命中）
         if self.scope == SearchScope::All || self.scope == SearchScope::Actions {
             for act in &self.actions {
+                let display = action_display_name(&act.id, cx);
                 if q.is_empty()
+                    || display.to_lowercase().contains(&q)
                     || act.name.to_lowercase().contains(&q)
                     || act.id.to_lowercase().contains(&q)
                 {
                     results.push(MatchedItem::Action {
                         id: act.id.clone(),
-                        name: act.name.clone(),
                         shortcut: act.shortcut.clone(),
                         icon: act.icon,
                     });
@@ -227,7 +252,7 @@ impl Render for SearchEverywhereModal {
         // 请求聚焦以接收按键输入
         window.focus(&self.focus_handle, cx);
 
-        let filtered = self.filtered_items();
+        let filtered = self.filtered_items(cx);
         let current_index = if filtered.is_empty() {
             0
         } else {
@@ -257,14 +282,14 @@ impl Render for SearchEverywhereModal {
                         }
                     }
                     "down" | "arrowdown" => {
-                        let total = this.filtered_items().len();
+                        let total = this.filtered_items(cx).len();
                         if total > 0 && this.selected_index + 1 < total {
                             this.selected_index += 1;
                             cx.notify();
                         }
                     }
                     "enter" => {
-                        let items = this.filtered_items();
+                        let items = this.filtered_items(cx);
                         let idx = if items.is_empty() {
                             0
                         } else {
@@ -357,18 +382,18 @@ impl Render for SearchEverywhereModal {
                                                 ThemeColors::text_primary()
                                             })
                                             .child(if self.query.is_empty() {
-                                                "Search files, actions, symbols (Type to search)..."
-                                                    .to_string()
+                                                crate::i18n::menu_text(
+                                                    cx,
+                                                    "search.everywherePlaceholder",
+                                                )
+                                                .to_string()
                                             } else {
                                                 self.query.clone()
                                             }),
                                     )
                                     .child(
                                         // 闪烁光标模拟
-                                        div()
-                                            .w(px(2.0))
-                                            .h(px(14.0))
-                                            .bg(ThemeColors::accent_blue()),
+                                        div().w(px(2.0)).h(px(14.0)).bg(ThemeColors::accent_blue()),
                                     ),
                             )
                             .when(!self.query.is_empty(), |row| {
@@ -407,21 +432,21 @@ impl Render for SearchEverywhereModal {
                             .bg(ThemeColors::bg_tab_bar())
                             .child(self.render_scope_pill(
                                 "scope-all",
-                                "All",
+                                crate::i18n::menu_text(cx, "search.scopeAll").to_string(),
                                 self.scope == SearchScope::All,
                                 SearchScope::All,
                                 cx,
                             ))
                             .child(self.render_scope_pill(
                                 "scope-files",
-                                "Files",
+                                crate::i18n::menu_text(cx, "search.scopeFiles").to_string(),
                                 self.scope == SearchScope::Files,
                                 SearchScope::Files,
                                 cx,
                             ))
                             .child(self.render_scope_pill(
                                 "scope-actions",
-                                "Actions",
+                                crate::i18n::menu_text(cx, "search.scopeActions").to_string(),
                                 self.scope == SearchScope::Actions,
                                 SearchScope::Actions,
                                 cx,
@@ -443,7 +468,7 @@ impl Render for SearchEverywhereModal {
                                         .text_center()
                                         .text_xs()
                                         .text_color(ThemeColors::text_muted())
-                                        .child("No matching files or actions found"),
+                                        .child(crate::i18n::menu_text(cx, "search.noResults")),
                                 )
                             })
                             .children(filtered.into_iter().enumerate().map(|(idx, item)| {
@@ -498,11 +523,7 @@ impl Render for SearchEverywhereModal {
                                                 })
                                                 .into_any_element()
                                         }
-                                        MatchedItem::Action {
-                                            name,
-                                            icon,
-                                            ..
-                                        } => h_flex()
+                                        MatchedItem::Action { id, icon, .. } => h_flex()
                                             .items_center()
                                             .gap_2()
                                             .child(
@@ -515,7 +536,7 @@ impl Render for SearchEverywhereModal {
                                                     .text_xs()
                                                     .font_weight(FontWeight::MEDIUM)
                                                     .text_color(ThemeColors::text_primary())
-                                                    .child(name.clone()),
+                                                    .child(action_display_name(id, cx)),
                                             )
                                             .into_any_element(),
                                     })
@@ -523,7 +544,7 @@ impl Render for SearchEverywhereModal {
                                         MatchedItem::File { .. } => div()
                                             .text_xs()
                                             .text_color(ThemeColors::text_muted())
-                                            .child("File")
+                                            .child(crate::i18n::menu_text(cx, "menu.file"))
                                             .into_any_element(),
                                         MatchedItem::Action { shortcut, .. } => {
                                             if let Some(sc) = shortcut {
@@ -549,12 +570,12 @@ impl Render for SearchEverywhereModal {
                             })),
                     )
                     .child(
-                        // 4. 底部微型操作指引栏
+                        // 4. 底部标题
                         h_flex()
                             .h(px(26.0))
                             .w_full()
                             .items_center()
-                            .justify_between()
+                            .justify_end()
                             .px_3()
                             .bg(ThemeColors::bg_titlebar())
                             .border_t_1()
@@ -563,13 +584,7 @@ impl Render for SearchEverywhereModal {
                                 div()
                                     .text_xs()
                                     .text_color(ThemeColors::text_muted())
-                                    .child("↑↓ Navigate  ·  Enter Select  ·  Esc Close"),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(ThemeColors::text_muted())
-                                    .child("Search Everywhere"),
+                                    .child(crate::i18n::menu_text(cx, "workbench.search")),
                             ),
                     ),
             )
@@ -580,7 +595,7 @@ impl SearchEverywhereModal {
     fn render_scope_pill(
         &self,
         id: &'static str,
-        label: &'static str,
+        label: String,
         is_active: bool,
         scope: SearchScope,
         cx: &mut Context<Self>,

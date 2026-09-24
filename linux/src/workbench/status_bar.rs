@@ -126,15 +126,10 @@ impl StatusBarView {
     fn render_leading_item(&self, id: &str) -> Option<AnyElement> {
         match id {
             "filePath" => {
-                let label = self
-                    .current_file
-                    .clone()
-                    .unwrap_or_else(|| "No file active".to_string());
-                Some(labeled(
-                    IconName::FileText,
-                    label,
-                    ThemeColors::subtle_foreground(),
-                ))
+                // 无活动文件时整项不渲染，对齐 Tauri（filePath 为 null）。
+                self.current_file.clone().map(|label| {
+                    labeled(IconName::FileText, label, ThemeColors::subtle_foreground())
+                })
             }
             // 分支未知时整项不渲染，避免用占位名误导用户。
             "branch" => self

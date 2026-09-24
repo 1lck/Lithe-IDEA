@@ -74,21 +74,21 @@ impl SettingsCategory {
         }
     }
 
-    /// 中文标题，与 Tauri `settings-dialog.tsx` 各分类 `labelKey` 的中文翻译逐字对应。
-    pub fn title(self) -> &'static str {
+    /// 分类 i18n 键，与 Tauri `settings-dialog.tsx` 各分类 `labelKey` 逐一对应。
+    pub fn title_key(self) -> &'static str {
         match self {
-            SettingsCategory::General => "常规",
-            SettingsCategory::Project => "项目 · JDK 与 Maven",
-            SettingsCategory::Run => "运行配置",
-            SettingsCategory::Editor => "编辑器",
-            SettingsCategory::Keyboard => "快捷键",
-            SettingsCategory::Terminal => "终端",
-            SettingsCategory::Lsp => "LSP",
-            SettingsCategory::Ai => "AI 聊天与编辑",
-            SettingsCategory::AiCommit => "AI 与提交",
-            SettingsCategory::Git => "Git",
-            SettingsCategory::Logs => "日志",
-            SettingsCategory::Updates => "更新",
+            SettingsCategory::General => "settings.tabs.general",
+            SettingsCategory::Project => "settings.project.title",
+            SettingsCategory::Run => "settings.run.title",
+            SettingsCategory::Editor => "settings.tabs.editor",
+            SettingsCategory::Keyboard => "settings.tabs.keyboard",
+            SettingsCategory::Terminal => "settings.tabs.terminal",
+            SettingsCategory::Lsp => "settings.tabs.lsp",
+            SettingsCategory::Ai => "settings.tabs.ai",
+            SettingsCategory::AiCommit => "settings.tabs.aiCommit",
+            SettingsCategory::Git => "settings.tabs.git",
+            SettingsCategory::Logs => "settings.tabs.logs",
+            SettingsCategory::Updates => "settings.tabs.updates",
         }
     }
 
@@ -267,7 +267,10 @@ impl Render for SettingsDialog {
                                             .text_sm()
                                             .font_weight(FontWeight::BOLD)
                                             .text_color(ThemeColors::foreground())
-                                            .child("Settings"),
+                                            .child(crate::i18n::menu_text(
+                                                cx,
+                                                "workbench.settings",
+                                            )),
                                     ),
                             )
                             .child(
@@ -291,7 +294,10 @@ impl Render for SettingsDialog {
                                         div()
                                             .text_xs()
                                             .text_color(ThemeColors::subtle_foreground())
-                                            .child("搜索设置"),
+                                            .child(
+                                                crate::i18n::menu_text(cx, "settings.search")
+                                                    .to_string(),
+                                            ),
                                     ),
                             )
                             .child(
@@ -299,7 +305,7 @@ impl Render for SettingsDialog {
                                     .small()
                                     .ghost()
                                     .icon(IconName::Close)
-                                    .tooltip("Close")
+                                    .tooltip(crate::i18n::menu_text(cx, "ui.close").to_string())
                                     .on_click(cx.listener(|_this, _event, _window, cx| {
                                         cx.emit(SettingsEvent::Close);
                                     })),
@@ -345,7 +351,10 @@ impl Render for SettingsDialog {
                                                     .text_lg()
                                                     .font_weight(FontWeight::SEMIBOLD)
                                                     .text_color(ThemeColors::foreground())
-                                                    .child(self.active_category.title()),
+                                                    .child(crate::i18n::menu_text(
+                                                        cx,
+                                                        self.active_category.title_key(),
+                                                    )),
                                             )
                                             .child(match self.active_category {
                                                 SettingsCategory::General => self
@@ -403,7 +412,10 @@ impl Render for SettingsDialog {
                                 Button::new("settings-restore-defaults")
                                     .small()
                                     .ghost()
-                                    .label("Restore Defaults")
+                                    .label(crate::i18n::menu_text(
+                                        cx,
+                                        "settings.mac.restoreDefaults",
+                                    ))
                                     .on_click(cx.listener(|this, _event, _window, cx| {
                                         // 恢复默认：整体替换为 Settings::default 并落盘。
                                         settings::update(cx, |s| *s = Settings::default());
@@ -422,7 +434,9 @@ impl Render for SettingsDialog {
                                 Button::new("settings-done")
                                     .small()
                                     .primary()
-                                    .label("Done")
+                                    .label(
+                                        crate::i18n::menu_text(cx, "settings.mac.done").to_string(),
+                                    )
                                     .on_click(cx.listener(|_this, _event, _window, cx| {
                                         cx.emit(SettingsEvent::Close);
                                     })),
@@ -471,14 +485,14 @@ impl SettingsDialog {
                         ThemeColors::subtle_foreground()
                     }),
             )
-            .child(cat.title())
+            .child(crate::i18n::menu_text(cx, cat.title_key()))
             .on_click(cx.listener(move |this, _event, _window, cx| {
                 this.set_category(cat, cx);
             }))
     }
 
     /// 分组容器：标题条 + 内容区，对应 Tauri `SettingsGroup`。
-    fn render_group(&self, title: &'static str, content: impl IntoElement) -> impl IntoElement {
+    fn render_group(&self, title: String, content: impl IntoElement) -> impl IntoElement {
         v_flex()
             .w_full()
             .rounded_md()
@@ -532,7 +546,7 @@ impl SettingsDialog {
             .child(div().flex_shrink_0().child(control))
     }
 
-    /// 开关控件：可点击药丸，On/Off 两种状态。
+    /// 开关控件：可点击药丸，圆点指示开关状态（对齐 Tauri Switch 无文字）。
     fn render_toggle(
         &self,
         id: &'static str,
@@ -569,7 +583,6 @@ impl SettingsDialog {
             } else {
                 ThemeColors::subtle_foreground()
             }))
-            .child(if value { "On" } else { "Off" })
             .on_click(cx.listener(move |this, _event, _window, cx| toggle(this, cx)))
     }
 
@@ -630,24 +643,27 @@ impl SettingsDialog {
 
     /// 下拉选择框：当前值按钮 + ChevronDown，点击展开选项列表。
     /// 对齐 Tauri 各面板的原生 `<select>`（`controlClassName` + `w-40/32/44`）。
-    /// `options` 为 (值, 展示文本) 对，按钮显示当前值对应的展示文本，选中项打勾。
+    /// `options` 为 (值, 展示文本) 对，展示文本为 owned String（便于动态拼接如 "2 个空格"），
+    /// 按钮显示当前值对应的展示文本，选中项打勾。
     fn render_dropdown(
         &self,
         id: &'static str,
         current: String,
         width: f32,
-        options: &'static [(&'static str, &'static str)],
+        options: Vec<(&'static str, String)>,
         cx: &mut Context<Self>,
         on_select: impl Fn(&mut Self, &'static str, &mut Context<Self>) + 'static,
     ) -> impl IntoElement {
         let view = cx.entity();
         let on_select = std::rc::Rc::new(on_select);
+        let current_owned = current.clone();
+        let options_for_label = options.clone();
         // 按钮展示当前值对应的展示文本（对齐原生 select 显示 label 的行为）。
-        let current_label = options
+        let current_label = options_for_label
             .iter()
-            .find(|(value, _)| *value == current.as_str())
-            .map(|(_, label)| label.to_string())
-            .unwrap_or(current.clone());
+            .find(|(value, _)| *value == current_owned.as_str())
+            .map(|(_, label)| label.clone())
+            .unwrap_or(current_owned.clone());
         Button::new(id)
             .small()
             .ghost()
@@ -670,18 +686,20 @@ impl SettingsDialog {
             )
             .dropdown_menu(move |menu, _window, _cx| {
                 let mut menu = menu;
-                for (value, label) in options {
+                for (value, label) in &options {
                     let v = view.clone();
                     let select = on_select.clone();
-                    let selected = *value == current.as_str();
-                    let item = gpui_kit::component::menu::PopupMenuItem::new(*label);
+                    let value = *value;
+                    let label = label.clone();
+                    let selected = value == current.as_str();
+                    let item = gpui_kit::component::menu::PopupMenuItem::new(label);
                     let item = if selected {
                         item.icon(IconName::Check)
                     } else {
                         item
                     };
                     menu = menu.item(item.on_click(move |_, _, cx| {
-                        v.update(cx, |this, cx| select(this, *value, cx));
+                        v.update(cx, |this, cx| select(this, value, cx));
                     }));
                 }
                 menu
@@ -705,7 +723,7 @@ impl SettingsDialog {
     }
 
     /// 分组内的说明文本。
-    fn render_note(&self, text: &'static str) -> impl IntoElement {
+    fn render_note(&self, text: String) -> impl IntoElement {
         div()
             .text_xs()
             .text_color(ThemeColors::subtle_foreground())
@@ -742,18 +760,29 @@ impl SettingsDialog {
             .gap_4()
             .child(
                 self.render_group(
-                    "外观",
+                    crate::i18n::menu_text(cx, "settings.mac.appearance").to_string(),
                     v_flex()
                         .w_full()
                         .gap_3()
                         .child(self.render_row(
-                            "配色主题".to_string(),
+                            crate::i18n::menu_text(cx, "settings.mac.colorTheme").to_string(),
                             None,
                             self.render_dropdown(
                                 "general-theme",
                                 s.theme.clone(),
                                 160.0,
-                                &[("lithe-dark", "深色"), ("lithe-light", "浅色")],
+                                vec![
+                                        (
+                                            "lithe-dark",
+                                            crate::i18n::menu_text(cx, "settings.mac.dark")
+                                                .to_string(),
+                                        ),
+                                        (
+                                            "lithe-light",
+                                            crate::i18n::menu_text(cx, "settings.mac.light")
+                                                .to_string(),
+                                        ),
+                                    ],
                                 cx,
                                 |this, theme_id, cx| {
                                     // 跟随系统时写入对应的自动主题，否则直接切换主题。
@@ -772,85 +801,134 @@ impl SettingsDialog {
                                 },
                             ),
                         ))
-                        .child(self.render_row(
-                            "外观模式".to_string(),
-                            Some("选择配色主题，并设置是否跟随系统外观。".to_string()),
-                            self.render_dropdown(
-                                "general-appearance-mode",
-                                appearance_mode,
-                                160.0,
-                                &[("system", "跟随系统"), ("light", "浅色"), ("dark", "深色")],
-                                cx,
-                                |this, mode, cx| {
-                                    this.commit_theme(cx, |s| {
-                                        if mode == "system" {
-                                            s.sync_system_theme = true;
-                                        } else {
-                                            s.sync_system_theme = false;
-                                            s.theme = if mode == "light" {
-                                                "lithe-light".to_string()
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "settings.mac.appearanceMode")
+                                    .to_string()
+                                    .to_string(),
+                                Some(
+                                    crate::i18n::menu_text(
+                                        cx,
+                                        "settings.mac.appearanceDescription",
+                                    )
+                                    .to_string(),
+                                ),
+                                self.render_dropdown(
+                                    "general-appearance-mode",
+                                    appearance_mode,
+                                    160.0,
+                                    vec![
+                                        (
+                                            "system",
+                                            crate::i18n::menu_text(cx, "settings.mac.followSystem")
+                                                .to_string(),
+                                        ),
+                                        (
+                                            "light",
+                                            crate::i18n::menu_text(cx, "settings.mac.light")
+                                                .to_string(),
+                                        ),
+                                        (
+                                            "dark",
+                                            crate::i18n::menu_text(cx, "settings.mac.dark")
+                                                .to_string(),
+                                        ),
+                                    ],
+                                    cx,
+                                    |this, mode, cx| {
+                                        this.commit_theme(cx, |s| {
+                                            if mode == "system" {
+                                                s.sync_system_theme = true;
                                             } else {
-                                                "lithe-dark".to_string()
-                                            };
-                                        }
-                                    })
-                                },
+                                                s.sync_system_theme = false;
+                                                s.theme = if mode == "light" {
+                                                    "lithe-light".to_string()
+                                                } else {
+                                                    "lithe-dark".to_string()
+                                                };
+                                            }
+                                        })
+                                    },
+                                ),
                             ),
-                        )),
+                        ),
                 ),
             )
             .child(self.render_group(
-                "语言",
+                crate::i18n::menu_text(cx, "settings.mac.language").to_string(),
                 v_flex().w_full().gap_3().child(self.render_row(
-                    "语言".to_string(),
-                    Some("界面语言会立即生效。默认语言为英文。".to_string()),
+                    crate::i18n::menu_text(cx, "settings.mac.language").to_string(),
+                    Some(
+                        crate::i18n::menu_text(cx, "settings.mac.languageDescription").to_string(),
+                    ),
                     self.render_dropdown(
                         "general-language",
                         s.display_language.clone(),
                         160.0,
-                        &[("en-US", "English"), ("zh-CN", "简体中文")],
+                        vec![
+                            ("en-US", "English".to_string()),
+                            ("zh-CN", "简体中文".to_string()),
+                        ],
                         cx,
                         |this, lang, cx| this.commit(cx, |s| s.display_language = lang.to_string()),
                     ),
                 )),
             ))
-            .child(self.render_group(
-                "项目",
-                v_flex().w_full().gap_3().child(self.render_row(
-                    "项目打开方式".to_string(),
-                    Some(
-                        "选择打开其他项目时是每次询问、保留在此窗口，还是创建新窗口。".to_string(),
+            .child(
+                self.render_group(
+                    crate::i18n::menu_text(cx, "settings.mac.projects").to_string(),
+                    v_flex().w_full().gap_3().child(
+                        self.render_row(
+                            crate::i18n::menu_text(cx, "settings.mac.openProjectsIn").to_string(),
+                            Some(
+                                crate::i18n::menu_text(cx, "settings.mac.openProjectsDescription")
+                                    .to_string()
+                                    .to_string(),
+                            ),
+                            self.render_dropdown(
+                                "general-project-placement",
+                                placement,
+                                160.0,
+                                vec![
+                                    (
+                                        "ask",
+                                        crate::i18n::menu_text(cx, "settings.mac.askEveryTime")
+                                            .to_string(),
+                                    ),
+                                    (
+                                        "this-window",
+                                        crate::i18n::menu_text(cx, "settings.mac.thisWindow")
+                                            .to_string(),
+                                    ),
+                                    (
+                                        "new-window",
+                                        crate::i18n::menu_text(cx, "settings.mac.newWindow")
+                                            .to_string(),
+                                    ),
+                                ],
+                                cx,
+                                |this, mode, cx| {
+                                    this.commit(cx, |s| match mode {
+                                        "ask" => s.ask_where_to_open_projects = true,
+                                        "this-window" => {
+                                            s.ask_where_to_open_projects = false;
+                                            s.open_folders_in_new_window = false;
+                                        }
+                                        _ => {
+                                            s.ask_where_to_open_projects = false;
+                                            s.open_folders_in_new_window = true;
+                                        }
+                                    })
+                                },
+                            ),
+                        ),
                     ),
-                    self.render_dropdown(
-                        "general-project-placement",
-                        placement,
-                        160.0,
-                        &[
-                            ("ask", "每次询问"),
-                            ("this-window", "此窗口"),
-                            ("new-window", "新窗口"),
-                        ],
-                        cx,
-                        |this, mode, cx| {
-                            this.commit(cx, |s| match mode {
-                                "ask" => s.ask_where_to_open_projects = true,
-                                "this-window" => {
-                                    s.ask_where_to_open_projects = false;
-                                    s.open_folders_in_new_window = false;
-                                }
-                                _ => {
-                                    s.ask_where_to_open_projects = false;
-                                    s.open_folders_in_new_window = true;
-                                }
-                            })
-                        },
-                    ),
-                )),
-            ))
+                ),
+            )
             .child(self.render_group(
-                "文件",
+                crate::i18n::menu_text(cx, "settings.mac.files").to_string(),
                 v_flex().w_full().gap_3().child(self.render_row(
-                    "自动保存更改的文件".to_string(),
+                    crate::i18n::menu_text(cx, "settings.mac.autoSave").to_string(),
                     None,
                     self.render_toggle("general-auto-save", s.auto_save, cx, |this, cx| {
                         this.commit(cx, |s| s.auto_save = !s.auto_save)
@@ -858,18 +936,29 @@ impl SettingsDialog {
                 )),
             ))
             .child(self.render_group(
-                "Git",
+                crate::i18n::menu_text(cx, "settings.tabs.git").to_string(),
                 v_flex().w_full().gap_3().child(self.render_row(
-                    "保存本地更改的方式".to_string(),
-                    Some("选择执行 Git 操作前保护本地更改的方式。".to_string()),
+                    crate::i18n::menu_text(cx, "settings.mac.saveLocalChangesWith").to_string(),
+                    Some(
+                        crate::i18n::menu_text(cx, "settings.mac.gitPolicyDescription").to_string(),
+                    ),
                     self.render_dropdown(
                         "general-git-policy",
                         self.git_policy.clone(),
                         160.0,
-                        &[
-                            ("ask", "每次询问"),
-                            ("shelf", "暂存架"),
-                            ("stash", "Git 贮藏"),
+                        vec![
+                            (
+                                "ask",
+                                crate::i18n::menu_text(cx, "settings.mac.askEveryTime").to_string(),
+                            ),
+                            (
+                                "shelf",
+                                crate::i18n::menu_text(cx, "settings.mac.shelf").to_string(),
+                            ),
+                            (
+                                "stash",
+                                crate::i18n::menu_text(cx, "settings.mac.gitStash").to_string(),
+                            ),
                         ],
                         cx,
                         |this, policy, cx| {
@@ -881,35 +970,35 @@ impl SettingsDialog {
             ))
             .child(
                 self.render_group(
-                    "隐藏路径",
+                    crate::i18n::menu_text(cx, "settings.mac.hiddenPaths").to_string(),
                     v_flex()
                         .w_full()
                         .gap_3()
-                        .child(self.render_note(
-                            "每行一项。目录名称会隐藏匹配的文件夹；文件条目支持 * 和 ?。",
-                        ))
                         .child(
-                            v_flex().w_full().gap_1p5().child(
-                                div()
-                                    .text_xs()
-                                    .text_color(ThemeColors::foreground())
-                                    .child("目录"),
+                            self.render_note(
+                                crate::i18n::menu_text(cx, "settings.mac.hiddenPathsDescription")
+                                    .to_string(),
                             ),
                         )
+                        .child(v_flex().w_full().gap_1p5().child(
+                            div().text_xs().text_color(ThemeColors::foreground()).child(
+                                crate::i18n::menu_text(cx, "settings.mac.directories").to_string(),
+                            ),
+                        ))
                         .child(self.render_text_block(s.hidden_directory_patterns.join("\n"), 72.0))
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(ThemeColors::foreground())
-                                .child("文件模式"),
-                        )
+                        .child(div().text_xs().text_color(ThemeColors::foreground()).child(
+                            crate::i18n::menu_text(cx, "settings.mac.filePatterns").to_string(),
+                        ))
                         .child(self.render_text_block(s.hidden_file_patterns.join("\n"), 56.0))
                         .child(
                             h_flex().w_full().justify_end().child(
                                 Button::new("general-apply-patterns")
                                     .small()
                                     .primary()
-                                    .label("应用")
+                                    .label(
+                                        crate::i18n::menu_text(cx, "settings.mac.apply")
+                                            .to_string(),
+                                    )
                                     .on_click(cx.listener(|_this, _event, _window, cx| {
                                         // 模式编辑器后续接入；当前落盘值即显示值。
                                         cx.notify();
@@ -934,36 +1023,42 @@ impl SettingsDialog {
                     .text_color(ThemeColors::foreground())
                     .child(self.workspace_root.clone()),
             )
-            .child(self.render_note(
-                "仅保存在当前电脑，作用于当前项目。运行配置默认继承这些值，单独设置的覆盖值保持不变。路径留空时使用自动选择。",
-            ))
+            .child(
+                self.render_note(crate::i18n::menu_text(cx, "settings.project.scope").to_string()),
+            )
             .child(
                 self.render_group(
-                    "工具链",
+                    crate::i18n::menu_text(cx, "settings.project.toolchain").to_string(),
                     v_flex()
                         .w_full()
                         .gap_3()
                         .child(self.render_row(
-                            "JDK 主目录".to_string(),
-                            Some("自动检测（留空）".to_string()),
+                            crate::i18n::menu_text(cx, "run.jdkHome").to_string(),
+                            Some(crate::i18n::menu_text(cx, "run.toolchainAuto").to_string()),
                             self.render_value(String::new()),
                         ))
                         .child(self.render_row(
-                            "Maven 主目录 / 可执行文件".to_string(),
-                            Some("自动检测（留空）".to_string()),
+                            crate::i18n::menu_text(cx, "run.mavenExecutable").to_string(),
+                            Some(crate::i18n::menu_text(cx, "run.toolchainAuto").to_string()),
                             self.render_value(String::new()),
                         ))
-                        .child(self.render_row(
-                            "Maven JDK 主目录".to_string(),
-                            Some("使用项目 JDK".to_string()),
-                            self.render_value(String::new()),
-                        ))
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "run.mavenJdkHome").to_string(),
+                                Some(
+                                    crate::i18n::menu_text(cx, "settings.project.useProjectJdk")
+                                        .to_string()
+                                        .to_string(),
+                                ),
+                                self.render_value(String::new()),
+                            ),
+                        )
                         .child(
                             h_flex().w_full().justify_end().child(
                                 Button::new("project-save")
                                     .small()
                                     .primary()
-                                    .label("保存")
+                                    .label(crate::i18n::menu_text(cx, "ui.save").to_string())
                                     .on_click(cx.listener(|_this, _event, _window, cx| {
                                         // 工具链探测与保存尚未接入后端。
                                         cx.notify();
@@ -978,19 +1073,21 @@ impl SettingsDialog {
     fn render_run_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex().w_full().gap_4().child(
             self.render_group(
-                "运行配置",
+                crate::i18n::menu_text(cx, "settings.run.title").to_string(),
                 v_flex()
                     .w_full()
                     .gap_3()
                     .child(self.render_note(
-                        "选择服务或任务，配置启动参数、环境变量和项目环境覆盖项；点击保存后生效。",
+                        crate::i18n::menu_text(cx, "settings.run.description").to_string(),
                     ))
                     .child(
                         h_flex().w_full().justify_end().child(
                             Button::new("run-generate")
                                 .small()
                                 .primary()
-                                .label("生成运行配置")
+                                .label(
+                                    crate::i18n::menu_text(cx, "settings.run.generate").to_string(),
+                                )
                                 .on_click(cx.listener(|_this, _event, _window, cx| {
                                     // 运行配置生成尚未接入后端。
                                     cx.notify();
@@ -1004,17 +1101,23 @@ impl SettingsDialog {
     /// 编辑器：对齐 Tauri `EditorPanel`（显示/编辑器标签页/缩进）。
     fn render_editor_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let s = settings::get(cx).clone();
+        let spaces = crate::i18n::menu_text(cx, "settings.mac.spaces").to_string();
+        let tab_options = [
+            ("2", format!("2 {spaces}")),
+            ("4", format!("4 {spaces}")),
+            ("8", format!("8 {spaces}")),
+        ];
         v_flex()
             .w_full()
             .gap_4()
             .child(
                 self.render_group(
-                    "显示",
+                    crate::i18n::menu_text(cx, "settings.mac.display").to_string(),
                     v_flex()
                         .w_full()
                         .gap_3()
                         .child(self.render_row(
-                            "字体大小".to_string(),
+                            crate::i18n::menu_text(cx, "settings.mac.fontSize").to_string(),
                             None,
                             self.render_stepper(
                                 "font-dec",
@@ -1030,7 +1133,7 @@ impl SettingsDialog {
                             ),
                         ))
                         .child(self.render_row(
-                            "显示用法与 Git 作者".to_string(),
+                            crate::i18n::menu_text(cx, "settings.mac.showCodeVision").to_string(),
                             None,
                             self.render_toggle("editor-code-lens", s.code_lens, cx, |this, cx| {
                                 this.commit(cx, |s| s.code_lens = !s.code_lens)
@@ -1038,31 +1141,49 @@ impl SettingsDialog {
                         )),
                 ),
             )
-            .child(self.render_group(
-                "编辑器标签页",
-                v_flex().w_full().gap_3().child(self.render_row(
-                    "缓冲区轮播".to_string(),
-                    Some("在主视图中将打开的缓冲区显示为可横向滚动的轮播".to_string()),
-                    self.render_toggle(
-                        "editor-buffer-carousel",
-                        s.horizontal_tab_scroll,
-                        cx,
-                        |this, cx| {
-                            this.commit(cx, |s| s.horizontal_tab_scroll = !s.horizontal_tab_scroll)
-                        },
+            .child(
+                self.render_group(
+                    crate::i18n::menu_text(cx, "settings.mac.editorTabs").to_string(),
+                    v_flex().w_full().gap_3().child(
+                        self.render_row(
+                            crate::i18n::menu_text(cx, "settings.editor.bufferCarousel")
+                                .to_string()
+                                .to_string(),
+                            Some(
+                                crate::i18n::menu_text(
+                                    cx,
+                                    "settings.editor.bufferCarouselDescription",
+                                )
+                                .to_string(),
+                            ),
+                            self.render_toggle(
+                                "editor-buffer-carousel",
+                                s.horizontal_tab_scroll,
+                                cx,
+                                |this, cx| {
+                                    this.commit(cx, |s| {
+                                        s.horizontal_tab_scroll = !s.horizontal_tab_scroll
+                                    })
+                                },
+                            ),
+                        ),
                     ),
-                )),
-            ))
+                ),
+            )
             .child(self.render_group(
-                "缩进",
+                crate::i18n::menu_text(cx, "settings.mac.indentation").to_string(),
                 v_flex().w_full().gap_3().child(self.render_row(
-                    "制表符宽度".to_string(),
+                    crate::i18n::menu_text(cx, "settings.mac.tabWidth").to_string(),
                     None,
                     self.render_dropdown(
                         "editor-tab-width",
                         s.tab_size.to_string(),
                         128.0,
-                        &[("2", "2 个空格"), ("4", "4 个空格"), ("8", "8 个空格")],
+                        vec![
+                            ("2", tab_options[0].1.clone()),
+                            ("4", tab_options[1].1.clone()),
+                            ("8", tab_options[2].1.clone()),
+                        ],
                         cx,
                         |this, size, cx| {
                             this.commit(cx, |s| s.tab_size = size.parse().unwrap_or(2))
@@ -1079,19 +1200,19 @@ impl SettingsDialog {
             .w_full()
             .gap_4()
             .child(self.render_group(
-                "快捷键方案",
+                crate::i18n::menu_text(cx, "settings.mac.keymapPreset").to_string(),
                 v_flex().w_full().gap_3().child(self.render_row(
-                    "预设".to_string(),
+                    crate::i18n::menu_text(cx, "settings.mac.preset").to_string(),
                     None,
                     self.render_dropdown(
                         "keymap-preset",
                         s.keybinding_preset.clone(),
                         176.0,
-                        &[
-                            ("none", "Lithe"),
-                            ("vscode", "Visual Studio Code"),
-                            ("jetbrains", "JetBrains"),
-                            ("xcode", "Xcode"),
+                        vec![
+                            ("none", "Lithe".to_string()),
+                            ("vscode", "Visual Studio Code".to_string()),
+                            ("jetbrains", "JetBrains".to_string()),
+                            ("xcode", "Xcode".to_string()),
                         ],
                         cx,
                         |this, preset, cx| {
@@ -1102,7 +1223,7 @@ impl SettingsDialog {
             ))
             .child(
                 self.render_group(
-                    "键盘快捷键",
+                    crate::i18n::menu_text(cx, "settings.mac.shortcuts").to_string(),
                     v_flex()
                         .w_full()
                         .gap_3()
@@ -1128,12 +1249,16 @@ impl SettingsDialog {
                                         .flex_1()
                                         .text_xs()
                                         .text_color(ThemeColors::subtle_foreground())
-                                        .child("搜索快捷键"),
+                                        .child(crate::i18n::menu_text(
+                                            cx,
+                                            "settings.mac.searchShortcuts",
+                                        )),
                                 ),
                         )
                         .child(
                             self.render_note(
-                                "选择快捷键预设，然后使用命令面板查看和运行可用命令。",
+                                crate::i18n::menu_text(cx, "settings.mac.shortcutsDescription")
+                                    .to_string(),
                             ),
                         ),
                 ),
@@ -1144,20 +1269,37 @@ impl SettingsDialog {
     fn render_terminal_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let s = settings::get(cx).clone();
         v_flex().w_full().gap_4().child(self.render_group(
-            "Shell",
+            crate::i18n::menu_text(cx, "settings.mac.shell").to_string(),
             v_flex().w_full().gap_3().child(self.render_row(
-                "默认 Shell".to_string(),
-                Some("用于新的终端会话。".to_string()),
+                crate::i18n::menu_text(cx, "settings.mac.defaultShell").to_string(),
+                Some(
+                    crate::i18n::menu_text(cx, "settings.mac.defaultShellDescription").to_string(),
+                ),
                 self.render_dropdown(
                     "terminal-default-shell",
                     s.terminal_default_shell_id.clone(),
                     176.0,
-                    &[
-                        ("", "系统默认"),
-                        ("powershell", "PowerShell"),
-                        ("cmd", "命令提示符"),
-                        ("wsl", "WSL"),
-                    ],
+                    vec![
+                                (
+                                    "",
+                                    crate::i18n::menu_text(cx, "settings.mac.systemDefault")
+                                        .to_string(),
+                                ),
+                                (
+                                    "powershell",
+                                    crate::i18n::menu_text(cx, "settings.mac.shellPowerShell")
+                                        .to_string(),
+                                ),
+                                (
+                                    "cmd",
+                                    crate::i18n::menu_text(cx, "settings.mac.shellCommandPrompt")
+                                        .to_string(),
+                                ),
+                                (
+                                    "wsl",
+                                    crate::i18n::menu_text(cx, "settings.mac.shellWsl").to_string(),
+                                ),
+                            ],
                     cx,
                     |this, shell, cx| {
                         this.commit(cx, |s| s.terminal_default_shell_id = shell.to_string())
@@ -1175,24 +1317,34 @@ impl SettingsDialog {
             .gap_4()
             .child(
                 self.render_group(
-                    "语言服务",
+                    crate::i18n::menu_text(cx, "settings.mac.languageServices").to_string(),
                     v_flex()
                         .w_full()
                         .gap_3()
-                        .child(self.render_row(
-                            "自动补全".to_string(),
-                            Some("显示活动语言服务器提供的补全建议。".to_string()),
-                            self.render_toggle(
-                                "lsp-auto-completion",
-                                s.auto_completion,
-                                cx,
-                                |this, cx| {
-                                    this.commit(cx, |s| s.auto_completion = !s.auto_completion)
-                                },
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "settings.mac.autoCompletion")
+                                    .to_string()
+                                    .to_string(),
+                                Some(
+                                    crate::i18n::menu_text(
+                                        cx,
+                                        "settings.mac.autoCompletionDescription",
+                                    )
+                                    .to_string(),
+                                ),
+                                self.render_toggle(
+                                    "lsp-auto-completion",
+                                    s.auto_completion,
+                                    cx,
+                                    |this, cx| {
+                                        this.commit(cx, |s| s.auto_completion = !s.auto_completion)
+                                    },
+                                ),
                             ),
-                        ))
+                        )
                         .child(self.render_row(
-                            "参数提示".to_string(),
+                            crate::i18n::menu_text(cx, "settings.mac.parameterHints").to_string(),
                             None,
                             self.render_toggle(
                                 "lsp-parameter-hints",
@@ -1203,83 +1355,122 @@ impl SettingsDialog {
                                 },
                             ),
                         ))
-                        .child(self.render_row(
-                            "语义高亮".to_string(),
-                            None,
-                            self.render_toggle(
-                                "lsp-semantic-highlighting",
-                                s.semantic_tokens,
-                                cx,
-                                |this, cx| {
-                                    this.commit(cx, |s| s.semantic_tokens = !s.semantic_tokens)
-                                },
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "settings.mac.semanticHighlighting")
+                                    .to_string()
+                                    .to_string(),
+                                None,
+                                self.render_toggle(
+                                    "lsp-semantic-highlighting",
+                                    s.semantic_tokens,
+                                    cx,
+                                    |this, cx| {
+                                        this.commit(cx, |s| s.semantic_tokens = !s.semantic_tokens)
+                                    },
+                                ),
                             ),
-                        )),
+                        ),
                 ),
             )
-            .child(self.render_group(
-                "已检测语言服务器",
-                self.render_note("语言服务器由已安装的语言扩展检测，并在打开受支持文件时启动。"),
-            ))
+            .child(
+                self.render_group(
+                    crate::i18n::menu_text(cx, "settings.mac.detectedServers").to_string(),
+                    self.render_note(
+                        crate::i18n::menu_text(cx, "settings.mac.detectedServersDescription")
+                            .to_string(),
+                    ),
+                ),
+            )
     }
 
     /// AI 聊天与编辑：对齐 `AISettings` 的 Lithe Agent 分组结构
     /// （提供商/模型行），完整选择器尚未接入后端。
-    fn render_ai_content(&self, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_ai_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .w_full()
             .gap_4()
             .child(
                 self.render_group(
-                    "Lithe Agent",
+                    "Lithe Agent".to_string(),
                     v_flex()
                         .w_full()
                         .gap_3()
-                        .child(self.render_row(
-                            "提供商".to_string(),
-                            Some("选择 Lithe Agent 使用的提供商".to_string()),
-                            self.render_value("Anthropic".to_string()),
-                        ))
-                        .child(self.render_row(
-                            "模型".to_string(),
-                            Some("选择 Lithe Agent 使用的模型".to_string()),
-                            self.render_value("claude-sonnet-4-6".to_string()),
-                        )),
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "aiSettings.provider").to_string(),
+                                Some(
+                                    crate::i18n::menu_text(cx, "aiSettings.providerDescription")
+                                        .to_string()
+                                        .to_string(),
+                                ),
+                                self.render_value("Anthropic".to_string()),
+                            ),
+                        )
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "aiSettings.model").to_string(),
+                                Some(
+                                    crate::i18n::menu_text(cx, "aiSettings.modelDescription")
+                                        .to_string()
+                                        .to_string(),
+                                ),
+                                self.render_value("claude-sonnet-4-6".to_string()),
+                            ),
+                        ),
                 ),
             )
             .child(self.render_group(
-                "说明",
-                self.render_note("完整提供商与模型选择尚未接入，后续版本提供。"),
+                crate::i18n::menu_text(cx, "settings.ai.noteTitle").to_string(),
+                self.render_note(
+                    crate::i18n::menu_text(cx, "settings.ai.providerNote").to_string(),
+                ),
             ))
     }
 
     /// AI 与提交：对齐 `AiCommitSettingsPanel` 的分组结构
     /// （配置文件/规则），完整配置尚未接入后端。
-    fn render_ai_commit_content(&self, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_ai_commit_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .w_full()
             .gap_4()
             .child(
                 self.render_group(
-                    "提交信息",
+                    crate::i18n::menu_text(cx, "settings.mac.commitMessage").to_string(),
                     v_flex()
                         .w_full()
                         .gap_3()
-                        .child(self.render_row(
-                            "配置文件".to_string(),
-                            Some("用于生成提交信息的模型配置".to_string()),
-                            self.render_value("默认".to_string()),
-                        ))
-                        .child(self.render_row(
-                            "规则".to_string(),
-                            Some("生成提交信息时遵循的规则".to_string()),
-                            self.render_value("默认".to_string()),
-                        )),
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "settings.ai.commitProfile").to_string(),
+                                Some(
+                                    crate::i18n::menu_text(
+                                        cx,
+                                        "settings.ai.commitProfileDescription",
+                                    )
+                                    .to_string(),
+                                ),
+                                self.render_value("默认".to_string()),
+                            ),
+                        )
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "settings.ai.commitRules").to_string(),
+                                Some(
+                                    crate::i18n::menu_text(
+                                        cx,
+                                        "settings.ai.commitRulesDescription",
+                                    )
+                                    .to_string(),
+                                ),
+                                self.render_value("默认".to_string()),
+                            ),
+                        ),
                 ),
             )
             .child(self.render_group(
-                "说明",
-                self.render_note("AI 提交配置尚未接入，后续版本提供。"),
+                crate::i18n::menu_text(cx, "settings.ai.noteTitle").to_string(),
+                self.render_note(crate::i18n::menu_text(cx, "settings.ai.commitNote").to_string()),
             ))
     }
 
@@ -1292,13 +1483,13 @@ impl SettingsDialog {
             .gap_4()
             .child(
                 self.render_group(
-                    "Fetch 默认行为",
+                    crate::i18n::menu_text(cx, "git.fetch.defaults").to_string(),
                     v_flex()
                         .w_full()
                         .gap_3()
                         .child(self.render_row(
-                            "清理失效的远程跟踪引用".to_string(),
-                            Some("用于所有项目中的普通 Fetch。".to_string()),
+                            crate::i18n::menu_text(cx, "git.fetch.prune").to_string(),
+                            Some(crate::i18n::menu_text(cx, "git.fetch.scope").to_string()),
                             self.render_toggle(
                                 "git-fetch-prune",
                                 s.git_fetch_prune,
@@ -1309,18 +1500,40 @@ impl SettingsDialog {
                             ),
                         ))
                         .child(self.render_row(
-                            "获取子模块".to_string(),
+                            crate::i18n::menu_text(cx, "git.fetch.submodules").to_string(),
                             None,
                             self.render_dropdown(
                                 "git-fetch-submodules",
                                 s.git_fetch_submodules.clone(),
                                 160.0,
-                                &[
-                                    ("inherit", "使用 Git 配置"),
-                                    ("no", "不获取子模块"),
-                                    ("onDemand", "按需获取"),
-                                    ("yes", "获取全部子模块"),
-                                ],
+                                vec![
+                                        (
+                                            "inherit",
+                                            crate::i18n::menu_text(
+                                                cx,
+                                                "git.fetch.submodules.inherit",
+                                            )
+                                            .to_string(),
+                                        ),
+                                        (
+                                            "no",
+                                            crate::i18n::menu_text(cx, "git.fetch.submodules.no")
+                                                .to_string(),
+                                        ),
+                                        (
+                                            "onDemand",
+                                            crate::i18n::menu_text(
+                                                cx,
+                                                "git.fetch.submodules.onDemand",
+                                            )
+                                            .to_string(),
+                                        ),
+                                        (
+                                            "yes",
+                                            crate::i18n::menu_text(cx, "git.fetch.submodules.yes")
+                                                .to_string(),
+                                        ),
+                                    ],
                                 cx,
                                 |this, value, cx| {
                                     this.commit(cx, |s| s.git_fetch_submodules = value.to_string())
@@ -1328,18 +1541,34 @@ impl SettingsDialog {
                             ),
                         ))
                         .child(self.render_row(
-                            "获取标签".to_string(),
-                            Some("凭据沿用现有 Git 凭据助手和 SSH 配置。".to_string()),
+                            crate::i18n::menu_text(cx, "git.fetch.tags").to_string(),
+                            Some(crate::i18n::menu_text(cx, "git.fetch.credentials").to_string()),
                             self.render_dropdown(
                                 "git-fetch-tags",
                                 s.git_fetch_tags.clone(),
                                 160.0,
-                                &[
-                                    ("inherit", "使用 Git 配置"),
-                                    ("all", "获取全部标签"),
-                                    ("none", "不获取标签"),
-                                    ("prune", "同步标签并删除远程已不存在的本地标签"),
-                                ],
+                                vec![
+                                        (
+                                            "inherit",
+                                            crate::i18n::menu_text(cx, "git.fetch.tags.inherit")
+                                                .to_string(),
+                                        ),
+                                        (
+                                            "all",
+                                            crate::i18n::menu_text(cx, "git.fetch.tags.all")
+                                                .to_string(),
+                                        ),
+                                        (
+                                            "none",
+                                            crate::i18n::menu_text(cx, "git.fetch.tags.none")
+                                                .to_string(),
+                                        ),
+                                        (
+                                            "prune",
+                                            crate::i18n::menu_text(cx, "git.fetch.tags.prune")
+                                                .to_string(),
+                                        ),
+                                    ],
                                 cx,
                                 |this, value, cx| {
                                     this.commit(cx, |s| s.git_fetch_tags = value.to_string())
@@ -1350,192 +1579,312 @@ impl SettingsDialog {
             )
             .child(
                 self.render_group(
-                    "集成",
+                    crate::i18n::menu_text(cx, "settings.git.integration").to_string(),
                     v_flex()
                         .w_full()
                         .gap_3()
-                        .child(self.render_row(
-                            "Git 集成".to_string(),
-                            Some("启用 Git 仓库的源代码管理功能".to_string()),
-                            self.render_toggle(
-                                "git-integration",
-                                s.core_features.git,
-                                cx,
-                                |this, cx| {
-                                    this.commit(cx, |s| s.core_features.git = !s.core_features.git)
-                                },
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "settings.git.gitIntegration")
+                                    .to_string()
+                                    .to_string(),
+                                Some(
+                                    crate::i18n::menu_text(
+                                        cx,
+                                        "settings.git.gitIntegrationDescription",
+                                    )
+                                    .to_string(),
+                                ),
+                                self.render_toggle(
+                                    "git-integration",
+                                    s.core_features.git,
+                                    cx,
+                                    |this, cx| {
+                                        this.commit(cx, |s| {
+                                            s.core_features.git = !s.core_features.git
+                                        })
+                                    },
+                                ),
                             ),
-                        ))
-                        .child(self.render_row(
-                            "自动刷新 Git 状态".to_string(),
-                            Some("相关文件或 Git 事件发生变化后自动刷新 Git 视图".to_string()),
-                            self.render_toggle(
-                                "git-auto-refresh",
-                                s.auto_refresh_git_status,
-                                cx,
-                                |this, cx| {
-                                    this.commit(cx, |s| {
-                                        s.auto_refresh_git_status = !s.auto_refresh_git_status
-                                    })
-                                },
+                        )
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "settings.git.autoRefresh").to_string(),
+                                Some(
+                                    crate::i18n::menu_text(
+                                        cx,
+                                        "settings.git.autoRefreshDescription",
+                                    )
+                                    .to_string(),
+                                ),
+                                self.render_toggle(
+                                    "git-auto-refresh",
+                                    s.auto_refresh_git_status,
+                                    cx,
+                                    |this, cx| {
+                                        this.commit(cx, |s| {
+                                            s.auto_refresh_git_status = !s.auto_refresh_git_status
+                                        })
+                                    },
+                                ),
                             ),
-                        ))
-                        .child(self.render_row(
-                            "丢弃前确认".to_string(),
-                            Some("丢弃文件或仓库更改前显示确认提示".to_string()),
-                            self.render_toggle(
-                                "git-confirm-discard",
-                                s.confirm_before_discard,
-                                cx,
-                                |this, cx| {
-                                    this.commit(cx, |s| {
-                                        s.confirm_before_discard = !s.confirm_before_discard
-                                    })
-                                },
+                        )
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "settings.git.confirmDiscard")
+                                    .to_string()
+                                    .to_string(),
+                                Some(
+                                    crate::i18n::menu_text(
+                                        cx,
+                                        "settings.git.confirmDiscardDescription",
+                                    )
+                                    .to_string(),
+                                ),
+                                self.render_toggle(
+                                    "git-confirm-discard",
+                                    s.confirm_before_discard,
+                                    cx,
+                                    |this, cx| {
+                                        this.commit(cx, |s| {
+                                            s.confirm_before_discard = !s.confirm_before_discard
+                                        })
+                                    },
+                                ),
                             ),
-                        )),
+                        ),
                 ),
             )
             .child(
                 self.render_group(
-                    "Git 视图",
+                    crate::i18n::menu_text(cx, "settings.git.view").to_string(),
                     v_flex()
                         .w_full()
                         .gap_3()
-                        .child(self.render_row(
-                            "基于文件夹的更改".to_string(),
-                            Some("以类似文件视图的文件夹树形式显示 Git 更改".to_string()),
-                            self.render_toggle(
-                                "git-folder-changes",
-                                s.git_changes_folder_view,
-                                cx,
-                                |this, cx| {
-                                    this.commit(cx, |s| {
-                                        s.git_changes_folder_view = !s.git_changes_folder_view
-                                    })
-                                },
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "settings.git.folderChanges")
+                                    .to_string()
+                                    .to_string(),
+                                Some(
+                                    crate::i18n::menu_text(
+                                        cx,
+                                        "settings.git.folderChangesDescription",
+                                    )
+                                    .to_string(),
+                                ),
+                                self.render_toggle(
+                                    "git-folder-changes",
+                                    s.git_changes_folder_view,
+                                    cx,
+                                    |this, cx| {
+                                        this.commit(cx, |s| {
+                                            s.git_changes_folder_view = !s.git_changes_folder_view
+                                        })
+                                    },
+                                ),
                             ),
-                        ))
-                        .child(self.render_row(
-                            "显示未跟踪文件".to_string(),
-                            Some("在 Git 状态面板中显示未跟踪文件".to_string()),
-                            self.render_toggle(
-                                "git-show-untracked",
-                                s.show_untracked_files,
-                                cx,
-                                |this, cx| {
-                                    this.commit(cx, |s| {
-                                        s.show_untracked_files = !s.show_untracked_files
-                                    })
-                                },
+                        )
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "settings.git.untracked").to_string(),
+                                Some(
+                                    crate::i18n::menu_text(cx, "settings.git.untrackedDescription")
+                                        .to_string()
+                                        .to_string(),
+                                ),
+                                self.render_toggle(
+                                    "git-show-untracked",
+                                    s.show_untracked_files,
+                                    cx,
+                                    |this, cx| {
+                                        this.commit(cx, |s| {
+                                            s.show_untracked_files = !s.show_untracked_files
+                                        })
+                                    },
+                                ),
                             ),
-                        ))
-                        .child(self.render_row(
-                            "优先显示已暂存项".to_string(),
-                            Some("在 Git 面板中将已暂存更改显示在未暂存更改之前".to_string()),
-                            self.render_toggle(
-                                "git-show-staged-first",
-                                s.show_staged_first,
-                                cx,
-                                |this, cx| {
-                                    this.commit(cx, |s| s.show_staged_first = !s.show_staged_first)
-                                },
+                        )
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "settings.git.stagedFirst").to_string(),
+                                Some(
+                                    crate::i18n::menu_text(
+                                        cx,
+                                        "settings.git.stagedFirstDescription",
+                                    )
+                                    .to_string(),
+                                ),
+                                self.render_toggle(
+                                    "git-show-staged-first",
+                                    s.show_staged_first,
+                                    cx,
+                                    |this, cx| {
+                                        this.commit(cx, |s| {
+                                            s.show_staged_first = !s.show_staged_first
+                                        })
+                                    },
+                                ),
                             ),
-                        ))
-                        .child(self.render_row(
-                            "单击打开差异".to_string(),
-                            Some("单击已更改文件时打开差异，而不是直接打开文件".to_string()),
-                            self.render_toggle(
-                                "git-open-diff-on-click",
-                                s.open_diff_on_click,
-                                cx,
-                                |this, cx| {
-                                    this.commit(cx, |s| {
-                                        s.open_diff_on_click = !s.open_diff_on_click
-                                    })
-                                },
+                        )
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "settings.git.openDiff").to_string(),
+                                Some(
+                                    crate::i18n::menu_text(cx, "settings.git.openDiffDescription")
+                                        .to_string()
+                                        .to_string(),
+                                ),
+                                self.render_toggle(
+                                    "git-open-diff-on-click",
+                                    s.open_diff_on_click,
+                                    cx,
+                                    |this, cx| {
+                                        this.commit(cx, |s| {
+                                            s.open_diff_on_click = !s.open_diff_on_click
+                                        })
+                                    },
+                                ),
                             ),
-                        ))
-                        .child(self.render_row(
-                            "紧凑 Git 状态标记".to_string(),
-                            Some("在 Git 面板中使用更紧凑的差异统计和暂存标签布局".to_string()),
-                            self.render_toggle(
-                                "git-compact-badges",
-                                s.compact_git_status_badges,
-                                cx,
-                                |this, cx| {
-                                    this.commit(cx, |s| {
-                                        s.compact_git_status_badges = !s.compact_git_status_badges
-                                    })
-                                },
+                        )
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "settings.git.compactBadges")
+                                    .to_string()
+                                    .to_string(),
+                                Some(
+                                    crate::i18n::menu_text(
+                                        cx,
+                                        "settings.git.compactBadgesDescription",
+                                    )
+                                    .to_string(),
+                                ),
+                                self.render_toggle(
+                                    "git-compact-badges",
+                                    s.compact_git_status_badges,
+                                    cx,
+                                    |this, cx| {
+                                        this.commit(cx, |s| {
+                                            s.compact_git_status_badges =
+                                                !s.compact_git_status_badges
+                                        })
+                                    },
+                                ),
                             ),
-                        ))
-                        .child(self.render_row(
-                            "折叠空分区".to_string(),
-                            Some("没有项目时隐藏已暂存更改等空 Git 分区".to_string()),
-                            self.render_toggle(
-                                "git-collapse-empty",
-                                s.collapse_empty_git_sections,
-                                cx,
-                                |this, cx| {
-                                    this.commit(cx, |s| {
-                                        s.collapse_empty_git_sections =
-                                            !s.collapse_empty_git_sections
-                                    })
-                                },
+                        )
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "settings.git.collapseEmpty")
+                                    .to_string()
+                                    .to_string(),
+                                Some(
+                                    crate::i18n::menu_text(
+                                        cx,
+                                        "settings.git.collapseEmptyDescription",
+                                    )
+                                    .to_string(),
+                                ),
+                                self.render_toggle(
+                                    "git-collapse-empty",
+                                    s.collapse_empty_git_sections,
+                                    cx,
+                                    |this, cx| {
+                                        this.commit(cx, |s| {
+                                            s.collapse_empty_git_sections =
+                                                !s.collapse_empty_git_sections
+                                        })
+                                    },
+                                ),
                             ),
-                        ))
-                        .child(self.render_row(
-                            "记住上次 Git 面板模式".to_string(),
-                            Some("重新打开 Git 视图时恢复上次打开的底部 Git 面板分区".to_string()),
-                            self.render_toggle(
-                                "git-remember-panel",
-                                s.remember_last_git_panel_mode,
-                                cx,
-                                |this, cx| {
-                                    this.commit(cx, |s| {
-                                        s.remember_last_git_panel_mode =
-                                            !s.remember_last_git_panel_mode
-                                    })
-                                },
+                        )
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "settings.git.rememberPanel")
+                                    .to_string()
+                                    .to_string(),
+                                Some(
+                                    crate::i18n::menu_text(
+                                        cx,
+                                        "settings.git.rememberPanelDescription",
+                                    )
+                                    .to_string(),
+                                ),
+                                self.render_toggle(
+                                    "git-remember-panel",
+                                    s.remember_last_git_panel_mode,
+                                    cx,
+                                    |this, cx| {
+                                        this.commit(cx, |s| {
+                                            s.remember_last_git_panel_mode =
+                                                !s.remember_last_git_panel_mode
+                                        })
+                                    },
+                                ),
                             ),
-                        )),
+                        ),
                 ),
             )
-            .child(self.render_group(
-                "默认差异视图",
-                v_flex().w_full().gap_3().child(self.render_row(
-                    "默认差异视图".to_string(),
-                    Some("选择 Git 差异的默认布局".to_string()),
-                    self.render_dropdown(
-                        "git-default-diff-view",
-                        s.git_default_diff_view.clone(),
-                        160.0,
-                        &[("unified", "统一视图"), ("split", "拆分视图")],
-                        cx,
-                        |this, value, cx| {
-                            this.commit(cx, |s| s.git_default_diff_view = value.to_string())
-                        },
+            .child(
+                self.render_group(
+                    crate::i18n::menu_text(cx, "settings.git.defaultDiff").to_string(),
+                    v_flex().w_full().gap_3().child(
+                        self.render_row(
+                            crate::i18n::menu_text(cx, "settings.git.defaultDiff").to_string(),
+                            Some(
+                                crate::i18n::menu_text(cx, "settings.git.defaultDiffDescription")
+                                    .to_string()
+                                    .to_string(),
+                            ),
+                            self.render_dropdown(
+                                "git-default-diff-view",
+                                s.git_default_diff_view.clone(),
+                                160.0,
+                                vec![
+                                    (
+                                        "unified",
+                                        crate::i18n::menu_text(cx, "settings.git.unified")
+                                            .to_string(),
+                                    ),
+                                    (
+                                        "split",
+                                        crate::i18n::menu_text(cx, "settings.git.split")
+                                            .to_string(),
+                                    ),
+                                ],
+                                cx,
+                                |this, value, cx| {
+                                    this.commit(cx, |s| s.git_default_diff_view = value.to_string())
+                                },
+                            ),
+                        ),
                     ),
-                )),
-            ))
-            .child(self.render_group(
-                "编辑器",
-                v_flex().w_full().gap_3().child(self.render_row(
-                    "启用行内 Blame".to_string(),
-                    Some("在编辑器中显示当前行的 Git Blame 元数据".to_string()),
-                    self.render_toggle(
-                        "git-inline-blame",
-                        s.enable_inline_git_blame,
-                        cx,
-                        |this, cx| {
-                            this.commit(cx, |s| {
-                                s.enable_inline_git_blame = !s.enable_inline_git_blame
-                            })
-                        },
+                ),
+            )
+            .child(
+                self.render_group(
+                    crate::i18n::menu_text(cx, "settings.git.editor").to_string(),
+                    v_flex().w_full().gap_3().child(
+                        self.render_row(
+                            crate::i18n::menu_text(cx, "settings.git.inlineBlame").to_string(),
+                            Some(
+                                crate::i18n::menu_text(cx, "settings.git.inlineBlameDescription")
+                                    .to_string()
+                                    .to_string(),
+                            ),
+                            self.render_toggle(
+                                "git-inline-blame",
+                                s.enable_inline_git_blame,
+                                cx,
+                                |this, cx| {
+                                    this.commit(cx, |s| {
+                                        s.enable_inline_git_blame = !s.enable_inline_git_blame
+                                    })
+                                },
+                            ),
+                        ),
                     ),
-                )),
-            ))
+                ),
+            )
     }
 
     /// 日志：对齐 Tauri `LogSettingsPanel` 的分组结构
@@ -1547,95 +1896,150 @@ impl SettingsDialog {
             .gap_4()
             .child(
                 self.render_group(
-                    "日志位置",
+                    crate::i18n::menu_text(cx, "settings.logs.locations").to_string(),
                     v_flex()
                         .w_full()
                         .gap_3()
-                        .child(self.render_row(
-                            "当前日志位置".to_string(),
-                            Some("本次会话实际写入日志的目录。".to_string()),
-                            self.render_value(default_dir.clone()),
-                        ))
-                        .child(self.render_row(
-                            "默认日志位置".to_string(),
-                            Some("Lithe 始终维护并清理这个应用自有目录。".to_string()),
-                            self.render_value(default_dir),
-                        ))
-                        .child(self.render_row(
-                            "自定义日志位置".to_string(),
-                            Some("选择父目录后，Lithe 会写入其中的 Lithe/logs 子目录。".to_string()),
-                            h_flex().gap_1p5().child(
-                                Button::new("logs-choose-dir")
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "settings.logs.effectivePath")
+                                    .to_string()
+                                    .to_string(),
+                                Some(
+                                    crate::i18n::menu_text(
+                                        cx,
+                                        "settings.logs.effectivePathDescription",
+                                    )
+                                    .to_string(),
+                                ),
+                                self.render_value(default_dir.clone()),
+                            ),
+                        )
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "settings.logs.defaultPath").to_string(),
+                                Some(
+                                    crate::i18n::menu_text(
+                                        cx,
+                                        "settings.logs.defaultPathDescription",
+                                    )
+                                    .to_string(),
+                                ),
+                                self.render_value(default_dir),
+                            ),
+                        )
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "settings.logs.customPath").to_string(),
+                                Some(
+                                    crate::i18n::menu_text(
+                                        cx,
+                                        "settings.logs.customPathDescription",
+                                    )
+                                    .to_string(),
+                                ),
+                                h_flex().gap_1p5().child(
+                                    Button::new("logs-choose-dir")
+                                        .small()
+                                        .ghost()
+                                        .label(
+                                            crate::i18n::menu_text(cx, "settings.logs.choose")
+                                                .to_string(),
+                                        )
+                                        .on_click(cx.listener(|_this, _event, _window, cx| {
+                                            // 目录选择尚未接入后端。
+                                            cx.notify();
+                                        })),
+                                ),
+                            ),
+                        ),
+                ),
+            )
+            .child(
+                self.render_group(
+                    crate::i18n::menu_text(cx, "settings.logs.diagnostics").to_string(),
+                    v_flex().w_full().gap_3().child(
+                        self.render_row(
+                            crate::i18n::menu_text(cx, "settings.logs.diagnosticMode").to_string(),
+                            Some(
+                                crate::i18n::menu_text(
+                                    cx,
+                                    "settings.logs.diagnosticModeDescription",
+                                )
+                                .to_string(),
+                            ),
+                            self.render_toggle(
+                                "logs-diagnostic-mode",
+                                self.diagnostic_mode,
+                                cx,
+                                |this, cx| {
+                                    this.diagnostic_mode = !this.diagnostic_mode;
+                                    cx.notify();
+                                },
+                            ),
+                        ),
+                    ),
+                ),
+            )
+            .child(
+                self.render_group(
+                    crate::i18n::menu_text(cx, "settings.logs.retention").to_string(),
+                    v_flex()
+                        .w_full()
+                        .gap_3()
+                        .child(
+                            self.render_note(
+                                crate::i18n::menu_text(cx, "settings.logs.retentionDescription")
+                                    .to_string(),
+                            ),
+                        )
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "settings.logs.clearCurrent")
+                                    .to_string()
+                                    .to_string(),
+                                Some(
+                                    crate::i18n::menu_text(
+                                        cx,
+                                        "settings.logs.clearCurrentDescription",
+                                    )
+                                    .to_string(),
+                                ),
+                                Button::new("logs-clear")
                                     .small()
                                     .ghost()
-                                    .label("选择…")
+                                    .label(
+                                        crate::i18n::menu_text(cx, "settings.logs.clearLogs")
+                                            .to_string(),
+                                    )
                                     .on_click(cx.listener(|_this, _event, _window, cx| {
-                                        // 目录选择尚未接入后端。
+                                        // 日志清理尚未接入后端。
                                         cx.notify();
                                     })),
                             ),
-                        )),
+                        ),
                 ),
             )
             .child(
                 self.render_group(
-                    "诊断",
-                    v_flex().w_full().gap_3().child(self.render_row(
-                        "本次会话启用诊断日志".to_string(),
-                        Some(
-                            "记录 DEBUG 事件和低频 FPS 心跳；Lithe 重启后自动恢复为 INFO。"
-                                .to_string(),
-                        ),
-                        self.render_toggle(
-                            "logs-diagnostic-mode",
-                            self.diagnostic_mode,
-                            cx,
-                            |this, cx| {
-                                this.diagnostic_mode = !this.diagnostic_mode;
-                                cx.notify();
-                            },
-                        ),
-                    )),
-                ),
-            )
-            .child(
-                self.render_group(
-                    "保留策略",
-                    v_flex()
-                        .w_full()
-                        .gap_3()
-                        .child(self.render_note(
-                            "单个日志达到 10 MB 后轮转，每天保留最新五个常规日志，并在 Lithe 启动时删除超过 30 天的日志。",
-                        ))
-                        .child(self.render_row(
-                            "清除当前目录日志".to_string(),
-                            Some("只删除当前目录中由 Lithe 管理的日志文件。".to_string()),
-                            Button::new("logs-clear")
+                    crate::i18n::menu_text(cx, "settings.logs.diagnosticBundle").to_string(),
+                    v_flex().w_full().gap_3().child(
+                        self.render_row(
+                            crate::i18n::menu_text(cx, "settings.logs.exportBundle").to_string(),
+                            None,
+                            Button::new("logs-export-bundle")
                                 .small()
                                 .ghost()
-                                .label("清除日志")
+                                .label(crate::i18n::menu_text(
+                                    cx,
+                                    "settings.logs.exportBundleConfirm",
+                                ))
                                 .on_click(cx.listener(|_this, _event, _window, cx| {
-                                    // 日志清理尚未接入后端。
+                                    // 诊断包导出尚未接入后端。
                                     cx.notify();
                                 })),
-                        )),
-                ),
-            )
-            .child(
-                self.render_group(
-                    "诊断包",
-                    v_flex().w_full().gap_3().child(self.render_row(
-                        "导出诊断包…".to_string(),
-                        None,
-                        Button::new("logs-export-bundle")
-                            .small()
-                            .ghost()
-                            .label("导出")
-                            .on_click(cx.listener(|_this, _event, _window, cx| {
-                                // 诊断包导出尚未接入后端。
-                                cx.notify();
-                            })),
-                    )),
+                        ),
+                    ),
                 ),
             )
     }
@@ -1644,25 +2048,34 @@ impl SettingsDialog {
     fn render_updates_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex().w_full().gap_4().child(
             self.render_group(
-                "软件更新",
+                crate::i18n::menu_text(cx, "settings.mac.softwareUpdate").to_string(),
                 v_flex()
                     .w_full()
                     .gap_3()
                     .child(
                         self.render_row(
                             "Lithe".to_string(),
-                            Some(format!("当前版本：{}", env!("CARGO_PKG_VERSION"))),
+                            Some(
+                                crate::i18n::menu_text(cx, "settings.mac.currentVersion")
+                                    .to_string()
+                                    .replace("{version}", env!("CARGO_PKG_VERSION")),
+                            ),
                             Button::new("check-updates")
                                 .small()
                                 .primary()
-                                .label("检查更新")
+                                .label(
+                                    crate::i18n::menu_text(cx, "settings.mac.checkForUpdates")
+                                        .to_string(),
+                                )
                                 .on_click(cx.listener(|_this, _event, _window, cx| {
                                     // 更新检查尚未接入后端。
                                     cx.notify();
                                 })),
                         ),
                     )
-                    .child(self.render_note("Lithe 可以检查新的预览版和稳定版。")),
+                    .child(self.render_note(
+                        crate::i18n::menu_text(cx, "settings.mac.updateHint").to_string(),
+                    )),
             ),
         )
     }

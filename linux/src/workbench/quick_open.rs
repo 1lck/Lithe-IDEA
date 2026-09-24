@@ -29,21 +29,22 @@ pub enum QuickOpenMode {
 }
 
 impl QuickOpenMode {
-    /// 顶部输入行展示的模式徽标文案。
-    fn badge_label(self) -> &'static str {
+    /// 输入占位文案键（与 Tauri `quickOpen.search*` 对齐）。
+    fn placeholder_key(self) -> &'static str {
         match self {
-            QuickOpenMode::File => "File",
-            QuickOpenMode::Symbol => "Symbols",
-            QuickOpenMode::WorkspaceSymbol => "Workspace Symbols",
+            QuickOpenMode::File => "quickOpen.searchFiles",
+            QuickOpenMode::Symbol => "quickOpen.searchSymbols",
+            QuickOpenMode::WorkspaceSymbol => "quickOpen.searchWorkspaceSymbols",
         }
     }
 
-    /// 列表为空时展示的提示文案。
-    fn empty_label(self) -> &'static str {
+    /// 列表为空时展示的提示文案（与 Tauri `quickOpen.no*` 对齐）。
+    fn empty_label(self, cx: &gpui_kit::App) -> &'static str {
         match self {
-            QuickOpenMode::File => "No matching files",
-            QuickOpenMode::Symbol => "No matching symbols",
-            QuickOpenMode::WorkspaceSymbol => "No matching workspace symbols",
+            QuickOpenMode::File => crate::i18n::menu_text(cx, "quickOpen.noMatch"),
+            QuickOpenMode::Symbol | QuickOpenMode::WorkspaceSymbol => {
+                crate::i18n::menu_text(cx, "quickOpen.noSymbols")
+            }
         }
     }
 }
@@ -59,7 +60,6 @@ pub enum QuickOpenEvent {
 
 /// 列表渲染行：分组标题或文件项（携带该项在 `filtered` 中的位置）。
 enum QuickOpenRow {
-    Header(&'static str),
     File(usize, String),
 }
 
@@ -164,24 +164,13 @@ impl QuickOpenModal {
         }
     }
 
-    /// 把命中列表展开为“recent / other”分组行序列。
+    /// 把命中列表展开为行序列（Tauri 无分组头，保持 recent 优先的扁平顺序）。
     fn build_rows(&self) -> Vec<QuickOpenRow> {
-        let mut rows = Vec::new();
-        let mut recent_emitted = false;
-        let mut other_emitted = false;
-        for (position, path) in self.filtered.iter().enumerate() {
-            if self.recent.iter().any(|r| r == path) {
-                if !recent_emitted {
-                    rows.push(QuickOpenRow::Header("recent"));
-                    recent_emitted = true;
-                }
-            } else if !other_emitted {
-                rows.push(QuickOpenRow::Header("other"));
-                other_emitted = true;
-            }
-            rows.push(QuickOpenRow::File(position, path.clone()));
-        }
-        rows
+        self.filtered
+            .iter()
+            .enumerate()
+            .map(|(position, path)| QuickOpenRow::File(position, path.clone()))
+            .collect()
     }
 
     /// 打开命中列表第 `position` 项。
@@ -210,7 +199,6 @@ impl Render for QuickOpenModal {
 
         let rows = self.build_rows();
         let current_index = self.current_index();
-        let total = self.filtered.len();
         let mode = self.mode;
 
         // 全屏半透明遮罩：点击空白处关闭
@@ -299,7 +287,7 @@ impl Render for QuickOpenModal {
                         }),
                     )
                     .child(
-                        // 1. 顶部输入行：搜索图标 + 模式徽标 + 查询串/占位 + Esc 徽标
+                        // 1. 顶部输入行：搜索图标 + 查询串/占位 + Esc 徽标
                         h_flex()
                             .h(px(52.0))
                             .w_full()
@@ -313,7 +301,6 @@ impl Render for QuickOpenModal {
                                     .size(px(16.0))
                                     .text_color(ThemeColors::primary()),
                             )
-                            .child(mode_badge(mode.badge_label()))
                             .child(
                                 h_flex()
                                     .flex_1()
@@ -328,7 +315,7 @@ impl Render for QuickOpenModal {
                                                 ThemeColors::foreground()
                                             })
                                             .child(if self.query.is_empty() {
-                                                "Search files by name (@ symbols, # workspace)"
+                                                crate::i18n::menu_text(cx, mode.placeholder_key())
                                                     .to_string()
                                             } else {
                                                 self.query.clone()
@@ -356,111 +343,67 @@ impl Render for QuickOpenModal {
                                         .text_center()
                                         .text_sm()
                                         .text_color(ThemeColors::subtle_foreground())
-                                        .child(mode.empty_label()),
+                                        .child(mode.empty_label(cx)),
                                 )
                             })
-                            .children(rows.into_iter().map(|row| {
-                                match row {
-                                    QuickOpenRow::Header(label) => h_flex()
-                                        .px_3()
-                                        .pt_2()
-                                        .pb_1()
+                            .children(rows.into_iter().map(|row| match row {
+                                QuickOpenRow::File(position, path) => {
+                                    let is_selected = position == current_index;
+                                    let is_recent = self.recent.iter().any(|r| *r == path);
+                                    let (dir, name) = split_path(&path);
+
+                                    h_flex()
+                                        .id(("quick-open-item", position))
+                                        .h(px(32.0))
+                                        .w_full()
+                                        .mx_2()
+                                        .px_2p5()
+                                        .items_center()
+                                        .gap_2()
+                                        .rounded_md()
+                                        .cursor_pointer()
+                                        .when(is_selected, |row| row.bg(ThemeColors::selected()))
+                                        .when(!is_selected, |row| {
+                                            row.hover(|h| h.bg(ThemeColors::accent()))
+                                        })
+                                        .child(
+                                            Icon::new(IconName::FileText)
+                                                .size(px(14.0))
+                                                .text_color(if is_selected {
+                                                    ThemeColors::primary()
+                                                } else {
+                                                    ThemeColors::muted_foreground()
+                                                }),
+                                        )
                                         .child(
                                             div()
-                                                .text_xs()
+                                                .flex_1()
+                                                .text_sm()
                                                 .font_weight(FontWeight::MEDIUM)
-                                                .text_color(ThemeColors::muted_foreground())
-                                                .child(label),
+                                                .text_color(ThemeColors::foreground())
+                                                .child(name),
                                         )
-                                        .into_any_element(),
-                                    QuickOpenRow::File(position, path) => {
-                                        let is_selected = position == current_index;
-                                        let is_recent = self.recent.iter().any(|r| *r == path);
-                                        let (dir, name) = split_path(&path);
-
-                                        h_flex()
-                                            .id(("quick-open-item", position))
-                                            .h(px(32.0))
-                                            .w_full()
-                                            .mx_2()
-                                            .px_2p5()
-                                            .items_center()
-                                            .gap_2()
-                                            .rounded_md()
-                                            .cursor_pointer()
-                                            .when(is_selected, |row| {
-                                                row.bg(ThemeColors::selected())
-                                            })
-                                            .when(!is_selected, |row| {
-                                                row.hover(|h| h.bg(ThemeColors::accent()))
-                                            })
-                                            .child(
-                                                Icon::new(IconName::FileText)
-                                                    .size(px(14.0))
-                                                    .text_color(if is_selected {
-                                                        ThemeColors::primary()
-                                                    } else {
-                                                        ThemeColors::muted_foreground()
-                                                    }),
-                                            )
-                                            .child(
-                                                div()
-                                                    .flex_1()
-                                                    .text_sm()
-                                                    .font_weight(FontWeight::MEDIUM)
-                                                    .text_color(ThemeColors::foreground())
-                                                    .child(name),
-                                            )
-                                            .when(!dir.is_empty(), |row| {
-                                                row.child(
+                                        .when(!dir.is_empty(), |row| {
+                                            row.child(
                                                 div()
                                                     .text_xs()
                                                     .text_color(ThemeColors::subtle_foreground())
                                                     .child(dir),
                                             )
-                                            })
-                                            .when(is_recent, |row| {
-                                                row.child(
-                                                    Icon::new(IconName::Clock)
-                                                        .size(px(13.0))
-                                                        .text_color(
-                                                            ThemeColors::subtle_foreground(),
-                                                        ),
-                                                )
-                                            })
-                                            .on_click(cx.listener(
-                                                move |this, _event, _window, cx| {
-                                                    this.open_at(position, cx);
-                                                },
-                                            ))
-                                            .into_any_element()
-                                    }
+                                        })
+                                        .when(is_recent, |row| {
+                                            row.child(
+                                                Icon::new(IconName::Clock)
+                                                    .size(px(13.0))
+                                                    .text_color(ThemeColors::subtle_foreground()),
+                                            )
+                                        })
+                                        .on_click(cx.listener(move |this, _event, _window, cx| {
+                                            this.open_at(position, cx);
+                                        }))
+                                        .into_any_element()
                                 }
                             })),
-                    )
-                    .child(
-                        // 3. 底部指引栏：左侧结果数、右侧操作提示
-                        h_flex()
-                            .h(px(34.0))
-                            .w_full()
-                            .items_center()
-                            .justify_between()
-                            .px_4()
-                            .bg(ThemeColors::background())
-                            .border_t_1()
-                            .border_color(ThemeColors::border())
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(ThemeColors::subtle_foreground())
-                                    .child(format!("{} results", total)),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(ThemeColors::subtle_foreground())
-                                    .child("↑↓ Navigate  ·  ↵ Open  ·  Esc Close"),
-                            ),
                     ),
             )
     }
@@ -472,22 +415,6 @@ fn split_path(path: &str) -> (String, String) {
         Some((dir, name)) => (dir.to_string(), name.to_string()),
         None => (String::new(), path.to_string()),
     }
-}
-
-/// 模式徽标。
-fn mode_badge(label: &str) -> AnyElement {
-    div()
-        .px_2()
-        .py(px(2.0))
-        .rounded_md()
-        .bg(ThemeColors::accent())
-        .border_1()
-        .border_color(ThemeColors::border())
-        .text_xs()
-        .font_weight(FontWeight::MEDIUM)
-        .text_color(ThemeColors::primary())
-        .child(label.to_string())
-        .into_any_element()
 }
 
 /// 快捷键/键位徽标。

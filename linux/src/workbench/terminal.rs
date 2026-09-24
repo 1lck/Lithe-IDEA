@@ -170,7 +170,7 @@ impl Render for TerminalView {
                         Button::new("clear-term")
                             .small()
                             .ghost()
-                            .label("Clear")
+                            .label(crate::i18n::menu_text(cx, "ui.clear"))
                             .on_click(cx.listener(|this, _event, _window, cx| {
                                 this.clear(cx);
                             })),

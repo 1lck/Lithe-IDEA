@@ -249,7 +249,12 @@ impl Render for MavenView {
                             .size(px(14.0))
                             .text_color(ThemeColors::accent_blue()),
                     )
-                    .child(div().flex_1().truncate().child("Lifecycle"))
+                    .child(
+                        div()
+                            .flex_1()
+                            .truncate()
+                            .child(crate::i18n::menu_text(cx, "maven.lifecycle")),
+                    )
                     .on_click(cx.listener({
                         let group_key = group_key.clone();
                         move |this, _event, _window, cx| {
@@ -328,7 +333,7 @@ impl Render for MavenView {
                             .text_xs()
                             .font_weight(FontWeight::BOLD)
                             .text_color(ThemeColors::text_muted())
-                            .child("Maven"),
+                            .child(crate::i18n::menu_text(cx, "maven.title")),
                     )
                     .child(
                         h_flex()
@@ -339,7 +344,7 @@ impl Render for MavenView {
                                     .small()
                                     .ghost()
                                     .icon(IconName::RotateCw)
-                                    .tooltip("Refresh")
+                                    .tooltip(crate::i18n::menu_text(cx, "ui.refresh"))
                                     .on_click(cx.listener(|this, _event, _window, cx| {
                                         this.refresh(cx);
                                     })),
@@ -349,7 +354,7 @@ impl Render for MavenView {
                                     .small()
                                     .ghost()
                                     .icon(IconName::Close)
-                                    .tooltip("Close")
+                                    .tooltip(crate::i18n::menu_text(cx, "ui.close"))
                                     .on_click(cx.listener(|_this, _event, _window, cx| {
                                         cx.emit(MavenEvent::Close);
                                     })),
@@ -372,7 +377,7 @@ impl Render for MavenView {
                     .justify_center()
                     .text_xs()
                     .text_color(ThemeColors::text_muted())
-                    .child("No Maven projects found")
+                    .child(crate::i18n::menu_text(cx, "maven.noProjects"))
                     .into_any_element()
             })
     }

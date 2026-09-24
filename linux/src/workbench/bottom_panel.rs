@@ -161,7 +161,7 @@ impl Render for BottomPanelView {
                                     .small()
                                     .ghost()
                                     .icon(IconName::Trash)
-                                    .tooltip("Clear")
+                                    .tooltip(crate::i18n::menu_text(cx, "ui.clear"))
                                     .on_click(cx.listener(|this, _event, _window, cx| {
                                         match this.active_tab {
                                             BottomTab::Terminal => {
@@ -180,7 +180,7 @@ impl Render for BottomPanelView {
                                     .small()
                                     .ghost()
                                     .icon(IconName::ChevronDown)
-                                    .tooltip("Hide Panel")
+                                    .tooltip(crate::i18n::menu_text(cx, "ui.close"))
                                     .on_click(cx.listener(|this, _event, _window, cx| {
                                         this.toggle_collapsed(cx);
                                     })),
@@ -201,9 +201,13 @@ impl Render for BottomPanelView {
                         .text_xs()
                         .text_color(ThemeColors::text_muted())
                         .child(if self.diagnostics.is_empty() {
-                            "No diagnostics have been detected in the workspace.".to_string()
+                            crate::i18n::menu_text(cx, "diagnostics.empty").to_string()
                         } else {
-                            format!("{} diagnostics found", self.diagnostics.len())
+                            format!(
+                                "{} ({})",
+                                crate::i18n::menu_text(cx, "workbench.diagnostics"),
+                                self.diagnostics.len()
+                            )
                         })
                         .into_any_element(),
                 }),
