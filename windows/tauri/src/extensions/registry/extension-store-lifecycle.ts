@@ -138,6 +138,7 @@ function isCompleteExtensionPackage(
 export async function installExtensionLifecycle(params: {
   extensionId: string;
   extension: AvailableExtension;
+  activateAfterInstall?: boolean;
   onProgress: (progress: number) => void;
   onLanguageInstalled: (
     runtimeManifest: AvailableExtension["manifest"],
@@ -149,6 +150,7 @@ export async function installExtensionLifecycle(params: {
   const {
     extensionId,
     extension,
+    activateAfterInstall = true,
     onProgress,
     onLanguageInstalled,
     onNonLanguageInstalled,
@@ -174,26 +176,27 @@ export async function installExtensionLifecycle(params: {
 
     extensionRegistry.registerExtension(runtimeManifest, {
       isBundled: false,
-      isEnabled: true,
-      state: "installed",
+      isEnabled: activateAfterInstall,
+      state: activateAfterInstall ? "installed" : "deactivated",
     });
 
     onLanguageInstalled(runtimeManifest, resolvedTools.issues);
 
-    await Promise.all(
-      languageConfigs.map((languageConfig) =>
-        registerLanguageProvider({
-          extensionId,
-          languageId: languageConfig.id,
-          displayName: extension.manifest.displayName,
-          version: extension.manifest.version,
-          extensions: languageConfig.extensions,
-          aliases: languageConfig.aliases,
-        }),
-      ),
-    );
-
-    await refreshSyntaxHighlightingForActiveBuffer(extension);
+    if (activateAfterInstall) {
+      await Promise.all(
+        languageConfigs.map((languageConfig) =>
+          registerLanguageProvider({
+            extensionId,
+            languageId: languageConfig.id,
+            displayName: extension.manifest.displayName,
+            version: extension.manifest.version,
+            extensions: languageConfig.extensions,
+            aliases: languageConfig.aliases,
+          }),
+        ),
+      );
+      await refreshSyntaxHighlightingForActiveBuffer(extension);
+    }
     return;
   }
 
@@ -201,10 +204,12 @@ export async function installExtensionLifecycle(params: {
     markBundledContributionExtensionInstalled(extensionId);
     extensionRegistry.registerExtension(extension.manifest, {
       isBundled: false,
-      isEnabled: true,
-      state: "installed",
+      isEnabled: activateAfterInstall,
+      state: activateAfterInstall ? "installed" : "deactivated",
     });
-    await activateExtensionContributions(extensionId, extension.manifest);
+    if (activateAfterInstall) {
+      await activateExtensionContributions(extensionId, extension.manifest);
+    }
     onNonLanguageInstalled();
     return;
   }
@@ -219,7 +224,9 @@ export async function installExtensionLifecycle(params: {
   });
 
   await reloadInstalledExtensions();
-  await activateExtensionContributions(extensionId, extension.manifest);
+  if (activateAfterInstall) {
+    await activateExtensionContributions(extensionId, extension.manifest);
+  }
   onNonLanguageInstalled();
 }
 
@@ -392,10 +399,9 @@ export async function updateExtensionLifecycle(params: {
   extensionId: string;
   extension: AvailableExtension;
   clearInstalledStateForUpdate: () => void;
-  reinstall: () => Promise<void>;
-  restoreDisabled: () => Promise<void>;
+  reinstall: (activateAfterInstall: boolean) => Promise<void>;
 }) {
-  const { extensionId, extension, clearInstalledStateForUpdate, reinstall, restoreDisabled } = params;
+  const { extensionId, extension, clearInstalledStateForUpdate, reinstall } = params;
   const restoreDisabledState = extension.isEnabled === false;
 
   const languageIds = getManifestLanguageContributions(extension.manifest).map(
@@ -410,21 +416,19 @@ export async function updateExtensionLifecycle(params: {
   extensionRegistry.unregisterExtension(extensionId);
 
   clearInstalledStateForUpdate();
-  await reinstall();
-  if (restoreDisabledState) {
-    await restoreDisabled();
-  }
+  await reinstall(!restoreDisabledState);
 }
 
 export function buildInstalledExtensionMetadata(
   extensionId: string,
   extension: AvailableExtension,
+  enabled = true,
 ): ExtensionInstallationMetadata {
   return {
     id: extensionId,
     name: extension.manifest.displayName,
     version: extension.manifest.version,
     installed_at: new Date().toISOString(),
-    enabled: true,
+    enabled,
   };
 }

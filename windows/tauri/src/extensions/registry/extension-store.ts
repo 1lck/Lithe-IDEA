@@ -51,7 +51,7 @@ interface ExtensionStoreState {
     loadInstalledExtensions: () => Promise<void>;
     isExtensionInstalled: (extensionId: string) => boolean;
     getExtensionForFile: (filePath: string) => AvailableExtension | undefined;
-    installExtension: (extensionId: string) => Promise<void>;
+    installExtension: (extensionId: string, activateAfterInstall?: boolean) => Promise<void>;
     uninstallExtension: (extensionId: string) => Promise<void>;
     enableExtension: (extensionId: string) => Promise<void>;
     disableExtension: (extensionId: string) => Promise<void>;
@@ -208,7 +208,6 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
               ext.runtimeIssues = runtimeIssues.get(id) || [];
             }
           });
-
         } catch (error) {
           console.error("Failed to load installed extensions:", error);
           set((state) => {
@@ -225,7 +224,7 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
         return findExtensionForFile(filePath, get().availableExtensions);
       },
 
-      installExtension: async (extensionId: string) => {
+      installExtension: async (extensionId: string, activateAfterInstall = true) => {
         const extension = get().availableExtensions.get(extensionId);
         if (!extension) {
           throw new Error(`Extension ${extensionId} not found in registry`);
@@ -249,6 +248,7 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
           await installExtensionLifecycle({
             extensionId,
             extension,
+            activateAfterInstall,
             onProgress: (progress) => {
               set((state) => {
                 const ext = state.availableExtensions.get(extensionId);
@@ -263,14 +263,14 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
                 if (ext) {
                   ext.isInstalling = false;
                   ext.isInstalled = true;
-                  ext.isEnabled = true;
+                  ext.isEnabled = activateAfterInstall;
                   ext.installProgress = 100;
                   ext.installError = undefined;
                   ext.manifest = runtimeManifest;
                   ext.runtimeIssues = runtimeIssues || [];
                   state.installedExtensions.set(
                     extensionId,
-                    buildInstalledExtensionMetadata(extensionId, ext),
+                    buildInstalledExtensionMetadata(extensionId, ext, activateAfterInstall),
                   );
                 }
                 state.availableExtensions = new Map(state.availableExtensions);
@@ -282,12 +282,12 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
                 if (ext) {
                   ext.isInstalling = false;
                   ext.isInstalled = true;
-                  ext.isEnabled = true;
+                  ext.isEnabled = activateAfterInstall;
                   ext.installProgress = 100;
                   ext.installError = undefined;
                   state.installedExtensions.set(
                     extensionId,
-                    buildInstalledExtensionMetadata(extensionId, ext),
+                    buildInstalledExtensionMetadata(extensionId, ext, activateAfterInstall),
                   );
                 }
                 state.availableExtensions = new Map(state.availableExtensions);
@@ -295,7 +295,6 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
             },
             reloadInstalledExtensions: get().actions.loadInstalledExtensions,
           });
-
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
 
@@ -346,7 +345,6 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
             },
             reloadInstalledExtensions: get().actions.loadInstalledExtensions,
           });
-
         } catch (error) {
           console.error(`Failed to uninstall extension ${extensionId}:`, error);
           throw error;
@@ -440,7 +438,6 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
             state.isCheckingUpdates = false;
           });
 
-
           return updates;
         } catch (error) {
           console.error("Failed to check for extension updates:", error);
@@ -471,10 +468,9 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
               }
             });
           },
-          reinstall: () => get().actions.installExtension(extensionId),
-          restoreDisabled: () => get().actions.disableExtension(extensionId),
+          reinstall: (activateAfterInstall) =>
+            get().actions.installExtension(extensionId, activateAfterInstall),
         });
-
       },
     },
   })),
