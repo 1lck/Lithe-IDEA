@@ -36,6 +36,16 @@ describe("retired JDTLS JDK setting normalization", () => {
   });
 });
 
+describe("sidebar activity visibility normalization", () => {
+  test("drops the retired Maven activity while preserving valid hidden items", () => {
+    const settings = getDefaultSettingsSnapshot();
+    settings.hiddenSidebarActivityItems = ["maven", "run", "maven"];
+
+    expect(normalizeSettings(settings).hiddenSidebarActivityItems).toEqual(["run"]);
+    expect(normalizeSettingValue("hiddenSidebarActivityItems", ["maven", "run"])).toEqual(["run"]);
+  });
+});
+
 describe("IDEA file icon theme normalization", () => {
   test("uses IDEA Icons for new settings", () => {
     expect(getDefaultSettingsSnapshot().iconTheme).toBe("idea-icons");
