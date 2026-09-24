@@ -10,6 +10,7 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::menu::DropdownMenu as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -81,6 +82,27 @@ impl NotificationFilter {
             NotificationFilter::Success => "notifications.filterSuccess",
             NotificationFilter::Warning => "notifications.filterWarnings",
             NotificationFilter::Error => "notifications.filterErrors",
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            NotificationFilter::All => "all",
+            NotificationFilter::Info => "info",
+            NotificationFilter::Success => "success",
+            NotificationFilter::Warning => "warning",
+            NotificationFilter::Error => "error",
+        }
+    }
+
+    fn from_str(id: &str) -> Option<Self> {
+        match id {
+            "all" => Some(NotificationFilter::All),
+            "info" => Some(NotificationFilter::Info),
+            "success" => Some(NotificationFilter::Success),
+            "warning" => Some(NotificationFilter::Warning),
+            "error" => Some(NotificationFilter::Error),
+            _ => None,
         }
     }
 }
@@ -249,6 +271,16 @@ impl Render for NotificationsView {
         let query = self.query(cx);
         let unread = self.unread_count();
         let filter = self.filter;
+        let view = cx.entity();
+        let filter_options: Vec<(&'static str, String)> = NotificationFilter::ALL
+            .iter()
+            .map(|kind| {
+                (
+                    kind.as_str(),
+                    crate::i18n::menu_text(cx, kind.label_key()).to_string(),
+                )
+            })
+            .collect();
         let selected = self.selected;
         let items: Vec<NotificationItem> = self
             .items
@@ -464,44 +496,39 @@ impl Render for NotificationsView {
                         div()
                             .flex_1()
                             .child(Input::new(&search_entity).cleanable(true)),
+                    )
+                    .child(
+                        Button::new("notifications-filter")
+                            .small()
+                            .ghost()
+                            .icon(IconName::Funnel)
+                            .tooltip(crate::i18n::menu_text(cx, "notifications.filter"))
+                            .dropdown_menu(move |menu, _window, _cx| {
+                                let mut menu = menu;
+                                for (value, label) in &filter_options {
+                                    let v = view.clone();
+                                    let value = *value;
+                                    let label = label.clone();
+                                    let selected = filter.as_str() == value;
+                                    let item = gpui_kit::component::menu::PopupMenuItem::new(label);
+                                    let item = if selected {
+                                        item.icon(IconName::Check)
+                                    } else {
+                                        item
+                                    };
+                                    menu = menu.item(item.on_click(move |_, _, cx| {
+                                        v.update(cx, |this, cx| {
+                                            if let Some(kind) = NotificationFilter::from_str(value)
+                                            {
+                                                this.filter = kind;
+                                                cx.notify();
+                                            }
+                                        });
+                                    }));
+                                }
+                                menu
+                            }),
                     ),
-            )
-            .child(
-                h_flex()
-                    .w_full()
-                    .flex_shrink_0()
-                    .gap_1()
-                    .px_2()
-                    .pb_1()
-                    .overflow_x_scrollbar()
-                    .children(NotificationFilter::ALL.iter().map(|kind| {
-                        let active = filter == *kind;
-                        let id = *kind;
-                        h_flex()
-                            .id(format!("notification-filter-{}", id.label_key()))
-                            .flex_shrink_0()
-                            .items_center()
-                            .h(px(24.0))
-                            .px_2()
-                            .rounded_sm()
-                            .cursor_pointer()
-                            .text_xs()
-                            .when(active, |el| {
-                                el.bg(ThemeColors::subtle_selection())
-                                    .text_color(ThemeColors::text_primary())
-                            })
-                            .when(!active, |el| {
-                                el.text_color(ThemeColors::text_muted()).hover(|h| {
-                                    h.bg(ThemeColors::bg_tab_hover())
-                                        .text_color(ThemeColors::text_primary())
-                                })
-                            })
-                            .child(crate::i18n::menu_text(cx, id.label_key()))
-                            .on_click(cx.listener(move |this, _event, _window, cx| {
-                                this.filter = id;
-                                cx.notify();
-                            }))
-                    })),
             )
             .child(if is_empty {
                 div()

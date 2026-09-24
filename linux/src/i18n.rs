@@ -202,6 +202,7 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
         "extensions.activate" => ("启用", "Activate"),
         "extensions.deactivate" => ("停用", "Deactivate"),
         "notifications.title" => ("通知", "Notifications"),
+        "notifications.filter" => ("筛选通知", "Filter Notifications"),
         "notifications.empty" => ("暂无通知。", "No notifications yet."),
         "notifications.noMatch" => ("没有匹配的通知。", "No matching notifications."),
         "notifications.markAllRead" => ("全部标为已读", "Mark all read"),
