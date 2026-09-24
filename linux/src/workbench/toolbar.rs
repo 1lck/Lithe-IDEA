@@ -7,10 +7,12 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
-use gpui_kit::component::{h_flex, Icon, Sizable as _};
+use gpui_kit::component::{h_flex, Icon, Selectable as _, Sizable as _};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, AnyElement, Context, EventEmitter, FontWeight, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
+    div, px, Anchor, AnyElement, Context, EventEmitter, FontWeight, InteractiveElement as _,
+    IntoElement, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
+    Styled as _, Window,
 };
 
 use crate::settings;
@@ -52,6 +54,8 @@ pub enum ToolbarEvent {
 pub struct ToolbarView {
     pub workspace_name: String,
     pub git_branch: Option<String>,
+    /// 紧凑菜单条是否展开（对齐 Tauri `isCompactMenuVisible`）。
+    compact_menu_open: bool,
 }
 
 impl EventEmitter<ToolbarEvent> for ToolbarView {}
@@ -66,6 +70,7 @@ impl ToolbarView {
         Self {
             workspace_name: name,
             git_branch: None,
+            compact_menu_open: false,
         }
     }
 
@@ -236,8 +241,10 @@ fn menu_action_item(
 ) -> PopupMenuItem {
     let v = view.clone();
     PopupMenuItem::new(label).on_click(move |_, _, cx| {
-        v.update(cx, |_, cx| {
-            cx.emit(ToolbarEvent::MenuAction(action.to_string()))
+        v.update(cx, |this, cx| {
+            // 选中任意菜单项后收起紧凑菜单条，与 Tauri `onCompactClose` 一致。
+            this.compact_menu_open = false;
+            cx.emit(ToolbarEvent::MenuAction(action.to_string()));
         });
     })
 }
@@ -251,7 +258,10 @@ fn event_item(
     let v = view.clone();
     PopupMenuItem::new(label).on_click(move |_, _, cx| {
         let event = make();
-        v.update(cx, |_, cx| cx.emit(event));
+        v.update(cx, |this, cx| {
+            this.compact_menu_open = false;
+            cx.emit(event);
+        });
     })
 }
 
@@ -297,25 +307,71 @@ impl Render for ToolbarView {
 
         let view = cx.entity();
 
-        // 应用菜单栏：紧凑模式为单个 Menu 按钮 + 九个子菜单；否则平铺九个顶层菜单。
+        // 应用菜单栏：紧凑模式为 Menu 图标触发一个横向浮出的菜单条（九个菜单名并排，
+        // 各自下拉），对齐 Tauri `compactFloating` 的 `Menubar`；非紧凑模式平铺九个顶层菜单。
         let app_menu: AnyElement = if compact_menu {
-            let v = view.clone();
-            Button::new("tb-app-menu")
-                .small()
-                .ghost()
-                .icon(IconName::Menu)
-                .tooltip("Menu")
-                .dropdown_menu(move |menu, window, cx| {
-                    let mut menu = menu;
-                    for app in APP_MENUS {
-                        let v_sub = v.clone();
-                        menu = menu.submenu(app.title, window, cx, move |sub, _window, _cx| {
-                            build_menu(sub, app.groups, &v_sub)
-                        });
-                    }
-                    menu
-                })
-                .into_any_element()
+            let v_menu = view.clone();
+            // 触发点相对定位，浮层用 deferred+anchored 挂在其下方，避免撑开标题栏。
+            let open = self.compact_menu_open;
+            let trigger = div()
+                .id("tb-app-menu")
+                .relative()
+                .child(
+                    Button::new("tb-app-menu-btn")
+                        .small()
+                        .ghost()
+                        .icon(IconName::List)
+                        .tooltip("Menu")
+                        .selected(open)
+                        .on_click(cx.listener(
+                            |this, _event: &gpui_kit::ClickEvent, _window, cx| {
+                                this.compact_menu_open = !this.compact_menu_open;
+                                cx.notify();
+                            },
+                        )),
+                )
+                .when(open, move |this| {
+                    let v_out = v_menu.clone();
+                    this.child(gpui_kit::deferred(
+                        gpui_kit::anchored()
+                            .anchor(Anchor::TopLeft)
+                            .snap_to_window_with_margin(px(8.0))
+                            .child(
+                                h_flex()
+                                    .id("tb-compact-menu-bar")
+                                    .occlude()
+                                    .flex_nowrap()
+                                    .items_center()
+                                    .gap_0p5()
+                                    .px_1()
+                                    .py_1()
+                                    .top(px(4.0))
+                                    .rounded_xl()
+                                    .bg(ThemeColors::background())
+                                    .border_1()
+                                    .border_color(ThemeColors::border())
+                                    .shadow_lg()
+                                    // 点击菜单条以外区域时收起，对齐 Tauri 紧凑菜单的行为。
+                                    .on_mouse_down_out(move |_, _, cx| {
+                                        v_out.update(cx, |this, cx| {
+                                            this.compact_menu_open = false;
+                                            cx.notify();
+                                        });
+                                    })
+                                    .children(APP_MENUS.iter().map(|app| {
+                                        let v_item = v_menu.clone();
+                                        Button::new(format!("tb-compact-menu-{}", app.title))
+                                            .small()
+                                            .ghost()
+                                            .label(app.title)
+                                            .dropdown_menu(move |menu, _window, _cx| {
+                                                build_menu(menu, app.groups, &v_item)
+                                            })
+                                    })),
+                            ),
+                    ))
+                });
+            trigger.into_any_element()
         } else {
             h_flex()
                 .items_center()
