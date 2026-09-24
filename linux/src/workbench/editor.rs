@@ -10,6 +10,11 @@ use gpui_kit::{
     StatefulInteractiveElement as _, Styled as _, Subscription, Window,
 };
 
+use std::rc::Rc;
+
+use super::panes::PaneId;
+use super::tab_menu::{SplitCallback, ToggleLockCallback};
+
 use crate::core::CoreClient;
 use crate::settings;
 use crate::theme::ThemeColors;
@@ -20,6 +25,8 @@ pub struct EditorTab {
     pub title: String,
     pub content: String,
     pub is_dirty: bool,
+    /// 固定标签：批量关闭跳过，固定组永远排在标签栏前段。
+    pub is_pinned: bool,
     #[allow(dead_code)]
     pub cursor_line: usize,
     #[allow(dead_code)]
@@ -58,6 +65,14 @@ pub struct EditorView {
     closed_stack: Vec<(EditorTab, usize)>,
     /// 右键菜单目标标签（UI 层读写，方法层不消费）。
     pub context_menu_tab: Option<usize>,
+    /// 所属窗格（工作台装配；`None` 时右键菜单用 0 与空回调兜底）。
+    pub pane_id: Option<PaneId>,
+    /// 所属窗格锁定镜像（工作台回写，决定锁定项文案）。
+    pub pane_locked: bool,
+    /// 拆分回调（工作台注入，经 workbench entity 回写）。
+    pub on_split: Option<SplitCallback>,
+    /// 锁定回调（工作台注入，经 workbench entity 回写）。
+    pub on_toggle_lock: Option<ToggleLockCallback>,
 }
 
 impl EditorView {
@@ -96,6 +111,10 @@ impl EditorView {
             redo_stack: Vec::new(),
             closed_stack: Vec::new(),
             context_menu_tab: None,
+            pane_id: None,
+            pane_locked: false,
+            on_split: None,
+            on_toggle_lock: None,
         }
     }
 
@@ -124,6 +143,7 @@ impl EditorView {
             title,
             content,
             is_dirty: false,
+            is_pinned: false,
             cursor_line: 1,
             cursor_col: 1,
         });
@@ -533,56 +553,8 @@ impl EditorView {
         }
     }
 
-    /// 关闭全部标签（逐个进恢复栈）。
+    /// 关闭全部标签（逐个进恢复栈；固定标签保留）。
     pub fn close_all_tabs(&mut self, cx: &mut Context<Self>) {
-        if self.tabs.is_empty() {
-            return;
-        }
-        for (index, tab) in self.tabs.iter().enumerate() {
-            self.closed_stack.push((tab.clone(), index));
-        }
-        if self.closed_stack.len() > 30 {
-            let overflow = self.closed_stack.len() - 30;
-            self.closed_stack.drain(..overflow);
-        }
-        self.tabs.clear();
-        self.active_tab_index = None;
-        self.sync_needed = true;
-        cx.notify();
-    }
-
-    /// 关闭除活动标签外的全部标签。
-    pub fn close_other_tabs(&mut self, cx: &mut Context<Self>) {
-        let Some(active) = self.active_tab_index else {
-            return;
-        };
-        if active >= self.tabs.len() {
-            return;
-        }
-        let mut kept = None;
-        for (index, tab) in self.tabs.drain(..).enumerate() {
-            if index == active {
-                kept = Some(tab);
-            } else {
-                self.closed_stack.push((tab, index));
-            }
-        }
-        if self.closed_stack.len() > 30 {
-            let overflow = self.closed_stack.len() - 30;
-            self.closed_stack.drain(..overflow);
-        }
-        if let Some(tab) = kept {
-            self.tabs.push(tab);
-            self.active_tab_index = Some(0);
-        } else {
-            self.active_tab_index = None;
-        }
-        self.sync_needed = true;
-        cx.notify();
-    }
-
-    /// 关闭全部未修改（`is_dirty == false`）的标签。
-    pub fn close_saved_tabs(&mut self, cx: &mut Context<Self>) {
         if self.tabs.is_empty() {
             return;
         }
@@ -592,7 +564,7 @@ impl EditorView {
             .map(|tab| tab.path.clone());
         let mut kept = Vec::new();
         for (index, tab) in self.tabs.drain(..).enumerate() {
-            if tab.is_dirty {
+            if tab.is_pinned {
                 kept.push(tab);
             } else {
                 self.closed_stack.push((tab, index));
@@ -609,60 +581,19 @@ impl EditorView {
         cx.notify();
     }
 
-    /// 关闭活动标签左侧的全部标签。
-    pub fn close_tabs_to_left(&mut self, cx: &mut Context<Self>) {
+    /// 关闭除活动标签外的全部标签（固定标签保留，固定组在前）。
+    pub fn close_other_tabs(&mut self, cx: &mut Context<Self>) {
         let Some(active) = self.active_tab_index else {
             return;
         };
-        if active == 0 || active >= self.tabs.len() {
+        if active >= self.tabs.len() {
             return;
         }
-        for index in 0..active {
-            if let Some(tab) = self.tabs.get(index).cloned() {
-                self.closed_stack.push((tab, index));
-            }
-        }
-        if self.closed_stack.len() > 30 {
-            let overflow = self.closed_stack.len() - 30;
-            self.closed_stack.drain(..overflow);
-        }
-        self.tabs.drain(..active);
-        self.active_tab_index = Some(0);
-        self.sync_needed = true;
-        cx.notify();
-    }
-
-    /// 关闭活动标签右侧的全部标签。
-    pub fn close_tabs_to_right(&mut self, cx: &mut Context<Self>) {
-        let Some(active) = self.active_tab_index else {
-            return;
-        };
-        if active >= self.tabs.len() || active + 1 >= self.tabs.len() {
-            return;
-        }
-        for index in active + 1..self.tabs.len() {
-            if let Some(tab) = self.tabs.get(index).cloned() {
-                self.closed_stack.push((tab, index));
-            }
-        }
-        if self.closed_stack.len() > 30 {
-            let overflow = self.closed_stack.len() - 30;
-            self.closed_stack.drain(..overflow);
-        }
-        self.tabs.truncate(active + 1);
-        self.sync_needed = true;
-        cx.notify();
-    }
-
-    /// 关闭除 `idx` 外的全部标签（`close_other_tabs` 的指定索引版，供右键菜单调用）。
-    pub fn close_others_at(&mut self, idx: usize, cx: &mut Context<Self>) {
-        if idx >= self.tabs.len() {
-            return;
-        }
-        let mut kept = None;
+        let active_path = self.tabs.get(active).map(|tab| tab.path.clone());
+        let mut kept: Vec<(usize, EditorTab)> = Vec::new();
         for (index, tab) in self.tabs.drain(..).enumerate() {
-            if index == idx {
-                kept = Some(tab);
+            if index == active || tab.is_pinned {
+                kept.push((index, tab));
             } else {
                 self.closed_stack.push((tab, index));
             }
@@ -671,23 +602,29 @@ impl EditorView {
             let overflow = self.closed_stack.len() - 30;
             self.closed_stack.drain(..overflow);
         }
-        if let Some(tab) = kept {
-            self.tabs.push(tab);
-            self.active_tab_index = Some(0);
-        } else {
-            self.active_tab_index = None;
-        }
+        // 固定组在前并保持原相对顺序。
+        kept.sort_by_key(|(index, tab)| (!tab.is_pinned, *index));
+        self.tabs = kept.into_iter().map(|(_, tab)| tab).collect();
+        self.active_tab_index =
+            active_path.and_then(|path| self.tabs.iter().position(|tab| tab.path == path));
         self.sync_needed = true;
         cx.notify();
     }
 
-    /// 关闭 `idx` 右侧的全部标签（`close_tabs_to_right` 的指定索引版，供右键菜单调用）。
-    pub fn close_to_right_at(&mut self, idx: usize, cx: &mut Context<Self>) {
-        if idx >= self.tabs.len() || idx + 1 >= self.tabs.len() {
+    /// 关闭全部未修改（`is_dirty == false`）的标签（固定标签保留）。
+    pub fn close_saved_tabs(&mut self, cx: &mut Context<Self>) {
+        if self.tabs.is_empty() {
             return;
         }
-        for index in idx + 1..self.tabs.len() {
-            if let Some(tab) = self.tabs.get(index).cloned() {
+        let active_path = self
+            .active_tab_index
+            .and_then(|index| self.tabs.get(index))
+            .map(|tab| tab.path.clone());
+        let mut kept = Vec::new();
+        for (index, tab) in self.tabs.drain(..).enumerate() {
+            if tab.is_dirty || tab.is_pinned {
+                kept.push(tab);
+            } else {
                 self.closed_stack.push((tab, index));
             }
         }
@@ -695,13 +632,154 @@ impl EditorView {
             let overflow = self.closed_stack.len() - 30;
             self.closed_stack.drain(..overflow);
         }
-        self.tabs.truncate(idx + 1);
+        self.tabs = kept;
+        self.active_tab_index =
+            active_path.and_then(|path| self.tabs.iter().position(|tab| tab.path == path));
+        self.sync_needed = true;
+        cx.notify();
+    }
+
+    /// 关闭活动标签左侧的全部标签（固定标签保留在前段）。
+    pub fn close_tabs_to_left(&mut self, cx: &mut Context<Self>) {
+        let Some(active) = self.active_tab_index else {
+            return;
+        };
+        if active == 0 || active >= self.tabs.len() {
+            return;
+        }
+        let active_path = self.tabs.get(active).map(|tab| tab.path.clone());
+        let mut pinned_left: Vec<EditorTab> = Vec::new();
+        for (index, tab) in self.tabs.drain(..active).enumerate() {
+            if tab.is_pinned {
+                pinned_left.push(tab);
+            } else {
+                self.closed_stack.push((tab, index));
+            }
+        }
+        if self.closed_stack.len() > 30 {
+            let overflow = self.closed_stack.len() - 30;
+            self.closed_stack.drain(..overflow);
+        }
+        for (offset, tab) in pinned_left.into_iter().enumerate() {
+            self.tabs.insert(offset, tab);
+        }
+        self.active_tab_index =
+            active_path.and_then(|path| self.tabs.iter().position(|tab| tab.path == path));
+        self.sync_needed = true;
+        cx.notify();
+    }
+
+    /// 关闭活动标签右侧的全部标签（固定标签保留）。
+    pub fn close_tabs_to_right(&mut self, cx: &mut Context<Self>) {
+        let Some(active) = self.active_tab_index else {
+            return;
+        };
+        if active >= self.tabs.len() || active + 1 >= self.tabs.len() {
+            return;
+        }
+        let mut pinned_right: Vec<EditorTab> = Vec::new();
+        for (offset, tab) in self.tabs.drain(active + 1..).enumerate() {
+            if tab.is_pinned {
+                pinned_right.push(tab);
+            } else {
+                self.closed_stack.push((tab, active + 1 + offset));
+            }
+        }
+        if self.closed_stack.len() > 30 {
+            let overflow = self.closed_stack.len() - 30;
+            self.closed_stack.drain(..overflow);
+        }
+        self.tabs.extend(pinned_right);
+        self.sync_needed = true;
+        cx.notify();
+    }
+
+    /// 关闭除 `idx` 外的全部标签（`close_other_tabs` 的指定索引版，供右键菜单调用；固定标签保留，固定组在前）。
+    pub fn close_others_at(&mut self, idx: usize, cx: &mut Context<Self>) {
+        if idx >= self.tabs.len() {
+            return;
+        }
+        let kept_path = self.tabs.get(idx).map(|tab| tab.path.clone());
+        let mut kept: Vec<(usize, EditorTab)> = Vec::new();
+        for (index, tab) in self.tabs.drain(..).enumerate() {
+            if index == idx || tab.is_pinned {
+                kept.push((index, tab));
+            } else {
+                self.closed_stack.push((tab, index));
+            }
+        }
+        if self.closed_stack.len() > 30 {
+            let overflow = self.closed_stack.len() - 30;
+            self.closed_stack.drain(..overflow);
+        }
+        // 固定组在前并保持原相对顺序；`idx` 未固定时排在固定段之后。
+        kept.sort_by_key(|(index, tab)| (!tab.is_pinned, *index));
+        self.tabs = kept.into_iter().map(|(_, tab)| tab).collect();
+        self.active_tab_index =
+            kept_path.and_then(|path| self.tabs.iter().position(|tab| tab.path == path));
+        self.sync_needed = true;
+        cx.notify();
+    }
+
+    /// 关闭 `idx` 右侧的全部标签（`close_tabs_to_right` 的指定索引版，供右键菜单调用；固定标签保留）。
+    pub fn close_to_right_at(&mut self, idx: usize, cx: &mut Context<Self>) {
+        if idx >= self.tabs.len() || idx + 1 >= self.tabs.len() {
+            return;
+        }
+        let active_path = self
+            .active_tab_index
+            .and_then(|index| self.tabs.get(index))
+            .map(|tab| tab.path.clone());
+        let mut pinned_right: Vec<EditorTab> = Vec::new();
+        for (offset, tab) in self.tabs.drain(idx + 1..).enumerate() {
+            if tab.is_pinned {
+                pinned_right.push(tab);
+            } else {
+                self.closed_stack.push((tab, idx + 1 + offset));
+            }
+        }
+        if self.closed_stack.len() > 30 {
+            let overflow = self.closed_stack.len() - 30;
+            self.closed_stack.drain(..overflow);
+        }
+        self.tabs.extend(pinned_right);
         if let Some(active) = self.active_tab_index {
             if active > idx {
-                self.active_tab_index = Some(idx);
+                // 活动页被关掉时回退到 `idx`；固定活动页幸存时按 path 跟随。
+                self.active_tab_index = active_path
+                    .and_then(|path| self.tabs.iter().position(|tab| tab.path == path))
+                    .or(Some(idx));
             }
         }
         self.sync_needed = true;
+        cx.notify();
+    }
+
+    /// 翻转 `idx` 标签的固定状态并物理重排（固定组永远在前）。
+    /// 固定→移到固定段末尾，取消固定→移到固定段之后紧邻；活动页与已同步
+    /// 位按 path 跟随被移动的标签。内容未变故不置 `sync_needed`，只 `notify`。
+    pub fn toggle_pin_at(&mut self, idx: usize, cx: &mut Context<Self>) {
+        if idx >= self.tabs.len() {
+            return;
+        }
+        let active_path = self
+            .active_tab_index
+            .and_then(|index| self.tabs.get(index))
+            .map(|tab| tab.path.clone());
+        let synced_path = self
+            .synced_tab
+            .and_then(|index| self.tabs.get(index))
+            .map(|tab| tab.path.clone());
+        let mut tab = self.tabs.remove(idx);
+        tab.is_pinned = !tab.is_pinned;
+        let pinned_count = self.tabs.iter().filter(|tab| tab.is_pinned).count();
+        self.tabs.insert(pinned_count.min(self.tabs.len()), tab);
+        if let Some(path) = active_path {
+            self.active_tab_index = self.tabs.iter().position(|tab| tab.path == path);
+        }
+        if let Some(path) = synced_path {
+            self.synced_tab = self.tabs.iter().position(|tab| tab.path == path);
+        }
         cx.notify();
     }
 
@@ -1121,10 +1199,27 @@ impl Render for EditorView {
                                     cx.notify();
                                 }
                             }))
-                            .context_menu(crate::workbench::tab_menu::tab_context_menu(
-                                cx.entity(),
-                                idx,
-                            ))
+                            .context_menu({
+                                let view = cx.entity();
+                                let pane_id = self.pane_id.unwrap_or(0);
+                                let locked = self.pane_locked;
+                                let on_split: SplitCallback = self
+                                    .on_split
+                                    .clone()
+                                    .unwrap_or_else(|| Rc::new(|_, _, _, _| {}));
+                                let on_toggle_lock: ToggleLockCallback = self
+                                    .on_toggle_lock
+                                    .clone()
+                                    .unwrap_or_else(|| Rc::new(|_, _| {}));
+                                crate::workbench::tab_menu::tab_context_menu(
+                                    view,
+                                    idx,
+                                    pane_id,
+                                    locked,
+                                    on_split,
+                                    on_toggle_lock,
+                                )
+                            })
                     })),
             )
             .when_some(active_tab.as_ref(), |this, tab| {

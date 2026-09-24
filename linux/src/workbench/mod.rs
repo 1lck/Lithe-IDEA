@@ -8,6 +8,7 @@ pub mod file_icon;
 pub mod go_to_line;
 pub mod maven;
 pub mod notifications;
+pub mod panes;
 pub mod project_dialog;
 pub mod quick_open;
 pub mod search_everywhere;

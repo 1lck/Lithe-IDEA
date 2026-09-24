@@ -3,14 +3,18 @@
 //! 结构对齐 Tauri `MainLayout`：顶栏 / 多项目标签条 / 活动栏 + 侧边栏 + 编辑区 +
 //! 右侧插件活动栏 / 底部面板 / 状态栏；无项目时显示欢迎页，浮层由模态状态控制。
 
-use gpui_kit::component::resizable::{h_resizable, resizable_panel};
-use gpui_kit::component::{h_flex, v_flex};
+use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::resizable::{h_resizable, resizable_panel, v_resizable, ResizableState};
+use gpui_kit::component::{h_flex, v_flex, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, AppContext as _, Context, Entity, FocusHandle, InteractiveElement as _, IntoElement,
-    KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement as _,
-    Render, Styled as _, Subscription, Window,
+    div, px, AnyElement, App, AppContext as _, Context, Entity, FocusHandle,
+    InteractiveElement as _, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, ParentElement as _, Render, Styled as _, Subscription, Window,
 };
+
+use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::core::CoreClient;
 use crate::settings;
@@ -26,12 +30,14 @@ use crate::workbench::extensions_panel::{ExtensionsEvent, ExtensionsView};
 use crate::workbench::go_to_line::{GoToLineEvent, GoToLineModal};
 use crate::workbench::maven::{MavenEvent, MavenView};
 use crate::workbench::notifications::{NotificationsEvent, NotificationsView};
+use crate::workbench::panes::{PaneId, PaneNode, PaneTree, SplitDir};
 use crate::workbench::project_dialog::{ProjectDialog, ProjectDialogEvent, ProjectDialogMode};
 use crate::workbench::quick_open::{QuickOpenEvent, QuickOpenModal};
 use crate::workbench::search_everywhere::{SearchEverywhereEvent, SearchEverywhereModal};
 use crate::workbench::settings_dialog::{SettingsCategory, SettingsDialog, SettingsEvent};
 use crate::workbench::sidebar::{FileEntry, SidebarEvent, SidebarTab, SidebarView};
 use crate::workbench::status_bar::{StatusBarEvent, StatusBarView};
+use crate::workbench::tab_menu::{SplitCallback, ToggleLockCallback};
 use crate::workbench::toolbar::{ToolbarEvent, ToolbarView};
 use crate::workbench::welcome_screen::{WelcomeEvent, WelcomeScreenView};
 
@@ -97,8 +103,10 @@ pub struct WorkbenchView {
     pending_goto_line: Option<u32>,
     /// 侧边栏面板 (Files / Git / Search)
     pub sidebar: Entity<SidebarView>,
-    /// 主代码编辑器区
-    pub editor: Entity<EditorView>,
+    /// 多窗格布局模型（`Split{Horizontal}` 左右并排，`{Vertical}` 上下堆叠）
+    pub pane_tree: PaneTree,
+    /// 各窗格编辑器实体（`PaneId` → `EditorView`）
+    pub pane_editors: HashMap<PaneId, Entity<EditorView>>,
     /// 底部抽屉面板 (Terminal / Diagnostics，对齐 Tauri BottomPaneTab)
     pub bottom_panel: Entity<BottomPanelView>,
     /// 底部状态栏 (Status Bar)
@@ -141,7 +149,12 @@ impl WorkbenchView {
         let activity_rail = cx.new(|cx| ActivityRailView::new(cx));
         let plugin_rail = cx.new(|_cx| PluginActivityRailView::new());
         let sidebar = cx.new(|cx| SidebarView::new(root.clone(), cx));
+        let pane_tree = PaneTree::new();
+        let initial_pane = pane_tree.active().unwrap_or(0);
         let editor = cx.new(|cx| EditorView::new(root.clone(), window, cx));
+        let mut pane_editors = HashMap::new();
+        pane_editors.insert(initial_pane, editor.clone());
+        Self::wire_pane_editor(&pane_tree, cx.entity(), initial_pane, &editor, cx);
         let bottom_panel = cx.new(|cx| BottomPanelView::new(root.clone(), cx));
         let status_bar = cx.new(|_cx| StatusBarView::new());
         let search_everywhere = cx.new(|cx| SearchEverywhereModal::new(cx));
@@ -177,9 +190,11 @@ impl WorkbenchView {
                         });
                     }
                     SidebarEvent::NewFile => {
-                        let _ = this.editor.update(cx, |ed, cx| {
-                            ed.open_file("untitled.txt".to_string(), String::new(), cx);
-                        });
+                        if let Some(routed) = this.routed_editor() {
+                            let _ = routed.update(cx, |ed, cx| {
+                                ed.open_file("untitled.txt".to_string(), String::new(), cx);
+                            });
+                        }
                         let _ = status_bar_clone.update(cx, |sb, cx| {
                             sb.set_file_info(
                                 Some("untitled.txt".to_string()),
@@ -232,14 +247,18 @@ impl WorkbenchView {
                     qo.set_files(file_list, cx);
                 });
             }
-            // 已打开标签页同步给快速打开置顶分组（对齐 Tauri `openBufferFiles`）。
-            let open_files: Vec<String> = this
-                .editor
-                .read(cx)
-                .tabs
-                .iter()
-                .map(|tab| tab.path.clone())
-                .collect();
+            // 已打开标签页同步给快速打开置顶分组（对齐 Tauri `openBufferFiles`，
+            // 多窗格取各窗格 tabs 去重并集）。
+            let mut open_files: Vec<String> = Vec::new();
+            for leaf in this.pane_tree.leaves() {
+                if let Some(ed) = this.pane_editors.get(&leaf) {
+                    for tab in ed.read(cx).tabs.iter() {
+                        if !open_files.contains(&tab.path) {
+                            open_files.push(tab.path.clone());
+                        }
+                    }
+                }
+            }
             if !open_files.is_empty() {
                 let _ = quick_open_sync.update(cx, |qo, cx| {
                     qo.set_open_files(open_files, cx);
@@ -368,21 +387,27 @@ impl WorkbenchView {
                 &toolbar,
                 |this, _toolbar, event: &ToolbarEvent, cx| match event {
                     ToolbarEvent::NewFile => {
-                        let _ = this.editor.update(cx, |ed, cx| {
-                            ed.open_file("untitled.txt".to_string(), String::new(), cx);
-                        });
+                        if let Some(active) = this.active_editor() {
+                            let _ = active.update(cx, |ed, cx| {
+                                ed.open_file("untitled.txt".to_string(), String::new(), cx);
+                            });
+                        }
                     }
                     ToolbarEvent::Save => {
-                        let _ = this.editor.update(cx, |ed, cx| {
-                            ed.save_active(cx);
-                        });
+                        if let Some(active) = this.active_editor() {
+                            let _ = active.update(cx, |ed, cx| {
+                                ed.save_active(cx);
+                            });
+                        }
                     }
                     ToolbarEvent::CloseTab => {
-                        let _ = this.editor.update(cx, |ed, cx| {
-                            if let Some(idx) = ed.active_tab_index {
-                                ed.close_tab(idx, cx);
-                            }
-                        });
+                        if let Some(active) = this.active_editor() {
+                            let _ = active.update(cx, |ed, cx| {
+                                if let Some(idx) = ed.active_tab_index {
+                                    ed.close_tab(idx, cx);
+                                }
+                            });
+                        }
                     }
                     ToolbarEvent::ToggleSidebar => {
                         this.toggle_sidebar(cx);
@@ -749,7 +774,8 @@ impl WorkbenchView {
             notifications,
             extensions,
             sidebar,
-            editor,
+            pane_tree,
+            pane_editors,
             bottom_panel,
             status_bar,
             search_everywhere,
@@ -1000,26 +1026,144 @@ impl WorkbenchView {
         }
     }
 
+    /// 活动窗格 id（`pane_tree.active()` 直读）。
+    fn active_pane_id(&self) -> Option<PaneId> {
+        self.pane_tree.active()
+    }
+
+    /// 活动窗格编辑器（map 查 active，未命中 `None`）。
+    fn active_editor(&self) -> Option<Entity<EditorView>> {
+        self.active_pane_id()
+            .and_then(|id| self.pane_editors.get(&id).cloned())
+    }
+
+    /// 新文件路由编辑器（`route_target()` 落 map，未命中回退 active；
+    /// 锁定窗格自动跳过由模型保证）。
+    fn routed_editor(&self) -> Option<Entity<EditorView>> {
+        if let Some(id) = self.pane_tree.route_target() {
+            if let Some(ed) = self.pane_editors.get(&id).cloned() {
+                return Some(ed);
+            }
+        }
+        self.active_editor()
+    }
+
+    /// 活动编辑器上执行动作（无活动窗格时忽略）。
+    fn with_active_editor(
+        &self,
+        cx: &mut Context<Self>,
+        f: impl FnOnce(&mut EditorView, &mut Context<EditorView>),
+    ) {
+        if let Some(ed) = self.active_editor() {
+            let _ = ed.update(cx, f);
+        }
+    }
+
+    /// 为窗格编辑器装配 pane 归属与拆分/锁定回调（回调经 workbench entity
+    /// 回写，保证右键菜单 builder 的 `'static` 要求）。
+    fn wire_pane_editor(
+        pane_tree: &PaneTree,
+        workbench: Entity<Self>,
+        pane_id: PaneId,
+        editor: &Entity<EditorView>,
+        cx: &mut Context<Self>,
+    ) {
+        let wb = workbench.clone();
+        let on_split: SplitCallback = Rc::new(move |pid, dir, window, cx: &mut App| {
+            let _ = wb.update(cx, |this, cx| {
+                this.split_pane(pid, dir, window, cx);
+            });
+        });
+        let wb = workbench;
+        let on_toggle_lock: ToggleLockCallback = Rc::new(move |pid, cx: &mut App| {
+            let _ = wb.update(cx, |this, cx| {
+                this.toggle_pane_lock(pid, cx);
+            });
+        });
+        let locked = pane_tree.is_locked(pane_id);
+        let _ = editor.update(cx, |ed, cx| {
+            ed.pane_id = Some(pane_id);
+            ed.pane_locked = locked;
+            ed.on_split = Some(on_split);
+            ed.on_toggle_lock = Some(on_toggle_lock);
+            cx.notify();
+        });
+    }
+
+    /// 拆分窗格：新建空 `EditorView` + `split_leaf` + 订阅其标签事件；
+    /// 新窗格留空标签。
+    fn split_pane(
+        &mut self,
+        pane_id: PaneId,
+        dir: SplitDir,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(new_id) = self.pane_tree.split_leaf(pane_id, dir) else {
+            return;
+        };
+        let root = self.workspace_root.clone();
+        let new_editor = cx.new(|cx| EditorView::new(root, window, cx));
+        Self::wire_pane_editor(&self.pane_tree, cx.entity(), new_id, &new_editor, cx);
+        self.pane_editors.insert(new_id, new_editor.clone());
+        let sub = cx.subscribe(
+            &new_editor,
+            |this, _ed, event: &EditorTabEvent, cx| match event {
+                EditorTabEvent::OpenInTerminal { dir } => {
+                    this.send_terminal_command(&format!("cd \"{dir}\""), cx);
+                }
+            },
+        );
+        self._subscriptions.push(sub);
+        cx.notify();
+    }
+
+    /// 关闭窗格：`close_leaf` + 从 map 移除 editor；根叶返回 `false` 时忽略。
+    fn close_pane(&mut self, pane_id: PaneId, cx: &mut Context<Self>) {
+        if self.pane_tree.close_leaf(pane_id) {
+            self.pane_editors.remove(&pane_id);
+            cx.notify();
+        }
+    }
+
+    /// 翻转窗格锁定并同步编辑器锁定镜像。
+    fn toggle_pane_lock(&mut self, pane_id: PaneId, cx: &mut Context<Self>) {
+        self.pane_tree.toggle_lock(pane_id);
+        if let Some(ed) = self.pane_editors.get(&pane_id).cloned() {
+            let locked = self.pane_tree.is_locked(pane_id);
+            let _ = ed.update(cx, |ed, cx| {
+                ed.pane_locked = locked;
+                cx.notify();
+            });
+        }
+        cx.notify();
+    }
+
     /// 持有 `&mut Window` 调用方的编辑器动作直达通道（按键监听等已有
-    /// window 的路径使用，避免经窗口句柄二次 `update` 的重入借用失败）。
+    /// window 的路径使用，避免经窗口句柄二次 `update` 的重入借用失败）；
+    /// 目标为活动窗格编辑器。
     fn editor_direct(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
         action: impl FnOnce(&mut EditorView, &mut Window, &mut Context<EditorView>),
     ) {
-        let _ = self.editor.update(cx, |ed, cx| action(ed, window, cx));
+        if let Some(ed) = self.active_editor() {
+            let _ = ed.update(cx, |ed, cx| action(ed, window, cx));
+        }
     }
 
     /// 无 `window` 上下文的编辑器动作经窗口句柄下发（菜单/面板事件路径，
     /// 非重入场景）。`active_window` 仅反映平台聚焦，Xvfb 下可能为 None，
-    /// 单窗口应用退化到 `windows()` 首个句柄。
+    /// 单窗口应用退化到 `windows()` 首个句柄；目标为活动窗格编辑器。
     fn editor_window_action(
         &self,
         cx: &mut Context<Self>,
         action: impl FnOnce(&mut EditorView, &mut Window, &mut Context<EditorView>) + 'static,
     ) {
-        let editor = self.editor.clone();
+        let Some(editor) = self.active_editor() else {
+            return;
+        };
         let handle = cx
             .active_window()
             .or_else(|| cx.windows().into_iter().next());
@@ -1040,8 +1184,11 @@ impl WorkbenchView {
     /// 目标在工作区内时经 core `file.write`（仿 `save_active`）；工作区外
     /// core 会拒绝绝对路径，改用 `std::fs` 直写。
     fn save_active_as(&mut self, cx: &mut Context<Self>) {
+        let Some(active) = self.active_editor() else {
+            return;
+        };
         let (old_path, text) = {
-            let ed = self.editor.read(cx);
+            let ed = active.read(cx);
             let Some(idx) = ed.active_tab_index else {
                 return;
             };
@@ -1069,7 +1216,7 @@ impl WorkbenchView {
         let root = self.workspace_root.clone();
         if let Ok(rel) = dest.strip_prefix(std::path::Path::new(&root)) {
             let rel = rel.to_string_lossy().to_string();
-            let editor = self.editor.clone();
+            let editor = active.clone();
             let client = self.client.clone();
             cx.spawn(async move |_this, cx| {
                 if client.write_file(&cx, &root, &rel, &text).await.is_ok() {
@@ -1090,7 +1237,7 @@ impl WorkbenchView {
             .detach();
         } else if std::fs::write(&dest, text.as_bytes()).is_ok() {
             let abs = dest.to_string_lossy().to_string();
-            let _ = self.editor.update(cx, |ed, cx| {
+            let _ = active.update(cx, |ed, cx| {
                 if let Some(idx) = ed.active_tab_index {
                     if let Some(t) = ed.tabs.get_mut(idx) {
                         if t.path == old_path {
@@ -1107,8 +1254,11 @@ impl WorkbenchView {
 
     /// 还原文件：重读活动文件内容并灌回编辑器（同路径 `open_file` 会刷新内容并清除脏标记）。
     fn revert_active_file(&mut self, cx: &mut Context<Self>) {
+        let Some(active) = self.active_editor() else {
+            return;
+        };
         let path = {
-            let ed = self.editor.read(cx);
+            let ed = active.read(cx);
             let Some(idx) = ed.active_tab_index else {
                 return;
             };
@@ -1119,14 +1269,14 @@ impl WorkbenchView {
         };
         if std::path::Path::new(&path).is_absolute() {
             if let Ok(text) = std::fs::read_to_string(&path) {
-                let _ = self.editor.update(cx, |ed, cx| {
+                let _ = active.update(cx, |ed, cx| {
                     ed.open_file(path, text, cx);
                 });
             }
             return;
         }
         let root = self.workspace_root.clone();
-        let editor = self.editor.clone();
+        let editor = active.clone();
         let client = self.client.clone();
         cx.spawn(async move |_this, cx| {
             if let Ok(text) = client.read_file(&cx, &root, &path).await {
@@ -1159,17 +1309,17 @@ impl WorkbenchView {
         }
         match action_id {
             "workbench.new_file" | "file.new_file" | "file.new_tab" => {
-                let _ = self.editor.update(cx, |ed, cx| {
+                self.with_active_editor(cx, |ed, cx| {
                     ed.open_file("untitled.txt".to_string(), String::new(), cx);
                 });
             }
             "workbench.save" | "file.save" => {
-                let _ = self.editor.update(cx, |ed, cx| {
+                self.with_active_editor(cx, |ed, cx| {
                     ed.save_active(cx);
                 });
             }
             "workbench.close_tab" | "file.close_editor" => {
-                let _ = self.editor.update(cx, |ed, cx| {
+                self.with_active_editor(cx, |ed, cx| {
                     if let Some(idx) = ed.active_tab_index {
                         ed.close_tab(idx, cx);
                     }
@@ -1313,7 +1463,7 @@ impl WorkbenchView {
                 self.save_active_as(cx);
             }
             "file.save_all" => {
-                let _ = self.editor.update(cx, |ed, cx| {
+                self.with_active_editor(cx, |ed, cx| {
                     ed.save_all_tabs(cx);
                 });
             }
@@ -1321,32 +1471,32 @@ impl WorkbenchView {
                 self.revert_active_file(cx);
             }
             "file.close_all" => {
-                let _ = self.editor.update(cx, |ed, cx| {
+                self.with_active_editor(cx, |ed, cx| {
                     ed.close_all_tabs(cx);
                 });
             }
             "file.close_others" => {
-                let _ = self.editor.update(cx, |ed, cx| {
+                self.with_active_editor(cx, |ed, cx| {
                     ed.close_other_tabs(cx);
                 });
             }
             "file.close_saved" => {
-                let _ = self.editor.update(cx, |ed, cx| {
+                self.with_active_editor(cx, |ed, cx| {
                     ed.close_saved_tabs(cx);
                 });
             }
             "file.close_left" => {
-                let _ = self.editor.update(cx, |ed, cx| {
+                self.with_active_editor(cx, |ed, cx| {
                     ed.close_tabs_to_left(cx);
                 });
             }
             "file.close_right" => {
-                let _ = self.editor.update(cx, |ed, cx| {
+                self.with_active_editor(cx, |ed, cx| {
                     ed.close_tabs_to_right(cx);
                 });
             }
             "file.reopen_closed" => {
-                let _ = self.editor.update(cx, |ed, cx| {
+                self.with_active_editor(cx, |ed, cx| {
                     ed.reopen_closed_tab(cx);
                 });
             }
@@ -1361,7 +1511,7 @@ impl WorkbenchView {
                 self.editor_window_action(cx, |ed, window, cx| ed.cut(window, cx));
             }
             "edit.copy" => {
-                let _ = self.editor.update(cx, |ed, cx| {
+                self.with_active_editor(cx, |ed, cx| {
                     ed.copy(cx);
                 });
             }
@@ -1391,12 +1541,12 @@ impl WorkbenchView {
                 self.open_go_to_line(cx);
             }
             "go.next_tab" => {
-                let _ = self.editor.update(cx, |ed, cx| {
+                self.with_active_editor(cx, |ed, cx| {
                     ed.goto_next_tab(cx);
                 });
             }
             "go.prev_tab" => {
-                let _ = self.editor.update(cx, |ed, cx| {
+                self.with_active_editor(cx, |ed, cx| {
                     ed.goto_prev_tab(cx);
                 });
             }
@@ -1476,21 +1626,37 @@ impl WorkbenchView {
         }
     }
 
-    /// 打开指定文件：对接 `lithe-core` 的 `read_file` 并更新编辑器
+    /// 打开指定文件：对接 `lithe-core` 的 `read_file` 并更新路由窗格编辑器
+    /// （锁定窗格自动跳过由模型保证）；成功后将 active 设到路由窗格。
     pub fn open_file(&mut self, relative_path: &str, cx: &mut Context<Self>) {
         let root = self.workspace_root.clone();
         let path = relative_path.to_string();
-        let editor = self.editor.clone();
+        let target_pane = self
+            .pane_tree
+            .route_target()
+            .or_else(|| self.pane_tree.active());
+        let editor = target_pane
+            .and_then(|id| self.pane_editors.get(&id).cloned())
+            .or_else(|| self.active_editor());
+        let Some(editor) = editor else {
+            return;
+        };
         let client = self.client.clone();
 
-        cx.spawn(async move |_this, cx| {
+        cx.spawn(async move |this, cx| {
             let task = client.read_file(&cx, &root, &path);
 
             match task.await {
                 Ok(text) => {
                     let _ = editor.update(cx, |ed, cx| {
-                        ed.open_file(path, text, cx);
+                        ed.open_file(path.clone(), text, cx);
                     });
+                    if let Some(pid) = target_pane {
+                        let _ = this.update(cx, |this, cx| {
+                            this.pane_tree.set_active(pid);
+                            cx.notify();
+                        });
+                    }
                 }
                 Err(err) => {
                     let err_msg = format!("// 读取文件失败: {}\n// 错误信息: {}", path, err);
@@ -1501,6 +1667,14 @@ impl WorkbenchView {
             }
         })
         .detach();
+    }
+}
+
+/// 子树首叶（`h/v_resizable` 分组 id 与 ratio 回写定位用）。
+fn pane_first_leaf(node: &PaneNode) -> PaneId {
+    match node {
+        PaneNode::Leaf(id) => *id,
+        PaneNode::Split { first, .. } => pane_first_leaf(first),
     }
 }
 
@@ -1532,14 +1706,18 @@ fn this_sync_files(this: &WorkbenchView, cx: &mut Context<WorkbenchView>) {
     if let Some(root_node) = &this.sidebar.read(cx).root_node {
         WorkbenchView::collect_all_file_paths(root_node, &mut file_list);
     }
-    // 已打开标签页路径同步给快速打开的置顶分组（对齐 Tauri `openBufferFiles`）。
-    let open_files: Vec<String> = this
-        .editor
-        .read(cx)
-        .tabs
-        .iter()
-        .map(|tab| tab.path.clone())
-        .collect();
+    // 已打开标签页路径同步给快速打开的置顶分组（对齐 Tauri `openBufferFiles`，
+    // 多窗格取各窗格 tabs 去重并集）。
+    let mut open_files: Vec<String> = Vec::new();
+    for leaf in this.pane_tree.leaves() {
+        if let Some(ed) = this.pane_editors.get(&leaf) {
+            for tab in ed.read(cx).tabs.iter() {
+                if !open_files.contains(&tab.path) {
+                    open_files.push(tab.path.clone());
+                }
+            }
+        }
+    }
     if !file_list.is_empty() {
         let _ = this.search_everywhere.update(cx, |search, cx| {
             search.set_files(file_list.clone(), cx);
@@ -1559,11 +1737,13 @@ impl Render for WorkbenchView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let show_status_bar = settings::get(cx).show_status_bar;
 
-        // 通知诊断行点击的待跳转：文件加载完成后跳到指定行（1 起）。
+        // 通知诊断行点击的待跳转：文件加载完成后跳到指定行（1 起，活动窗格）。
         if let Some(line) = self.pending_goto_line.take() {
-            let _ = self.editor.update(cx, |ed, cx| {
-                ed.go_to_line(line, window, cx);
-            });
+            if let Some(active) = self.active_editor() {
+                let _ = active.update(cx, |ed, cx| {
+                    ed.go_to_line(line, window, cx);
+                });
+            }
         }
         // 右侧铃铛角标与通知未读数同步（变化时才 notify，避免渲染循环）。
         {
@@ -1757,7 +1937,7 @@ impl WorkbenchView {
                                 .w_full()
                                 .min_h_0()
                                 .bg(ThemeColors::background())
-                                .child(self.editor.clone()),
+                                .child(self.render_editor_area(cx)),
                         )
                         .when(bottom_visible, |layout| layout.child(bottom_splitter))
                         .when(bottom_visible, |layout| {
@@ -1809,6 +1989,100 @@ impl WorkbenchView {
             .when(show_status_bar, |layout| {
                 layout.child(self.status_bar.clone())
             })
+    }
+
+    /// 编辑区：窗格树递归渲染（空树回退空占位）。
+    fn render_editor_area(&self, cx: &mut Context<Self>) -> AnyElement {
+        match self.pane_tree.root().cloned() {
+            Some(root) => self.render_pane_node(&root, cx),
+            None => div().size_full().into_any_element(),
+        }
+    }
+
+    /// 递归渲染窗格节点：`Split{Horizontal}` 左右并排（`h_resizable`），
+    /// `{Vertical}` 上下堆叠（`v_resizable`）；拖拽比例经 `set_ratio` 回写。
+    fn render_pane_node(&self, node: &PaneNode, cx: &mut Context<Self>) -> AnyElement {
+        match node {
+            PaneNode::Leaf(id) => self.render_pane_leaf(*id, cx),
+            PaneNode::Split {
+                dir, first, second, ..
+            } => {
+                let first_el = self.render_pane_node(first, cx);
+                let second_el = self.render_pane_node(second, cx);
+                let group_id = format!(
+                    "pane-split-{}-{}",
+                    pane_first_leaf(first),
+                    pane_first_leaf(second)
+                );
+                let ratio_leaf = pane_first_leaf(first);
+                let view = cx.entity();
+                let on_resize = move |state: &Entity<ResizableState>, _: &mut Window, cx: &mut App| {
+                    let sizes = state.read(cx).sizes().clone();
+                    if sizes.len() < 2 {
+                        return;
+                    }
+                    let total = sizes[0].as_f32() + sizes[1].as_f32();
+                    if total <= 0.0 {
+                        return;
+                    }
+                    let ratio = sizes[0].as_f32() / total;
+                    let _ = view.update(cx, |this, cx| {
+                        this.pane_tree.set_ratio(ratio_leaf, ratio);
+                        cx.notify();
+                    });
+                };
+                if *dir == SplitDir::Horizontal {
+                    h_resizable(group_id)
+                        .on_resize(on_resize)
+                        .child(resizable_panel().child(first_el))
+                        .child(resizable_panel().child(second_el))
+                        .into_any_element()
+                } else {
+                    v_resizable(group_id)
+                        .on_resize(on_resize)
+                        .child(resizable_panel().child(first_el))
+                        .child(resizable_panel().child(second_el))
+                        .into_any_element()
+                }
+            }
+        }
+    }
+
+    /// 渲染单个窗格叶：对应 editor；整个叶包左键设 active；空标签叶居中
+    /// 显示关闭窗格按钮（根叶关闭返回 `false` 时忽略）。
+    fn render_pane_leaf(&self, id: PaneId, cx: &mut Context<Self>) -> AnyElement {
+        let Some(editor) = self.pane_editors.get(&id).cloned() else {
+            return div().size_full().into_any_element();
+        };
+        let is_empty = editor.read(cx).tabs.is_empty();
+        let base = v_flex()
+            .size_full()
+            .min_w_0()
+            .min_h_0()
+            .bg(ThemeColors::background())
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _event: &MouseDownEvent, _window, cx| {
+                    this.pane_tree.set_active(id);
+                    cx.notify();
+                }),
+            );
+        if is_empty {
+            base.items_center()
+                .justify_center()
+                .child(
+                    Button::new(format!("close-pane-{id}"))
+                        .small()
+                        .ghost()
+                        .label(crate::i18n::menu_text(cx, "ui.close").to_string())
+                        .on_click(cx.listener(move |this, _event, _window, cx| {
+                            this.close_pane(id, cx);
+                        })),
+                )
+                .into_any_element()
+        } else {
+            base.child(editor).into_any_element()
+        }
     }
 
     fn render_sidebar_splitter(&self, cx: &mut Context<Self>) -> impl IntoElement {
