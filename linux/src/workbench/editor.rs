@@ -48,12 +48,15 @@ pub struct EditorView {
 impl EditorView {
     pub fn new(workspace_root: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let editor_state = cx.new(|cx| EditorState::new(window, cx).line_number(true));
-        let _editor_subscription =
-            cx.subscribe_in(&editor_state, window, |this, _state, event: &InputEvent, _window, cx| {
+        let _editor_subscription = cx.subscribe_in(
+            &editor_state,
+            window,
+            |this, _state, event: &InputEvent, _window, cx| {
                 if matches!(event, InputEvent::Change) {
                     this.on_editor_change(cx);
                 }
-            });
+            },
+        );
 
         Self {
             workspace_root,
@@ -420,85 +423,60 @@ impl Render for EditorView {
                     .flex_1()
                     .w_full()
                     .overflow_hidden()
-                    .when_some(active_tab.as_ref().map(|_| editor_state.clone()), |this, state| {
-                        this.child(
-                            Editor::new(&state)
-                                .h(relative(1.0))
-                                .bordered(false)
-                                .readonly(false),
-                        )
-                    })
+                    .when_some(
+                        active_tab.as_ref().map(|_| editor_state.clone()),
+                        |this, state| {
+                            this.child(
+                                Editor::new(&state)
+                                    .h(relative(1.0))
+                                    .bordered(false)
+                                    .readonly(false),
+                            )
+                        },
+                    )
                     .when(active_tab.is_none(), |this| {
-                        // 无打开文件 Empty State（精致 Lithe 居中徽标与操作提示）
+                        // 无打开文件空态，对齐 Tauri `EmptyEditorState`：
+                        // 文件图标 + 右下角放大镜叠加，标题与描述使用 i18n 同款文案。
                         this.child(
                             h_flex()
                                 .size_full()
                                 .items_center()
                                 .justify_center()
+                                .bg(ThemeColors::bg_editor())
+                                .px_6()
+                                .py_8()
                                 .child(
                                     v_flex()
+                                        .max_w(px(448.0))
                                         .items_center()
                                         .gap_3()
                                         .child(
-                                            Icon::new(IconName::Zap)
+                                            div()
+                                                .relative()
                                                 .size(px(48.0))
-                                                .text_color(ThemeColors::accent_blue()),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_lg()
-                                                .font_weight(FontWeight::BOLD)
-                                                .text_color(ThemeColors::text_primary())
-                                                .child("Lithe IDEA"),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_xs()
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
                                                 .text_color(ThemeColors::text_muted())
-                                                .child("Next-generation IDE for Linux, powered by GPUI Kit & Rust Core"),
+                                                .child(Icon::new(IconName::FileText).size(px(40.0)))
+                                                .child(
+                                                    div().absolute().bottom_0().right_0().child(
+                                                        Icon::new(IconName::Search).size(px(20.0)),
+                                                    ),
+                                                ),
                                         )
                                         .child(
-                                            v_flex()
-                                                .pt_2()
-                                                .gap_2()
-                                                .child(
-                                                    h_flex()
-                                                        .items_center()
-                                                        .gap_2()
-                                                        .text_xs()
-                                                        .text_color(ThemeColors::text_muted())
-                                                        .child("Search files everywhere:")
-                                                        .child(
-                                                            div()
-                                                                .px_1p5()
-                                                                .py(px(1.0))
-                                                                .bg(ThemeColors::bg_tab_hover())
-                                                                .border_1()
-                                                                .border_color(ThemeColors::border())
-                                                                .rounded_sm()
-                                                                .text_color(ThemeColors::text_primary())
-                                                                .child("Ctrl+P"),
-                                                        ),
-                                                )
-                                                .child(
-                                                    h_flex()
-                                                        .items_center()
-                                                        .gap_2()
-                                                        .text_xs()
-                                                        .text_color(ThemeColors::text_muted())
-                                                        .child("Toggle terminal panel:")
-                                                        .child(
-                                                            div()
-                                                                .px_1p5()
-                                                                .py(px(1.0))
-                                                                .bg(ThemeColors::bg_tab_hover())
-                                                                .border_1()
-                                                                .border_color(ThemeColors::border())
-                                                                .rounded_sm()
-                                                                .text_color(ThemeColors::text_primary())
-                                                                .child("Ctrl+`"),
-                                                        ),
-                                                ),
+                                            div()
+                                                .text_base()
+                                                .font_weight(FontWeight::MEDIUM)
+                                                .text_color(ThemeColors::text_primary())
+                                                .child("选择文件以查看"),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_sm()
+                                                .text_color(ThemeColors::text_muted())
+                                                .child("外部工具产生的更改会自动显示。"),
                                         ),
                                 ),
                         )
