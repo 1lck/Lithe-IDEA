@@ -9,11 +9,13 @@ export type JavaBuildFailurePolicy = "ask" | "alwaysProceed";
 interface RunPreferencesStore {
   configurationListWidth: number;
   scrollOutputToEnd: boolean;
+  wrapOutputLines: boolean;
   selectedServiceIDsByWorkspace: Record<string, string[]>;
   javaBuildFailurePolicyByWorkspace: Record<string, JavaBuildFailurePolicy>;
   actions: {
     setConfigurationListWidth: (width: number) => void;
     setScrollOutputToEnd: (scroll: boolean) => void;
+    setWrapOutputLines: (wrap: boolean) => void;
     setSelectedServiceIDs: (workspace: string, ids: string[]) => void;
     setJavaBuildFailurePolicy: (workspace: string, policy: JavaBuildFailurePolicy) => void;
   };
@@ -27,11 +29,13 @@ const useRunPreferencesStoreBase = create<RunPreferencesStore>()(
     (set) => ({
       configurationListWidth: RUN_CONFIGURATION_LIST_DEFAULT_WIDTH,
       scrollOutputToEnd: true,
+      wrapOutputLines: true,
       selectedServiceIDsByWorkspace: {},
       javaBuildFailurePolicyByWorkspace: {},
       actions: {
         setConfigurationListWidth: (configurationListWidth) => set({ configurationListWidth }),
         setScrollOutputToEnd: (scrollOutputToEnd) => set({ scrollOutputToEnd }),
+        setWrapOutputLines: (wrapOutputLines) => set({ wrapOutputLines }),
         setSelectedServiceIDs: (workspace, ids) =>
           set((state) => ({
             selectedServiceIDsByWorkspace: {

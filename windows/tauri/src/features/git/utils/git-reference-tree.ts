@@ -71,6 +71,7 @@ export function buildGitReferenceTree(
   references: GitReference[],
   kind: GitReferenceKind,
   markedReferenceFullNames: ReadonlySet<string> = new Set(),
+  idPrefix = "",
 ): GitReferenceTreeNode[] {
   const roots: MutableReferenceNode[] = [];
 
@@ -83,7 +84,7 @@ export function buildGitReferenceTree(
       path = path ? `${path}/${part}` : part;
       let node = siblings.find((candidate) => candidate.name === part);
       if (!node) {
-        node = { id: `${kind}:${path}`, name: part, path, children: [] };
+        node = { id: `${idPrefix}${kind}:${path}`, name: part, path, children: [] };
         siblings.push(node);
       }
       if (index === parts.length - 1) node.reference = reference;

@@ -25,6 +25,7 @@ const {
   commitSelectedChanges,
   getGitHistoryPage,
   getGitReferences,
+  getGitReferencesAtRoot,
   resetToCommit,
 } = await import("./git-commits-api");
 
@@ -67,6 +68,17 @@ describe("Git commit history reads", () => {
     } finally {
       consoleError.mockRestore();
     }
+  });
+
+  test("reads references from a known root without resolving the repository", async () => {
+    await getGitReferencesAtRoot("C:/repo-b", "references-root");
+
+    const commands = invoke.mock.calls.map(([command]) => command);
+    expect(commands).not.toContain("git_discover_repo");
+    expect(invoke).toHaveBeenCalledWith("git_references", {
+      repoPath: "C:/repo-b",
+      operationId: "references-root",
+    });
   });
 });
 

@@ -700,6 +700,8 @@
 "Loading commit diff…" = "Loading commit diff…";
 "Loading comparison…" = "Loading comparison…";
 "Local" = "Local";
+"Hide worktree repositories" = "Hide worktree repositories";
+"Show worktree repositories" = "Show worktree repositories";
 "Local History…" = "Local History…";
 "Local changes would be overwritten" = "Local changes would be overwritten";
 "Me" = "Me";

@@ -210,6 +210,11 @@ function normalizeStringList(value: unknown): string[] {
   );
 }
 
+function normalizeHiddenSidebarActivityItems(value: unknown): string[] {
+  const validIds = new Set<string>(SIDEBAR_ACTIVITY_ITEM_IDS);
+  return normalizeStringList(value).filter((id) => validIds.has(id));
+}
+
 function normalizeIconTheme(value: string): string {
   if (
     value === "lithe-icons" ||
@@ -572,7 +577,7 @@ export function normalizeSettings(settings: Settings): Settings {
     normalizedSettings.sidebarActivityItemsOrder,
     SIDEBAR_ACTIVITY_ITEM_IDS,
   );
-  normalizedSettings.hiddenSidebarActivityItems = normalizeStringList(
+  normalizedSettings.hiddenSidebarActivityItems = normalizeHiddenSidebarActivityItems(
     normalizedSettings.hiddenSidebarActivityItems,
   );
   normalizedSettings.collapsedActivityRailSections = normalizeStringList(
@@ -673,7 +678,11 @@ export function normalizeSettingValue<K extends keyof Settings>(
     ) as Settings[K];
   }
 
-  if (key === "hiddenSidebarActivityItems" || key === "collapsedActivityRailSections") {
+  if (key === "hiddenSidebarActivityItems") {
+    return normalizeHiddenSidebarActivityItems(value) as Settings[K];
+  }
+
+  if (key === "collapsedActivityRailSections") {
     return normalizeStringList(value) as Settings[K];
   }
 
