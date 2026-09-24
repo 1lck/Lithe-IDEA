@@ -570,6 +570,14 @@ export const createRunStore = (
             return;
           }
           set(readyRunState(snapshot, get().selectedConfigurationId));
+          // Migrate any legacy per-project Maven paths into the shared Maven
+          // settings so the settings page shows the values already in effect.
+          // Fingerprint checking below still owns freshness; this only copies
+          // paths, and a saved Maven document keeps its own blank fields.
+          dependencies.seedMavenLocalConfiguration(workspaceId, {
+            mavenExecutablePath: snapshot.globalToolchain.mavenExecutablePath,
+            javaHomePath: snapshot.globalToolchain.mavenJavaHomePath,
+          });
           const ownsSnapshot = () => revision === projectLoadRevision &&
             get().root === root && get().configurations === snapshot.configurations;
           try {

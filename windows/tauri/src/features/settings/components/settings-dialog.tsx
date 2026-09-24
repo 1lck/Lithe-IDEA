@@ -15,6 +15,7 @@ import {
   MagicWandIcon,
   FileTextIcon,
   FolderIcon,
+  PackageIcon,
   TerminalWindowIcon,
   type Icon,
 } from "@/ui/icons";
@@ -40,6 +41,7 @@ const categories: CategoryItem[] = [
   { id: "keyboard", labelKey: "settings.tabs.keyboard", icon: KeyboardIcon },
   { id: "terminal", labelKey: "settings.tabs.terminal", icon: TerminalWindowIcon },
   { id: "lsp", labelKey: "settings.tabs.lsp", icon: DatabaseIcon },
+  { id: "maven", labelKey: "settings.tabs.maven", icon: PackageIcon },
   { id: "ai", labelKey: "settings.tabs.ai", icon: MagicWandIcon },
   { id: "ai-commit", labelKey: "settings.tabs.aiCommit", icon: MagicWandIcon },
   { id: "git", labelKey: "settings.tabs.git", icon: CodeBlockIcon },

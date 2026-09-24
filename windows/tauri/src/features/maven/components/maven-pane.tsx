@@ -49,7 +49,6 @@ import {
   type MavenLifecyclePhase,
   type MavenModule,
 } from "../types/maven.types";
-import { MavenDetectedValue } from "./maven-detected-value";
 import { MavenSourceRootRows } from "./maven-source-root-rows";
 import { MavenIcon } from "./maven-icon";
 import {

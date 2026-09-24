@@ -6,9 +6,10 @@ import { EffectiveToolchain } from "@/features/run/components/effective-toolchai
 import { useResolvedToolchains } from "@/features/run/hooks/use-resolved-toolchains";
 import { toolchainRequirementMessages } from "@/features/run/utils/effective-toolchain";
 import type { RunDiagnostic } from "@/features/run/types/run.types";
+import { MavenDetectedValue } from "@/features/maven/components/maven-detected-value";
 import { mavenLaunchContextForWorkspace, useMavenStore } from "@/features/maven/stores/maven.store";
-import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import type { MavenSettings } from "@/features/maven/types/maven.types";
+import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Input from "@/ui/input";
@@ -43,6 +44,17 @@ function ProjectEnvironmentForm({ root, workspaceId }: { root: string; workspace
   const mounted = useRef(true);
   const revision = useRef(0);
   const saveRevision = useRef(0);
+  const effectiveConfiguration = useMavenStore((state) => state.effectiveConfiguration);
+  const effectiveConfigurationStatus = useMavenStore((state) => state.effectiveConfigurationStatus);
+  const mavenProject = useMavenStore((state) => state.project);
+  const resolveEffectiveConfiguration = useMavenStore(
+    (state) => state.actions.resolveEffectiveConfiguration,
+  );
+
+  useEffect(() => {
+    if (!mavenProject) return;
+    void resolveEffectiveConfiguration();
+  }, [mavenProject, resolveEffectiveConfiguration]);
 
   const load = async () => {
     const current = ++revision.current;
@@ -156,6 +168,7 @@ function ProjectEnvironmentForm({ root, workspaceId }: { root: string; workspace
             path: runtime.homePath,
             version: runtime.version,
           })),
+          detectedField: null,
         },
         {
           key: "mavenExecutablePath" as const,
@@ -173,6 +186,7 @@ function ProjectEnvironmentForm({ root, workspaceId }: { root: string; workspace
             path: runtime.executablePath,
             version: runtime.version,
           })),
+          detectedField: "mavenExecutablePath" as const,
         },
         {
           key: "mavenJavaHomePath" as const,
@@ -190,6 +204,7 @@ function ProjectEnvironmentForm({ root, workspaceId }: { root: string; workspace
             path: runtime.homePath,
             version: runtime.version,
           })),
+          detectedField: "javaHomePath" as const,
         },
       ]
     : [];
@@ -217,7 +232,7 @@ function ProjectEnvironmentForm({ root, workspaceId }: { root: string; workspace
       )}
       <fieldset disabled={busy} className="space-y-4 disabled:opacity-60">
         {environment &&
-          fields.map(({ key, label, automatic, candidates, effective }) => (
+          fields.map(({ key, label, automatic, candidates, effective, detectedField }) => (
             <label key={key} className="block space-y-1.5">
               <span className="font-medium ui-text-sm">{label}</span>
               <div className="flex gap-2">
@@ -282,6 +297,14 @@ function ProjectEnvironmentForm({ root, workspaceId }: { root: string; workspace
                     .join("; ")}
                 </p>
               )}
+              {detectedField ? (
+                <MavenDetectedValue
+                  field={detectedField}
+                  value={environment.toolchain[key]}
+                  effective={effectiveConfiguration}
+                  status={effectiveConfigurationStatus}
+                />
+              ) : null}
             </label>
           ))}
         {maven &&
@@ -310,6 +333,12 @@ function ProjectEnvironmentForm({ root, workspaceId }: { root: string; workspace
                   <FolderIcon />
                 </Button>
               </div>
+              <MavenDetectedValue
+                field={key}
+                value={maven[key]}
+                effective={effectiveConfiguration}
+                status={effectiveConfigurationStatus}
+              />
             </label>
           ))}
       </fieldset>

@@ -686,6 +686,8 @@ export const createMavenStore = (
             releaseMavenSessionWorkspace(previous.activeSessionId);
           }
           if (previous.root && previous.root !== root) {
+            pendingLocalSeed = null;
+            localConfigurationPersisted = false;
             await synchronizePomWatches(new Set());
             if (projectLoadRevision !== revision) return;
           }
@@ -724,6 +726,7 @@ export const createMavenStore = (
             if (!project) {
               await synchronizePomWatches(new Set());
               if (projectLoadRevision !== revision || get().root !== root) return;
+              localConfigurationPersisted = false;
               set({
                 projectStatus: "ready",
                 project: null,
@@ -788,12 +791,26 @@ export const createMavenStore = (
             const selectedProfiles = normalizedProfiles(
               stored.portable?.selectedProfiles ?? defaultProfiles,
             ).filter((profile) => knownProfiles.has(profile));
-            const mavenExecutablePath = normalizedPath(stored.local?.mavenExecutablePath);
+            if (!preserveLatestInMemoryConfiguration) {
+              localConfigurationPersisted = stored.local != null;
+            }
+            const loadedPaths = {
+              settingsPath: normalizedPath(stored.local?.settingsPath),
+              localRepositoryPath: normalizedPath(stored.local?.localRepositoryPath),
+              mavenExecutablePath: normalizedPath(stored.local?.mavenExecutablePath),
+              javaHomePath: normalizedPath(stored.local?.javaHomePath),
+            };
+            const adopted = preserveLatestInMemoryConfiguration
+              ? { settings: loadedPaths, migrated: false }
+              : adoptPendingLocalSeed(loadedPaths);
             // Project import must follow the same installation the command line
             // uses, so JDT LS reads its repository and mirrors instead of the
-            // embedded defaults.
+            // embedded defaults. The adopted path is the one launch will use.
             const resolvedMavenExecutablePath =
-              await dependencies.resolveEffectiveMavenExecutable(root, mavenExecutablePath);
+              await dependencies.resolveEffectiveMavenExecutable(
+                root,
+                adopted.settings.mavenExecutablePath,
+              );
             if (projectLoadRevision !== revision || get().root !== root) return;
             set({
               projectStatus: "ready",
@@ -802,12 +819,10 @@ export const createMavenStore = (
               selectedProfiles,
               customProfiles,
               skipTests: stored.portable?.skipTests ?? false,
-              settingsPath: normalizedPath(stored.local?.settingsPath),
-              localRepositoryPath: normalizedPath(stored.local?.localRepositoryPath),
-              mavenExecutablePath,
+              ...adopted.settings,
               resolvedMavenExecutablePath,
-              javaHomePath: normalizedPath(stored.local?.javaHomePath),
             });
+            if (adopted.migrated) persistConfiguration();
           } catch (error) {
             if (projectLoadRevision !== revision || get().root !== root) return;
             const message =
@@ -822,6 +837,7 @@ export const createMavenStore = (
               }));
               return;
             }
+            localConfigurationPersisted = false;
             set({
               projectStatus: "failed",
               projectError: message,
@@ -839,6 +855,12 @@ export const createMavenStore = (
               lastTestRun: null,
               testOutcomes: [],
             });
+          } finally {
+            // Deliberately not awaited: the scan has already produced the project
+            // state, and detection probes the machine, which must not delay
+            // opening a workspace. The action resolves once detection settles.
+            const resolveEffectiveConfiguration = get().actions.resolveEffectiveConfiguration;
+            void resolveEffectiveConfiguration();
           }
         },
 
@@ -936,7 +958,6 @@ export const createMavenStore = (
           });
           localConfigurationPersisted = true;
           pendingLocalSeed = null;
-          set(next);
           configurationDidChange();
           void get().actions.resolveEffectiveConfiguration();
         },
