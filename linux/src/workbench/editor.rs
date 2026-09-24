@@ -1088,9 +1088,18 @@ impl Render for EditorView {
                         let is_active = self.active_tab_index == Some(idx);
                         let title = tab.title.clone();
                         let is_dirty = tab.is_dirty;
+                        // 对齐 Tauri `shouldShowTabCloseButton`：固定常显，
+                        // `always` 常显，`active` 仅当前显，其余悬停显。
+                        let visibility =
+                            crate::settings::get(cx).tab_close_button_visibility.clone();
+                        let show_close = tab.is_pinned
+                            || visibility == "always"
+                            || (visibility == "active" && is_active);
+                        let group_name = format!("tab-close-group-{idx}");
 
                         h_flex()
                             .id(idx)
+                            .group(group_name.clone())
                             .h(px(34.0))
                             .items_center()
                             .gap_2()
@@ -1158,6 +1167,10 @@ impl Render for EditorView {
                                     .p(px(2.0))
                                     .rounded_sm()
                                     .cursor_pointer()
+                                    .when(!show_close, |d| {
+                                        d.opacity(0.0)
+                                            .group_hover(group_name, |style| style.opacity(1.0))
+                                    })
                                     .hover(|h| {
                                         h.bg(ThemeColors::bg_tab_hover())
                                             .text_color(ThemeColors::accent_red())
