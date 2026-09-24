@@ -42,6 +42,13 @@ pub struct ActivityRailView {
     top_items: Vec<&'static str>,
     /// 底部组项顺序，按 `SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS` 固定顺序排列。
     bottom_items: Vec<&'static str>,
+    /// 是否发生过 Maven 运行。对齐 Tauri：左侧栏的 maven 项仅在
+    /// `hasMavenRun` 为真时出现（`onMavenClick` 有条件传入）；
+    /// 右侧插件栏的 Maven 入口不受此限制。
+    /// Maven 运行尚未接入后端，当前恒为 false，由后续 Maven 集成调用
+    /// [`ActivityRailView::set_has_maven_run`] 打开。
+    #[allow(dead_code)]
+    has_maven_run: bool,
 }
 
 impl EventEmitter<ActivityRailEvent> for ActivityRailView {}
@@ -52,6 +59,23 @@ impl ActivityRailView {
     /// 构造期只做一次快照：设置变更由 `view.rs` 重建/重订阅处理，这里不持有
     /// `App`，避免把全局状态带进渲染路径。
     pub fn new(cx: &mut Context<Self>) -> Self {
+        let (top_items, bottom_items) = Self::compute_items(false, cx);
+
+        Self {
+            active_view: Some("files".to_string()),
+            active_bottom: None,
+            top_items,
+            bottom_items,
+            has_maven_run: false,
+        }
+    }
+
+    /// 按设置与 `hasMavenRun` 计算左右分组。maven 仅在发生过 Maven 运行后
+    /// 才出现在左侧栏，与 Tauri `main-sidebar.tsx` 的条件传入一致。
+    fn compute_items(
+        has_maven_run: bool,
+        cx: &mut Context<Self>,
+    ) -> (Vec<&'static str>, Vec<&'static str>) {
         let s = settings::get(cx);
         let ordered = normalize_order(&s.sidebar_activity_items_order);
         let features = &s.core_features;
@@ -61,6 +85,7 @@ impl ActivityRailView {
             .into_iter()
             .filter(|id| is_feature_available(id, features))
             .filter(|id| !hidden.iter().any(|h| h.as_str() == *id))
+            .filter(|id| *id != "maven" || has_maven_run)
             .collect();
 
         // 顶部组保留可见顺序；底部组按 Tauri 常量顺序取交集，保证与参考实现一致。
@@ -74,13 +99,20 @@ impl ActivityRailView {
             .copied()
             .filter(|id| visible.contains(id))
             .collect();
+        (top_items, bottom_items)
+    }
 
-        Self {
-            active_view: Some("files".to_string()),
-            active_bottom: None,
-            top_items,
-            bottom_items,
+    /// 设置是否发生过 Maven 运行；为真时左侧栏出现 maven 项。
+    #[allow(dead_code)]
+    pub fn set_has_maven_run(&mut self, has_run: bool, cx: &mut Context<Self>) {
+        self.has_maven_run = has_run;
+        let (top_items, bottom_items) = Self::compute_items(has_run, cx);
+        self.top_items = top_items;
+        self.bottom_items = bottom_items;
+        if !has_run && self.active_bottom.as_deref() == Some("maven") {
+            self.active_bottom = None;
         }
+        cx.notify();
     }
 
     pub fn set_active_view(&mut self, view: Option<String>, cx: &mut Context<Self>) {

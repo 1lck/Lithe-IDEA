@@ -50,11 +50,16 @@ pub enum ToolbarEvent {
     OpenRecent,
 }
 
+/// 应用图标：与 Tauri 端 `public/logo.png` 同一文件，编译期嵌入。
+const APP_LOGO_PNG: &[u8] = include_bytes!("../../assets/logo.png");
+
 pub struct ToolbarView {
     pub workspace_name: String,
     pub git_branch: Option<String>,
     /// 紧凑菜单条是否展开（对齐 Tauri `isCompactMenuVisible`）。
     compact_menu_open: bool,
+    /// 解码后的应用图标，项目菜单触发器左侧的徽标（对齐 Tauri 的 `logo.png`）。
+    app_logo: std::sync::Arc<gpui_kit::Image>,
 }
 
 impl EventEmitter<ToolbarEvent> for ToolbarView {}
@@ -70,6 +75,10 @@ impl ToolbarView {
             workspace_name: name,
             git_branch: None,
             compact_menu_open: false,
+            app_logo: std::sync::Arc::new(gpui_kit::Image::from_bytes(
+                gpui_kit::ImageFormat::Png,
+                APP_LOGO_PNG.to_vec(),
+            )),
         }
     }
 
@@ -392,26 +401,23 @@ impl Render for ToolbarView {
                     .gap_2()
                     .child(app_menu)
                     .child({
-                        // 项目菜单：logo + 项目名 + ChevronDown，点击展开项目列表
+                        // 项目菜单：应用图标 + 项目名 + ChevronDown，点击展开项目列表
                         let v = view.clone();
                         let name = project_name.clone();
+                        let logo = self.app_logo.clone();
                         Button::new("tb-project-selector")
                             .small()
                             .ghost()
                             .child(
-                                // 项目徽标：Tauri 用 public/logo.png，这里以同尺寸圆角方块承载品牌色。
+                                // 项目徽标：Tauri 用 public/logo.png（size-5 圆角），保持一致。
                                 div()
                                     .size(px(20.0))
                                     .flex_shrink_0()
                                     .rounded(px(6.0))
-                                    .bg(ThemeColors::primary())
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
+                                    .overflow_hidden()
                                     .child(
-                                        Icon::new(IconName::Zap)
-                                            .size(px(12.0))
-                                            .text_color(ThemeColors::background()),
+                                        gpui_kit::img(gpui_kit::ImageSource::Image(logo))
+                                            .size_full(),
                                     ),
                             )
                             .child(

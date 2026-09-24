@@ -2,13 +2,15 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex, Sizable as _};
 use gpui_kit::{
-    div, px, rgb, Context, InteractiveElement as _, IntoElement, ParentElement as _, Render,
+    div, px, Context, InteractiveElement as _, IntoElement, ParentElement as _, Render,
     Styled as _, Window,
 };
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
+
+use crate::theme::ThemeColors;
 
 /// Linux 原生 PTY 会话
 pub struct TerminalSession {
@@ -141,7 +143,9 @@ impl Render for TerminalView {
 
         v_flex()
             .size_full()
-            .bg(rgb(0x0e0f17))
+            // 终端区背景跟随主题（对齐 Tauri xterm 的 `--background`），
+            // 浅色主题下不再残留深色底。
+            .bg(ThemeColors::background())
             .p_2()
             .child(
                 // 终端顶部控制栏
@@ -151,14 +155,14 @@ impl Render for TerminalView {
                     .justify_between()
                     .items_center()
                     .border_b_1()
-                    .border_color(rgb(0x23263b))
+                    .border_color(ThemeColors::border())
                     .pb_1()
                     .child(
                         h_flex()
                             .items_center()
                             .gap_2()
                             .text_xs()
-                            .text_color(rgb(0x8a90a2))
+                            .text_color(ThemeColors::subtle_foreground())
                             .child("Linux PTY Shell")
                             .child(format!("({})", self.working_dir)),
                     )
@@ -180,12 +184,14 @@ impl Render for TerminalView {
                     .overflow_y_scrollbar()
                     .p_2()
                     .text_xs()
-                    .text_color(rgb(0xd1d5db))
+                    .text_color(ThemeColors::foreground())
                     .font_family("monospace")
                     .children(lines.into_iter().enumerate().map(|(idx, line)| {
-                        div()
-                            .id(idx)
-                            .child(if line.is_empty() { " ".to_string() } else { line })
+                        div().id(idx).child(if line.is_empty() {
+                            " ".to_string()
+                        } else {
+                            line
+                        })
                     })),
             )
             .child(
@@ -193,16 +199,16 @@ impl Render for TerminalView {
                 h_flex()
                     .h(px(32.0))
                     .w_full()
-                    .bg(rgb(0x141522))
+                    .bg(ThemeColors::surface())
                     .border_t_1()
-                    .border_color(rgb(0x23263b))
+                    .border_color(ThemeColors::border())
                     .items_center()
                     .px_2()
                     .gap_2()
                     .child(
                         div()
                             .text_xs()
-                            .text_color(rgb(0x10b981))
+                            .text_color(ThemeColors::success())
                             .font_family("monospace")
                             .child("$"),
                     )
@@ -210,7 +216,7 @@ impl Render for TerminalView {
                         div()
                             .flex_1()
                             .text_xs()
-                            .text_color(rgb(0xffffff))
+                            .text_color(ThemeColors::foreground())
                             .font_family("monospace")
                             .child(if self.current_input.is_empty() {
                                 "Type command here...".to_string()
