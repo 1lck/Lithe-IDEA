@@ -27,6 +27,8 @@ export const createPaneContent = (id: string, spec: OpenContentSpec): PaneConten
         isVirtual: spec.isVirtual ?? false,
         isPreview: spec.isPreview ?? false,
         readOnly: spec.readOnly,
+        encoding: spec.encoding,
+        diskIdentity: spec.diskIdentity,
         language: spec.language ?? detectLanguageFromFileName(spec.name),
         lspDocument: spec.lspDocument,
         tokens: [],
@@ -263,7 +265,13 @@ export const createPaneContent = (id: string, spec: OpenContentSpec): PaneConten
  */
 export const createRestoredEditorPlaceholder = (
   id: string,
-  options: { path: string; name: string; isPinned: boolean; isPreview: boolean },
+  options: {
+    path: string;
+    name: string;
+    isPinned: boolean;
+    isPreview: boolean;
+    encoding?: import("@/platform/document-files").FileEncoding;
+  },
 ): EditorContent => ({
   id,
   type: "editor",
@@ -278,6 +286,7 @@ export const createRestoredEditorPlaceholder = (
   documentLifecycle: { status: "clean", revision: 0 },
   isVirtual: false,
   language: detectLanguageFromFileName(options.name),
+  encoding: options.encoding,
   tokens: [],
   loadState: "unloaded",
 });

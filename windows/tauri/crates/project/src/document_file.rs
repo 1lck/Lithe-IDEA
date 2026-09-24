@@ -1,12 +1,14 @@
 //! Native local document persistence. Disk checks and replacement share one write gate.
+use encoding_rs::{Encoding, GB18030, GBK, SHIFT_JIS, UTF_8, WINDOWS_1252};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::{
     fs::{self, OpenOptions},
     io::{self, Read, Write},
     path::{Path, PathBuf},
     sync::{
-        Mutex,
         atomic::{AtomicU64, Ordering},
+        Mutex,
     },
 };
 
@@ -17,12 +19,158 @@ static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 #[derive(Debug, Serialize)]
 #[serde(tag = "status", rename_all = "camelCase")]
 pub enum SaveOutcome {
-    Saved,
-    Conflict { content: Option<String> },
+    Saved {
+        identity: String,
+    },
+    Conflict {
+        content: Option<String>,
+        identity: Option<String>,
+    },
+}
+
+/// Text encoding used when decoding or publishing a local document.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DocumentEncoding {
+    Utf8,
+    Utf8Bom,
+    Gbk,
+    Gb18030,
+    ShiftJis,
+    Windows1252,
+}
+
+impl DocumentEncoding {
+    /// Returns the stable label exchanged with the Tauri frontend.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Utf8 => "UTF-8",
+            Self::Utf8Bom => "UTF-8 with BOM",
+            Self::Gbk => "GBK",
+            Self::Gb18030 => "GB18030",
+            Self::ShiftJis => "Shift JIS",
+            Self::Windows1252 => "Windows-1252",
+        }
+    }
+
+    fn codec(self) -> &'static Encoding {
+        match self {
+            Self::Utf8 | Self::Utf8Bom => UTF_8,
+            Self::Gbk => GBK,
+            Self::Gb18030 => GB18030,
+            Self::ShiftJis => SHIFT_JIS,
+            Self::Windows1252 => WINDOWS_1252,
+        }
+    }
+
+    /// Parses a user-facing encoding label, defaulting to UTF-8.
+    pub fn parse(value: Option<&str>) -> io::Result<Self> {
+        match value
+            .unwrap_or("UTF-8")
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "utf-8" | "utf8" => Ok(Self::Utf8),
+            "utf-8 with bom" | "utf8-bom" | "utf-8-bom" => Ok(Self::Utf8Bom),
+            "gbk" => Ok(Self::Gbk),
+            "gb18030" => Ok(Self::Gb18030),
+            "shift jis" | "shift-jis" | "shift_jis" => Ok(Self::ShiftJis),
+            "windows-1252" | "cp1252" => Ok(Self::Windows1252),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Unsupported document encoding",
+            )),
+        }
+    }
+
+    fn decode(self, bytes: &[u8]) -> io::Result<String> {
+        let bytes = if matches!(self, Self::Utf8 | Self::Utf8Bom)
+            && bytes.starts_with(&[0xEF, 0xBB, 0xBF])
+        {
+            &bytes[3..]
+        } else {
+            bytes
+        };
+        let (text, had_errors) = self.codec().decode_without_bom_handling(bytes);
+        if had_errors {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Document contains invalid bytes for the selected encoding",
+            ));
+        }
+        Ok(text.into_owned())
+    }
+
+    fn encode(self, text: &str) -> io::Result<Vec<u8>> {
+        let (encoded, _, had_errors) = self.codec().encode(text);
+        if had_errors {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Document contains characters unavailable in the selected encoding",
+            ));
+        }
+        let mut bytes = encoded.into_owned();
+        if self == Self::Utf8Bom {
+            bytes.splice(0..0, [0xEF, 0xBB, 0xBF]);
+        }
+        Ok(bytes)
+    }
+}
+
+/// Decoded text and the encoding selected for the document.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentRead {
+    /// Text decoded from the bounded file bytes.
+    pub content: String,
+    /// Stable label for the codec used to decode `content`.
+    pub encoding: String,
+    /// SHA-256 of the exact bytes read from disk, used for optimistic saves.
+    pub identity: String,
 }
 
 /// A missing file is distinct from an unreadable or unsupported file.
 pub fn read_document(path: &Path) -> io::Result<Option<String>> {
+    Ok(read_document_with_encoding(path, None)?.map(|document| document.content))
+}
+
+/// Reads a bounded document using an explicit encoding or a conservative auto-detection policy.
+pub fn read_document_with_encoding(
+    path: &Path,
+    encoding: Option<&str>,
+) -> io::Result<Option<DocumentRead>> {
+    let bytes = read_document_bytes(path)?;
+    let Some(bytes) = bytes else {
+        return Ok(None);
+    };
+    let selected = match encoding {
+        Some(value) => DocumentEncoding::parse(Some(value))?,
+        None if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) => DocumentEncoding::Utf8Bom,
+        None => match DocumentEncoding::Utf8.decode(&bytes) {
+            Ok(_) => DocumentEncoding::Utf8,
+            Err(_) => {
+                let text = DocumentEncoding::Gb18030.decode(&bytes)?;
+                if DocumentEncoding::Gbk.encode(&text).is_ok() {
+                    DocumentEncoding::Gbk
+                } else {
+                    DocumentEncoding::Gb18030
+                }
+            }
+        },
+    };
+    Ok(Some(DocumentRead {
+        content: selected.decode(&bytes)?,
+        encoding: selected.label().to_string(),
+        identity: bytes_identity(&bytes),
+    }))
+}
+
+fn bytes_identity(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn read_document_bytes(path: &Path) -> io::Result<Option<Vec<u8>>> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(value) => value,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -48,7 +196,7 @@ pub fn read_document(path: &Path) -> io::Result<Option<String>> {
     {
         use std::os::windows::{fs::MetadataExt, io::AsRawHandle};
         use windows_sys::Win32::Storage::FileSystem::{
-            BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+            GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
         };
         if metadata.file_attributes() & 0x400 != 0 {
             return Err(io::Error::new(
@@ -79,9 +227,7 @@ pub fn read_document(path: &Path) -> io::Result<Option<String>> {
             "Document exceeds the 32 MB editing limit",
         ));
     }
-    String::from_utf8(bytes)
-        .map(Some)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+    Ok(Some(bytes))
 }
 
 struct TemporaryFile(PathBuf);
@@ -95,30 +241,62 @@ impl Drop for TemporaryFile {
     }
 }
 
-/// Compares actual UTF-8 bytes, including equal-length edits with unchanged mtimes.
+/// Compares exact disk bytes, including equal-length edits with unchanged mtimes.
 /// The second check narrows but cannot eliminate races with non-cooperating writers.
 pub fn save_document(path: &Path, text: &str, expected: Option<&str>) -> io::Result<SaveOutcome> {
-    save_with_precommit(path, text, expected, || {})
+    save_document_with_encoding(path, text, expected, Some("UTF-8"), Some("UTF-8"), None)
+}
+
+/// Saves text using the requested encoding while retaining guarded, atomic publication.
+pub fn save_document_with_encoding(
+    path: &Path,
+    text: &str,
+    expected: Option<&str>,
+    encoding: Option<&str>,
+    expected_encoding: Option<&str>,
+    expected_identity: Option<&str>,
+) -> io::Result<SaveOutcome> {
+    let selected = DocumentEncoding::parse(encoding)?;
+    let expected_codec = DocumentEncoding::parse(expected_encoding.or(encoding))?;
+    let bytes = selected.encode(text)?;
+    save_with_precommit(
+        path,
+        &bytes,
+        expected,
+        expected_codec,
+        expected_identity,
+        || {},
+    )
 }
 
 fn save_with_precommit(
     path: &Path,
-    text: &str,
+    bytes: &[u8],
     expected: Option<&str>,
+    expected_encoding: DocumentEncoding,
+    expected_identity: Option<&str>,
     before_commit: impl FnOnce(),
 ) -> io::Result<SaveOutcome> {
-    if !path.is_absolute() || text.len() as u64 > MAX_DOCUMENT_BYTES {
+    if !path.is_absolute() || bytes.len() as u64 > MAX_DOCUMENT_BYTES {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "Invalid document path or size",
         ));
     }
+    let expected_bytes = expected
+        .map(|text| expected_encoding.encode(text))
+        .transpose()?;
+    let fallback_identity = expected_bytes.as_deref().map(bytes_identity);
+    let expected_identity = expected_identity.or(fallback_identity.as_deref());
     let _gate = WRITE_GATE
         .lock()
         .map_err(|_| io::Error::other("Document write gate failed"))?;
-    let current = read_document(path)?;
-    if current.as_deref() != expected {
-        return Ok(SaveOutcome::Conflict { content: current });
+    let current = read_document_with_encoding(path, Some(expected_encoding.label()))?;
+    if !matches_expected(&current, expected, expected_identity) {
+        return Ok(SaveOutcome::Conflict {
+            identity: current.as_ref().map(|document| document.identity.clone()),
+            content: current.map(|document| document.content),
+        });
     }
     if fs::metadata(path).is_ok_and(|metadata| metadata.permissions().readonly()) {
         return Err(io::Error::new(
@@ -151,16 +329,19 @@ fn save_with_precommit(
     }
     let (temporary, mut file) =
         staged.ok_or_else(|| io::Error::other("Could not stage document"))?;
-    file.write_all(text.as_bytes())?;
+    file.write_all(bytes)?;
     file.sync_all()?;
     if let Ok(metadata) = fs::metadata(path) {
         file.set_permissions(metadata.permissions())?;
     }
     drop(file);
     before_commit();
-    let latest = read_document(path)?;
-    if latest.as_deref() != expected {
-        return Ok(SaveOutcome::Conflict { content: latest });
+    let latest = read_document_with_encoding(path, Some(expected_encoding.label()))?;
+    if !matches_expected(&latest, expected, expected_identity) {
+        return Ok(SaveOutcome::Conflict {
+            identity: latest.as_ref().map(|document| document.identity.clone()),
+            content: latest.map(|document| document.content),
+        });
     }
     if expected.is_none() {
         // Creation must never replace a file created after the missing-file check.
@@ -168,7 +349,21 @@ fn save_with_precommit(
     } else {
         replace(&temporary.0, path)?;
     }
-    Ok(SaveOutcome::Saved)
+    Ok(SaveOutcome::Saved {
+        identity: bytes_identity(bytes),
+    })
+}
+
+fn matches_expected(
+    current: &Option<DocumentRead>,
+    expected: Option<&str>,
+    expected_identity: Option<&str>,
+) -> bool {
+    match (current, expected_identity) {
+        (Some(document), Some(identity)) => document.identity == identity,
+        (None, Some(_)) => false,
+        _ => current.as_ref().map(|document| document.content.as_str()) == expected,
+    }
 }
 
 // Same-directory publication must reject a concurrently created destination.
@@ -275,18 +470,130 @@ mod tests {
         ));
         assert_eq!(fs::read_to_string(&path).unwrap(), "new");
     }
+
+    #[test]
+    fn rejects_matching_text_with_a_different_raw_identity() {
+        let directory = Directory::new();
+        let path = directory.0.join("identity.txt");
+        fs::write(&path, "same").unwrap();
+        let read = read_document_with_encoding(&path, Some("UTF-8"))
+            .unwrap()
+            .unwrap();
+        fs::write(&path, b"same\n").unwrap();
+        assert!(matches!(
+            save_document_with_encoding(
+                &path,
+                "replacement",
+                Some("same"),
+                Some("UTF-8"),
+                Some("UTF-8"),
+                Some(&read.identity),
+            )
+            .unwrap(),
+            SaveOutcome::Conflict { .. }
+        ));
+    }
     #[test]
     fn rechecks_after_staging_and_cleans_temporary_file() {
         let directory = Directory::new();
         let path = directory.0.join("a.txt");
         fs::write(&path, "old").unwrap();
-        let outcome = save_with_precommit(&path, "mine", Some("old"), || {
-            fs::write(&path, "external").unwrap();
-        })
+        let outcome = save_with_precommit(
+            &path,
+            b"mine",
+            Some("old"),
+            DocumentEncoding::Utf8,
+            None,
+            || {
+                fs::write(&path, "external").unwrap();
+            },
+        )
         .unwrap();
         assert!(matches!(outcome, SaveOutcome::Conflict { .. }));
         assert_eq!(fs::read_to_string(&path).unwrap(), "external");
         assert_eq!(fs::read_dir(&directory.0).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn decodes_and_reencodes_gbk_without_loss() {
+        let directory = Directory::new();
+        let path = directory.0.join("gbk.txt");
+        let text = "中文文件";
+        let encoded = DocumentEncoding::Gbk.encode(text).unwrap();
+        fs::write(&path, encoded).unwrap();
+        let decoded = read_document_with_encoding(&path, Some("GBK"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(decoded.content, text);
+        assert_eq!(decoded.encoding, "GBK");
+        assert!(matches!(
+            save_document_with_encoding(
+                &path,
+                "更新后的中文",
+                Some(text),
+                Some("GBK"),
+                Some("GBK"),
+                None,
+            )
+            .unwrap(),
+            SaveOutcome::Saved { .. }
+        ));
+        assert_eq!(
+            read_document_with_encoding(&path, Some("GBK"))
+                .unwrap()
+                .unwrap()
+                .content,
+            "更新后的中文"
+        );
+    }
+
+    #[test]
+    fn auto_detection_falls_back_to_gbk_after_invalid_utf8() {
+        let directory = Directory::new();
+        let path = directory.0.join("gbk-auto.txt");
+        fs::write(&path, DocumentEncoding::Gbk.encode("自动检测").unwrap()).unwrap();
+        let decoded = read_document_with_encoding(&path, None).unwrap().unwrap();
+        assert_eq!(decoded.encoding, "GBK");
+        assert_eq!(decoded.content, "自动检测");
+    }
+
+    #[test]
+    fn explicit_encoding_rejects_invalid_bytes_and_preserves_bom_policy() {
+        let directory = Directory::new();
+        let invalid = directory.0.join("invalid.txt");
+        fs::write(&invalid, [0xFF, 0xFE]).unwrap();
+        assert_eq!(
+            read_document_with_encoding(&invalid, Some("UTF-8"))
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
+
+        let bom = directory.0.join("bom.txt");
+        fs::write(&bom, DocumentEncoding::Utf8Bom.encode("带 BOM").unwrap()).unwrap();
+        let read = read_document_with_encoding(&bom, Some("UTF-8"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(read.content, "带 BOM");
+        assert_eq!(read.encoding, "UTF-8");
+    }
+
+    #[test]
+    fn rejects_unrepresentable_text_before_publishing() {
+        let directory = Directory::new();
+        let path = directory.0.join("cp1252.txt");
+        fs::write(&path, b"old").unwrap();
+        let error = save_document_with_encoding(
+            &path,
+            "中文",
+            Some("old"),
+            Some("Windows-1252"),
+            Some("Windows-1252"),
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(fs::read(&path).unwrap(), b"old");
     }
     #[test]
     fn missing_file_requires_explicit_creation_and_new_baseline_is_checked() {
@@ -294,16 +601,16 @@ mod tests {
         let path = directory.0.join("a.txt");
         assert!(matches!(
             save_document(&path, "mine", Some("old")).unwrap(),
-            SaveOutcome::Conflict { content: None }
+            SaveOutcome::Conflict { content: None, .. }
         ));
         assert!(!path.exists());
         assert!(matches!(
             save_document(&path, "mine", None).unwrap(),
-            SaveOutcome::Saved
+            SaveOutcome::Saved { .. }
         ));
         assert!(matches!(
             save_document(&path, "new mine", Some("mine")).unwrap(),
-            SaveOutcome::Saved
+            SaveOutcome::Saved { .. }
         ));
         assert!(matches!(
             save_document(&path, "stale window", Some("mine")).unwrap(),

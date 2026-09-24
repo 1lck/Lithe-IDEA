@@ -215,6 +215,7 @@ struct WorkbenchView: View {
 
     var body: some View {
         let closeConfirmationID = model.pendingCloseConfirmationID
+        let encodingRequest = model.pendingEncodingReopen
         let _ = LitheSignpost.bodyEvaluated("WorkbenchView")
         VStack(spacing: 0) {
             topBar
@@ -354,6 +355,25 @@ struct WorkbenchView: View {
                 .lithePointer()
         } message: {
             Text(model.pendingCloseDocument?.url.lastPathComponent ?? "")
+        }
+        .confirmationDialog(
+            "Save changes before reopening with \(encodingRequest?.encoding.displayName ?? "this encoding")?",
+            isPresented: Binding(
+                get: { encodingRequest != nil },
+                set: { if !$0 { model.dismissPendingEncodingReopen(encodingRequest?.id) } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Save") { model.resolvePendingEncodingReopen(saveChanges: true) }
+                .lithePointer()
+            Button("Discard Changes", role: .destructive) {
+                model.resolvePendingEncodingReopen(saveChanges: false)
+            }
+            .lithePointer()
+            Button("Cancel", role: .cancel) { model.cancelEncodingChange() }
+                .lithePointer()
+        } message: {
+            Text(encodingRequest?.document.url.lastPathComponent ?? "")
         }
         .confirmationDialog(
             model.pendingDiscardChange?.isUntracked == true ? "Delete this untracked file?" : "Discard changes to this file?",
@@ -1748,7 +1768,47 @@ struct WorkbenchView: View {
     private var detailedStatusItems: some View {
         HStack(spacing: 14) {
             EditorCaretPositionLabel(chrome: model.editorChrome) { model.showGoToLine() }
-            Text("UTF-8")
+            if let document = model.activeDocument, document.url.isFileURL {
+                Menu {
+                    Section("Reopen with Encoding") {
+                        ForEach(DocumentEncoding.allCases, id: \.self) { encoding in
+                            Button {
+                                model.reopenDocument(document, with: encoding)
+                            } label: {
+                                HStack {
+                                    Text(encoding.displayName)
+                                    if document.encoding == encoding {
+                                        Spacer()
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Divider()
+                    Section("Save with Encoding") {
+                        ForEach(DocumentEncoding.allCases, id: \.self) { encoding in
+                            Button {
+                                model.saveDocument(document, encoding: encoding)
+                            } label: {
+                                HStack {
+                                    Text(encoding.displayName)
+                                    if document.encoding == encoding {
+                                        Spacer()
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                            .disabled(document.isReadOnly)
+                        }
+                    }
+                } label: {
+                    Text(document.encoding.displayName)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("File encoding")
+            }
             Text("\(settings.tabWidth) spaces")
             Button {
                 model.saveActiveDocument()

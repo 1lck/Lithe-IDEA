@@ -50,10 +50,14 @@ extension LitheWorkspaceModule.WorkspaceFeatureModel {
     ) {
         configureProjection(
             documentsProvider: {
-                documentsProvider().map { WorkspaceDocumentState(url: $0.url, isDirty: $0.isDirty) }
+                documentsProvider().map {
+                    WorkspaceDocumentState(url: $0.url, isDirty: $0.isDirty, encoding: $0.encoding)
+                }
             },
             activeDocumentProvider: {
-                activeDocumentProvider().map { WorkspaceDocumentState(url: $0.url, isDirty: $0.isDirty) }
+                activeDocumentProvider().map {
+                    WorkspaceDocumentState(url: $0.url, isDirty: $0.isDirty, encoding: $0.encoding)
+                }
             },
             selectedSidebarProvider: selectedSidebarProvider,
             setSelectedSidebar: setSelectedSidebar,

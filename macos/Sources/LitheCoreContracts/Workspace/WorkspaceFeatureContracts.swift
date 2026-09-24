@@ -3,10 +3,12 @@ import Foundation
 package struct WorkspaceDocumentState: Sendable {
     package let url: URL
     package let isDirty: Bool
+    package let encoding: DocumentEncoding?
 
-    package init(url: URL, isDirty: Bool) {
+    package init(url: URL, isDirty: Bool, encoding: DocumentEncoding? = nil) {
         self.url = url
         self.isDirty = isDirty
+        self.encoding = encoding
     }
 }
 
@@ -14,11 +16,26 @@ package struct WorkspaceSession: Codable, Sendable {
     package let openPaths: [String]
     package let activePath: String?
     package let selectedSidebar: String
+    package let openEncodings: [String: DocumentEncoding]
 
-    package init(openPaths: [String], activePath: String?, selectedSidebar: String) {
+    package init(
+        openPaths: [String], activePath: String?, selectedSidebar: String,
+        openEncodings: [String: DocumentEncoding] = [:]
+    ) {
         self.openPaths = openPaths
         self.activePath = activePath
         self.selectedSidebar = selectedSidebar
+        self.openEncodings = openEncodings
+    }
+
+    private enum CodingKeys: String, CodingKey { case openPaths, activePath, selectedSidebar, openEncodings }
+
+    package init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        openPaths = try container.decode([String].self, forKey: .openPaths)
+        activePath = try container.decodeIfPresent(String.self, forKey: .activePath)
+        selectedSidebar = try container.decode(String.self, forKey: .selectedSidebar)
+        openEncodings = try container.decodeIfPresent([String: DocumentEncoding].self, forKey: .openEncodings) ?? [:]
     }
 }
 

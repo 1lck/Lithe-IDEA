@@ -1092,7 +1092,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             return
         }
         if let documentID = restoration.documentID {
-            try? openDocuments.first(where: { $0.id == documentID })?.reloadFromDisk()
+            if let document = openDocuments.first(where: { $0.id == documentID }) {
+                documentFeature.loadExternalVersion(of: document)
+            }
             activeDocumentID = documentID
         } else {
             openFile(restoration.url)
@@ -1109,7 +1111,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             return
         }
         if let documentID = restoration.documentID {
-            try? openDocuments.first(where: { $0.id == documentID })?.reloadFromDisk()
+            if let document = openDocuments.first(where: { $0.id == documentID }) {
+                documentFeature.loadExternalVersion(of: document)
+            }
             activeDocumentID = documentID
         }
         showNotification("Restored \(restoration.url.lastPathComponent)")
@@ -1173,6 +1177,33 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
 
     func saveDocument(_ document: EditorDocument) async throws {
         try await documentFeature.save(document)
+    }
+
+    func saveDocument(_ document: EditorDocument, encoding: DocumentEncoding) {
+        Task {
+            do {
+                try await documentFeature.save(document, encoding: encoding)
+                showNotification("Saved \(document.displayName) as \(encoding.displayName)")
+            } catch {
+                showNotification("Could not save \(document.displayName) as \(encoding.displayName)")
+            }
+        }
+    }
+
+    func reopenDocument(_ document: EditorDocument, with encoding: DocumentEncoding) {
+        documentFeature.requestReopen(document, with: encoding)
+    }
+
+    func resolvePendingEncodingReopen(saveChanges: Bool) {
+        documentFeature.resolvePendingEncodingReopen(saveChanges: saveChanges)
+    }
+
+    func dismissPendingEncodingReopen(_ id: UUID?) {
+        documentFeature.dismissPendingEncodingReopen(id)
+    }
+
+    func cancelEncodingChange() {
+        documentFeature.cancelEncodingChange()
     }
 
     func workspaceRelativePath(for url: URL, root: URL) -> String? {

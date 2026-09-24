@@ -458,7 +458,10 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 activePath: activeDocumentProvider().flatMap {
                     $0.url.isFileURL ? $0.url.standardizedFileURL.path : nil
                 },
-                selectedSidebar: selectedSidebarProvider()
+                selectedSidebar: selectedSidebarProvider(),
+                openEncodings: Dictionary(uniqueKeysWithValues: documentsProvider()
+                    .filter { $0.url.isFileURL && $0.encoding != nil }
+                    .compactMap { state in state.encoding.map { (state.url.standardizedFileURL.path, $0) } })
             ),
             for: targetURL
         )

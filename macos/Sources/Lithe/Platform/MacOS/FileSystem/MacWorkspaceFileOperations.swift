@@ -1,6 +1,7 @@
 import Foundation
 
 struct MacWorkspaceFileOperations: WorkspaceFileOperations {
+    var supportsDocumentEncoding: Bool { true }
     func observeDocuments(at urls: [URL], onChange: @escaping @Sendable ([URL]) -> Void) -> any DocumentFileObservation {
         MacDocumentObservation(urls: urls, onChange: onChange)
     }
@@ -21,9 +22,41 @@ struct MacWorkspaceFileOperations: WorkspaceFileOperations {
     private static let documentWriteLock = NSLock()
     private static let maxDocumentBytes = 32 * 1024 * 1024
 
+    func readDocumentDetailsAsync(from url: URL, encoding: DocumentEncoding?) async throws -> DocumentReadDetails? {
+        try await withCheckedThrowingContinuation { continuation in
+            Self.documentQueue.async {
+                continuation.resume(with: Result { try self.readDocumentDetails(from: url, encoding: encoding) })
+            }
+        }
+    }
+
+    func writeDocumentTextAsync(
+        _ text: String, to url: URL, expectedContent: String?,
+        encoding: DocumentEncoding, expectedIdentity: String?
+    ) async throws -> EncodedDocumentWriteResult {
+        try await withCheckedThrowingContinuation { continuation in
+            Self.documentQueue.async {
+                continuation.resume(with: Result {
+                    try self.writeDocumentText(text, to: url, expectedContent: expectedContent,
+                                               encoding: encoding, expectedIdentity: expectedIdentity)
+                })
+            }
+        }
+    }
+
     func readDocumentText(from url: URL) throws -> String? {
+        try readDocumentDetails(from: url, encoding: nil)?.text
+    }
+
+    func readDocumentDetails(from url: URL, encoding: DocumentEncoding?) throws -> DocumentReadDetails? {
+        try readDocumentBytes(from: url).map { try MacDocumentEncoding.decode($0, encoding: encoding) }
+    }
+
+    private func readDocumentBytes(from url: URL) throws -> Data? {
+        var freshURL = url
+        freshURL.removeAllCachedResourceValues()
         let values: URLResourceValues
-        do { values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .linkCountKey]) }
+        do { values = try freshURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .linkCountKey]) }
         catch let error as CocoaError where error.code == .fileReadNoSuchFile { return nil }
         guard values.isRegularFile == true, values.isSymbolicLink != true,
               (values.linkCount ?? 1) == 1 else { throw CocoaError(.featureUnsupported) }
@@ -32,16 +65,36 @@ struct MacWorkspaceFileOperations: WorkspaceFileOperations {
         defer { try? handle.close() }
         let bytes = try handle.read(upToCount: Self.maxDocumentBytes + 1) ?? Data()
         guard bytes.count <= Self.maxDocumentBytes else { throw CocoaError(.fileReadTooLarge) }
-        guard let text = String(data: bytes, encoding: .utf8) else { throw CocoaError(.fileReadInapplicableStringEncoding) }
-        return text
+        return bytes
     }
 
     func writeDocumentText(_ text: String, to url: URL, expectedContent: String?) throws -> DocumentWriteResult {
+        switch try writeDocumentText(text, to: url, expectedContent: expectedContent, encoding: .utf8, expectedIdentity: nil) {
+        case .saved: return .saved
+        case .conflict(let content, _): return .conflict(content)
+        }
+    }
+
+    func writeDocumentText(
+        _ text: String, to url: URL, expectedContent: String?,
+        encoding: DocumentEncoding, expectedIdentity: String?
+    ) throws -> EncodedDocumentWriteResult {
         try Self.documentWriteLock.withLock {
-            let data = Data(text.utf8)
+            // Conversion must succeed before creating any staging file.
+            let data = try MacDocumentEncoding.encode(text, encoding: encoding)
             guard data.count <= Self.maxDocumentBytes else { throw CocoaError(.fileWriteOutOfSpace) }
-            let current = try readDocumentText(from: url)
-            guard current.map({ Data($0.utf8) }) == expectedContent.map({ Data($0.utf8) }) else { return .conflict(current) }
+            func matches(_ bytes: Data?) -> Bool {
+                if let expectedIdentity { return bytes.map(MacDocumentEncoding.identity) == expectedIdentity }
+                // Compatibility callers have a UTF-8 text baseline; never interpret
+                // a missing baseline as permission to overwrite an existing file.
+                return bytes == expectedContent.map { Data($0.utf8) }
+            }
+            func conflict(_ bytes: Data?) -> EncodedDocumentWriteResult {
+                .conflict(content: bytes.flatMap { try? MacDocumentEncoding.decode($0, encoding: nil).text },
+                          identity: bytes.map(MacDocumentEncoding.identity))
+            }
+            let current = try readDocumentBytes(from: url)
+            guard matches(current) else { return conflict(current) }
             let temporary = url.deletingLastPathComponent().appendingPathComponent(".lithe-document-\(UUID().uuidString).tmp")
             defer {
                 do { try FileManager.default.removeItem(at: temporary) }
@@ -53,15 +106,15 @@ struct MacWorkspaceFileOperations: WorkspaceFileOperations {
                 try FileManager.default.copyItem(at: url, to: temporary)
                 try data.write(to: temporary)
             } else { try data.write(to: temporary, options: .withoutOverwriting) }
-            let latest = try readDocumentText(from: url)
-            guard latest.map({ Data($0.utf8) }) == expectedContent.map({ Data($0.utf8) }) else { return .conflict(latest) }
-            if expectedContent == nil {
+            let latest = try readDocumentBytes(from: url)
+            guard matches(latest) else { return conflict(latest) }
+            if current == nil {
                 // A hard link fails if another writer created the destination after our check.
                 try FileManager.default.linkItem(at: temporary, to: url)
             } else {
                 _ = try FileManager.default.replaceItemAt(url, withItemAt: temporary)
             }
-            return .saved
+            return .saved(identity: MacDocumentEncoding.identity(data))
         }
     }
 

@@ -16,10 +16,14 @@ enum WorkspaceProjectionComposition {
         let notification = graph.notification
         graph.workspace.configureProjection(
             documentsProvider: { [weak document] in
-                document?.openDocuments.map { WorkspaceDocumentState(url: $0.url, isDirty: $0.isDirty) } ?? []
+                document?.openDocuments.map {
+                    WorkspaceDocumentState(url: $0.url, isDirty: $0.isDirty, encoding: $0.encoding)
+                } ?? []
             },
             activeDocumentProvider: { [weak document] in
-                document?.activeDocument.map { WorkspaceDocumentState(url: $0.url, isDirty: $0.isDirty) }
+                document?.activeDocument.map {
+                    WorkspaceDocumentState(url: $0.url, isDirty: $0.isDirty, encoding: $0.encoding)
+                }
             },
             selectedSidebarProvider: { [weak workbench] in
                 workbench?.selectedSidebar.rawValue ?? SidebarDestination.project.rawValue
@@ -33,7 +37,8 @@ enum WorkspaceProjectionComposition {
                 await editorSession?.restoreDocuments(
                     orderedPaths: session.openPaths,
                     activePath: session.activePath,
-                    availableFiles: availableFiles
+                    availableFiles: availableFiles,
+                    encodings: session.openEncodings
                 )
             },
             openFile: { [weak model] url in model?.openFile(url) },

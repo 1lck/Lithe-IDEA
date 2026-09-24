@@ -3,6 +3,7 @@ import { persist } from "zustand/middleware";
 import type { SidebarView } from "@/features/layout/utils/sidebar-pane-utils";
 import type { AIWorkspaceSessionSnapshot } from "@/features/ai/stores/ai-chat/ai-chat-store.types";
 import type { PersistedEditorViewState } from "@/features/editor/types/editor-session.types";
+import type { FileEncoding } from "@/platform/document-files";
 import type { PaneNode } from "@/features/panes/types/pane.types";
 import type { PersistedTerminal } from "@/features/terminal/types/terminal.types";
 import type { BottomPaneTab } from "@/features/window/stores/ui-state/types/ui-state.types";
@@ -17,6 +18,7 @@ interface EditorBufferSession {
   isPinned: boolean;
   isPreview?: boolean;
   workspaceScope?: "workspace" | "external";
+  encoding?: FileEncoding;
   editorState?: PersistedEditorViewState;
 }
 

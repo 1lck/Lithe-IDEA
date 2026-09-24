@@ -1,6 +1,6 @@
 //! Native document reads, guarded saves, and window-owned watch leases.
 use lithe_project::{
-    document_file::{self, SaveOutcome},
+    document_file::{self, DocumentRead, SaveOutcome},
     document_watcher::{DocumentWatch, DocumentWatcher},
 };
 use std::{path::PathBuf, sync::Arc};
@@ -25,7 +25,7 @@ impl From<std::io::Error> for DocumentError {
             ),
             std::io::ErrorKind::InvalidData => (
                 "DOCUMENT_INVALID_TEXT",
-                "Open a UTF-8 text file no larger than 32 MB.",
+                "Open a supported text encoding and keep the file no larger than 32 MB.",
             ),
             _ => (
                 "DOCUMENT_IO_FAILED",
@@ -57,15 +57,38 @@ pub async fn read_document_file(path: PathBuf) -> Result<Option<String>, Documen
     .await
     .map_err(DocumentError::worker)?
 }
+
+#[tauri::command]
+pub async fn read_document_file_details(
+    path: PathBuf,
+    encoding: Option<String>,
+) -> Result<Option<DocumentRead>, DocumentError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        document_file::read_document_with_encoding(&path, encoding.as_deref())
+            .map_err(DocumentError::from)
+    })
+    .await
+    .map_err(DocumentError::worker)?
+}
 #[tauri::command]
 pub async fn save_document_file(
     path: PathBuf,
     content: String,
     expected_content: Option<String>,
+    encoding: Option<String>,
+    expected_encoding: Option<String>,
+    expected_identity: Option<String>,
 ) -> Result<SaveOutcome, DocumentError> {
     tauri::async_runtime::spawn_blocking(move || {
-        document_file::save_document(&path, &content, expected_content.as_deref())
-            .map_err(DocumentError::from)
+        document_file::save_document_with_encoding(
+            &path,
+            &content,
+            expected_content.as_deref(),
+            encoding.as_deref(),
+            expected_encoding.as_deref(),
+            expected_identity.as_deref(),
+        )
+        .map_err(DocumentError::from)
     })
     .await
     .map_err(DocumentError::worker)?

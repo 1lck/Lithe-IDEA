@@ -3,6 +3,7 @@ import type { MultiFileDiff } from "@/features/git/types/git-diff.types";
 import type { GitDiff } from "@/features/git/types/git.types";
 import type { OnboardingMode } from "@/features/onboarding/lib/onboarding-state";
 import type { DocumentLifecycleState } from "@/platform/document-lifecycle";
+import type { FileEncoding } from "@/platform/document-files";
 
 // ── Token entry for syntax highlighting cache ───────────────────────
 
@@ -87,11 +88,17 @@ export interface EditorContent extends PaneContentBase {
   acknowledgedDiskContent?: string | null;
   /** Last conflict observation; undefined means no observed conflict snapshot. */
   externalDiskContent?: string | null;
+  /** Exact bytes associated with the last conflict observation. */
+  externalDiskIdentity?: string;
   isDirty: boolean;
   /** Shared persistence state; optional only for restored pre-contract sessions. */
   documentLifecycle?: DocumentLifecycleState;
   isVirtual: boolean;
   readOnly?: boolean;
+  /** Encoding used for the last disk read/write of this local document. */
+  encoding?: FileEncoding;
+  /** SHA-256 identity of the exact disk bytes last acknowledged by the editor. */
+  diskIdentity?: string;
   language?: string;
   languageOverride?: string;
   lspDocument?: EditorLspDocumentBinding;
@@ -350,6 +357,8 @@ export type OpenContentSpec =
       isVirtual?: boolean;
       isPreview?: boolean;
       readOnly?: boolean;
+      encoding?: FileEncoding;
+      diskIdentity?: string;
       language?: string;
       lspDocument?: EditorLspDocumentBinding;
     }
