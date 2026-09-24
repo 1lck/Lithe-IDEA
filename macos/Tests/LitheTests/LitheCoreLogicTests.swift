@@ -4617,7 +4617,7 @@ struct EditorDocumentTests {
     }
 
     @Test
-    func hidingLSPGeneratedArtifactsIsOptInAndLeavesFilesOnDisk() throws {
+    func hiddenFilePatternsAreOptInAndLeaveFilesOnDisk() throws {
         let fileManager = FileManager.default
         let workspace = fileManager.temporaryDirectory
             .appendingPathComponent("lithe-factorypath-search-\(UUID().uuidString)")
@@ -4650,7 +4650,7 @@ struct EditorDocumentTests {
 
         let hiddenRules = FileVisibilityRules(
             hiddenDirectoryNames: [],
-            hiddenFilePatterns: LSPGeneratedArtifactVisibility.inserting(into: [])
+            hiddenFilePatterns: [".factorypath"]
         )
         let hiddenSnapshot = try #require(
             FileSystemWorkspaceSnapshotBuilder().snapshot(

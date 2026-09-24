@@ -169,8 +169,6 @@ package protocol GitOperations: Sendable {
     func stageAll(at rootURL: URL) -> GitProcessResult?
     func createTag(named name: String, at revision: String, message: String?, rootURL: URL) -> GitProcessResult?
     func deleteTag(named name: String, rootURL: URL) -> GitProcessResult?
-    /// Inserts or removes exact `info/exclude` lines through Core `git.write`.
-    func mutateLiteralLocalExcludePatterns(_ patterns: [String], adding: Bool, at rootURL: URL) -> GitProcessResult?
 }
 
 package extension GitOperations {
@@ -218,10 +216,6 @@ package extension GitOperations {
     func applyExchangePatch(at rootURL: URL, patch: String, target: GitPatchTarget, expectedState: String) -> GitProcessResult? { nil }
     func historyRewritePreview(at rootURL: URL, operation: GitHistoryRewriteOperation, revisions: [String]) -> GitHistoryRewritePreview? { nil }
     func rewriteHistory(at rootURL: URL, expectedState: GitHistoryRewriteExpectedState, message: String?) -> GitProcessResult? { nil }
-    func mutateLiteralLocalExcludePatterns(_ patterns: [String], adding: Bool, at rootURL: URL) -> GitProcessResult? {
-        GitProcessResult(output: "Git ignore operation is unavailable.", exitCode: 1)
-    }
-
     func repositories(in workspaceURL: URL) -> [URL] {
         snapshot(at: workspaceURL).map { [$0.repositoryRoot] } ?? []
     }
@@ -1101,16 +1095,6 @@ package struct GitService: Sendable {
 
     func deleteTag(named name: String, at repositoryRoot: URL) async -> CommandResult {
         await command(at: repositoryRoot) { $0.deleteTag(named: name, rootURL: repositoryRoot) }
-    }
-
-    func mutateLiteralLocalExcludePatterns(
-        _ patterns: [String],
-        adding: Bool,
-        at rootURL: URL
-    ) async -> CommandResult {
-        await command(at: rootURL) {
-            $0.mutateLiteralLocalExcludePatterns(patterns, adding: adding, at: rootURL)
-        }
     }
 
     private func command(
