@@ -42,4 +42,4 @@ pub use status_bar::{StatusBarEvent, StatusBarView};
 pub use toolbar::{ToolbarEvent, ToolbarView};
 pub use view::WorkbenchView;
 #[allow(unused_imports)]
-pub use welcome_screen::{RecentProject, WelcomeEvent, WelcomeScreenView};
+pub use welcome_screen::{WelcomeEvent, WelcomeScreenView};
