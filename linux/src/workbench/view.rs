@@ -20,6 +20,7 @@ use crate::workbench::activity_rail::{
 use crate::workbench::bottom_panel::{BottomPanelView, BottomTab};
 use crate::workbench::command_palette::{CommandPaletteEvent, CommandPaletteModal};
 use crate::workbench::editor::EditorView;
+use crate::workbench::maven::{MavenEvent, MavenView};
 use crate::workbench::quick_open::{QuickOpenEvent, QuickOpenModal};
 use crate::workbench::search_everywhere::{SearchEverywhereEvent, SearchEverywhereModal};
 use crate::workbench::settings_dialog::{SettingsCategory, SettingsDialog, SettingsEvent};
@@ -56,6 +57,8 @@ pub struct WorkbenchView {
     pub show_command_palette: bool,
     /// 设置模态对话框是否可见
     pub show_settings_dialog: bool,
+    /// 右侧 Maven 导航工具窗口是否可见
+    pub show_maven: bool,
 
     /// 顶部标题栏/工具栏
     pub toolbar: Entity<ToolbarView>,
@@ -63,6 +66,8 @@ pub struct WorkbenchView {
     pub activity_rail: Entity<ActivityRailView>,
     /// 右侧插件活动栏 (Extensions / Notifications / Maven)
     pub plugin_rail: Entity<PluginActivityRailView>,
+    /// 右侧 Maven 导航工具窗口实体
+    pub maven: Entity<MavenView>,
     /// 侧边栏面板 (Files / Git / Search)
     pub sidebar: Entity<SidebarView>,
     /// 主代码编辑器区
@@ -111,6 +116,7 @@ impl WorkbenchView {
         let command_palette = cx.new(|cx| CommandPaletteModal::new(cx));
         let settings_dialog = cx.new(|cx| SettingsDialog::new(cx));
         let welcome_screen = cx.new(|cx| WelcomeScreenView::new(cx));
+        let maven = cx.new(|cx| MavenView::new(root.clone(), cx));
         let focus_handle = cx.focus_handle();
 
         // 1. 订阅侧边栏事件（打开文件、新建文件、提交 Git）
@@ -167,7 +173,8 @@ impl WorkbenchView {
         let search_sync = search_everywhere.clone();
         let quick_open_sync = quick_open.clone();
         let status_bar_git_sync = status_bar.clone();
-        let obs_sidebar = cx.observe(&sidebar, move |_this, sidebar, cx| {
+        let plugin_rail_maven = plugin_rail.clone();
+        let obs_sidebar = cx.observe(&sidebar, move |this, sidebar, cx| {
             let branch = sidebar.read(cx).git_branch.clone();
             let _ = toolbar_branch_sync.update(cx, |tb, cx| {
                 tb.set_git_branch(branch.clone(), cx);
@@ -192,6 +199,13 @@ impl WorkbenchView {
                     qo.set_files(file_list, cx);
                 });
             }
+
+            // 同步 Maven 可用性：有 pom 项目时右侧插件栏才显示 Maven 入口。
+            let has_maven = this.maven.read(cx).has_projects();
+            let _ = plugin_rail_maven.update(cx, |r, cx| {
+                r.maven_available = has_maven;
+                cx.notify();
+            });
         });
 
         // 3. 订阅左侧活动栏事件
@@ -254,14 +268,31 @@ impl WorkbenchView {
                     cx.notify();
                 }
                 PluginRailEvent::ToggleMaven => {
-                    let _ = this
-                        .bottom_panel
-                        .update(cx, |bp, cx| bp.set_tab(BottomTab::Terminal, cx));
-                    this.append_log("[Maven] Opening Maven tool window...", cx);
+                    this.show_maven = !this.show_maven;
                     cx.notify();
                 }
             },
         );
+
+        // 4b. 订阅 Maven 视图事件（执行目标、关闭工具窗口）
+        let sub_maven = cx.subscribe(&maven, |this, _maven, event: &MavenEvent, cx| match event {
+            MavenEvent::RunGoal { pom_path, phase } => {
+                let _ = this.bottom_panel.update(cx, |bp, cx| {
+                    bp.set_tab(BottomTab::Terminal, cx);
+                    let _ = bp.terminal.update(cx, |term, cx| {
+                        term.send_command(&format!("mvn -f \"{pom_path}\" {phase}"), cx);
+                    });
+                });
+                let _ = this.activity_rail.update(cx, |r, cx| {
+                    r.set_has_maven_run(true, cx);
+                });
+                cx.notify();
+            }
+            MavenEvent::Close => {
+                this.show_maven = false;
+                cx.notify();
+            }
+        });
 
         // 5. 订阅顶部工具栏事件
         let sub_toolbar =
@@ -481,6 +512,9 @@ impl WorkbenchView {
                         sb.refresh(cx);
                         sb.refresh_git(cx);
                     });
+                    let _ = this.maven.update(cx, |m, cx| {
+                        m.set_root(path.clone(), cx);
+                    });
                     cx.notify();
                 }
                 WelcomeEvent::OpenSettings => {
@@ -537,9 +571,11 @@ impl WorkbenchView {
             show_quick_open: false,
             show_command_palette: false,
             show_settings_dialog: false,
+            show_maven: false,
             toolbar,
             activity_rail,
             plugin_rail,
+            maven,
             sidebar,
             editor,
             bottom_panel,
@@ -556,6 +592,7 @@ impl WorkbenchView {
                 obs_sidebar,
                 sub_rail,
                 sub_plugin_rail,
+                sub_maven,
                 sub_toolbar,
                 sub_search,
                 sub_quick_open,
@@ -573,6 +610,12 @@ impl WorkbenchView {
             !crate::theme::ThemePalette::is_light(&settings::resolved_theme_id(s, false))
         };
         view.apply_resolved_theme(is_dark, cx);
+        // 构造后初始化 Maven 入口可用性，避免无 pom 目录首次打开仍显示入口。
+        let maven_has_projects = view.maven.read(cx).has_projects();
+        let _ = view.plugin_rail.update(cx, |r, cx| {
+            r.maven_available = maven_has_projects;
+            cx.notify();
+        });
         let tab_size = settings::get(cx).tab_size;
         let _ = view.status_bar.update(cx, |sb, cx| {
             sb.indent_size = tab_size;
@@ -1065,6 +1108,15 @@ impl WorkbenchView {
                             .bg(ThemeColors::background())
                             .child(self.editor.clone()),
                     )
+                    .when(self.show_maven, |layout| {
+                        layout.child(
+                            div()
+                                .w(px(280.0))
+                                .h_full()
+                                .flex_shrink_0()
+                                .child(self.maven.clone()),
+                        )
+                    })
                     .child(self.plugin_rail.clone()),
             )
             .when(bottom_visible, |layout| layout.child(bottom_splitter))
